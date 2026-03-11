@@ -1,0 +1,172 @@
+{
+  "productName": "Rainbow AI Standalone Parity",
+  "branchName": "main",
+  "overview": "Fix all differences between rainbow-ai standalone project and digiman/RainbowAI so that rainbow-ai runs everything digiman's Rainbow AI module did. The project was extracted from digiman monorepo and needs build fixes, CLAUDE.md, deploy script, and type error resolution.",
+  "goals": [
+    "Rainbow AI builds successfully with esbuild (matching digiman deploy pattern)",
+    "All 17 pre-existing TypeScript errors are fixed",
+    "Standalone deploy.sh works for Lightsail deployment",
+    "Project has proper CLAUDE.md documentation",
+    "Rainbow AI runs identically to digiman/RainbowAI"
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fix build script to use esbuild instead of tsc",
+      "priority": 1,
+      "description": "The current build script uses `tsc` which fails on 17 pre-existing type errors. In digiman, deploy.sh used `npx esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js` followed by copying data/ and public/ dirs. Change the build script to match this pattern. tsc should only be used for type-checking (optional), not for building.",
+      "acceptanceCriteria": [
+        "package.json 'build' script uses esbuild instead of tsc",
+        "Build copies src/assistant/data/ to dist/assistant/data/",
+        "Build copies src/public/ to dist/public/",
+        "npm run build succeeds without errors",
+        "dist/index.js is generated and can be started with `node dist/index.js`",
+        "Add a 'check' script that runs `tsc --noEmit` for optional type checking"
+      ],
+      "technicalNotes": [
+        "The esbuild command from digiman/deploy.sh line 85: npx esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
+        "After esbuild, copy data files: node -e \"require('fs').cpSync('src/assistant/data','dist/assistant/data',{recursive:true});require('fs').cpSync('src/public','dist/public',{recursive:true})\"",
+        "Add esbuild as a devDependency if not present",
+        "Keep the existing 'start' script as 'node dist/index.js'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "Fix pre-existing TypeScript errors in default-configs.ts",
+      "priority": 2,
+      "description": "default-configs.ts has 8 type errors where default config objects don't match their Zod schemas. These are schema mismatches — the defaults have extra/missing properties vs what the Zod schemas expect. Fix the defaults to match schemas, or update schemas to accept the defaults. These errors exist in digiman too but were hidden by esbuild.",
+      "acceptanceCriteria": [
+        "All 8 errors in src/assistant/default-configs.ts are resolved",
+        "npx tsc --noEmit shows fewer than 10 errors total (from current 17)",
+        "Server still starts correctly after changes",
+        "Config defaults still produce valid runtime behavior"
+      ],
+      "technicalNotes": [
+        "Error 1: 'static_replies' doesn't exist — likely should be 'static' in the templates config",
+        "Error 2: emergency category missing patterns, flags, enabled — add these required fields",
+        "Error 3: settings missing rate_limits and staff — add with sensible defaults",
+        "Error 4-5: escalation/receipt_forwarding have 'enabled' which doesn't exist in schema — update schema or remove",
+        "Error 6: auto_checkin missing max_guests_auto — add it",
+        "Error 7: workflow missing required fields — add them",
+        "Check shared/validation/rainbow-validation.ts for the Zod schemas these defaults must match",
+        "Test: MCP_SERVER_PORT=3002 timeout 10 npx tsx src/index.ts 2>&1 | head -20"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "Fix remaining TypeScript errors (conversations.ts, conversation-logger.ts, etc.)",
+      "priority": 3,
+      "description": "Fix the remaining ~9 TypeScript errors: conversations.ts has missing function imports (updateWorkflowState, buildChatMessages, callAI, getKnowledgeContext), conversation-logger.ts has PgTransaction type mismatch, ai-provider-manager.ts missing responseMimeType, approval-queue.ts missing copilot property.",
+      "acceptanceCriteria": [
+        "npx tsc --noEmit produces 0 errors",
+        "Server still starts and runs correctly",
+        "All admin routes still respond (no runtime errors from type fixes)"
+      ],
+      "technicalNotes": [
+        "conversations.ts line 339: updateWorkflowState — check if this function exists in conversation-logger.ts. If not, either add it or remove the call.",
+        "conversations.ts lines 548-549: buildChatMessages, callAI, getKnowledgeContext — these may have been renamed or moved. Search the codebase for actual function names and update imports.",
+        "conversation-logger.ts: PgTransaction vs NodePgDatabase — widen the parameter type to accept both (use a union type or a more generic type).",
+        "ai-provider-manager.ts: responseMimeType — add to the type definition or use type assertion.",
+        "approval-queue.ts: copilot property — add to the type definition or initialize the object properly.",
+        "These are inherited from digiman — the functions may exist under different names due to refactoring."
+      ],
+      "dependencies": [
+        "US-002"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "Create standalone deploy.sh for Lightsail deployment",
+      "priority": 4,
+      "description": "Create a deploy.sh script for standalone Rainbow AI deployment to Lightsail. In digiman, deploy.sh handled both PMS and Rainbow. Rainbow AI now needs its own deploy script that: builds with esbuild, packages tarball, uploads to Lightsail, installs deps, restarts PM2.",
+      "acceptanceCriteria": [
+        "deploy.sh exists at project root",
+        "Builds Rainbow AI with esbuild (not tsc)",
+        "Packages dist/, ecosystem.config.cjs, package.json, .rainbow-kb/ into tarball",
+        "Uploads tarball to Lightsail via scp",
+        "Runs npm install --omit=dev on server",
+        "Restarts PM2 process 'rainbow-ai'",
+        "Supports --skip-build flag",
+        "Has LF line endings (not CRLF)"
+      ],
+      "technicalNotes": [
+        "SSH key: ~/.ssh/LightsailDefaultKeyPair.pem",
+        "Remote host: 18.142.14.142 (ubuntu user)",
+        "Remote path: /var/www/rainbow-ai",
+        "Reference: digiman/deploy.sh lines 75-130 for the pattern",
+        "CRITICAL: Never npm install without --omit=dev on Lightsail (OOM risk on nano instances)",
+        "Package should include: dist/, node_modules/ (prod only), ecosystem.config.cjs, .rainbow-kb/, .rainbow-kb-southern/, package.json"
+      ],
+      "dependencies": [
+        "US-001"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "Create project CLAUDE.md with standalone architecture docs",
+      "priority": 5,
+      "description": "Create a CLAUDE.md at the rainbow-ai project root documenting the standalone architecture, key files, commands, deployment, and conventions. This replaces the digiman CLAUDE.md which referenced the monorepo structure.",
+      "acceptanceCriteria": [
+        "CLAUDE.md exists at project root",
+        "Documents: tech stack, key directories, quick commands, deployment, common issues",
+        "References standalone paths (not digiman monorepo paths)",
+        "Includes database info (Neon + raw pg tables)",
+        "Includes port and environment variable documentation"
+      ],
+      "technicalNotes": [
+        "Reference digiman's CLAUDE.md Rainbow AI sections for content",
+        "Key differences from digiman: standalone project, own DB, own deploy script, own PM2 config",
+        "Port 3002, MCP_SERVER_PORT env var",
+        "Database: Drizzle tables (app_settings, rainbow_*, intent_*) + raw pg tables (rainbow_configs, rainbow_kb_files, rainbow_config_audit)",
+        "Build: esbuild (not tsc)",
+        "Deploy: deploy.sh -> Lightsail"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-META",
+      "title": "Re-run comparison loop: rainbow-ai vs digiman/RainbowAI",
+      "priority": 99,
+      "description": "After all other stories are complete, re-run the comparison between rainbow-ai and digiman/RainbowAI. Start both servers, compare TypeScript errors, build output, server startup, API endpoints, and runtime behavior. If any new differences are found, add them as new user stories to prd.json with passes: false, then add a fresh copy of this meta-story at the end. This loop continues until full parity is confirmed.",
+      "acceptanceCriteria": [
+        "Run: cd rainbow-ai && npm run build (succeeds)",
+        "Run: cd rainbow-ai && npx tsc --noEmit (0 errors or same count as digiman/RainbowAI)",
+        "Run: MCP_SERVER_PORT=3002 timeout 15 npx tsx src/index.ts (starts without errors, loads DB, KB, configs)",
+        "Compare rainbow-ai tsc errors with digiman/RainbowAI tsc errors — should be equal or fewer",
+        "If differences found: add new US stories, add fresh US-META copy, set passes: false",
+        "If no differences found: set passes: true — parity achieved"
+      ],
+      "technicalNotes": [
+        "Comparison commands:",
+        "  cd rainbow-ai && npx tsc --noEmit 2>&1 | grep 'error TS' | wc -l",
+        "  cd digiman/RainbowAI && npx tsc --noEmit 2>&1 | grep 'error TS' | wc -l",
+        "  cd rainbow-ai && npm run build 2>&1 | tail -5",
+        "  cd rainbow-ai && MCP_SERVER_PORT=3002 timeout 15 npx tsx src/index.ts 2>&1 | head -30",
+        "digiman path: C:/Users/Jyue/Documents/1-projects/Software Projects/digiman",
+        "rainbow-ai path: C:/Users/Jyue/Documents/1-projects/Software Projects/rainbow-ai",
+        "If new stories are needed, use IDs US-101, US-102, etc. to avoid conflicts."
+      ],
+      "dependencies": [
+        "US-001",
+        "US-002",
+        "US-003",
+        "US-004",
+        "US-005"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    }
+  ]
+}

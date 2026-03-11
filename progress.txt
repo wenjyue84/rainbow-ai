@@ -1,0 +1,76 @@
+## Codebase Patterns
+- Build uses esbuild (not tsc) — tsc has 17 pre-existing type errors from digiman era
+- Database: Drizzle ORM tables + raw pg tables (rainbow_configs, rainbow_kb_files, rainbow_config_audit)
+- Config dual-write: local JSON files + Postgres DB (DB is primary on startup)
+- shared/ directory contains Drizzle schema at same level as src/
+- Import paths use .js extensions (NodeNext module resolution)
+- Package uses "type": "module" — all files are ESM
+
+## Project History
+- Extracted from digiman monorepo on 2026-03-11
+- 12 import paths updated from ../../../shared/ to ../../shared/
+- staff_name column added to rainbow_messages (schema drift fix)
+- Zod pinned to ^3.24.2 (was ^4.3.6, drizzle-zod requires Zod 3)
+- tsconfig rootDir changed from ./src to . (to include shared/)
+
+## Pre-analysis for US-001 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. The goal is to replace the `tsc` build step with a faster `esbuild` process.
+
+Here is the technical brief based on the JSON provided:
+
+**File to Modify:**
+*   `package.json`
+
+**NPM Scripts to Change/Add:**
+*   `build`: This existing script will be completely replaced.
+*   `check`: This is a new script to be added.
+
+**Implementation Approach:**
+1.  **Add Dependency:** Install `esbuild` as a dev dependency: `npm install esbuild --save-dev`.
+2.  **Update Build Script:** Modify the `"build"` script in `package.json`. It should first run the `esbuild` command, then chain the file copy command. A pre-build step to clean the `dist` directory is also recommended.
+    *   `"build": "esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js && node -e \"require('fs').cpSync('src/assistant/data','dist/assistant/data',{recursive:true});require('fs').cpSync('src/public','dist/public',{recursive:true})\""`
+3.  **Add Check Script:** Add a new script for type-checking only: `"check": "tsc --noEmit"`.
+
+**Edge Cases & Gotchas:**
+*   The `fs.cpSync` command requires Node.js v16.7.0+. If the project uses an older version, a different method (e.g., `fs-extra` or a shell script) will be needed.
+*   For robust builds, consider adding `rimraf dist` (requires `npm i rimraf --save-dev`) before the `esbuild` command to ensure a clean output directory.
+
+
+## Pre-analysis for US-001 (Gemini 2.5 Pro)
+This user story is for a **Node.js/TypeScript** project, not Frappe/Python. Here is the technical brief based on the provided JSON for the actual project:
+
+**Project:** Node.js/TypeScript Application
+**Objective:** Replace `tsc` with `esbuild` for the production build process to bypass type errors and mimic a successful deployment pattern from a previous project.
+
+**1. Files to Modify:**
+*   `package.json`: This is the primary file to change. The `scripts` section will be updated.
+
+**2. Key Scripts & Dependencies:**
+*   **`build` script:** Must be rewritten to use `esbuild` and include file-copying operations.
+*   **`check` script:** A new script to be added for optional type-checking using `tsc --noEmit`.
+*   **`devDependencies`:** The `esbuild` package needs to be added.
+
+**3. Recommended Implementation Approach:**
+1.  Run `npm install esbuild --save-dev` to add the dependency.
+2.  In `package.json`, create a new `check` script: `"check": "tsc --noEmit"`.
+3.  Modify the existing `build` script to a single command that chains the esbuild compilation and the file copy operations.
+    *   `"build": "npx esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js && node -e \"...fs.cpSync(...)\""`
+
+**4. Edge Cases & Gotchas:**
+*   The `dist/` directory should be cleaned before each build to prevent stale files. Consider adding `rm -rf dist/` or using a package like `rimraf`.
+*   The file copy command for `src/assistant/data` and `src/public` must be correct and handle recursive copying. The suggested `fs.cpSync` is a good choice.
+*   Ensure the `start` script (`node dist/index.js`) still works correctly after the new build output is generated.
+
+## Iteration 1 - Story: US-001 Fix build script to use esbuild instead of tsc
+### What was implemented
+- Installed esbuild@0.27.3 as devDependency
+- Changed build script from `tsc` to `esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js`
+- Used `--input-type=commonjs` flag on the node copy command because `"type": "module"` in package.json makes `node -e` default to ESM where `require()` is unavailable
+- `check` script (`tsc --noEmit`) already existed — no change needed
+### Patterns discovered
+- esbuild produces a single 900KB bundle in ~89ms — extremely fast
+- One warning about `module.exports` in logger.ts (ESM file using CJS export) — non-blocking
+- Server starts successfully after esbuild build
+### Gotchas
+- `node -e` respects `"type": "module"` in package.json — must use `--input-type=commonjs` for `require()` calls
+
