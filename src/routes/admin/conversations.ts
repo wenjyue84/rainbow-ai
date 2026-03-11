@@ -336,7 +336,7 @@ router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: 
 
     // Create workflow state and execute first step
     const { createWorkflowState, executeWorkflowStep } = await import('../../assistant/workflow-executor.js');
-    const { updateWorkflowState } = await import('../../assistant/conversation-logger.js');
+    const { updateWorkflowState } = await import('../../assistant/conversation.js');
 
     const log = await getConversation(phone);
     const pushName = log?.pushName || 'Guest';
@@ -544,35 +544,33 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
       return;
     }
 
-    // Generate AI suggestion (reuse existing KB + AI logic)
-    const { buildChatMessages, callAI } = await import('../../assistant/ai-client.js');
-    const { getKnowledgeContext } = await import('../../assistant/knowledge-base.js');
+    // Generate AI suggestion using existing KB + AI logic
+    const { guessTopicFiles, buildSystemPrompt } = await import('../../assistant/knowledge-base.js');
+    const { chatWithFallback } = await import('../../assistant/ai-provider-manager.js');
     const { configStore } = await import('../../assistant/config-store.js');
 
     const settings = configStore.getSettings();
-    const kbContext = await getKnowledgeContext(lastUserMsg.content, convo.language);
+    const topicFiles = guessTopicFiles(lastUserMsg.content);
+    const systemPrompt = buildSystemPrompt(settings.system_prompt, topicFiles);
 
-    // Use manual mode AI provider if configured
-    const providerHint = settings.response_modes?.manual?.ai_help_provider;
+    const chatMessages = [
+      { role: 'system' as const, content: systemPrompt },
+      ...messages.slice(-5).map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+      ...(context ? [{ role: 'system' as const, content: `Staff context: ${context}` }] : []),
+    ];
 
-    const chatMessages = buildChatMessages(
-      settings.system_prompt,
-      kbContext.context,
-      messages.slice(-5), // Last 5 messages
-      lastUserMsg.content,
-      convo.language,
-      context // Staff-provided context
-    );
-
-    const result = await callAI(chatMessages, 'chat', providerHint);
+    const result = await chatWithFallback(chatMessages, 600, 0.7);
 
     console.log(`[Manual Mode] Generated AI suggestion for ${phone}`);
     res.json({
-      suggestion: result.response,
+      suggestion: result.content,
       metadata: {
-        provider: result.provider,
-        model: result.model,
-        kbFiles: kbContext.filesUsed
+        provider: result.provider?.name ?? null,
+        model: result.provider?.model ?? null,
+        kbFiles: topicFiles
       }
     });
   } catch (err: any) {
@@ -604,8 +602,9 @@ router.post('/conversations/:phone/mode', async (req: Request, res: Response) =>
       }
 
       // Initialize response_modes if it doesn't exist
-      if (!settings.response_modes) {
-        settings.response_modes = {
+      const modes = (settings as any).response_modes;
+      if (!modes) {
+        (settings as any).response_modes = {
           default_mode: mode,
           description: 'Global default response mode: autopilot (AI auto-sends), copilot (AI suggests, staff approves), or manual (staff writes, AI helps on request)',
           copilot: {
@@ -621,7 +620,7 @@ router.post('/conversations/:phone/mode', async (req: Request, res: Response) =>
           }
         };
       } else {
-        settings.response_modes.default_mode = mode;
+        modes.default_mode = mode;
       }
 
       configStore.setSettings(settings);

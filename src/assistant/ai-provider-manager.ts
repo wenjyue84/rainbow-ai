@@ -191,18 +191,17 @@ export async function providerChat(
       parts: [{ text: msg.content }]
     }));
 
-    const body = {
-      contents,
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature
-      }
+    const generationConfig: Record<string, unknown> = {
+      maxOutputTokens: maxTokens,
+      temperature
     };
 
     // Add JSON response format if requested
     if (jsonMode) {
-      body.generationConfig.responseMimeType = 'application/json';
+      generationConfig.responseMimeType = 'application/json';
     }
+
+    const body = { contents, generationConfig };
 
     const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
     const res = await axios.post(url, body, {

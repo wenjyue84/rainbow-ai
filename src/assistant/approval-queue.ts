@@ -43,7 +43,7 @@ export function addApproval(
   const now = Date.now();
   const settings = configStore.getSettings();
   const timeoutMs =
-    (settings.response_modes?.copilot?.queue_timeout_minutes || 30) * 60 * 1000;
+    ((settings.response_modes as any)?.copilot?.queue_timeout_minutes || 30) * 60 * 1000;
 
   queue.set(id, {
     ...approval,

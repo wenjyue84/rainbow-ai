@@ -65,7 +65,7 @@ export async function upsertConversation(
   phone: string,
   pushName: string,
   instanceId?: string,
-  txOrDb: typeof db = db
+  txOrDb: Pick<typeof db, 'insert'> = db
 ): Promise<void> {
   const key = canonicalPhoneKey(phone);
   const now = new Date();
