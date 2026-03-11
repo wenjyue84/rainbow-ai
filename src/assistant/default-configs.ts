@@ -14,14 +14,17 @@ import type {
  * Minimal working knowledge base (single general intent)
  */
 export const DEFAULT_KNOWLEDGE: KnowledgeData = {
-  static_replies: {
-    general: {
-      en: "I'm currently operating in safe mode due to a configuration issue. Please contact staff for assistance.",
-      ms: "Saya beroperasi dalam mod selamat kerana masalah konfigurasi. Sila hubungi kakitangan untuk bantuan.",
-      zh: "由于配置问题,我目前处于安全模式。请联系工作人员寻求帮助。"
+  static: [
+    {
+      intent: "general",
+      response: {
+        en: "I'm currently operating in safe mode due to a configuration issue. Please contact staff for assistance.",
+        ms: "Saya beroperasi dalam mod selamat kerana masalah konfigurasi. Sila hubungi kakitangan untuk bantuan.",
+        zh: "由于配置问题,我目前处于安全模式。请联系工作人员寻求帮助。"
+      }
     }
-  },
-  dynamic_knowledge: []
+  ],
+  dynamic: {}
 };
 
 /**
@@ -35,7 +38,9 @@ export const DEFAULT_INTENTS: IntentsData = {
       intents: [
         {
           category: "general",
-          description: "Fallback intent for safe mode operation",
+          patterns: [],
+          flags: "",
+          enabled: true,
           time_sensitive: false
         }
       ]
@@ -84,7 +89,6 @@ export const DEFAULT_TEMPLATES: TemplatesData = {
  */
 export const DEFAULT_SETTINGS: SettingsData = {
   system_prompt: `You are ${process.env.BOT_NAME || 'Rainbow'}, an AI assistant for ${process.env.BUSINESS_NAME || 'Pelangi Capsule Hostel'}. You're currently in safe mode. Please help guests contact staff if needed.`,
-  staff_phones: [process.env.STAFF_PRIMARY_PHONE || "+60127088789"], // Fallback number
   ai: {
     nvidia_model: "moonshotai/kimi-k2.5",
     nvidia_base_url: "https://integrate.api.nvidia.com/v1",
@@ -108,16 +112,19 @@ export const DEFAULT_SETTINGS: SettingsData = {
       }
     ]
   },
+  rate_limits: {
+    per_minute: 20,
+    per_hour: 100
+  },
+  staff: {
+    phones: [process.env.STAFF_PRIMARY_PHONE || "+60127088789"],
+    jay_phone: process.env.STAFF_PRIMARY_PHONE || "+60127088789",
+    alston_phone: process.env.STAFF_SECONDARY_PHONE || "+60127088789"
+  },
   routing_mode: {
     tieredPipeline: true,
     splitModel: false,
     classifyProvider: "ollama-local"
-  },
-  conversation: {
-    enabled: true,
-    summaryAfterMessages: 10,
-    maxHistoryMessages: 20,
-    contextTTL: 30
   }
 };
 
@@ -126,16 +133,21 @@ export const DEFAULT_SETTINGS: SettingsData = {
  */
 export const DEFAULT_WORKFLOW: WorkflowData = {
   escalation: {
-    enabled: true,
-    threshold: 3,
-    cooldown_minutes: 30
+    timeout_ms: 180000,
+    unknown_threshold: 3,
+    primary_phone: process.env.STAFF_PRIMARY_PHONE || "+60127088789",
+    secondary_phone: process.env.STAFF_SECONDARY_PHONE || "+60127088789"
   },
   payment: {
-    enabled: true,
-    forward_to: process.env.STAFF_PRIMARY_PHONE || "+60127088789"
+    forward_to: process.env.STAFF_PRIMARY_PHONE || "+60127088789",
+    receipt_patterns: ["receipt", "payment", "paid", "transfer", "bayar"]
   },
   booking: {
-    enabled: false // Disable booking in safe mode
+    enabled: false,
+    max_guests_auto: 4
+  },
+  non_text_handling: {
+    enabled: true
   }
 };
 
@@ -147,7 +159,6 @@ export const DEFAULT_WORKFLOWS: WorkflowsData = {
     {
       id: "escalate",
       name: "Escalate to Staff",
-      description: "Forward complex queries to staff",
       steps: [
         {
           id: "notify",

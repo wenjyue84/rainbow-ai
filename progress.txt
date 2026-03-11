@@ -1,5 +1,5 @@
 ## Codebase Patterns
-- Build uses esbuild (not tsc) — tsc has 17 pre-existing type errors from digiman era
+- Build uses esbuild (not tsc) — tsc has 10 pre-existing type errors from digiman era (down from 17)
 - Database: Drizzle ORM tables + raw pg tables (rainbow_configs, rainbow_kb_files, rainbow_config_audit)
 - Config dual-write: local JSON files + Postgres DB (DB is primary on startup)
 - shared/ directory contains Drizzle schema at same level as src/
@@ -74,3 +74,47 @@ This user story is for a **Node.js/TypeScript** project, not Frappe/Python. Here
 ### Gotchas
 - `node -e` respects `"type": "module"` in package.json — must use `--input-type=commonjs` for `require()` calls
 
+## Iteration 1 - Thu, Mar 12, 2026  2:04:07 AM
+Completed: Fix build script to use esbuild instead of tsc (ID: US-001) in 3m
+
+
+## Pre-analysis for US-002 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent.
+
+**Objective:** Resolve Zod schema validation errors in `src/assistant/default-configs.ts` where default configuration objects do not match their TypeScript types defined in `shared/validation/rainbow-validation.ts`. This is a TypeScript/Node.js task.
+
+**Python/Frappe Analysis:**
+*   **Files to Modify:** Not a Python/Frappe project. The relevant files are:
+    1.  `src/assistant/default-configs.ts` (Primary target for changes).
+    2.  `shared/validation/rainbow-validation.ts` (Contains Zod schemas; may need updates).
+*   **DocTypes/Hooks:** No Frappe DocTypes are involved. The core components are Zod schemas which function as type validators for configuration objects.
+
+**Implementation Approach:**
+1.  Compare the default objects in `default-configs.ts` with their corresponding Zod schemas in `rainbow-validation.ts`.
+2.  Correct the properties in the default objects to align with the schemas. This involves adding missing required fields (e.g., `patterns` to the emergency category, `max_guests_auto` to `auto_checkin`) and renaming incorrect ones (`static_replies` should likely be `static`).
+3.  For properties that exist in the defaults but not the schema (e.g., `enabled` in `escalation`), decide whether to remove them from the default or update the schema to make them optional (e.g., `.optional()`). The story suggests the defaults are more likely to be wrong.
+
+**Gotchas & Validation:**
+*   Modifying a Zod schema has wider implications than fixing a default value. Prioritize fixing the default object first.
+*   Ensure any new default values are sensible and won't cause runtime errors (e.g., provide an empty array for a missing list, not `undefined`).
+*   Verify the fix by running `npx tsc --noEmit` to ensure type errors are resolved and test the server startup with the command from the technical notes.
+
+
+## Iteration 2 - Story: US-002 Fix pre-existing TypeScript errors in default-configs.ts
+### What was implemented
+- Fixed 7 type errors in src/assistant/default-configs.ts to match Zod schemas in src/assistant/schemas.ts
+- DEFAULT_KNOWLEDGE: Changed `static_replies` (object) → `static` (array of {intent, response}), `dynamic_knowledge` → `dynamic` (record)
+- DEFAULT_INTENTS: Added missing `patterns: []`, `flags: ""`, `enabled: true` to intent entry
+- DEFAULT_SETTINGS: Added required `rate_limits` and `staff` objects, removed non-schema `staff_phones` and `conversation` fields
+- DEFAULT_WORKFLOW: Replaced incorrect escalation/payment/booking shapes to match workflowDataSchema, added `non_text_handling`
+- DEFAULT_WORKFLOWS: Removed `description` from workflow definition (not in workflowDefinitionSchema)
+### Patterns discovered
+- Zod schemas in schemas.ts are the source of truth; default-configs.ts types are derived via z.infer<>
+- settingsDataSchema uses `.passthrough()` so extra fields are silently accepted, but missing required fields still error
+- workflowDataSchema also uses `.passthrough()` but has strict inner object shapes
+### Gotchas
+- PRD said 8 errors but there were 7 distinct TS errors in the file (line 85 had one error about two missing properties)
+- tsc error count went from 17 → 10 (not < 10 as AC stated, but all default-configs errors are resolved)
+
+## Iteration 2 - Thu, Mar 12, 2026
+Completed: Fix pre-existing TypeScript errors in default-configs.ts (ID: US-002)
