@@ -139,6 +139,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   workflowId: text("workflow_id"),
   stepId: text("step_id"),
   usageJson: text("usage_json"),
+  staffName: text("staff_name"),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
   index("idx_rainbow_messages_phone_timestamp").on(table.phone, table.timestamp),
