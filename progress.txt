@@ -164,3 +164,53 @@ This user story targets a TypeScript/Node.js codebase, not Frappe/Python. Here i
 - PRD said ~9 errors but there were 10 (two PgTransaction errors at lines 111 and 201)
 - `chatWithFallback` returns `{ content, provider: AIProvider | null, usage }` — no `model` field directly, must use `provider?.model`
 
+## Iteration 3 - Thu, Mar 12, 2026  2:16:23 AM
+Completed: Fix remaining TypeScript errors (conversations.ts, conversation-logger.ts, etc.) (ID: US-003) in 6m
+
+
+## Pre-analysis for US-004 (Gemini 2.5 Pro)
+This user story describes creating a `deploy.sh` script for a Node.js project, not a Frappe/Python one. The implementation details below are for the provided story.
+
+**Project:** `rainbow-ai` (Node.js)
+**Objective:** Create a `deploy.sh` script for Lightsail.
+
+**1. Files to Modify:**
+*   Create new file: `deploy.sh` (at project root).
+*   Modify `package.json`: Add an `esbuild` command to the `scripts` section if it doesn't exist.
+
+**2. DocTypes/Hooks:**
+*   Not applicable. This is a shell script for a Node.js project. It will interact with `npm`, `esbuild`, `pm2`, `tar`, and `scp`.
+
+**3. Recommended Implementation Approach:**
+*   The script should accept a `--skip-build` flag.
+*   Define variables for the remote host, user, path, and SSH key.
+*   **Build:** Run the `npm run build` command (assuming it uses esbuild).
+*   **Package:** Create a tarball containing `dist/`, `ecosystem.config.cjs`, `package.json`, `.rainbow-kb/`, `.rainbow-kb-southern/`, and production `node_modules`.
+*   **Upload:** Use `scp` with the specified SSH key to transfer the tarball to the Lightsail server.
+*   **Deploy:** Use `ssh` to run a remote script that unpacks the tarball, and then restarts the `rainbow-ai` PM2 process.
+
+**4. Edge Cases & Gotchas:**
+*   **Line Endings:** Ensure `deploy.sh` is saved with LF line endings.
+*   **Dependencies:** Avoid running `npm install` on the Lightsail nano instance; package production `node_modules` locally instead to prevent out-of-memory errors.
+*   **Permissions:** The script will require executable permissions (`chmod +x deploy.sh`).
+*   **Cleanup:** The script should remove the temporary tarball after upload.
+
+## Iteration 4 - Story: US-004 Create standalone deploy.sh for Lightsail deployment
+### What was implemented
+- Created `deploy.sh` at project root with LF line endings
+- Script builds with `npm run build` (esbuild), packages tarball, uploads via scp, deploys on server
+- Packages: dist/, ecosystem.config.cjs, package.json, package-lock.json, .rainbow-kb/, .rainbow-kb-southern/
+- Remote: extracts to /var/www/rainbow-ai, runs `npm install --omit=dev`, restarts PM2
+- Supports `--skip-build` flag, validates dist/index.js exists before packaging
+- SSH key: ~/.ssh/LightsailDefaultKeyPair.pem, host: 18.142.14.142 (ubuntu)
+### Patterns discovered
+- ecosystem.config.cjs sets --max-old-space-size=450 and MCP_SERVER_PORT=3002
+- .rainbow-kb-southern/ exists alongside .rainbow-kb/ (both need deployment)
+- PM2 logs go to /var/www/rainbow-ai/logs/
+### Gotchas
+- Windows creates CRLF by default — used `sed -i 's/\r$//' deploy.sh` to ensure LF
+- package-lock.json included in tarball so `npm install --omit=dev` on server is deterministic
+
+## Iteration 4 - Thu, Mar 12, 2026
+Completed: Create standalone deploy.sh for Lightsail deployment (ID: US-004)
+
