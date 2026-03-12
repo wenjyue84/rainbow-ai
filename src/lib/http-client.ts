@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { createModuleLogger } from './logger.js';
 import { CircuitBreaker } from '../assistant/circuit-breaker.js';
+import { notifyAdminConfigError } from './admin-notifier.js';
 
 const logger = createModuleLogger('http-client');
 
@@ -38,6 +39,83 @@ export const apiClient: AxiosInstance = axios.create({
 export function getApiBaseUrl(): string {
   return API_URL;
 }
+
+// ─── Troubleshooting Hints (US-206) ──────────────────────────────────
+// Maps error codes/status to plain-English explanations for non-technical users
+const troubleshootingHints: Record<string, { why: string; fix: string }> = {
+  ECONNREFUSED: {
+    why: 'The PMS server is not accepting connections.',
+    fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules',
+  },
+  ETIMEDOUT: {
+    why: 'Connection to the PMS server timed out.',
+    fix: '1) Check firewall rules and network connectivity 2) Verify DIGIMAN_API_URL is correct 3) Check if PMS server is overloaded',
+  },
+  ENOTFOUND: {
+    why: 'Cannot resolve the PMS server hostname.',
+    fix: '1) Check DIGIMAN_API_URL spelling 2) Verify DNS settings 3) Check network connectivity',
+  },
+  ECONNRESET: {
+    why: 'The PMS server unexpectedly closed the connection.',
+    fix: '1) Check PMS server logs for crashes 2) Verify PMS server has enough memory 3) Retry in a few seconds',
+  },
+  ECONNABORTED: {
+    why: 'The request timed out waiting for a response.',
+    fix: '1) The PMS server may be overloaded — wait and retry 2) Check network latency 3) Consider increasing timeout for slow endpoints',
+  },
+  EPIPE: {
+    why: 'The connection was broken while sending data.',
+    fix: '1) PMS server may have restarted 2) Check network stability 3) Retry the request',
+  },
+  '401': {
+    why: 'API token is invalid or expired.',
+    fix: '1) Update DIGIMAN_API_TOKEN in .env 2) Verify the token has not expired 3) Check PMS admin panel for token management',
+  },
+  '403': {
+    why: 'Access is forbidden — the token may lack required permissions.',
+    fix: '1) Check DIGIMAN_API_TOKEN permissions 2) Verify the token is for the correct environment 3) Contact PMS admin',
+  },
+  '404': {
+    why: 'The requested API endpoint does not exist on the PMS server.',
+    fix: '1) Verify DIGIMAN_API_URL points to the correct server version 2) Check if the PMS API has been updated 3) Verify the endpoint path',
+  },
+  '500': {
+    why: 'The PMS server encountered an internal error.',
+    fix: '1) Check PMS server logs 2) Retry in a few seconds 3) If persistent, restart the PMS server',
+  },
+  '502': {
+    why: 'Bad gateway — the PMS server proxy received an invalid response.',
+    fix: '1) Check if PMS backend is running behind the proxy 2) Verify reverse proxy (nginx) configuration 3) Check PMS server logs',
+  },
+  '503': {
+    why: 'PMS server is overloaded or restarting.',
+    fix: '1) Wait 30 seconds and retry 2) If persistent, check PMS server logs and memory usage 3) Consider scaling up PMS resources',
+  },
+  '504': {
+    why: 'Gateway timeout — the PMS server took too long to respond.',
+    fix: '1) Check PMS server performance 2) Verify network latency between servers 3) Consider increasing proxy timeout',
+  },
+  CIRCUIT_OPEN: {
+    why: 'Too many consecutive failures — circuit breaker activated to protect system.',
+    fix: `Circuit will auto-recover in 60s. Check PMS health: curl ${API_URL}/api/health`,
+  },
+};
+
+function getTroubleshootingHint(error: any): { why: string; fix: string } | null {
+  // Check for network error code first
+  if (error.code && troubleshootingHints[error.code]) {
+    return troubleshootingHints[error.code];
+  }
+  // Check for HTTP status code
+  const status = error.response?.status;
+  if (status && troubleshootingHints[String(status)]) {
+    return troubleshootingHints[String(status)];
+  }
+  return null;
+}
+
+// Track consecutive failures for admin notification
+let consecutiveFailures = 0;
 
 /** Status codes that should be retried */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -101,12 +179,18 @@ export async function callAPI<T>(
 ): Promise<T> {
   // Circuit breaker: fast-fail if DIGIMAN API is known to be down
   if (digimanCircuit.isOpen()) {
-    throw new Error(`DIGIMAN API circuit is OPEN — API appears down, skipping call to ${path}. Will retry after cooldown.`);
+    const hint = troubleshootingHints.CIRCUIT_OPEN;
+    throw new Error(
+      `What: DIGIMAN API circuit is OPEN — skipping call to ${path}. ` +
+      `Why: ${hint.why} ` +
+      `Fix: ${hint.fix}`
+    );
   }
 
   const retryEnabled = options?.retry !== false;
   const maxRetries = options?.maxRetries ?? 3;
-  const totalTimeoutMs = options?.timeoutMs ?? MAX_TOTAL_TIMEOUT_MS;
+  const perRequestTimeoutMs = options?.timeoutMs ?? 15_000;
+  const totalTimeoutMs = MAX_TOTAL_TIMEOUT_MS;
   const fullUrl = path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? '' : '/'}${path}`;
   const startTime = Date.now();
 
@@ -118,9 +202,11 @@ export async function callAPI<T>(
       const response = await apiClient.request({
         method,
         url: path,
-        data
+        data,
+        timeout: perRequestTimeoutMs,
       });
       digimanCircuit.recordSuccess();
+      consecutiveFailures = 0;
       trackSuccess(Date.now() - startTime);
       return response.data;
     } catch (error: any) {
@@ -174,22 +260,62 @@ export async function callAPI<T>(
     digimanCircuit.recordFailure();
   }
 
-  // Format final error
-  const totalAttempts = Math.min(maxRetries + 1, Math.max(1, /* attempts made */ maxRetries + 1));
+  // Track consecutive failures for admin notification
+  consecutiveFailures++;
+
+  // Format enhanced error with troubleshooting hints (US-206)
+  const elapsedMs = ((Date.now() - startTime) / 1000).toFixed(1);
   const retryContext = retryEnabled && maxRetries > 0
-    ? ` (after ${maxRetries + 1} attempts)`
-    : '';
+    ? ` (after ${maxRetries + 1} attempts, took ${elapsedMs}s)`
+    : ` (took ${elapsedMs}s)`;
   const status = lastError.response?.status;
   const bodyMessage = lastError.response?.data?.message;
   const statusText = lastError.response?.statusText;
-  const detail = status
-    ? ` ${status} ${statusText || ''}`.trim()
-    : ` ${lastError.message}`;
-  const message = bodyMessage
-    ? `API Error${retryContext}: ${bodyMessage} (${fullUrl}${detail ? ` → ${detail}` : ''})`
-    : `API Error${retryContext}: ${fullUrl}${detail}. Check DIGIMAN_API_URL (or legacy PELANGI_API_URL) and that digiman API is deployed there.`;
-  console.error(`API call failed: ${method} ${path}`, lastError.message);
+  const hint = getTroubleshootingHint(lastError);
+
+  let message: string;
+  if (hint) {
+    const what = status
+      ? `${method} ${fullUrl} → ${status} ${statusText || ''}`.trim()
+      : `${method} ${fullUrl} → ${lastError.code || lastError.message}`;
+    message = `What: ${what}${retryContext}. Why: ${hint.why} Fix: ${hint.fix}`;
+    if (bodyMessage) {
+      message += ` Detail: ${bodyMessage}`;
+    }
+  } else {
+    // Fallback for unknown error types
+    const detail = status
+      ? ` ${status} ${statusText || ''}`.trim()
+      : ` ${lastError.message}`;
+    message = bodyMessage
+      ? `API Error${retryContext}: ${bodyMessage} (${fullUrl}${detail ? ` → ${detail}` : ''})`
+      : `API Error${retryContext}: ${fullUrl}${detail}. Check DIGIMAN_API_URL and that digiman API is deployed there.`;
+  }
+
+  logger.error(`API call failed: ${method} ${path}`, { error: lastError.message, consecutiveFailures });
+
+  // Notify admin on persistent failures (>3 consecutive)
+  if (consecutiveFailures >= 3) {
+    notifyAdminOnPersistentFailure(method, path, message, consecutiveFailures).catch(() => {});
+  }
+
   throw new Error(message);
+}
+
+async function notifyAdminOnPersistentFailure(
+  method: string, path: string, errorMessage: string, failures: number
+): Promise<void> {
+  const hint = troubleshootingHints[
+    Object.keys(troubleshootingHints).find(k => errorMessage.includes(k)) || ''
+  ];
+  const steps = hint
+    ? `\n\nTroubleshooting steps:\n${hint.fix}`
+    : '\n\nCheck DIGIMAN_API_URL and PMS server status.';
+  await notifyAdminConfigError(
+    `⚠️ PMS API: ${failures} consecutive failures\n` +
+    `Last: ${method} ${path}\n` +
+    `Error: ${errorMessage}${steps}`
+  );
 }
 
 export function getDigimanCircuitStatus() {
