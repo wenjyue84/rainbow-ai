@@ -121,6 +121,7 @@ export async function callAPI<T>(
         data
       });
       digimanCircuit.recordSuccess();
+      trackSuccess(Date.now() - startTime);
       return response.data;
     } catch (error: any) {
       lastError = error;
@@ -162,6 +163,12 @@ export async function callAPI<T>(
     }
   }
 
+  // Track the error
+  const errorMsg = lastError.response?.status
+    ? `${lastError.response.status} ${lastError.response.statusText || ''}`
+    : lastError.code || lastError.message;
+  trackError(path, errorMsg);
+
   // Record circuit breaker failure only for retryable (server/network) errors, not client 4xx
   if (failedWithRetryable) {
     digimanCircuit.recordFailure();
@@ -187,4 +194,68 @@ export async function callAPI<T>(
 
 export function getDigimanCircuitStatus() {
   return digimanCircuit.getStatus();
+}
+
+// ─── Request Tracker ──────────────────────────────────────────────────
+// Lightweight tracking for the integration health dashboard (US-203)
+
+interface RequestError {
+  timestamp: number;
+  path: string;
+  error: string;
+}
+
+const requestTracker = {
+  lastSuccessAt: null as number | null,
+  lastErrorAt: null as number | null,
+  recentErrors: [] as RequestError[],
+  responseTimes: [] as number[],  // last 20
+  totalRequests: 0,
+};
+
+const MAX_RESPONSE_TIMES = 20;
+const ERROR_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+function trackSuccess(responseTimeMs: number): void {
+  requestTracker.lastSuccessAt = Date.now();
+  requestTracker.totalRequests++;
+  requestTracker.responseTimes.push(responseTimeMs);
+  if (requestTracker.responseTimes.length > MAX_RESPONSE_TIMES) {
+    requestTracker.responseTimes.shift();
+  }
+}
+
+function trackError(path: string, error: string): void {
+  const now = Date.now();
+  requestTracker.lastErrorAt = now;
+  requestTracker.totalRequests++;
+  requestTracker.recentErrors.push({ timestamp: now, path, error });
+  // Prune errors older than 5 minutes
+  requestTracker.recentErrors = requestTracker.recentErrors.filter(
+    e => now - e.timestamp < ERROR_WINDOW_MS
+  );
+}
+
+export function getRequestStats() {
+  const now = Date.now();
+  // Prune stale errors
+  const recentErrors = requestTracker.recentErrors.filter(
+    e => now - e.timestamp < ERROR_WINDOW_MS
+  );
+  const times = requestTracker.responseTimes;
+  const avgResponseMs = times.length > 0
+    ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
+    : null;
+
+  return {
+    lastSuccessAt: requestTracker.lastSuccessAt
+      ? new Date(requestTracker.lastSuccessAt).toISOString()
+      : null,
+    lastErrorAt: requestTracker.lastErrorAt
+      ? new Date(requestTracker.lastErrorAt).toISOString()
+      : null,
+    errorCount5m: recentErrors.length,
+    avgResponseMs,
+    totalRequests: requestTracker.totalRequests,
+  };
 }

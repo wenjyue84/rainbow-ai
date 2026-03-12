@@ -544,3 +544,39 @@ Here is the technical brief for the Claude Code agent, based on the provided use
 ### Gotchas
 - None — clean integration with existing CircuitBreaker class and US-201 retry logic
 
+## Iteration 2 - Thu, Mar 12, 2026  9:50:59 PM
+Completed: Add circuit breaker for DIGIMAN API calls (ID: US-202) in 6m
+
+
+## Pre-analysis for US-203 (Gemini 2.5 Pro)
+This user story is for a **Node.js/TypeScript** application, not a Frappe/Python one, based on the file names (`.ts`), build commands (`npm run build`), and project structure. The following technical brief is adapted for the correct (Node.js) environment.
+
+---
+
+**Subject:** Technical Brief for US-203: Integration Health Dashboard API
+
+**1. Python Files to Modify (Node.js/TS Equivalent):**
+*   **Create New:** `src/routes/admin/integration-health.ts` to house the endpoint logic.
+*   **Modify:** `src/routes/admin/index.ts` to register the new health check route.
+*   **Modify:** `src/lib/http-client.ts` (or equivalent) to add lightweight tracking for `lastSuccessAt`, `lastErrorAt`, `errorCount5m`, and `avgResponseMs` for external calls (like to Digiman).
+*   **Reference:** `src/assistant/circuit-breaker.ts` to import the `circuitBreakerRegistry`.
+*   **Reference:** `src/lib/baileys-client.ts` to get the current WhatsApp connection status.
+
+**2. Frappe DocTypes/Hooks (Node.js/TS Equivalent):**
+*   **API Route:** A new `GET` endpoint `/api/admin/integration-health` will be created using the Express router.
+*   **Modules:** This feature orchestrates data from several existing modules: the circuit breaker registry, the Baileys WhatsApp client, the database connection pool, and the generic HTTP client.
+
+**3. Recommended Implementation Approach:**
+1.  In `integration-health.ts`, create an Express handler function.
+2.  Use `Promise.all` to concurrently gather health data from all sources.
+3.  For AI providers and Digiman, call `getAllStatuses()` on the imported `circuitBreakerRegistry`.
+4.  For WhatsApp, import the Baileys client instance and check its connection state property.
+5.  For the database, execute a simple, fast query like `SELECT 1` or use the driver's built-in pool health check.
+6.  Aggregate the results into the required JSON structure, calculating an `overall` status based on the individual components.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Performance:** Ensure all health checks are fast and non-blocking to prevent stalling the server's event loop.
+*   **State Management:** The Baileys client and circuit breakers are stateful. Ensure the single, correct instances are imported and accessed.
+*   **Failure States:** A failure in any single health check (e.g., a timeout) should not crash the endpoint but instead report that component as 'down' or 'error'.
+*   **Metric Accuracy:** The rolling 5-minute error count in the HTTP client must be implemented efficiently (e.g., using a timestamped array/queue that gets filtered) to avoid performance issues.
+

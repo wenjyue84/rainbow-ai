@@ -33,6 +33,7 @@ import fleetRoutes from './fleet.js';
 import profilesRoutes from './profiles.js';
 import mcpServersRoutes from './mcp-servers.js';
 import webchatRoutes from './webchat.js';
+import integrationHealthRoutes from './integration-health.js';
 
 const router = Router();
 
@@ -147,6 +148,7 @@ router.use(fleetRoutes);
 router.use(profilesRoutes);
 router.use(mcpServersRoutes);
 router.use(webchatRoutes);
+router.use(integrationHealthRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {
