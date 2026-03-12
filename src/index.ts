@@ -467,6 +467,17 @@ server.listen(PORT, '0.0.0.0', () => {
       console.warn('');
     }
 
+    // Run integration validation (fire-and-forget, non-blocking)
+    import('./lib/integration-validator.js').then(({ validateIntegrations }) =>
+      validateIntegrations().then(results => {
+        for (const r of results) {
+          if (r.status === 'ok') console.log(`  ✓ ${r.name}: ${r.message}`);
+          else if (r.status === 'warning') console.warn(`  ⚠ ${r.name}: ${r.message}`);
+          else console.error(`  ✗ ${r.name}: ${r.message}${r.fix ? ` → ${r.fix}` : ''}`);
+        }
+      })
+    ).catch(() => {});
+
     // Initialize feedback settings defaults
     await initFeedbackSettings();
 

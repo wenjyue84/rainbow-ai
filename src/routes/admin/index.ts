@@ -150,6 +150,7 @@ router.use(profilesRoutes);
 router.use(mcpServersRoutes);
 router.use(webchatRoutes);
 router.use(integrationHealthRoutes);
+router.use(diagnosticsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {
