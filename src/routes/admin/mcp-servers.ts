@@ -70,10 +70,16 @@ router.patch('/mcp-servers/server-config', (req: Request, res: Response) => {
 });
 
 router.get('/mcp-servers/server-tools', (_req: Request, res: Response) => {
-  const tools = toolRegistry.listTools().map(t => ({
+  const mcp = getMcpSettings(res);
+  const expose = mcp.server.expose_tools;
+  let tools = toolRegistry.listTools().map(t => ({
     name: t.name,
     description: t.description
   }));
+  // Filter by expose_tools setting: 'all' shows everything, array filters by name
+  if (Array.isArray(expose)) {
+    tools = expose.length === 0 ? [] : tools.filter(t => expose.includes(t.name));
+  }
   res.json({ tools, count: tools.length });
 });
 
