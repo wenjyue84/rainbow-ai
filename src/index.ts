@@ -520,6 +520,25 @@ server.listen(PORT, '0.0.0.0', () => {
         if (updated) failoverCoordinator.updateSettings(updated);
       }
     });
+
+    // Run integration diagnostics (fire-and-forget, non-blocking)
+    import('./lib/integration-validator.js').then(({ validateIntegrations }) =>
+      validateIntegrations().then((results) => {
+        const errors = results.filter(r => r.status === 'error');
+        const warnings = results.filter(r => r.status === 'warning');
+        if (errors.length > 0 || warnings.length > 0) {
+          console.warn('[Startup] Integration diagnostics:');
+          for (const r of [...errors, ...warnings]) {
+            console.warn(`  [${r.status.toUpperCase()}] ${r.name}: ${r.message}`);
+            if (r.fix) console.warn(`    Fix: ${r.fix}`);
+          }
+        } else {
+          console.log('[Startup] All integration checks passed');
+        }
+      })
+    ).catch((err) => {
+      console.warn('[Startup] Integration validation skipped:', err.message);
+    });
   });
 });
 
