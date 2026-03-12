@@ -2,8 +2,15 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import http from 'node:http';
 import https from 'node:https';
 import { createModuleLogger } from './logger.js';
+import { CircuitBreaker } from '../assistant/circuit-breaker.js';
 
 const logger = createModuleLogger('http-client');
+
+// Circuit breaker for DIGIMAN API — opens after 5 consecutive failures, 60s cooldown
+const digimanCircuit = new CircuitBreaker('digiman-api', {
+  failureThreshold: 5,
+  cooldownMs: 60_000
+});
 
 // Keep-alive agents reuse TCP connections, avoiding handshake overhead per request
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 20 });
@@ -92,6 +99,11 @@ export async function callAPI<T>(
   data?: any,
   options?: CallAPIOptions
 ): Promise<T> {
+  // Circuit breaker: fast-fail if DIGIMAN API is known to be down
+  if (digimanCircuit.isOpen()) {
+    throw new Error(`DIGIMAN API circuit is OPEN — API appears down, skipping call to ${path}. Will retry after cooldown.`);
+  }
+
   const retryEnabled = options?.retry !== false;
   const maxRetries = options?.maxRetries ?? 3;
   const totalTimeoutMs = options?.timeoutMs ?? MAX_TOTAL_TIMEOUT_MS;
@@ -99,6 +111,7 @@ export async function callAPI<T>(
   const startTime = Date.now();
 
   let lastError: any;
+  let failedWithRetryable = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -107,13 +120,19 @@ export async function callAPI<T>(
         url: path,
         data
       });
+      digimanCircuit.recordSuccess();
       return response.data;
     } catch (error: any) {
       lastError = error;
 
       // Check if we should retry
       const isAxiosError = axios.isAxiosError(error);
-      const canRetry = retryEnabled && attempt < maxRetries && isAxiosError && isRetryable(error);
+      const retryable = isAxiosError && isRetryable(error);
+      const canRetry = retryEnabled && attempt < maxRetries && retryable;
+
+      if (retryable) {
+        failedWithRetryable = true;
+      }
 
       if (!canRetry) {
         break;
@@ -143,6 +162,11 @@ export async function callAPI<T>(
     }
   }
 
+  // Record circuit breaker failure only for retryable (server/network) errors, not client 4xx
+  if (failedWithRetryable) {
+    digimanCircuit.recordFailure();
+  }
+
   // Format final error
   const totalAttempts = Math.min(maxRetries + 1, Math.max(1, /* attempts made */ maxRetries + 1));
   const retryContext = retryEnabled && maxRetries > 0
@@ -159,4 +183,8 @@ export async function callAPI<T>(
     : `API Error${retryContext}: ${fullUrl}${detail}. Check DIGIMAN_API_URL (or legacy PELANGI_API_URL) and that digiman API is deployed there.`;
   console.error(`API call failed: ${method} ${path}`, lastError.message);
   throw new Error(message);
+}
+
+export function getDigimanCircuitStatus() {
+  return digimanCircuit.getStatus();
 }

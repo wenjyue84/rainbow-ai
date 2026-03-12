@@ -495,3 +495,52 @@ The provided user story (US-201) is for a TypeScript project, not a Frappe/Pytho
 ### Gotchas
 - The `AxiosError` type import is needed for proper retry-after header typing
 - jitter uses `Math.random()` for simplicity — not crypto-random but fine for backoff
+## Iteration 1 - Thu, Mar 12, 2026  9:43:56 PM
+Completed: Add HTTP retry with exponential backoff to http-client.ts (ID: US-201) in 6m
+
+
+## Pre-analysis for US-202 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent, based on the provided user story.
+
+**Subject:** Technical Brief for US-202: Implement DIGIMAN API Circuit Breaker
+
+**Overview:** This story requires implementing a circuit breaker for the DIGIMAN API client to prevent cascading failures during service outages. The implementation must reuse the existing `CircuitBreaker` class.
+
+**1. Primary Files for Modification:**
+*   `src/lib/http-client.ts`: The main file to modify. You will add the circuit breaker logic here.
+*   `src/assistant/circuit-breaker.ts`: This file contains the existing `CircuitBreaker` class that must be imported and reused. Do not modify this file.
+
+**2. Key TypeScript/Module Components Involved:**
+*   `callAPI` function (`http-client.ts`): This function needs to be wrapped with the circuit breaker logic.
+*   `CircuitBreaker` class (`circuit-breaker.ts`): The state machine (CLOSED/OPEN/HALF_OPEN) to be instantiated and used.
+
+**3. Recommended Implementation Approach:**
+1.  In `src/lib/http-client.ts`, import the `CircuitBreaker` class.
+2.  Create a single, module-level instance: `const digimanCircuit = new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60000 });`
+3.  Inside `callAPI`, check `digimanCircuit.isOpen()` *before* the `fetch` call. If open, throw the specified fast-fail error immediately.
+4.  Upon a successful API response, call `digimanCircuit.recordSuccess()`.
+5.  After all retry attempts for a server-side error (e.g., timeout, 5xx) are exhausted, call `digimanCircuit.recordFailure()`.
+6.  Export a new status function: `getDigimanCircuitStatus()` that returns `digimanCircuit.getStatus()`.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Error Type Distinction:** The circuit must only trip on genuine service failures (timeouts, 5xx). Do **NOT** call `recordFailure()` for client errors (4xx status codes), as these are not indicators of service health.
+*   **Retry Logic Integration:** The circuit breaker wraps the *entire* retry loop. Record failure only after the final retry has failed.
+*   **Import Path:** The technical notes specify importing from `../assistant/circuit-breaker.js`. The `.js` extension is likely significant due to the project's build configuration—do not omit it.
+
+
+## Iteration 12 - Story: US-202 - Add circuit breaker for DIGIMAN API calls
+### What was implemented
+- Imported existing CircuitBreaker class from `../assistant/circuit-breaker.js` into `src/lib/http-client.ts`
+- Created module-level instance: `new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60_000 })`
+- Added `isOpen()` check at start of `callAPI` — fast-fails with clear error message when circuit is open
+- On success: calls `recordSuccess()` to keep circuit healthy / close it from HALF_OPEN
+- On retryable failure (after all retries exhausted): calls `recordFailure()` to increment failure counter
+- On non-retryable failure (4xx client errors): does NOT record failure — circuit only trips on server/network issues
+- Exported `getDigimanCircuitStatus()` function for monitoring
+### Patterns discovered
+- CircuitBreaker class already handles CLOSED→OPEN→HALF_OPEN state machine with configurable thresholds
+- The `failedWithRetryable` flag tracks whether the final error was server-side, avoiding false trips on 4xx
+- Circuit breaker wraps the entire retry loop — failure recorded only after all retries exhausted
+### Gotchas
+- None — clean integration with existing CircuitBreaker class and US-201 retry logic
+
