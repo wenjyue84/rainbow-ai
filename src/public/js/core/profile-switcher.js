@@ -52,16 +52,25 @@
       this.close();
       this.renderLabel();
       this.renderDropdown();
-      // Reload current tab data with new profile context
-      if (typeof window.reloadCurrentTab === 'function') {
-        window.reloadCurrentTab();
-      } else if (typeof window.loadTab === 'function') {
-        // Find the active tab and reload it
-        var activeTab = document.querySelector('.tab-content:not([style*="display: none"])');
-        if (activeTab) {
-          var tabName = activeTab.id.replace('tab-', '');
-          window.loadTab(tabName);
-        }
+
+      // 1. Clear cacheManager so stale data from previous profile is gone
+      if (window.cacheManager && typeof window.cacheManager.clearAll === 'function') {
+        window.cacheManager.clearAll();
+      }
+
+      // 2. Reset global cached state vars to their defaults (from state.js)
+      cachedRouting = {};
+      cachedKnowledge = { static: [], dynamic: {} };
+      cachedWorkflows = { workflows: [] };
+      cachedSettings = null;
+      cachedIntentNames = [];
+
+      // 3. Reload the active tab with new profile context
+      if (typeof window.loadTab === 'function') {
+        var tabInfo = typeof window.getTabInfoFromUrl === 'function'
+          ? window.getTabInfoFromUrl()
+          : { main: 'dashboard', sub: null };
+        window.loadTab(tabInfo.main, tabInfo.sub);
       }
     },
 

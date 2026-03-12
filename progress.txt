@@ -335,3 +335,52 @@ This user story is for a TypeScript/Node.js project, not Frappe/Python. Here is 
 
 ## Iteration 7 - Thu, Mar 12, 2026
 Completed: Make all remaining admin routes profile-aware (ID: US-101)
+## Iteration 1 - Thu, Mar 12, 2026 11:06:55 AM
+Completed: Make all remaining admin routes profile-aware (ID: US-101) in 6m
+
+
+## Pre-analysis for US-102 (Gemini 2.5 Pro)
+### Technical Brief for US-102: Dashboard Profile Switcher Fix
+
+**Overview:**
+This is a pure client-side Javascript task. The goal is to fix the profile switcher dropdown in the dashboard. When a user selects a new profile, the UI should perform a full data reload for that profile, clearing all previously cached or stored data from the old profile. No Python or Frappe backend changes are required.
+
+**1. Files to Modify:**
+*   **Primary:** `src/public/js/core/profile-switcher.js` (contains the broken event handler).
+*   **Reference:** `src/public/js/core/state.js` (to see how global state vars are defined), `src/public/js/core/tabs.js` (for the `loadTab` function signature).
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This is a client-side logic fix operating entirely within the browser.
+
+**3. Recommended Implementation Approach:**
+1.  In `profile-switcher.js`, find the event handler for the profile change.
+2.  Delete the erroneous call to `reloadCurrentTab()`.
+3.  Implement the following sequence inside the handler:
+    a. Call `window.cacheManager.clear()` to invalidate the data cache.
+    b. Reset global state variables: `cachedRouting`, `cachedKnowledge`, `cachedWorkflows`, `cachedSettings`, `cachedIntentNames` to their initial empty states (e.g., `null` or `{}`).
+    c. Get the active tab's name, e.g., `const activeTab = document.querySelector('.sidebar-item.active').dataset.tabId;`.
+    d. Call `window.loadTab(activeTab)` to force a full reload of the current view.
+    e. Update the dashboard subtitle with the new profile's name.
+
+**4. Edge Cases & Gotchas:**
+*   The selector `'.sidebar-item.active'` must reliably find the active tab element; verify its `dataset` attribute contains the correct tab name for `loadTab`.
+*   Ensure there's a fallback if no tab is active when the profile is switched.
+*   Confirm the initial/default values for the global state variables in `state.js` before resetting them.
+
+
+## Iteration 8 - Story: US-102 Dashboard profile switcher triggers full data reload
+### What was implemented
+- Rewrote `switchTo()` in `src/public/js/core/profile-switcher.js` to properly handle profile switching
+- Removed dead-code call to nonexistent `window.reloadCurrentTab()`
+- Added `window.cacheManager.clearAll()` to flush all cached data on profile switch
+- Reset 5 global state vars (`cachedRouting`, `cachedKnowledge`, `cachedWorkflows`, `cachedSettings`, `cachedIntentNames`) to their defaults from state.js
+- Used `window.getTabInfoFromUrl()` (from tabs.js) to detect active tab from URL hash — more reliable than DOM queries
+- Calls `window.loadTab(main, sub)` which refetches all data from API with new profile headers
+- Dashboard subtitle already updates via `this.renderLabel()` which shows the profile name from the profiles list
+### Patterns discovered
+- Tab system uses `.hidden` class, NOT inline `display: none` — the old selector `.tab-content:not([style*="display: none"])` would never match
+- `getTabInfoFromUrl()` is globally exposed by tabs.js and parses `window.location.hash` — reliable source of truth
+- `loadTab()` already handles lazy-loading, cleanup, and data refetch — no need to duplicate that logic
+### Gotchas
+- The old fallback used `activeTab.id.replace('tab-', '')` which would have worked IF the selector matched, but the selector was wrong for the hidden-class-based tab system
+
