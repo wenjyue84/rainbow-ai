@@ -31,7 +31,7 @@
       "description": "The current http-client.ts makes a single attempt to call the DIGIMAN API. If the network hiccups or the server returns 502/503, the request fails immediately. WhatsApp sending already has retry logic (send-retry.ts), but the HTTP client does not. Add automatic retry with exponential backoff for transient failures (network errors, 429, 500, 502, 503, 504). Non-retryable errors (400, 401, 403, 404, 409, 422) should fail immediately. This is the single highest-impact change for robustness.",
       "acceptanceCriteria": [
         "callAPI retries up to 3 times on transient failures (network error, 429, 500, 502, 503, 504)",
-        "Backoff is exponential: ~1s, ~2s, ~4s (with ±20% jitter to prevent thundering herd)",
+        "Backoff is exponential: ~1s, ~2s, ~4s (with \u00c2\u00b120% jitter to prevent thundering herd)",
         "Non-retryable status codes (400, 401, 403, 404, 409, 422) fail immediately without retry",
         "Each retry logs a warning with attempt number, error, and endpoint",
         "Total timeout across all retries does not exceed 45 seconds",
@@ -56,11 +56,11 @@
       "id": "US-202",
       "title": "Add circuit breaker for DIGIMAN API calls",
       "priority": 2,
-      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout — multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts — do NOT create a new one.",
+      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout \u00e2\u20ac\u201d multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts \u00e2\u20ac\u201d do NOT create a new one.",
       "acceptanceCriteria": [
         "A CircuitBreaker instance wraps DIGIMAN API calls in http-client.ts",
         "After 5 consecutive failures, circuit opens and fast-fails for 60 seconds",
-        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN — API appears down, skipping call to {path}. Will retry after cooldown.'",
+        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN \u00e2\u20ac\u201d API appears down, skipping call to {path}. Will retry after cooldown.'",
         "After 60s cooldown, one test request is allowed (HALF_OPEN state)",
         "Success in HALF_OPEN closes the circuit (normal operation resumes)",
         "Circuit breaker status is exposed via getDigimanCircuitStatus() export",
@@ -69,14 +69,14 @@
       ],
       "technicalNotes": [
         "File to modify: src/lib/http-client.ts",
-        "Import CircuitBreaker from '../assistant/circuit-breaker.js' — reuse existing class",
+        "Import CircuitBreaker from '../assistant/circuit-breaker.js' \u00e2\u20ac\u201d reuse existing class",
         "Create a module-level instance: const digimanCircuit = new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60000 })",
         "In callAPI: check digimanCircuit.isOpen() BEFORE making the request. If open, throw immediately.",
         "On success: call digimanCircuit.recordSuccess()",
         "On retryable failure (after all retries exhausted): call digimanCircuit.recordFailure()",
         "On non-retryable failure (4xx): do NOT record as circuit breaker failure (those are client errors, not server issues)",
         "Export function getDigimanCircuitStatus() that returns digimanCircuit.getStatus()",
-        "This integrates with US-201 retry — circuit breaker wraps the retry loop"
+        "This integrates with US-201 retry \u00e2\u20ac\u201d circuit breaker wraps the retry loop"
       ],
       "dependencies": [
         "US-201"
@@ -88,7 +88,7 @@
       "id": "US-203",
       "title": "Create integration health dashboard API endpoint",
       "priority": 3,
-      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string — we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
+      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string \u00e2\u20ac\u201d we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
       "acceptanceCriteria": [
         "GET /api/admin/integration-health returns JSON with health of all integrations",
         "Response includes: digiman API status (healthy/degraded/down), circuit breaker state, last successful call timestamp, error count in last 5 minutes, average response time",
@@ -118,7 +118,7 @@
       "id": "US-204",
       "title": "Add integration setup validator and troubleshooting diagnostics",
       "priority": 4,
-      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature — instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
+      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature \u00e2\u20ac\u201d instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
       "acceptanceCriteria": [
         "New module src/lib/integration-validator.ts exports validateIntegrations() function",
         "Validates: DIGIMAN_API_URL is set and reachable, DIGIMAN_API_TOKEN is set and not expired, DATABASE_URL is set and connectable",
@@ -136,10 +136,10 @@
         "For DIGIMAN: try GET /api/health, if fails try GET /api/occupancy (some deployments don't have /health)",
         "For Database: try a simple query via the existing db connection",
         "Error-to-fix mapping examples:",
-        "  ECONNREFUSED → 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
-        "  401 Unauthorized → 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
-        "  ENOTFOUND → 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
-        "  ETIMEDOUT → 'Connection to {url} timed out. Check firewall rules and network connectivity'",
+        "  ECONNREFUSED \u00e2\u2020\u2019 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
+        "  401 Unauthorized \u00e2\u2020\u2019 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
+        "  ENOTFOUND \u00e2\u2020\u2019 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
+        "  ETIMEDOUT \u00e2\u2020\u2019 'Connection to {url} timed out. Check firewall rules and network connectivity'",
         "Redact sensitive env vars: show first 4 + last 4 chars of tokens, full URLs",
         "Call validateIntegrations() in src/index.ts after server starts (fire-and-forget)"
       ],
@@ -151,7 +151,7 @@
       "id": "US-205",
       "title": "Add configurable per-endpoint timeout and request tracking",
       "priority": 5,
-      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s — 30s is too long to block a WhatsApp conversation.",
+      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s \u00e2\u20ac\u201d 30s is too long to block a WhatsApp conversation.",
       "acceptanceCriteria": [
         "Default timeout reduced from 30000ms to 15000ms",
         "callAPI options parameter supports timeoutMs override: callAPI('GET', '/path', null, { timeoutMs: 5000 })",
@@ -193,9 +193,9 @@
         "File to modify: src/lib/http-client.ts",
         "Create a troubleshootingHints map: Record<string, { why: string, fix: string }>",
         "Map keys: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ECONNRESET, 401, 403, 404, 500, 502, 503, 504, CIRCUIT_OPEN",
-        "Example: ECONNREFUSED → { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
-        "Example: 503 → { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
-        "Example: CIRCUIT_OPEN → { why: 'Too many consecutive failures — circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
+        "Example: ECONNREFUSED \u00e2\u2020\u2019 { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
+        "Example: 503 \u00e2\u2020\u2019 { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
+        "Example: CIRCUIT_OPEN \u00e2\u2020\u2019 { why: 'Too many consecutive failures \u00e2\u20ac\u201d circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
         "Notification: import notifyAdminConfigError from admin-notifier.ts, send after 3+ consecutive failures"
       ],
       "dependencies": [

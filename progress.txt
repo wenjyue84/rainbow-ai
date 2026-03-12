@@ -604,3 +604,57 @@ This user story is for a **Node.js/TypeScript** application, not a Frappe/Python
 ## Iteration 3 - Thu, Mar 12, 2026  9:55:00 PM
 Completed: Create integration health dashboard API endpoint (ID: US-203) in 5m
 
+## Iteration 3 - Thu, Mar 12, 2026 10:01:02 PM
+Completed: Create integration health dashboard API endpoint (ID: US-203) in 9m
+
+
+## Pre-analysis for US-204 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent.
+
+---
+
+**TO:** Claude Code Agent
+**FROM:** Gemini
+**RE:** Technical Brief for User Story US-204: LHDN Integration Validator
+
+This user story requires creating a diagnostic and setup validation tool within the `lhdn_payroll_integration` Frappe app. The goal is to replace cryptic system errors with clear, actionable advice for administrators.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/hooks.py`**: To add the `on_startup` hook and potentially whitelist the new API method.
+*   **`lhdn_payroll_integration/utils/diagnostics.py` (New File)**: Create this module to house all validation logic.
+*   **`lhdn_payroll_integration/api.py`**: To define the whitelisted admin-facing API endpoint for on-demand checks.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Hook (`on_startup`)**: Use this to trigger the validation checks when `bench start` is executed. The hook should point to a method in `diagnostics.py`.
+*   **API (`@frappe.whitelist()`)**: Create a new whitelisted `run_diagnostics` method that is only accessible to System Managers.
+*   **DocType (`LHDN Payroll Settings`)**: The validator should read its configuration (e.g., API URLs, tokens) from this existing `Single` DocType or `frappe.conf` if stored in `site_config.json`.
+
+**3. Recommended Implementation Approach:**
+1.  In `diagnostics.py`, create a main `validate_integration_setup()` function that calls a series of smaller check functions.
+2.  Each check (e.g., `check_lhdn_url`, `check_api_token`) should use `try...except` to catch specific errors (`requests.exceptions.ConnectionError`, etc.) and return a dictionary: `{'status': 'error', 'message': '...', 'fix': '...'}`.
+3.  Implement a non-blocking startup check in `hooks.py` using `on_startup`. It should log results to the Frappe Error Log.
+4.  Create a whitelisted API method `run_diagnostics` in `api.py`. This method must check for the `System Manager` role before running and returning the full validation results as JSON.
+
+**4. Edge Cases & Gotchas:**
+*   **Security**: The API endpoint must be protected with `frappe.throw_if_not_system_manager()`. When returning diagnostics, redact sensitive data like API tokens.
+*   **Performance**: Startup checks must be fast. For slow network checks, use `frappe.enqueue` to run them in a background job to avoid delaying site startup.
+*   **Error Handling**: Differentiate between network errors (e.g., `ConnectionError`, `Timeout`) and API errors (e.g., 401, 403, 500) to provide precise "fix" instructions.
+*   **Database**: For the database check, perform a simple, non-locking read query like `frappe.db.sql("SELECT name FROM tabDocType LIMIT 1")`.
+
+
+## Iteration 14 - Story: US-204 - Add integration setup validator and troubleshooting diagnostics
+### What was implemented
+- Verified all acceptance criteria already met — implementation was done in a prior iteration but prd.json was not updated
+- `src/lib/integration-validator.ts`: exports `validateIntegrations()` and `getSystemInfo()`
+- Validates: DIGIMAN_API_URL (env set + URL format valid + HTTP reachable with /api/health fallback to /api/occupancy), DIGIMAN_API_TOKEN (env set + non-empty), DATABASE_URL (env set + SELECT 1 query)
+- Each check returns `{ name, status: 'ok'|'warning'|'error', message, fix? }` with plain English fix steps
+- `validateIntegrations()` runs at server startup (fire-and-forget, lines 470-479 of index.ts) — logs ✓/⚠/✗ per check
+- `src/routes/admin/diagnostics.ts`: GET /api/admin/diagnostics returns validation results + system info
+- System info includes: node version, memory usage (rss/heapUsed/heapTotal), uptime, redacted env vars (tokens show first 4 + last 4 chars, URLs shown full)
+- Already registered in admin/index.ts (import line 37, mount line 153)
+### Patterns discovered
+- Implementation was complete but story was not marked as passed in prd.json
+- Redaction logic correctly identifies token/key/secret env vars vs URL vars
+- 401 from DIGIMAN results in 'warning' (server reachable but token bad), not 'error'
+### Gotchas
+- None — all code was already in place and working
