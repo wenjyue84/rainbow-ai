@@ -428,3 +428,24 @@ This user story does not involve Python or Frappe. It concerns modifications to 
 
 ## Iteration 9 - Thu, Mar 12, 2026
 Completed: Update deploy.sh to include all profile KB and data directories (ID: US-103)
+## Iteration 3 - Thu, Mar 12, 2026 11:14:13 AM
+Completed: Update deploy.sh to include all profile KB and data directories (ID: US-103) in 2m
+
+
+## Iteration 10 - Story: US-104 Add unit tests for profile resolution and multi-profile pipeline
+### What was implemented
+- Created `src/assistant/__tests__/profile-registry.test.ts` with 12 tests across 3 describe blocks
+- **ProfileRegistry (6 tests)**: resolveProfile with known instanceId, multiple instanceIds for same profile, unknown instanceId fallback, undefined instanceId fallback, disabled profile skipping, missing profiles.json fallback
+- **Conversation key scoping (3 tests)**: pelangi/empty profileId uses plain phone as key, non-default profiles scope as `profileId:phone`, verifies separate conversation state per profile
+- **getStore(res) (3 tests)**: returns profile-specific ConfigStore when `res.locals.profileConfigStore` is set, returns default configStore when not set or undefined
+### Patterns discovered
+- `vi.resetModules()` is essential for ProfileRegistry tests since it's a singleton — each test needs a fresh import
+- `vi.mock` for ConfigStore/KnowledgeBaseInstance prevents DB/filesystem hits during unit tests
+- conversation.ts `convoKey` is module-private but testable indirectly through `getOrCreate` reference equality
+### Gotchas
+- Must mock `state-persistence.js` and `formatter.js` when testing conversation module to avoid DB calls
+- All 143 tests pass (131 existing + 12 new)
+
+## Iteration 4 - Thu, Mar 12, 2026 11:18:00 AM
+Completed: Add unit tests for profile resolution and multi-profile pipeline (ID: US-104) in 4m
+
