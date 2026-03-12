@@ -43,8 +43,10 @@ tar -czf "$TARBALL" \
   ecosystem.config.cjs \
   package.json \
   package-lock.json \
+  profiles.json \
   .rainbow-kb/ \
-  .rainbow-kb-southern/
+  .rainbow-kb-southern/ \
+  .rainbow-kb-makan/
 
 echo "    $(du -h "$TARBALL" | cut -f1) compressed"
 

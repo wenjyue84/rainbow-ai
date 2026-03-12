@@ -384,3 +384,47 @@ This is a pure client-side Javascript task. The goal is to fix the profile switc
 ### Gotchas
 - The old fallback used `activeTab.id.replace('tab-', '')` which would have worked IF the selector matched, but the selector was wrong for the hidden-class-based tab system
 
+## Iteration 2 - Thu, Mar 12, 2026 11:11:31 AM
+Completed: Dashboard profile switcher triggers full data reload (ID: US-102) in 4m
+
+
+## Pre-analysis for US-103 (Gemini 2.5 Pro)
+This user story does not involve Python or Frappe. It concerns modifications to a shell script.
+
+**Technical Brief for Claude Code Agent**
+
+**Objective:** Update the `deploy.sh` script to include missing knowledge base directories and the `profiles.json` configuration file in the deployment archive.
+
+**File to Modify:**
+*   `deploy.sh` (located at the project root)
+
+**Implementation Approach:**
+1.  Locate the `tar` command within the `deploy.sh` script. This command is responsible for creating the deployment tarball.
+2.  The existing command likely lists `.rainbow-kb/` and `.rainbow-kb-southern/`.
+3.  Modify the `tar` command to also include:
+    *   `.rainbow-kb-makan/`
+    *   `profiles.json`
+
+**Example (Illustrative):**
+*   **Current (example):** `tar -czf deployment.tar.gz dist/ .rainbow-kb/ .rainbow-kb-southern/`
+*   **Modified (example):** `tar -czf deployment.tar.gz dist/ .rainbow-kb/ .rainbow-kb-southern/ .rainbow-kb-makan/ profiles.json`
+
+**Edge Cases & Gotchas:**
+*   Ensure that `profiles.json` is placed in the project root on the destination server, as the `ProfileRegistry` depends on this specific location.
+*   Verify that the paths added to the `tar` command are correct relative to the script's execution directory.
+*   Confirm no other deployment or packaging steps are affected by this change.
+
+
+## Iteration 9 - Story: US-103 Update deploy.sh to include all profile KB and data directories
+### What was implemented
+- Added `profiles.json` and `.rainbow-kb-makan/` to the tar command in deploy.sh
+- deploy.sh now packages all 3 KB directories (.rainbow-kb/, .rainbow-kb-southern/, .rainbow-kb-makan/) plus profiles.json
+### Patterns discovered
+- .rainbow-kb-makan/ already existed at project root alongside the other KB dirs
+- profiles.json already existed at project root — just wasn't included in deployment
+- Build script already copies data-southern/ and data-makan/ to dist/ (verified in build output)
+### Gotchas
+- None — straightforward 2-line addition to the tar command
+
+## Iteration 9 - Thu, Mar 12, 2026
+Completed: Update deploy.sh to include all profile KB and data directories (ID: US-103)
