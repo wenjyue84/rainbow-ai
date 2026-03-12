@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { configStore } from '../../assistant/config-store.js';
 import { getKnowledgeMarkdown } from '../../assistant/knowledge-base.js';
 import { isAIAvailable, chat } from '../../assistant/ai-client.js';
-import { ok, badRequest, serverError } from './http-utils.js';
+import { ok, badRequest, serverError, getStore } from './http-utils.js';
 
 const router = Router();
 
@@ -365,7 +364,7 @@ router.post('/knowledge/translate-all', async (req: Request, res: Response) => {
     return;
   }
 
-  const data = configStore.getKnowledge();
+  const data = getStore(res).getKnowledge();
   const entries = data.static || [];
   const results: Array<{ intent: string; status: string }> = [];
   let translated = 0;
@@ -427,7 +426,7 @@ JSON:`;
 
   // Save updated data
   if (translated > 0) {
-    configStore.setKnowledge(data);
+    getStore(res).setKnowledge(data);
   }
 
   ok(res, { translated, skipped, failed, total: entries.length, results });

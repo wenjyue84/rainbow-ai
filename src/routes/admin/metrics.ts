@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { configStore } from '../../assistant/config-store.js';
 import { getWhatsAppStatus, whatsappManager } from '../../lib/baileys-client.js';
 import { isAIAvailable } from '../../assistant/ai-client.js';
 import { checkServerHealth } from './utils.js';
 import { trackConfigReloaded } from '../../lib/activity-tracker.js';
-import { ok } from './http-utils.js';
+import { ok, getStore } from './http-utils.js';
 import { getConfigAuditLog } from '../../lib/config-db.js';
 
 const router = Router();
@@ -13,7 +12,7 @@ const router = Router();
 // ─── System ─────────────────────────────────────────────────────────
 
 router.post('/reload', async (_req: Request, res: Response) => {
-  await configStore.forceReload();
+  await getStore(res).forceReload();
   trackConfigReloaded('all');
   ok(res, { message: 'All config reloaded (DB-first, then disk)' });
 });
@@ -34,7 +33,7 @@ router.get('/status', async (_req: Request, res: Response) => {
   ]);
 
   const lastCheckedAt = new Date().toISOString();
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   const configuredProviders = settings.ai.providers || [];
   const aiProviders = configuredProviders.map(p => {
     const hasKey = p.type === 'ollama' || !!(p.api_key || (p.api_key_env && process.env[p.api_key_env]));

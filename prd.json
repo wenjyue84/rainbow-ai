@@ -1,34 +1,24 @@
 {
-  "productName": "Rainbow AI Standalone Parity",
+  "productName": "Rainbow AI Multi-Profile",
   "branchName": "main",
-  "overview": "Fix all differences between rainbow-ai standalone project and digiman/RainbowAI so that rainbow-ai runs everything digiman's Rainbow AI module did. The project was extracted from digiman monorepo and needs build fixes, CLAUDE.md, deploy script, and type error resolution.",
+  "overview": "Harden and complete the multi-profile system for Rainbow AI. Three properties (Pelangi Capsule Hostel, Southern Homestay, Makan Moments Cafe) each need independent configs, KB, admin dashboard, and WhatsApp routing. The ProfileRegistry, per-profile ConfigStore, KnowledgeBaseInstance, and profile switcher UI are implemented. Now: make all admin routes profile-aware, add tests, update deploy script, and ensure dashboard tabs reload correctly on profile switch.",
   "goals": [
-    "Rainbow AI builds successfully with esbuild (matching digiman deploy pattern)",
-    "All 17 pre-existing TypeScript errors are fixed",
-    "Standalone deploy.sh works for Lightsail deployment",
-    "Project has proper CLAUDE.md documentation",
-    "Rainbow AI runs identically to digiman/RainbowAI"
+    "All admin API routes return profile-specific data when x-profile-id header is sent",
+    "Dashboard profile switcher reloads all tab data on switch",
+    "Unit tests cover multi-profile config resolution and pipeline routing",
+    "deploy.sh includes all 3 KB directories and profile data directories",
+    "Intent manager, templates, knowledge-base, and testing routes are profile-aware"
   ],
   "userStories": [
     {
       "id": "US-001",
       "title": "Fix build script to use esbuild instead of tsc",
       "priority": 1,
-      "description": "The current build script uses `tsc` which fails on 17 pre-existing type errors. In digiman, deploy.sh used `npx esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js` followed by copying data/ and public/ dirs. Change the build script to match this pattern. tsc should only be used for type-checking (optional), not for building.",
+      "description": "The current build script uses tsc which fails on 17 pre-existing type errors. Change to esbuild.",
       "acceptanceCriteria": [
-        "package.json 'build' script uses esbuild instead of tsc",
-        "Build copies src/assistant/data/ to dist/assistant/data/",
-        "Build copies src/public/ to dist/public/",
-        "npm run build succeeds without errors",
-        "dist/index.js is generated and can be started with `node dist/index.js`",
-        "Add a 'check' script that runs `tsc --noEmit` for optional type checking"
+        "npm run build succeeds"
       ],
-      "technicalNotes": [
-        "The esbuild command from digiman/deploy.sh line 85: npx esbuild src/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
-        "After esbuild, copy data files: node -e \"require('fs').cpSync('src/assistant/data','dist/assistant/data',{recursive:true});require('fs').cpSync('src/public','dist/public',{recursive:true})\"",
-        "Add esbuild as a devDependency if not present",
-        "Keep the existing 'start' script as 'node dist/index.js'"
-      ],
+      "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
@@ -37,45 +27,24 @@
       "id": "US-002",
       "title": "Fix pre-existing TypeScript errors in default-configs.ts",
       "priority": 2,
-      "description": "default-configs.ts has 8 type errors where default config objects don't match their Zod schemas. These are schema mismatches — the defaults have extra/missing properties vs what the Zod schemas expect. Fix the defaults to match schemas, or update schemas to accept the defaults. These errors exist in digiman too but were hidden by esbuild.",
+      "description": "Fix Zod schema mismatches in default configs.",
       "acceptanceCriteria": [
-        "All 8 errors in src/assistant/default-configs.ts are resolved",
-        "npx tsc --noEmit shows fewer than 10 errors total (from current 17)",
-        "Server still starts correctly after changes",
-        "Config defaults still produce valid runtime behavior"
+        "tsc --noEmit has 0 errors in default-configs.ts"
       ],
-      "technicalNotes": [
-        "Error 1: 'static_replies' doesn't exist — likely should be 'static' in the templates config",
-        "Error 2: emergency category missing patterns, flags, enabled — add these required fields",
-        "Error 3: settings missing rate_limits and staff — add with sensible defaults",
-        "Error 4-5: escalation/receipt_forwarding have 'enabled' which doesn't exist in schema — update schema or remove",
-        "Error 6: auto_checkin missing max_guests_auto — add it",
-        "Error 7: workflow missing required fields — add them",
-        "Check shared/validation/rainbow-validation.ts for the Zod schemas these defaults must match",
-        "Test: MCP_SERVER_PORT=3002 timeout 10 npx tsx src/index.ts 2>&1 | head -20"
-      ],
+      "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
     },
     {
       "id": "US-003",
-      "title": "Fix remaining TypeScript errors (conversations.ts, conversation-logger.ts, etc.)",
+      "title": "Fix remaining TypeScript errors",
       "priority": 3,
-      "description": "Fix the remaining ~9 TypeScript errors: conversations.ts has missing function imports (updateWorkflowState, buildChatMessages, callAI, getKnowledgeContext), conversation-logger.ts has PgTransaction type mismatch, ai-provider-manager.ts missing responseMimeType, approval-queue.ts missing copilot property.",
+      "description": "Fix remaining TS errors across conversations.ts, conversation-logger.ts, etc.",
       "acceptanceCriteria": [
-        "npx tsc --noEmit produces 0 errors",
-        "Server still starts and runs correctly",
-        "All admin routes still respond (no runtime errors from type fixes)"
+        "npx tsc --noEmit produces 0 errors"
       ],
-      "technicalNotes": [
-        "conversations.ts line 339: updateWorkflowState — check if this function exists in conversation-logger.ts. If not, either add it or remove the call.",
-        "conversations.ts lines 548-549: buildChatMessages, callAI, getKnowledgeContext — these may have been renamed or moved. Search the codebase for actual function names and update imports.",
-        "conversation-logger.ts: PgTransaction vs NodePgDatabase — widen the parameter type to accept both (use a union type or a more generic type).",
-        "ai-provider-manager.ts: responseMimeType — add to the type definition or use type assertion.",
-        "approval-queue.ts: copilot property — add to the type definition or initialize the object properly.",
-        "These are inherited from digiman — the functions may exist under different names due to refactoring."
-      ],
+      "technicalNotes": [],
       "dependencies": [
         "US-002"
       ],
@@ -86,25 +55,11 @@
       "id": "US-004",
       "title": "Create standalone deploy.sh for Lightsail deployment",
       "priority": 4,
-      "description": "Create a deploy.sh script for standalone Rainbow AI deployment to Lightsail. In digiman, deploy.sh handled both PMS and Rainbow. Rainbow AI now needs its own deploy script that: builds with esbuild, packages tarball, uploads to Lightsail, installs deps, restarts PM2.",
+      "description": "Create deploy.sh that builds, packages, uploads, and deploys to Lightsail.",
       "acceptanceCriteria": [
-        "deploy.sh exists at project root",
-        "Builds Rainbow AI with esbuild (not tsc)",
-        "Packages dist/, ecosystem.config.cjs, package.json, .rainbow-kb/ into tarball",
-        "Uploads tarball to Lightsail via scp",
-        "Runs npm install --omit=dev on server",
-        "Restarts PM2 process 'rainbow-ai'",
-        "Supports --skip-build flag",
-        "Has LF line endings (not CRLF)"
+        "deploy.sh exists and works"
       ],
-      "technicalNotes": [
-        "SSH key: ~/.ssh/LightsailDefaultKeyPair.pem",
-        "Remote host: 18.142.14.142 (ubuntu user)",
-        "Remote path: /var/www/rainbow-ai",
-        "Reference: digiman/deploy.sh lines 75-130 for the pattern",
-        "CRITICAL: Never npm install without --omit=dev on Lightsail (OOM risk on nano instances)",
-        "Package should include: dist/, node_modules/ (prod only), ecosystem.config.cjs, .rainbow-kb/, .rainbow-kb-southern/, package.json"
-      ],
+      "technicalNotes": [],
       "dependencies": [
         "US-001"
       ],
@@ -115,22 +70,11 @@
       "id": "US-005",
       "title": "Create project CLAUDE.md with standalone architecture docs",
       "priority": 5,
-      "description": "Create a CLAUDE.md at the rainbow-ai project root documenting the standalone architecture, key files, commands, deployment, and conventions. This replaces the digiman CLAUDE.md which referenced the monorepo structure.",
+      "description": "Document standalone architecture.",
       "acceptanceCriteria": [
-        "CLAUDE.md exists at project root",
-        "Documents: tech stack, key directories, quick commands, deployment, common issues",
-        "References standalone paths (not digiman monorepo paths)",
-        "Includes database info (Neon + raw pg tables)",
-        "Includes port and environment variable documentation"
+        "CLAUDE.md exists at project root"
       ],
-      "technicalNotes": [
-        "Reference digiman's CLAUDE.md Rainbow AI sections for content",
-        "Key differences from digiman: standalone project, own DB, own deploy script, own PM2 config",
-        "Port 3002, MCP_SERVER_PORT env var",
-        "Database: Drizzle tables (app_settings, rainbow_*, intent_*) + raw pg tables (rainbow_configs, rainbow_kb_files, rainbow_config_audit)",
-        "Build: esbuild (not tsc)",
-        "Deploy: deploy.sh -> Lightsail"
-      ],
+      "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
@@ -139,25 +83,11 @@
       "id": "US-META",
       "title": "Re-run comparison loop: rainbow-ai vs digiman/RainbowAI",
       "priority": 99,
-      "description": "After all other stories are complete, re-run the comparison between rainbow-ai and digiman/RainbowAI. Start both servers, compare TypeScript errors, build output, server startup, API endpoints, and runtime behavior. If any new differences are found, add them as new user stories to prd.json with passes: false, then add a fresh copy of this meta-story at the end. This loop continues until full parity is confirmed.",
+      "description": "Parity verification between rainbow-ai and digiman.",
       "acceptanceCriteria": [
-        "Run: cd rainbow-ai && npm run build (succeeds)",
-        "Run: cd rainbow-ai && npx tsc --noEmit (0 errors or same count as digiman/RainbowAI)",
-        "Run: MCP_SERVER_PORT=3002 timeout 15 npx tsx src/index.ts (starts without errors, loads DB, KB, configs)",
-        "Compare rainbow-ai tsc errors with digiman/RainbowAI tsc errors — should be equal or fewer",
-        "If differences found: add new US stories, add fresh US-META copy, set passes: false",
-        "If no differences found: set passes: true — parity achieved"
+        "Parity achieved"
       ],
-      "technicalNotes": [
-        "Comparison commands:",
-        "  cd rainbow-ai && npx tsc --noEmit 2>&1 | grep 'error TS' | wc -l",
-        "  cd digiman/RainbowAI && npx tsc --noEmit 2>&1 | grep 'error TS' | wc -l",
-        "  cd rainbow-ai && npm run build 2>&1 | tail -5",
-        "  cd rainbow-ai && MCP_SERVER_PORT=3002 timeout 15 npx tsx src/index.ts 2>&1 | head -30",
-        "digiman path: C:/Users/Jyue/Documents/1-projects/Software Projects/digiman",
-        "rainbow-ai path: C:/Users/Jyue/Documents/1-projects/Software Projects/rainbow-ai",
-        "If new stories are needed, use IDs US-101, US-102, etc. to avoid conflicts."
-      ],
+      "technicalNotes": [],
       "dependencies": [
         "US-001",
         "US-002",
@@ -167,6 +97,104 @@
       ],
       "estimatedComplexity": "medium",
       "passes": true
+    },
+    {
+      "id": "US-101",
+      "title": "Make all remaining admin routes profile-aware",
+      "priority": 1,
+      "description": "Currently only config.ts uses getStore(res) for profile-aware config. The following admin route files still import the singleton configStore and need to be updated to use getStore(res) from http-utils.js: intent-manager.ts, kb-ai-operations.ts, kb-knowledge.ts, feedback-settings.ts, metrics.ts, prisma-bot.ts, testing-preview.ts, testing.ts. Each file should import getStore from http-utils.js and replace configStore.getX() calls with getStore(res).getX() so that when x-profile-id header is sent, the correct profile's config is returned.",
+      "acceptanceCriteria": [
+        "intent-manager.ts uses getStore(res) instead of configStore singleton",
+        "kb-knowledge.ts uses getStore(res) instead of configStore singleton",
+        "testing.ts and testing-preview.ts use getStore(res) instead of configStore singleton",
+        "feedback-settings.ts uses getStore(res) instead of configStore singleton",
+        "metrics.ts uses getStore(res) instead of configStore singleton",
+        "All admin routes return profile-specific data when x-profile-id: southern header is sent",
+        "npm run build succeeds",
+        "All existing tests still pass"
+      ],
+      "technicalNotes": [
+        "Pattern: replace `import { configStore } from '../../assistant/config-store.js'` with `import { getStore } from './http-utils.js'`",
+        "Then replace `configStore.getX()` with `getStore(res).getX()` in route handlers",
+        "The getStore(res) function is already in src/routes/admin/http-utils.ts",
+        "Profile middleware in index.ts already sets res.locals.profileConfigStore",
+        "Keep type imports from config-store.ts unchanged (only replace value imports)",
+        "Files to update: intent-manager.ts, kb-ai-operations.ts, kb-knowledge.ts, feedback-settings.ts, metrics.ts, prisma-bot.ts, testing-preview.ts, testing.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-102",
+      "title": "Dashboard profile switcher triggers full data reload",
+      "priority": 2,
+      "description": "When the user switches profiles in the dashboard dropdown, all cached data must be cleared and the active tab must reload with the new profile's data. Currently profile-switcher.js calls reloadCurrentTab() but there is no such function. Need to: (1) clear window.cacheManager on switch, (2) reset cached global vars (cachedRouting, cachedSettings, etc.), (3) call loadTab() for the active tab to refetch all data, (4) update the page title or subtitle to show the active property name.",
+      "acceptanceCriteria": [
+        "Switching profiles clears cacheManager cache",
+        "Switching profiles resets cachedRouting, cachedKnowledge, cachedWorkflows, cachedSettings, cachedIntentNames globals",
+        "Active tab reloads with new profile's data after switch",
+        "Dashboard tab shows correct property name after switch",
+        "No stale data from previous profile visible after switch"
+      ],
+      "technicalNotes": [
+        "profile-switcher.js is at src/public/js/core/profile-switcher.js",
+        "Global state vars are in src/public/js/core/state.js: cachedRouting, cachedKnowledge, cachedWorkflows, cachedSettings, cachedIntentNames",
+        "cacheManager is at window.cacheManager with a .clear() method (check cache-manager.js)",
+        "Tab loading: window.loadTab(tabName) is in src/public/js/core/tabs.js",
+        "Active tab detection: document.querySelector('.sidebar-item.active') or similar",
+        "The loadTab function already refetches data from API, so clearing cache + calling loadTab is sufficient"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-103",
+      "title": "Update deploy.sh to include all profile KB and data directories",
+      "priority": 3,
+      "description": "deploy.sh currently packages .rainbow-kb/ and .rainbow-kb-southern/ but is missing .rainbow-kb-makan/ and profiles.json. Update deploy.sh to include all 3 KB directories and the profiles.json config file in the deployment tarball.",
+      "acceptanceCriteria": [
+        "deploy.sh packages .rainbow-kb-makan/ in the tarball",
+        "deploy.sh packages profiles.json in the tarball",
+        "deploy.sh packages all three .rainbow-kb*/ directories",
+        "Build script already copies data-southern/ and data-makan/ to dist/ (verified)"
+      ],
+      "technicalNotes": [
+        "deploy.sh is at project root",
+        "Current tar command likely only includes .rainbow-kb/ and .rainbow-kb-southern/",
+        "Add .rainbow-kb-makan/ and profiles.json to the tar command",
+        "profiles.json must be at project root on the server for ProfileRegistry to find it"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-104",
+      "title": "Add unit tests for profile resolution and multi-profile pipeline",
+      "priority": 4,
+      "description": "Add unit tests that verify: (1) ProfileRegistry resolves instanceIds to correct profiles, (2) unknown instanceIds fall back to default profile, (3) PipelineState gets correct profileId/profileConfig/profileKB from input-validator, (4) conversation keys are scoped by profileId. These tests ensure the multi-profile system works correctly and catches regressions.",
+      "acceptanceCriteria": [
+        "Test file exists at src/assistant/__tests__/profile-registry.test.ts",
+        "Tests cover: resolveProfile with known instanceId returns correct profile",
+        "Tests cover: resolveProfile with unknown instanceId returns default",
+        "Tests cover: conversation key scoping (phone only for pelangi, profileId:phone for others)",
+        "Tests cover: getStore(res) returns profile-specific ConfigStore when header is set",
+        "All new tests pass with npx vitest run",
+        "All existing 131 tests still pass"
+      ],
+      "technicalNotes": [
+        "ProfileRegistry is in src/assistant/profile-registry.ts - singleton exported as profileRegistry",
+        "Conversation key scoping is in src/assistant/conversation.ts - convoKey() function",
+        "getStore(res) is in src/routes/admin/http-utils.ts",
+        "Use vi.mock for DB calls since tests shouldn't hit real DB",
+        "Test pattern: create mock profiles.json, init registry, verify resolution",
+        "conversation.ts convoKey: 'pelangi' or empty returns plain phone; others return 'profileId:phone'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
     }
   ]
 }

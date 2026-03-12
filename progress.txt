@@ -283,3 +283,55 @@ Completed: Create project CLAUDE.md with standalone architecture docs (ID: US-00
 ## Iteration 6 - Thu, Mar 12, 2026
 Completed: Re-run comparison loop (ID: US-META) — parity confirmed
 
+## Iteration 6 - Thu, Mar 12, 2026  2:30:41 AM
+Completed: Re-run comparison loop: rainbow-ai vs digiman/RainbowAI (ID: US-META) in 4m
+
+
+## Pre-analysis for US-101 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. Here is the technical brief based on the JSON provided:
+
+**Objective:** Refactor admin routes to use a profile-aware `configStore` instead of a singleton, based on the `x-profile-id` header.
+
+**Files to Modify:**
+- `src/routes/admin/intent-manager.ts`
+- `src/routes/admin/kb-ai-operations.ts`
+- `src/routes/admin/kb-knowledge.ts`
+- `src/routes/admin/feedback-settings.ts`
+- `src/routes/admin/metrics.ts`
+- `src/routes/admin/prisma-bot.ts`
+- `src/routes/admin/testing-preview.ts`
+- `src/routes/admin/testing.ts`
+
+**Implementation Approach:**
+1.  In each file, replace the singleton import:
+    `import { configStore } from '../../assistant/config-store.js'`
+    with the profile-aware store accessor:
+    `import { getStore } from './http-utils.js'`
+
+2.  Within each Express route handler, replace all calls to the singleton `configStore` with the `getStore` function. Pass the `res` object to it.
+    -   **Example:** `configStore.getKnowledgeBase()` becomes `getStore(res).getKnowledgeBase()`.
+
+**Context & Gotchas:**
+- The necessary function `getStore(res)` is already implemented in `src/routes/admin/http-utils.ts`.
+- An existing middleware already populates `res.locals.profileConfigStore`, which `getStore(res)` uses. No middleware changes are needed.
+- **Important:** Do not remove type-only imports from `config-store.ts` (e.g., `import type { KnowledgeBase } from '...'`). Only replace the value import of `configStore`.
+
+
+
+## Iteration 7 - Story: US-101 Make all remaining admin routes profile-aware
+### What was implemented
+- Updated 8 admin route files to use `getStore(res)` instead of singleton `configStore`
+- Files updated: intent-manager.ts, kb-ai-operations.ts, kb-knowledge.ts, feedback-settings.ts, metrics.ts, prisma-bot.ts, testing-preview.ts, testing.ts
+- Each file: removed `import { configStore }` from config-store.js, added `getStore` to http-utils.js import
+- All `configStore.getX()`/`configStore.setX()` calls replaced with `getStore(res).getX()`/`getStore(res).setX()`
+### Patterns discovered
+- `getStore(res)` was already implemented in http-utils.ts, returning `res.locals.profileConfigStore || configStore`
+- Profile middleware in index.ts already sets `res.locals.profileConfigStore`
+- Some files (testing-preview.ts, testing.ts) had 10+ configStore calls across many methods
+- conversations.ts uses dynamic `await import()` for configStore - not in scope for this story
+### Gotchas
+- Vitest worker OOM is pre-existing (2 test files crash regardless of changes)
+- 6/8 test files pass (130/136 tests), failures are OOM not related to profile changes
+
+## Iteration 7 - Thu, Mar 12, 2026
+Completed: Make all remaining admin routes profile-aware (ID: US-101)

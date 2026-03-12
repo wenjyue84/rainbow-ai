@@ -5,10 +5,9 @@ import path from 'path';
 import fs from 'fs';
 import { promisify } from 'util';
 import axios from 'axios';
-import { configStore } from '../../assistant/config-store.js';
 import { isAIAvailable, classifyAndRespond, testProvider } from '../../assistant/ai-client.js';
 import { buildSystemPrompt, guessTopicFiles } from '../../assistant/knowledge-base.js';
-import { ok, badRequest, notFound, serverError } from './http-utils.js';
+import { ok, badRequest, notFound, serverError, getStore } from './http-utils.js';
 import { trackMessageReceived, trackIntentClassified, trackResponseSent } from '../../lib/activity-tracker.js';
 import previewRouter from './testing-preview.js';
 
@@ -32,7 +31,7 @@ router.post('/intents/test', async (req: Request, res: Response) => {
     const { classifyMessage } = await import('../../assistant/intents.js');
     const intentResult = await classifyMessage(message, []);
 
-    const routingConfig = configStore.getRouting() || {};
+    const routingConfig = getStore(res).getRouting() || {};
     const route = routingConfig[intentResult.category];
     const routedAction: string = route?.action || 'llm_reply';
 
@@ -43,7 +42,7 @@ router.post('/intents/test', async (req: Request, res: Response) => {
       response = getStaticReply(intentResult.category, 'en') || '(no static reply configured)';
     } else if (routedAction === 'workflow' && route?.workflow_id) {
       // Show workflow first step(s) instead of LLM fallback
-      const workflowsData = configStore.getWorkflows() || { workflows: [] };
+      const workflowsData = getStore(res).getWorkflows() || { workflows: [] };
       const workflow = (workflowsData.workflows || []).find(w => w.id === route.workflow_id);
       if (workflow && workflow.steps.length > 0) {
         const introMessages: string[] = [];
@@ -55,13 +54,13 @@ router.post('/intents/test', async (req: Request, res: Response) => {
       }
       // Fallback to LLM if workflow not found or empty
       if (!response && isAIAvailable()) {
-        const systemPrompt = buildSystemPrompt(configStore.getSettings().system_prompt);
+        const systemPrompt = buildSystemPrompt(getStore(res).getSettings().system_prompt);
         const aiResult = await classifyAndRespond(systemPrompt, [], message);
         response = aiResult.response;
         llmUsage = aiResult.usage;
       }
     } else if (isAIAvailable()) {
-      const systemPrompt = buildSystemPrompt(configStore.getSettings().system_prompt);
+      const systemPrompt = buildSystemPrompt(getStore(res).getSettings().system_prompt);
       const aiResult = await classifyAndRespond(systemPrompt, [], message);
       response = aiResult.response;
       llmUsage = aiResult.usage;
@@ -107,7 +106,7 @@ router.post('/troubleshoot-provider', async (req: Request, res: Response) => {
     badRequest(res, 'providerId required');
     return;
   }
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   const provider = settings.ai?.providers?.find((p: { id: string }) => p.id === providerId);
   if (!provider) {
     notFound(res, `Provider "${providerId}"`);
@@ -181,7 +180,7 @@ router.post('/test-workflow/send-summary', async (req: Request, res: Response) =
   }
 
   try {
-    const workflows = configStore.getWorkflows();
+    const workflows = getStore(res).getWorkflows();
     const workflow = workflows.workflows.find(w => w.id === workflowId);
     if (!workflow) {
       notFound(res, `Workflow "${workflowId}"`);
@@ -540,7 +539,7 @@ router.post('/testing/run-all', async (req: Request, res: Response) => {
   }> = [];
 
   const { classifyMessage } = await import('../../assistant/intents.js');
-  const routingConfig = configStore.getRouting() || {};
+  const routingConfig = getStore(res).getRouting() || {};
   const { getStaticReply } = await import('../../assistant/knowledge.js');
 
   for (const scenario of scenarios) {

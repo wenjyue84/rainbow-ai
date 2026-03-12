@@ -7,11 +7,10 @@
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { configStore } from '../../assistant/config-store.js';
 import { isAIAvailable, getProviders, resolveApiKey, providerChat } from '../../assistant/ai-provider-manager.js';
 import { getKnowledgeMarkdown } from '../../assistant/knowledge-base.js';
 import { listConversations, getConversation } from '../../assistant/conversation-logger.js';
-import { badRequest, serverError } from './http-utils.js';
+import { badRequest, serverError, getStore } from './http-utils.js';
 
 const router = Router();
 
@@ -195,7 +194,7 @@ router.post('/prisma-bot/generate', async (req: Request, res: Response) => {
   }
 
   try {
-    const settings = configStore.getSettings();
+    const settings = getStore(res).getSettings();
     const prismaSettings = (settings as any).prismaBot || {};
     const systemPrompt = prismaSettings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
@@ -299,7 +298,7 @@ router.post('/prisma-bot/generate', async (req: Request, res: Response) => {
 // ─── Get Prisma Bot Settings ────────────────────────────────────────
 
 router.get('/prisma-bot/settings', (_req: Request, res: Response) => {
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   const prismaSettings = (settings as any).prismaBot || {
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     providerId: 'google-gemini-flash',
@@ -312,13 +311,13 @@ router.get('/prisma-bot/settings', (_req: Request, res: Response) => {
 
 router.put('/prisma-bot/settings', (req: Request, res: Response) => {
   const { systemPrompt, providerId, model } = req.body;
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   (settings as any).prismaBot = {
     systemPrompt: systemPrompt || DEFAULT_SYSTEM_PROMPT,
     providerId: providerId || 'google-gemini-flash',
     model: model || 'gemini-2.5-flash'
   };
-  configStore.setSettings(settings);
+  getStore(res).setSettings(settings);
   res.json({ ok: true, prismaBot: (settings as any).prismaBot });
 });
 

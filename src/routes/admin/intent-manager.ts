@@ -3,9 +3,8 @@ import type { Request, Response } from 'express';
 import axios from 'axios';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { configStore } from '../../assistant/config-store.js';
 import { getIntentConfig, updateIntentConfig, getIntentTiersFilePath } from '../../assistant/intent-config.js';
-import { badRequest, serverError } from './http-utils.js';
+import { badRequest, serverError, getStore } from './http-utils.js';
 import { atomicWriteJSON } from './file-utils.js';
 
 const DATA_DIR = join(process.cwd(), 'src', 'assistant', 'data');
@@ -368,10 +367,10 @@ router.post('/intent-manager/apply-template', async (req: Request, res: Response
       await atomicWriteJSON(LLM_SETTINGS_PATH, current);
       // Sync master classifyProvider in settings.json so T4 and Settings stay aligned
       if (config.llm.defaultProviderId && typeof config.llm.defaultProviderId === 'string') {
-        const settings = configStore.getSettings();
+        const settings = getStore(res).getSettings();
         if (settings.routing_mode) {
           settings.routing_mode.classifyProvider = config.llm.defaultProviderId;
-          configStore.setSettings(settings);
+          getStore(res).setSettings(settings);
         }
       }
     }

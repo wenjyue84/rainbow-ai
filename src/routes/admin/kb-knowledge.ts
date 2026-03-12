@@ -3,8 +3,7 @@ import type { Request, Response } from 'express';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import multer from 'multer';
-import { configStore } from '../../assistant/config-store.js';
-import { ok, badRequest, notFound, conflict, serverError } from './http-utils.js';
+import { ok, badRequest, notFound, conflict, serverError, getStore } from './http-utils.js';
 
 // Use process.cwd() (= RainbowAI/) so path works in both tsx dev and esbuild bundle
 // (in the bundle, import.meta.url resolves to dist/index.js, making __dirname = dist/)
@@ -17,12 +16,12 @@ const router = Router();
 // ─── Knowledge Base (Legacy FAQ) ────────────────────────────────────
 
 router.get('/knowledge', (_req: Request, res: Response) => {
-  res.json(configStore.getKnowledge());
+  res.json(getStore(res).getKnowledge());
 });
 
 router.post('/knowledge', (req: Request, res: Response) => {
   const { intent, response, dynamic } = req.body;
-  const data = configStore.getKnowledge();
+  const data = getStore(res).getKnowledge();
 
   if (dynamic) {
     if (!intent || typeof intent !== 'string') {
@@ -30,7 +29,7 @@ router.post('/knowledge', (req: Request, res: Response) => {
       return;
     }
     data.dynamic[intent.toLowerCase()] = typeof response === 'string' ? response : JSON.stringify(response);
-    configStore.setKnowledge(data);
+    getStore(res).setKnowledge(data);
     ok(res, { type: 'dynamic', intent });
     return;
   }
@@ -47,14 +46,14 @@ router.post('/knowledge', (req: Request, res: Response) => {
   const newEntry: any = { intent, response: { en: response.en, ms: response.ms || '', zh: response.zh || '' } };
   if (req.body.imageUrl) newEntry.imageUrl = req.body.imageUrl;
   data.static.push(newEntry);
-  configStore.setKnowledge(data);
+  getStore(res).setKnowledge(data);
   ok(res, { type: 'static', intent });
 });
 
 router.put('/knowledge/:intent', (req: Request, res: Response) => {
   const { intent } = req.params;
   const { response } = req.body;
-  const data = configStore.getKnowledge();
+  const data = getStore(res).getKnowledge();
 
   if (req.query.dynamic === 'true') {
     if (!response) {
@@ -62,7 +61,7 @@ router.put('/knowledge/:intent', (req: Request, res: Response) => {
       return;
     }
     data.dynamic[intent.toLowerCase()] = typeof response === 'string' ? response : JSON.stringify(response);
-    configStore.setKnowledge(data);
+    getStore(res).setKnowledge(data);
     ok(res, { type: 'dynamic', intent });
     return;
   }
@@ -79,7 +78,7 @@ router.put('/knowledge/:intent', (req: Request, res: Response) => {
   if (req.body.imageUrl !== undefined) {
     (entry as any).imageUrl = req.body.imageUrl || undefined;
   }
-  configStore.setKnowledge(data);
+  getStore(res).setKnowledge(data);
   ok(res, { type: 'static', intent, entry });
 });
 
@@ -115,7 +114,7 @@ router.get('/uploads/:filename', (req: Request, res: Response) => {
 
 router.delete('/knowledge/:intent', (req: Request, res: Response) => {
   const { intent } = req.params;
-  const data = configStore.getKnowledge();
+  const data = getStore(res).getKnowledge();
 
   if (req.query.dynamic === 'true') {
     const key = intent.toLowerCase();
@@ -124,7 +123,7 @@ router.delete('/knowledge/:intent', (req: Request, res: Response) => {
       return;
     }
     delete data.dynamic[key];
-    configStore.setKnowledge(data);
+    getStore(res).setKnowledge(data);
     ok(res, { type: 'dynamic', deleted: intent });
     return;
   }
@@ -135,7 +134,7 @@ router.delete('/knowledge/:intent', (req: Request, res: Response) => {
     return;
   }
   data.static.splice(idx, 1);
-  configStore.setKnowledge(data);
+  getStore(res).setKnowledge(data);
   ok(res, { type: 'static', deleted: intent });
 });
 

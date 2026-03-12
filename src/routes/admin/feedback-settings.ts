@@ -3,8 +3,7 @@ import type { Request, Response } from 'express';
 import { db, dbReady } from '../../lib/db.js';
 import { appSettings, updateFeedbackSettingsSchema } from '../../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { configStore } from '../../assistant/config-store.js';
-import { badRequest, serverError } from './http-utils.js';
+import { badRequest, serverError, getStore } from './http-utils.js';
 
 const router = Router();
 
@@ -119,7 +118,7 @@ router.patch('/feedback/settings', async (req: Request, res: Response) => {
     console.log('[Feedback Settings] ✅ Updated settings');
 
     // Trigger hot-reload
-    configStore.emit('reload', 'feedback');
+    getStore(res).emit('reload', 'feedback');
 
     res.json({ success: true, message: 'Feedback settings updated' });
   } catch (error) {

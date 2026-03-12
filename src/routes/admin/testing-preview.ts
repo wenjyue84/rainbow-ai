@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { configStore } from '../../assistant/config-store.js';
 import { isAIAvailable, classifyAndRespond } from '../../assistant/ai-client.js';
 import { UNKNOWN_FALLBACK_MESSAGES } from '../../assistant/ai-response-generator.js';
 import { buildSystemPrompt, guessTopicFiles } from '../../assistant/knowledge-base.js';
-import { badRequest, serverError } from './http-utils.js';
+import { badRequest, serverError, getStore } from './http-utils.js';
 import { trackMessageReceived, trackIntentClassified, trackResponseSent } from '../../lib/activity-tracker.js';
 
 const router = Router();
@@ -177,7 +176,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       intentResult = await classifyMessage(sanitizedMessage, conversationHistory);
     }
 
-    const routingConfig = configStore.getRouting() || {};
+    const routingConfig = getStore(res).getRouting() || {};
     const route = routingConfig[intentResult.category];
 
     // Topic-escape: if user switches to a high-confidence static_reply intent while in a
@@ -248,7 +247,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       finalMessage = EMERGENCY_INITIAL_RESPONSE;
       console.log(`[Preview] 🚨 Direct emergency response (intent=${emergencyIntent}), bypassing workflow routing`);
     } else if (effectiveWorkflow) {
-      const workflowsData = configStore.getWorkflows() || { workflows: [] };
+      const workflowsData = getStore(res).getWorkflows() || { workflows: [] };
       const workflow = (workflowsData.workflows || []).find(w => w.id === effectiveWorkflow.workflowId);
       if (workflow && effectiveWorkflow.currentStepIndex < workflow.steps.length) {
         const step = workflow.steps[effectiveWorkflow.currentStepIndex];
@@ -312,7 +311,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       // Emergency context continuation — workflow state already cleaned up
       finalMessage = EMERGENCY_REASSURANCE;
     } else if (routedAction === 'static_reply') {
-      const knowledge = configStore.getKnowledge() || { static: [], dynamic: {} };
+      const knowledge = getStore(res).getKnowledge() || { static: [], dynamic: {} };
       const staticEntry = (knowledge.static || []).find(e => e.intent === intentResult.category);
       const langKey = (intentResult.detectedLanguage === 'ms' || intentResult.detectedLanguage === 'zh')
         ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh'
@@ -325,7 +324,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
         problemOverride = true;
         if (isAIAvailable()) {
           topicFiles = guessTopicFiles(sanitizedMessage);
-          const systemPrompt = buildSystemPrompt(configStore.getSettings().system_prompt, topicFiles);
+          const systemPrompt = buildSystemPrompt(getStore(res).getSettings().system_prompt, topicFiles);
           const result = await classifyAndRespond(systemPrompt, conversationHistory, sanitizedMessage);
           finalMessage = result.response || staticText;
           llmModel = result.model || 'unknown';
@@ -345,7 +344,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       }
 
       // Check if this intent also has a System Message template
-      const templates = configStore.getTemplates() || {};
+      const templates = getStore(res).getTemplates() || {};
       const tmpl = templates[intentResult.category];
       if (tmpl && editMeta) {
         editMeta.alsoTemplate = {
@@ -358,7 +357,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       // Workflow routing — show the first step message
       const workflowId = route?.workflow_id;
       if (workflowId) {
-        const workflowsData = configStore.getWorkflows() || { workflows: [] };
+        const workflowsData = getStore(res).getWorkflows() || { workflows: [] };
         const workflow = (workflowsData.workflows || []).find(w => w.id === workflowId);
         if (workflow && workflow.steps.length > 0) {
           // Show all non-waitForReply intro messages, then the first waitForReply step
@@ -401,7 +400,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       if (!finalMessage) {
         if (isAIAvailable()) {
           topicFiles = guessTopicFiles(sanitizedMessage);
-          const systemPrompt = buildSystemPrompt(configStore.getSettings().system_prompt, topicFiles);
+          const systemPrompt = buildSystemPrompt(getStore(res).getSettings().system_prompt, topicFiles);
           const result = await classifyAndRespond(systemPrompt, conversationHistory, sanitizedMessage);
           finalMessage = result.response;
           llmModel = result.model || 'unknown';
@@ -413,7 +412,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
 
     } else if (isAIAvailable()) {
       topicFiles = guessTopicFiles(sanitizedMessage);
-      const systemPrompt = buildSystemPrompt(configStore.getSettings().system_prompt, topicFiles);
+      const systemPrompt = buildSystemPrompt(getStore(res).getSettings().system_prompt, topicFiles);
       const result = await classifyAndRespond(systemPrompt, conversationHistory, sanitizedMessage);
       finalMessage = result.response;
       llmModel = result.model || 'unknown';
@@ -436,7 +435,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
     // Analyze consecutive negative user messages from history + current message.
     // Stateless: counts from the history array each time (no shared state crosstalk).
     if (sentimentScore === 'negative' && isSentimentAnalysisEnabled()) {
-      const settings = configStore.getSettings();
+      const settings = getStore(res).getSettings();
       const threshold = settings.sentiment_analysis?.consecutive_threshold ?? 2;
 
       // Count consecutive negative user messages: current (1) + history backwards
@@ -468,7 +467,7 @@ router.post('/preview/chat', async (req: Request, res: Response) => {
       aiResponse: number;
     } | null = null;
     if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
-      const settings = configStore.getSettings();
+      const settings = getStore(res).getSettings();
       const basePromptChars = (settings.system_prompt || '').length;
       const kbChars = topicFiles.length > 0 ? topicFiles.length * 800 : 0; // rough estimate per KB file
       const histChars = conversationHistory.reduce((s, m) => s + m.content.length, 0);
