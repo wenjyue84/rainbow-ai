@@ -580,3 +580,27 @@ This user story is for a **Node.js/TypeScript** application, not a Frappe/Python
 *   **Failure States:** A failure in any single health check (e.g., a timeout) should not crash the endpoint but instead report that component as 'down' or 'error'.
 *   **Metric Accuracy:** The rolling 5-minute error count in the HTTP client must be implemented efficiently (e.g., using a timestamped array/queue that gets filtered) to avoid performance issues.
 
+
+## Iteration 13 - Story: US-203 - Create integration health dashboard API endpoint
+### What was implemented
+- Created `src/routes/admin/integration-health.ts` with GET `/integration-health` endpoint
+- Added lightweight request tracker to `src/lib/http-client.ts` — tracks lastSuccessAt, lastErrorAt, rolling 5-min error count, avg response time (last 20 requests), total requests
+- Exported `getRequestStats()` from http-client.ts for the health endpoint
+- Registered integration-health route in `src/routes/admin/index.ts`
+- Health endpoint gathers data concurrently from 4 sources:
+  - **DIGIMAN API**: circuit breaker state + request tracker stats
+  - **AI providers**: circuit breaker registry (`getAllStatuses()`)
+  - **WhatsApp**: `whatsappManager.getAllStatuses()` with per-instance detail
+  - **Database**: live `SELECT 1` ping with latency measurement
+- Overall status derived: `healthy` / `degraded` (any degraded) / `down` (any down)
+- Each integration returns: name, status, lastSuccessAt, lastErrorAt, errorCount5m, circuitState, avgResponseMs, details
+### Patterns discovered
+- `whatsappManager.getAllStatuses()` returns full instance status including state, user, lastConnectedAt
+- Circuit breaker registry includes `digiman-api` entry — health endpoint filters it to avoid duplication
+- `pool.query('SELECT 1')` is sufficient for DB health check — fast and non-blocking
+### Gotchas
+- Request tracker uses simple array for response times and errors — O(n) prune on each call but n is bounded (max 20 response times, errors auto-prune to 5-min window)
+
+## Iteration 3 - Thu, Mar 12, 2026  9:55:00 PM
+Completed: Create integration health dashboard API endpoint (ID: US-203) in 5m
+
