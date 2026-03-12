@@ -707,3 +707,51 @@ This task is for a TypeScript/Node.js environment. The core goal is to make the 
 - data-makan/ directory mirrors data/ structure but has cafe-specific customizations
 ### Gotchas
 - prd.json uses unicode characters (emojis) — always open with encoding='utf-8' on Windows
+## Iteration 1 - Fri, Mar 13, 2026 12:17:47 AM
+Incomplete: Profile-aware intent-manager routes: T1 regex and T4 LLM settings (ID: US-301) — attempt 1/3
+
+
+## Pre-analysis for US-301 (Gemini 2.5 Pro)
+This user story describes a change to a TypeScript/Node.js backend, not a Frappe/Python app. Here is the technical brief based on the provided JSON:
+
+**Technical Brief: US-301 - Profile-Aware Intent Manager**
+
+**1. Primary File to Modify:**
+*   `src/routes/admin/intent-manager.ts`
+
+**2. Key Components & Modules:**
+*   **Profile Registry:** Import `profileRegistry` from `../../assistant/profile-registry.js` to resolve profile IDs.
+*   **HTTP Header:** The `x-profile-id` request header is the source of the profile context.
+*   **Configuration:** Each profile has a `dataDir` property in its configuration, which points to its specific data directory (e.g., `data-makan/`).
+
+**3. Implementation Approach:**
+*   Create a `getProfileDataDir(req: Request)` helper function inside `intent-manager.ts`.
+*   This function reads `req.headers['x-profile-id']`, looks up the profile via `profileRegistry.getProfile(id)`, and returns the profile's `dataDir`.
+*   It must gracefully fall back to the default `DATA_DIR` constant if the header or profile is not found.
+*   Refactor all specified GET, PUT, and POST routes (`/regex`, `/llm-settings`, `/stats`, etc.) to use this helper for constructing file paths instead of using hardcoded paths.
+*   Paths to files like `settings.json` and `llm-settings.json` must be built dynamically in each route handler (e.g., `join(getProfileDataDir(req), 'llm-settings.json')`).
+
+**4. Edge Cases & Gotchas:**
+*   The `getProfileDataDir` helper must handle both undefined headers and unresolved profile IDs by returning the default data directory.
+*   The `PUT /intent-manager/regex` route requires a special local-first fallback: if the primary proxy write fails, it must attempt to write the file to the profile-specific directory using `atomicWriteJSON`, wrapped in its own `try/catch` block.
+
+
+## Iteration 2 - Story: US-301 - Profile-aware intent-manager routes: T1 regex and T4 LLM settings
+### What was implemented
+- Added `import { profileRegistry } from '../../assistant/profile-registry.js'` to intent-manager.ts
+- Added `getProfileDataDir(req: Request): string` helper after constants — reads `x-profile-id` header, resolves via `profileRegistry.getProfile(id)`, returns `profile.config.dataDir` or falls back to `DATA_DIR`
+- Updated `GET /intent-manager/stats` fallback: uses `getProfileDataDir(req)` for intent-keywords.json and intent-examples.json reads (changed `_req` to `req`)
+- Updated `GET /intent-manager/regex` fallback: uses `getProfileDataDir(req)` for regex-patterns.json reads (both empty-array fallback and error fallback)
+- Updated `PUT /intent-manager/regex`: added local-first fallback that writes to `getProfileDataDir(req)/regex-patterns.json` via `atomicWriteJSON` when :5000 proxy fails
+- Updated `GET /intent-manager/llm-settings/available-providers`: changed from constant `SETTINGS_PATH` to dynamic `join(getProfileDataDir(req), 'settings.json')`
+- Updated `GET /intent-manager/llm-settings`: changed from `LLM_SETTINGS_PATH` to `join(getProfileDataDir(req), 'llm-settings.json')`
+- Updated `PUT /intent-manager/llm-settings`: changed write path to `join(getProfileDataDir(req), 'llm-settings.json')`
+- Updated `POST /intent-manager/apply-template`: uses `llmSettingsPath = join(getProfileDataDir(req), 'llm-settings.json')` for both read and write
+### Patterns discovered
+- profileRegistry uses named export `export const profileRegistry` (not default) — import with `{ profileRegistry }`
+- `LLM_SETTINGS_PATH` and `SETTINGS_PATH` constants kept but routes now compute paths dynamically
+### Gotchas
+- Previous attempt (iteration 1) left this story incomplete — this iteration completed it successfully
+- Build passes (esbuild) despite pre-existing tsc type errors
+## Iteration 2 - Fri, Mar 13, 2026
+Completed: Profile-aware intent-manager routes: T1 regex and T4 LLM settings (ID: US-301)

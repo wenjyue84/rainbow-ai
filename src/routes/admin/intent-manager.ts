@@ -6,10 +6,20 @@ import { join } from 'path';
 import { getIntentConfig, updateIntentConfig, getIntentTiersFilePath } from '../../assistant/intent-config.js';
 import { badRequest, serverError, getStore } from './http-utils.js';
 import { atomicWriteJSON } from './file-utils.js';
+import { profileRegistry } from '../../assistant/profile-registry.js';
 
 const DATA_DIR = join(process.cwd(), 'src', 'assistant', 'data');
 const LLM_SETTINGS_PATH = join(DATA_DIR, 'llm-settings.json');
 const SETTINGS_PATH = join(DATA_DIR, 'settings.json');
+
+function getProfileDataDir(req: Request): string {
+  const profileId = req.headers['x-profile-id'] as string | undefined;
+  if (profileId) {
+    const profile = profileRegistry.getProfile(profileId);
+    if (profile) return profile.config.dataDir;
+  }
+  return DATA_DIR;
+}
 
 const router = Router();
 
@@ -70,16 +80,17 @@ router.post('/intent-manager/test', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/intent-manager/stats', async (_req: Request, res: Response) => {
+router.get('/intent-manager/stats', async (req: Request, res: Response) => {
   try {
     const response = await axios.get('http://localhost:5000/api/intent-manager/stats');
     res.json(response.data);
   } catch (_e: any) {
     // Fallback: compute stats from Rainbow's local data so dashboard works without backend (5000)
     try {
+      const dataDir = getProfileDataDir(req);
       const [kwRaw, exRaw] = await Promise.all([
-        readFile(join(DATA_DIR, 'intent-keywords.json'), 'utf-8'),
-        readFile(join(DATA_DIR, 'intent-examples.json'), 'utf-8')
+        readFile(join(dataDir, 'intent-keywords.json'), 'utf-8'),
+        readFile(join(dataDir, 'intent-examples.json'), 'utf-8')
       ]);
       const keywordsData = JSON.parse(kwRaw) as { intents: Array<{ intent: string; keywords: Record<string, string[]> }> };
       const examplesData = JSON.parse(exRaw) as { intents: Array<{ intent: string; examples: Record<string, string[]> | string[] }> };
@@ -118,14 +129,14 @@ router.get('/intent-manager/export', async (req: Request, res: Response) => {
 
 // ─── T1: Regex Patterns ─────────────────────────────────────────────
 
-router.get('/intent-manager/regex', async (_req: Request, res: Response) => {
+router.get('/intent-manager/regex', async (req: Request, res: Response) => {
   try {
     const response = await axios.get('http://localhost:5000/api/intent-manager/regex');
     const data = response.data;
     // If backend returned empty array, fall back to local preset file so dashboard shows presets
     if (Array.isArray(data) && data.length === 0) {
       try {
-        const raw = await readFile(join(DATA_DIR, 'regex-patterns.json'), 'utf-8');
+        const raw = await readFile(join(getProfileDataDir(req), 'regex-patterns.json'), 'utf-8');
         const local = JSON.parse(raw);
         if (Array.isArray(local) && local.length > 0) return res.json(local);
       } catch (_) { /* ignore */ }
@@ -134,7 +145,7 @@ router.get('/intent-manager/regex', async (_req: Request, res: Response) => {
   } catch (e: any) {
     // Fallback: read from Rainbow's local data so dashboard works without backend (5000)
     try {
-      const raw = await readFile(join(DATA_DIR, 'regex-patterns.json'), 'utf-8');
+      const raw = await readFile(join(getProfileDataDir(req), 'regex-patterns.json'), 'utf-8');
       res.json(JSON.parse(raw));
     } catch (err: any) {
       res.status(e.response?.status || 500).json({ error: e.message });
@@ -146,8 +157,15 @@ router.put('/intent-manager/regex', async (req: Request, res: Response) => {
   try {
     const response = await axios.put('http://localhost:5000/api/intent-manager/regex', req.body);
     res.json(response.data);
-  } catch (e: any) {
-    res.status(e.response?.status || 500).json({ error: e.message });
+  } catch (_e: any) {
+    // Local-first fallback: write to profile-specific regex-patterns.json
+    try {
+      const regexPath = join(getProfileDataDir(req), 'regex-patterns.json');
+      await atomicWriteJSON(regexPath, req.body);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to save regex patterns' });
+    }
   }
 });
 
@@ -167,9 +185,9 @@ const defaultLLMSettings = {
 };
 
 // Local-first: always read from RainbowAI data so Understanding tab works without port 5000 and save never fails due to proxy
-router.get('/intent-manager/llm-settings/available-providers', async (_req: Request, res: Response) => {
+router.get('/intent-manager/llm-settings/available-providers', async (req: Request, res: Response) => {
   try {
-    const raw = await readFile(SETTINGS_PATH, 'utf-8');
+    const raw = await readFile(join(getProfileDataDir(req), 'settings.json'), 'utf-8');
     const settings = JSON.parse(raw);
     const providers = (settings.ai?.providers || []).map((p: any) => ({
       id: p.id,
@@ -218,9 +236,9 @@ router.put('/intent-manager/tiers', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/intent-manager/llm-settings', async (_req: Request, res: Response) => {
+router.get('/intent-manager/llm-settings', async (req: Request, res: Response) => {
   try {
-    const raw = await readFile(LLM_SETTINGS_PATH, 'utf-8');
+    const raw = await readFile(join(getProfileDataDir(req), 'llm-settings.json'), 'utf-8');
     res.json(JSON.parse(raw));
   } catch (err: any) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -277,7 +295,7 @@ router.put('/intent-manager/llm-settings', async (req: Request, res: Response) =
     }
   }
   try {
-    await atomicWriteJSON(LLM_SETTINGS_PATH, settings);
+    await atomicWriteJSON(join(getProfileDataDir(req), 'llm-settings.json'), settings);
     res.json({ success: true, settings });
   } catch (err: any) {
     serverError(res, err?.message || 'Failed to save LLM settings');
@@ -341,9 +359,10 @@ router.post('/intent-manager/apply-template', async (req: Request, res: Response
 
     // Apply LLM settings from template (defaultProviderId, thresholds, maxTokens, temperature)
     if (config.llm && typeof config.llm === 'object') {
+      const llmSettingsPath = join(getProfileDataDir(req), 'llm-settings.json');
       let current: Record<string, unknown>;
       try {
-        const raw = await readFile(LLM_SETTINGS_PATH, 'utf-8');
+        const raw = await readFile(llmSettingsPath, 'utf-8');
         current = JSON.parse(raw) as Record<string, unknown>;
       } catch {
         current = { ...defaultLLMSettings };
@@ -364,7 +383,7 @@ router.post('/intent-manager/apply-template', async (req: Request, res: Response
       }
       if (typeof config.llm.maxTokens === 'number') current.maxTokens = config.llm.maxTokens;
       if (typeof config.llm.temperature === 'number') current.temperature = config.llm.temperature;
-      await atomicWriteJSON(LLM_SETTINGS_PATH, current);
+      await atomicWriteJSON(llmSettingsPath, current);
       // Sync master classifyProvider in settings.json so T4 and Settings stay aligned
       if (config.llm.defaultProviderId && typeof config.llm.defaultProviderId === 'string') {
         const settings = getStore(res).getSettings();
