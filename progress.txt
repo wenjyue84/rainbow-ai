@@ -449,3 +449,49 @@ Completed: Update deploy.sh to include all profile KB and data directories (ID: 
 ## Iteration 4 - Thu, Mar 12, 2026 11:18:00 AM
 Completed: Add unit tests for profile resolution and multi-profile pipeline (ID: US-104) in 4m
 
+
+## Pre-analysis for US-201 (Gemini 2.5 Pro)
+The provided user story (US-201) is for a TypeScript project, not a Frappe/Python one. The request to prepare a brief for a Frappe/Python story seems incorrect. This technical brief is based on the actual JSON data provided, tailored for the TypeScript/Node.js environment.
+
+**Subject: Technical Brief for US-201: HTTP Retry Logic**
+
+*   **Primary File to Modify:**
+    *   `src/lib/http-client.ts`: This file contains the `callAPI` function that requires modification.
+
+*   **Key Modules & Interfaces (Not Frappe DocTypes):**
+    *   The `callAPI` function signature must be updated to accept an `options` object to control retry behavior (e.g., `options?: { retry?: boolean, maxRetries?: number }`).
+    *   The logic will wrap the existing `axios` call within a new retry mechanism.
+
+*   **Recommended Implementation Approach:**
+    *   Implement the retry logic manually using a `for` loop to avoid a new dependency.
+    *   Inside the loop, use a `try/catch` block for the API call. Return on success.
+    *   In the `catch` block, inspect the error's status (`error.response.status`) or code (`error.code`).
+    *   If the error is non-retryable (400, 401, 404, etc.), re-throw immediately.
+    *   If retryable (5xx, 429, network error), calculate an exponential backoff delay with ~20% jitter and log a warning before awaiting the delay.
+    *   If the loop finishes without success, throw a final, enhanced error message.
+
+*   **Edge Cases & Gotchas:**
+    *   **Rate Limiting:** For a `429` status, the delay should respect the `Retry-After` header if it is present.
+    *   **Total Timeout:** The cumulative time of all attempts and delays must not exceed 45 seconds.
+    *   **Network vs. HTTP Errors:** The logic must differentiate between HTTP status errors (have `error.response`) and network errors (e.g., `ETIMEDOUT`, which do not).
+    *   **Opt-Out:** The entire retry feature must be disabled if `options.retry` is `false`.
+
+
+## Iteration 11 - Story: US-201 - Add HTTP retry with exponential backoff to http-client.ts
+### What was implemented
+- Added retry logic to `callAPI` in `src/lib/http-client.ts`
+- Retries up to 3 times on transient failures (429, 500, 502, 503, 504, network errors)
+- Exponential backoff: ~1s, ~2s, ~4s with ±20% jitter
+- Non-retryable status codes (400, 401, 403, 404, 409, 422) fail immediately
+- Respects Retry-After header for 429 responses
+- 45-second total timeout budget across all retries
+- Optional per-call override via `options` parameter: `{ retry?: boolean, maxRetries?: number, timeoutMs?: number }`
+- Each retry logs a warning via createModuleLogger('http-client')
+- Error messages include retry context: "API Error (after N attempts): ..."
+### Patterns discovered
+- http-client.ts had no logger import — added createModuleLogger from logger.js
+- callAPI signature extended with optional 4th parameter (backward compatible)
+- The existing apiClient axios instance has 30s timeout per-request; retry budget is separate at 45s total
+### Gotchas
+- The `AxiosError` type import is needed for proper retry-after header typing
+- jitter uses `Math.random()` for simplicity — not crypto-random but fine for backoff

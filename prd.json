@@ -1,20 +1,21 @@
 {
-  "productName": "Rainbow AI Multi-Profile",
+  "productName": "Rainbow AI Integration Hardening",
   "branchName": "main",
-  "overview": "Harden and complete the multi-profile system for Rainbow AI. Three properties (Pelangi Capsule Hostel, Southern Homestay, Makan Moments Cafe) each need independent configs, KB, admin dashboard, and WhatsApp routing. The ProfileRegistry, per-profile ConfigStore, KnowledgeBaseInstance, and profile switcher UI are implemented. Now: make all admin routes profile-aware, add tests, update deploy script, and ensure dashboard tabs reload correctly on profile switch.",
+  "overview": "Harden Rainbow AI's external system integrations (PMS2/DIGIMAN, fnb-online-ordering, future systems). Make integration easy for non-technical users, add fault tolerance with retry/circuit-breaker at HTTP layer, improve troubleshooting with clear diagnostics, and make connections robust with health monitoring. Currently: http-client.ts has zero retry, zero circuit-breaker, hardcoded 30s timeout, and cryptic error messages.",
   "goals": [
-    "All admin API routes return profile-specific data when x-profile-id header is sent",
-    "Dashboard profile switcher reloads all tab data on switch",
-    "Unit tests cover multi-profile config resolution and pipeline routing",
-    "deploy.sh includes all 3 KB directories and profile data directories",
-    "Intent manager, templates, knowledge-base, and testing routes are profile-aware"
+    "HTTP client retries transient failures automatically with exponential backoff",
+    "Circuit breaker prevents hammering a dead external API",
+    "Integration errors produce clear, actionable troubleshooting messages",
+    "Admin dashboard shows real-time health of all external connections",
+    "New integrations can be added with minimal configuration via IntegrationClient",
+    "Setup validator catches misconfigurations before they hit production"
   ],
   "userStories": [
     {
       "id": "US-001",
       "title": "Fix build script to use esbuild instead of tsc",
-      "priority": 1,
-      "description": "The current build script uses tsc which fails on 17 pre-existing type errors. Change to esbuild.",
+      "priority": 99,
+      "description": "Already done.",
       "acceptanceCriteria": [
         "npm run build succeeds"
       ],
@@ -24,177 +25,184 @@
       "passes": true
     },
     {
-      "id": "US-002",
-      "title": "Fix pre-existing TypeScript errors in default-configs.ts",
-      "priority": 2,
-      "description": "Fix Zod schema mismatches in default configs.",
-      "acceptanceCriteria": [
-        "tsc --noEmit has 0 errors in default-configs.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true
-    },
-    {
-      "id": "US-003",
-      "title": "Fix remaining TypeScript errors",
-      "priority": 3,
-      "description": "Fix remaining TS errors across conversations.ts, conversation-logger.ts, etc.",
-      "acceptanceCriteria": [
-        "npx tsc --noEmit produces 0 errors"
-      ],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-002"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": true
-    },
-    {
-      "id": "US-004",
-      "title": "Create standalone deploy.sh for Lightsail deployment",
-      "priority": 4,
-      "description": "Create deploy.sh that builds, packages, uploads, and deploys to Lightsail.",
-      "acceptanceCriteria": [
-        "deploy.sh exists and works"
-      ],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-001"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": true
-    },
-    {
-      "id": "US-005",
-      "title": "Create project CLAUDE.md with standalone architecture docs",
-      "priority": 5,
-      "description": "Document standalone architecture.",
-      "acceptanceCriteria": [
-        "CLAUDE.md exists at project root"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-META",
-      "title": "Re-run comparison loop: rainbow-ai vs digiman/RainbowAI",
-      "priority": 99,
-      "description": "Parity verification between rainbow-ai and digiman.",
-      "acceptanceCriteria": [
-        "Parity achieved"
-      ],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-001",
-        "US-002",
-        "US-003",
-        "US-004",
-        "US-005"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": true
-    },
-    {
-      "id": "US-101",
-      "title": "Make all remaining admin routes profile-aware",
+      "id": "US-201",
+      "title": "Add HTTP retry with exponential backoff to http-client.ts",
       "priority": 1,
-      "description": "Currently only config.ts uses getStore(res) for profile-aware config. The following admin route files still import the singleton configStore and need to be updated to use getStore(res) from http-utils.js: intent-manager.ts, kb-ai-operations.ts, kb-knowledge.ts, feedback-settings.ts, metrics.ts, prisma-bot.ts, testing-preview.ts, testing.ts. Each file should import getStore from http-utils.js and replace configStore.getX() calls with getStore(res).getX() so that when x-profile-id header is sent, the correct profile's config is returned.",
+      "description": "The current http-client.ts makes a single attempt to call the DIGIMAN API. If the network hiccups or the server returns 502/503, the request fails immediately. WhatsApp sending already has retry logic (send-retry.ts), but the HTTP client does not. Add automatic retry with exponential backoff for transient failures (network errors, 429, 500, 502, 503, 504). Non-retryable errors (400, 401, 403, 404, 409, 422) should fail immediately. This is the single highest-impact change for robustness.",
       "acceptanceCriteria": [
-        "intent-manager.ts uses getStore(res) instead of configStore singleton",
-        "kb-knowledge.ts uses getStore(res) instead of configStore singleton",
-        "testing.ts and testing-preview.ts use getStore(res) instead of configStore singleton",
-        "feedback-settings.ts uses getStore(res) instead of configStore singleton",
-        "metrics.ts uses getStore(res) instead of configStore singleton",
-        "All admin routes return profile-specific data when x-profile-id: southern header is sent",
+        "callAPI retries up to 3 times on transient failures (network error, 429, 500, 502, 503, 504)",
+        "Backoff is exponential: ~1s, ~2s, ~4s (with ±20% jitter to prevent thundering herd)",
+        "Non-retryable status codes (400, 401, 403, 404, 409, 422) fail immediately without retry",
+        "Each retry logs a warning with attempt number, error, and endpoint",
+        "Total timeout across all retries does not exceed 45 seconds",
+        "Retry behavior can be disabled per-call via options parameter",
         "npm run build succeeds",
-        "All existing tests still pass"
+        "Existing tests still pass"
       ],
       "technicalNotes": [
-        "Pattern: replace `import { configStore } from '../../assistant/config-store.js'` with `import { getStore } from './http-utils.js'`",
-        "Then replace `configStore.getX()` with `getStore(res).getX()` in route handlers",
-        "The getStore(res) function is already in src/routes/admin/http-utils.ts",
-        "Profile middleware in index.ts already sets res.locals.profileConfigStore",
-        "Keep type imports from config-store.ts unchanged (only replace value imports)",
-        "Files to update: intent-manager.ts, kb-ai-operations.ts, kb-knowledge.ts, feedback-settings.ts, metrics.ts, prisma-bot.ts, testing-preview.ts, testing.ts"
+        "File to modify: src/lib/http-client.ts",
+        "Pattern: Use axios-retry or implement manually (prefer manual to avoid new dependency)",
+        "Add retry options to callAPI signature: callAPI<T>(method, path, data?, options?: { retry?: boolean, maxRetries?: number, timeoutMs?: number })",
+        "Retryable status codes: 429, 500, 502, 503, 504, ECONNRESET, ECONNREFUSED, ETIMEDOUT, EPIPE",
+        "For 429 (rate limit): respect Retry-After header if present",
+        "Keep the existing error message format but enhance with retry context: 'API Error (after 3 retries): ...'",
+        "Log format: [HTTP] Retry {attempt}/{max} for {method} {path}: {error} (next in {delay}ms)"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
     },
     {
-      "id": "US-102",
-      "title": "Dashboard profile switcher triggers full data reload",
+      "id": "US-202",
+      "title": "Add circuit breaker for DIGIMAN API calls",
       "priority": 2,
-      "description": "When the user switches profiles in the dashboard dropdown, all cached data must be cleared and the active tab must reload with the new profile's data. Currently profile-switcher.js calls reloadCurrentTab() but there is no such function. Need to: (1) clear window.cacheManager on switch, (2) reset cached global vars (cachedRouting, cachedSettings, etc.), (3) call loadTab() for the active tab to refetch all data, (4) update the page title or subtitle to show the active property name.",
+      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout — multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts — do NOT create a new one.",
       "acceptanceCriteria": [
-        "Switching profiles clears cacheManager cache",
-        "Switching profiles resets cachedRouting, cachedKnowledge, cachedWorkflows, cachedSettings, cachedIntentNames globals",
-        "Active tab reloads with new profile's data after switch",
-        "Dashboard tab shows correct property name after switch",
-        "No stale data from previous profile visible after switch"
+        "A CircuitBreaker instance wraps DIGIMAN API calls in http-client.ts",
+        "After 5 consecutive failures, circuit opens and fast-fails for 60 seconds",
+        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN — API appears down, skipping call to {path}. Will retry after cooldown.'",
+        "After 60s cooldown, one test request is allowed (HALF_OPEN state)",
+        "Success in HALF_OPEN closes the circuit (normal operation resumes)",
+        "Circuit breaker status is exposed via getDigimanCircuitStatus() export",
+        "npm run build succeeds",
+        "Existing tests still pass"
       ],
       "technicalNotes": [
-        "profile-switcher.js is at src/public/js/core/profile-switcher.js",
-        "Global state vars are in src/public/js/core/state.js: cachedRouting, cachedKnowledge, cachedWorkflows, cachedSettings, cachedIntentNames",
-        "cacheManager is at window.cacheManager with a .clear() method (check cache-manager.js)",
-        "Tab loading: window.loadTab(tabName) is in src/public/js/core/tabs.js",
-        "Active tab detection: document.querySelector('.sidebar-item.active') or similar",
-        "The loadTab function already refetches data from API, so clearing cache + calling loadTab is sufficient"
+        "File to modify: src/lib/http-client.ts",
+        "Import CircuitBreaker from '../assistant/circuit-breaker.js' — reuse existing class",
+        "Create a module-level instance: const digimanCircuit = new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60000 })",
+        "In callAPI: check digimanCircuit.isOpen() BEFORE making the request. If open, throw immediately.",
+        "On success: call digimanCircuit.recordSuccess()",
+        "On retryable failure (after all retries exhausted): call digimanCircuit.recordFailure()",
+        "On non-retryable failure (4xx): do NOT record as circuit breaker failure (those are client errors, not server issues)",
+        "Export function getDigimanCircuitStatus() that returns digimanCircuit.getStatus()",
+        "This integrates with US-201 retry — circuit breaker wraps the retry loop"
       ],
-      "dependencies": [],
+      "dependencies": [
+        "US-201"
+      ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
-      "id": "US-103",
-      "title": "Update deploy.sh to include all profile KB and data directories",
+      "id": "US-203",
+      "title": "Create integration health dashboard API endpoint",
       "priority": 3,
-      "description": "deploy.sh currently packages .rainbow-kb/ and .rainbow-kb-southern/ but is missing .rainbow-kb-makan/ and profiles.json. Update deploy.sh to include all 3 KB directories and the profiles.json config file in the deployment tarball.",
+      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string — we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
       "acceptanceCriteria": [
-        "deploy.sh packages .rainbow-kb-makan/ in the tarball",
-        "deploy.sh packages profiles.json in the tarball",
-        "deploy.sh packages all three .rainbow-kb*/ directories",
-        "Build script already copies data-southern/ and data-makan/ to dist/ (verified)"
+        "GET /api/admin/integration-health returns JSON with health of all integrations",
+        "Response includes: digiman API status (healthy/degraded/down), circuit breaker state, last successful call timestamp, error count in last 5 minutes, average response time",
+        "Response includes: AI provider status for each configured provider (from circuit breaker registry)",
+        "Response includes: WhatsApp connection status (connected/disconnected)",
+        "Response includes: Database connection status (connected/error)",
+        "Each integration shows: name, status, lastSuccessAt, lastErrorAt, errorCount5m, circuitState, avgResponseMs",
+        "npm run build succeeds"
       ],
       "technicalNotes": [
-        "deploy.sh is at project root",
-        "Current tar command likely only includes .rainbow-kb/ and .rainbow-kb-southern/",
-        "Add .rainbow-kb-makan/ and profiles.json to the tar command",
-        "profiles.json must be at project root on the server for ProfileRegistry to find it"
+        "Create new file: src/routes/admin/integration-health.ts",
+        "Register in src/routes/admin/index.ts alongside other admin routes",
+        "For DIGIMAN: import getDigimanCircuitStatus from http-client.ts (from US-202), add request timing tracking",
+        "For AI providers: import circuitBreakerRegistry from circuit-breaker.ts, call getAllStatuses()",
+        "For WhatsApp: import connection status from baileys client (check src/lib/baileys-client.ts or similar)",
+        "For Database: simple SELECT 1 test query or check pool status",
+        "Add a lightweight request tracker to http-client.ts: track last success/error timestamps and rolling 5-min error count",
+        "Return format: { timestamp, overall: 'healthy'|'degraded'|'down', integrations: { digiman: {...}, ai: {...}, whatsapp: {...}, database: {...} } }"
       ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true
+      "dependencies": [
+        "US-202"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
     },
     {
-      "id": "US-104",
-      "title": "Add unit tests for profile resolution and multi-profile pipeline",
+      "id": "US-204",
+      "title": "Add integration setup validator and troubleshooting diagnostics",
       "priority": 4,
-      "description": "Add unit tests that verify: (1) ProfileRegistry resolves instanceIds to correct profiles, (2) unknown instanceIds fall back to default profile, (3) PipelineState gets correct profileId/profileConfig/profileKB from input-validator, (4) conversation keys are scoped by profileId. These tests ensure the multi-profile system works correctly and catches regressions.",
+      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature — instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
       "acceptanceCriteria": [
-        "Test file exists at src/assistant/__tests__/profile-registry.test.ts",
-        "Tests cover: resolveProfile with known instanceId returns correct profile",
-        "Tests cover: resolveProfile with unknown instanceId returns default",
-        "Tests cover: conversation key scoping (phone only for pelangi, profileId:phone for others)",
-        "Tests cover: getStore(res) returns profile-specific ConfigStore when header is set",
-        "All new tests pass with npx vitest run",
-        "All existing 131 tests still pass"
+        "New module src/lib/integration-validator.ts exports validateIntegrations() function",
+        "Validates: DIGIMAN_API_URL is set and reachable, DIGIMAN_API_TOKEN is set and not expired, DATABASE_URL is set and connectable",
+        "Each check returns: { name, status: 'ok'|'warning'|'error', message, fix? }",
+        "Fix messages are plain English with numbered steps, not technical jargon",
+        "validateIntegrations() runs at server startup (non-blocking, logs results)",
+        "GET /api/admin/diagnostics endpoint triggers full validation and returns results",
+        "Diagnostics include system info: node version, memory usage, uptime, env vars (redacted)",
+        "npm run build succeeds"
       ],
       "technicalNotes": [
-        "ProfileRegistry is in src/assistant/profile-registry.ts - singleton exported as profileRegistry",
-        "Conversation key scoping is in src/assistant/conversation.ts - convoKey() function",
-        "getStore(res) is in src/routes/admin/http-utils.ts",
-        "Use vi.mock for DB calls since tests shouldn't hit real DB",
-        "Test pattern: create mock profiles.json, init registry, verify resolution",
-        "conversation.ts convoKey: 'pelangi' or empty returns plain phone; others return 'profileId:phone'"
+        "Create: src/lib/integration-validator.ts",
+        "Create: src/routes/admin/diagnostics.ts (register in admin/index.ts)",
+        "Validation checks in order: 1) env vars present, 2) URL format valid, 3) DNS resolves, 4) TCP connect, 5) HTTP health endpoint responds, 6) Auth token accepted",
+        "For DIGIMAN: try GET /api/health, if fails try GET /api/occupancy (some deployments don't have /health)",
+        "For Database: try a simple query via the existing db connection",
+        "Error-to-fix mapping examples:",
+        "  ECONNREFUSED → 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
+        "  401 Unauthorized → 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
+        "  ENOTFOUND → 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
+        "  ETIMEDOUT → 'Connection to {url} timed out. Check firewall rules and network connectivity'",
+        "Redact sensitive env vars: show first 4 + last 4 chars of tokens, full URLs",
+        "Call validateIntegrations() in src/index.ts after server starts (fire-and-forget)"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true
+      "passes": false
+    },
+    {
+      "id": "US-205",
+      "title": "Add configurable per-endpoint timeout and request tracking",
+      "priority": 5,
+      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s — 30s is too long to block a WhatsApp conversation.",
+      "acceptanceCriteria": [
+        "Default timeout reduced from 30000ms to 15000ms",
+        "callAPI options parameter supports timeoutMs override: callAPI('GET', '/path', null, { timeoutMs: 5000 })",
+        "Request tracker records: last success timestamp, last error timestamp, rolling error count (5-min window), average response time (last 20 requests)",
+        "Request tracker exported via getRequestStats() function",
+        "Error messages include timing info: 'API Error (took 15.2s, timed out): ...'",
+        "npm run build succeeds",
+        "Existing tests still pass"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Add RequestTracker class (or simple object) at module level to track stats",
+        "Track: lastSuccessAt, lastErrorAt, recentErrors (array of {timestamp, path, error}), responseTimes (last 20)",
+        "In callAPI: record start time, on success record response time, on error record to tracker",
+        "Clean up recentErrors older than 5 minutes on each call (simple sliding window)",
+        "getRequestStats() returns: { lastSuccessAt, lastErrorAt, errorCount5m, avgResponseMs, totalRequests }",
+        "This data feeds into the health dashboard (US-203)"
+      ],
+      "dependencies": [
+        "US-201"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-206",
+      "title": "Enhance error messages with actionable troubleshooting hints",
+      "priority": 6,
+      "description": "Currently http-client.ts error messages say things like 'API Error: /api/units 503. Check DIGIMAN_API_URL'. This is not helpful for non-technical users. Enhance ALL error paths to include: what happened, why it might have happened, and what to do about it. Use a troubleshooting hint map that maps error codes/types to plain-English explanations. Also add a troubleshooting section to the admin dashboard.",
+      "acceptanceCriteria": [
+        "Error messages follow format: 'What: {description}. Why: {likely cause}. Fix: {action steps}'",
+        "Network errors (ECONNREFUSED, ETIMEDOUT, ENOTFOUND) produce specific troubleshooting hints",
+        "HTTP errors (401, 403, 404, 500, 502, 503) produce specific hints",
+        "Circuit breaker OPEN state produces a clear explanation and ETA for next retry",
+        "Admin WhatsApp notification on persistent failures (>3 consecutive) includes troubleshooting steps",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Create a troubleshootingHints map: Record<string, { why: string, fix: string }>",
+        "Map keys: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ECONNRESET, 401, 403, 404, 500, 502, 503, 504, CIRCUIT_OPEN",
+        "Example: ECONNREFUSED → { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
+        "Example: 503 → { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
+        "Example: CIRCUIT_OPEN → { why: 'Too many consecutive failures — circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
+        "Notification: import notifyAdminConfigError from admin-notifier.ts, send after 3+ consecutive failures"
+      ],
+      "dependencies": [
+        "US-202"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
     }
   ]
 }
