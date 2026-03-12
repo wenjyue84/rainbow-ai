@@ -26,7 +26,7 @@ export async function classifyAndRoute(
 ): Promise<void> {
   const { phone, processText, convo, lang, msg, devMetadata } = state;
 
-  const context = await createPipelineContext(ctx);
+  const context = await createPipelineContext(ctx, state.profileConfig, state.profileKB);
 
   // ─── Guard: AI availability ─────────────────────────────────────
   if (!context.isAIAvailable()) {

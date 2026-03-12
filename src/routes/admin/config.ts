@@ -1,19 +1,18 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { configStore } from '../../assistant/config-store.js';
 import { circuitBreakerRegistry } from '../../assistant/circuit-breaker.js';
 import { rateLimitManager } from '../../assistant/rate-limit-manager.js';
 import type { IntentEntry, RoutingAction, RoutingData, WorkflowDefinition, AIProvider } from '../../assistant/config-store.js';
 import { updateRoutingRequestSchema, updateSingleRouteRequestSchema } from '../../assistant/schemas.js';
 import { deepMerge } from './utils.js';
-import { ok, badRequest, notFound, conflict, serverError } from './http-utils.js';
+import { ok, badRequest, notFound, conflict, serverError, getStore } from './http-utils.js';
 
 const router = Router();
 
 // ─── Routing ────────────────────────────────────────────────────────
 
 router.get('/routing', (_req: Request, res: Response) => {
-  res.json(configStore.getRouting());
+  res.json(getStore(res).getRouting());
 });
 
 router.put('/routing', (req: Request, res: Response) => {
@@ -22,7 +21,7 @@ router.put('/routing', (req: Request, res: Response) => {
     badRequest(res, result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
     return;
   }
-  configStore.setRouting(result.data as RoutingData);
+  getStore(res).setRouting(result.data as RoutingData);
   ok(res, { routing: result.data });
 });
 
@@ -33,16 +32,16 @@ router.patch('/routing/:intent', (req: Request, res: Response) => {
     badRequest(res, result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
     return;
   }
-  const data = { ...configStore.getRouting() };
+  const data = { ...getStore(res).getRouting() };
   data[intent] = result.data;
-  configStore.setRouting(data);
+  getStore(res).setRouting(data);
   ok(res, { intent, ...result.data });
 });
 
 // ─── Intents (Skills) ───────────────────────────────────────────────
 
 router.get('/intents', (_req: Request, res: Response) => {
-  res.json(configStore.getIntents());
+  res.json(getStore(res).getIntents());
 });
 
 router.post('/intents', (req: Request, res: Response) => {
@@ -51,7 +50,7 @@ router.post('/intents', (req: Request, res: Response) => {
     badRequest(res, 'category and patterns[] required');
     return;
   }
-  const data = configStore.getIntents();
+  const data = getStore(res).getIntents();
   const exists = data.categories.find((c: any) => c.category === category);
   if (exists) {
     conflict(res, `Category "${category}" already exists. Use PUT to update.`);
@@ -65,13 +64,13 @@ router.post('/intents', (req: Request, res: Response) => {
     ...(time_sensitive !== undefined && { time_sensitive: Boolean(time_sensitive) })
   };
   data.categories.push(entry);
-  configStore.setIntents(data);
+  getStore(res).setIntents(data);
   ok(res, { category, entry });
 });
 
 router.put('/intents/:category', (req: Request, res: Response) => {
   const { category } = req.params;
-  const data = configStore.getIntents();
+  const data = getStore(res).getIntents();
   // Search through nested phases → intents structure
   let entry: IntentEntry | undefined;
   for (const phase of data.categories as any[]) {
@@ -105,13 +104,13 @@ router.put('/intents/:category', (req: Request, res: Response) => {
     }
   }
 
-  configStore.setIntents(data);
+  getStore(res).setIntents(data);
   ok(res, { category, entry });
 });
 
 router.delete('/intents/:category', (req: Request, res: Response) => {
   const { category } = req.params;
-  const data = configStore.getIntents();
+  const data = getStore(res).getIntents();
   // Search through nested phases → intents structure
   let found = false;
   for (const phase of data.categories as any[]) {
@@ -127,14 +126,14 @@ router.delete('/intents/:category', (req: Request, res: Response) => {
     notFound(res, `Category "${category}"`);
     return;
   }
-  configStore.setIntents(data);
+  getStore(res).setIntents(data);
   ok(res, { deleted: category });
 });
 
 // ─── Templates ──────────────────────────────────────────────────────
 
 router.get('/templates', (_req: Request, res: Response) => {
-  res.json(configStore.getTemplates());
+  res.json(getStore(res).getTemplates());
 });
 
 router.post('/templates', (req: Request, res: Response) => {
@@ -143,19 +142,19 @@ router.post('/templates', (req: Request, res: Response) => {
     badRequest(res, 'key and en required');
     return;
   }
-  const data = configStore.getTemplates();
+  const data = getStore(res).getTemplates();
   if (data[key]) {
     conflict(res, `Template "${key}" already exists. Use PUT to update.`);
     return;
   }
   data[key] = { en, ms: ms || '', zh: zh || '' };
-  configStore.setTemplates(data);
+  getStore(res).setTemplates(data);
   ok(res, { key });
 });
 
 router.put('/templates/:key', (req: Request, res: Response) => {
   const { key } = req.params;
-  const data = configStore.getTemplates();
+  const data = getStore(res).getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
     return;
@@ -163,26 +162,26 @@ router.put('/templates/:key', (req: Request, res: Response) => {
   if (req.body.en !== undefined) data[key].en = req.body.en;
   if (req.body.ms !== undefined) data[key].ms = req.body.ms;
   if (req.body.zh !== undefined) data[key].zh = req.body.zh;
-  configStore.setTemplates(data);
+  getStore(res).setTemplates(data);
   ok(res, { key, template: data[key] });
 });
 
 router.delete('/templates/:key', (req: Request, res: Response) => {
   const { key } = req.params;
-  const data = configStore.getTemplates();
+  const data = getStore(res).getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
     return;
   }
   delete data[key];
-  configStore.setTemplates(data);
+  getStore(res).setTemplates(data);
   ok(res, { deleted: key });
 });
 
 // ─── Settings ───────────────────────────────────────────────────────
 
 router.get('/settings', (_req: Request, res: Response) => {
-  const settings = JSON.parse(JSON.stringify(configStore.getSettings()));
+  const settings = JSON.parse(JSON.stringify(getStore(res).getSettings()));
 
   if (settings.ai && Array.isArray(settings.ai.providers)) {
     settings.ai.providers = settings.ai.providers.map((p: any) => ({
@@ -200,9 +199,9 @@ router.get('/settings', (_req: Request, res: Response) => {
 });
 
 router.patch('/settings', (req: Request, res: Response) => {
-  const current = configStore.getSettings();
+  const current = getStore(res).getSettings();
   const merged = deepMerge(current, req.body);
-  configStore.setSettings(merged);
+  getStore(res).setSettings(merged);
   ok(res, { settings: merged });
 });
 
@@ -214,9 +213,9 @@ router.put('/settings/providers', (req: Request, res: Response) => {
     badRequest(res, 'providers array required');
     return;
   }
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   settings.ai.providers = providers;
-  configStore.setSettings(settings);
+  getStore(res).setSettings(settings);
   ok(res, { providers: settings.ai.providers });
 });
 
@@ -231,7 +230,7 @@ router.post('/settings/providers', (req: Request, res: Response) => {
     badRequest(res, `type must be one of: ${validTypes.join(', ')}`);
     return;
   }
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   if (!settings.ai.providers) settings.ai.providers = [];
   if (settings.ai.providers.find(p => p.id === id)) {
     conflict(res, `Provider "${id}" already exists`);
@@ -251,13 +250,13 @@ router.post('/settings/providers', (req: Request, res: Response) => {
   if (api_key) newProvider.api_key = api_key;
   if (description) newProvider.description = description;
   settings.ai.providers.push(newProvider);
-  configStore.setSettings(settings);
+  getStore(res).setSettings(settings);
   ok(res, { provider: newProvider });
 });
 
 router.delete('/settings/providers/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   if (!settings.ai.providers) {
     notFound(res, `Provider "${id}"`);
     return;
@@ -268,13 +267,13 @@ router.delete('/settings/providers/:id', (req: Request, res: Response) => {
     return;
   }
   settings.ai.providers.splice(idx, 1);
-  configStore.setSettings(settings);
+  getStore(res).setSettings(settings);
   ok(res, { deleted: id });
 });
 
 router.patch('/settings/providers/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const settings = configStore.getSettings();
+  const settings = getStore(res).getSettings();
   if (!settings.ai.providers) {
     notFound(res, `Provider "${id}"`);
     return;
@@ -290,32 +289,32 @@ router.patch('/settings/providers/:id', (req: Request, res: Response) => {
   if (req.body.name !== undefined) provider.name = req.body.name;
   if (req.body.model !== undefined) provider.model = req.body.model;
 
-  configStore.setSettings(settings);
+  getStore(res).setSettings(settings);
   ok(res, { provider });
 });
 
 // ─── Workflow ───────────────────────────────────────────────────────
 
 router.get('/workflow', (_req: Request, res: Response) => {
-  res.json(configStore.getWorkflow());
+  res.json(getStore(res).getWorkflow());
 });
 
 router.patch('/workflow', (req: Request, res: Response) => {
-  const current = configStore.getWorkflow();
+  const current = getStore(res).getWorkflow();
   const merged = deepMerge(current, req.body);
-  configStore.setWorkflow(merged);
+  getStore(res).setWorkflow(merged);
   ok(res, { workflow: merged });
 });
 
 // ─── Workflows (Step Definitions) ────────────────────────────────
 
 router.get('/workflows', (_req: Request, res: Response) => {
-  res.json(configStore.getWorkflows());
+  res.json(getStore(res).getWorkflows());
 });
 
 router.get('/workflows/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = configStore.getWorkflows();
+  const data = getStore(res).getWorkflows();
   const wf = data.workflows.find(w => w.id === id);
   if (!wf) {
     notFound(res, `Workflow "${id}"`);
@@ -330,7 +329,7 @@ router.post('/workflows', (req: Request, res: Response) => {
     badRequest(res, 'id and name required');
     return;
   }
-  const data = configStore.getWorkflows();
+  const data = getStore(res).getWorkflows();
   if (data.workflows.find(w => w.id === id)) {
     conflict(res, `Workflow "${id}" already exists`);
     return;
@@ -345,13 +344,13 @@ router.post('/workflows', (req: Request, res: Response) => {
   if (req.body.nodes) newWf.nodes = req.body.nodes;
   if (req.body.startNodeId) newWf.startNodeId = req.body.startNodeId;
   data.workflows.push(newWf);
-  configStore.setWorkflows(data);
+  getStore(res).setWorkflows(data);
   ok(res, { workflow: newWf });
 });
 
 router.put('/workflows/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = configStore.getWorkflows();
+  const data = getStore(res).getWorkflows();
   const idx = data.workflows.findIndex(w => w.id === id);
   if (idx === -1) {
     notFound(res, `Workflow "${id}"`);
@@ -363,7 +362,7 @@ router.put('/workflows/:id', (req: Request, res: Response) => {
   if (req.body.format !== undefined) (data.workflows[idx] as any).format = req.body.format;
   if (req.body.nodes !== undefined) (data.workflows[idx] as any).nodes = req.body.nodes;
   if (req.body.startNodeId !== undefined) (data.workflows[idx] as any).startNodeId = req.body.startNodeId;
-  configStore.setWorkflows(data);
+  getStore(res).setWorkflows(data);
   ok(res, { workflow: data.workflows[idx] });
 });
 
@@ -375,7 +374,7 @@ router.patch('/workflows/:id/steps/:stepId', (req: Request, res: Response) => {
     badRequest(res, 'message object with en/ms/zh required');
     return;
   }
-  const data = configStore.getWorkflows();
+  const data = getStore(res).getWorkflows();
   const workflow = data.workflows.find(w => w.id === id);
   if (!workflow) {
     notFound(res, `Workflow "${id}"`);
@@ -389,27 +388,27 @@ router.patch('/workflows/:id/steps/:stepId', (req: Request, res: Response) => {
   if (message.en !== undefined) step.message.en = message.en;
   if (message.ms !== undefined) step.message.ms = message.ms;
   if (message.zh !== undefined) step.message.zh = message.zh;
-  configStore.setWorkflows(data);
+  getStore(res).setWorkflows(data);
   ok(res, { workflowId: id, stepId, message: step.message });
 });
 
 router.delete('/workflows/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const routing = configStore.getRouting();
+  const routing = getStore(res).getRouting();
   const refs = Object.entries(routing).filter(([, cfg]) => cfg.action === 'workflow' && cfg.workflow_id === id);
   if (refs.length > 0) {
     const intentNames = refs.map(([intent]) => intent).join(', ');
     conflict(res, `Cannot delete: workflow "${id}" is referenced by intents: ${intentNames}`);
     return;
   }
-  const data = configStore.getWorkflows();
+  const data = getStore(res).getWorkflows();
   const idx = data.workflows.findIndex(w => w.id === id);
   if (idx === -1) {
     notFound(res, `Workflow "${id}"`);
     return;
   }
   data.workflows.splice(idx, 1);
-  configStore.setWorkflows(data);
+  getStore(res).setWorkflows(data);
   ok(res, { deleted: id });
 });
 

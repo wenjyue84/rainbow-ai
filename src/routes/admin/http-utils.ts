@@ -8,6 +8,8 @@
  */
 
 import type { Response } from 'express';
+import { configStore } from '../../assistant/config-store.js';
+import type { ConfigStore } from '../../assistant/config-store.js';
 
 // ─── Success Responses ──────────────────────────────────────────────
 
@@ -59,4 +61,15 @@ export function validateFilename(filename: string): string | null {
     return 'Invalid filename';
   }
   return null;
+}
+
+// ─── Profile-Aware ConfigStore ──────────────────────────────────────
+
+/**
+ * Get the ConfigStore for the current request.
+ * Returns profile-specific store if x-profile-id header was sent, else default.
+ * Must be used inside route handlers where profile middleware has run.
+ */
+export function getStore(res: Response): ConfigStore {
+  return (res.locals.profileConfigStore as ConfigStore) || configStore;
 }

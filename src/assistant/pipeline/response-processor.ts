@@ -8,7 +8,6 @@
  */
 import type { RouterContext, PipelineState } from './types.js';
 import { ensureResponseText, getConversationMode } from './input-validator.js';
-import { configStore } from '../config-store.js';
 import { getLLMSettings } from '../llm-settings-loader.js';
 import { addMessage } from '../conversation.js';
 import { isAIAvailable, translateText } from '../ai-client.js';
@@ -31,7 +30,7 @@ import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 export async function processAndSend(
   state: PipelineState, ctx: RouterContext
 ): Promise<void> {
-  const { requestId, phone, text, foreignLang, convo, lang, msg, diaryEvent, devMetadata } = state;
+  const { requestId, phone, text, foreignLang, convo, lang, msg, diaryEvent, devMetadata, profileConfig } = state;
   let response = state.response;
 
   // Catch-all fallback: if pipeline produced no response, use static fallback
@@ -110,7 +109,7 @@ export async function processAndSend(
   addMessage(phone, 'assistant', response);
 
   // ─── Mode dispatch: manual / copilot / autopilot ───────────────
-  const mode = getConversationMode(phone);
+  const mode = getConversationMode(phone, profileConfig);
 
   const logMeta = {
     requestId,
@@ -138,7 +137,7 @@ export async function processAndSend(
   }
 
   if (mode === 'copilot') {
-    const settings = configStore.getSettings();
+    const settings = profileConfig.getSettings();
     const copilotSettings = (settings as any).response_modes?.copilot;
 
     const shouldAutoApprove =

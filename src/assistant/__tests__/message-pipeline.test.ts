@@ -187,6 +187,18 @@ vi.mock('../knowledge-base.js', () => ({
   getTimeContext: vi.fn(() => 'Current time: 10:00 AM'),
   guessTopicFiles: vi.fn(() => ['pricing.md']),
   initKnowledgeBase: vi.fn(),
+  getDefaultKBInstance: vi.fn(() => ({
+    profileId: 'pelangi',
+    guessTopicFiles: vi.fn(() => ['pricing.md']),
+    buildSystemPrompt: vi.fn(() => 'System prompt'),
+  })),
+}));
+
+vi.mock('../profile-registry.js', () => ({
+  profileRegistry: {
+    isInitialized: vi.fn(() => false),
+    resolveProfile: vi.fn(),
+  },
 }));
 
 // Mock intents

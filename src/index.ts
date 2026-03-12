@@ -24,6 +24,7 @@ import adminRoutes from './routes/admin/index.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
+import { profileRegistry } from './assistant/profile-registry.js';
 import { initKnowledgeBase, initKBFromDB } from './assistant/knowledge-base.js';
 import { initUnitCache } from './lib/unit-cache.js';
 import { initScheduler } from './lib/message-scheduler.js';
@@ -62,11 +63,20 @@ try {
   console.warn('[Startup] Config tables setup failed (will use JSON files):', err.message);
 }
 
-// Initialize Knowledge Base (Memory & Files) — local first, then overlay from DB
+// Initialize ProfileRegistry (multi-profile support)
+// This initializes per-profile ConfigStores and KBs for all enabled profiles.
+try {
+  await profileRegistry.init();
+  console.log('[Startup] ProfileRegistry initialized');
+} catch (err: any) {
+  console.warn('[Startup] ProfileRegistry init failed, falling back to single-profile mode:', err.message);
+}
+
+// Initialize default profile's Knowledge Base (backward compat for code using global imports)
 try {
   initKnowledgeBase();
   await initKBFromDB();
-  console.log('[Startup] KnowledgeBase initialized');
+  console.log('[Startup] Default KnowledgeBase initialized');
 } catch (err: any) {
   console.error('[Startup] Failed to initialize KnowledgeBase:', err.message);
 }
@@ -75,11 +85,11 @@ try {
 initUnitCache();
 
 // CRITICAL: Initialize configStore BEFORE mounting admin routes
-// This prevents "Cannot read properties of undefined" errors when API endpoints are called before WhatsApp init completes
-// Now async: tries DB first, falls back to local JSON files
+// This is the global singleton for the default profile (backward compat).
+// Per-profile ConfigStores are already initialized by ProfileRegistry above.
 try {
   await configStore.init();
-  console.log('[Startup] ConfigStore initialized successfully');
+  console.log('[Startup] Default ConfigStore initialized successfully');
 } catch (err: any) {
   console.error('[Startup] Failed to initialize ConfigStore:', err.message);
   console.error('[Startup] Admin API may not function correctly until config files are fixed');

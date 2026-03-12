@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
+import { profileRegistry } from '../../assistant/profile-registry.js';
 
 import knowledgeBaseRoutes from './knowledge-base.js';
 import memoryRoutes from './memory.js';
@@ -27,6 +28,7 @@ import scheduledMessagesRoutes from './scheduled-messages.js';
 import paymentRemindersRoutes from './payment-reminders.js';
 import latencyRoutes from '../test/latency.js';
 import fleetRoutes from './fleet.js';
+import profilesRoutes from './profiles.js';
 
 const router = Router();
 
@@ -56,6 +58,20 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
 }
 
 router.use(adminAuth);
+
+// ─── Profile Resolution Middleware ──────────────────────────────────
+// Reads x-profile-id header and attaches the profile's ConfigStore to res.locals
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const profileId = req.headers['x-profile-id'] as string | undefined;
+  if (profileId && profileRegistry.isInitialized()) {
+    const profile = profileRegistry.getProfile(profileId);
+    if (profile) {
+      res.locals.profileConfigStore = profile.configStore;
+      res.locals.profileId = profileId;
+    }
+  }
+  next();
+});
 
 // ─── Rate Limiting (mutation endpoints) ─────────────────────────────
 const adminMutationLimiter = rateLimit({
@@ -121,6 +137,7 @@ router.use(scheduledMessagesRoutes);
 router.use(paymentRemindersRoutes);
 router.use('/test', latencyRoutes);
 router.use(fleetRoutes);
+router.use(profilesRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

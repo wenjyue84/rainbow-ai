@@ -6,6 +6,8 @@
  */
 import type { SendMessageFn, CallAPIFn, IncomingMessage, ConversationState } from '../types.js';
 import type { ConversationEvent } from '../memory-writer.js';
+import type { ConfigStore } from '../config-store.js';
+import type { KnowledgeBaseInstance } from '../knowledge-base-instance.js';
 
 export interface RouterContext {
   sendMessage: SendMessageFn;
@@ -38,6 +40,10 @@ export interface PipelineState {
   devMetadata: DevMetadata;
   response: string | null;
   imageUrl?: string | null;
+  /** Multi-profile support */
+  profileId: string;
+  profileConfig: ConfigStore;
+  profileKB: KnowledgeBaseInstance;
 }
 
 export type ValidationResult =

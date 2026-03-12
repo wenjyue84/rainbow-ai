@@ -43,11 +43,21 @@ export function destroyConversations(): void {
   conversationManager.destroy();
 }
 
-export function getOrCreate(phone: string, pushName: string): ConversationState {
+/**
+ * Build a composite key for profile-scoped conversation state.
+ * Default profile uses plain phone for backward compatibility.
+ */
+function convoKey(phone: string, profileId?: string): string {
+  if (!profileId || profileId === 'pelangi') return phone;
+  return `${profileId}:${phone}`;
+}
+
+export function getOrCreate(phone: string, pushName: string, profileId?: string): ConversationState {
   const now = Date.now();
+  const key = convoKey(phone, profileId);
 
   // StateManager.getOrCreate() handles TTL checking and lastActiveAt updates
-  return conversationManager.getOrCreate(phone, () => ({
+  return conversationManager.getOrCreate(key, () => ({
     phone,
     pushName,
     messages: [],

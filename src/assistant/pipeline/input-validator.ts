@@ -12,6 +12,7 @@ import { getOrCreate, addMessage, getOrCreate as getConversation, updateSlots } 
 import { checkRate } from '../rate-limiter.js';
 import { detectLanguage, getTemplate, detectFullLanguage } from '../formatter.js';
 import { configStore } from '../config-store.js';
+import { profileRegistry } from '../profile-registry.js';
 import { handleStaffReply, escalateToStaff } from '../escalation.js';
 import { isAIAvailable, translateText } from '../ai-client.js';
 import { logMessage, logNonTextExchange } from '../conversation-logger.js';
@@ -54,10 +55,12 @@ function getNonTextPlaceholder(messageType: MessageType): string {
 /**
  * Get the response mode for a conversation.
  * Per-conversation override takes precedence over global default.
+ * Accepts optional profileConfig for multi-profile support.
  */
-export function getConversationMode(phone: string): 'autopilot' | 'copilot' | 'manual' {
+export function getConversationMode(phone: string, profileConfig?: import('../config-store.js').ConfigStore): 'autopilot' | 'copilot' | 'manual' {
   const convo = getConversation(phone, 'Guest');
-  const settings = configStore.getSettings();
+  const store = profileConfig || configStore;
+  const settings = store.getSettings();
 
   if (convo?.slots?.responseMode) {
     return convo.slots.responseMode as 'autopilot' | 'copilot' | 'manual';
@@ -66,8 +69,9 @@ export function getConversationMode(phone: string): 'autopilot' | 'copilot' | 'm
   return (settings as any).response_modes?.default_mode || 'autopilot';
 }
 
-export function isStaffPhone(jid: string, ctx: RouterContext): boolean {
-  const staffPhones = configStore.getSettings().staff.phones;
+export function isStaffPhone(jid: string, ctx: RouterContext, profileConfig?: import('../config-store.js').ConfigStore): boolean {
+  const store = profileConfig || configStore;
+  const staffPhones = store.getSettings().staff.phones;
   if (staffPhones.some(num => jid.includes(num))) return true;
   if (ctx.jayLID && jid === ctx.jayLID) return true;
   return false;
@@ -135,6 +139,14 @@ export async function validateAndPrepare(
 
   const phone = msg.from;
 
+  // Resolve profile from instanceId
+  const profile = profileRegistry.isInitialized()
+    ? profileRegistry.resolveProfile(msg.instanceId)
+    : { id: 'pelangi', configStore, kb: (await import('../knowledge-base.js')).getDefaultKBInstance() };
+  const profileConfig = profile.configStore;
+  const profileKB = profile.kb;
+  const profileId = profile.id;
+
   // Handle non-text messages
   if (msg.messageType !== 'text') {
     console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
@@ -162,7 +174,7 @@ export async function validateAndPrepare(
   trackMessageReceived(phone, msg.pushName, text);
 
   // ─── Staff Commands & Escalation Tracking ──────────────────────
-  if (isStaffPhone(phone, ctx)) {
+  if (isStaffPhone(phone, ctx, profileConfig)) {
     if (!ctx.jayLID && phone.includes('@lid')) {
       ctx.jayLID = phone;
       console.log(`[Router] Jay's LID stored: ${ctx.jayLID}`);
@@ -230,7 +242,8 @@ export async function validateAndPrepare(
     continue: true,
     state: {
       requestId, msg, phone, text, processText, foreignLang,
-      convo, lang, diaryEvent, devMetadata, response: null
+      convo, lang, diaryEvent, devMetadata, response: null,
+      profileId, profileConfig, profileKB
     }
   };
 }

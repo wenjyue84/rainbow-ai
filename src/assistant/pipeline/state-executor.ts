@@ -10,7 +10,6 @@
 import axios from 'axios';
 import type { RouterContext, PipelineState, StateResult } from './types.js';
 import { ensureResponseText } from './input-validator.js';
-import { configStore } from '../config-store.js';
 import { addMessage, updateBookingState, updateWorkflowState } from '../conversation.js';
 import { logMessage } from '../conversation-logger.js';
 import { getEmergencyIntent } from '../intents.js';
@@ -27,7 +26,7 @@ import { trackFeedback, trackEmergency, trackWorkflowStarted } from '../../lib/a
 export async function handleActiveStates(
   state: PipelineState, ctx: RouterContext
 ): Promise<StateResult> {
-  const { requestId, phone, processText, convo, lang, text, msg } = state;
+  const { requestId, phone, processText, convo, lang, text, msg, profileConfig } = state;
 
   // ─── FEEDBACK DETECTION ─────────────────────────────────────────
   if (isAwaitingFeedback(phone)) {
@@ -94,7 +93,7 @@ export async function handleActiveStates(
       await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
 
       if (result.shouldForward && result.conversationSummary) {
-        const workflows = configStore.getWorkflows();
+        const workflows = profileConfig.getWorkflows();
         const workflow = workflows.workflows.find(w => w.id === convo.workflowState?.workflowId);
         if (workflow) {
           await forwardWorkflowSummary(phone, msg.pushName, workflow, convo.workflowState, msg.instanceId);
@@ -127,10 +126,10 @@ export async function handleActiveStates(
     });
 
     // If the emergency has a dedicated workflow, route directly
-    const routingConfig = configStore.getRouting();
+    const routingConfig = profileConfig.getRouting();
     const route = routingConfig[emergencyIntent];
     if (route?.action === 'workflow' && route.workflow_id) {
-      const workflows = configStore.getWorkflows();
+      const workflows = profileConfig.getWorkflows();
       const workflow = workflows.workflows.find(w => w.id === route.workflow_id);
       if (workflow) {
         console.log(`[Router] Emergency → workflow: ${workflow.name} (${route.workflow_id})`);

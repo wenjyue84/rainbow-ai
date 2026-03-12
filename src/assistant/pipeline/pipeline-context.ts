@@ -106,11 +106,17 @@ export interface IPipelineContext {
 /**
  * Create default pipeline context from real implementations.
  * Uses dynamic imports to avoid circular dependencies.
+ * Accepts optional profile-specific ConfigStore and KB instance.
  */
-export async function createPipelineContext(routerContext: RouterContext): Promise<IPipelineContext> {
+export async function createPipelineContext(
+  routerContext: RouterContext,
+  profileConfig?: import('../config-store.js').ConfigStore,
+  profileKB?: import('../knowledge-base-instance.js').KnowledgeBaseInstance,
+): Promise<IPipelineContext> {
   // Dynamic imports to prevent circular dependency issues
-  const { configStore } = await import('../config-store.js');
-  const { guessTopicFiles, buildSystemPrompt, getTimeContext } = await import('../knowledge-base.js');
+  const { configStore: defaultConfigStore } = await import('../config-store.js');
+  const configStore = profileConfig || defaultConfigStore;
+  const { guessTopicFiles: defaultGuessTopicFiles, buildSystemPrompt: defaultBuildSystemPrompt, getTimeContext } = await import('../knowledge-base.js');
   const { getStaticReply, getStaticReplyImageUrl } = await import('../knowledge.js');
   const { getTemplate, detectLanguage } = await import('../formatter.js');
   const {
@@ -135,6 +141,14 @@ export async function createPipelineContext(routerContext: RouterContext): Promi
   const { sendWhatsAppTypingIndicator } = await import('../../lib/baileys-client.js');
   const { notifyAdminConfigError } = await import('../../lib/admin-notifier.js');
   const { logMessage } = await import('../conversation-logger.js');
+
+  // Build profile-aware KB functions
+  const guessTopicFiles = profileKB
+    ? (text: string) => profileKB.guessTopicFiles(text)
+    : defaultGuessTopicFiles;
+  const buildSystemPrompt = profileKB
+    ? (basePersona: string, topicFiles: string[]) => profileKB.buildSystemPrompt(basePersona, topicFiles, configStore)
+    : defaultBuildSystemPrompt;
 
   return {
     // Configuration

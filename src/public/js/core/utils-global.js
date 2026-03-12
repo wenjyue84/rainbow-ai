@@ -20,8 +20,9 @@ function api(path, opts) {
   var controller = new AbortController();
   var timeoutId = setTimeout(function () { controller.abort(); }, timeout);
 
+  var profileHeaders = (typeof window !== 'undefined' && window.profileSwitcher) ? window.profileSwitcher.getHeaders() : {};
   return fetch(API + path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: Object.assign({ 'Content-Type': 'application/json' }, profileHeaders),
     method: opts.method || 'GET',
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     signal: controller.signal

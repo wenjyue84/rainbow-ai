@@ -27,11 +27,11 @@ import {
 // ─── Resolve data directory ─────────────────────────────────────────
 // Use process.cwd() (= RainbowAI/) instead of __dirname because esbuild
 // bundles everything into dist/index.js, making __dirname = dist/ (wrong).
-const DATA_DIR = join(process.cwd(), 'src', 'assistant', 'data');
+const DEFAULT_DATA_DIR = join(process.cwd(), 'src', 'assistant', 'data');
 
 // ─── Config Store ───────────────────────────────────────────────────
 
-class ConfigStore extends EventEmitter {
+export class ConfigStore extends EventEmitter {
   private knowledge!: KnowledgeData;
   private intents!: IntentsData;
   private templates!: TemplatesData;
@@ -41,8 +41,15 @@ class ConfigStore extends EventEmitter {
   private routing!: RoutingData;
   private corruptedFiles: string[] = []; // Track corrupted files for admin notification
 
-  constructor() {
+  readonly profileId: string;
+  private readonly dataDir: string;
+  private readonly dbConfigPrefix: string;
+
+  constructor(profileId: string = 'pelangi', dataDir: string = DEFAULT_DATA_DIR, dbConfigPrefix: string = '') {
     super();
+    this.profileId = profileId;
+    this.dataDir = dataDir;
+    this.dbConfigPrefix = dbConfigPrefix;
   }
 
   /** Get list of files that failed to load (used for admin notification) */
@@ -56,8 +63,8 @@ class ConfigStore extends EventEmitter {
   }
 
   async init(): Promise<void> {
-    if (!existsSync(DATA_DIR)) {
-      mkdirSync(DATA_DIR, { recursive: true });
+    if (!existsSync(this.dataDir)) {
+      mkdirSync(this.dataDir, { recursive: true });
     }
 
     // Clear corrupted files list from previous init
@@ -73,12 +80,12 @@ class ConfigStore extends EventEmitter {
     this.routing = await this.loadJSONAsync<RoutingData>('routing.json', routingDataSchema);
 
     if (this.corruptedFiles.length > 0) {
-      console.warn(`[ConfigStore] ⚠️ ${this.corruptedFiles.length} config file(s) failed to load — using defaults`);
-      console.warn(`[ConfigStore] Corrupted files: ${this.corruptedFiles.join(', ')}`);
-      console.warn(`[ConfigStore] Admin will be notified via WhatsApp`);
+      console.warn(`[ConfigStore:${this.profileId}] ⚠️ ${this.corruptedFiles.length} config file(s) failed to load — using defaults`);
+      console.warn(`[ConfigStore:${this.profileId}] Corrupted files: ${this.corruptedFiles.join(', ')}`);
+      console.warn(`[ConfigStore:${this.profileId}] Admin will be notified via WhatsApp`);
       // Notification will be sent later by the caller (after WhatsApp is initialized)
     } else {
-      console.log('[ConfigStore] ✅ All config files loaded and validated');
+      console.log(`[ConfigStore:${this.profileId}] ✅ All config files loaded and validated`);
     }
   }
 
@@ -198,7 +205,15 @@ class ConfigStore extends EventEmitter {
     this.saveJSONToFile('routing.json', this.routing);
 
     this.emit('reload', 'all');
-    console.log('[ConfigStore] Force reloaded all config files (DB-first, files synced to DB state)');
+    console.log(`[ConfigStore:${this.profileId}] Force reloaded all config files (DB-first, files synced to DB state)`);
+  }
+
+  // ─── DB Key Prefixing ──────────────────────────────────────────
+
+  /** Prefix DB keys for non-default profiles to avoid collisions */
+  dbKey(filename: string): string {
+    if (!this.dbConfigPrefix) return filename;
+    return `${this.dbConfigPrefix}:${filename}`;
   }
 
   // ─── File I/O helpers ──────────────────────────────────────────
@@ -212,13 +227,13 @@ class ConfigStore extends EventEmitter {
    * - NEVER crashes startup
    */
   private loadJSONFromFile<T>(filename: string, schema?: ZodType<T>): T {
-    const filepath = join(DATA_DIR, filename);
+    const filepath = join(this.dataDir, filename);
 
     try {
       // Check file exists
       if (!existsSync(filepath)) {
-        console.error(`[ConfigStore] ❌ Missing config file: ${filename}`);
-        console.error(`[ConfigStore] Using default config for ${filename}`);
+        console.error(`[ConfigStore:${this.profileId}] ❌ Missing config file: ${filename}`);
+        console.error(`[ConfigStore:${this.profileId}] Using default config for ${filename}`);
         this.corruptedFiles.push(filename);
         return getDefaultConfig(filename) as T;
       }
@@ -231,9 +246,9 @@ class ConfigStore extends EventEmitter {
       try {
         parsed = JSON.parse(raw);
       } catch (parseErr: any) {
-        console.error(`[ConfigStore] ❌ Malformed JSON in ${filename}:`);
-        console.error(`[ConfigStore] ${parseErr.message}`);
-        console.error(`[ConfigStore] Using default config for ${filename}`);
+        console.error(`[ConfigStore:${this.profileId}] ❌ Malformed JSON in ${filename}:`);
+        console.error(`[ConfigStore:${this.profileId}] ${parseErr.message}`);
+        console.error(`[ConfigStore:${this.profileId}] Using default config for ${filename}`);
         this.corruptedFiles.push(filename);
         return getDefaultConfig(filename) as T;
       }
@@ -246,9 +261,9 @@ class ConfigStore extends EventEmitter {
             .slice(0, 5) // Show max 5 issues
             .map(i => `  ${i.path.join('.')}: ${i.message}`)
             .join('\n');
-          console.error(`[ConfigStore] ❌ Schema validation failed for ${filename}:`);
+          console.error(`[ConfigStore:${this.profileId}] ❌ Schema validation failed for ${filename}:`);
           console.error(issues);
-          console.error(`[ConfigStore] Using default config for ${filename}`);
+          console.error(`[ConfigStore:${this.profileId}] Using default config for ${filename}`);
           this.corruptedFiles.push(filename);
           return getDefaultConfig(filename) as T;
         }
@@ -258,8 +273,8 @@ class ConfigStore extends EventEmitter {
       return parsed as T;
     } catch (err: any) {
       // Catch-all for unexpected errors (permissions, disk I/O, etc.)
-      console.error(`[ConfigStore] ❌ Unexpected error loading ${filename}:`, err.message);
-      console.error(`[ConfigStore] Using default config for ${filename}`);
+      console.error(`[ConfigStore:${this.profileId}] ❌ Unexpected error loading ${filename}:`, err.message);
+      console.error(`[ConfigStore:${this.profileId}] Using default config for ${filename}`);
       this.corruptedFiles.push(filename);
       return getDefaultConfig(filename) as T;
     }
@@ -271,29 +286,29 @@ class ConfigStore extends EventEmitter {
    */
   private async loadJSONAsync<T>(filename: string, schema?: ZodType<T>): Promise<T> {
     try {
-      const dbData = await loadConfigFromDB(filename);
+      const dbData = await loadConfigFromDB(this.dbKey(filename));
       if (dbData !== null) {
         // Validate DB data against schema
         if (schema) {
           const result = schema.safeParse(dbData);
           if (result.success) {
-            console.log(`[ConfigStore] ✅ Loaded ${filename} from DB`);
+            console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB`);
             return result.data;
           }
-          console.warn(`[ConfigStore] ⚠️ DB data for ${filename} failed validation, falling back to file`);
+          console.warn(`[ConfigStore:${this.profileId}] ⚠️ DB data for ${filename} failed validation, falling back to file`);
         } else {
-          console.log(`[ConfigStore] ✅ Loaded ${filename} from DB (no schema)`);
+          console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB (no schema)`);
           return dbData as T;
         }
       }
     } catch (err: any) {
-      console.warn(`[ConfigStore] ⚠️ DB load for ${filename} failed: ${err.message}, falling back to file`);
+      console.warn(`[ConfigStore:${this.profileId}] ⚠️ DB load for ${filename} failed: ${err.message}, falling back to file`);
     }
     return this.loadJSONFromFile<T>(filename, schema);
   }
 
   private saveJSONToFile(filename: string, data: unknown): void {
-    const filepath = join(DATA_DIR, filename);
+    const filepath = join(this.dataDir, filename);
     const tmpPath = filepath + '.tmp';
     writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
     renameSync(tmpPath, filepath);
@@ -322,13 +337,14 @@ class ConfigStore extends EventEmitter {
    */
   private async saveToDBWithRetry(filename: string, data: unknown): Promise<void> {
     const role = process.env.RAINBOW_ROLE || 'unknown';
+    const dbKeyName = this.dbKey(filename);
 
     // First attempt
     try {
-      await saveConfigToDB(filename, data, role);
+      await saveConfigToDB(dbKeyName, data, role);
       return; // Success
     } catch (err: any) {
-      console.error(`[ConfigStore] DB write failed for "${filename}": ${err.message} — retrying in 1s...`);
+      console.error(`[ConfigStore:${this.profileId}] DB write failed for "${filename}": ${err.message} — retrying in 1s...`);
     }
 
     // Wait 1 second before retry
@@ -336,11 +352,11 @@ class ConfigStore extends EventEmitter {
 
     // Retry attempt
     try {
-      await saveConfigToDB(filename, data, role);
-      console.log(`[ConfigStore] DB write retry succeeded for "${filename}"`);
+      await saveConfigToDB(dbKeyName, data, role);
+      console.log(`[ConfigStore:${this.profileId}] DB write retry succeeded for "${filename}"`);
     } catch (retryErr: any) {
-      console.error(`[ConfigStore] DB write retry ALSO FAILED for "${filename}": ${retryErr.message}`);
-      console.error(`[ConfigStore] Config "${filename}" is saved locally but NOT synced to DB. ` +
+      console.error(`[ConfigStore:${this.profileId}] DB write retry ALSO FAILED for "${filename}": ${retryErr.message}`);
+      console.error(`[ConfigStore:${this.profileId}] Config "${filename}" is saved locally but NOT synced to DB. ` +
         `DB and local file may diverge until next successful write or forceReload.`);
       throw retryErr; // Propagate so the caller's .catch() is triggered
     }

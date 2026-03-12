@@ -100,6 +100,7 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   lastIntentTimestamp: timestamp("last_intent_timestamp"),
   slotsJson: text("slots_json"),
   repeatCount: integer("repeat_count").notNull().default(0),
+  profileId: text("profile_id").default('pelangi'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -111,6 +112,7 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   phone: varchar("phone", { length: 64 }).primaryKey(),
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
+  profileId: text("profile_id").default('pelangi'),
   pinned: boolean("pinned").notNull().default(false),
   favourite: boolean("favourite").notNull().default(false),
   lastReadAt: timestamp("last_read_at"),
@@ -140,6 +142,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   stepId: text("step_id"),
   usageJson: text("usage_json"),
   staffName: text("staff_name"),
+  profileId: text("profile_id").default('pelangi'),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
   index("idx_rainbow_messages_phone_timestamp").on(table.phone, table.timestamp),
