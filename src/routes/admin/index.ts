@@ -20,6 +20,7 @@ import activityRoutes from './activity.js';
 import adminNotificationsRoutes from './admin-notifications.js';
 import checkinNotifyRoutes from './checkin-notify.js';
 import checkoutNotifyRoutes from './checkout-notify.js';
+import bookingNotifyRoutes from './booking-notify.js';
 import prismaBotRoutes from './prisma-bot.js';
 import tagsRoutes from './tags.js';
 import unitsRoutes from './units.js';
@@ -29,6 +30,8 @@ import paymentRemindersRoutes from './payment-reminders.js';
 import latencyRoutes from '../test/latency.js';
 import fleetRoutes from './fleet.js';
 import profilesRoutes from './profiles.js';
+import mcpServersRoutes from './mcp-servers.js';
+import webchatRoutes from './webchat.js';
 
 const router = Router();
 
@@ -91,6 +94,7 @@ const STABLE_PATHS = [
   '/knowledge-base', '/knowledge', '/workflows', '/workflow',
   '/intent-manager/keywords', '/intent-manager/examples',
   '/intent-manager/tiers', '/intent-manager/llm-settings',
+  '/mcp-servers',
 ];
 // Semi-stable endpoints (aggregated stats, refresh every 30s)
 const SEMI_STABLE_PATHS = [
@@ -129,6 +133,7 @@ router.use(activityRoutes);
 router.use('/admin-notifications', adminNotificationsRoutes);
 router.use(checkinNotifyRoutes);
 router.use(checkoutNotifyRoutes);
+router.use(bookingNotifyRoutes);
 router.use(prismaBotRoutes);
 router.use(tagsRoutes);
 router.use(unitsRoutes);
@@ -138,6 +143,8 @@ router.use(paymentRemindersRoutes);
 router.use('/test', latencyRoutes);
 router.use(fleetRoutes);
 router.use(profilesRoutes);
+router.use(mcpServersRoutes);
+router.use(webchatRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {
