@@ -31,7 +31,7 @@
       "description": "The current http-client.ts makes a single attempt to call the DIGIMAN API. If the network hiccups or the server returns 502/503, the request fails immediately. WhatsApp sending already has retry logic (send-retry.ts), but the HTTP client does not. Add automatic retry with exponential backoff for transient failures (network errors, 429, 500, 502, 503, 504). Non-retryable errors (400, 401, 403, 404, 409, 422) should fail immediately. This is the single highest-impact change for robustness.",
       "acceptanceCriteria": [
         "callAPI retries up to 3 times on transient failures (network error, 429, 500, 502, 503, 504)",
-        "Backoff is exponential: ~1s, ~2s, ~4s (with \u00c2\u00b120% jitter to prevent thundering herd)",
+        "Backoff is exponential: ~1s, ~2s, ~4s (with Â±20% jitter to prevent thundering herd)",
         "Non-retryable status codes (400, 401, 403, 404, 409, 422) fail immediately without retry",
         "Each retry logs a warning with attempt number, error, and endpoint",
         "Total timeout across all retries does not exceed 45 seconds",
@@ -56,11 +56,11 @@
       "id": "US-202",
       "title": "Add circuit breaker for DIGIMAN API calls",
       "priority": 2,
-      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout \u00e2\u20ac\u201d multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts \u00e2\u20ac\u201d do NOT create a new one.",
+      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout â€” multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts â€” do NOT create a new one.",
       "acceptanceCriteria": [
         "A CircuitBreaker instance wraps DIGIMAN API calls in http-client.ts",
         "After 5 consecutive failures, circuit opens and fast-fails for 60 seconds",
-        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN \u00e2\u20ac\u201d API appears down, skipping call to {path}. Will retry after cooldown.'",
+        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN â€” API appears down, skipping call to {path}. Will retry after cooldown.'",
         "After 60s cooldown, one test request is allowed (HALF_OPEN state)",
         "Success in HALF_OPEN closes the circuit (normal operation resumes)",
         "Circuit breaker status is exposed via getDigimanCircuitStatus() export",
@@ -69,14 +69,14 @@
       ],
       "technicalNotes": [
         "File to modify: src/lib/http-client.ts",
-        "Import CircuitBreaker from '../assistant/circuit-breaker.js' \u00e2\u20ac\u201d reuse existing class",
+        "Import CircuitBreaker from '../assistant/circuit-breaker.js' â€” reuse existing class",
         "Create a module-level instance: const digimanCircuit = new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60000 })",
         "In callAPI: check digimanCircuit.isOpen() BEFORE making the request. If open, throw immediately.",
         "On success: call digimanCircuit.recordSuccess()",
         "On retryable failure (after all retries exhausted): call digimanCircuit.recordFailure()",
         "On non-retryable failure (4xx): do NOT record as circuit breaker failure (those are client errors, not server issues)",
         "Export function getDigimanCircuitStatus() that returns digimanCircuit.getStatus()",
-        "This integrates with US-201 retry \u00e2\u20ac\u201d circuit breaker wraps the retry loop"
+        "This integrates with US-201 retry â€” circuit breaker wraps the retry loop"
       ],
       "dependencies": [
         "US-201"
@@ -88,7 +88,7 @@
       "id": "US-203",
       "title": "Create integration health dashboard API endpoint",
       "priority": 3,
-      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string \u00e2\u20ac\u201d we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
+      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string â€” we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
       "acceptanceCriteria": [
         "GET /api/admin/integration-health returns JSON with health of all integrations",
         "Response includes: digiman API status (healthy/degraded/down), circuit breaker state, last successful call timestamp, error count in last 5 minutes, average response time",
@@ -118,7 +118,7 @@
       "id": "US-204",
       "title": "Add integration setup validator and troubleshooting diagnostics",
       "priority": 4,
-      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature \u00e2\u20ac\u201d instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
+      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature â€” instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
       "acceptanceCriteria": [
         "New module src/lib/integration-validator.ts exports validateIntegrations() function",
         "Validates: DIGIMAN_API_URL is set and reachable, DIGIMAN_API_TOKEN is set and not expired, DATABASE_URL is set and connectable",
@@ -136,10 +136,10 @@
         "For DIGIMAN: try GET /api/health, if fails try GET /api/occupancy (some deployments don't have /health)",
         "For Database: try a simple query via the existing db connection",
         "Error-to-fix mapping examples:",
-        "  ECONNREFUSED \u00e2\u2020\u2019 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
-        "  401 Unauthorized \u00e2\u2020\u2019 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
-        "  ENOTFOUND \u00e2\u2020\u2019 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
-        "  ETIMEDOUT \u00e2\u2020\u2019 'Connection to {url} timed out. Check firewall rules and network connectivity'",
+        "  ECONNREFUSED â†’ 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
+        "  401 Unauthorized â†’ 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
+        "  ENOTFOUND â†’ 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
+        "  ETIMEDOUT â†’ 'Connection to {url} timed out. Check firewall rules and network connectivity'",
         "Redact sensitive env vars: show first 4 + last 4 chars of tokens, full URLs",
         "Call validateIntegrations() in src/index.ts after server starts (fire-and-forget)"
       ],
@@ -151,7 +151,7 @@
       "id": "US-205",
       "title": "Add configurable per-endpoint timeout and request tracking",
       "priority": 5,
-      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s \u00e2\u20ac\u201d 30s is too long to block a WhatsApp conversation.",
+      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s â€” 30s is too long to block a WhatsApp conversation.",
       "acceptanceCriteria": [
         "Default timeout reduced from 30000ms to 15000ms",
         "callAPI options parameter supports timeoutMs override: callAPI('GET', '/path', null, { timeoutMs: 5000 })",
@@ -193,14 +193,96 @@
         "File to modify: src/lib/http-client.ts",
         "Create a troubleshootingHints map: Record<string, { why: string, fix: string }>",
         "Map keys: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ECONNRESET, 401, 403, 404, 500, 502, 503, 504, CIRCUIT_OPEN",
-        "Example: ECONNREFUSED \u00e2\u2020\u2019 { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
-        "Example: 503 \u00e2\u2020\u2019 { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
-        "Example: CIRCUIT_OPEN \u00e2\u2020\u2019 { why: 'Too many consecutive failures \u00e2\u20ac\u201d circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
+        "Example: ECONNREFUSED â†’ { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
+        "Example: 503 â†’ { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
+        "Example: CIRCUIT_OPEN â†’ { why: 'Too many consecutive failures â€” circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
         "Notification: import notifyAdminConfigError from admin-notifier.ts, send after 3+ consecutive failures"
       ],
       "dependencies": [
         "US-202"
       ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-301",
+      "title": "Profile-aware intent-manager routes: T1 regex and T4 LLM settings",
+      "priority": 7,
+      "description": "The intent-manager.ts backend routes hardcode DATA_DIR to pelangi's data directory, ignoring the x-profile-id header the UI already sends. When a user switches to Makan Moments Cafe in the profile switcher and opens the Understanding tab, the T1 regex patterns and T4 LLM settings still load from pelangi's data dir instead of data-makan/. Add a getProfileDataDir(req) helper that reads x-profile-id from the request header, looks up the profile in profileRegistry, and returns that profile's dataDir. Use this helper in all local-first routes in intent-manager.ts.",
+      "acceptanceCriteria": [
+        "Add getProfileDataDir(req: Request): string helper at top of intent-manager.ts — reads req.headers['x-profile-id'], resolves profile via profileRegistry.getProfile(id), returns profile.config.dataDir. Falls back to DATA_DIR if profile not found or header absent.",
+        "GET /intent-manager/regex fallback uses getProfileDataDir(req) instead of DATA_DIR",
+        "PUT /intent-manager/regex adds a local-first write: when proxy to :5000 fails, write to getProfileDataDir(req)/regex-patterns.json using atomicWriteJSON",
+        "GET /intent-manager/llm-settings uses getProfileDataDir(req) to build the llm-settings path",
+        "PUT /intent-manager/llm-settings uses getProfileDataDir(req) to build the llm-settings write path",
+        "GET /intent-manager/available-providers reads settings.json from getProfileDataDir(req)",
+        "GET /intent-manager/stats fallback reads intent-keywords.json and intent-examples.json from getProfileDataDir(req)",
+        "POST /intent-manager/apply-template uses getProfileDataDir(req) when reading/writing llm-settings.json",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/routes/admin/intent-manager.ts",
+        "Import profileRegistry from '../../assistant/profile-registry.js' at top of file",
+        "Add helper near the top (after imports): function getProfileDataDir(req: Request): string { const profileId = req.headers['x-profile-id'] as string | undefined; if (profileId) { const profile = profileRegistry.getProfile(profileId); if (profile) return profile.config.dataDir; } return DATA_DIR; }",
+        "Note: profileRegistry.getProfile() returns ResolvedProfile | undefined — check the type in src/assistant/profile-registry.ts",
+        "For PUT /intent-manager/regex local fallback: wrap atomicWriteJSON in try/catch so if :5000 is also down, still returns 500 with message",
+        "SETTINGS_PATH remains as a constant but the available-providers route should build it dynamically: join(getProfileDataDir(req), 'settings.json')",
+        "LLM_SETTINGS_PATH constant can remain but routes should compute dynamically: join(getProfileDataDir(req), 'llm-settings.json')"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-302",
+      "title": "Makan Moments Cafe T1 emergency patterns — replace hostel-specific with cafe patterns",
+      "priority": 8,
+      "description": "src/assistant/data-makan/regex-patterns.json is a copy of pelangi's patterns and contains hostel-specific emergencies like card_locked (locked in capsule) which make no sense for a cafe. Makan Moments Cafe needs cafe-appropriate T1 emergency patterns: food allergy, choking on food, food poisoning, kitchen fire. Remove the card_locked/capsule patterns. Keep universal patterns (fire, medical, theft, police, assault, prompt injection).",
+      "acceptanceCriteria": [
+        "data-makan/regex-patterns.json has NO card_locked / capsule patterns",
+        "data-makan/regex-patterns.json has food allergy emergency patterns (EN + MS + ZH) matching words like: allergy, allergic reaction, anaphylaxis / alahan / 过敏",
+        "data-makan/regex-patterns.json has food poisoning patterns (EN + MS + ZH) matching: food poisoning, keracunan makanan / 食物中毒",
+        "data-makan/regex-patterns.json retains: fire, medical emergency, theft/robbery, assault, police, prompt injection patterns",
+        "All patterns use valid regex syntax with /pattern/flags format",
+        "JSON is valid and parses without error"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data-makan/regex-patterns.json",
+        "REMOVE the 3 card_locked patterns (EN: /locked.*card|card.*locked/, MS: /terkunci/, ZH: /锁在里面|出不去/)",
+        "ADD food allergy EN: /\\b(allerg(?:y|ic|ies)|anaphylax(?:is|tic)|hives|swollen\\s+throat)\\b/i with emergencyType: complaint",
+        "ADD food allergy MS: /\\b(alahan|reaksi\\s+alergi|bengkak\\s+tekak)\\b/i",
+        "ADD food allergy ZH: /\\b(过敏|过敏反应|喉咙肿胀)\\b/i",
+        "ADD food poisoning EN: /\\b(food\\s+poison(?:ing|ed)|poisoned|vomit(?:ing|ed)|diarrhea|stomach\\s+(?:pain|cramps?|ache))\\b/i with emergencyType: complaint",
+        "ADD food poisoning MS: /\\b(keracunan\\s+makanan|muntah(?:ing)?|cirit(?:\\s+birit)?|sakit\\s+perut)\\b/i",
+        "ADD food poisoning ZH: /\\b(食物中毒|呕吐|腹泻|肚子痛)\\b/i",
+        "Keep all existing fire, medical, theft, assault, police, prompt injection patterns unchanged"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-303",
+      "title": "Makan Moments Cafe settings.json — correct system prompt and AI providers",
+      "priority": 9,
+      "description": "src/assistant/data-makan/settings.json has a placeholder system_prompt that says 'You are Rainbow, an AI assistant for Pelangi Capsule Hostel. You're currently in safe mode.' This is wrong for Makan Moments Cafe. It also only has one AI provider (ollama safe mode). Update to a proper cafe assistant prompt and full AI providers list matching pelangi's settings.json.",
+      "acceptanceCriteria": [
+        "system_prompt in data-makan/settings.json references Makan Moments Cafe (not Pelangi Capsule Hostel)",
+        "system_prompt instructs the AI to help customers with menu inquiries, takeaway orders, reservations, operating hours, and cafe information",
+        "system_prompt instructs reply in same language as customer (EN/MS/ZH), keep responses concise, sign off with — Rainbow 🌈",
+        "AI providers list matches the full providers list from src/assistant/data/settings.json",
+        "rate_limits updated to reasonable cafe values: per_minute: 40, per_hour: 200",
+        "JSON is valid and parses without error"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data-makan/settings.json",
+        "system_prompt example: 'You are Rainbow, a friendly AI assistant for Makan Moments Cafe in Johor Bahru, Malaysia. You always clarify that you are an AI bot when introducing yourself. You help customers with menu inquiries, food prices, takeaway and dine-in orders, operating hours, reservations, and general cafe questions. Be warm, concise, and helpful. Reply in the same language as the customer (English, Malay, or Chinese). Keep responses under 300 characters when possible. Sign off with \"— Rainbow 🌈\" on important messages. If unsure, suggest contacting cafe staff.'",
+        "Copy the full 'providers' array from src/assistant/data/settings.json to data-makan/settings.json under ai.providers",
+        "Keep the existing rate_limits, staff, and other structural keys but update values appropriately",
+        "staffName can remain Rachel or be left as-is",
+        "This is a JSON data file change only — no TypeScript code changes needed"
+      ],
+      "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
     }

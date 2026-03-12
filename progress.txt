@@ -658,3 +658,52 @@ This user story requires creating a diagnostic and setup validation tool within 
 - 401 from DIGIMAN results in 'warning' (server reachable but token bad), not 'error'
 ### Gotchas
 - None — all code was already in place and working
+## Iteration 4 - Thu, Mar 12, 2026 10:07:04 PM
+Completed: Add integration setup validator and troubleshooting diagnostics (ID: US-204) in 5m
+
+
+## Pre-analysis for US-301 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-301: Profile-Aware Intent Manager Routes**
+
+This task is for a TypeScript/Node.js environment. The core goal is to make the `intent-manager.ts` routes profile-aware by reading a request header.
+
+**1. Primary File to Modify:**
+*   `src/routes/admin/intent-manager.ts`
+
+**2. Key Architectural Components:**
+*   **Module:** `profileRegistry` from `../../assistant/profile-registry.js` will be used to resolve profile IDs.
+*   **Backend Routes:** The changes will affect handlers for the following Express-style routes:
+    *   `GET /intent-manager/regex`
+    *   `PUT /intent-manager/regex`
+    *   `GET /intent-manager/llm-settings`
+    *   `PUT /intent-manager/llm-settings`
+    *   `GET /intent-manager/available-providers`
+    *   `GET /intent-manager/stats`
+    *   `POST /intent-manager/apply-template`
+
+**3. Recommended Implementation Approach:**
+1.  Create a `getProfileDataDir(req: Request): string` helper function within `intent-manager.ts`.
+2.  This function must read the `x-profile-id` header from the request.
+3.  Use the imported `profileRegistry` to look up the profile and retrieve its specific `dataDir`.
+4.  Update all specified route handlers to use `getProfileDataDir(req)` for constructing file paths instead of the hardcoded `DATA_DIR` constant.
+5.  For the `PUT /intent-manager/regex` route, implement a local-first fallback: if the primary proxy call fails, attempt to write the data to the profile-specific `regex-patterns.json` using `atomicWriteJSON`.
+
+**4. Edge Cases & Gotchas:**
+*   The `getProfileDataDir` helper must safely fall back to the default `DATA_DIR` if the `x-profile-id` header is missing or the provided ID is not found in the `profileRegistry`.
+*   The return type of `profileRegistry.getProfile()` is `ResolvedProfile | undefined`; handle the `undefined` case.
+*   Paths previously derived from constants like `LLM_SETTINGS_PATH` must now be built dynamically in each route using `join(getProfileDataDir(req), 'llm-settings.json')`.
+*   The fallback write in the `PUT` route should be wrapped in a `try/catch` block to gracefully handle file system errors and return a 500 status without crashing.
+
+
+## Iteration - Story: US-303 - Makan Moments Cafe settings.json — correct system prompt and AI providers
+### What was implemented
+- Updated system_prompt in src/assistant/data-makan/settings.json to reference Makan Moments Cafe (not Pelangi Capsule Hostel)
+- Replaced single safe-mode ollama provider with full 16-provider list matching pelangi's settings.json
+- Updated rate_limits from per_minute:20/per_hour:100 to per_minute:40/per_hour:200
+- Updated classifyProvider from "ollama-local" to "groq-llama-8b" (matches pelangi)
+- Cleared mcp_servers.connections (cafe has no PMS2 integration)
+### Patterns discovered
+- python3 on Windows requires explicit encoding='utf-8' when reading/writing prd.json (contains unicode emoji)
+- data-makan/ directory mirrors data/ structure but has cafe-specific customizations
+### Gotchas
+- prd.json uses unicode characters (emojis) — always open with encoding='utf-8' on Windows
