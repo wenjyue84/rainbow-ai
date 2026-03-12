@@ -7,5 +7,6 @@
 
 // The orchestrator self-registers all window.* exports on import
 import '/public/js/modules/live-chat.js';
+import '/public/js/modules/webchat-admin.js';
 
 console.log('[LazyChunk] Live Chat modules registered');

@@ -5,6 +5,7 @@ import {
   initStatePersistence, loadActiveStates,
   schedulePersist, deletePersistedState
 } from './state-persistence.js';
+import { softInvariant } from '../lib/invariant.js';
 
 const TTL_MS = 3_600_000; // 1 hour
 const MAX_MESSAGES = 20;
@@ -97,7 +98,20 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
 
   // Debounced persist (messages not stored in DB, but metadata updates)
   const state = conversationManager.get(phone);
-  if (state) schedulePersist(phone, state as ConversationState);
+  if (state) {
+    // Runtime invariants (P3C)
+    softInvariant(
+      state.unknownCount >= 0,
+      'unknownCount must be non-negative',
+      { phone, unknownCount: state.unknownCount }
+    );
+    softInvariant(
+      state.messages.length <= MAX_MESSAGES,
+      'messages exceed MAX_MESSAGES',
+      { phone, count: state.messages.length, max: MAX_MESSAGES }
+    );
+    schedulePersist(phone, state as ConversationState);
+  }
 }
 
 export function getMessages(phone: string): ChatMessage[] {
@@ -111,7 +125,14 @@ export function updateBookingState(phone: string, bookingState: ConversationStat
 
   // Critical state — persist immediately
   const state = conversationManager.get(phone);
-  if (state) schedulePersist(phone, state as ConversationState, true);
+  if (state) {
+    softInvariant(
+      !(state.bookingState !== null && state.workflowState !== null),
+      'bookingState and workflowState are mutually exclusive',
+      { phone, hasBooking: !!state.bookingState, hasWorkflow: !!state.workflowState }
+    );
+    schedulePersist(phone, state as ConversationState, true);
+  }
 }
 
 export function updateWorkflowState(phone: string, workflowState: ConversationState['workflowState']): void {
@@ -121,7 +142,14 @@ export function updateWorkflowState(phone: string, workflowState: ConversationSt
 
   // Critical state — persist immediately
   const state = conversationManager.get(phone);
-  if (state) schedulePersist(phone, state as ConversationState, true);
+  if (state) {
+    softInvariant(
+      !(state.bookingState !== null && state.workflowState !== null),
+      'bookingState and workflowState are mutually exclusive',
+      { phone, hasBooking: !!state.bookingState, hasWorkflow: !!state.workflowState }
+    );
+    schedulePersist(phone, state as ConversationState, true);
+  }
 }
 
 export function incrementUnknown(phone: string): number {

@@ -65,7 +65,10 @@ window.loadLiveChat = async function () {
   await loadLiveChat();
   initPrismaPanel(); // US-010: wire drag-to-move after DOM is ready
 };
-window.cleanupLiveChat = cleanupLiveChat;
+window.cleanupLiveChat = function () {
+  cleanupLiveChat();
+  if (typeof window.cleanupWebchatAdmin === 'function') window.cleanupWebchatAdmin();
+};
 window.lcFilterConversations = filterConversations;
 window.lcDebouncedSearch = debouncedSearch;
 window.lcOpenConversation = openConversation;

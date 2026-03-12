@@ -233,6 +233,8 @@ async function loadTab(tabName, subTab = null) {
         window.switchResponseTab(subTab, false);
       } else if (effectiveTabName === 'chat-simulator' && typeof window.switchSimulatorTab === 'function') {
         window.switchSimulatorTab(subTab, false);
+      } else if (effectiveTabName === 'live-chat' && typeof window.switchLiveChatTab === 'function') {
+        window.switchLiveChatTab(subTab, false);
       } else if (effectiveTabName === 'understanding' && typeof window.toggleTier === 'function') {
         // Check if already open to avoid toggle spam
         const content = document.getElementById(subTab + '-content');

@@ -5,6 +5,7 @@
 
 import {
   runTests, runCoverage, loadTesting,
+  rerunAllTests, toggleSuiteCollapse, generateStoriesFromFailures,
   showVitestHistory, closeVitestHistory, clearVitestHistory,
   loadHistoricalVitestRun, exportHistoricalVitestRun,
   exportVitestReport, toggleVitestExportDropdown
@@ -60,6 +61,9 @@ import {
 window.runTests = runTests;
 window.runCoverage = runCoverage;
 window.loadTesting = loadTesting;
+window.rerunAllTests = rerunAllTests;
+window.toggleSuiteCollapse = toggleSuiteCollapse;
+window.generateStoriesFromFailures = generateStoriesFromFailures;
 window.showVitestHistory = showVitestHistory;
 window.closeVitestHistory = closeVitestHistory;
 window.clearVitestHistory = clearVitestHistory;

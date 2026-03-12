@@ -11,6 +11,10 @@ import {
   initAiModelsState,
   renderAiModelsTab
 } from './settings-ai-models.js';
+import {
+  initMcpState,
+  renderMcpServersTab
+} from './settings-mcp.js';
 
 /**
  * Shared state — backed by centralized cacheManager.
@@ -23,6 +27,12 @@ const SETTINGS_CACHE_KEYS = {
 
 // Wire up shared state accessors for the AI Models sub-module
 initAiModelsState(
+  () => window.cacheManager.get(SETTINGS_CACHE_KEYS.config),
+  (v) => { window.cacheManager.set(SETTINGS_CACHE_KEYS.config, v); }
+);
+
+// Wire up shared state accessors for the MCP Servers sub-module
+initMcpState(
   () => window.cacheManager.get(SETTINGS_CACHE_KEYS.config),
   (v) => { window.cacheManager.set(SETTINGS_CACHE_KEYS.config, v); }
 );
@@ -96,6 +106,7 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'bot-avatar') renderBotAvatarTab(container);
   else if (tabId === 'failover') renderFailoverTab(container);
   else if (tabId === 'appearance') renderAppearanceTab(container);
+  else if (tabId === 'mcp-servers') renderMcpServersTab(container);
 }
 window.switchSettingsTab = switchSettingsTab;
 

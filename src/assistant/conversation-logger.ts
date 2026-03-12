@@ -260,6 +260,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
             )
         ) uc ON true
         WHERE lm.content IS NOT NULL
+          AND c.phone NOT LIKE 'webchat-%'
         ORDER BY lm.timestamp DESC
       `);
       const rows: any[] = result.rows;

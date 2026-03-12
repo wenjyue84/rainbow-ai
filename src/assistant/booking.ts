@@ -3,7 +3,7 @@ import { calculatePrice } from './pricing.js';
 import { formatPriceBreakdown, formatDate, getTemplate } from './formatter.js';
 import { isAIAvailable, chat } from './ai-client.js';
 
-type Language = 'en' | 'ms' | 'zh';
+export type Language = 'en' | 'ms' | 'zh';
 
 let callAPIFn: CallAPIFn | null = null;
 
@@ -16,14 +16,14 @@ export function createBookingState(): BookingState {
 }
 
 // ─── Date Parsing (regex fallback) ──────────────────────────────────
-function toLocalDateStr(d: Date): string {
+export function toLocalDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
-function parseDate(input: string): string | null {
+export function parseDate(input: string): string | null {
   const trimmed = input.trim();
 
   const isoMatch = trimmed.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -52,7 +52,7 @@ function parseDate(input: string): string | null {
   return null;
 }
 
-function parseGuestCount(input: string): number | null {
+export function parseGuestCount(input: string): number | null {
   const match = input.match(/\d+/);
   if (match) {
     const num = parseInt(match[0], 10);
@@ -61,7 +61,7 @@ function parseGuestCount(input: string): number | null {
   return null;
 }
 
-function isCancelMessage(text: string): boolean {
+export function isCancelMessage(text: string): boolean {
   return /\b(cancel|batal|no\s*thanks|nevermind|never\s*mind|stop|don'?t\s*want|tak\s*jadi|tak\s*nak)\b/i.test(text) || /取消/.test(text);
 }
 
@@ -147,7 +147,7 @@ Reply naturally and conversationally in ${langName}. Keep under 400 chars. Sign 
 // ─── Pure Helpers ───────────────────────────────────────────────────
 
 /** Parse check-in/check-out from user input using regex splitting as fallback. */
-function parseCheckInOut(input: string): { checkIn: string | null; checkOut: string | null } {
+export function parseCheckInOut(input: string): { checkIn: string | null; checkOut: string | null } {
   const parts = input.split(/\s+(?:to|until|til|sampai)\s+|(?:\u5230)|(?:\s+~\s+)/i);
   const checkIn = parseDate(parts[0]);
   const checkOut = parts.length > 1 ? parseDate(parts[1]) : null;
@@ -506,10 +506,12 @@ export async function handleBookingStep(
         response: getTemplate('booking_start', lang),
         newState: createBookingState()
       };
-    default:
+    default: {
+      const _exhaustive: never = state.stage;
       return {
         response: getTemplate('booking_start', lang),
         newState: createBookingState()
       };
+    }
   }
 }

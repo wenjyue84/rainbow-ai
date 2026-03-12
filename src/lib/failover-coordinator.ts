@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { softInvariant } from './invariant.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -193,7 +194,10 @@ class FailoverCoordinator extends EventEmitter {
 
     if (this.role === 'primary') {
       // Misconfiguration: two primaries
-      console.warn('[Failover] WARNING: Received heartbeat but I am also primary — check config!');
+      softInvariant(false, 'Two primaries detected — both servers configured as primary', {
+        role: this.role,
+        isActive: this.isActiveFlag,
+      });
       this.emit('config-error', 'Both servers set to primary role');
       return;
     }
@@ -209,6 +213,11 @@ class FailoverCoordinator extends EventEmitter {
 
   activate(): void {
     if (this.isActiveFlag) return;
+    softInvariant(
+      this.role === 'standby',
+      'Only standby should activate via failover',
+      { role: this.role }
+    );
     this.isActiveFlag = true;
     console.warn('[Failover] ACTIVATED — primary appears down, this standby is now handling messages');
     this.emit('activated');

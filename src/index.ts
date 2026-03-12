@@ -21,6 +21,7 @@ import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { getWhatsAppStatus } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
 import adminRoutes from './routes/admin/index.js';
+import webchatApiRoutes from './routes/public/webchat-api.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
@@ -358,6 +359,48 @@ app.get('/admin/whatsapp-qr', async (req, res) => {
     </body></html>`);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Public Webchat ---
+const WEBCHAT_HTML_PATH = join(__dirname_main, 'public', 'webchat.html');
+
+// Webchat API (rate limited separately — 10 req/min per IP)
+app.use('/api/chat', webchatApiRoutes);
+
+// Webchat page — serves branded chat UI per profile
+app.get('/chat/:profileId', (req, res) => {
+  const { profileId } = req.params;
+  const profile = profileRegistry.getProfile(profileId);
+
+  if (!profile) {
+    // Friendly 404 with valid profile links
+    const validProfiles = profileRegistry.listProfiles();
+    const links = validProfiles.map(p =>
+      `<li><a href="/chat/${p.id}">${p.name}</a></li>`
+    ).join('\n');
+    res.status(404).send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>Profile Not Found</h2>
+      <p>"${profileId}" is not a valid profile.</p>
+      <p>Available profiles:</p>
+      <ul style="list-style:none;padding:0">${links}</ul>
+    </body></html>`);
+    return;
+  }
+
+  // Read webchat HTML and inject profile config
+  try {
+    const html = readFileSync(WEBCHAT_HTML_PATH, 'utf-8');
+    const greeting = profile.configStore.getSettings()?.greeting
+      || `Hello! I'm the AI assistant for ${profile.name}. How can I help you today?`;
+    const profileData = JSON.stringify({ id: profile.id, name: profile.name, greeting });
+    const injected = html.replace(
+      '<head>',
+      `<head>\n  <script>window.__WEBCHAT_PROFILE__=${profileData};</script>`
+    );
+    res.type('html').send(injected);
+  } catch {
+    res.status(500).send('Webchat page not found');
   }
 });
 

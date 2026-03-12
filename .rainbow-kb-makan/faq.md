@@ -1,32 +1,37 @@
-# FAQ — Makan Moments Cafe
+# Frequently Asked Questions
 
-> Common questions about Makan Moments Cafe.
+## Is the food halal?
+Yes! We are NO PORK, NO LARD — Halal-friendly. Everyone can enjoy our food with confidence.
 
----
+## Do you have parking?
+Yes, there is parking available along Jalan Impian Emas 5/1 and in the nearby shophouse area.
 
-## About Makan Moments
+## Can I make a reservation?
+We operate on a walk-in basis. For large groups, please call ahead at 012-708 8789.
 
-**Q: What kind of food do you serve?**
-A: Please ask for our latest menu — it changes regularly!
+## Do you offer delivery?
+Currently we are dine-in only. Please visit us at Taman Impian Emas, Skudai.
 
-**Q: Where are you located?**
-A: Contact us for our address and directions.
+## What are your best sellers?
+Our top dishes include Tom Yum Fried Rice, Green Curry Chicken, Pad Thai, and Mango Sticky Rice. Ask for the day's specials!
 
-**Q: What are your operating hours?**
-A: Please check with us for current operating hours.
+## Is there WiFi?
+Yes! Free WiFi is available. Password: ilovemakan
 
----
+## Do you cater for events?
+For catering inquiries, please contact us at 012-708 8789.
 
-## Ordering
+## What payment methods do you accept?
+We accept cash and major e-wallets (Touch 'n Go, GrabPay, DuitNow QR).
 
-**Q: Can I order for takeaway?**
-A: Yes! Contact us to place a takeaway order.
+## Is there a kids menu?
+While we don't have a separate kids menu, many of our dishes are kid-friendly. Our staff can help recommend milder options.
 
-**Q: Do you do delivery?**
-A: Please ask for current delivery options.
+## Where exactly are you located?
+We're at Ground Floor 61, Jalan Impian Emas 5/1, Taman Impian Emas, 81300 Skudai, Johor. We're in the shophouse row — look for our signage!
 
----
+## Can I order online / pre-order?
+Yes! You can browse our menu online and submit a pre-order. Just provide your phone number and estimated arrival time, and our team will have your food ready when you arrive.
 
-## Problems & Support
-
-**Q: Issue with my order?** → Contact the cafe directly.
+## Do you have takeaway?
+Yes, takeaway is available! You can order at the counter or pre-order online and pick up when ready.

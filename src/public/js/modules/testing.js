@@ -31,14 +31,297 @@ function initVitestHistory() {
   }
 }
 
+/** Accumulated results across all suites for combined summary */
+let _allSuiteResults = { unit: null, integration: null, semantic: null };
+
 /**
  * Tab loader — called by tabs.js when navigating to #testing.
- * The tab system calls window['load' + PascalTabName]() after
- * the template HTML is injected into the DOM.
+ * Auto-runs all three test suites in parallel on page load.
  */
 export function loadTesting() {
   initVitestHistory();
+  runAllSuites();
 }
+
+/**
+ * Re-run all three test suites (called by button click)
+ */
+export function rerunAllTests() {
+  // Reset indicators
+  ['unit', 'integration', 'semantic'].forEach(s => {
+    var ind = document.getElementById('suite-' + s + '-indicator');
+    if (ind) { ind.className = 'w-3 h-3 rounded-full bg-neutral-300 animate-pulse flex-shrink-0'; }
+    var cnt = document.getElementById('suite-' + s + '-count');
+    if (cnt) cnt.textContent = 'running...';
+    var dur = document.getElementById('suite-' + s + '-duration');
+    if (dur) dur.textContent = '';
+    var body = document.getElementById('suite-' + s + '-body');
+    if (body) body.innerHTML = '';
+  });
+  // Reset summary
+  document.getElementById('test-total').innerHTML = '<div class="inline-block w-5 h-5 border-2 border-neutral-300 border-t-transparent rounded-full animate-spin"></div>';
+  document.getElementById('test-passed').textContent = '-';
+  document.getElementById('test-failed').textContent = '-';
+  document.getElementById('test-duration').textContent = '-';
+  document.getElementById('test-status-banner').classList.add('hidden');
+  _allSuiteResults = { unit: null, integration: null, semantic: null };
+  runAllSuites();
+}
+window.rerunAllTests = rerunAllTests;
+
+/**
+ * Run all three suites in parallel and update the dashboard as each completes.
+ */
+async function runAllSuites() {
+  const suites = ['unit', 'integration', 'semantic'];
+  const startTime = performance.now();
+
+  // Run all in parallel
+  const promises = suites.map(suite => runSingleSuite(suite));
+  await Promise.allSettled(promises);
+
+  // Update combined summary
+  const totalDuration = Math.round(performance.now() - startTime);
+  updateCombinedSummary(totalDuration);
+}
+
+/**
+ * Run a single test suite and update its section in the dashboard.
+ */
+async function runSingleSuite(suite) {
+  var indicator = document.getElementById('suite-' + suite + '-indicator');
+  var countEl = document.getElementById('suite-' + suite + '-count');
+  var durEl = document.getElementById('suite-' + suite + '-duration');
+  var bodyEl = document.getElementById('suite-' + suite + '-body');
+
+  try {
+    var data = await api('/tests/run', { method: 'POST', body: { project: suite } });
+    _allSuiteResults[suite] = data;
+
+    var passed = data.numPassedTests || 0;
+    var failed = data.numFailedTests || 0;
+    var total = data.numTotalTests || 0;
+    var dur = data.duration ? (data.duration / 1000).toFixed(1) + 's' : '';
+
+    // Update indicator
+    if (indicator) {
+      indicator.classList.remove('animate-pulse', 'bg-neutral-300');
+      indicator.classList.add(failed > 0 ? 'bg-red-500' : 'bg-green-500');
+    }
+
+    // Update count
+    if (countEl) {
+      countEl.innerHTML = '<span class="text-green-600">' + passed + ' passed</span>' +
+        (failed > 0 ? ' <span class="text-red-500">' + failed + ' failed</span>' : '') +
+        ' <span class="text-neutral-400">/ ' + total + '</span>';
+    }
+
+    // Update duration
+    if (durEl) durEl.textContent = dur;
+
+    // Render test file cards inline
+    if (bodyEl && data.testFiles && data.testFiles.length > 0) {
+      renderSuiteTests(bodyEl, data.testFiles);
+    } else if (bodyEl && data.raw) {
+      bodyEl.innerHTML = '<div class="px-4 py-3"><pre class="text-xs text-neutral-600 whitespace-pre-wrap overflow-auto max-h-40">' + escapeHtml(data.raw) + '</pre></div>';
+    }
+  } catch (e) {
+    _allSuiteResults[suite] = { error: e.message };
+    if (indicator) {
+      indicator.classList.remove('animate-pulse', 'bg-neutral-300');
+      indicator.classList.add('bg-red-500');
+    }
+    if (countEl) countEl.innerHTML = '<span class="text-red-500">Error: ' + escapeHtml(e.message || 'unknown') + '</span>';
+  }
+}
+
+/**
+ * Render individual tests within a suite body element.
+ */
+function renderSuiteTests(container, testFiles) {
+  var html = '';
+  for (var f = 0; f < testFiles.length; f++) {
+    var file = testFiles[f];
+    var filePassed = file.tests.filter(function(t) { return t.status === 'passed'; }).length;
+    var fileFailed = file.tests.filter(function(t) { return t.status === 'failed'; }).length;
+    var allPassed = fileFailed === 0;
+    var fileDur = file.duration ? (file.duration / 1000).toFixed(2) + 's' : '';
+
+    // File header (collapsible)
+    html += '<div>';
+    html += '<div class="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-neutral-50 transition" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">';
+    html += '<div class="flex items-center gap-2">';
+    html += allPassed
+      ? '<span class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></span>'
+      : '<span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>';
+    html += '<span class="text-sm text-neutral-700">' + escapeHtml(file.file) + '</span>';
+    html += '</div>';
+    html += '<div class="flex items-center gap-2 text-xs">';
+    if (fileDur) html += '<span class="text-neutral-400">' + fileDur + '</span>';
+    html += '<span class="text-green-600">' + filePassed + '</span>';
+    if (fileFailed > 0) html += '<span class="text-red-500">' + fileFailed + '</span>';
+    html += '</div></div>';
+
+    // Individual tests (collapsed by default if all passed, expanded if failures)
+    html += '<div class="' + (allPassed ? 'hidden' : '') + ' border-t bg-neutral-50/50">';
+    for (var t = 0; t < file.tests.length; t++) {
+      var test = file.tests[t];
+      var isPassed = test.status === 'passed';
+      html += '<div class="px-6 py-1.5 flex items-start gap-2 text-xs ' + (isPassed ? '' : 'bg-red-50') + '">';
+      html += isPassed
+        ? '<span class="text-green-500 mt-0.5">&#10003;</span>'
+        : '<span class="text-red-500 mt-0.5">&#10007;</span>';
+      html += '<div class="min-w-0 flex-1">';
+      html += '<span class="' + (isPassed ? 'text-neutral-600' : 'text-red-700') + '">' + escapeHtml(test.name) + '</span>';
+      if (test.duration != null) html += ' <span class="text-neutral-400">' + test.duration + 'ms</span>';
+      if (test.failureMessages && test.failureMessages.length > 0) {
+        html += '<pre class="mt-1 text-xs text-red-600 whitespace-pre-wrap overflow-auto max-h-32 bg-red-100 rounded p-2">' + escapeHtml(test.failureMessages.join('\n')) + '</pre>';
+      }
+      html += '</div></div>';
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+/**
+ * Toggle collapse/expand of a suite's test details.
+ */
+export function toggleSuiteCollapse(suite) {
+  var body = document.getElementById('suite-' + suite + '-body');
+  if (body) body.classList.toggle('hidden');
+}
+window.toggleSuiteCollapse = toggleSuiteCollapse;
+
+/**
+ * Update the combined summary cards and status banner.
+ */
+function updateCombinedSummary(totalDurationMs) {
+  var totalTests = 0, totalPassed = 0, totalFailed = 0;
+  var allSuccess = true;
+  var suiteNames = ['unit', 'integration', 'semantic'];
+
+  for (var i = 0; i < suiteNames.length; i++) {
+    var r = _allSuiteResults[suiteNames[i]];
+    if (!r || r.error) { allSuccess = false; continue; }
+    totalTests += r.numTotalTests || 0;
+    totalPassed += r.numPassedTests || 0;
+    totalFailed += r.numFailedTests || 0;
+    if (!r.success) allSuccess = false;
+  }
+
+  var durStr = (totalDurationMs / 1000).toFixed(1) + 's';
+  document.getElementById('test-total').textContent = totalTests;
+  document.getElementById('test-passed').textContent = totalPassed;
+  document.getElementById('test-failed').textContent = totalFailed;
+  document.getElementById('test-duration').textContent = durStr;
+
+  // Status banner
+  var banner = document.getElementById('test-status-banner');
+  banner.classList.remove('hidden');
+  var actionsEl = document.getElementById('test-status-actions');
+
+  if (allSuccess && totalFailed === 0) {
+    banner.className = 'mb-4 rounded-2xl border border-green-200 bg-green-50 p-4 flex items-center gap-3';
+    document.getElementById('test-status-icon').innerHTML = '<svg class="w-7 h-7 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    document.getElementById('test-status-text').textContent = 'All tests passed';
+    document.getElementById('test-status-sub').textContent = totalPassed + ' tests across 3 suites in ' + durStr;
+    if (actionsEl) actionsEl.innerHTML = '';
+  } else {
+    banner.className = 'mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 flex items-center gap-3';
+    document.getElementById('test-status-icon').innerHTML = '<svg class="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    document.getElementById('test-status-text').textContent = totalFailed + ' test' + (totalFailed !== 1 ? 's' : '') + ' failed';
+    document.getElementById('test-status-sub').textContent = totalPassed + ' passed, ' + totalFailed + ' failed in ' + durStr;
+    if (actionsEl) {
+      actionsEl.innerHTML = '<button onclick="generateStoriesFromFailures()" class="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition font-medium">Generate User Stories</button>';
+    }
+  }
+
+  // Save combined result to history
+  var combined = {
+    numTotalTests: totalTests,
+    numPassedTests: totalPassed,
+    numFailedTests: totalFailed,
+    duration: totalDurationMs,
+    success: allSuccess && totalFailed === 0,
+    testFiles: [],
+    project: 'all'
+  };
+  suiteNames.forEach(function(s) {
+    var r = _allSuiteResults[s];
+    if (r && r.testFiles) combined.testFiles = combined.testFiles.concat(r.testFiles);
+  });
+  _lastVitestResult = combined;
+  saveVitestRun(combined, 'all');
+  var exportDropdown = document.getElementById('vitest-export-dropdown');
+  if (exportDropdown) exportDropdown.classList.remove('hidden');
+}
+
+/**
+ * Generate user stories from failed tests using the /testing/run-all endpoint.
+ * Then call /testing/generate-stories to get the user stories.
+ */
+export async function generateStoriesFromFailures() {
+  // Collect all failures across suites
+  var failures = [];
+  ['unit', 'integration', 'semantic'].forEach(function(suite) {
+    var r = _allSuiteResults[suite];
+    if (!r || !r.testFiles) return;
+    r.testFiles.forEach(function(file) {
+      file.tests.forEach(function(t) {
+        if (t.status === 'failed') {
+          failures.push({
+            id: suite + '-' + file.file + '-' + t.name,
+            name: t.name,
+            category: suite,
+            suite: suite,
+            messages: [{ text: t.name }],
+            validate: [],
+            file: file.file,
+            failureMessages: t.failureMessages || []
+          });
+        }
+      });
+    });
+  });
+
+  if (failures.length === 0) {
+    toast('No failures to generate stories from', 'info');
+    return;
+  }
+
+  try {
+    // Run through programmatic test runner to save results
+    await api('/testing/run-all', {
+      method: 'POST',
+      body: {
+        scenarios: failures.map(function(f) {
+          return {
+            id: f.id,
+            name: f.name,
+            category: f.category,
+            suite: f.suite,
+            messages: [{ text: f.name }],
+            validate: [{ rules: [{ type: 'not_empty', critical: true }] }]
+          };
+        }),
+        suite: 'vitest-failures'
+      }
+    });
+
+    // Generate stories from failures
+    var stories = await api('/testing/generate-stories?suite=vitest-failures');
+    if (stories.stories && stories.stories.length > 0) {
+      toast(stories.stories.length + ' user stories generated from ' + failures.length + ' failures', 'success');
+      console.log('[Testing] Generated stories:', stories.stories);
+    } else {
+      toast('No actionable stories generated', 'info');
+    }
+  } catch (e) {
+    toast('Failed to generate stories: ' + (e.message || 'unknown error'), 'error');
+  }
+}
+window.generateStoriesFromFailures = generateStoriesFromFailures;
 
 /**
  * Runs the test suite for the selected project

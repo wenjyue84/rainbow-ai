@@ -210,7 +210,9 @@ export async function loadLiveChat() {
     addOverdueBadgeToList(); // US-022: Add overdue badges to left pane
 
     // WhatsApp Web style: show last active conversation when none selected
-    if ($.conversations.length > 0 && $.activePhone === null) {
+    // Skip auto-open when the webchat sub-tab is active (hash contains /webchat)
+    var isWebchatTab = window.location.hash.indexOf('/webchat') !== -1;
+    if ($.conversations.length > 0 && $.activePhone === null && !isWebchatTab) {
       openConversation($.conversations[0].phone);
     }
 

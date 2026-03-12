@@ -18,7 +18,10 @@
 .rainbow-kb-southern/
 ├── AGENTS.md               # THIS FILE - Start here every time
 ├── soul.md                 # Who Rainbow is for Southern Homestay
-├── faq.md                  # Common questions and answers
+├── company-profile.md      # Business overview, services, mission, contact links
+├── faq.md                  # Common questions and answers (pricing, booking, facilities)
+├── check-in-guide.md       # Check-in/out procedures for KSL & Sky88
+├── pricing-and-payment.md  # Rates, deposit, bank details, cancellation policy
 ├── memory.md               # Durable operational memory
 └── memory/                 # Daily logs directory
     └── YYYY-MM-DD.md       # Daily operational logs

@@ -29,6 +29,19 @@ import {
 } from '/public/js/modules/admin-notifications.js';
 
 import {
+  renderMcpServersTab,
+  addMcpConnection,
+  saveMcpConnection,
+  cancelMcpConnectionForm,
+  editMcpConnection,
+  removeMcpConnection,
+  testMcpConnection,
+  toggleMcpConnection,
+  saveMcpServerConfig,
+  toggleMcpServer
+} from '/public/js/modules/settings-mcp.js';
+
+import {
   updateT4ProviderStatus,
   scrollToElement,
   scrollToProviders,
@@ -72,5 +85,15 @@ window.moveT4Provider = moveT4Provider;
 window.autoSaveT4Providers = autoSaveT4Providers;
 window.testT4Provider = testT4Provider;
 window.saveLLMSettings = saveLLMSettings;
+window.renderMcpServersTab = renderMcpServersTab;
+window.addMcpConnection = addMcpConnection;
+window.saveMcpConnection = saveMcpConnection;
+window.cancelMcpConnectionForm = cancelMcpConnectionForm;
+window.editMcpConnection = editMcpConnection;
+window.removeMcpConnection = removeMcpConnection;
+window.testMcpConnection = testMcpConnection;
+window.toggleMcpConnection = toggleMcpConnection;
+window.saveMcpServerConfig = saveMcpServerConfig;
+window.toggleMcpServer = toggleMcpServer;
 
 console.log('[LazyChunk] Settings modules registered');

@@ -630,13 +630,13 @@ var _capsuleUnits = [];      // Cached capsule unit list
 var _unitDropdownIdx = -1;   // Keyboard nav index in unit dropdown
 
 export function loadCapsuleUnits() {
-  return api('/capsules').then(function (data) {
+  return api('/units').then(function (data) {
     _capsuleUnits = (data && Array.isArray(data.units)) ? data.units : [];
   }).catch(function () { /* silent — freeform input still works */ });
 }
 
 function syncCustomUnit(unit) {
-  api('/capsules/custom', { method: 'POST', body: { unit: unit } }).then(function (data) {
+  api('/units/custom', { method: 'POST', body: { unit: unit } }).then(function (data) {
     if (data && Array.isArray(data.units)) _capsuleUnits = data.units;
   }).catch(function () { /* silent */ });
 }
