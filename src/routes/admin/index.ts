@@ -34,6 +34,7 @@ import profilesRoutes from './profiles.js';
 import mcpServersRoutes from './mcp-servers.js';
 import webchatRoutes from './webchat.js';
 import integrationHealthRoutes from './integration-health.js';
+import diagnosticsRoutes from './diagnostics.js';
 
 const router = Router();
 
