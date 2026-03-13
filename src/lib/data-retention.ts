@@ -1,0 +1,207 @@
+/**
+ * data-retention.ts — Configurable conversation data retention (US-419)
+ *
+ * GDPR Article 5(1)(e) compliance: soft-deletes messages/conversations older
+ * than the configured retention window, then hard-deletes after a grace period.
+ *
+ * Retention config (settings.json, profile-specific):
+ *   retention.enabled         — toggle (default: true)
+ *   retention.retention_days  — soft-delete cutoff (default: 90)
+ *   retention.grace_period_days — hard-delete cutoff after soft-delete (default: 30)
+ */
+
+import cron from 'node-cron';
+import { db } from './db.js';
+import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
+import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
+import { configStore } from '../assistant/config-store.js';
+import { profileRegistry } from '../assistant/profile-registry.js';
+
+// ─── Config ──────────────────────────────────────────────────────────
+
+interface RetentionConfig {
+  enabled: boolean;
+  retentionDays: number;
+  gracePeriodDays: number;
+}
+
+function getRetentionConfig(store?: typeof configStore): RetentionConfig {
+  const s = store ?? configStore;
+  const settings = s.getSettings();
+  const retention = (settings as any).retention;
+  return {
+    enabled: retention?.enabled ?? true,
+    retentionDays: retention?.retention_days ?? 90,
+    gracePeriodDays: retention?.grace_period_days ?? 30,
+  };
+}
+
+// ─── Stats ───────────────────────────────────────────────────────────
+
+export interface RetentionStats {
+  retention_days: number;
+  grace_period_days: number;
+  cutoff_date: string;
+  hard_cutoff_date: string;
+  messages: {
+    eligible_soft_delete: number;
+    eligible_hard_delete: number;
+  };
+  conversations: {
+    eligible_soft_delete: number;
+    eligible_hard_delete: number;
+  };
+}
+
+export async function getRetentionStats(profileId?: string): Promise<RetentionStats> {
+  const store = profileId
+    ? profileRegistry.isInitialized()
+      ? profileRegistry.getProfile(profileId)?.configStore
+      : undefined
+    : undefined;
+  const config = getRetentionConfig(store);
+
+  const now = Date.now();
+  const cutoffDate = new Date(now - config.retentionDays * 86_400_000);
+  const hardCutoffDate = new Date(now - (config.retentionDays + config.gracePeriodDays) * 86_400_000);
+
+  const [msgSoft] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rainbowMessages)
+    .where(and(lt(rainbowMessages.timestamp, cutoffDate), isNull(rainbowMessages.deletedAt)));
+
+  const [msgHard] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rainbowMessages)
+    .where(and(isNotNull(rainbowMessages.deletedAt), lt(rainbowMessages.deletedAt, hardCutoffDate)));
+
+  const [convSoft] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rainbowConversations)
+    .where(and(lt(rainbowConversations.updatedAt, cutoffDate), isNull(rainbowConversations.deletedAt)));
+
+  const [convHard] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rainbowConversations)
+    .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)));
+
+  return {
+    retention_days: config.retentionDays,
+    grace_period_days: config.gracePeriodDays,
+    cutoff_date: cutoffDate.toISOString(),
+    hard_cutoff_date: hardCutoffDate.toISOString(),
+    messages: {
+      eligible_soft_delete: Number(msgSoft?.count ?? 0),
+      eligible_hard_delete: Number(msgHard?.count ?? 0),
+    },
+    conversations: {
+      eligible_soft_delete: Number(convSoft?.count ?? 0),
+      eligible_hard_delete: Number(convHard?.count ?? 0),
+    },
+  };
+}
+
+// ─── Purge ───────────────────────────────────────────────────────────
+
+export interface PurgeResult {
+  profile: string;
+  records_deleted: {
+    messages_soft: number;
+    messages_hard: number;
+    conversations_soft: number;
+    conversations_hard: number;
+  };
+  cutoff_date: string;
+  hard_cutoff_date: string;
+  timestamp: string;
+}
+
+export async function runRetentionPurge(profileId?: string): Promise<PurgeResult> {
+  const store = profileId
+    ? profileRegistry.isInitialized()
+      ? profileRegistry.getProfile(profileId)?.configStore
+      : undefined
+    : undefined;
+  const config = getRetentionConfig(store);
+
+  if (!config.enabled) {
+    const profile = profileId ?? 'pelangi';
+    const result: PurgeResult = {
+      profile,
+      records_deleted: { messages_soft: 0, messages_hard: 0, conversations_soft: 0, conversations_hard: 0 },
+      cutoff_date: new Date().toISOString(),
+      hard_cutoff_date: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+    };
+    console.log(JSON.stringify({ event: 'data_retention_purge_skipped', ...result }));
+    return result;
+  }
+
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime() - config.retentionDays * 86_400_000);
+  const hardCutoffDate = new Date(now.getTime() - (config.retentionDays + config.gracePeriodDays) * 86_400_000);
+
+  // 1. Soft-delete messages older than retention_days
+  const softMessages = await db
+    .update(rainbowMessages)
+    .set({ deletedAt: now })
+    .where(and(lt(rainbowMessages.timestamp, cutoffDate), isNull(rainbowMessages.deletedAt)))
+    .returning({ id: rainbowMessages.id });
+
+  // 2. Hard-delete messages past the grace period
+  const hardMessages = await db
+    .delete(rainbowMessages)
+    .where(and(isNotNull(rainbowMessages.deletedAt), lt(rainbowMessages.deletedAt, hardCutoffDate)))
+    .returning({ id: rainbowMessages.id });
+
+  // 3. Soft-delete conversations not updated within retention_days
+  const softConversations = await db
+    .update(rainbowConversations)
+    .set({ deletedAt: now })
+    .where(and(lt(rainbowConversations.updatedAt, cutoffDate), isNull(rainbowConversations.deletedAt)))
+    .returning({ phone: rainbowConversations.phone });
+
+  // 4. Hard-delete conversations past the grace period
+  const hardConversations = await db
+    .delete(rainbowConversations)
+    .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
+    .returning({ phone: rainbowConversations.phone });
+
+  const profile = profileId ?? 'pelangi';
+  const result: PurgeResult = {
+    profile,
+    records_deleted: {
+      messages_soft: softMessages.length,
+      messages_hard: hardMessages.length,
+      conversations_soft: softConversations.length,
+      conversations_hard: hardConversations.length,
+    },
+    cutoff_date: cutoffDate.toISOString(),
+    hard_cutoff_date: hardCutoffDate.toISOString(),
+    timestamp: now.toISOString(),
+  };
+
+  // Structured log as required by AC
+  console.log(JSON.stringify({ event: 'data_retention_purge', ...result }));
+
+  return result;
+}
+
+// ─── Scheduler ───────────────────────────────────────────────────────
+
+export function startRetentionScheduler(): void {
+  // Run nightly at 3:00 AM MYT
+  cron.schedule('0 3 * * *', async () => {
+    console.log('[DataRetention] Running nightly retention purge...');
+    try {
+      const result = await runRetentionPurge();
+      console.log(`[DataRetention] Purge complete — messages: ${result.records_deleted.messages_soft} soft / ${result.records_deleted.messages_hard} hard deleted`);
+    } catch (err: any) {
+      console.error('[DataRetention] Purge failed:', err.message);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('[DataRetention] Nightly retention scheduler started (3:00 AM MYT)');
+}

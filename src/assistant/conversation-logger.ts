@@ -11,7 +11,7 @@
  * conversation-context.ts, and conversation-logger-types.ts.
  */
 
-import { eq, gt, sql, and } from 'drizzle-orm';
+import { eq, gt, sql, and, isNull } from 'drizzle-orm';
 import { db } from '../lib/db.js';
 import { withFallback } from '../lib/with-fallback.js';
 import { rainbowConversations, rainbowMessages } from '../../shared/schema-tables.js';
@@ -317,11 +317,11 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
       if (convoRows.length === 0) return null;
       const convo = convoRows[0];
 
-      // Get all messages ordered by timestamp
+      // Get all messages ordered by timestamp (exclude soft-deleted)
       const msgRows = await db
         .select()
         .from(rainbowMessages)
-        .where(eq(rainbowMessages.phone, key))
+        .where(and(eq(rainbowMessages.phone, key), isNull(rainbowMessages.deletedAt)))
         .orderBy(rainbowMessages.timestamp);
 
       const messages = msgRows.map(rowToMessage);

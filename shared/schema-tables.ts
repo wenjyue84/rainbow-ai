@@ -121,6 +121,7 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   contactDetailsJson: text("contact_details_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"),
 });
 
 export const rainbowMessages = pgTable("rainbow_messages", {
@@ -144,6 +145,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   usageJson: text("usage_json"),
   staffName: text("staff_name"),
   profileId: text("profile_id").default('pelangi'),
+  deletedAt: timestamp("deleted_at"),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
   index("idx_rainbow_messages_phone_timestamp").on(table.phone, table.timestamp),

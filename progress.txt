@@ -1267,3 +1267,30 @@ Incomplete: Add configurable conversation data retention with automatic purge (I
 - prd.json was truncated to 3653 bytes (from 85KB) at some point — restored from git HEAD before updating
 - `statSync` import added alongside existing `readFileSync, readdirSync, existsSync, watch, mkdirSync`
 
+
+
+## Iteration N - Story: US-419 - Add configurable conversation data retention with automatic purge
+### What was implemented
+- Added `deleted_at` column to `rainbowMessages` and `rainbowConversations` in shared/schema-tables.ts
+- Added `retention` key to `src/assistant/data/settings.json` (enabled: true, retention_days: 90, grace_period_days: 30)
+- Created `src/lib/data-retention.ts` with:
+  - `getRetentionStats()` — count of records eligible for soft/hard delete
+  - `runRetentionPurge()` — soft-deletes old records, hard-deletes after grace period
+  - `startRetentionScheduler()` — node-cron nightly job at 3:00 AM MYT
+  - Structured JSON log: `{ event, profile, records_deleted, cutoff_date, timestamp }`
+- Created `src/routes/admin/data-retention.ts`:
+  - GET /api/rainbow/data-retention/stats
+  - POST /api/rainbow/data-retention/run (manual trigger)
+- Registered route in src/routes/admin/index.ts
+- Added `startRetentionScheduler()` call in src/lib/baileys-supervisor.ts
+- Updated `conversation-logger.ts` to exclude soft-deleted messages (`isNull(deletedAt)` filter)
+
+### Patterns discovered
+- node-cron already installed (^4.2.1), same pattern as startDailyReportScheduler in daily-report.ts
+- profileRegistry.getProfile(id)?.configStore allows per-profile config access
+- Settings are profile-specific since each profile has its own configStore loaded from their own settings.json
+
+### Gotchas
+- settings.json has Unicode characters (BOM/special chars) — must use encoding='utf-8' in Python
+- Drizzle `returning()` gives back the updated/deleted rows, useful for counting
+- Schema push (db:push) is needed to apply the new `deleted_at` columns — left for deployment

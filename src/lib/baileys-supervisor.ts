@@ -15,6 +15,7 @@ import { initBaileys, registerMessageHandler, sendWhatsAppMessage, getWhatsAppSt
 import { initAssistant } from '../assistant/index.js';
 import { callAPI } from './http-client.js';
 import { startDailyReportScheduler } from './daily-report.js';
+import { startRetentionScheduler } from './data-retention.js';
 import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
 import { configStore } from '../assistant/config-store.js';
 
@@ -95,6 +96,9 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
 
     // Start daily report scheduler (11:30 AM MYT)
     startDailyReportScheduler();
+
+    // Start data retention scheduler (nightly 3:00 AM MYT)
+    startRetentionScheduler();
 
     // Notify system admin of server startup (after a delay to allow WhatsApp to connect)
     setTimeout(() => {
