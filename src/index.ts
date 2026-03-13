@@ -25,6 +25,7 @@ import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import { captureRawBody } from './lib/webhook-signature.js';
+import { safeRedirect } from './lib/safe-redirect.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
@@ -395,7 +396,7 @@ window.__ADMIN_KEY__=${JSON.stringify(adminKey)};
 app.get(['/admin/rainbow', '/admin/rainbow/*'], (req, res) => {
   const subPath = req.path.replace(/^\/admin\/rainbow\/?/, '');
   const hash = subPath ? `#${subPath}` : '#dashboard';
-  res.redirect(`/${hash}`);
+  safeRedirect(res, `/${hash}`);
 });
 
 app.get('/', async (req, res) => {

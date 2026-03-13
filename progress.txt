@@ -2270,3 +2270,22 @@ Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth sta
 ### Gotchas
 - `drizzle-kit push` fails with pre-existing `Cannot find module './src/lib/db-url.js'` error — raw SQL migration via `_migrate-447.ts` is the reliable alternative
 - The `[Conversation Summary - Messages X-Y]` prefix from the summarizer needs regex stripping before saving to DB to avoid nesting prefixes
+## Iteration 7 - Sat, Mar 14, 2026 12:09:42 AM
+Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth state (ID: US-480) — attempt 2/3
+
+
+## Iteration 9 - Story: US-497 - Replace open-redirect risk with strict URL allowlist validation
+### What was implemented
+- Created `src/lib/safe-redirect.ts` with `isRedirectSafe()` and `safeRedirect()` utilities
+- Validates redirect targets against configurable host allowlist using URL constructor
+- Relative paths always allowed; protocol-relative URLs (//evil.com) rejected
+- ALLOWED_REDIRECT_HOSTS env var support (comma-separated)
+- localhost/127.0.0.1 auto-allowed in development mode
+- Only http/https schemes permitted (blocks javascript:, data:, ftp:)
+- Updated the sole `res.redirect()` in `src/index.ts` to use `safeRedirect()`
+- 14 unit tests covering all attack vectors: evil.com, protocol-relative, non-http schemes, empty input, malformed URLs, extraAllowedHosts
+### Patterns discovered
+- Only one res.redirect() existed in the codebase (admin backward-compat route) — already safe (path-derived, not query-param), but now protected proactively
+- grep confirms zero `res.redirect(req.query` patterns after fix
+### Gotchas
+- The existing redirect was already safe (constructs hash from URL path), but wrapping it in safeRedirect() adds defense-in-depth
