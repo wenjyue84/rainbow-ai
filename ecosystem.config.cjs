@@ -1,10 +1,21 @@
+// US-496: Resolve nvm-managed Node 24 binary at PM2 config load time.
+// deploy.sh runs `nvm use 24` before `pm2 start`, so `which node` returns the v24 path.
+const nodeInterpreter = (() => {
+  try {
+    return require('child_process').execSync('which node', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'node';
+  }
+})();
+
 module.exports = {
   apps: [
     {
       name: 'rainbow-ai',
       script: 'dist/index.js',
       cwd: '/var/www/rainbow-ai',
-      node_args: '--max-old-space-size=450',
+      interpreter: nodeInterpreter,
+      node_args: '--max-old-space-size=450 --import ./dist/instrumentation.js',
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',

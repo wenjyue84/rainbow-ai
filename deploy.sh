@@ -62,6 +62,12 @@ set -euo pipefail
 REMOTE_PATH="/var/www/rainbow-ai"
 TARBALL="rainbow-ai-deploy.tar.gz"
 
+# US-496: Ensure Node.js 24 via nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+nvm use 24 || { echo "ERROR: Node.js 24 not installed. Run: nvm install 24"; exit 1; }
+echo "==> Node.js $(node -v), OpenSSL $(node -e "process.stdout.write(process.versions.openssl)")"
+
 # Ensure target dir exists
 sudo mkdir -p "$REMOTE_PATH"
 sudo chown ubuntu:ubuntu "$REMOTE_PATH"
@@ -79,7 +85,7 @@ npm install --omit=dev
 # Ensure logs dir exists
 mkdir -p logs
 
-# Restart PM2
+# Restart PM2 (interpreter resolved via nvm PATH — see ecosystem.config.cjs)
 pm2 start ecosystem.config.cjs 2>/dev/null || pm2 restart rainbow-ai
 
 # Cleanup

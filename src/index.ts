@@ -401,7 +401,7 @@ window.__ADMIN_KEY__=${JSON.stringify(adminKey)};
 
 // Rainbow Admin Dashboard - Root path only
 // Backward compatibility: redirect old /admin/rainbow routes to hash-based dashboard.
-app.get(['/admin/rainbow', '/admin/rainbow/*'], (req, res) => {
+app.get(['/admin/rainbow', '/admin/rainbow/{*rest}'], (req, res) => {
   const subPath = req.path.replace(/^\/admin\/rainbow\/?/, '');
   const hash = subPath ? `#${subPath}` : '#dashboard';
   safeRedirect(res, `/${hash}`);
@@ -517,7 +517,11 @@ const dashboardTabs = [
   'intent-manager', 'static-replies', 'kb', 'preview', 'real-chat', 'workflow',
   'whatsapp-accounts', // removed from nav but URL still works (shows "Page Removed" notice)
 ];
-app.get(`/:tab(${dashboardTabs.join('|')})`, async (req, res) => {
+// US-496: Express 5 path-to-regexp v8 no longer supports inline regex /:tab(pattern).
+// Use plain :tab param with a Set lookup instead.
+const dashboardTabSet = new Set(dashboardTabs);
+app.get('/:tab', async (req, res, next) => {
+  if (!dashboardTabSet.has(req.params.tab)) return next();
   try {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -560,6 +564,7 @@ server.listen(PORT, '0.0.0.0', () => {
   markListening();
 
   const apiUrl = getApiBaseUrl();
+  console.log(`[Startup] Node.js ${process.version}, OpenSSL ${process.versions.openssl} (security level 2)`);
   console.log(`digiman MCP Server running on http://0.0.0.0:${PORT}`);
   console.log(`MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
   console.log(`Health check: http://0.0.0.0:${PORT}/health`);

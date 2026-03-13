@@ -2391,3 +2391,27 @@ FAILED quality gates: Migrate Express 4 to Express 5 with async error propagatio
 ### Gotchas
 - System uses Baileys (direct WA connection), not Cloud API — "template messages" classified by purpose (service/utility/marketing) rather than Meta template API types
 - CSW detection queries rainbow_messages for recent 'user' role messages — assumes all user messages are customer-initiated (correct for this deployment)
+
+
+## Iteration 11 - Story: US-496 — Upgrade Node.js runtime to v24 LTS and enforce OpenSSL 3.5 key minimums
+### What was implemented
+- Updated `package.json` `engines.node` from `>=18.0.0` to `>=24.0.0`
+- `ecosystem.config.cjs`: Added dynamic `interpreter` resolution via `which node` (uses nvm-managed binary) + added `--import ./dist/instrumentation.js` to `node_args`
+- `deploy.sh`: Added `nvm use 24` in the remote server deploy section to ensure Node 24 is active before npm install and PM2 start
+- `src/index.ts`: Added `[Startup] Node.js ${process.version}, OpenSSL ${process.versions.openssl} (security level 2)` log line in server.listen() callback
+- Created `.github/workflows/ci.yml` with Node.js 24 matrix for build + test
+- Documented `--permission` flag evaluation in `.spiral/node24-permission-flag-eval.md` — decision: NOT enabled yet due to Baileys disk auth, KB file reads, and BullMQ worker threads
+- Fixed Express 5 path-to-regexp v8 crash: `/admin/rainbow/*` → `/admin/rainbow/{*rest}`
+- Fixed Express 5 path-to-regexp v8 crash: `/:tab(dashboard|...)` inline regex replaced with plain `:tab` param + Set-based validation in handler
+- Also marked US-494 as passing (was committed in 851d9f9 but prd.json not updated)
+### Patterns discovered
+- Express 5 uses path-to-regexp v8 which does NOT support: unnamed wildcards (`*`), inline regex constraints (`/:param(pattern)`)
+- Unnamed wildcards must be `{*name}` in Express 5
+- Inline regex constraints must be replaced with handler-level validation (Set lookup, Zod, etc.)
+- `process.versions.openssl` gives the OpenSSL version string at runtime
+- Node.js 24.7.0 ships with OpenSSL 3.5.2, security level 2 is enforced by default
+### Gotchas
+- The US-494 migration missed these two Express 5 route patterns because `/:tab(...)` was treated as compatible (it's listed in CLAUDE.md migration checklist as "works with path-to-regexp v8") — it does NOT work
+- `ecosystem.config.cjs` interpreter path can't be hardcoded to nvm version path because patch versions change — dynamic resolution via `which node` is the correct approach
+## Iteration 11 - Sat, Mar 14, 2026 1:30 AM
+Completed: Upgrade Node.js runtime to v24 LTS (ID: US-496)
