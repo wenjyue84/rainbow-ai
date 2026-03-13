@@ -2511,3 +2511,58 @@ This user story describes implementing AWS Secrets Manager for a Node.js/TypeScr
 ### Gotchas
 - settingsDataSchema uses .passthrough() so unknown keys (like whatsappInstanceId before this change) were already allowed through — no data migration needed
 - Must use value || null (not empty string) when clearing the setting
+## Iteration 2 - Sat, Mar 14, 2026  1:56:32 AM
+Completed: Implement Secrets Manager integration for production credentials rotation (ID: US-499) in 14m
+
+
+## Pre-analysis for US-414 (Gemini 2.5 Pro)
+This is a technical brief for a Node.js/TypeScript project, based on the provided user story. The story details do not match a Frappe/Python environment.
+
+**Project:** rainbow-ai (Node.js/TypeScript/PostgreSQL)
+**User Story:** US-414: Add response latency P95/P99 metrics endpoint
+
+### 1. Files to Modify
+
+*   **`src/routes/admin/analytics.ts`**: (Likely exists, or create it). This file will contain the new Express route definition for `GET /api/admin/analytics/latency`.
+*   **`src/lib/database/analytics-db.ts`**: (Create this new file). To encapsulate the database logic, create a dedicated service for analytics queries. This keeps the route handler clean and separates concerns.
+*   **`src/lib/database/schema.ts`**: The `rainbowMessages` table schema is defined here. The query will target the `response_time`, `profileId`, and `intent_source` columns.
+*   **`.env.example`**: Add `LATENCY_ALERT_THRESHOLD_MS` to document the new configuration option.
+
+### 2. Core Entities Involved
+
+*   **API Route**: `GET /api/admin/analytics/latency`
+*   **Database Table**: `rainbow_messages`
+*   **Primary Columns**: `created_at`, `response_time`, `profile_id`, `intent_source` (this likely stores the routing source, e.g., `t4_llm`).
+
+### 3. Implementation Approach
+
+1.  **Define the Route**: In `src/routes/admin/analytics.ts`, add a new GET route. It should call a new function, e.g., `getLatencyMetrics`, from the analytics database service.
+2.  **Create DB Function**: In `src/lib/database/analytics-db.ts`, implement `getLatencyMetrics`.
+    *   This function will execute a raw SQL query against the `rainbow_messages` table.
+    *   Use `percentile_cont(0.5) WITHIN GROUP (ORDER BY response_time)` for P50, and similarly for P95 and P99.
+    *   Use a `CASE` statement on `created_at` to aggregate over two periods ("last 24 hours" and "last 7 days") in a single query.
+    *   `GROUP BY profile_id, intent_source` to get the required breakdown.
+3.  **Process Data**: The route handler will process the raw data from the DB function, format it into the required JSON structure, and implement the warning flag logic based on the `LATENCY_ALERT_THRESHOLD_MS` environment variable.
+
+### 4. Edge Cases & Gotchas
+
+*   **Null Values**: The `percentile_cont` function returns `null` if there's no data for a group. The code must handle this gracefully, either by omitting the group from the response or showing a value of `0`.
+*   **Query Performance**: Ensure an index exists on `(created_at, profile_id, intent_source)` to support this query, as the `rainbow_messages` table can be very large.
+*   **Data Type**: `response_time` is likely an integer in milliseconds. Confirm this from the schema.
+*   **Configuration**: The alert threshold should be managed via an environment variable for flexibility (e.g., `process.env.LATENCY_ALERT_THRESHOLD_MS`).
+
+
+## Iteration N - Story: US-452 - Add PostgreSQL connection pool maxUses recycling
+### What was implemented
+- `maxUses: 7500` was already present in the Pool config
+- Added explanatory comment above `maxUses` explaining memory leak prevention and Neon cold-start behavior
+- Added comment confirming `idleTimeoutMillis: 30000` is safe vs Neon's 300s limit
+- Added `pool.on('connect')` handler logging a debug line when a new connection is created
+- Build passes with no regressions
+
+### Patterns discovered
+- db.ts uses deferred pool initialization via initDb() (US-499 pattern) for Secrets Manager support
+- Pool config is at lines 66-75, event handlers follow immediately after
+
+### Gotchas
+- prd.json requires utf-8 encoding when reading/writing via Python on Windows

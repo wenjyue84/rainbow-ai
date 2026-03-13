@@ -69,9 +69,19 @@ export function initDb(): void {
       ? { rejectUnauthorized: false }
       : undefined,
     max: 10,
+    // idleTimeoutMillis (30 s) is safely below Neon's 300 s idle-connection
+    // limit, so the pool evicts connections before the load-balancer closes them.
     idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: 15000,
+    // maxUses: recycle each connection after 7 500 queries to prevent
+    // PostgreSQL backend processes from accumulating memory indefinitely.
+    // On Neon (serverless), this also flushes any per-session state across
+    // cold-start cycles without increasing query overhead.
     maxUses: 7500,
+  });
+
+  pool.on('connect', () => {
+    console.debug('[DB] New connection created in pool');
   });
 
   pool.on('error', (err) => {
