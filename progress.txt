@@ -2156,3 +2156,19 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 - The readiness module is a simple singleton pattern, consistent with other lib modules (failover-coordinator, etc.)
 ### Gotchas
 - The readiness middleware must come AFTER auth but BEFORE profile resolution to avoid leaking information about the server state to unauthenticated requests
+
+
+## Iteration 67 - Story: US-446 - Add WhatsApp Business portfolio messaging tier tracking
+### What was implemented
+- Created `src/routes/admin/messaging-limits.ts` with:
+  - `GET /analytics/messaging-limits` — returns tier, used24h, limit, percentUsed with 10s in-memory cache
+  - `PUT /analytics/messaging-limits/tier` — manually set tier (250/2000/10000/100000/unlimited)
+- Uses app_settings keys: `rainbow_portfolio_tier`, `rainbow_portfolio_tier_updated_at`
+- 24h outbound count queries rainbow_messages where role='assistant' and timestamp > NOW() - 24h
+- Added `notifyAdminMessagingLimit()` to admin-notifier.ts with 6-hour cooldown
+- Registered route in admin index.ts and added to semi-stable cache paths
+### Patterns discovered
+- rainbowMessages uses `role` column ('user'/'assistant') not a 'direction' column — AC says "direction='outbound'" but actual schema uses role='assistant' for outbound
+- appSettings upsert pattern: insert().onConflictDoUpdate({ target: [appSettings.key], set: {...} })
+### Gotchas
+- The `limit` field returns 'unlimited' string (not Infinity) in JSON to avoid serialization issues

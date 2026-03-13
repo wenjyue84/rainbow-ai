@@ -50,6 +50,7 @@ import tracesRoutes from './traces.js';
 import escalationsRoutes from './escalations.js';
 import qualityMetricsRoutes from './quality-metrics.js';
 import intentGapsRoutes from './intent-gaps.js';
+import messagingLimitsRoutes from './messaging-limits.js';
 
 const router = Router();
 
@@ -143,7 +144,7 @@ const STABLE_PATHS = [
 // Semi-stable endpoints (aggregated stats, refresh every 30s)
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
-  '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost',
+  '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -205,6 +206,7 @@ router.use(tracesRoutes);
 router.use(escalationsRoutes);
 router.use(qualityMetricsRoutes);
 router.use(intentGapsRoutes);
+router.use(messagingLimitsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

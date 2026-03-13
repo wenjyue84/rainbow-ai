@@ -398,6 +398,56 @@ export async function notifyAdminFrequencyCap(
 }
 
 /**
+ * Send WhatsApp portfolio messaging tier threshold alert to system admin.
+ * Fires when 24-hour outbound count exceeds 80% of the portfolio tier limit.
+ * Throttled to at most one notification per 6 hours.
+ */
+const MESSAGING_LIMIT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+let lastMessagingLimitNotifyAt = 0;
+
+export async function notifyAdminMessagingLimit(
+  used24h: number,
+  limit: number | string,
+  tier: string,
+  percentUsed: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send messaging limit notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastMessagingLimitNotifyAt < MESSAGING_LIMIT_COOLDOWN_MS) {
+    logger.info('Messaging limit notification skipped (cooldown)');
+    return;
+  }
+  lastMessagingLimitNotifyAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const limitStr = limit === Infinity || limit === 'unlimited' ? 'unlimited' : String(limit);
+  const message = `⚠️ *WhatsApp Messaging Limit Warning*\n\n` +
+    `Portfolio Tier: *${tier}*\n` +
+    `24h Outbound Messages: ${used24h} / ${limitStr}\n` +
+    `Usage: *${percentUsed.toFixed(1)}%*\n\n` +
+    `You are approaching your WhatsApp Business Portfolio messaging limit.\n` +
+    `When the limit is reached, outbound messages will fail silently.\n\n` +
+    `**Actions:**\n` +
+    `1. Reduce non-critical outbound messages\n` +
+    `2. Request tier upgrade from Meta Business Manager\n` +
+    `3. Monitor via Rainbow Admin dashboard\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent messaging limit notification', { toPhone: settings.systemAdminPhone, percentUsed });
+  } catch (err: any) {
+    logger.error('Failed to send messaging limit notification', { error: err.message });
+  }
+}
+
+/**
  * Send AI provider rate limit alert to system admin
  * Notifies when a provider hits too many consecutive 429 errors
  */
