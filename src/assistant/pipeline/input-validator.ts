@@ -22,6 +22,7 @@ import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAn
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
+import { redactPii } from '../pii-redactor.js';
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -311,6 +312,18 @@ export async function validateAndPrepare(
     console.log(`[Router] Detected ${foreignLang} — translating to English for processing`);
     const translated = await translateText(text, foreignLang, 'English');
     if (translated) processText = translated;
+  }
+
+  // ─── PII Redaction (US-421) ──────────────────────────────────────
+  // Apply AFTER translation so translated text is also redacted before LLM.
+  // Original `text` is preserved for DB storage; `processText` goes to LLM.
+  const piiSettings = (profileConfig.getSettings() as any).piiRedaction;
+  if (piiSettings?.enabled !== false) {
+    const piiResult = redactPii(processText);
+    if (piiResult.hadPii) {
+      console.warn(`[PiiRedactor] Redacted PII types [${piiResult.types.join(', ')}] from message of ${phone}`);
+      processText = piiResult.redacted;
+    }
   }
 
   // Get or create conversation (profile-scoped)

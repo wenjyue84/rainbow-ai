@@ -1201,3 +1201,22 @@ Completed: Add async message queue with BullMQ to decouple webhook ingestion fro
 ### Gotchas
 - Settings accessed via `profileConfig.getSettings()` cast to `any` for new fields — consistent with other US-422 pattern
 - The `addMessage()` in conversation.ts will re-detect language without confidence — but since we set `convo.language` first, and addMessage uses basic detectLanguage (no confidence), it may override our confidence-based result. This is acceptable since addMessage's detection is simple and fast, and the routing stage will refine further.
+## Iteration 3 - Fri, Mar 13, 2026 10:43:03 AM
+Completed: Implement automatic language detection and per-language response routing (ID: US-418) in 7m
+
+
+## Iteration 4 - Story: US-421 PII Redaction
+### What was implemented
+- Created `src/assistant/pii-redactor.ts` — pure function `redactPii(text)` covering: Luhn-valid credit cards, Malaysian IC (YYMMDD-SS-NNNN), international passport numbers, 10-16 digit bank accounts, email addresses
+- Added `piiRedaction.enabled: true` to `src/assistant/data/settings.json`
+- Integrated into `input-validator.ts` pipeline: applied to `processText` (post-translation) before LLM submission; original `text` stored in DB unchanged
+- 15 unit tests in `src/assistant/__tests__/pii-redactor.test.ts` — all passing
+
+### Patterns discovered
+- Pipeline follows `processText` (LLM-bound, safe to transform) vs `text` (DB-stored original) convention — PII redaction slots cleanly into processText
+- Settings accessed via `(profileConfig.getSettings() as any).piiRedaction` — consistent with US-422 pattern
+- Passport regex must be all-caps for match (`/\b([A-Z]{1,2}\d{6,9})\b/g`) — lowercase passport letters won't match; acceptable since passport numbers are uppercase
+
+### Gotchas
+- 12-digit bank account numbers overlap with IC pattern (6+2+4=12 digits) — IC regex fires first. Test updated to use 15-digit number to isolate bank account detection. This is acceptable behaviour: 12-digit sequences are more likely IC than bank account.
+- Regex objects with `g` flag maintain `lastIndex` state — must reset `lastIndex = 0` before each `.replace()` call on string inputs (already done in implementation)
