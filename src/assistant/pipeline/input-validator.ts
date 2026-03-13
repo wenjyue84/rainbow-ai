@@ -20,6 +20,7 @@ import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } fro
 import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled } from '../sentiment-tracker.js';
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
+import { detectPromptInjection } from './prompt-injection-guard.js';
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -268,6 +269,19 @@ export async function validateAndPrepare(
       await ctx.sendMessage(phone, response, msg.instanceId);
     }
     return { continue: false, reason: 'rate_limited' };
+  }
+
+  // ─── Prompt Injection Detection (US-422) ──────────────────────
+  const injectionSettings = (profileConfig.getSettings() as any).promptInjection;
+  if (injectionSettings?.enabled !== false) {
+    const customPatterns = injectionSettings?.patterns?.length > 0 ? injectionSettings.patterns : undefined;
+    const injectionResult = detectPromptInjection(text, customPatterns);
+    if (injectionResult.blocked) {
+      console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
+      const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
+      await ctx.sendMessage(phone, safeResponse, msg.instanceId);
+      return { continue: false, reason: 'prompt_injection' };
+    }
   }
 
   // Language detection + translation

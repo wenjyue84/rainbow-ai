@@ -1142,3 +1142,17 @@ This technical brief is based on the provided user story, which describes a Node
 *   **Deployment:** The deployment script (`ecosystem.config.cjs`) is critical and must be updated to run both the API server and the new worker as separate processes.
 *   **Graceful Shutdown:** Ensure both the server and worker handle `SIGTERM`/`SIGINT` signals to close queue connections properly, preventing job hangs.
 
+
+## Iteration 2 - Story: US-422 - Prompt injection detection and guardrails
+### What was implemented
+- Created `src/assistant/pipeline/prompt-injection-guard.ts` — pure function with 30+ default patterns
+- Added `promptInjection` config block to `settings.json` (enabled, custom patterns, safe response)
+- Wired guard into `validateAndPrepare()` in input-validator.ts after rate limiting, before language detection
+- Blocked messages get a safe response and return `{ continue: false, reason: 'prompt_injection' }`
+- Logs blocked attempts at warn level with truncated message and matched pattern
+### Patterns discovered
+- Pipeline guard placement: after rate limiting (so rate-limited users don't even get injection checked) and before language detection (so injection text doesn't get translated)
+- Settings are accessed via `profileConfig.getSettings()` — cast to `any` for new fields since Zod schema updates are optional
+### Gotchas
+- "act as" is a common injection but could false-positive on innocent phrases like "act as a group" — the current substring matching is simple; may need refinement if false positives arise
+- Custom patterns in settings.json override defaults entirely (not additive) — this is intentional so operators have full control
