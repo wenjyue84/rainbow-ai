@@ -2566,3 +2566,59 @@ This is a technical brief for a Node.js/TypeScript project, based on the provide
 
 ### Gotchas
 - prd.json requires utf-8 encoding when reading/writing via Python on Windows
+## Iteration 3 - Sat, Mar 14, 2026  2:00:15 AM
+Incomplete: Add response latency P95/P99 metrics endpoint (ID: US-414) — attempt 2/3
+
+
+## Pre-analysis for US-414 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-414: Add Latency Metrics Endpoint**
+
+This brief outlines the implementation plan for creating a new API endpoint to report response latency percentiles for the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+
+*   `lhdn_payroll_integration/api.py`: This file is the primary candidate for adding the new API endpoint logic. A new whitelisted function will be created here.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/lhdn_payroll_settings/lhdn_payroll_settings.py`: The controller for the settings DocType to potentially add validation or default values for the alert threshold.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType (Source):** The query will target an existing logging DocType, presumably named `Integration Request Log` or a similar DocType that records API calls and contains a `response_time` float field.
+*   **DocType (Configuration):** A Singleton DocType named `LHDN Payroll Settings` should be used. A new float field, `latency_alert_threshold_ms`, must be added to it.
+*   **Hooks:** No hooks are required. The endpoint will be exposed via the `@frappe.whitelist()` decorator in `api.py`.
+
+**3. Recommended Implementation Approach:**
+
+1.  Create a new function `get_latency_analytics` in `lhdn_payroll_integration/api.py` and decorate it with `@frappe.whitelist()`.
+2.  The function will execute a raw `frappe.db.sql` query against the logging DocType's table.
+3.  Use `percentile_cont()` (PostgreSQL) or `PERCENTILE_CONT()` (MariaDB) to calculate P50, P95, and P99 of the `response_time` field.
+4.  Group results by `company` and a field representing the API call type (e.g., `api_method` or `request_type`).
+5.  Run the query for two time windows: `creation > now() - interval '1 day'` and `creation > now() - interval '7 day'`.
+6.  Fetch the threshold value from `LHDN Payroll Settings` using `frappe.get_doc`.
+7.  Structure the final JSON response, adding a `warning: true` flag if any P95 value exceeds the configured threshold.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Database Compatibility:** Percentile calculation syntax differs between PostgreSQL and MariaDB. Ensure the SQL is compatible with the target database platform.
+*   **Performance:** The `response_time` and `creation` columns on the logging DocType must be indexed to prevent slow queries on large datasets.
+*   **Permissions:** Secure the endpoint by adding a permission check (`frappe.has_permission`) at the start of the function, limiting access to roles like System Manager.
+*   **No Data:** The query should gracefully handle time ranges with no API logs, returning an empty or zero-filled data structure instead of an error.
+
+
+## Iteration - Story: US-471 - Enforce structured LLM output retry with error context re-prompting
+### What was implemented
+- Added `generateWithValidation<T>()` generic wrapper in `ai-response-generator.ts` that validates LLM responses with Zod schemas and retries once on failure
+- When first validation fails, appends the Zod field errors as a user message turn and retries the LLM call
+- Integrated into `classifyAndRespond()` — now uses `generateWithValidation` with `aiResponseSchema` instead of direct `chatWithFallback` + `parseAIResponse`
+- Falls back to `parseAIResponse` partial recovery if both attempts fail validation
+- Retry timeout configurable via `LLM_STRUCTURED_RETRY_TIMEOUT_MS` env var (default: 5000ms)
+- Added 5 unit tests covering: success on first try, retry success, both fail, no content, maxRetries=0
+
+### Patterns discovered
+- `safeParseLLMResponse` in schemas.ts already handles JSON extraction from markdown-wrapped responses
+- `chatWithFallback` returns `{ content, provider, usage }` — can be called multiple times for retry
+- `parseAIResponse` does partial recovery with `recoverPartial()` — good fallback when structured retry also fails
+
+### Gotchas
+- Need to import `z` from 'zod' at top of ai-response-generator.ts for the generic type constraint
+- The retry message is appended as a user message turn (not system prompt modification) per acceptance criteria
+- Timeout uses Promise.race with setTimeout to enforce the 5s retry limit

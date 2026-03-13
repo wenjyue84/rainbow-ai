@@ -10,6 +10,7 @@ import {
   isAIAvailable, getAISettings, getProviders, resolveApiKey,
   getGroqInstance, providerChat, chatWithFallback
 } from './ai-provider-manager.js';
+import { z } from 'zod';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 
@@ -84,6 +85,98 @@ export async function chat(
   throw new Error('AI temporarily unavailable');
 }
 
+// ─── Structured Output Retry (US-471) ─────────────────────────────────
+
+const LLM_STRUCTURED_RETRY_TIMEOUT_MS = parseInt(
+  process.env.LLM_STRUCTURED_RETRY_TIMEOUT_MS || '5000',
+  10
+);
+
+/**
+ * Generate an LLM response with Zod validation and self-healing retry.
+ * If the first attempt fails validation, retries once with the validation
+ * error appended as a user message so the model can self-correct.
+ */
+export async function generateWithValidation<T>(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  schema: z.ZodType<T>,
+  maxTokens: number,
+  temperature: number,
+  maxRetries: number = 1
+): Promise<{ data: T | null; raw: string | null; provider: any; usage?: any; retried: boolean }> {
+  const { content, provider, usage } = await chatWithFallback(messages, maxTokens, temperature, true);
+
+  if (!content) {
+    return { data: null, raw: null, provider, usage, retried: false };
+  }
+
+  // First attempt: validate with Zod
+  const firstResult = safeParseLLMResponse(content, schema, 'generateWithValidation:attempt1');
+  if (firstResult.success) {
+    return { data: firstResult.data, raw: content, provider, usage, retried: false };
+  }
+
+  // Validation failed — retry with error context if retries remain
+  if (maxRetries < 1) {
+    return { data: null, raw: content, provider, usage, retried: false };
+  }
+
+  // Extract field errors for the retry prompt
+  let fieldErrors: string;
+  try {
+    const parsed = JSON.parse(content.match(/\{[\s\S]*\}/)?.[0] || content);
+    const parseResult = schema.safeParse(parsed);
+    fieldErrors = parseResult.success
+      ? 'Unknown validation error'
+      : JSON.stringify((parseResult as any).error.flatten().fieldErrors);
+  } catch {
+    fieldErrors = firstResult.success ? 'Unknown' : (firstResult as any).error || 'Invalid JSON';
+  }
+
+  console.log(`[AI] Structured retry: first attempt failed validation, retrying with error context. Errors: ${fieldErrors}`);
+
+  // Build retry messages: append validation error as user message
+  const retryMessages = [
+    ...messages,
+    {
+      role: 'user' as const,
+      content: `Previous response failed validation: ${fieldErrors}. Please provide a valid response.`
+    }
+  ];
+
+  // Retry with timeout
+  const retryStart = Date.now();
+  try {
+    const retryPromise = chatWithFallback(retryMessages, maxTokens, temperature, true);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Structured retry timeout')), LLM_STRUCTURED_RETRY_TIMEOUT_MS)
+    );
+
+    const { content: retryContent, provider: retryProvider, usage: retryUsage } =
+      await Promise.race([retryPromise, timeoutPromise]);
+
+    const retryTime = Date.now() - retryStart;
+
+    if (!retryContent) {
+      console.warn(`[AI] Structured retry: no content returned (${retryTime}ms)`);
+      return { data: null, raw: content, provider, usage, retried: true };
+    }
+
+    const retryResult = safeParseLLMResponse(retryContent, schema, 'generateWithValidation:attempt2');
+    if (retryResult.success) {
+      console.log(`[AI] Structured retry succeeded on attempt 2 (${retryTime}ms)`);
+      return { data: retryResult.data, raw: retryContent, provider: retryProvider, usage: retryUsage, retried: true };
+    }
+
+    console.warn(`[AI] Structured retry: attempt 2 also failed validation (${retryTime}ms)`);
+    return { data: null, raw: retryContent, provider: retryProvider, usage: retryUsage, retried: true };
+  } catch (err: any) {
+    const retryTime = Date.now() - retryStart;
+    console.warn(`[AI] Structured retry failed: ${err.message} (${retryTime}ms)`);
+    return { data: null, raw: content, provider, usage, retried: true };
+  }
+}
+
 // ─── Classify + Respond (unified LLM call) ──────────────────────────
 
 export async function classifyAndRespond(
@@ -109,11 +202,29 @@ export async function classifyAndRespond(
 
     const aiCfg = getAISettings();
     const startTime = Date.now();
-    const { content, provider, usage } = await chatWithFallback(messages, aiCfg.max_chat_tokens, aiCfg.chat_temperature, true);
+
+    // Use generateWithValidation for self-healing retry on Zod failure (US-471)
+    const { data, raw, provider, usage, retried } = await generateWithValidation(
+      messages, aiResponseSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 1
+    );
     const responseTime = Date.now() - startTime;
 
-    if (content) {
-      const result = parseAIResponse(content);
+    if (data) {
+      // Validated response — apply intent routing check
+      const routing = configStore.getRouting();
+      const definedIntents = Object.keys(routing);
+      const intent = definedIntents.includes(data.intent) ? data.intent : 'general';
+      const response = looksLikeJson(data.response) ? '' : data.response;
+      const result: AIResponse = { ...data, intent, response };
+      result.model = provider?.name || provider?.model || 'unknown';
+      result.responseTime = responseTime;
+      result.usage = usage;
+      return result;
+    }
+
+    // Validation failed even after retry — fall back to parseAIResponse partial recovery
+    if (raw) {
+      const result = parseAIResponse(raw);
       result.model = provider?.name || provider?.model || 'unknown';
       result.responseTime = responseTime;
       result.usage = usage;
