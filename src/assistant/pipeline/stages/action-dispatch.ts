@@ -306,6 +306,10 @@ async function handleWorkflow(
  * Uses the LLM-generated response directly.
  * If confidence is very low (<0.4), increments unknown counter and
  * may escalate if threshold is reached.
+ *
+ * US-428: Consecutive fallback escalation — after N consecutive T4 LLM-fallback
+ * unknowns (configurable via settings.json consecutive_fallback_threshold),
+ * automatically trigger human handoff and log to escalation_events table.
  */
 async function handleLLMReply(
   state: PipelineState,
@@ -320,9 +324,23 @@ async function handleLLMReply(
   const isUnknownIntent = result.intent === 'unknown' || result.intent === 'unknown_intent';
   if (isUnknownIntent || result.confidence < 0.4) {
     const unknownCount = context.incrementUnknown(phone);
-    const escReason = context.shouldEscalate(null, unknownCount);
-    if (escReason) {
+
+    // US-428: Check consecutive fallback threshold (settings.json, per-profile)
+    const settings = context.getSettings();
+    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 2;
+    const shouldEscalateConsecutive = unknownCount > fallbackThreshold;
+
+    if (shouldEscalateConsecutive) {
       diaryEvent.escalated = true;
+
+      // Log escalation event to DB (fire-and-forget)
+      context.logEscalationEvent({
+        jid: phone,
+        profileId: state.profileId,
+        trigger: 'consecutive_fallback',
+        count: unknownCount,
+      });
+
       // Send customer-facing message about operator handoff
       const lang = convo.language || 'en';
       const handoffMessages: Record<string, string> = {
@@ -332,12 +350,12 @@ async function handleLLMReply(
       };
       state.response = handoffMessages[lang] || handoffMessages.en;
       await context.escalateToStaff({
-        phone, pushName: msg.pushName, reason: escReason,
+        phone, pushName: msg.pushName, reason: 'unknown_repeated',
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch] Unknown escalation: ${unknownCount} consecutive unknowns → forwarded to operator`);
+      console.log(`[Dispatch] Consecutive fallback escalation (US-428): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
     }
   } else {
     context.resetUnknown(phone);

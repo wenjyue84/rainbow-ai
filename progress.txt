@@ -1681,3 +1681,41 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 ✓ Failed delivery status triggers warning-level log entry
 ✓ npm run build succeeds
 ✓ All 478 tests pass
+## Iteration 2 - Fri, Mar 13, 2026  3:24:09 PM
+Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (ID: US-457) — attempt 2/3
+
+## Iteration 3 - Fri, Mar 13, 2026  3:35:00 PM
+Story: US-428 - Implement tiered escalation based on consecutive low-confidence intent classifications
+
+### What was implemented
+- Added `escalation_events` table to `shared/schema-tables.ts` with columns: id, jid, profile_id, trigger, count, metadata, created_at
+- Created `src/lib/escalation-events.ts` — fire-and-forget DB logger for escalation events
+- Added `consecutive_fallback_threshold: 2` to all 5 profile settings.json files
+- Modified `handleLLMReply` in `src/assistant/pipeline/stages/action-dispatch.ts`:
+  - Checks unknownCount > consecutive_fallback_threshold (from settings.json per-profile)
+  - When threshold exceeded, logs to escalation_events table with trigger='consecutive_fallback'
+  - Triggers human handoff via escalateToStaff with reason='unknown_repeated'
+  - Counter resets on T1/T2/T3 match (existing resetUnknown behavior)
+- Added `logEscalationEvent` to `IPipelineContext` interface and wired in `createPipelineContext`
+- Wrote 6 Vitest tests in `src/assistant/__tests__/consecutive-fallback-escalation.test.ts`:
+  - No escalation on 1st/2nd unknown
+  - Escalation triggered on 3rd consecutive unknown (threshold=2)
+  - Counter resets when known intent succeeds
+  - Correct trigger type in escalation event
+  - Handoff message shown on escalation
+  - Custom threshold from settings respected
+
+### Patterns discovered
+- `handleLLMReply` already tracked unknownCount — US-428 replaces `shouldEscalate()` with direct threshold check from settings.json
+- The `devMetadata.source` tracks tier source ('tiered-llm-fallback' for T4), but unknownCount tracking is generic across all tiers
+- `IPipelineContext.logEscalationEvent` follows same pattern as other fire-and-forget context methods
+
+### Acceptance Criteria Met
+✓ consecutive_fallback_count tracked per conversation (via existing unknownCount)
+✓ After 2 consecutive unknowns, 3rd triggers human handoff (threshold=2, check >)
+✓ Threshold configurable per profile in settings.json
+✓ Counter resets on T1/T2/T3 match
+✓ Escalation event logged with { jid, profile_id, trigger: 'consecutive_fallback', count }
+✓ Vitest test simulates 3 consecutive unknowns and asserts escalation on 3rd
+✓ npm run build succeeds
+✓ All 484 tests pass

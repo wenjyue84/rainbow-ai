@@ -175,6 +175,22 @@ export const messageDeliveryStatus = pgTable("message_delivery_status", {
   index("idx_msg_delivery_phone_ts").on(table.phone, table.statusTimestamp),
 ]));
 
+// ─── Escalation Events (US-428) ──────────────────────────────────────
+
+export const escalationEvents = pgTable("escalation_events", {
+  id: serial("id").primaryKey(),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: text("profile_id").default('pelangi'),
+  trigger: varchar("trigger", { length: 64 }).notNull(), // consecutive_fallback, human_request, complaint, etc.
+  count: integer("count"),
+  metadata: text("metadata"), // JSON string for additional context
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_escalation_events_jid").on(table.jid),
+  index("idx_escalation_events_trigger").on(table.trigger),
+  index("idx_escalation_events_created_at").on(table.createdAt),
+]));
+
 // ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
 
 export const optOuts = pgTable("opt_outs", {
@@ -205,3 +221,5 @@ export type OptOut = typeof optOuts.$inferSelect;
 export type InsertOptOut = typeof optOuts.$inferInsert;
 export type MessageDeliveryStatus = typeof messageDeliveryStatus.$inferSelect;
 export type InsertMessageDeliveryStatus = typeof messageDeliveryStatus.$inferInsert;
+export type EscalationEvent = typeof escalationEvents.$inferSelect;
+export type InsertEscalationEvent = typeof escalationEvents.$inferInsert;

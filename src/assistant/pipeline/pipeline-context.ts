@@ -82,6 +82,7 @@ export interface IPipelineContext {
 
   escalateToStaff: (context: any) => Promise<string>;
   shouldEscalate: (reason: EscalationReason | null, unknownCount: number, guestCount?: number) => EscalationReason | null;
+  logEscalationEvent: (input: { jid: string; profileId: string; trigger: string; count?: number; metadata?: Record<string, any> }) => void;
 
   // ─── Tracking ─────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ export async function createPipelineContext(
   const { handleBookingStep, createBookingState } = await import('../booking.js');
   const { executeWorkflowStep, createWorkflowState, forwardWorkflowSummary } = await import('../workflow-executor.js');
   const { escalateToStaff, shouldEscalate } = await import('../escalation.js');
+  const { logEscalationEvent } = await import('../../lib/escalation-events.js');
   const { trackIntentPrediction } = await import('../intent-tracker.js');
   const {
     trackIntentClassified, trackEscalation,
@@ -201,6 +203,7 @@ export async function createPipelineContext(
     // Escalation
     escalateToStaff,
     shouldEscalate,
+    logEscalationEvent,
 
     // Tracking
     trackIntentPrediction,
