@@ -148,6 +148,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
   staffName: text("staff_name"),
+  transcribed: boolean("transcribed"),  // US-438: true if voice note was transcribed
   profileId: text("profile_id").default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([

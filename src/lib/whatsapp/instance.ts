@@ -320,7 +320,8 @@ export class WhatsAppInstance {
         isGroup,
         timestamp: msg.messageTimestamp ? Number(msg.messageTimestamp) : Math.floor(Date.now() / 1000),
         messageType,
-        instanceId: this.id
+        instanceId: this.id,
+        rawMessage: messageType === 'audio' ? msg : undefined
       };
 
       if (!isGroup) ensureAvatar(from).catch(() => {}); // fire-and-forget

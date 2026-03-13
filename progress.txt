@@ -1436,3 +1436,34 @@ Completed: Add WhatsApp opt-in consent capture and audit log (ID: US-424) in 10m
 ## Iteration 6 - Fri, Mar 13, 2026 12:28:45 PM
 Incomplete: Transcribe incoming WhatsApp voice notes via Whisper API (ID: US-438) — attempt 1/3
 
+
+## Iteration 6 - Fri, Mar 13, 2026  1:59:34 PM
+Incomplete: Transcribe incoming WhatsApp voice notes via Whisper API (ID: US-438) — attempt 2/3
+
+
+## Iteration 7 - Story: US-438 - Transcribe incoming WhatsApp voice notes via Whisper API
+### What was implemented
+- Added `rawMessage` and `transcribed` fields to `IncomingMessage` type (`src/assistant/types.ts`)
+- Baileys handler now passes raw message for audio type (`src/lib/whatsapp/instance.ts`)
+- Added `transcribed` boolean column to `rainbow_messages` schema (`shared/schema-tables.ts`)
+- Added `voiceTranscription` config block to `settings.json` (enabled by default, per-profile toggle)
+- Created `src/assistant/pipeline/stages/audio-transcription.ts`:
+  - Downloads audio buffer via Baileys `downloadMediaMessage`
+  - Sends to Groq Whisper API (`whisper-large-v3`) for transcription
+  - Supports configurable timeout and model
+  - Returns structured `TranscriptionResult` with latency tracking
+- Updated `input-validator.ts` to intercept audio messages before non-text rejection:
+  - On success: injects transcript as `msg.text`, sets `messageType = 'text'`, `transcribed = true`
+  - On failure: sends per-language fallback reply and logs exchange
+- Updated `conversation-logger.ts` to persist `transcribed: true` flag in DB
+
+### Patterns discovered
+- Groq SDK already initialized in `ai-provider-manager.ts` — reuse existing instances for Whisper
+- `downloadMediaMessage` from `@whiskeysockets/baileys` is available and works with `'buffer'` type
+- Input validator's non-text block is the right intercept point — before language detection, PII redaction, etc.
+- `logMessage` meta supports `[key: string]: unknown` so extra fields pass through cleanly
+
+### Gotchas
+- Import path from `stages/` subfolder is `../../ai-provider-manager.js` not `../../assistant/...`
+- Audio from Baileys arrives as Opus/OGG — Groq Whisper accepts it directly, no ffmpeg needed
+- Must check `voiceSettings?.enabled !== false` (not `=== true`) so default is enabled

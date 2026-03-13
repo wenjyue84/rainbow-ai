@@ -24,6 +24,7 @@ import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn 
 import { recordConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
+import { transcribeVoiceNote } from './stages/audio-transcription.js';
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -240,13 +241,48 @@ export async function validateAndPrepare(
 
   // Handle non-text messages
   if (msg.messageType !== 'text') {
-    console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
-    const lang = msg.text ? detectLanguage(msg.text) : 'en';
-    const nonTextLabel = getNonTextPlaceholder(msg.messageType);
-    const replyText = getTemplate('non_text', lang);
-    await ctx.sendMessage(phone, replyText, msg.instanceId);
-    await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId);
-    return { continue: false, reason: 'non_text' };
+    // ─── Voice note transcription (US-438) ───────────────────────
+    if (msg.messageType === 'audio' && msg.rawMessage) {
+      const voiceSettings = (profileConfig.getSettings() as any).voiceTranscription;
+      const voiceEnabled = voiceSettings?.enabled !== false;
+
+      if (voiceEnabled) {
+        console.log(`[Router] ${phone} (${msg.pushName}): [voice note] — transcribing...`);
+        const model = voiceSettings?.model || 'whisper-large-v3';
+        const timeout = voiceSettings?.timeout_ms || 15000;
+        const result = await transcribeVoiceNote(msg, model, timeout);
+
+        if (result.success && result.text) {
+          // Inject transcript as the message text and continue pipeline as text
+          msg.text = result.text;
+          msg.messageType = 'text';
+          msg.transcribed = true;
+          console.log(`[Router] Voice note transcribed (${result.latencyMs}ms): "${result.text.slice(0, 100)}"`);
+          // Fall through to normal text processing below
+        } else {
+          // Transcription failed — send fallback reply
+          console.warn(`[Router] Voice transcription failed for ${phone}: ${result.error}`);
+          const lang = 'en';
+          const fallbackReplies = voiceSettings?.fallbackReply;
+          const fallbackText = fallbackReplies?.[lang]
+            || 'Sorry, I couldn\'t understand your voice note. Please type your request.';
+          await ctx.sendMessage(phone, fallbackText, msg.instanceId);
+          await logNonTextExchange(phone, msg.pushName, '[Voice message]', fallbackText, msg.instanceId, profileId);
+          return { continue: false, reason: 'voice_transcription_failed' };
+        }
+      }
+    }
+
+    // Non-audio non-text messages (image, video, sticker, etc.)
+    if (msg.messageType !== 'text') {
+      console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
+      const lang = msg.text ? detectLanguage(msg.text) : 'en';
+      const nonTextLabel = getNonTextPlaceholder(msg.messageType);
+      const replyText = getTemplate('non_text', lang);
+      await ctx.sendMessage(phone, replyText, msg.instanceId);
+      await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId);
+      return { continue: false, reason: 'non_text' };
+    }
   }
 
   // Skip empty
@@ -354,7 +390,10 @@ export async function validateAndPrepare(
   }
 
   addMessage(phone, 'user', text, profileId);
-  logMessage(phone, msg.pushName, 'user', text, { instanceId: msg.instanceId, profileId }).catch(() => { });
+  logMessage(phone, msg.pushName, 'user', text, {
+    instanceId: msg.instanceId, profileId,
+    ...(msg.transcribed ? { transcribed: true, messageType: 'audio' } : {})
+  }).catch(() => { });
   const lang = convo.language;
 
   // Sentiment analysis

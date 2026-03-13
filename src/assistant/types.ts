@@ -13,6 +13,8 @@ export interface IncomingMessage {
   timestamp: number;   // Unix seconds
   messageType: MessageType;
   instanceId?: string; // Which WhatsApp instance received this message
+  rawMessage?: any;    // Raw Baileys message for media download (US-438)
+  transcribed?: boolean; // True if text was transcribed from voice note (US-438)
 }
 
 // ─── Intent Classification ──────────────────────────────────────────
