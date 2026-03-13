@@ -15,6 +15,7 @@ import type { PipelineState } from '../types.js';
 import type { ClassificationResult } from './tier-classification.js';
 import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
+import { buildListMessage, listMessageToText } from '../../formatter.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -131,11 +132,31 @@ async function handleStaticReply(
   } else {
     logLanguageResolution('default', lang, responseLang, result);
     // US-019: First-contact greeting with capability menu
+    // US-430: Send as interactive list message when enabled
     let replyIntent = result.intent;
     if (result.intent === 'greeting' && convo.messages.length <= 1) {
       const firstContactReply = context.getStaticReply('greeting_first_contact', responseLang);
       if (firstContactReply) {
         state.response = firstContactReply;
+
+        // US-430: Build interactive list for first-contact greeting
+        const settings = context.getSettings();
+        if ((settings as any).interactiveMessages?.enabled) {
+          try {
+            const menuItems = getGreetingMenuItems(responseLang);
+            const payload = buildListMessage(
+              menuItems.title,
+              menuItems.description,
+              menuItems.buttonText,
+              [{ title: menuItems.sectionTitle, rows: menuItems.rows }]
+            );
+            state.interactivePayload = payload;
+            console.log(`[Dispatch] First-contact greeting: built interactive list message (US-430)`);
+          } catch (err: any) {
+            console.warn(`[Dispatch] Failed to build interactive list, using text fallback:`, err.message);
+          }
+        }
+
         console.log(`[Dispatch] First-contact greeting: using greeting_first_contact template`);
         return; // early return — skip default static reply
       }
@@ -370,6 +391,54 @@ async function handleLLMReply(
 /**
  * Helper: log language resolution when tier differs from conversation state
  */
+/**
+ * US-430: Get greeting menu items by language for interactive list message.
+ */
+function getGreetingMenuItems(lang: 'en' | 'ms' | 'zh') {
+  const menus: Record<string, {
+    title: string; description: string; buttonText: string; sectionTitle: string;
+    rows: { rowId: string; title: string; description?: string }[];
+  }> = {
+    en: {
+      title: 'Rainbow AI',
+      description: "Hi! I'm Rainbow — how can I help you today?",
+      buttonText: 'View Options',
+      sectionTitle: 'I can help with',
+      rows: [
+        { rowId: 'checkin', title: 'Check-in / Check-out', description: 'Arrival & departure info' },
+        { rowId: 'pricing', title: 'Pricing & Availability', description: 'Rates and room options' },
+        { rowId: 'location', title: 'Location & Directions', description: 'How to find us' },
+        { rowId: 'facilities', title: 'Facilities & WiFi', description: 'Amenities info' },
+      ],
+    },
+    ms: {
+      title: 'Rainbow AI',
+      description: 'Hai! Saya Rainbow — bagaimana saya boleh bantu?',
+      buttonText: 'Lihat Pilihan',
+      sectionTitle: 'Saya boleh bantu',
+      rows: [
+        { rowId: 'checkin', title: 'Check-in / Check-out', description: 'Info ketibaan & pelepasan' },
+        { rowId: 'pricing', title: 'Harga & Ketersediaan', description: 'Kadar & pilihan bilik' },
+        { rowId: 'location', title: 'Lokasi & Arah', description: 'Cara ke sini' },
+        { rowId: 'facilities', title: 'Kemudahan & WiFi', description: 'Info kemudahan' },
+      ],
+    },
+    zh: {
+      title: 'Rainbow AI',
+      description: '你好！我是Rainbow——有什么可以帮您的？',
+      buttonText: '查看选项',
+      sectionTitle: '我可以帮助',
+      rows: [
+        { rowId: 'checkin', title: '入住 / 退房', description: '到达和离开信息' },
+        { rowId: 'pricing', title: '价格与房源', description: '房价和房间选项' },
+        { rowId: 'location', title: '位置与路线', description: '如何找到我们' },
+        { rowId: 'facilities', title: '设施与WiFi', description: '设施信息' },
+      ],
+    },
+  };
+  return menus[lang] || menus.en;
+}
+
 function logLanguageResolution(
   context: string,
   lang: 'en' | 'ms' | 'zh',

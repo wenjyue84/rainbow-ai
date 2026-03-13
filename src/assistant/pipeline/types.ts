@@ -40,6 +40,8 @@ export interface PipelineState {
   devMetadata: DevMetadata;
   response: string | null;
   imageUrl?: string | null;
+  /** US-430: Interactive message payload (list/buttons) to send instead of plain text */
+  interactivePayload?: Record<string, any> | null;
   /** Language detection confidence (US-418) */
   detectedLanguageConfidence?: number;
   /** Multi-profile support */

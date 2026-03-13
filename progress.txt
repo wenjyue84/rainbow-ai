@@ -1837,3 +1837,42 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 ✓ No new runtime dependencies (uses existing zod package)
 ✓ npm run build succeeds
 ✓ All 14 tests pass
+
+
+## Iteration 7 - Story: US-430 - Send WhatsApp interactive list messages for menu-style bot responses
+
+### What was implemented
+- Helper functions `buildListMessage` and `buildButtonMessage` already existed in `src/assistant/formatter.ts` from prior work
+- Text fallback helpers `listMessageToText` and `buttonMessageToText` also pre-existed
+- Settings flag `interactiveMessages.enabled` already present in `settings.json`
+- Added `interactivePayload` optional field to `PipelineState` in `src/assistant/pipeline/types.ts`
+- Updated `handleStaticReply` in `src/assistant/pipeline/stages/action-dispatch.ts`:
+  - First-contact greeting now builds an interactive list message with 4 menu options (check-in, pricing, location, facilities)
+  - Trilingual support (en/ms/zh) via `getGreetingMenuItems()` helper
+  - Only activates when `interactiveMessages.enabled` is true in settings
+  - Graceful fallback to plain text if list building fails
+- Updated `src/assistant/pipeline/response-processor.ts`:
+  - Detects `state.interactivePayload` and sends via `sendWhatsAppInteractiveMessage`
+  - Falls back to plain text `ctx.sendMessage` on interactive send failure
+  - Integrated into the existing if/else send chain (interactive → image → text)
+- Wrote 11 Vitest tests in `src/assistant/__tests__/interactive-messages.test.ts`:
+  - buildListMessage: valid payload, descriptions, footerText presence/absence, max rows, empty sections
+  - buildButtonMessage: valid payload, max buttons, empty buttons
+  - listMessageToText: numbered text fallback with title/description/sections
+  - buttonMessageToText: numbered text fallback
+
+### Patterns discovered
+- `PipelineState` carries response data between pipeline stages — add optional fields for new response types
+- `response-processor.ts` handles the final send and has an if/else chain for different message types (interactive, image, text)
+- Dynamic imports in response-processor (`await import(...)`) avoid circular dependencies — same pattern used for image sending
+- Baileys list messages: `listType: 1` = SINGLE_SELECT, buttons: `type: 1` = QUICK_REPLY, `headerType: 1` = TEXT
+- Settings schema uses `.passthrough()` so new fields like `interactiveMessages` work without schema changes
+
+### Acceptance Criteria Met
+✓ buildListMessage(title, buttonText, sections) in src/assistant/formatter.ts constructs Baileys-compatible list message payload
+✓ buildButtonMessage(body, buttons) constructs Baileys-compatible buttons message payload (max 3 buttons)
+✓ First-contact greeting workflow step uses buildListMessage instead of numbered text list
+✓ settings.json flag interactiveMessages.enabled controls the feature; when disabled, falls back to plain text
+✓ 11 Vitest unit tests assert buildListMessage output matches Baileys listMessage schema
+✓ npm run build succeeds
+✓ Server startup test passes

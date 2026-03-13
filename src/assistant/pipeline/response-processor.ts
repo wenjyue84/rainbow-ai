@@ -184,6 +184,17 @@ export async function processAndSend(
   // ─── Autopilot or auto-approved copilot — send immediately ────
   logMessage(phone, msg.pushName, 'assistant', response, logMeta).catch(() => { });
 
+  // US-430: If interactive payload exists, send as interactive message
+  if (state.interactivePayload) {
+    try {
+      const { sendWhatsAppInteractiveMessage } = await import('../../lib/whatsapp/index.js');
+      await sendWhatsAppInteractiveMessage(phone, state.interactivePayload, msg.instanceId);
+      console.log(`[ResponseProcessor] Sent interactive message for ${phone} (US-430)`);
+    } catch (interactiveErr: any) {
+      console.warn(`[ResponseProcessor] Interactive message failed, falling back to text:`, interactiveErr.message);
+      await ctx.sendMessage(phone, response, msg.instanceId);
+    }
+  } else
   // If static reply has an image attachment, send as media with text as caption
   if (state.imageUrl) {
     try {
