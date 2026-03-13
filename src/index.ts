@@ -23,6 +23,8 @@ import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
 import { pool, getPoolMetrics } from './lib/db.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
+import webhookRoutes from './routes/webhooks/index.js';
+import { captureRawBody } from './lib/webhook-signature.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
@@ -136,7 +138,7 @@ app.use(compression({
   }
 }));
 app.use(cors());
-app.use(express.json({ limit: '2mb' })); // Allow up to 2MB for long messages/conversations
+app.use(express.json({ limit: '2mb', verify: captureRawBody })); // Allow up to 2MB; captureRawBody stores buf on req.rawBody for webhook HMAC
 
 // Error handler for payload too large
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -440,6 +442,9 @@ app.get('/chat/:profileId', (req, res) => {
     res.status(500).send('Webchat page not found');
   }
 });
+
+// Inbound webhooks (Evolution API, DIGIMAN callbacks) — signature-validated, no admin auth
+app.use(webhookRoutes);
 
 // Rainbow Admin API
 app.use('/api/rainbow', apiLimiter, adminRoutes);

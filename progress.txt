@@ -1553,3 +1553,34 @@ Completed: Implement LLM system-prompt caching via cache_control breakpoints (ID
 - Cloud API error 131049 can appear in multiple locations in the response body — `error.errors[].code`, top-level `errors[].code`, `error.code`, flat `code`
 - `trackOutboundMarketing` must be called BEFORE the send attempt (to count attempts, not just successes)
 - Minimum 5 outbound messages required before threshold check fires (avoids noise on low-volume instances)
+## Iteration 10 - Fri, Mar 13, 2026  2:33:37 PM
+Completed: Detect and handle WhatsApp marketing frequency cap error (131049) (ID: US-441) in 8m
+
+
+
+## Iteration N - Story: US-442 - Implement webhook signature validation for inbound admin API calls
+### What was implemented
+- Created `src/lib/webhook-signature.ts`:
+  - `captureRawBody(req, _res, buf)` — Express `verify` callback that attaches `req.rawBody = buf` before JSON parsing
+  - `validateWebhookSignature(secret)` — returns Express middleware; uses `crypto.createHmac('sha256', secret).update(rawBody).digest('hex')` and `crypto.timingSafeEqual` for timing-safe comparison
+  - Returns 401 for missing `X-Hub-Signature-256` header, 401 for invalid signature, 400 if `rawBody` was not captured
+  - Logs startup warning once if `WEBHOOK_SECRET` is not set; returns pass-through middleware (permissive mode)
+- Created `src/routes/webhooks/index.ts`:
+  - `POST /webhooks/evolution` — Evolution API inbound message/delivery events
+  - `POST /webhooks/digiman` — DIGIMAN API booking lifecycle callbacks
+  - Both routes apply `signatureGuard` (shared `validateWebhookSignature(WEBHOOK_SECRET)` instance)
+- Modified `src/index.ts`:
+  - Added `verify: captureRawBody` to `express.json()` options
+  - Imported `webhookRoutes` and `captureRawBody`
+  - Mounted `webhookRoutes` before admin routes (public, no admin auth)
+- 7 tests all pass in `webhook-signature.test.ts`:
+  - valid signature calls next(), tampered body → 401, wrong secret → 401, missing header → 401, missing rawBody → 400, permissive mode passes all
+
+### Patterns discovered
+- rawBody must be captured via `verify` callback in `express.json()` options — not a separate middleware — because `verify` receives the raw Buffer before parsing
+- `captureRawBody` must match signature `(req, res, buf: Buffer) => void` exactly to satisfy Express types
+- Permissive mode (no secret) returns a different middleware function, so the warning fires once at module init not per-request
+
+### Gotchas
+- Webhook routes must be mounted BEFORE `app.use(express.json())` would strip rawBody, but after `express.json()` is registered (so the body is actually parsed). The `verify` callback is the correct hook.
+- `crypto.timingSafeEqual` requires both Buffers to be the same length — must check lengths first or the call throws; the prefix check prevents this
