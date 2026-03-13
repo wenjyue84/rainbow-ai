@@ -54,6 +54,7 @@ import messagingLimitsRoutes from './messaging-limits.js';
 import phoneQualityRoutes from './phone-quality.js';
 import whatsappCostRoutes from './whatsapp-cost.js';
 import analyticsLatencyRoutes from './analytics-latency.js';
+import authRoutes from './auth.js';
 
 const router = Router();
 
@@ -214,6 +215,7 @@ router.use(messagingLimitsRoutes);
 router.use(phoneQualityRoutes);
 router.use(whatsappCostRoutes);
 router.use(analyticsLatencyRoutes);
+router.use(authRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

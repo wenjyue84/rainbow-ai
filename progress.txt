@@ -2831,3 +2831,62 @@ This technical brief is for a **Frappe/Python** implementation, based on a user 
 *   **Error Handling:** Return a 404 if the specified `profile_name` does not exist.
 *   **Multi-Status (207):** Ensure the response body clearly distinguishes between passing and failing checks when returning a 207 status.
 
+
+## Pre-analysis for US-514 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-514: Implement TOTP 2FA for Admin Panel**
+
+**Correction:** The user story describes a **Node.js/Express** application, not Python/Frappe. The implementation should use `otplib` and Node's `crypto` library.
+
+**1. Python Files to Modify / DocTypes:**
+This is a Node.js project. The primary files to modify will be:
+*   `src/routes/admin.ts` (or equivalent): To add new 2FA management endpoints.
+*   `src/routes/auth.ts` (or equivalent): To modify the core login flow.
+*   `src/lib/authService.ts` (or equivalent): To house the main 2FA logic (generation, verification).
+*   `src/lib/cryptoService.ts` (new file): To handle encryption/decryption of the TOTP secret.
+*   `shared/schema.ts`: To add new fields to the user/admin database schema.
+*   New migration file in `migrations/`: To apply the schema changes.
+
+**2. Frappe DocTypes / Hooks Involved:**
+Not applicable. The relevant data structure is the `users` (or `admins`) table, likely defined in `shared/schema.ts` using the Drizzle ORM. You will need to add `totpSecret` (string) and `totpEnabled` (boolean) columns.
+
+**3. Recommended Implementation Approach:**
+1.  **Schema Update:** Modify the user table schema in `shared/schema.ts` and create a SQL migration to add the `totp_secret` and `totp_enabled` columns.
+2.  **Encryption:** Create a service using Node.js's built-in `crypto` library for AES-256-GCM encryption. The encryption key must be stored securely as an environment variable.
+3.  **Endpoints:**
+    *   `POST /admin/2fa/setup`: For an authenticated admin, generate a secret with `otplib`, and return an `otpauth://` URI for the frontend to render as a QR code.
+    *   `POST /admin/2fa/verify-setup`: Verify the submitted TOTP against the secret. On success, encrypt and save the secret to the user record, setting `totp_enabled = true`.
+    *   `POST /admin/login`: After password validation, if 2FA is enabled, return a response prompting for the TOTP. A second request to a new `/admin/login/verify` endpoint will validate the token and complete login.
+    *   `POST /admin/2fa/disable`: Require password and a valid TOTP to set `totp_enabled = false` and clear the secret.
+4.  **Brute-Force Lockout:** Implement a simple in-memory counter (e.g., a Map with user ID as key and a `{ attempts, lockUntil }` object as value) to track failed TOTP attempts and enforce a 15-minute lockout after 5 failures.
+
+**4. Edge Cases & Gotchas:**
+*   **Account Recovery:** The story doesn't specify a recovery flow for lost authenticator devices. This is a critical gap that should be addressed, but for now, implementation can proceed without it.
+*   **Clock Skew:** Server and client time drift can cause valid tokens to be rejected. Use the `window` option in `otplib.check()` to allow for a small time tolerance (e.g., 1-2 minutes).
+*   **Secret Encryption:** The AES encryption key MUST be a securely generated, high-entropy string loaded from environment variables, not hardcoded.
+*   **Re-enrollment:** Ensure that if a user re-runs the setup process, the old secret is invalidated and replaced cleanly.
+
+
+## Iteration 12 - Story: US-514 - Add TOTP-based 2FA to admin panel login
+### What was implemented
+- Added `admin_users` table to Drizzle schema (shared/schema-tables.ts) with columns: id, username, password_hash, totp_secret (encrypted), totp_enabled, failed_totp_attempts, totp_locked_until
+- Created `src/lib/totp-service.ts`: AES-256-GCM encryption/decryption for TOTP secrets at rest, TOTP generation/verification using `otplib`, per-user brute-force tracking (5 attempts, 15 min lockout)
+- Created `src/routes/admin/auth.ts` with endpoints:
+  - POST /auth/register — create admin user (protected by existing admin key middleware)
+  - POST /auth/setup-2fa — generate TOTP secret + otpauth URI for QR code
+  - POST /auth/verify-setup — confirm 2FA enrolment with valid token
+  - POST /auth/login — username/password login; returns challenge token if 2FA enabled
+  - POST /auth/verify-totp — complete login with TOTP token
+  - POST /auth/disable-2fa — disable 2FA (requires password + current TOTP)
+  - GET /auth/status/:username — check if 2FA is enabled
+- Updated admin router to mount auth routes
+- Updated .env.example with TOTP_ENCRYPTION_KEY and TOTP_ISSUER variables
+
+### Patterns discovered
+- `otplib` v4 ESM exports differ from CJS — use `generateSecret`, `generateURI`, `verifySync` (not `authenticator`)
+- `verifySync` returns `{ valid, delta, epoch, timeStep }` object, not boolean
+- Password hashing uses Node crypto.scrypt (no extra dependency needed)
+- Pending challenge tokens stored in-memory with TTL cleanup (same pattern as auth-brute-force.ts)
+
+### Gotchas
+- otplib named import `authenticator` does NOT exist in ESM mode — caused runtime crash
+- Must use `import { generateSecret, generateURI, verifySync } from 'otplib'` for ESM

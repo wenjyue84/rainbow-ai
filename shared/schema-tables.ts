@@ -326,6 +326,22 @@ export const utteranceGaps = pgTable("utterance_gaps", {
   uniqueIndex("idx_utterance_gaps_profile_normalized").on(table.profileId, table.normalizedKey),
 ]));
 
+// ─── Admin Users (US-514: TOTP 2FA) ─────────────────────────────────
+
+export const adminUsers = pgTable("admin_users", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 64 }).notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  totpSecret: text("totp_secret"),          // AES-256-GCM encrypted, null if 2FA not enrolled
+  totpEnabled: boolean("totp_enabled").notNull().default(false),
+  failedTotpAttempts: integer("failed_totp_attempts").notNull().default(0),
+  totpLockedUntil: timestamp("totp_locked_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_admin_users_username").on(table.username),
+]));
+
 // ─── Table-derived Types ─────────────────────────────────────────────
 
 export type AppSetting = typeof appSettings.$inferSelect;
@@ -360,3 +376,5 @@ export type BaileysAuthState = typeof baileysAuthState.$inferSelect;
 export type InsertBaileysAuthState = typeof baileysAuthState.$inferInsert;
 export type WhatsappCostDaily = typeof whatsappCostDaily.$inferSelect;
 export type InsertWhatsappCostDaily = typeof whatsappCostDaily.$inferInsert;
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type InsertAdminUser = typeof adminUsers.$inferInsert;
