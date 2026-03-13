@@ -2077,3 +2077,21 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 ## Iteration 6 - Fri, Mar 13, 2026 10:21:01 PM
 Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbound when flagged (ID: US-458) — attempt 1/3
 
+
+## Iteration 7 - Story: US-443 - Expose Baileys connection state history and reconnect counter in admin dashboard
+### What was implemented
+- Added `reconnectAttempts`, `maxReconnectAttempts`, `lastDisconnectCode`, `lastDisconnectAt` fields to `WhatsAppInstanceStatus` type (src/lib/whatsapp/types.ts)
+- Added `lastDisconnectCode` and `lastDisconnectAt` private fields to `WhatsAppInstance` class (src/lib/whatsapp/instance.ts)
+- `handleDisconnect` now records the disconnect status code and timestamp before any reconnect logic
+- `getStatus()` now returns all four new reconnect-related fields
+- Added `forceReconnect()` method to `WhatsAppInstance`: clears pending reconnect timeout (prevents double-start races), resets reconnectAttempts to 0, cleanly stops existing socket, re-calls start()
+- Added `forceReconnectInstance(id)` to `WhatsAppManager` as public API
+- Added `POST /whatsapp/instances/:id/reconnect` admin endpoint in src/routes/admin/whatsapp.ts — guarded by existing admin auth middleware
+- Admin WhatsApp notification when max retries reached already existed in handleDisconnect via notifyAdminDisconnection
+- GET /whatsapp/instances response now includes all reconnect state per instance (no dashboard HTML changes needed — dashboard reads from API)
+### Patterns discovered
+- WhatsAppInstance private fields need corresponding getStatus() exposure — the status object pattern is the single source of truth for admin APIs
+- forceReconnect needs to clear reconnectTimeout before resetting attempts to avoid races
+### Gotchas
+- The MAX_RECONNECT_ATTEMPTS is a private static readonly — exposed as maxReconnectAttempts in status for the dashboard to show "X/Y" without hardcoding
+- Admin notification on max retries already existed (notifyAdminDisconnection call in handleDisconnect) — no new notification code needed

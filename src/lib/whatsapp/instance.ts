@@ -56,6 +56,8 @@ export class WhatsAppInstance {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts: number = 0;
   private static readonly MAX_RECONNECT_ATTEMPTS = 3;
+  private lastDisconnectCode: number | null = null;
+  private lastDisconnectAt: string | null = null;
   private messageHandler: MessageHandler | null = null;
   private messageStatusHandler: MessageStatusHandler | null = null;
   private lidMapper: LidMapper;
@@ -208,6 +210,10 @@ export class WhatsAppInstance {
 
   private handleDisconnect(lastDisconnect: any, notifyUnlinkedFn: (id: string, label: string) => Promise<void>): void {
     const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+    // US-443: Track last disconnect metadata
+    this.lastDisconnectCode = statusCode ?? null;
+    this.lastDisconnectAt = new Date().toISOString();
 
     if (statusCode !== DisconnectReason.loggedOut) {
       this.reconnectAttempts++;
@@ -375,6 +381,30 @@ export class WhatsAppInstance {
     }
   }
 
+  /** US-443: Force reconnect — clears timeout, resets attempt counter, re-starts the instance. */
+  async forceReconnect(notifyUnlinkedFn: (id: string, label: string) => Promise<void>): Promise<void> {
+    // Clear any pending reconnect timeout to avoid double-start races
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.reconnectAttempts = 0;
+
+    // Stop existing socket cleanly before restarting
+    if (this.sock) {
+      this.sock.ev.removeAllListeners('connection.update');
+      this.sock.ev.removeAllListeners('messages.upsert');
+      this.sock.ev.removeAllListeners('messages.update');
+      this.sock.ev.removeAllListeners('creds.update');
+      this.sock.end(undefined);
+      this.sock = null;
+    }
+    this.state = 'close';
+    this.qr = null;
+
+    await this.start(notifyUnlinkedFn);
+  }
+
   async stop(): Promise<void> {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -501,7 +531,11 @@ export class WhatsAppInstance {
       qr: this.qr,
       unlinkedFromWhatsApp: this.unlinkedFromWhatsApp,
       lastUnlinkedAt: this.lastUnlinkedAt,
-      lastConnectedAt: this.lastConnectedAt
+      lastConnectedAt: this.lastConnectedAt,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: WhatsAppInstance.MAX_RECONNECT_ATTEMPTS,
+      lastDisconnectCode: this.lastDisconnectCode,
+      lastDisconnectAt: this.lastDisconnectAt
     };
   }
 }

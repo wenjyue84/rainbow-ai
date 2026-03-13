@@ -167,6 +167,13 @@ export class WhatsAppManager extends EventEmitter {
     await this.startInstanceFromConfig(cfg);
   }
 
+  /** US-443: Force reconnect — resets attempt counter and re-starts the instance. */
+  async forceReconnectInstance(id: string): Promise<void> {
+    const instance = this.instances.get(id);
+    if (!instance) throw new Error(`Instance "${id}" not found`);
+    await instance.forceReconnect(this.notifyUnlinkedInstance.bind(this));
+  }
+
   async stopInstance(id: string): Promise<void> {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance "${id}" not found`);

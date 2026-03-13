@@ -85,6 +85,20 @@ router.post('/whatsapp/instances/:id/logout', async (req: Request, res: Response
   }
 });
 
+// US-443: Force reconnect — resets reconnect counter and re-starts the instance
+router.post('/whatsapp/instances/:id/reconnect', async (req: Request, res: Response) => {
+  try {
+    await whatsappManager.forceReconnectInstance(req.params.id);
+    ok(res, { message: `Instance "${req.params.id}" force-reconnecting`, instanceId: req.params.id });
+  } catch (e: any) {
+    if (e.message?.includes('not found')) {
+      notFound(res, `Instance "${req.params.id}"`);
+    } else {
+      serverError(res, e);
+    }
+  }
+});
+
 router.get('/whatsapp/instances/:id/qr', async (req: Request, res: Response) => {
   try {
     const status = whatsappManager.getInstanceStatus(req.params.id);

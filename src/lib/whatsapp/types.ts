@@ -28,6 +28,10 @@ export interface WhatsAppInstanceStatus {
   lastUnlinkedAt: string | null; // ISO timestamp of when unlink was detected
   lastConnectedAt: string | null; // ISO timestamp of last successful connection
   firstConnectedAt: string | null; // ISO timestamp of first ever successful connection (persisted)
+  reconnectAttempts: number; // Current reconnect attempt count (US-443)
+  maxReconnectAttempts: number; // Max reconnect attempts before giving up (US-443)
+  lastDisconnectCode: number | null; // Baileys DisconnectReason status code (US-443)
+  lastDisconnectAt: string | null; // ISO timestamp of last disconnect event (US-443)
 }
 
 // ─── Message Handler Type ───────────────────────────────────────────
