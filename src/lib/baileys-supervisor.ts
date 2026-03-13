@@ -11,13 +11,14 @@
  * - Isolates Baileys errors from the main Express process
  */
 
-import { initBaileys, registerMessageHandler, sendWhatsAppMessage, getWhatsAppStatus } from './baileys-client.js';
+import { initBaileys, registerMessageHandler, sendWhatsAppMessage, getWhatsAppStatus, whatsappManager } from './baileys-client.js';
 import { initAssistant } from '../assistant/index.js';
 import { callAPI } from './http-client.js';
 import { startDailyReportScheduler } from './daily-report.js';
 import { startRetentionScheduler } from './data-retention.js';
 import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
 import { configStore } from '../assistant/config-store.js';
+import { persistDeliveryStatus } from './delivery-status.js';
 
 interface SupervisorConfig {
   maxRetries: number;
@@ -85,6 +86,13 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
       console.warn(`[BaileysSupervisor] Assistant init failed: ${assistantErr.message}`);
       console.warn('[BaileysSupervisor] WhatsApp auto-reply disabled. Manual tools still work.');
     }
+
+    // Persist message delivery status events to DB (US-426)
+    whatsappManager.on('message_status', (event) => {
+      persistDeliveryStatus(event).catch(err => {
+        console.warn(`[BaileysSupervisor] Delivery status persist failed: ${err.message}`);
+      });
+    });
 
     // One-time dedup cleanup for Baileys double-fire duplicates
     try {

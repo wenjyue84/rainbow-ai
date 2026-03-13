@@ -5,7 +5,7 @@
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
@@ -159,6 +159,22 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   index("idx_rainbow_messages_phone_role_ts").on(table.phone, table.role, table.timestamp),
 ]));
 
+// ─── Message Delivery Status (US-426) ────────────────────────────────
+
+export const messageDeliveryStatus = pgTable("message_delivery_status", {
+  id: serial("id").primaryKey(),
+  baileysMessageId: varchar("baileys_message_id", { length: 128 }).notNull(),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull(), // pending|sent|delivered|read|played|failed
+  statusTimestamp: timestamp("status_timestamp").notNull().defaultNow(),
+  instanceId: text("instance_id"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_msg_delivery_baileys_id").on(table.baileysMessageId),
+  index("idx_msg_delivery_phone").on(table.phone),
+  index("idx_msg_delivery_phone_ts").on(table.phone, table.statusTimestamp),
+]));
+
 // ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
 
 export const optOuts = pgTable("opt_outs", {
@@ -187,3 +203,5 @@ export type RainbowMessage = typeof rainbowMessages.$inferSelect;
 export type InsertRainbowMessage = typeof rainbowMessages.$inferInsert;
 export type OptOut = typeof optOuts.$inferSelect;
 export type InsertOptOut = typeof optOuts.$inferInsert;
+export type MessageDeliveryStatus = typeof messageDeliveryStatus.$inferSelect;
+export type InsertMessageDeliveryStatus = typeof messageDeliveryStatus.$inferInsert;

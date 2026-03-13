@@ -1644,3 +1644,40 @@ Incomplete: Add response latency P95/P99 metrics endpoint (ID: US-414) — attem
 ### Gotchas
 - prd.json must be opened with utf-8 encoding explicitly on Windows (default cp1252 fails)
 - The DLQ jobs in message-queue.ts store { originalJobId, data, error, failedAt } as job.data
+## Iteration 1 - Fri, Mar 13, 2026  3:14:12 PM
+Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (ID: US-457) — attempt 1/3
+
+
+## Iteration 13 - Story: US-426 Track outbound message delivery status
+### What was implemented
+- Created `message_delivery_status` table in `shared/schema-tables.ts` with unique constraint on `baileys_message_id`
+  - Fields: id, baileys_message_id, phone, status (pending|sent|delivered|read|played|failed), status_timestamp, instance_id, updated_at
+  - Indexes on baileys_message_id (unique), phone, and phone+timestamp
+- Created `src/lib/delivery-status.ts` module:
+  - `persistDeliveryStatus()` — idempotent upsert using ON CONFLICT; only updates if new status code > existing (handles out-of-order events)
+  - `getDeliveryStatus()` — query by Baileys message ID
+  - `getDeliveryStatusByPhone()` — query all statuses for a phone number (paginated)
+- Created `src/routes/admin/delivery-status.ts` with two endpoints:
+  - GET `/messages/:id/status` — returns delivery status for a specific Baileys message ID
+  - GET `/delivery-status/:phone` — returns all delivery statuses for a phone number
+- Wired `whatsappManager.on('message_status', ...)` listener in `src/lib/baileys-supervisor.ts` to persist every status event
+- Registered delivery-status routes in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- WhatsApp message_status events were already being emitted via EventEmitter (US-017) and consumed by SSE stream
+- The existing infrastructure just needed a DB persistence layer on top of the EventEmitter pattern
+- Baileys status codes: 0=PENDING, 1=SENT (SERVER_ACK), 2=DELIVERED, 3=READ, 4=PLAYED
+- ON CONFLICT upsert with CASE expression handles out-of-order status transitions efficiently
+
+### Gotchas
+- Needed unique index (not regular index) on baileys_message_id for ON CONFLICT to work
+- The `uniqueIndex` import from `drizzle-orm/pg-core` was needed (not previously imported in schema-tables.ts)
+
+### Acceptance Criteria Met
+✓ message_delivery_status table stores baileys_message_id, phone, status, status_timestamp
+✓ Baileys message-update events consumed and upserted via persistDeliveryStatus()
+✓ Admin API GET /messages/:id/status returns current delivery status
+✓ Out-of-order status transitions handled by comparing status codes (higher wins)
+✓ Failed delivery status triggers warning-level log entry
+✓ npm run build succeeds
+✓ All 478 tests pass
