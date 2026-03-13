@@ -53,6 +53,7 @@ import intentGapsRoutes from './intent-gaps.js';
 import messagingLimitsRoutes from './messaging-limits.js';
 import phoneQualityRoutes from './phone-quality.js';
 import whatsappCostRoutes from './whatsapp-cost.js';
+import analyticsLatencyRoutes from './analytics-latency.js';
 
 const router = Router();
 
@@ -147,7 +148,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality',
+  '/analytics/phone-quality', '/analytics/latency',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -212,6 +213,7 @@ router.use(intentGapsRoutes);
 router.use(messagingLimitsRoutes);
 router.use(phoneQualityRoutes);
 router.use(whatsappCostRoutes);
+router.use(analyticsLatencyRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

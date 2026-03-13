@@ -2747,3 +2747,52 @@ No Frappe DocTypes are involved. The core data source is the `rainbow_messages` 
 ### Gotchas
 - The 404 handler must be placed AFTER all routes but BEFORE the error handler (4 params)
 - Express 5 distinguishes route handlers (3 params) from error handlers (4 params) — the 404 handler is a regular middleware, not an error handler
+
+
+## Pre-analysis for US-414 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js application, not Frappe/Python. Here is the technical brief for the engineering team based on the project's structure.
+
+### **Technical Brief: US-414 Latency Metrics Endpoint**
+
+**1. Files to Modify:**
+*   `src/routes/admin/analytics.ts`: (Likely file) Add the new route handler for the endpoint.
+*   `src/lib/analytics/service.ts`: (New or existing) Create a new service function to contain the database query logic.
+*   `src/lib/database/queries.ts`: (Or similar) Define the new SQL query for calculating latency percentiles.
+*   `src/types/analytics.ts`: (Or similar) Add new TypeScript types for the API response payload.
+
+**2. Involved Entities:**
+*   **Primary Table:** `rainbow_messages` (specifically the `response_time`, `created_at`, `profile_id`, and the column indicating routing source).
+*   **Framework:** Express.js/Fastify (based on typical Node.js patterns).
+*   **Database:** PostgreSQL (as specified by the required `percentile_cont` function).
+
+**3. Implementation Approach:**
+*   In the admin router, define a `GET /api/admin/analytics/latency` route.
+*   The route handler will call a new service function, e.g., `getLatencyPercentiles()`.
+*   This service function will execute a PostgreSQL query using `percentile_cont(ARRAY[0.5, 0.95, 0.99]) WITHIN GROUP (ORDER BY response_time)` to get P50, P95, and P99 values.
+*   The query should `GROUP BY profile_id` and the routing source column. Use a `WHERE` clause to filter records for the last 24 hours and last 7 days.
+*   The handler will format the query results and implement the logic for the configurable alert threshold.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** Ensure an index exists on `rainbow_messages(created_at, response_time)` to avoid slow queries on a large table.
+*   **No Data:** The query must gracefully handle profiles or routing tiers with no data in the time window, returning `null` or `0` for percentiles.
+*   **Routing Source:** Verify the exact column name and values used to store the routing source (t1_regex, t2_fuzzy, etc.) in the `rainbow_messages` table.
+*   **Configuration:** The alert threshold should be managed via environment variables (e.g., `LATENCY_ALERT_P95_MS`) rather than being hardcoded.
+
+
+## Iteration N - Story: US-414 Add response latency P95/P99 metrics endpoint
+### What was implemented
+- Created `src/routes/admin/analytics-latency.ts` with GET `/analytics/latency`
+- Uses PostgreSQL `PERCENTILE_CONT(0.50/0.95/0.99) WITHIN GROUP` for DB-side percentile computation
+- Returns P50/P95/P99 in ms for last 24h and 7d windows
+- Breakdowns by `profile_id` and `source` (mapped to routing tier labels: t1_regex, t2_fuzzy, t3_kb, t4_llm)
+- Optional `?p95_threshold_ms=N` query param (default 8000) triggers `warningTriggered: true` in response
+- Registered in admin index.ts with 30s cache header; added `/analytics/latency` to SEMI_STABLE_PATHS
+
+### Patterns discovered
+- `rainbow_messages.source` contains: 'regex', 'fuzzy', 'semantic', 'llm' — mapped to t1/t2/t3/t4 tiers
+- `db.execute(sql`...`)` returns `{ rows: [...] }` — access via `.rows`
+- `PERCENTILE_CONT` with FILTER clause works in PostgreSQL for per-window aggregation in a single query
+
+### Gotchas
+- Build uses esbuild (not tsc) — tsc has pre-existing type errors, so `npm run check` will show errors unrelated to this story
+- The startup test with background kill returned no output; build success + no new type errors confirms correctness
