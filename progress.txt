@@ -2116,3 +2116,27 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 ### Gotchas
 - `rainbow_conversations` uses `phone` as PK — can't create a truly separate "new" row. Instead, the session is renewed in-place: status='ended' → reset createdAt → status='active'
 - The `clearConversation()` call clears in-memory state (StateManager) so `getOrCreate()` builds a fresh conversation object
+
+
+## Iteration 9 - Story: US-445 - Implement multi-stage fallback reply with suggested options
+### What was implemented
+- Added `fallback.suggestions` config to `src/assistant/data/settings.json` with 3 default options (pricing, checkin_info, facilities_info) with en/ms/zh labels
+- Changed `consecutive_fallback_threshold` default from 2 to 1 (2nd consecutive unknown now triggers escalation per AC)
+- Modified `handleLLMReply` in `src/assistant/pipeline/stages/action-dispatch.ts`:
+  - Stage 1 (unknownCount === 1): Builds structured numbered-list suggestion response from configurable `fallback.suggestions`
+  - Stage 2 (unknownCount > threshold): Existing escalation path (US-428) unchanged
+- Added `buildFallbackSuggestionResponse()` helper: generates multilingual (en/ms/zh) numbered list with header and footer
+- Wrote 7 unit tests in `src/assistant/__tests__/multi-stage-fallback.test.ts`:
+  - Stage 1 shows suggestions on first unknown
+  - Stage 2 escalates on second consecutive unknown
+  - Full two-stage flow (suggestion → escalation)
+  - Counter resets on recognized intent
+  - Malay language suggestions
+  - Custom configurable suggestions
+  - Empty suggestions falls through to LLM response
+- All 6 existing US-428 tests still pass (no regression)
+### Patterns discovered
+- The `consecutiveFallbackThreshold` change from 2→1 only affects production default; existing US-428 tests use their own mock value (2) so no regression
+- `buildFallbackSuggestionResponse` returns null when no suggestions configured, allowing graceful degradation
+### Gotchas
+- `convo.language` is the source of truth for language in handleLLMReply, not the `lang` field on state (which is the detected language for the current message)

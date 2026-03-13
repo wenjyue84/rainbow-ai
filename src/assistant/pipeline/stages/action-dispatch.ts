@@ -348,10 +348,11 @@ async function handleLLMReply(
 
     // US-428: Check consecutive fallback threshold (settings.json, per-profile)
     const settings = context.getSettings();
-    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 2;
+    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 1;
     const shouldEscalateConsecutive = unknownCount > fallbackThreshold;
 
     if (shouldEscalateConsecutive) {
+      // ─── Stage 2: Escalation (US-428 + US-445) ──────────────────────
       diaryEvent.escalated = true;
 
       // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
@@ -381,11 +382,54 @@ async function handleLLMReply(
         originalMessage: text, instanceId: msg.instanceId,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch] Consecutive fallback escalation (US-428): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
+      console.log(`[Dispatch] Stage 2 escalation (US-445): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
+    } else if (unknownCount === 1) {
+      // ─── Stage 1: Suggestion response (US-445) ──────────────────────
+      const lang = convo.language || 'en';
+      const suggestionResponse = buildFallbackSuggestionResponse(settings, lang);
+      if (suggestionResponse) {
+        state.response = suggestionResponse;
+        console.log(`[Dispatch] Stage 1 suggestion (US-445): showing ${(settings.fallback?.suggestions || []).length} options`);
+      }
     }
   } else {
     context.resetUnknown(phone);
   }
+}
+
+/**
+ * US-445: Build a structured suggestion response from fallback.suggestions config.
+ * Returns a numbered text list of suggested options for the user to pick from.
+ */
+function buildFallbackSuggestionResponse(
+  settings: any,
+  lang: 'en' | 'ms' | 'zh'
+): string | null {
+  const suggestions: Array<{ intent: string; label: Record<string, string> }> =
+    settings.fallback?.suggestions;
+  if (!suggestions || suggestions.length === 0) return null;
+
+  const headerMessages: Record<string, string> = {
+    en: "I'm not sure I understood that. Did you mean one of these?",
+    ms: "Maaf, saya kurang pasti. Adakah anda bermaksud salah satu daripada ini?",
+    zh: "抱歉，我不太确定您的意思。您是否指以下其中一项？",
+  };
+
+  const footerMessages: Record<string, string> = {
+    en: "Reply with a number, or type your question again.",
+    ms: "Balas dengan nombor, atau taip soalan anda semula.",
+    zh: "请回复数字，或重新输入您的问题。",
+  };
+
+  const header = headerMessages[lang] || headerMessages.en;
+  const footer = footerMessages[lang] || footerMessages.en;
+
+  const lines = suggestions.map((s, i) => {
+    const label = s.label?.[lang] || s.label?.en || s.intent;
+    return `${i + 1}. ${label}`;
+  });
+
+  return `${header}\n\n${lines.join('\n')}\n\n${footer}`;
 }
 
 /**
