@@ -2798,6 +2798,190 @@
       ],
       "estimatedComplexity": "small",
       "passes": false
+    },
+    {
+      "id": "US-514",
+      "title": "Add TOTP-based 2FA to admin panel login",
+      "priority": "critical",
+      "description": "Protect the Express admin panel with time-based one-time password (TOTP) second factor using otplib. Admin accounts are a high-value target; a compromised session currently grants unrestricted access to all config, knowledge base, and conversation history.",
+      "acceptanceCriteria": [
+        "Admin can enrol 2FA by scanning a QR code in an authenticator app (Google Authenticator / Authy)",
+        "Login flow requires valid 6-digit TOTP after password; invalid or expired tokens are rejected",
+        "Admin can disable 2FA after re-authenticating with password + current TOTP",
+        "totp_secret and totp_enabled columns exist on admin users table; secret is stored encrypted at rest",
+        "Brute-force protection: ≥5 failed TOTP attempts locks the account for 15 minutes"
+      ],
+      "technicalNotes": [
+        "Use otplib (actively maintained) instead of speakeasy (unmaintained)",
+        "Generate secret with authenticator.generateSecret(); verify with authenticator.check(token, secret)",
+        "Store encrypted secret using Node.js crypto AES-256-GCM with key from env var",
+        "QR code URL: use otpauth:// URI format compatible with RFC 6238",
+        "Endpoints needed: POST /admin/2fa/setup, POST /admin/2fa/verify-setup, POST /admin/2fa/disable, updated POST /admin/login"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-515",
+      "title": "Add slow query monitoring via pg_stat_statements on Neon",
+      "priority": "high",
+      "description": "Enable the pg_stat_statements extension on the Neon database and expose a scheduled job that queries for statements exceeding a configurable mean_exec_time threshold. Slow queries are currently invisible until they cause user-facing latency spikes.",
+      "acceptanceCriteria": [
+        "pg_stat_statements extension is enabled on the Neon project",
+        "A scheduled task (BullMQ repeatable job) runs every 10 minutes and logs queries where mean_exec_time > 500ms",
+        "Slow query report is available via GET /admin/metrics/slow-queries returning top-20 offenders with query text, mean_exec_time, calls, and total_exec_time",
+        "Alert is emitted (existing logger/notification channel) when any query exceeds 2000ms mean execution time",
+        "Documentation notes Neon limitation: statistics reset on compute suspend/scale-to-zero"
+      ],
+      "technicalNotes": [
+        "Run: CREATE EXTENSION IF NOT EXISTS pg_stat_statements; on Neon (requires neon_superuser or Neon console)",
+        "Query: SELECT query, calls, mean_exec_time, total_exec_time FROM pg_stat_statements WHERE mean_exec_time > 500 ORDER BY mean_exec_time DESC LIMIT 20",
+        "Neon computes reset pg_stat_statements on suspend; baseline is lost after scale-to-zero events",
+        "For persistent alerting consider postgres_exporter + Prometheus Alertmanager or pganalyze",
+        "Reference: https://neon.com/docs/extensions/pg_stat_statements"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-516",
+      "title": "Implement inbound webhook idempotency key deduplication at DB level",
+      "priority": "high",
+      "description": "Prevent duplicate processing of inbound WhatsApp messages when Baileys or upstream infrastructure retries delivery. Currently a retried message could trigger duplicate AI responses and database writes.",
+      "acceptanceCriteria": [
+        "A processed_webhooks table stores message IDs before processing begins",
+        "Duplicate inbound message ID is detected before handler executes and silently discarded",
+        "On handler error the idempotency record is removed so the message can be retried",
+        "Idempotency check adds < 5ms overhead per message (single indexed primary key lookup)",
+        "Unit tests cover: first delivery processes, duplicate delivery skips, error path deletes record and allows retry"
+      ],
+      "technicalNotes": [
+        "Schema: CREATE TABLE processed_webhooks (message_id TEXT PRIMARY KEY, processed_at TIMESTAMPTZ DEFAULT now())",
+        "Pattern: INSERT the message_id first; if unique constraint violation → return early; on error delete record to allow retry",
+        "Baileys message IDs are available as key.id on WAMessage objects",
+        "Purge records older than 48 hours via BullMQ repeatable cleanup job to keep table small",
+        "Reference: https://hookdeck.com/webhooks/guides/implement-webhook-idempotency"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-517",
+      "title": "Implement admin action audit log for config and knowledge base changes",
+      "priority": "high",
+      "description": "Record every write operation made through the admin panel — config updates, knowledge base edits, intent keyword changes, user management — with actor identity, timestamp, before/after values, and source IP. This is distinct from rainbow_config_audit which only tracks config table changes.",
+      "acceptanceCriteria": [
+        "admin_audit_log table records: id, admin_user_id, action, resource_type, resource_id, old_value (JSONB), new_value (JSONB), ip_address, user_agent, created_at",
+        "All admin write routes (POST/PUT/PATCH/DELETE) automatically write an audit entry via Express middleware",
+        "GET /admin/audit-log supports filtering by admin_user_id, action, resource_type, and date range",
+        "Audit log rows are append-only: no UPDATE or DELETE permitted via application code",
+        "Audit entries are visible in the admin panel UI with human-readable action descriptions"
+      ],
+      "technicalNotes": [
+        "Implement as Express middleware that runs after route handler, capturing req.admin.id, route, body diff",
+        "Use JSONB columns for old_value/new_value to handle arbitrary config shapes",
+        "Index on (admin_user_id, created_at) and (resource_type, resource_id) for dashboard queries",
+        "Separate from rainbow_config_audit (which is DB-trigger-based); this is application-layer and covers non-config resources",
+        "Reference: https://codetv.dev/blog/audit-logging-node-express"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-518",
+      "title": "Configure PM2 cluster mode with BullMQ worker deduplication guard",
+      "priority": "medium",
+      "description": "Enable PM2 cluster mode for zero-downtime reloads while preventing BullMQ queue completion listeners from firing on every cluster worker simultaneously, which causes duplicate job creation in downstream queues.",
+      "acceptanceCriteria": [
+        "pm2 reload rainbow-ai completes with zero dropped inbound WhatsApp messages (verified by load test)",
+        "BullMQ queue completion event handlers fire exactly once per job completion across all cluster workers",
+        "Ecosystem config sets exec_mode: 'cluster', instances: 2, listen_timeout: 10000",
+        "Graceful shutdown handler drains active BullMQ workers before process exit",
+        "Integration test confirms no duplicate jobs in any queue after simulated reload"
+      ],
+      "technicalNotes": [
+        "Root cause: all cluster workers attach queue completion listeners, each triggers job creation",
+        "Fix: use BullMQ job deduplication (jobId as deterministic hash) or Throttle Jobs pattern",
+        "Alternatively restrict queue event listeners to PM2_INSTANCE_ID === '0' only",
+        "Shared state (session store, queue connections) must use Redis/Postgres — no in-process state",
+        "Reference issue: https://github.com/taskforcesh/bullmq/issues/2742"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-519",
+      "title": "Return IETF-standard RateLimit response headers on all API endpoints",
+      "priority": "medium",
+      "description": "Add RateLimit and RateLimit-Policy response headers conforming to IETF draft-ietf-httpapi-ratelimit-headers-10 to all Express admin and webhook routes. Clients and monitoring tools can then self-throttle and surface quota state without scraping error responses.",
+      "acceptanceCriteria": [
+        "Every API response includes RateLimit header with remaining quota units and reset time",
+        "Every API response includes RateLimit-Policy header with the quota window definition",
+        "429 responses include Retry-After header (delta-seconds) per RFC 6585",
+        "Existing express-rate-limit middleware is updated or wrapped to emit these headers",
+        "Integration test asserts correct header values on normal, near-limit, and over-limit responses"
+      ],
+      "technicalNotes": [
+        "Draft-10 defines two header fields: RateLimit (dynamic state) and RateLimit-Policy (static policy)",
+        "RateLimit-Policy example: 100;w=60 (100 requests per 60-second window)",
+        "RateLimit example: limit=100, remaining=42, reset=23",
+        "Retry-After MUST take precedence over RateLimit reset when both are present on 429",
+        "Reference: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-520",
+      "title": "Add prompt version tracking and A/B test traffic split to LLM pipeline",
+      "priority": "medium",
+      "description": "Store the prompt template version identifier alongside every AI-generated response in rainbow_messages so that quality, latency, and cost can be compared between prompt versions. This enables safe iterative prompt improvements with measurable rollout control.",
+      "acceptanceCriteria": [
+        "rainbow_messages table has a prompt_version VARCHAR column populated on every AI response row",
+        "GET /admin/metrics/prompt-performance returns per-version aggregates: avg latency, token usage, feedback score",
+        "Traffic split percentage per prompt version is configurable via settings.json without restart",
+        "At least two prompt versions can be active simultaneously with configurable traffic weights",
+        "Rollback to a previous prompt version is achievable by config change alone (no deploy)"
+      ],
+      "technicalNotes": [
+        "Version label format: {intent}-v{semver} e.g. checkin-v1.2.0, stored in settings.json alongside the template",
+        "On each LLM call log: prompt_version, model, latency_ms, input_tokens, output_tokens to rainbow_messages or a separate prompt_ab_log table",
+        "A/B split: weighted random selection at runtime using configured percentages from settings.json",
+        "Consider Langfuse for richer observability: https://langfuse.com/docs/prompt-management/features/a-b-testing",
+        "Minimal self-hosted approach: version field in DB + admin metrics endpoint (no external service required)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-521",
+      "title": "Document and implement Drizzle ORM safe migration rollback procedure",
+      "priority": "medium",
+      "description": "Drizzle ORM has no built-in rollback command; a production incident requiring schema revert currently has no documented procedure. Define a safe pattern using explicit down-migration SQL files and a tested rollback runbook to reduce mean-time-to-recovery.",
+      "acceptanceCriteria": [
+        "Every new Drizzle migration file in /drizzle has a corresponding *.down.sql file that reverses it",
+        "A npm run db:rollback script applies the most recent down migration and removes the entry from __drizzle_migrations",
+        "Rollback procedure is tested in CI against a test Neon branch before merging to main",
+        "RUNBOOK.md documents the rollback steps including: how to identify last migration, apply down SQL, verify schema state",
+        "At least two existing migrations are retroactively given down migration files"
+      ],
+      "technicalNotes": [
+        "Drizzle does not auto-generate down migrations; they must be hand-written",
+        "Down migration naming convention: 0005_add_column.down.sql paired with 0005_add_column.sql",
+        "Rollback script: read last entry from __drizzle_migrations, execute corresponding .down.sql, delete the row",
+        "Safe additive DDL (ADD COLUMN, CREATE INDEX CONCURRENTLY) is low-risk and easy to reverse; destructive DDL (DROP COLUMN) requires careful phased approach",
+        "Reference discussion: https://github.com/drizzle-team/drizzle-orm/discussions/1339"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
     }
   ]
 }
