@@ -246,6 +246,27 @@ export const optOuts = pgTable("opt_outs", {
   index("idx_opt_outs_opted_out_at").on(table.optedOutAt),
 ]));
 
+// ─── LLM Cost Daily (US-433) ────────────────────────────────────────
+
+export const llmCostDaily = pgTable("llm_cost_daily", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(), // YYYY-MM-DD (UTC)
+  provider: text("provider").notNull(), // provider id (e.g. "groq-llama-70b")
+  profileId: text("profile_id").notNull().default('pelangi'),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
+  requestCount: integer("request_count").notNull().default(0),
+  budgetCapUsd: real("budget_cap_usd"), // null = unlimited
+  budgetBreached: boolean("budget_breached").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_llm_cost_daily_date_provider_profile").on(table.date, table.provider, table.profileId),
+  index("idx_llm_cost_daily_date").on(table.date),
+  index("idx_llm_cost_daily_provider").on(table.provider),
+]));
+
 // ─── Utterance Gaps (US-432) ─────────────────────────────────────────
 
 export const utteranceGaps = pgTable("utterance_gaps", {
@@ -292,3 +313,5 @@ export type MessageQualityMetric = typeof messageQualityMetrics.$inferSelect;
 export type InsertMessageQualityMetric = typeof messageQualityMetrics.$inferInsert;
 export type UtteranceGap = typeof utteranceGaps.$inferSelect;
 export type InsertUtteranceGap = typeof utteranceGaps.$inferInsert;
+export type LlmCostDaily = typeof llmCostDaily.$inferSelect;
+export type InsertLlmCostDaily = typeof llmCostDaily.$inferInsert;

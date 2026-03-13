@@ -39,6 +39,7 @@ import { initPricingFromDB } from './assistant/pricing.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { checkMetaCACert } from './lib/meta-ca-check.js';
+import { loadTodayCosts } from './assistant/llm-cost-budget.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -119,6 +120,9 @@ try {
 } catch (err: any) {
   console.warn('[Startup] Some DB config loads failed (using file fallbacks):', err.message);
 }
+
+// US-433: Load today's LLM cost accumulators from DB
+loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost data:', err.message));
 
 // US-431: Start daily quality metrics aggregation job
 startQualityMetricsJob();

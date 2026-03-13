@@ -10,6 +10,7 @@ import { configStore } from './config-store.js';
 import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
+import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -456,11 +457,19 @@ export async function chatWithFallback(
       continue;
     }
 
+    // Check daily cost budget (US-433)
+    if (isProviderOverBudget(provider.id)) {
+      console.log(`[AI] 💰 Budget cap reached for ${provider.name}, skipping to next provider`);
+      continue;
+    }
+
     try {
       const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode);
       if (result && result.content) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
+        // Record token usage for cost tracking (US-433)
+        recordLLMUsage(provider.id, provider.model, result.usage);
         console.log(`[AI] ✅ Success using: ${provider.name} (${provider.id})`);
         return { content: result.content, provider, usage: result.usage };
       }

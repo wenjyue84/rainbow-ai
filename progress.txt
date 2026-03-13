@@ -2022,3 +2022,31 @@ Completed: Add unhandled utterance logging and intent gap report endpoint (ID: U
 ### Gotchas
 - normalizeUtterance uses \p{L}\p{N} (unicode property escapes) for international text support
 - The nightly aggregation job mentioned in AC is not needed — the ON CONFLICT upsert handles dedup in real-time
+## Iteration 4 - Fri, Mar 13, 2026 10:00:39 PM
+Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbound when flagged (ID: US-458) — attempt 2/3
+
+
+
+## Iteration 5 - Story: US-433 - Add per-provider LLM cost budget cap with automatic circuit-break
+### What was implemented
+- Added `llm_cost_daily` table to Drizzle schema (shared/schema-tables.ts): { id, date, provider, profile_id, prompt_tokens, completion_tokens, estimated_cost_usd, request_count, budget_cap_usd, budget_breached }
+- Unique index on (date, provider, profile_id) for efficient daily upserts
+- Created `src/assistant/llm-cost-budget.ts` — in-memory accumulator + DB persistence:
+  - `isProviderOverBudget()` — checked before each provider in fallback chain
+  - `recordLLMUsage()` — called after successful LLM call, updates accumulator + async DB upsert
+  - `loadTodayCosts()` — called at startup to restore in-memory state from DB
+  - `queryDailyCosts()` — for admin API queries with date/profile/days filters
+- Budget thresholds: logs warning at 80% (configurable alertThreshold), blocks provider at 100%
+- Added `costBudget` section to settings.json with per-provider daily_budget_usd (default: null = unlimited)
+- Hooked `isProviderOverBudget()` into `chatWithFallback()` loop — over-budget providers are skipped like rate-limited ones
+- Hooked `recordLLMUsage()` after successful provider response in fallback chain
+- Added admin API `GET /llm-costs?date=&profile_id=&days=` returning daily breakdown + provider totals
+- Token pricing reuses existing `token_prices` config in settings.json
+### Patterns discovered
+- In-memory accumulator pattern: fast reads (no DB query per message), async flush to DB, restored from DB at startup
+- ON CONFLICT upsert for daily aggregation: accumulates totals within a day, resets with new date key
+- Budget check fits naturally alongside circuit breaker and rate limit cooldown in the fallback loop
+### Gotchas
+- `drizzle-kit push` is interactive with unmanaged tables — used raw SQL script for initial table creation
+- The DB upsert uses `excluded.*` syntax for the incremental update pattern
+- `loadTodayCosts()` fails gracefully if table doesn't exist yet (caught at startup)

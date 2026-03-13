@@ -4,6 +4,7 @@ import { db } from '../../lib/db.js';
 import { sql } from 'drizzle-orm';
 import { ok, serverError } from './http-utils.js';
 import { getStore } from './http-utils.js';
+import { queryDailyCosts, getProviderDailyCost } from '../../assistant/llm-cost-budget.js';
 
 const router = Router();
 
@@ -133,6 +134,59 @@ router.get('/analytics/llm-cost', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('[LLM Cost] Analytics query failed:', err.message);
+    serverError(res, err);
+  }
+});
+
+/**
+ * GET /llm-costs
+ *
+ * Returns daily cost breakdown by provider with budget status (US-433).
+ * Query params:
+ *   date      - specific date (YYYY-MM-DD), default: today
+ *   profile_id - filter by profile
+ *   days      - number of days to look back (default: 7, max: 90)
+ */
+router.get('/llm-costs', async (req: Request, res: Response) => {
+  try {
+    const date = req.query.date as string | undefined;
+    const profileId = req.query.profile_id as string | undefined;
+    const days = Math.min(parseInt(req.query.days as string) || 7, 90);
+
+    const rows = await queryDailyCosts({ date, profileId, days: date ? undefined : days });
+
+    // Aggregate totals per provider across the date range
+    const providerTotals: Record<string, { promptTokens: number; completionTokens: number; estimatedCostUsd: number; requestCount: number; budgetCapUsd: number | null; budgetBreached: boolean }> = {};
+    let totalCostUsd = 0;
+
+    for (const row of rows) {
+      totalCostUsd += row.estimatedCostUsd;
+      if (!providerTotals[row.provider]) {
+        providerTotals[row.provider] = {
+          promptTokens: 0,
+          completionTokens: 0,
+          estimatedCostUsd: 0,
+          requestCount: 0,
+          budgetCapUsd: row.budgetCapUsd,
+          budgetBreached: false,
+        };
+      }
+      const t = providerTotals[row.provider];
+      t.promptTokens += row.promptTokens;
+      t.completionTokens += row.completionTokens;
+      t.estimatedCostUsd += row.estimatedCostUsd;
+      t.requestCount += row.requestCount;
+      if (row.budgetBreached) t.budgetBreached = true;
+    }
+
+    ok(res, {
+      daily: rows,
+      providerTotals,
+      totalCostUsd: Number(totalCostUsd.toFixed(6)),
+      queryDays: days,
+    });
+  } catch (err: any) {
+    console.error('[LLM Cost] Daily cost query failed:', err.message);
     serverError(res, err);
   }
 });
