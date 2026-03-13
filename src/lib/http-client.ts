@@ -4,6 +4,7 @@ import https from 'node:https';
 import { createModuleLogger } from './logger.js';
 import { CircuitBreaker } from '../assistant/circuit-breaker.js';
 import { notifyAdminConfigError } from './admin-notifier.js';
+import { DIGIMAN_TIMEOUT_MS } from './timeouts.js';
 
 const logger = createModuleLogger('http-client');
 
@@ -31,7 +32,7 @@ export const apiClient: AxiosInstance = axios.create({
     'Authorization': API_TOKEN ? `Bearer ${API_TOKEN}` : undefined,
     'Content-Type': 'application/json'
   },
-  timeout: 15000,
+  timeout: DIGIMAN_TIMEOUT_MS,
   httpAgent,
   httpsAgent
 });
@@ -137,8 +138,12 @@ function isRetryable(error: AxiosError): boolean {
   if (!error.response && error.code && RETRYABLE_ERROR_CODES.has(error.code)) {
     return true;
   }
-  // Timeout
+  // Timeout (axios ECONNABORTED or native fetch AbortError/TimeoutError)
   if (error.code === 'ECONNABORTED') {
+    return true;
+  }
+  // AbortSignal.timeout() throws AbortError — treat as retryable
+  if ((error as any).name === 'AbortError' || (error as any).name === 'TimeoutError') {
     return true;
   }
   // Retryable HTTP status codes

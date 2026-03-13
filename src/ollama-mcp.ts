@@ -31,17 +31,29 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { LLM_TIMEOUT_MS } from './lib/timeouts.js';
 
 // Simple Ollama API client (embedded for MCP server)
 class OllamaClient {
   private baseUrl = 'http://localhost:11434';
 
   async generate(model: string, prompt: string, stream = false) {
-    const response = await fetch(`${this.baseUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, prompt, stream }),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+        const msg = `Ollama API timed out after ${LLM_TIMEOUT_MS}ms`;
+        console.error(`[OllamaMCP] ${msg}`, { type: 'timeout', upstream: 'ollama' });
+        throw new Error(msg);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       throw new Error(`Ollama API error: ${response.status}`);
@@ -51,7 +63,19 @@ class OllamaClient {
   }
 
   async listModels() {
-    const response = await fetch(`${this.baseUrl}/api/tags`);
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+        const msg = `Ollama listModels timed out after ${LLM_TIMEOUT_MS}ms`;
+        console.error(`[OllamaMCP] ${msg}`, { type: 'timeout', upstream: 'ollama' });
+        throw new Error(msg);
+      }
+      throw err;
+    }
     if (!response.ok) {
       throw new Error(`Ollama API error: ${response.status}`);
     }

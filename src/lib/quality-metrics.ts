@@ -7,6 +7,10 @@
 import { db } from './db.js';
 import { rainbowMessages, messageQualityMetrics, optOuts } from '../../shared/schema.js';
 import { sql, eq, and, gte, lte, desc } from 'drizzle-orm';
+import { WA_API_TIMEOUT_MS } from './timeouts.js';
+import { createModuleLogger } from './logger.js';
+
+const logger = createModuleLogger('quality-metrics');
 
 // ─── In-memory block event counter (incremented from Baileys events) ──
 const blockCounts = new Map<string, number>(); // key: profileId
@@ -164,7 +168,14 @@ async function checkOptOutAlert(
             optOutEvents: optOuts,
             timestamp: new Date().toISOString(),
           }),
-        }).catch(err => console.error('[QualityMetrics] Webhook failed:', err.message));
+          signal: AbortSignal.timeout(WA_API_TIMEOUT_MS),
+        }).catch(err => {
+          if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+            logger.error('Quality alert webhook timed out', { type: 'timeout', upstream: 'quality-webhook', timeoutMs: WA_API_TIMEOUT_MS });
+          } else {
+            logger.error('Quality alert webhook failed', { message: err.message });
+          }
+        });
       }
     } catch {
       // Webhook is optional

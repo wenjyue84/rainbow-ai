@@ -2,6 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { whatsappManager } from './index.js';
 import { formatPhoneNumber } from './manager.js';
+import { WA_API_TIMEOUT_MS } from '../timeouts.js';
+import { createModuleLogger } from '../logger.js';
+
+const logger = createModuleLogger('avatar-cache');
 
 const AVATAR_DIR = path.join(process.cwd(), 'data', 'avatars');
 const META_FILE = path.join(AVATAR_DIR, '_meta.json');
@@ -63,7 +67,7 @@ export async function ensureAvatar(phone: string): Promise<void> {
       }
 
       // Download image
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(WA_API_TIMEOUT_MS) });
       if (!res.ok) {
         meta[clean] = { fetchedAt: Date.now(), hasAvatar: false };
         saveMeta(meta);
@@ -81,7 +85,11 @@ export async function ensureAvatar(phone: string): Promise<void> {
       saveMeta(meta);
       console.log(`[AvatarCache] Saved avatar for ${clean}`);
     } catch (err: any) {
-      console.warn(`[AvatarCache] Failed to fetch avatar for ${clean}: ${err.message}`);
+      if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+        logger.warn(`Avatar fetch timed out for ${clean}`, { type: 'timeout', upstream: 'whatsapp-avatar', timeoutMs: WA_API_TIMEOUT_MS });
+      } else {
+        logger.warn(`Failed to fetch avatar for ${clean}`, { message: err.message });
+      }
     } finally {
       inFlight.delete(clean);
     }

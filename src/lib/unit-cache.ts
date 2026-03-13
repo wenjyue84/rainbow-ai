@@ -8,6 +8,10 @@
 
 import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { DIGIMAN_TIMEOUT_MS } from './timeouts.js';
+import { createModuleLogger } from './logger.js';
+
+const logger = createModuleLogger('unit-cache');
 
 const CUSTOM_UNITS_FILE = join(process.cwd(), 'data', 'custom-units.json');
 
@@ -71,25 +75,22 @@ export function addCustomUnit(unit: string): string[] {
 
 async function fetchUnits(): Promise<UnitEntry[]> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-
     const resp = await fetch(`${DASHBOARD_API}/api/units`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(DIGIMAN_TIMEOUT_MS),
     });
-    clearTimeout(timeout);
 
     if (!resp.ok) {
-      console.warn(`[UnitCache] Dashboard API returned ${resp.status}`);
+      logger.warn(`Dashboard API returned ${resp.status}`);
       return [];
     }
 
     const data = await resp.json() as UnitEntry[];
     return Array.isArray(data) ? data : [];
   } catch (err: any) {
-    // ECONNREFUSED, timeout, etc -- graceful degradation
-    if (err?.name !== 'AbortError') {
-      console.warn('[UnitCache] Dashboard API unavailable:', err?.code || err?.message);
+    if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+      logger.warn('Dashboard API timed out', { type: 'timeout', upstream: 'digiman', timeoutMs: DIGIMAN_TIMEOUT_MS });
+    } else {
+      logger.warn('Dashboard API unavailable', { code: err?.code, message: err?.message });
     }
     return [];
   }

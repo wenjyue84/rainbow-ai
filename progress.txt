@@ -2215,3 +2215,22 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 ### Gotchas
 - The `account_update` field must be subscribed separately in Meta App Dashboard → Webhooks section alongside `messages`
 - `expiration` in restriction_info is a Unix timestamp in seconds (not milliseconds)
+## Iteration 7 - Fri, Mar 13, 2026 11:14:15 PM
+Completed: Subscribe to and handle WhatsApp account_update webhook (violations and restrictions) (ID: US-479) in 5m
+
+
+## Iteration 8 - Story: US-482 - Add AbortSignal.timeout for all outbound HTTP calls
+### What was implemented
+- Created `src/lib/timeouts.ts` with LLM_TIMEOUT_MS (30s), DIGIMAN_TIMEOUT_MS (10s), WA_API_TIMEOUT_MS (15s) — all configurable via env vars
+- Updated `src/lib/unit-cache.ts`: replaced manual AbortController(3000) with AbortSignal.timeout(DIGIMAN_TIMEOUT_MS)
+- Updated `src/lib/quality-metrics.ts`: added signal: AbortSignal.timeout(WA_API_TIMEOUT_MS) to webhook fire-and-forget fetch
+- Updated `src/lib/whatsapp/avatar-cache.ts`: added signal: AbortSignal.timeout(WA_API_TIMEOUT_MS) to avatar image download
+- Updated `src/ollama-mcp.ts`: added signal: AbortSignal.timeout(LLM_TIMEOUT_MS) to Ollama generate and listModels with AbortError logging
+- Updated `src/lib/http-client.ts`: replaced hardcoded 15000 with DIGIMAN_TIMEOUT_MS; added AbortError/TimeoutError to isRetryable
+- Added test: `src/assistant/__tests__/abort-signal-timeout.test.ts` (5 tests pass)
+### Patterns discovered
+- AbortSignal.timeout() throws DOMException with name 'TimeoutError' in Node 18+, 'AbortError' in older runtimes — always check both names
+- failover-coordinator.ts and mcp-servers.ts already had AbortSignal/AbortController — no changes needed there
+- axios uses its own timeout mechanism (ECONNABORTED) — AbortSignal.timeout applies only to native fetch() calls
+### Gotchas
+- prd.json has UTF-8 encoding — open with encoding='utf-8' in Python
