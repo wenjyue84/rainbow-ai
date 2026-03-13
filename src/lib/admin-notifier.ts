@@ -548,3 +548,102 @@ export async function notifyAdminRateLimit(
     console.error(`[AdminNotifier] Failed to send rate limit notification:`, err.message);
   }
 }
+
+/**
+ * Send WhatsApp account policy violation alert to system admin (US-479).
+ * Fires when an account_update webhook delivers an ACCOUNT_VIOLATION event.
+ * Throttled to at most one notification per 30 minutes (violations can repeat).
+ */
+const ACCOUNT_VIOLATION_COOLDOWN_MS = 30 * 60 * 1000;
+let lastAccountViolationNotifyAt = 0;
+
+export async function notifyAdminAccountViolation(
+  phoneNumber: string,
+  violationType: string,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send account violation notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastAccountViolationNotifyAt < ACCOUNT_VIOLATION_COOLDOWN_MS) {
+    logger.info('Account violation notification skipped (cooldown)', { phoneNumber, violationType });
+    return;
+  }
+  lastAccountViolationNotifyAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const message = `🚨 *WhatsApp Account Policy Violation*\n\n` +
+    `Phone: ${phoneNumber}\n` +
+    `Violation Type: *${violationType}*\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    `Meta has flagged your WhatsApp Business account for a policy violation.\n\n` +
+    `**Immediate Actions:**\n` +
+    `1. Log into Meta Business Manager and review your account status\n` +
+    `2. Check recent message campaigns for policy-violating content\n` +
+    `3. Submit an appeal if you believe the violation is incorrect\n\n` +
+    `_Repeated violations may result in account restriction or ban._`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent account violation notification', { phoneNumber, violationType });
+  } catch (err: any) {
+    logger.error('Failed to send account violation notification', { error: err.message });
+  }
+}
+
+/**
+ * Send WhatsApp account restriction alert to system admin (US-479).
+ * Fires when an account_update webhook delivers an ACCOUNT_RESTRICTION event.
+ * Throttled to at most one notification per 30 minutes.
+ */
+const ACCOUNT_RESTRICTION_COOLDOWN_MS = 30 * 60 * 1000;
+let lastAccountRestrictionNotifyAt = 0;
+
+export async function notifyAdminAccountRestriction(
+  phoneNumber: string,
+  restrictions: Array<{ restrictionType: string; expiration: number | null }>,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send account restriction notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastAccountRestrictionNotifyAt < ACCOUNT_RESTRICTION_COOLDOWN_MS) {
+    logger.info('Account restriction notification skipped (cooldown)', { phoneNumber });
+    return;
+  }
+  lastAccountRestrictionNotifyAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const restrictionList = restrictions.map(r => {
+    const expiry = r.expiration
+      ? new Date(r.expiration * 1000).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })
+      : 'indefinite';
+    return `  • ${r.restrictionType} (expires: ${expiry})`;
+  }).join('\n');
+
+  const message = `⚠️ *WhatsApp Account Restriction*\n\n` +
+    `Phone: ${phoneNumber}\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    `Active Restrictions:\n${restrictionList}\n\n` +
+    `Some messaging capabilities may be limited until the restriction expires.\n\n` +
+    `**Actions:**\n` +
+    `1. Review your account in Meta Business Manager\n` +
+    `2. Reduce message volume and ensure content policy compliance\n` +
+    `3. Monitor Rainbow Admin dashboard for restriction expiry\n\n` +
+    `_Restrictions lift automatically at the expiry time._`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent account restriction notification', { phoneNumber, count: restrictions.length });
+  } catch (err: any) {
+    logger.error('Failed to send account restriction notification', { error: err.message });
+  }
+}

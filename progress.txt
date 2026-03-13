@@ -2200,3 +2200,18 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 ### Gotchas
 - This project uses Baileys (direct WA connection), not Meta Cloud API — the webhook is for when a Meta Cloud API integration is also configured
 - `isOutboundBlocked()` checks for both FLAGGED and RESTRICTED status — RESTRICTED is a more severe version of FLAGGED
+
+
+## Iteration - Story: US-479 Subscribe to and handle WhatsApp account_update webhook
+### What was implemented
+- `src/lib/account-status.ts`: in-memory state manager for account violations and restrictions (ACCOUNT_VIOLATION / ACCOUNT_RESTRICTION)
+- `src/lib/admin-notifier.ts`: added `notifyAdminAccountViolation` and `notifyAdminAccountRestriction` with 30-min cooldown
+- `src/routes/webhooks/index.ts`: added POST `/webhooks/meta/account` handler that parses `changes[].field == account_update` payload, records state, and notifies admin
+- `src/index.ts`: added `accountStatus` check to `/health/ready` response surfacing active violations/restrictions
+### Patterns discovered
+- Meta account_update payload wraps events in `entry[].changes[]` (same envelope as other Meta webhooks)
+- `restriction_info` is an array (multiple restriction types can be active simultaneously)
+- In-memory state is sufficient — violations require operator action regardless; no DB persistence needed
+### Gotchas
+- The `account_update` field must be subscribed separately in Meta App Dashboard → Webhooks section alongside `messages`
+- `expiration` in restriction_info is a Unix timestamp in seconds (not milliseconds)

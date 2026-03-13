@@ -5,6 +5,7 @@
  *  - Evolution API  (WhatsApp message delivery status events)
  *  - DIGIMAN API    (booking/checkin/checkout callback notifications)
  *  - Meta Cloud API (phone_number_quality_update events) — US-458
+ *  - Meta Cloud API (account_update events) — US-479
  *
  * All routes apply HMAC-SHA256 signature validation via validateWebhookSignature()
  * before any business logic is executed.
@@ -17,7 +18,12 @@ import type { Request, Response } from 'express';
 import { validateWebhookSignature } from '../../lib/webhook-signature.js';
 import { updateQualityState } from '../../lib/phone-quality.js';
 import type { QualityRating, QualityStatus } from '../../lib/phone-quality.js';
-import { notifyAdminQualityDegradation } from '../../lib/admin-notifier.js';
+import {
+  notifyAdminQualityDegradation,
+  notifyAdminAccountViolation,
+  notifyAdminAccountRestriction,
+} from '../../lib/admin-notifier.js';
+import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 
 const router = Router();
 
@@ -107,6 +113,82 @@ router.post('/webhooks/meta/quality', signatureGuard, (req: Request, res: Respon
   // Notify admin on degradation (FLAGGED, RESTRICTED, or RED rating)
   if (status === 'FLAGGED' || status === 'RESTRICTED' || quality === 'RED') {
     notifyAdminQualityDegradation(profileId, quality, status, phoneNumber ?? 'unknown').catch(() => {});
+  }
+});
+
+// ─── Meta Cloud API: account_update webhook (US-479) ────────────────────────
+// Meta POSTs account_update events when an account_update policy violation
+// (ACCOUNT_VIOLATION) or account restriction (ACCOUNT_RESTRICTION) is imposed.
+// Must be subscribed in the Meta App Dashboard alongside the messages field.
+//
+// Payload shape:
+//   changes[0].field  = 'account_update'
+//   changes[0].value.event = 'ACCOUNT_VIOLATION' | 'ACCOUNT_RESTRICTION'
+//   changes[0].value.violation_info.violation_type  (for ACCOUNT_VIOLATION)
+//   changes[0].value.restriction_info[]             (for ACCOUNT_RESTRICTION)
+router.post('/webhooks/meta/account', signatureGuard, (req: Request, res: Response) => {
+  // Acknowledge receipt immediately so Meta does not retry.
+  res.status(200).json({ ok: true });
+
+  const body = req.body as {
+    entry?: Array<{
+      changes?: Array<{
+        field?: string;
+        value?: {
+          event?: string;
+          phone_number?: string;
+          violation_info?: { violation_type?: string };
+          restriction_info?: Array<{ restriction_type?: string; expiration?: number }>;
+        };
+      }>;
+    }>;
+    [key: string]: unknown;
+  };
+
+  const entries = body.entry ?? [];
+  for (const entry of entries) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'account_update') continue;
+
+      const value = change.value;
+      if (!value) continue;
+
+      const event = value.event ?? 'UNKNOWN';
+      const phoneNumber = value.phone_number ?? 'unknown';
+
+      if (event === 'ACCOUNT_VIOLATION') {
+        const violationType = value.violation_info?.violation_type ?? 'UNKNOWN_VIOLATION';
+
+        console.warn(
+          `[webhook:meta:account] ACCOUNT_VIOLATION: phone=${phoneNumber} violation_type=${violationType}`
+        );
+
+        recordAccountViolation(violationType, phoneNumber);
+        notifyAdminAccountViolation(phoneNumber, violationType).catch(() => {});
+
+      } else if (event === 'ACCOUNT_RESTRICTION') {
+        const rawRestrictions = value.restriction_info ?? [];
+        const restrictions = rawRestrictions.map(r => ({
+          restrictionType: r.restriction_type ?? 'UNKNOWN',
+          expiration: r.expiration ?? null,
+        }));
+
+        const expiryList = restrictions
+          .map(r => `${r.restrictionType}@${r.expiration ?? 'indefinite'}`)
+          .join(', ');
+        console.warn(
+          `[webhook:meta:account] ACCOUNT_RESTRICTION: phone=${phoneNumber} restrictions=[${expiryList}]`
+        );
+
+        recordAccountRestriction(restrictions, phoneNumber);
+        notifyAdminAccountRestriction(phoneNumber, restrictions).catch(() => {});
+
+      } else {
+        console.warn(
+          `[webhook:meta:account] account_update: phone=${phoneNumber} event=${event} (unhandled)`
+        );
+      }
+    }
   }
 });
 

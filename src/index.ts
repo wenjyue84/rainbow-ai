@@ -301,7 +301,23 @@ app.get('/health/ready', async (req, res) => {
       : 'Direct processing (Redis not available)'
   };
 
-  // 7. PostgreSQL pool metrics (synchronous — no DB query issued)
+  // 7. Account status (US-479 — violations and restrictions from account_update webhook)
+  const { getAccountStatus } = await import('./lib/account-status.js');
+  const accountStatus = getAccountStatus();
+  const hasViolation = accountStatus.activeViolation !== null;
+  const hasRestrictions = accountStatus.activeRestrictions.length > 0;
+  checks.accountStatus = {
+    ok: !hasViolation && !hasRestrictions,
+    detail: hasViolation
+      ? `Active violation: ${accountStatus.activeViolation!.violationType} (detected ${accountStatus.activeViolation!.detectedAt})`
+      : hasRestrictions
+        ? `Active restrictions: ${accountStatus.activeRestrictions.map(r => r.restrictionType).join(', ')}`
+        : 'No active violations or restrictions',
+    ...(hasViolation && { violation: accountStatus.activeViolation }),
+    ...(hasRestrictions && { restrictions: accountStatus.activeRestrictions }),
+  };
+
+  // 8. PostgreSQL pool metrics (synchronous — no DB query issued)
   const poolMetrics = getPoolMetrics();
   if (poolMetrics.waiting > 0) {
     _poolWaitingStreak++;
