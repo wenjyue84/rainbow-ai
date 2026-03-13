@@ -40,6 +40,7 @@ import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { checkMetaCACert } from './lib/meta-ca-check.js';
 import { loadTodayCosts } from './assistant/llm-cost-budget.js';
+import { isReady, markReady, markListening } from './lib/readiness.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -224,6 +225,12 @@ app.get('/health', (req, res) => {
 
 // Deep health check (readiness — can this server serve requests?)
 app.get('/health/ready', async (req, res) => {
+  // US-450: Return 503 until critical subsystems have finished initialising
+  if (!isReady()) {
+    res.status(503).json({ status: 'starting', timestamp: new Date().toISOString() });
+    return;
+  }
+
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
 
   // 1. Backend API reachable
@@ -507,12 +514,19 @@ server.setTimeout(HEADERS_TIMEOUT + 1000);
 
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {
+  markListening();
+
   const apiUrl = getApiBaseUrl();
   console.log(`digiman MCP Server running on http://0.0.0.0:${PORT}`);
   console.log(`MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
   console.log(`Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`API URL: ${apiUrl}${process.env.DIGIMAN_MANAGER_HOST || process.env.PELANGI_MANAGER_HOST ? ' (internal host)' : ''}`);
   console.log(`Server timeouts: keepAlive=${KEEP_ALIVE_TIMEOUT}ms headers=${HEADERS_TIMEOUT}ms request=${REQUEST_TIMEOUT}ms`);
+
+  // US-450: DB, configStore, profileRegistry, and KnowledgeBase init all
+  // completed before server.listen() was called (top-level awaits above).
+  // Mark the server as ready to accept admin API requests.
+  markReady();
 
   // Startup connectivity check: warn if digiman API is unreachable
   setImmediate(async () => {

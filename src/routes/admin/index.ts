@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { authBruteForceStore, ADMIN_IP_ALLOWLIST } from '../../lib/auth-brute-force.js';
+import { isReady } from '../../lib/readiness.js';
 
 import knowledgeBaseRoutes from './knowledge-base.js';
 import memoryRoutes from './memory.js';
@@ -94,6 +95,16 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
 }
 
 router.use(adminAuth);
+
+// ─── Readiness Gate (US-450) ────────────────────────────────────────
+// Block all admin API requests until critical subsystems have initialised.
+router.use((req: Request, res: Response, next: NextFunction) => {
+  if (!isReady()) {
+    res.status(503).json({ status: 'starting' });
+    return;
+  }
+  next();
+});
 
 // ─── Profile Resolution Middleware ──────────────────────────────────
 // Reads x-profile-id header and attaches the profile's ConfigStore to res.locals

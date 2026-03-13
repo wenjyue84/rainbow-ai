@@ -2140,3 +2140,19 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 - `buildFallbackSuggestionResponse` returns null when no suggestions configured, allowing graceful degradation
 ### Gotchas
 - `convo.language` is the source of truth for language in handleLLMReply, not the `lang` field on state (which is the detected language for the current message)
+## Iteration 3 - Fri, Mar 13, 2026 10:45:50 PM
+Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbound when flagged (ID: US-458) — attempt 2/3
+
+
+## Iteration 66 - Story: US-450 - Implement startup readiness gate
+### What was implemented
+- Created `src/lib/readiness.ts` module with `isReady()`, `markReady()`, `markListening()`, and `getTimeToReady()` helpers
+- Added readiness gate middleware in `src/routes/admin/index.ts` — all admin API routes return HTTP 503 `{ status: 'starting' }` when `isReady()` is false
+- Updated `/health/ready` endpoint in `src/index.ts` to return HTTP 503 when not ready
+- `/health` (liveness) remains unchanged — always returns 200
+- Wired `markListening()` and `markReady()` in the `server.listen()` callback; time-to-ready is logged at startup
+### Patterns discovered
+- All critical init (DB tables, profileRegistry, configStore, KB) happens via top-level await BEFORE `server.listen()`, so the readiness flag transitions to true immediately on listen. This is correct — the server doesn't accept connections until init is done.
+- The readiness module is a simple singleton pattern, consistent with other lib modules (failover-coordinator, etc.)
+### Gotchas
+- The readiness middleware must come AFTER auth but BEFORE profile resolution to avoid leaking information about the server state to unauthenticated requests
