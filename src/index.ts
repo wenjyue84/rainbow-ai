@@ -26,7 +26,7 @@ import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
 import { profileRegistry } from './assistant/profile-registry.js';
-import { initKnowledgeBase, initKBFromDB } from './assistant/knowledge-base.js';
+import { initKnowledgeBase, initKBFromDB, checkKBStaleness } from './assistant/knowledge-base.js';
 import { initUnitCache } from './lib/unit-cache.js';
 import { initScheduler } from './lib/message-scheduler.js';
 import { ensureConfigTables } from './lib/config-db.js';
@@ -79,6 +79,8 @@ try {
   initKnowledgeBase();
   await initKBFromDB();
   console.log('[Startup] Default KnowledgeBase initialized');
+  // US-409: Check KB file staleness on startup (fire-and-forget)
+  checkKBStaleness().catch(() => {});
 } catch (err: any) {
   console.error('[Startup] Failed to initialize KnowledgeBase:', err.message);
 }

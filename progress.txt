@@ -1245,3 +1245,25 @@ Incomplete: Add configurable conversation data retention with automatic purge (I
 - ES module same-module function calls can't be spied with `vi.spyOn` — tests must mock via the config store (mock `providers` array) rather than spying on `getProviders()`
 - Circuit breaker `recordFailure()` still fires on timeout (correct behavior — slow providers should trip the breaker too)
 
+## Iteration 5 - Fri, Mar 13, 2026 11:01:12 AM
+Incomplete: Add configurable conversation data retention with automatic purge (ID: US-419) — attempt 2/3
+
+
+## Iteration 15 - Story: US-409 - Add knowledge base staleness detection and last-updated metadata
+### What was implemented
+- Added `last_modified_at TIMESTAMPTZ` and `stale_threshold_days INTEGER DEFAULT 30` columns to `rainbow_kb_files` table via ALTER TABLE IF NOT EXISTS in `config-db.ts`
+- Updated `saveKBFileToDB()` to accept optional `lastModifiedAt: Date` param, stored via COALESCE to preserve existing values
+- Added `getKBFilesHealth()` query function returning filename, last_indexed_at, last_modified_at, stale flag (computed via SQL interval comparison)
+- Updated `knowledge-base-instance.ts` to pass `statSync(filePath).mtime` when saving KB files to DB (both `reloadKBFile` and `reloadAllKB`)
+- Added `checkKBStaleness()` method to KnowledgeBaseInstance — logs warnings for stale files with days-old count
+- Created `src/routes/admin/kb-health.ts` — GET `/kb-health` endpoint returning file-level staleness data
+- Added `kb_staleness` section to `integration-health.ts` response with totalFiles, staleFiles, freshFiles, status
+- Wired staleness check as fire-and-forget on startup in `index.ts` after KB initialization
+### Patterns discovered
+- `rainbow_kb_files` is a raw pg table (not Drizzle-managed), so ALTER TABLE with IF NOT EXISTS is the safe migration approach
+- COALESCE in the UPSERT ensures existing `last_modified_at` values aren't overwritten with NULL on content-only updates
+- Startup log confirms: `[KB:pelangi] All 52 KB files are fresh` — staleness check works correctly
+### Gotchas
+- prd.json was truncated to 3653 bytes (from 85KB) at some point — restored from git HEAD before updating
+- `statSync` import added alongside existing `readFileSync, readdirSync, existsSync, watch, mkdirSync`
+

@@ -36,6 +36,7 @@ import webchatRoutes from './webchat.js';
 import integrationHealthRoutes from './integration-health.js';
 import diagnosticsRoutes from './diagnostics.js';
 import optOutsRoutes from './opt-outs.js';
+import kbHealthRoutes from './kb-health.js';
 
 const router = Router();
 
@@ -153,6 +154,7 @@ router.use(webchatRoutes);
 router.use(integrationHealthRoutes);
 router.use(diagnosticsRoutes);
 router.use(optOutsRoutes);
+router.use(kbHealthRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

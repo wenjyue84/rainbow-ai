@@ -6,11 +6,11 @@
  * for backward compatibility.
  */
 
-import { readFileSync, readdirSync, existsSync, watch, mkdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, watch, mkdirSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import type { ConfigStore } from './config-store.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
-import { loadAllKBFromDB, saveKBFileToDB } from '../lib/config-db.js';
+import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -175,8 +175,9 @@ export class KnowledgeBaseInstance {
       const filePath = join(this.kbDir, filename);
       if (existsSync(filePath)) {
         const content = readFileSync(filePath, 'utf-8');
+        const mtime = statSync(filePath).mtime;
         this.kbCache.set(normalizedName, content);
-        saveKBFileToDB(normalizedName, content).catch(() => {});
+        saveKBFileToDB(normalizedName, content, mtime).catch(() => {});
         console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
         this.invalidateSystemPromptCache();
       }
@@ -185,8 +186,9 @@ export class KnowledgeBaseInstance {
     const filePath = join(this.kbDir, filename);
     if (existsSync(filePath)) {
       const content = readFileSync(filePath, 'utf-8');
+      const mtime = statSync(filePath).mtime;
       this.kbCache.set(filename, content);
-      saveKBFileToDB(filename, content).catch(() => {});
+      saveKBFileToDB(filename, content, mtime).catch(() => {});
       console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
       const CORE_FILES = this.getCoreFiles();
       if (CORE_FILES.includes(filename) || filename === DURABLE_MEMORY_FILE) {
@@ -202,7 +204,11 @@ export class KnowledgeBaseInstance {
     }
     const files = readdirSync(this.kbDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
-      this.kbCache.set(file, readFileSync(join(this.kbDir, file), 'utf-8'));
+      const filePath = join(this.kbDir, file);
+      const content = readFileSync(filePath, 'utf-8');
+      const mtime = statSync(filePath).mtime;
+      this.kbCache.set(file, content);
+      saveKBFileToDB(file, content, mtime).catch(() => {});
     }
 
     if (existsSync(this.memoryDir)) {
@@ -265,6 +271,26 @@ export class KnowledgeBaseInstance {
       console.warn(`[KB:${this.profileId}] DB KB load failed:`, err.message);
     }
     console.log(`[KB:${this.profileId}] No KB files in DB, using local files`);
+  }
+
+  async checkKBStaleness(): Promise<void> {
+    try {
+      const files = await getKBFilesHealth();
+      const staleFiles = files.filter(f => f.stale);
+      if (staleFiles.length > 0) {
+        console.warn(`[KB:${this.profileId}] ⚠ ${staleFiles.length} stale KB file(s):`);
+        for (const f of staleFiles) {
+          const daysAgo = f.last_modified_at
+            ? Math.floor((Date.now() - new Date(f.last_modified_at).getTime()) / 86400000)
+            : 'unknown';
+          console.warn(`  - ${f.filename} (last modified ${daysAgo} days ago, threshold: ${f.stale_threshold_days} days)`);
+        }
+      } else if (files.length > 0) {
+        console.log(`[KB:${this.profileId}] All ${files.length} KB files are fresh`);
+      }
+    } catch (err: any) {
+      console.warn(`[KB:${this.profileId}] Staleness check failed:`, err.message);
+    }
   }
 
   init(configStore: ConfigStore): void {

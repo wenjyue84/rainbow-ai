@@ -42,6 +42,11 @@ export async function ensureConfigTables(): Promise<void> {
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- US-409: Add staleness metadata to KB files
+      ALTER TABLE rainbow_kb_files
+        ADD COLUMN IF NOT EXISTS last_modified_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS stale_threshold_days INTEGER NOT NULL DEFAULT 30;
+
       CREATE TABLE IF NOT EXISTS rainbow_config_audit (
         id          SERIAL PRIMARY KEY,
         config_key  TEXT NOT NULL,
@@ -134,18 +139,48 @@ export async function loadAllKBFromDB(): Promise<Map<string, string> | null> {
   }
 }
 
-export async function saveKBFileToDB(filename: string, content: string): Promise<void> {
+export async function saveKBFileToDB(filename: string, content: string, lastModifiedAt?: Date): Promise<void> {
   if (!hasDB()) return;
   try {
     await pool.query(
-      `INSERT INTO rainbow_kb_files (filename, content, updated_at)
-       VALUES ($1, $2, NOW())
+      `INSERT INTO rainbow_kb_files (filename, content, updated_at, last_modified_at)
+       VALUES ($1, $2, NOW(), $3)
        ON CONFLICT (filename)
-       DO UPDATE SET content = $2, updated_at = NOW()`,
-      [filename, content]
+       DO UPDATE SET content = $2, updated_at = NOW(), last_modified_at = COALESCE($3, rainbow_kb_files.last_modified_at)`,
+      [filename, content, lastModifiedAt || null]
     );
   } catch (err: any) {
     console.error(`[ConfigDB] saveKBFileToDB(${filename}) failed:`, err.message);
+  }
+}
+
+// ─── KB Staleness Queries ───────────────────────────────────────────
+
+export interface KBFileHealth {
+  filename: string;
+  last_indexed_at: string;
+  last_modified_at: string | null;
+  stale_threshold_days: number;
+  stale: boolean;
+}
+
+export async function getKBFilesHealth(): Promise<KBFileHealth[]> {
+  if (!hasDB()) return [];
+  try {
+    const { rows } = await pool.query(`
+      SELECT filename, updated_at AS last_indexed_at, last_modified_at, stale_threshold_days,
+        CASE
+          WHEN last_modified_at IS NULL THEN false
+          WHEN last_modified_at < NOW() - (stale_threshold_days || ' days')::INTERVAL THEN true
+          ELSE false
+        END AS stale
+      FROM rainbow_kb_files
+      ORDER BY filename
+    `);
+    return rows;
+  } catch (err: any) {
+    console.error('[ConfigDB] getKBFilesHealth() failed:', err.message);
+    return [];
   }
 }
 

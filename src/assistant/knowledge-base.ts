@@ -65,6 +65,10 @@ export function initKnowledgeBase(): void {
   defaultInstance.init(configStore);
 }
 
+export async function checkKBStaleness(): Promise<void> {
+  await defaultInstance.checkKBStaleness();
+}
+
 export function getKnowledgeMarkdown(): string {
   return defaultInstance.getKnowledgeMarkdown();
 }

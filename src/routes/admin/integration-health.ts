@@ -4,6 +4,7 @@ import { getDigimanCircuitStatus, getRequestStats } from '../../lib/http-client.
 import { circuitBreakerRegistry } from '../../assistant/circuit-breaker.js';
 import { whatsappManager } from '../../lib/baileys-client.js';
 import { pool } from '../../lib/db.js';
+import { getKBFilesHealth } from '../../lib/config-db.js';
 
 const router = Router();
 
@@ -50,7 +51,7 @@ async function checkDatabase(): Promise<{ status: IntegrationStatus; latencyMs: 
 router.get('/integration-health', async (_req: Request, res: Response) => {
   try {
     // Gather all health data concurrently
-    const [dbResult] = await Promise.all([checkDatabase()]);
+    const [dbResult, kbFiles] = await Promise.all([checkDatabase(), getKBFilesHealth()]);
 
     // DIGIMAN API
     const digimanCircuit = getDigimanCircuitStatus();
@@ -137,6 +138,15 @@ router.get('/integration-health', async (_req: Request, res: Response) => {
     if (allStatuses.includes('down')) overall = 'down';
     else if (allStatuses.includes('degraded')) overall = 'degraded';
 
+    // KB Staleness
+    const staleCount = kbFiles.filter(f => f.stale).length;
+    const kbStaleness = {
+      totalFiles: kbFiles.length,
+      staleFiles: staleCount,
+      freshFiles: kbFiles.length - staleCount,
+      status: (staleCount > 0 ? 'degraded' : 'healthy') as IntegrationStatus,
+    };
+
     res.json({
       timestamp: new Date().toISOString(),
       overall,
@@ -146,6 +156,7 @@ router.get('/integration-health', async (_req: Request, res: Response) => {
         whatsapp: waHealth,
         database: dbHealth,
       },
+      kb_staleness: kbStaleness,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
