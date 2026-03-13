@@ -4,11 +4,20 @@
  */
 import Groq from 'groq-sdk';
 import axios from 'axios';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import type { AIProvider } from './config-store.js';
 import { configStore } from './config-store.js';
 import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
+
+// ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
+const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
+
+/** Whether to capture prompt/completion content in spans (opt-in for privacy) */
+function shouldCaptureContent(): boolean {
+  return process.env.OTEL_GENAI_CAPTURE_CONTENT === 'true';
+}
 
 // ─── Provider Configuration ──────────────────────────────────────────
 
@@ -229,117 +238,184 @@ export async function providerChat(
   temperature: number,
   jsonMode: boolean = false
 ): Promise<{ content: string; usage?: any } | null> {
-  const startTime = Date.now();
-  const timeoutMs = provider.timeout_ms ?? DEFAULT_TIMEOUT_MS;
-  const apiKey = resolveApiKey(provider);
-  if (!apiKey && provider.type !== 'ollama') return null;
+  // Resolve provider type name for OTel attributes
+  const providerTypeName = provider.type === 'google-gemini' ? 'google'
+    : provider.type === 'groq' ? 'groq'
+    : provider.type === 'ollama' ? 'ollama'
+    : 'openai';
 
-  if (provider.type === 'groq') {
-    const groq = groqInstances.get(provider.id);
-    if (!groq) return null;
-    const body: any = {
-      model: provider.model,
-      messages,
-      max_tokens: maxTokens,
-      temperature
-    };
-    if (jsonMode) body.response_format = { type: 'json_object' };
+  const spanName = `chat ${provider.model}`;
 
-    const response = await withTimeout(
-      groq.chat.completions.create(body),
-      timeoutMs,
-      provider.name,
-      startTime
-    );
-    return validateProviderResponse(response, provider.name, startTime);
-  }
+  return tracer.startActiveSpan(spanName, async (span) => {
+    const startTime = Date.now();
+    const timeoutMs = provider.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
-  // google-gemini uses native Gemini API format
-  if (provider.type === 'google-gemini') {
-    // Convert OpenAI-style messages to Gemini format
-    const contents = messages.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }]
-    }));
+    // Set GenAI semantic convention attributes on span
+    span.setAttribute('gen_ai.operation.name', 'chat');
+    span.setAttribute('gen_ai.system', providerTypeName);
+    span.setAttribute('gen_ai.request.model', provider.model);
+    span.setAttribute('gen_ai.request.max_tokens', maxTokens);
+    span.setAttribute('gen_ai.request.temperature', temperature);
 
-    const generationConfig: Record<string, unknown> = {
-      maxOutputTokens: maxTokens,
-      temperature
-    };
-
-    // Add JSON response format if requested
-    if (jsonMode) {
-      generationConfig.responseMimeType = 'application/json';
-    }
-
-    const body = { contents, generationConfig };
-
-    const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
-    const axiosPromise = axios.post(url, body, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: timeoutMs + 1000, // safety-net; our withTimeout fires first
-      validateStatus: () => true
-    });
-    const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
-
-    if (res.status !== 200) {
-      const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-      if (res.status === 429) {
-        console.error(`[AI] ⚠️  RATE LIMIT HIT - ${provider.name}`);
+    // Opt-in content capture
+    if (shouldCaptureContent()) {
+      const systemMsg = messages.find(m => m.role === 'system');
+      if (systemMsg) {
+        span.setAttribute('gen_ai.prompt.0.role', 'system');
+        span.setAttribute('gen_ai.prompt.0.content', systemMsg.content.slice(0, 4096));
       }
-      throw new Error(`${provider.name} ${res.status}: ${errText.slice(0, 200)}`);
     }
 
-    return validateGeminiResponse(res.data, provider.name, startTime);
-  }
+    try {
+      const apiKey = resolveApiKey(provider);
+      if (!apiKey && provider.type !== 'ollama') {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: 'No API key' });
+        span.end();
+        return null;
+      }
 
-  // openai-compatible & ollama both use axios
-  // Inject cache_control breakpoints for Anthropic providers (10x cheaper cached reads)
-  const effectiveMessages = supportsPromptCaching(provider) ? injectCacheControl(messages) : messages;
-  const body: any = {
-    model: provider.model,
-    messages: effectiveMessages,
-    max_tokens: maxTokens,
-    temperature
-  };
-  if (jsonMode) body.response_format = { type: 'json_object' };
+      let result: { content: string; usage?: any } | null = null;
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey && provider.type !== 'ollama') {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-  if (provider.base_url?.includes('openrouter.ai')) {
-    headers['Referer'] = process.env.OPENROUTER_REFERER || 'https://pelangi-unit.local';
-    headers['X-Title'] = process.env.OPENROUTER_APP_TITLE || 'Rainbow AI digiman';
-  }
+      if (provider.type === 'groq') {
+        const groq = groqInstances.get(provider.id);
+        if (!groq) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: 'No Groq instance' });
+          span.end();
+          return null;
+        }
+        const body: any = {
+          model: provider.model,
+          messages,
+          max_tokens: maxTokens,
+          temperature
+        };
+        if (jsonMode) body.response_format = { type: 'json_object' };
 
-  const axiosPromise = axios.post(`${provider.base_url}/chat/completions`, body, {
-    headers,
-    timeout: timeoutMs + 1000, // safety-net; our withTimeout fires first
-    validateStatus: () => true
+        const response = await withTimeout(
+          groq.chat.completions.create(body),
+          timeoutMs,
+          provider.name,
+          startTime
+        );
+        result = validateProviderResponse(response, provider.name, startTime);
+
+      } else if (provider.type === 'google-gemini') {
+        // Convert OpenAI-style messages to Gemini format
+        const contents = messages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        }));
+
+        const generationConfig: Record<string, unknown> = {
+          maxOutputTokens: maxTokens,
+          temperature
+        };
+
+        // Add JSON response format if requested
+        if (jsonMode) {
+          generationConfig.responseMimeType = 'application/json';
+        }
+
+        const body = { contents, generationConfig };
+
+        const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
+        const axiosPromise = axios.post(url, body, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: timeoutMs + 1000,
+          validateStatus: () => true
+        });
+        const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
+
+        if (res.status !== 200) {
+          const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+          if (res.status === 429) {
+            console.error(`[AI] ⚠️  RATE LIMIT HIT - ${provider.name}`);
+          }
+          throw new Error(`${provider.name} ${res.status}: ${errText.slice(0, 200)}`);
+        }
+
+        result = validateGeminiResponse(res.data, provider.name, startTime);
+
+      } else {
+        // openai-compatible & ollama both use axios
+        const effectiveMessages = supportsPromptCaching(provider) ? injectCacheControl(messages) : messages;
+        const body: any = {
+          model: provider.model,
+          messages: effectiveMessages,
+          max_tokens: maxTokens,
+          temperature
+        };
+        if (jsonMode) body.response_format = { type: 'json_object' };
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiKey && provider.type !== 'ollama') {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        if (provider.base_url?.includes('openrouter.ai')) {
+          headers['Referer'] = process.env.OPENROUTER_REFERER || 'https://pelangi-unit.local';
+          headers['X-Title'] = process.env.OPENROUTER_APP_TITLE || 'Rainbow AI digiman';
+        }
+
+        const axiosPromise = axios.post(`${provider.base_url}/chat/completions`, body, {
+          headers,
+          timeout: timeoutMs + 1000,
+          validateStatus: () => true
+        });
+        const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
+
+        if (res.status !== 200) {
+          const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+
+          if (res.status === 401 && provider.base_url?.includes('openrouter.ai')) {
+            const hint = 'Get a valid key at https://openrouter.ai/keys and set OPENROUTER_API_KEY in .env, then restart.';
+            throw new Error(`${provider.name} 401 (invalid API key). ${hint}`);
+          }
+
+          if (res.status === 429) {
+            console.error(`[AI] ⚠️  RATE LIMIT HIT - ${provider.name}`);
+            console.error(`[AI] Provider: ${provider.id} (${provider.type})`);
+            console.error(`[AI] Status: ${res.status} - Rate limit exceeded`);
+            console.error(`[AI] Details: ${errText.slice(0, 500)}`);
+            console.error(`[AI] 💡 Tip: Disable this provider or wait for limit reset (usually 24h)`);
+          }
+
+          throw new Error(`${provider.name} ${res.status}: ${errText.slice(0, 200)}`);
+        }
+
+        result = validateProviderResponse(res.data, provider.name, startTime);
+      }
+
+      // Record GenAI response attributes on span
+      if (result) {
+        span.setAttribute('gen_ai.response.model', provider.model);
+        if (result.usage) {
+          if (result.usage.prompt_tokens != null) {
+            span.setAttribute('gen_ai.usage.input_tokens', result.usage.prompt_tokens);
+          }
+          if (result.usage.completion_tokens != null) {
+            span.setAttribute('gen_ai.usage.output_tokens', result.usage.completion_tokens);
+          }
+        }
+        span.setAttribute('gen_ai.response.finish_reasons', ['stop']);
+
+        if (shouldCaptureContent() && result.content) {
+          span.setAttribute('gen_ai.completion.0.role', 'assistant');
+          span.setAttribute('gen_ai.completion.0.content', result.content.slice(0, 4096));
+        }
+
+        span.setStatus({ code: SpanStatusCode.OK });
+      }
+
+      span.end();
+      return result;
+
+    } catch (err: any) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      span.recordException(err);
+      span.end();
+      throw err;
+    }
   });
-  const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
-
-  if (res.status !== 200) {
-    const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-
-    if (res.status === 401 && provider.base_url?.includes('openrouter.ai')) {
-      const hint = 'Get a valid key at https://openrouter.ai/keys and set OPENROUTER_API_KEY in .env, then restart.';
-      throw new Error(`${provider.name} 401 (invalid API key). ${hint}`);
-    }
-
-    if (res.status === 429) {
-      console.error(`[AI] ⚠️  RATE LIMIT HIT - ${provider.name}`);
-      console.error(`[AI] Provider: ${provider.id} (${provider.type})`);
-      console.error(`[AI] Status: ${res.status} - Rate limit exceeded`);
-      console.error(`[AI] Details: ${errText.slice(0, 500)}`);
-      console.error(`[AI] 💡 Tip: Disable this provider or wait for limit reset (usually 24h)`);
-    }
-
-    throw new Error(`${provider.name} ${res.status}: ${errText.slice(0, 200)}`);
-  }
-
-  return validateProviderResponse(res.data, provider.name, startTime);
 }
 
 // ─── Fallback Chain ──────────────────────────────────────────────────

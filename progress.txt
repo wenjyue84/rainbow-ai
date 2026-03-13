@@ -1900,3 +1900,31 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 - `getSettingsSafe` doesn't exist — use `configStore.getSettings()` instead
 - Settings type doesn't include custom fields, need `(settings as any)` for new settings keys
 - drizzle-kit push requires interactive input; created table via direct SQL for this iteration
+
+## Iteration 6 - Story: US-457 - Instrument LLM calls with OpenTelemetry GenAI semantic conventions
+
+### What was implemented
+- Created `src/instrumentation.ts` — OTel SDK bootstrap loaded via `--import` flag
+  - Configures OTLP trace + metrics export when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+  - No-ops gracefully when env var is absent (dev/test)
+  - Uses `BatchSpanProcessor` for traces, `PeriodicExportingMetricReader` for metrics
+- Wrapped `providerChat()` in `src/assistant/ai-provider-manager.ts` with GenAI semantic convention spans:
+  - Span name: `chat {model}` (e.g. `chat kimi-k2.5`)
+  - Attributes: `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, `gen_ai.request.max_tokens`, `gen_ai.request.temperature`
+  - Content capture opt-in via `OTEL_GENAI_CAPTURE_CONTENT=true`
+  - Errors recorded with `span.recordException()` and `SpanStatusCode.ERROR`
+- Updated `package.json`:
+  - `dev` script: `tsx watch --import ./src/instrumentation.ts`
+  - `start` script: `node --import ./dist/instrumentation.js`
+  - `build` script: esbuild now compiles both `src/index.ts` and `src/instrumentation.ts` using `--outdir=dist`
+- Installed: `@opentelemetry/sdk-node`, `@opentelemetry/api`, `@opentelemetry/sdk-trace-node`, `@opentelemetry/sdk-metrics`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/exporter-metrics-otlp-http`, `@opentelemetry/resources`, `@opentelemetry/semantic-conventions`
+
+### Patterns discovered
+- OTel v2.x `@opentelemetry/resources` no longer exports `Resource` class — use `resourceFromAttributes()` instead
+- esbuild multi-entry requires `--outdir` instead of `--outfile`; output files retain original names
+- `--import` flag with tsx works for TS files directly; for production `node`, the compiled JS is needed
+
+### Gotchas
+- `@opentelemetry/resources` breaking change: `Resource` class removed in favor of `resourceFromAttributes()` function
+- Build changed from `--outfile=dist/index.js` to `--outdir=dist` to support multiple entry points — output paths unchanged
+
