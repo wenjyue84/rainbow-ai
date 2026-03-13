@@ -47,107 +47,73 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 
 router.use(contactsRouter);
 router.use(sseRouter);
 
+// Express 5: async errors auto-propagate to error-handling middleware
+
 // ─── Response time aggregate (must be before /:phone to avoid matching "stats") ───
 router.get('/conversations/stats/response-time', async (_req: Request, res: Response) => {
-  try {
-    const stats = await getResponseTimeStats();
-    ok(res, { avgResponseTimeMs: stats.avgMs, count: stats.count });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const stats = await getResponseTimeStats();
+  ok(res, { avgResponseTimeMs: stats.avgMs, count: stats.count });
 });
 
 // ─── Conversation History (Real Chat) ─────────────────────────────────
 
 router.get('/conversations', async (req: Request, res: Response) => {
-  try {
-    const profileId = res.locals.profileId as string | undefined;
-    const conversations = await listConversations(profileId);
-    res.json(conversations);
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const profileId = res.locals.profileId as string | undefined;
+  const conversations = await listConversations(profileId);
+  res.json(conversations);
 });
 
 // ─── Pin & Favourite ─────────────────────────────────────────────────
 
 router.patch('/conversations/:phone/pin', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const pinned = await togglePin(phone);
-    ok(res, { pinned });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const pinned = await togglePin(phone);
+  ok(res, { pinned });
 });
 
 router.patch('/conversations/:phone/favourite', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const favourite = await toggleFavourite(phone);
-    ok(res, { favourite });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const favourite = await toggleFavourite(phone);
+  ok(res, { favourite });
 });
 
 router.patch('/conversations/:phone/read', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    await markConversationAsRead(phone);
-    ok(res);
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  await markConversationAsRead(phone);
+  ok(res);
 });
 
 router.get('/conversations/:phone', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const log = await getConversation(phone);
-    if (!log) {
-      notFound(res, 'Conversation');
-      return;
-    }
-    res.json(log);
-  } catch (err: any) {
-    serverError(res, err);
+  const phone = decodeURIComponent(req.params.phone);
+  const log = await getConversation(phone);
+  if (!log) {
+    notFound(res, 'Conversation');
+    return;
   }
+  res.json(log);
 });
 
 router.delete('/conversations/:phone', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const deleted = await deleteConversation(phone);
-    res.json({ ok: deleted });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const deleted = await deleteConversation(phone);
+  res.json({ ok: deleted });
 });
 
 router.post('/conversations/:phone/clear', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const { clearConversationMessages } = await import('../../assistant/conversation-logger.js');
-    await clearConversationMessages(phone);
-    ok(res, { cleared: true });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const { clearConversationMessages } = await import('../../assistant/conversation-logger.js');
+  await clearConversationMessages(phone);
+  ok(res, { cleared: true });
 });
 
 // ─── Message-Level Pin & Star ─────────────────────────────────────────
 
 // Get pinned/starred message indices for a conversation
 router.get('/conversations/:phone/message-metadata', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const pinned = metadata.pinned[phone] || [];
-    const starred = metadata.starred[phone] || [];
-    res.json({ pinned, starred });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const pinned = metadata.pinned[phone] || [];
+  const starred = metadata.starred[phone] || [];
+  res.json({ pinned, starred });
 });
 
 // Toggle pin on a specific message
@@ -404,14 +370,10 @@ router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: 
 
 // Get pending approvals for a conversation
 router.get('/conversations/:phone/approvals', async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const { getApprovalsByPhone } = await import('../../assistant/approval-queue.js');
-    const approvals = getApprovalsByPhone(phone);
-    res.json({ approvals });
-  } catch (err: any) {
-    serverError(res, err);
-  }
+  const phone = decodeURIComponent(req.params.phone);
+  const { getApprovalsByPhone } = await import('../../assistant/approval-queue.js');
+  const approvals = getApprovalsByPhone(phone);
+  res.json({ approvals });
 });
 
 // Approve and send a queued response
@@ -460,20 +422,16 @@ router.post('/conversations/:phone/approvals/:id/approve', async (req: Request, 
 
 // Reject a queued response
 router.post('/conversations/:phone/approvals/:id/reject', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { rejectApproval } = await import('../../assistant/approval-queue.js');
+  const { id } = req.params;
+  const { rejectApproval } = await import('../../assistant/approval-queue.js');
 
-    if (!rejectApproval(id)) {
-      notFound(res, 'Approval');
-      return;
-    }
-
-    console.log(`[Copilot] Rejected approval: ${id}`);
-    ok(res);
-  } catch (err: any) {
-    serverError(res, err);
+  if (!rejectApproval(id)) {
+    notFound(res, 'Approval');
+    return;
   }
+
+  console.log(`[Copilot] Rejected approval: ${id}`);
+  ok(res);
 });
 
 // US-090: Generate AI notes summary from conversation
@@ -583,73 +541,69 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
 
 // Set response mode for a conversation (US-410: also accepts PATCH)
 const handleSetMode = async (req: Request, res: Response) => {
-  try {
-    const phone = decodeURIComponent(req.params.phone);
-    const { mode, setAsGlobalDefault } = req.body;
+  const phone = decodeURIComponent(req.params.phone);
+  const { mode, setAsGlobalDefault } = req.body;
 
-    if (!['autopilot', 'copilot', 'manual'].includes(mode)) {
-      badRequest(res, 'Invalid mode. Must be: autopilot, copilot, or manual');
+  if (!['autopilot', 'copilot', 'manual'].includes(mode)) {
+    badRequest(res, 'Invalid mode. Must be: autopilot, copilot, or manual');
+    return;
+  }
+
+  // If setting as global default, update settings.json (profile-aware)
+  if (setAsGlobalDefault) {
+    const { getStore } = await import('./http-utils.js');
+    const configStore = getStore(res);
+    const settings = configStore.getSettings();
+
+    // Ensure settings object exists
+    if (!settings) {
+      serverError(res, 'Settings not loaded');
       return;
     }
 
-    // If setting as global default, update settings.json (profile-aware)
-    if (setAsGlobalDefault) {
-      const { getStore } = await import('./http-utils.js');
-      const configStore = getStore(res);
-      const settings = configStore.getSettings();
-
-      // Ensure settings object exists
-      if (!settings) {
-        serverError(res, 'Settings not loaded');
-        return;
-      }
-
-      // Initialize response_modes if it doesn't exist
-      const modes = (settings as any).response_modes;
-      if (!modes) {
-        (settings as any).response_modes = {
-          default_mode: mode,
-          description: 'Global default response mode: autopilot (AI auto-sends), copilot (AI suggests, staff approves), or manual (staff writes, AI helps on request)',
-          copilot: {
-            auto_approve_confidence: 0.95,
-            auto_approve_intents: ['greeting', 'thanks', 'wifi'],
-            queue_timeout_minutes: 30,
-            description: 'Auto-approve high-confidence responses for simple intents'
-          },
-          manual: {
-            show_ai_suggestions: true,
-            ai_help_provider: 'groq-llama',
-            description: "Show AI suggestions when 'Help me' clicked"
-          }
-        };
-      } else {
-        modes.default_mode = mode;
-      }
-
-      configStore.setSettings(settings);
-      console.log(`[Mode Change] Set global default to ${mode} mode`);
+    // Initialize response_modes if it doesn't exist
+    const modes = (settings as any).response_modes;
+    if (!modes) {
+      (settings as any).response_modes = {
+        default_mode: mode,
+        description: 'Global default response mode: autopilot (AI auto-sends), copilot (AI suggests, staff approves), or manual (staff writes, AI helps on request)',
+        copilot: {
+          auto_approve_confidence: 0.95,
+          auto_approve_intents: ['greeting', 'thanks', 'wifi'],
+          queue_timeout_minutes: 30,
+          description: 'Auto-approve high-confidence responses for simple intents'
+        },
+        manual: {
+          show_ai_suggestions: true,
+          ai_help_provider: 'groq-llama',
+          description: "Show AI suggestions when 'Help me' clicked"
+        }
+      };
+    } else {
+      modes.default_mode = mode;
     }
 
-    // Always update per-conversation mode (in-memory + disk)
-    const { getOrCreate, updateSlots } = await import('../../assistant/conversation.js');
-    const log = await getConversation(phone);
-    const convo = getOrCreate(phone, log?.pushName || 'Guest');
-
-    updateSlots(phone, { responseMode: mode });
-    // Persist to disk so mode survives navigation and restarts
-    await updateConversationMode(phone, mode);
-
-    // US-410: If resolving from manual to autopilot, mark handoff as resolved
-    if (mode === 'autopilot') {
-      const { resolveHandoff } = await import('../../assistant/escalation.js');
-      await resolveHandoff(phone);
-    }
-
-    console.log(`[Mode Change] Set ${phone} to ${mode} mode${setAsGlobalDefault ? ' (and global default)' : ''}`);
-    ok(res, { mode, globalDefaultUpdated: !!setAsGlobalDefault });
-  } catch (err: any) {
-    serverError(res, err);
+    configStore.setSettings(settings);
+    console.log(`[Mode Change] Set global default to ${mode} mode`);
   }
+
+  // Always update per-conversation mode (in-memory + disk)
+  const { getOrCreate, updateSlots } = await import('../../assistant/conversation.js');
+  const log = await getConversation(phone);
+  const convo = getOrCreate(phone, log?.pushName || 'Guest');
+
+  updateSlots(phone, { responseMode: mode });
+  // Persist to disk so mode survives navigation and restarts
+  await updateConversationMode(phone, mode);
+
+  // US-410: If resolving from manual to autopilot, mark handoff as resolved
+  if (mode === 'autopilot') {
+    const { resolveHandoff } = await import('../../assistant/escalation.js');
+    await resolveHandoff(phone);
+  }
+
+  console.log(`[Mode Change] Set ${phone} to ${mode} mode${setAsGlobalDefault ? ' (and global default)' : ''}`);
+  ok(res, { mode, globalDefaultUpdated: !!setAsGlobalDefault });
 };
 router.post('/conversations/:phone/mode', handleSetMode);
 router.patch('/conversations/:phone/mode', handleSetMode); // US-410: PATCH alias

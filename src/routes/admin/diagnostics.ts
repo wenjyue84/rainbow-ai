@@ -4,21 +4,18 @@ import { validateIntegrations, getSystemInfo } from '../../lib/integration-valid
 
 const router = Router();
 
+// Express 5: async errors auto-propagate to error-handling middleware
 router.get('/diagnostics', async (_req: Request, res: Response) => {
-  try {
-    const [validationResults, system] = await Promise.all([
-      validateIntegrations(),
-      Promise.resolve(getSystemInfo()),
-    ]);
+  const [validationResults, system] = await Promise.all([
+    validateIntegrations(),
+    Promise.resolve(getSystemInfo()),
+  ]);
 
-    res.json({
-      timestamp: new Date().toISOString(),
-      system,
-      validationResults,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({
+    timestamp: new Date().toISOString(),
+    system,
+    validationResults,
+  });
 });
 
 export default router;

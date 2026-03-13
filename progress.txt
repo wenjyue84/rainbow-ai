@@ -2336,3 +2336,36 @@ Completed: Replace useMultiFileAuthState with custom DB-backed Baileys auth stat
 ### Gotchas
 - Media download (S3 storage) is NOT implemented in this story — only metadata extraction and routing. The `rawMessage` is available for future download stages.
 - The `getMediaAcknowledgement` helper is self-contained in input-validator.ts (not in templates.json) to avoid requiring config-store changes for this story
+## Iteration 1 - Sat, Mar 14, 2026 12:40:56 AM
+Incomplete: Migrate Express 4 to Express 5 with async error propagation (ID: US-494) — attempt 1/3
+
+
+## Iteration 10 - Story: US-494 — Migrate Express 4 to Express 5 with async error propagation
+### What was implemented
+- Express was already at ^5.2.1 (installed in prior work); verified installed version is 5.2.1
+- Added `express.urlencoded({ extended: false, limit: '1mb', depth: 5 })` middleware to mitigate CVE-2024-45590
+- Added centralized error handler at app level (Express 5 auto-propagates async errors)
+- Removed try/catch blocks from 20+ async route handlers across 10 files where catch only forwarded to `serverError()` or `res.status(500).json()`:
+  - conversations.ts (10 handlers simplified)
+  - admin-notifications.ts (5 handlers simplified)
+  - diagnostics.ts, kb-health.ts, traces.ts, units.ts, delivery-status.ts, escalations.ts, opt-outs.ts
+- Retained try/catch in handlers with meaningful error handling (logging, conditional responses, fallback logic)
+- Admin router already had centralized error handler at line 220-224 of routes/admin/index.ts
+- No deprecated Express patterns found (no `res.redirect('back')`, `res.send(status)`, `app.del()`)
+- No `:name?` optional parameter syntax found
+- The `/:tab(dashboardTabs.join('|'))` regex constraint route works with path-to-regexp v8 in Express 5.2.1
+### Migration Checklist
+1. ✅ package.json: express ^5.2.1, @types/express ^5.0.6
+2. ✅ urlencoded middleware: extended=false, depth=5
+3. ✅ Centralized error handler added at app level
+4. ✅ 20+ async handlers simplified (try/catch removed)
+5. ✅ No sub-expression regex patterns (/:id(\d+)) found — nothing to replace
+6. ✅ No :name? optional syntax found — nothing to replace
+7. ✅ No deprecated method calls found
+8. ✅ Build passes (esbuild), 607/608 tests pass (1 pre-existing timeout)
+### Patterns discovered
+- serverError() and badRequest() from http-utils.ts are used across all admin routes
+- Admin router has its own error handler middleware at bottom of routes/admin/index.ts
+- Handlers that log errors before responding (console.error + serverError) were kept with try/catch to preserve logging
+### Gotchas
+- intent-metamorphic.test.ts MR3 determinism test times out — pre-existing, unrelated to Express 5

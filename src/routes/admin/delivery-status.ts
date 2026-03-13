@@ -10,6 +10,8 @@ import { getDeliveryStatus, getDeliveryStatusByPhone } from '../../lib/delivery-
 
 const router = Router();
 
+// Express 5: async errors auto-propagate to error-handling middleware
+
 // GET /messages/:id/status — delivery status for a specific message
 router.get('/messages/:id/status', async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -18,16 +20,12 @@ router.get('/messages/:id/status', async (req: Request, res: Response) => {
     return;
   }
 
-  try {
-    const status = await getDeliveryStatus(id);
-    if (!status) {
-      res.status(404).json({ error: 'No delivery status found for this message' });
-      return;
-    }
-    res.json(status);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  const status = await getDeliveryStatus(id);
+  if (!status) {
+    res.status(404).json({ error: 'No delivery status found for this message' });
+    return;
   }
+  res.json(status);
 });
 
 // GET /delivery-status/:phone — all delivery statuses for a phone number
@@ -35,12 +33,8 @@ router.get('/delivery-status/:phone', async (req: Request, res: Response) => {
   const { phone } = req.params;
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
 
-  try {
-    const statuses = await getDeliveryStatusByPhone(phone, limit);
-    res.json({ count: statuses.length, statuses });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  const statuses = await getDeliveryStatusByPhone(phone, limit);
+  res.json({ count: statuses.length, statuses });
 });
 
 export default router;

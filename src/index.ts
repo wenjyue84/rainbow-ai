@@ -161,6 +161,7 @@ app.use(compression({
 }));
 app.use(cors());
 app.use(express.json({ limit: '2mb', verify: captureRawBody })); // Allow up to 2MB; captureRawBody stores buf on req.rawBody for webhook HMAC
+app.use(express.urlencoded({ extended: false, limit: '1mb', depth: 5 })); // Express 5: explicit depth cap (CVE-2024-45590)
 
 // Error handler for payload too large
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -523,6 +524,16 @@ app.get(`/:tab(${dashboardTabs.join('|')})`, async (req, res) => {
 
 // MCP protocol endpoint
 app.post('/mcp', mcpLimiter, createMCPHandler());
+
+// ── Express 5 centralized error handler (US-494) ──────────────────
+// Express 5 auto-propagates rejected promises from async handlers here.
+// Admin router has its own error handler; this catches errors from non-admin routes.
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (res.headersSent) return;
+  const status = typeof err.status === 'number' ? err.status : 500;
+  const message = err?.message || String(err);
+  res.status(status).json({ error: message });
+});
 
 // Configure HTTP server timeouts to prevent 502s from load balancer keep-alive races.
 // Node.js defaults (keepAliveTimeout=5s, headersTimeout=60s) are shorter than AWS ALB (60s),

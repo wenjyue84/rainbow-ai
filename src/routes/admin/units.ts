@@ -10,14 +10,12 @@ import { getUnitList, addCustomUnit, forceRefresh } from '../../lib/unit-cache.j
 
 const router = Router();
 
+// Express 5: async errors auto-propagate to error-handling middleware
+
 // GET /units -- merged list of unit numbers + custom units
 router.get('/units', async (_req: Request, res: Response) => {
-  try {
-    const units = await getUnitList();
-    res.json({ units });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to get units' });
-  }
+  const units = await getUnitList();
+  res.json({ units });
 });
 
 // POST /units/custom -- add a custom unit entry
@@ -33,12 +31,8 @@ router.post('/units/custom', (req: Request, res: Response) => {
 
 // POST /units/refresh -- force refresh cache from dashboard API
 router.post('/units/refresh', async (_req: Request, res: Response) => {
-  try {
-    const units = await forceRefresh();
-    res.json({ units, refreshed: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Refresh failed' });
-  }
+  const units = await forceRefresh();
+  res.json({ units, refreshed: true });
 });
 
 export default router;
