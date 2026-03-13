@@ -21,6 +21,40 @@ import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAn
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 
+// ─── Message Deduplication Cache (US-404) ────────────────────────────
+// WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
+
+const DEDUP_TTL_MS = parseInt(process.env.DEDUP_TTL_MS ?? '', 10) || 5 * 60 * 1000; // default 5 min
+const DEDUP_MAX_TTL_MS = 2 * 60 * 60 * 1000; // hard cap 2 hours
+const DEDUP_CLEANUP_MS = 5 * 60 * 1000; // cleanup every 5 minutes
+
+const dedupCache = new Map<string, number>(); // msgId -> expiresAt timestamp
+
+function evictExpiredDedupEntries(): void {
+  const now = Date.now();
+  for (const [id, expiresAt] of dedupCache) {
+    if (now >= expiresAt) dedupCache.delete(id);
+  }
+}
+
+setInterval(evictExpiredDedupEntries, DEDUP_CLEANUP_MS).unref();
+
+/** Exposed for test teardown only — clears the entire dedup cache. */
+export function clearDedupCache(): void { dedupCache.clear(); }
+
+function isDuplicate(msgId: string | undefined): boolean {
+  if (!msgId) return false;
+  const now = Date.now();
+  const expiresAt = dedupCache.get(msgId);
+  if (expiresAt !== undefined && now < expiresAt) {
+    console.debug(`[Router] Duplicate message suppressed: ${msgId}`);
+    return true;
+  }
+  const ttl = Math.min(DEDUP_TTL_MS, DEDUP_MAX_TTL_MS);
+  dedupCache.set(msgId, now + ttl);
+  return false;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Prevent raw LLM JSON from being sent to the guest. */
@@ -135,6 +169,9 @@ export async function handleStaffCommand(
 export async function validateAndPrepare(
   msg: IncomingMessage, ctx: RouterContext
 ): Promise<ValidationResult> {
+  // Deduplication — must be first (before group/opt-out checks)
+  if (isDuplicate(msg.messageId)) return { continue: false, reason: 'duplicate' };
+
   // Skip group messages
   if (msg.isGroup) return { continue: false, reason: 'group' };
 

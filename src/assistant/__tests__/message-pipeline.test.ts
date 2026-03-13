@@ -286,7 +286,7 @@ vi.mock('../workflow-executor.js', () => ({
 
 // ─── Import pipeline modules after mocks are set up ────
 
-import { validateAndPrepare } from '../pipeline/input-validator.js';
+import { validateAndPrepare, clearDedupCache } from '../pipeline/input-validator.js';
 import { handleActiveStates } from '../pipeline/state-executor.js';
 import { classifyAndRoute } from '../pipeline/intent-classifier.js';
 import { processAndSend } from '../pipeline/response-processor.js';
@@ -322,6 +322,7 @@ describe('Message Pipeline Integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDedupCache();
     ctx = createContext();
   });
 

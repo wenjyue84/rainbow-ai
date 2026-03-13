@@ -933,3 +933,51 @@ This brief outlines the implementation of a WhatsApp opt-out feature within the 
 ### Gotchas
 - drizzle-kit push cannot drop sequences used by excluded tables — workaround: CREATE TABLE IF NOT EXISTS via raw pg
 - The onConflictDoUpdate for opt-out upsert resets optedOutAt and clears optedInAt on re-opt-out
+## Iteration 2 - Fri, Mar 13, 2026  9:31:05 AM
+Completed: Add WhatsApp opt-out / STOP command handling (ID: US-403) in 7m
+
+
+## Pre-analysis for US-404 (Gemini 2.5 Pro)
+This brief adapts the provided user story for implementation in the `lhdn_payroll_integration` Frappe app, translating the core deduplication logic to a Python/Frappe context.
+
+**Project:** `lhdn_payroll_integration`
+**Objective:** Implement webhook deduplication to prevent processing duplicate payroll submissions from LHDN's API.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: The whitelisted function that receives the LHDN webhook should be the primary modification target.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/lhdn_settings/lhdn_settings.py`: If a custom settings DocType is used for the TTL.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Hook:** The `@frappe.whitelist()` decorated function in `api.py` that serves as the webhook endpoint.
+*   **DocType:** A custom settings DocType, e.g., `LHDN Settings`, would be ideal for making the cache TTL configurable without hardcoding. The DocType that records the submission (e.g., `Payroll Submission Log`) will be indirectly affected.
+
+**3. Implementation Approach:**
+*   Use Frappe's built-in Redis cache: `frappe.cache()`. An in-memory Python dictionary is not suitable as it won't be shared across Gunicorn workers in production.
+*   In the whitelisted API method, extract a unique identifier from the incoming LHDN request payload (e.g., `submissionId` or `transactionId`).
+*   Create a cache key, e.g., `f"lhdn_submission_{submission_id}"`.
+*   Before processing, check if the key exists: `if frappe.cache().get(cache_key):`. If so, log the duplicate and return.
+*   If the key does not exist, set it with a TTL before proceeding: `frappe.cache().set(cache_key, 1, expires_in_seconds=18000)`. (5 hours)
+
+**4. Edge Cases & Gotchas:**
+*   The unique identifier from the LHDN payload must be reliable and always present.
+*   The cache TTL needs to be long enough to handle realistic network retry windows from the source API.
+*   Ensure logging (`frappe.log_error`) is in place to monitor cache hits for debugging and observability.
+
+
+## Iteration N - Story: US-404 - Message deduplication with in-memory cache
+### What was implemented
+- Added `dedupCache: Map<string, number>` in `src/assistant/pipeline/input-validator.ts`
+- Dedup check fires at the very top of `validateAndPrepare()`, before group/opt-out/rate-limit checks
+- Keyed on `msg.messageId` (Baileys message key ID); value is `expiresAt` timestamp
+- TTL is configurable via `DEDUP_TTL_MS` env var (default 5 min, hard cap 2 hours)
+- Cleanup runs every 5 minutes via `setInterval(...).unref()` so it doesn't prevent process exit
+- Exported `clearDedupCache()` for test teardown; called in `beforeEach` of `message-pipeline.test.ts`
+
+### Patterns discovered
+- All pipeline tests reuse `messageId: 'msg-001'` as default — dedup must be cleared between tests
+- `setInterval(...).unref()` is the correct pattern for background cleanup in Node.js to avoid blocking exit
+- `ValidationResult.reason` is typed as `string` so no union update needed
+
+### Gotchas
+- Tests failed initially because shared `messageId` caused every test after the first to be treated as duplicate
+- Fix: export `clearDedupCache()` and call in `beforeEach`
