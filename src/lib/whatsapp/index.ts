@@ -74,6 +74,10 @@ export async function sendWhatsAppMedia(
   return whatsappManager.sendMedia(phone, buffer, mimetype, fileName, caption, instanceId);
 }
 
+export async function sendWhatsAppInteractiveMessage(phone: string, content: Record<string, any>, instanceId?: string): Promise<any> {
+  return whatsappManager.sendInteractiveMessage(phone, content, instanceId);
+}
+
 export async function sendWhatsAppTypingIndicator(phone: string, instanceId?: string): Promise<void> {
   return whatsappManager.sendTypingIndicator(phone, instanceId);
 }

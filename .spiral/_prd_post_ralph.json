@@ -582,7 +582,7 @@
         "Async message queue with BullMQ story"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-414",
@@ -867,7 +867,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-427",
@@ -888,7 +888,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-428",
@@ -909,7 +909,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-429",
@@ -931,7 +931,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-430",
@@ -1500,6 +1500,464 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-457",
+      "title": "Instrument LLM calls with OpenTelemetry GenAI semantic conventions",
+      "priority": "high",
+      "description": "The system currently has no standardized trace spans around LLM API calls. The OpenTelemetry GenAI Semantic Conventions (stabilized in 2024-2025) define a standard schema for capturing model name, token usage, finish reason, and provider metadata on every inference span, enabling cross-provider cost analysis and latency percentile dashboards in any OTel-compatible backend.",
+      "acceptanceCriteria": [
+        "Every LLM call in ai-client.ts produces an OTel span named '{gen_ai.operation.name} {gen_ai.request.model}' (e.g. 'chat kimi-k2.5')",
+        "Each span carries attributes: gen_ai.provider.name, gen_ai.request.model, gen_ai.response.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reasons",
+        "Spans are exported via OTLP exporter configured by OTEL_EXPORTER_OTLP_ENDPOINT env var",
+        "Content attributes (system prompt, messages) are NOT recorded by default; opt-in via OTEL_GENAI_CAPTURE_CONTENT=true",
+        "Health check and static file routes are excluded from HTTP traces via ignoreIncomingRequestHook",
+        "npm run build succeeds and existing tests pass"
+      ],
+      "technicalNotes": [
+        "Install: @opentelemetry/sdk-node, @opentelemetry/api, @opentelemetry/auto-instrumentations-node, @opentelemetry/sdk-metrics, @opentelemetry/sdk-trace-node",
+        "Create src/instrumentation.ts and load it with --import flag in package.json start/dev scripts (requires Node.js 20+)",
+        "Wrap each provider call in ai-client.ts with tracer.startActiveSpan(); set attributes from response.usage after await",
+        "Span naming convention from spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-458",
+      "title": "Subscribe to phone_number_quality_update webhook and throttle outbound when flagged",
+      "priority": "high",
+      "description": "WhatsApp emits a phone_number_quality_update webhook event whenever a phone number's quality rating transitions between GREEN, YELLOW, and RED, or when its status changes to FLAGGED/RESTRICTED. Without handling this event, the system continues sending messages while flagged, accelerating the path to messaging tier demotion. Programmatic reaction — pausing proactive outbound for non-critical messages during FLAGGED status — protects the account's conversation limit tier.",
+      "acceptanceCriteria": [
+        "A webhook handler processes phone_number_quality_update events at the existing inbound webhook route",
+        "When status is FLAGGED, the system sets a per-profile flag that blocks new business-initiated messages (not replies to user messages)",
+        "When status returns to CONNECTED with GREEN or YELLOW rating, the block is automatically lifted",
+        "Admin dashboard shows current quality rating (GREEN/YELLOW/RED) and status (CONNECTED/FLAGGED/RESTRICTED) per profile",
+        "A quality degradation event is logged as a structured warning and triggers an admin notification",
+        "Existing unit tests pass and build succeeds"
+      ],
+      "technicalNotes": [
+        "Webhook field name: phone_number_quality_update — must be subscribed in Meta App Dashboard alongside messages field",
+        "Event payload contains: phone_number, event (FLAGGED, UNFLAGGED, QUALITY_SCORE_CHANGE), quality (GREEN, YELLOW, RED), messaging_limit_tier",
+        "Store quality state in rainbow_configs table keyed by profile; read it before sending scheduled/batch messages",
+        "Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/phone-numbers"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-459",
+      "title": "Validate LLM JSON responses with Zod schemas before downstream processing",
+      "priority": "high",
+      "description": "LLM providers return JSON tool-call responses and structured outputs that are currently parsed with JSON.parse() and accessed without schema validation. When a model omits a required field or returns a wrong type, the error surfaces late as an unhandled runtime exception deep in the pipeline. Enforcing Zod schema validation immediately after parsing creates a self-documenting contract and enables structured error recovery.",
+      "acceptanceCriteria": [
+        "All tool-call response payloads and structured LLM outputs are validated through a Zod schema before use",
+        "When Zod validation fails, the error is caught and the pipeline enters the existing multi-stage fallback path (not an unhandled exception)",
+        "Validation errors include the schema path and received value in the log entry (not just 'invalid response')",
+        "Schemas are co-located with the parse site in src/assistant/schemas.ts or per-tool schema files",
+        "At least 3 existing tool response types (e.g. guest lookup, unit status, analytics) are migrated to Zod-validated parsing",
+        "No new runtime dependencies required beyond the already-installed zod package"
+      ],
+      "technicalNotes": [
+        "Pattern: define z.object({...}) schema, call schema.safeParse(JSON.parse(raw)), check .success before accessing .data",
+        "For LLM provider native structured outputs, pass the JSON Schema derived from z.toJSONSchema(schema) as the response_format parameter",
+        "On validation failure, log zodError.flatten() for structured error detail and trigger the layer2-fallback.ts path",
+        "Reference: https://dev.to/dthompsondev/llm-structured-json-building-production-ready-ai-features-with-schema-enforced-outputs-4j2j"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-460",
+      "title": "Add brute-force protection on admin authentication endpoints",
+      "priority": "high",
+      "description": "Admin API endpoints currently have no brute-force detection beyond the global rate limiter. Targeted credential-stuffing attacks can attempt many tokens per minute within this limit. Implementing IP+endpoint-scoped rate limiting with a short lockout on repeated 401 responses closes this gap, aligning with Express security best practices.",
+      "acceptanceCriteria": [
+        "Authentication endpoints (token validation paths) are rate-limited to 5 failed attempts per IP per 15-minute window",
+        "After 5 consecutive 401 responses from the same IP, that IP receives 429 Too Many Requests for the remaining window duration",
+        "Lockout events are logged with the source IP and timestamp",
+        "The lockout window and attempt threshold are configurable via environment variables (AUTH_RATELIMIT_WINDOW_MS, AUTH_RATELIMIT_MAX)",
+        "Legitimate admin IPs can be added to an allowlist that bypasses lockout (ADMIN_IP_ALLOWLIST env var)",
+        "Integration test verifies the 6th attempt within the window returns 429"
+      ],
+      "technicalNotes": [
+        "Use rate-limiter-flexible package for in-memory per-IP+route counters; do not add Redis dependency just for this",
+        "Apply as middleware only on auth-sensitive routes: /api/admin/login, /api/auth/*, /api/v1/admin/token",
+        "Distinguish lockout (auth failure count) from the global rate limiter (total request count) — they serve different purposes",
+        "Reference: https://expressjs.com/en/advanced/best-practice-security.html"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-461",
+      "title": "Implement WhatsApp Flows endpoint with AES-GCM decryption for in-chat forms",
+      "priority": "medium",
+      "description": "WhatsApp Flows allow businesses to embed multi-screen interactive form experiences directly inside WhatsApp chat (date pickers, dropdowns, text fields) without redirecting users to a browser. Each flow request is end-to-end encrypted using RSA-OAEP for key exchange and AES-128-GCM for payload encryption. Implementing a Flows endpoint enables use cases like check-in form collection, complaint intake, and booking confirmation inside the chat window.",
+      "acceptanceCriteria": [
+        "A POST /webhook/flows endpoint decrypts incoming requests using RSA/ECB/OAEPWithSHA-256AndMGF1Padding for the AES key, then AES-128-GCM for the payload",
+        "The endpoint responds to ping health checks with {\"data\": {\"status\": \"active\"}}",
+        "The endpoint returns HTTP 421 when decryption fails (malformed or replayed request)",
+        "Encrypted responses use the received AES key with bit-inverted initialization vector",
+        "Flow completion screen sends {\"screen\": \"SUCCESS\"} with flow_token in extension_message_response",
+        "RSA key pair (2048-bit minimum) is loaded from env var FLOWS_PRIVATE_KEY; the public key is registered in WhatsApp Manager"
+      ],
+      "technicalNotes": [
+        "Use Node.js built-in crypto module: crypto.privateDecrypt with RSA_PKCS1_OAEP_PADDING + sha256, then createDecipheriv('aes-128-gcm', aesKey, iv)",
+        "The 128-bit GCM auth tag is appended to the ciphertext — split before passing to decipher.setAuthTag()",
+        "IV for response encryption is the request IV with all bits flipped: iv.map(b => ~b & 0xff)",
+        "Meta documentation: https://developers.facebook.com/docs/whatsapp/flows/guides/implementingyourflowendpoint/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-462",
+      "title": "Persist per-contact language preference and apply it to LLM system prompt",
+      "priority": "medium",
+      "description": "The current language-router.ts detects language per message but does not persist the detected language preference per contact. This means if a returning Malay-speaking user sends a short ambiguous greeting, the system may revert to an English response. Persisting the detected language as a contact attribute and injecting it into the LLM system prompt ensures consistent multilingual behavior across sessions.",
+      "acceptanceCriteria": [
+        "After successful language detection (confidence >= 0.7), the detected language is written to the contact record in the database",
+        "On subsequent messages, the stored preference is retrieved and passed to the LLM system prompt as a 'Respond in {language}' instruction, overriding per-message detection when confidence < 0.7",
+        "If the user explicitly writes in a different language with high confidence (>= 0.85), the stored preference is updated",
+        "Language preference is visible in the admin conversations panel per contact",
+        "A contact can have their language preference manually overridden via admin API",
+        "Unit tests cover the preference read/write/override flow"
+      ],
+      "technicalNotes": [
+        "Add preferred_language column (text, nullable) to the contacts/rainbow_conversations table or store in rainbow_configs keyed by JID",
+        "Read preference at the start of handleIncomingMessage before language detection; use it as the tie-breaker",
+        "Language-specific system prompt injection: append 'Always reply in {language}. Format dates as {locale_format}.' to the base system prompt in ai-response-generator.ts",
+        "Reference: https://www.useinvent.com/blog/how-to-build-effective-multilingual-ai-agents-2025-best-practices-guide"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-463",
+      "title": "Add LLM output content guardrail to detect and suppress off-topic or harmful responses",
+      "priority": "medium",
+      "description": "The OWASP LLM Top 10 2025 lists LLM02 (Sensitive Data Leakage) and LLM07 (System Prompt Leakage) as critical production risks. Currently, LLM responses are passed directly to the user without post-generation content checks. An output guardrail layer that detects system prompt fragments, competitor names, and off-domain topics before delivery closes these gaps without requiring a secondary LLM call.",
+      "acceptanceCriteria": [
+        "A post-generation guardrail function runs on every LLM response before it is sent to the user",
+        "Responses containing system prompt fragments (detected by matching known prompt header strings) are replaced with a generic fallback message",
+        "Responses exceeding a configurable character limit (default 2000 chars for WhatsApp) are truncated with a continuation prompt",
+        "Guardrail decisions are logged with the trigger reason (prompt_leak, length_exceeded, off_topic) for audit purposes",
+        "Guardrail adds less than 5ms overhead on average (regex-only checks, no external API call)",
+        "A unit test suite covers each guardrail trigger pattern with known attack strings"
+      ],
+      "technicalNotes": [
+        "Implement as a pure function applyOutputGuardrails(text: string, profile: ProfileConfig): GuardrailResult in src/assistant/output-guardrails.ts",
+        "Prompt leak detection: check if response contains the first 20 chars of the known system prompt prefix",
+        "Off-topic detection (optional, phase 2): keyword blocklist per profile loaded from settings.json",
+        "OWASP LLM Top 10 2025 reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-464",
+      "title": "Harden Express security headers with a configured Helmet CSP policy",
+      "priority": "medium",
+      "description": "Helmet is already installed but the current configuration may call helmet() with contentSecurityPolicy disabled or using defaults that are too permissive. A properly scoped CSP that allowlists only necessary script/style sources, combined with disabling x-powered-by fingerprinting and restricting CORS to an explicit origin allowlist, closes common web attack vectors on the admin panel endpoints.",
+      "acceptanceCriteria": [
+        "Content-Security-Policy header is set with explicit directives: default-src 'self', script-src 'self', style-src 'self' 'unsafe-inline', img-src 'self' data:, connect-src 'self'",
+        "X-Powered-By header is absent from all responses",
+        "Strict-Transport-Security header is present with max-age=31536000 on production (NODE_ENV=production) builds",
+        "CORS is restricted to an explicit allowlist via ALLOWED_ORIGINS env var instead of a wildcard",
+        "A CSP violation report endpoint is configured at /csp-report that logs violations as structured events",
+        "All existing admin panel routes return the new headers (verified with a curl integration test)"
+      ],
+      "technicalNotes": [
+        "Update the helmet() call in src/index.ts with explicit contentSecurityPolicy directives object",
+        "CORS fix: replace app.use(cors()) with app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') ?? [] }))",
+        "For admin panel React assets served from src/public/, add hashes or nonces for any inline scripts",
+        "Reference: https://expressjs.com/en/advanced/best-practice-security.html"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-465",
+      "title": "Use Drizzle ORM prepared statements for high-frequency database queries",
+      "priority": "medium",
+      "description": "High-frequency queries such as conversation history lookup, active session check, and intent analytics writes currently re-parse and re-plan SQL on every call. Drizzle ORM's prepare() API compiles queries once to a binary plan reused on subsequent calls, reducing per-query overhead. This is especially impactful with Neon's PgBouncer in transaction mode, which supports protocol-level prepared statements.",
+      "acceptanceCriteria": [
+        "At least 5 high-frequency queries are converted to Drizzle prepared statements (conversation lookup, active conversation by JID, intent analytics insert, config read by key, message history fetch)",
+        "Each prepared statement is defined once at module scope and reused across requests",
+        "Prepared statements use driver-level (protocol-level) preparation, not SQL PREPARE/DEALLOCATE which is incompatible with PgBouncer transaction mode",
+        "No session-level SET commands or temporary tables are used (incompatible with PgBouncer transaction mode)"
+      ],
+      "technicalNotes": [
+        "Drizzle API: const getConv = db.select().from(conversations).where(eq(conversations.jid, sql.placeholder('jid'))).prepare('get_conv'); then call getConv.execute({ jid })",
+        "Avoid SET search_path — use fully qualified table names or role-level default instead",
+        "Monitor Neon Console 'Pooler client connections' and 'Pooler server connections' graphs after rollout to confirm pool health",
+        "Reference: https://neon.tech/docs/connect/connection-pooling"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-466",
+      "title": "Handle Neon PgBouncer connection pool exhaustion with retry and early timeout",
+      "priority": "medium",
+      "description": "Neon's PgBouncer in transaction mode queues requests when all pool connections are busy, timing out after 2 minutes by default. Under traffic spikes, the pool can exhaust silently, causing cascading query failures reported as ECONNRESET. Adding application-level connection retry with backoff and a configurable pool-wait timeout provides early warning and graceful degradation before the 2-minute Neon timeout.",
+      "acceptanceCriteria": [
+        "Database queries that fail with pool exhaustion error codes (57P03, 53300) are retried up to 3 times with 500ms, 1s, 2s backoff",
+        "After 3 failed retries, the error is thrown and logged with severity ERROR including pool exhaustion context",
+        "A configurable DB_POOL_TIMEOUT_MS env var (default 10000) triggers an early application-level timeout before Neon's 2-minute queue timeout",
+        "Batch/scheduled jobs that hit pool limits back off and retry on the next cycle rather than crashing the process"
+      ],
+      "technicalNotes": [
+        "Pool exhaustion error: PostgreSQL error code 53300 (too_many_connections) or 57P03 (cannot_connect_now)",
+        "Implement a withDbRetry(fn, maxRetries=3) wrapper in src/lib/db.ts around all critical write operations",
+        "Use pooler connection string (hostname contains -pooler) for web/API traffic; use direct connection string for migrations only",
+        "Per-user pool max: 0.9 × max_connections for the compute size; 1 CU gives ~377 connections per database user",
+        "Reference: https://neon.tech/docs/connect/connection-pooling"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-467",
+      "title": "Implement WhatsApp message template category auto-reclassification alert",
+      "priority": "medium",
+      "description": "Since April 2025, Meta automatically recategorizes approved templates from UTILITY to MARKETING without advance notice when it determines the content is promotional. This silently changes billing rates and can trigger delivery blocks if the account lacks marketing template permissions. A periodic check that compares stored vs live template categories and alerts on mismatches prevents surprise cost spikes and delivery failures.",
+      "acceptanceCriteria": [
+        "A scheduled job (daily) fetches all templates for each WABA phone number via the WhatsApp Business Management API",
+        "The job compares the API-returned category against the locally stored category in the templates table",
+        "When a mismatch is detected, an admin notification is sent with the template name, previous category, and new category",
+        "The local database record is updated to reflect the new category returned by the API",
+        "The job records the last-checked timestamp and category per template for audit purposes",
+        "A manual trigger is available via admin API endpoint POST /api/v1/templates/sync"
+      ],
+      "technicalNotes": [
+        "API endpoint: GET /{whatsapp-business-account-id}/message_templates?fields=name,status,category&access_token={token}",
+        "The allow_category_change property is no longer supported as of April 9, 2025 — do not include it in template creation requests",
+        "Schedule via node-cron or BullMQ repeatable job; run at 03:00 local time to avoid peak traffic",
+        "Reference: https://developers.facebook.com/docs/whatsapp/updates-to-pricing/new-template-guidelines/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-468",
+      "title": "Track WhatsApp business portfolio-level messaging limits via Management API",
+      "priority": "medium",
+      "description": "As of October 7, 2025, WhatsApp applies messaging limits at the business portfolio level rather than per phone number. Tracking limits per phone number misrepresents the true account capacity. Portfolio-level tracking via the WhatsApp Business Management API's messaging_limit_tier field gives accurate visibility into the shared conversation budget across all phone numbers in the account.",
+      "acceptanceCriteria": [
+        "Admin dashboard displays the current portfolio-level messaging tier (250/2000/10000/100000/unlimited) and 24h usage count",
+        "Messaging limit tier data is fetched from the Business Portfolio API and cached with a 6-hour TTL (matching Meta's tier re-evaluation interval)",
+        "When portfolio usage exceeds 80% of the current tier limit within a 24h window, an admin alert is triggered",
+        "The system correctly reflects that limits apply to the entire WABA, not individual phone numbers",
+        "Historical tier progression is stored for trend analysis (date, tier, reason if demoted)"
+      ],
+      "technicalNotes": [
+        "API endpoint: GET /{whatsapp-business-account-id}?fields=messaging_limit_tier,on_behalf_of_business_info",
+        "Tier re-evaluation happens every 6 hours (changed from every 24 hours as of 2025); reflect this in cache TTL",
+        "New numbers start at 2000 (raised from 1000) business-initiated conversations per 24h period",
+        "Reference: https://developers.facebook.com/docs/whatsapp/messaging-limits/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-469",
+      "title": "Add OpenTelemetry custom histograms for message pipeline stage latencies",
+      "priority": "medium",
+      "description": "While OTel span tracing captures end-to-end request latency, granular stage-level latency histograms (language detection, intent classification, LLM call, tool execution, message send) are required to identify bottlenecks under load. OTel's MetricProvider with histogram instruments captures per-stage timings with sub-millisecond overhead and exports them alongside trace data.",
+      "acceptanceCriteria": [
+        "A histogram instrument pipeline.stage.duration_ms with attribute stage_name captures timing for each pipeline stage",
+        "Stages instrumented: input_validation, language_detection, intent_classification, llm_inference, tool_execution, message_send",
+        "The histogram uses the recommended OTel boundary set: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]",
+        "Metrics are exported via the same OTLP exporter as traces (shared exporter configuration)",
+        "A Prometheus-compatible /metrics endpoint is available when OTEL_METRICS_EXPORTER=prometheus is set",
+        "Stage timing adds less than 1ms overhead per pipeline execution (timer wraps only, no blocking calls)"
+      ],
+      "technicalNotes": [
+        "Use @opentelemetry/sdk-metrics MeterProvider; create one Histogram per stage or a single histogram with a stage_name attribute",
+        "Record timing: const end = performance.now(); histogram.record(end - start, { stage_name: 'llm_inference', provider: 'kimi' })",
+        "Export to Prometheus with @opentelemetry/exporter-prometheus for local dashboarding (Grafana)",
+        "Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/"
+      ],
+      "dependencies": [
+        "Instrument LLM calls with OpenTelemetry GenAI semantic conventions"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-470",
+      "title": "Implement WhatsApp reply-button messages for common quick-reply scenarios",
+      "priority": "medium",
+      "description": "The system currently sends only free-text messages. WhatsApp's interactive reply button messages (up to 3 buttons per message) allow the bot to present bounded choices for common decision points — such as 'Check-in / Check-out / Other' after a greeting — reducing user typing and improving intent classification accuracy. These are session-window messages and do not require template approval.",
+      "acceptanceCriteria": [
+        "A sendReplyButtons(jid, body, buttons[]) helper function in src/lib/whatsapp/index.ts sends an interactive message with up to 3 buttons",
+        "Each button has a unique buttonId that is processed by the existing intent pipeline when a user taps it",
+        "Button responses arriving as messages are correctly parsed and routed (buttonId maps to an intent in routing.json)",
+        "At least 2 high-traffic intents (e.g. main menu, booking confirmation) use reply buttons when inside a 24h session window",
+        "Button messages fall back to plain text when the WhatsApp session is outside the 24h window (template mode)",
+        "Integration test sends a button response payload and verifies correct intent routing"
+      ],
+      "technicalNotes": [
+        "Baileys message structure for reply buttons: { interactiveMessage: { header, body, footer, nativeFlowMessage: { buttons: [{name:'quick_reply', buttonParamsJson: JSON.stringify({display_text, id})}] } } }",
+        "Alternatively use the buttonsMessage type for older Baileys API compatibility — check version in package.json",
+        "Button ID value should encode the intent slug (e.g. 'INTENT_CHECKIN') for deterministic routing without LLM classification",
+        "Reference: https://whatsapp.github.io/WhatsApp-Nodejs-SDK/api-reference/messages/interactive/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-471",
+      "title": "Enforce structured LLM output retry with error context re-prompting",
+      "priority": "medium",
+      "description": "When the LLM returns a malformed or invalid JSON response, the current pipeline logs an error and falls back to a generic reply. The more effective production pattern is to retry the same LLM call with the validation error injected into the prompt, enabling the model to self-correct before escalating to the fallback path. This reduces unnecessary fallback triggers for transient model errors.",
+      "acceptanceCriteria": [
+        "When Zod validation fails on an LLM structured response, a single retry is attempted with the validation error appended to the user message",
+        "The retry message includes: 'Previous response failed validation: {zodError.flatten().fieldErrors}. Please provide a valid response.'",
+        "If the retry also fails validation, the pipeline proceeds to the standard multi-stage fallback (no further retries)",
+        "Retry attempts are logged with attempt number and validation failure reason",
+        "Total retry overhead does not exceed 5 seconds (retry timeout configurable via LLM_STRUCTURED_RETRY_TIMEOUT_MS)",
+        "Unit test verifies: first attempt fails validation → retry succeeds → response used; both fail → fallback triggered"
+      ],
+      "technicalNotes": [
+        "Implement in ai-response-generator.ts as a wrapper: generateWithValidation(prompt, schema, maxRetries=1)",
+        "Append the validation error as an additional user message turn, not as a system prompt modification",
+        "This pattern is described as 'self-healing validation' in production LLM deployment literature",
+        "Reference: https://python.useinstructor.com/blog/2025/05/20/understanding-semantic-validation-with-structured-outputs/"
+      ],
+      "dependencies": [
+        "Validate LLM JSON responses with Zod schemas before downstream processing"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-472",
+      "title": "Implement Kubernetes-compatible liveness/readiness probe separation with connection drain",
+      "priority": "medium",
+      "description": "The current health endpoint returns a flat 200 OK and does not distinguish between liveness (process is alive) and readiness (process can serve traffic). When deploying to container infrastructure (AWS ECS, Kubernetes, or PM2 with Docker), this prevents clean rolling restarts: the load balancer continues routing requests to a shutting-down process. Separating the probes and implementing SIGTERM connection draining enables zero-downtime deployments.",
+      "acceptanceCriteria": [
+        "GET /health/live returns 200 if the process is running (simple alive check, no DB)",
+        "GET /health/ready returns 200 when DB is reachable AND WhatsApp is connected AND the process is not in shutdown; returns 503 otherwise",
+        "On SIGTERM, isShuttingDown flag is set, /health/ready immediately returns 503, and the server stops accepting new connections via server.close()",
+        "In-flight requests are given GRACEFUL_SHUTDOWN_MS (default 10000) to complete before process.exit(0)",
+        "PM2 ecosystem.config.cjs is updated with kill_timeout: 15000 to allow the drain period"
+      ],
+      "technicalNotes": [
+        "SIGTERM handler: process.on('SIGTERM', async () => { isShuttingDown = true; server.close(() => process.exit(0)); })",
+        "Set app.locals.isShuttingDown flag readable by /health/ready middleware without importing the server object",
+        "The current single /health route should be split into /health/live and /health/ready",
+        "Reference: https://expressjs.com/en/advanced/healthcheck-graceful-shutdown.html"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-473",
+      "title": "Version the admin REST API under /api/v1 with deprecation headers for future migrations",
+      "priority": "low",
+      "description": "All admin routes are currently mounted at flat paths with no version prefix. When breaking changes are needed — such as response schema changes or endpoint consolidations — there is no migration path for API consumers (admin panel, n8n integrations, scripts). Introducing URL-prefixed versioning under /api/v1 now enables future v2 rollouts without breaking existing integrations.",
+      "acceptanceCriteria": [
+        "All existing admin API routes respond identically at both /api/* (legacy) and /api/v1/* paths",
+        "The legacy /api/* paths return a Deprecation: true header and a Sunset date 6 months from deployment",
+        "A new route registration helper mountVersioned(app, '/api/v1', router) is used for all new routes going forward",
+        "Existing admin panel and integration tests continue to pass against the legacy paths",
+        "Build and TypeScript check pass"
+      ],
+      "technicalNotes": [
+        "Implement by adding an Express Router mounted at /api/v1 in src/index.ts that re-uses the same sub-router instances",
+        "Deprecation headers: res.set('Deprecation', 'true') and res.set('Sunset', new Date(...).toUTCString()) via middleware on the /api/* router",
+        "Do not rename existing route files; just mount the same router at two prefixes",
+        "Reference: https://www.codemzy.com/blog/nodejs-api-versioning"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-474",
+      "title": "Implement WhatsApp message reaction tracking for passive feedback signals",
+      "priority": "low",
+      "description": "Baileys surfaces message reaction events via the messages.upsert event when the reactionMessage field is present. User emoji reactions on bot replies (thumbs up/down, heart) are a low-friction feedback signal that requires no user action beyond a tap. Tracking reactions on bot messages provides a passive satisfaction metric complementing the explicit satisfaction-rating flow.",
+      "acceptanceCriteria": [
+        "The Baileys event handler detects when an incoming message contains reactionMessage targeting a message sent by the bot",
+        "The reaction emoji and the referenced bot message ID are recorded in the conversation_feedback table with reaction_type='emoji_reaction'",
+        "Positive reactions (👍, ❤️, 🙏, 😊) increment a positive_reaction_count metric per conversation",
+        "Negative reactions (👎, 😡) increment a negative_reaction_count and optionally trigger an escalation review flag",
+        "Admin dashboard shows reaction sentiment breakdown per time period",
+        "Processing a reaction does not trigger a bot reply unless the reaction is negative and escalation is enabled"
+      ],
+      "technicalNotes": [
+        "Detection: in the messages.upsert handler, check if msg.message?.reactionMessage exists; extract .key.id (referenced message) and .text (emoji)",
+        "Verify the referenced message key matches a known bot-sent message ID (store bot message IDs in-memory or DB with TTL)",
+        "Baileys reference: https://baileys.wiki/docs/socket/presence-receipts/",
+        "Emoji sentiment grouping: define positive/negative sets in settings.json to allow operator customization"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-475",
+      "title": "Detect and handle code-switching (mid-conversation language switches) gracefully",
+      "priority": "low",
+      "description": "Multilingual users in Southeast Asian markets (Malaysian guests at Pelangi) frequently switch between Bahasa Malaysia, English, and Chinese within a single conversation. The current pipeline detects language per message but does not compare against the stored preference to notice a deliberate switch. When a high-confidence switch is detected, the system should silently update the preference and continue without asking the user to repeat themselves.",
+      "acceptanceCriteria": [
+        "When detected language confidence >= 0.85 AND detected language differs from stored preference, the preference is updated silently",
+        "When detected language confidence is between 0.7 and 0.85 AND it differs from stored preference, the bot sends a gentle language confirmation message (configurable per profile)",
+        "Language switch events are logged with old_language, new_language, confidence, and message snippet for analytics",
+        "The LLM system prompt language instruction is updated immediately on the same message that triggered the switch",
+        "A unit test covers: same language (no update), high-confidence switch (silent update), mid-confidence switch (confirmation message)"
+      ],
+      "technicalNotes": [
+        "Implement in language-router.ts as detectLanguageSwitch(currentMsg, storedPreference) returning { switched, confidence, shouldAsk }",
+        "Confirmation message template (e.g. 'Saya nampak awak menukar ke Bahasa Malaysia. Saya akan balas dalam BM dari sekarang.') should be in knowledge.json per profile",
+        "Reference: https://www.useinvent.com/blog/how-to-build-effective-multilingual-ai-agents-2025-best-practices-guide"
+      ],
+      "dependencies": [
+        "Persist per-contact language preference and apply it to LLM system prompt"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-476",
+      "title": "Expose a /metrics Prometheus endpoint for infrastructure-level monitoring",
+      "priority": "low",
+      "description": "The system currently lacks a machine-readable metrics endpoint for external monitoring tools (Prometheus, Grafana, CloudWatch). Exposing Node.js runtime metrics (event loop lag, heap usage, active handles, GC pause times) and application metrics (messages processed, active conversations, error rates) via a standard Prometheus /metrics endpoint enables alerting without requiring changes to the monitoring stack.",
+      "acceptanceCriteria": [
+        "GET /metrics returns a Prometheus text format response with Node.js default metrics (event loop lag, heap used/total, GC, CPU)",
+        "Custom application counters are exposed: rainbow_messages_processed_total, rainbow_llm_errors_total, rainbow_active_conversations, rainbow_whatsapp_send_errors_total",
+        "The /metrics endpoint is protected by a shared secret (METRICS_SECRET env var) via Bearer token — not publicly accessible",
+        "Metrics are not included in the existing rate limiter (rate limiting /metrics would break Prometheus scrapers)",
+        "A Prometheus scrape config example is documented in ecosystem.config.cjs comments",
+        "The endpoint responds within 100ms with no database queries"
+      ],
+      "technicalNotes": [
+        "Use prom-client package: collectDefaultMetrics() for runtime metrics, new Counter/Gauge for custom metrics",
+        "Register custom metrics as module-level singletons in src/lib/metrics.ts and import/increment throughout the codebase",
+        "Mount at GET /metrics with Bearer auth middleware; exclude from the OTel HTTP instrumentation to avoid circular telemetry",
+        "Reference: https://github.com/siimon/prom-client"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false
     }
   ]

@@ -401,6 +401,27 @@ export class WhatsAppInstance {
     }
   }
 
+  async sendInteractiveMessage(jid: string, content: Record<string, any>): Promise<any> {
+    if (!this.sock || this.state !== 'open') {
+      throw new Error(`Instance "${this.id}" not connected`);
+    }
+
+    const resolvedJid = this.lidMapper.resolve(jid, this.authDir);
+    if (resolvedJid !== jid) {
+      console.log(`[Baileys:${this.id}] Send interactive: resolved ${jid} → ${resolvedJid}`);
+    }
+
+    try {
+      const result = await this.sock.sendMessage(resolvedJid, content);
+      const type = 'listMessage' in content ? 'list' : 'buttonsMessage' in content ? 'buttons' : 'interactive';
+      console.log(`[Baileys:${this.id}] Sent ${type} to ${resolvedJid}`);
+      return result;
+    } catch (err: any) {
+      console.error(`[Baileys:${this.id}] SEND INTERACTIVE FAILED to ${resolvedJid}: ${err.message}`);
+      throw err;
+    }
+  }
+
   async sendMedia(jid: string, buffer: Buffer, mimetype: string, fileName: string, caption?: string): Promise<any> {
     if (!this.sock || this.state !== 'open') {
       throw new Error(`Instance "${this.id}" not connected`);

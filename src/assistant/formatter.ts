@@ -54,6 +54,136 @@ export function formatDate(dateStr: string, lang: Language): string {
   return date.toLocaleDateString(locale, options);
 }
 
+// ─── Interactive Message Builders (US-430) ─────────────────────────
+
+export interface ListSection {
+  title: string;
+  rows: { rowId: string; title: string; description?: string }[];
+}
+
+export interface ListMessagePayload {
+  listMessage: {
+    title: string;
+    description: string;
+    buttonText: string;
+    sections: { title: string; rows: { title: string; rowId: string; description?: string }[] }[];
+    listType: 1; // SINGLE_SELECT
+    footerText?: string;
+  };
+}
+
+export interface ButtonMessagePayload {
+  buttonsMessage: {
+    text: string;
+    buttons: { buttonId: string; buttonText: { displayText: string }; type: 1 }[];
+    headerType: 1; // TEXT header
+    footerText?: string;
+  };
+}
+
+/**
+ * Build a Baileys-compatible list message payload.
+ * Max 10 rows total across all sections.
+ */
+export function buildListMessage(
+  title: string,
+  description: string,
+  buttonText: string,
+  sections: ListSection[],
+  footerText?: string
+): ListMessagePayload {
+  // Enforce Baileys limits
+  const totalRows = sections.reduce((sum, s) => sum + s.rows.length, 0);
+  if (totalRows > 10) {
+    throw new Error(`List message supports max 10 rows, got ${totalRows}`);
+  }
+  if (sections.length === 0) {
+    throw new Error('List message requires at least one section');
+  }
+
+  return {
+    listMessage: {
+      title,
+      description,
+      buttonText,
+      sections: sections.map(s => ({
+        title: s.title,
+        rows: s.rows.map(r => ({
+          title: r.title,
+          rowId: r.rowId,
+          ...(r.description ? { description: r.description } : {}),
+        })),
+      })),
+      listType: 1, // SINGLE_SELECT
+      ...(footerText ? { footerText } : {}),
+    },
+  };
+}
+
+/**
+ * Build a Baileys-compatible buttons message payload.
+ * Max 3 buttons.
+ */
+export function buildButtonMessage(
+  body: string,
+  buttons: { id: string; text: string }[],
+  footerText?: string
+): ButtonMessagePayload {
+  if (buttons.length > 3) {
+    throw new Error(`Buttons message supports max 3 buttons, got ${buttons.length}`);
+  }
+  if (buttons.length === 0) {
+    throw new Error('Buttons message requires at least one button');
+  }
+
+  return {
+    buttonsMessage: {
+      text: body,
+      buttons: buttons.map(b => ({
+        buttonId: b.id,
+        buttonText: { displayText: b.text },
+        type: 1 as const, // QUICK_REPLY
+      })),
+      headerType: 1, // TEXT
+      ...(footerText ? { footerText } : {}),
+    },
+  };
+}
+
+/**
+ * Convert an interactive list message to a plain text fallback.
+ * Used when interactiveMessages.enabled is false.
+ */
+export function listMessageToText(payload: ListMessagePayload): string {
+  const { title, description, sections } = payload.listMessage;
+  const lines: string[] = [];
+  if (title) lines.push(`*${title}*`);
+  if (description) lines.push(description);
+  lines.push('');
+
+  let idx = 1;
+  for (const section of sections) {
+    if (section.title) lines.push(`*${section.title}*`);
+    for (const row of section.rows) {
+      lines.push(`${idx}. ${row.title}${row.description ? ` — ${row.description}` : ''}`);
+      idx++;
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Convert a buttons message to a plain text fallback.
+ */
+export function buttonMessageToText(payload: ButtonMessagePayload): string {
+  const { text, buttons } = payload.buttonsMessage;
+  const lines = [text, ''];
+  buttons.forEach((b, i) => {
+    lines.push(`${i + 1}. ${b.buttonText.displayText}`);
+  });
+  return lines.join('\n');
+}
+
 export function formatPriceBreakdown(
   breakdown: { nights: number; rateType: string; baseRate: number; totalBase: number; deposit: number; total: number; savings?: string; currency: string },
   lang: Language

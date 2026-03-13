@@ -225,6 +225,25 @@ export class WhatsAppManager extends EventEmitter {
     throw new Error('No WhatsApp instance connected. Check status with pelangi_whatsapp_status.');
   }
 
+  async sendInteractiveMessage(phone: string, content: Record<string, any>, instanceId?: string): Promise<any> {
+    const jid = phone.includes('@')
+      ? phone
+      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+
+    if (instanceId) {
+      const instance = this.instances.get(instanceId);
+      if (!instance) throw new Error(`Instance "${instanceId}" not found`);
+      return instance.sendInteractiveMessage(jid, content);
+    }
+
+    for (const instance of this.instances.values()) {
+      if (instance.state === 'open') {
+        return instance.sendInteractiveMessage(jid, content);
+      }
+    }
+    throw new Error('No WhatsApp instance connected.');
+  }
+
   async sendMedia(phone: string, buffer: Buffer, mimetype: string, fileName: string, caption?: string, instanceId?: string): Promise<any> {
     const jid = phone.includes('@')
       ? phone
