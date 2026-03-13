@@ -38,6 +38,7 @@ import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
+import { checkMetaCACert } from './lib/meta-ca-check.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -61,6 +62,9 @@ dotenv.config();
     warnings.forEach(w => console.warn(w));
   }
 }
+
+// Meta CA certificate check (US-478) — warn if cert is missing before 2026-04-01 deadline
+checkMetaCACert();
 
 // Ensure DB config tables exist (no-op when DATABASE_URL not set)
 try {

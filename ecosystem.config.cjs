@@ -9,6 +9,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         MCP_SERVER_PORT: 3002,
+        // Meta CA cert for mTLS webhook continuity (US-478)
+        // Replace deploy/certs/meta-outbound-api-ca-2025-12.pem with the real cert before 2026-04-01
+        NODE_EXTRA_CA_CERTS: '/var/www/rainbow-ai/deploy/certs/meta-outbound-api-ca-2025-12.pem',
       },
       autorestart: true,
       max_restarts: 10,

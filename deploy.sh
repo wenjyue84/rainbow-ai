@@ -44,6 +44,7 @@ tar -czf "$TARBALL" \
   package.json \
   package-lock.json \
   profiles.json \
+  deploy/certs/ \
   .rainbow-kb/ \
   .rainbow-kb-southern/ \
   .rainbow-kb-makan/

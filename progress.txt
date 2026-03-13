@@ -1953,3 +1953,24 @@ Completed: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (I
 - `canonicalPhoneKey("MY.abc123")` would extract just "123" (digits), colliding with real phone numbers — solved with BSUID prefix
 - `drizzle-kit push` is interactive when tables exist that aren't in schema — schema change needs to be applied during deploy
 - `upsertConversation` type signature needed widening from `Pick<db, 'insert'>` to include `select|update|delete` for merge logic
+## Iteration 1 - Fri, Mar 13, 2026  9:41:35 PM
+Completed: Handle WhatsApp BSUID (Business-Scoped User ID) in message routing (ID: US-477) in 17m
+
+
+## Iteration - Story: US-478 Add Meta CA certificate trust store update for mTLS webhook continuity
+### What was implemented
+- Created `deploy/certs/meta-outbound-api-ca-2025-12.pem` placeholder (replace with real Meta CA cert before 2026-04-01)
+- Created `src/lib/meta-ca-check.ts` — startup check that warns if cert is missing/placeholder within 60 days of deadline
+- Added `checkMetaCACert()` call in `src/index.ts` after env loading
+- Updated `ecosystem.config.cjs` to set `NODE_EXTRA_CA_CERTS` pointing to the cert on the Lightsail server
+- Updated `deploy.sh` to include `deploy/certs/` in the deployment tarball
+- Updated `.env.example` with documentation for `NODE_EXTRA_CA_CERTS`
+
+### Patterns discovered
+- esbuild bundles all files into `dist/index.js`, so `import.meta.url` inside bundled code resolves to `dist/index.js`
+  Use `process.cwd()` instead of `__dirname` for paths relative to project root — works in both dev (tsx) and prod (dist)
+
+### Gotchas
+- Startup test showed warning fires correctly: "19 day(s) until 2026-04-01 deadline!"
+- The placeholder PEM file starts with `#` — the check uses `isPlaceholder()` to detect this and still warns
+- Real cert must replace deploy/certs/meta-outbound-api-ca-2025-12.pem before 2026-04-01 for mTLS to work
