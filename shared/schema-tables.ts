@@ -216,6 +216,23 @@ export const conversationTraces = pgTable("conversation_traces", {
   index("idx_conv_traces_tier").on(table.tier),
 ]));
 
+// ─── Message Quality Metrics (US-431) ────────────────────────────────
+
+export const messageQualityMetrics = pgTable("message_quality_metrics", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  date: timestamp("date").notNull(), // day bucket (start of day UTC)
+  messagesSent: integer("messages_sent").notNull().default(0),
+  optOutEvents: integer("opt_out_events").notNull().default(0),
+  blockEvents: integer("block_events").notNull().default(0),
+  optOutRate: real("opt_out_rate"), // opt_out_events / messages_sent
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_quality_metrics_profile_date").on(table.profileId, table.date),
+  index("idx_quality_metrics_date").on(table.date),
+]));
+
 // ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
 
 export const optOuts = pgTable("opt_outs", {
@@ -250,3 +267,5 @@ export type EscalationEvent = typeof escalationEvents.$inferSelect;
 export type InsertEscalationEvent = typeof escalationEvents.$inferInsert;
 export type ConversationTrace = typeof conversationTraces.$inferSelect;
 export type InsertConversationTrace = typeof conversationTraces.$inferInsert;
+export type MessageQualityMetric = typeof messageQualityMetrics.$inferSelect;
+export type InsertMessageQualityMetric = typeof messageQualityMetrics.$inferInsert;

@@ -46,6 +46,7 @@ import dlqRoutes from './dlq.js';
 import deliveryStatusRoutes from './delivery-status.js';
 import tracesRoutes from './traces.js';
 import escalationsRoutes from './escalations.js';
+import qualityMetricsRoutes from './quality-metrics.js';
 
 const router = Router();
 
@@ -173,6 +174,7 @@ router.use(dlqRoutes);
 router.use(deliveryStatusRoutes);
 router.use(tracesRoutes);
 router.use(escalationsRoutes);
+router.use(qualityMetricsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

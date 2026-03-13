@@ -1876,3 +1876,27 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 ✓ 11 Vitest unit tests assert buildListMessage output matches Baileys listMessage schema
 ✓ npm run build succeeds
 ✓ Server startup test passes
+
+
+## Iteration 6 - Story: US-431 Add WhatsApp message quality score monitoring and alerting
+### What was implemented
+- New `message_quality_metrics` table (Drizzle ORM) with profile_id, date, messages_sent, opt_out_events, block_events, opt_out_rate
+- New `src/lib/quality-metrics.ts` module: daily aggregation job, in-memory opt-out/block event counters, threshold alerting (log + optional webhook), query functions
+- New admin endpoint `GET /api/rainbow/quality-metrics?profile_id=&days=7` returns time-series quality data
+- Manual aggregation trigger: `POST /api/rainbow/quality-metrics/aggregate`
+- Opt-out events tracked by hooking into `recordOptOut()` in opt-out.ts
+- Block events tracked via `trackBlockEvent()` export (ready for Baileys integration)
+- Alert threshold configurable in settings.json (`qualityAlerts.optOutRateThreshold`, default 2%)
+- Optional webhook URL for external alerting (`qualityAlerts.webhookUrl`)
+- Daily aggregation job starts on server startup with 30s delay, then runs every 24h
+
+### Patterns discovered
+- Admin routes registered in `src/routes/admin/index.ts` — import + `router.use()`
+- Settings accessed via `configStore.getSettings()` from `src/assistant/config-store.ts`
+- drizzle-kit push is interactive for new tables; use raw SQL `CREATE TABLE IF NOT EXISTS` for CI/CD
+- Profile resolution middleware sets `res.locals.profileId` from `x-profile-id` header
+
+### Gotchas
+- `getSettingsSafe` doesn't exist — use `configStore.getSettings()` instead
+- Settings type doesn't include custom fields, need `(settings as any)` for new settings keys
+- drizzle-kit push requires interactive input; created table via direct SQL for this iteration

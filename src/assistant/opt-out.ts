@@ -7,6 +7,7 @@
 import { db } from '../lib/db.js';
 import { optOuts } from '../../shared/schema.js';
 import { eq, sql, desc } from 'drizzle-orm';
+import { trackOptOutEvent } from '../lib/quality-metrics.js';
 
 // ─── In-memory cache for fast opt-out lookups ────────────────────────
 const optOutCache = new Set<string>();
@@ -57,6 +58,7 @@ export async function recordOptOut(phone: string): Promise<void> {
         set: { optedOutAt: new Date(), optedInAt: null },
       });
     optOutCache.add(phone);
+    trackOptOutEvent(); // US-431: count opt-out for quality metrics
     console.log(`[OptOut] Phone ${phone} opted out`);
   } catch (error) {
     console.error('[OptOut] Failed to record opt-out:', error);

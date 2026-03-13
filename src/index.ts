@@ -37,6 +37,7 @@ import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
+import { startQualityMetricsJob } from './lib/quality-metrics.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -114,6 +115,9 @@ try {
 } catch (err: any) {
   console.warn('[Startup] Some DB config loads failed (using file fallbacks):', err.message);
 }
+
+// US-431: Start daily quality metrics aggregation job
+startQualityMetricsJob();
 
 const app = express();
 const PORT = parseInt(process.env.MCP_SERVER_PORT || '3002', 10);
