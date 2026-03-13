@@ -1347,3 +1347,25 @@ Incomplete: Implement graceful shutdown with connection draining on SIGTERM (ID:
 - All tests pass, build succeeds, server starts cleanly
 ### Gotchas
 - None — clean pass on first verification
+
+
+## Iteration - Story: US-437 Implement graceful shutdown with connection draining on SIGTERM
+### What was implemented
+- Added `stopAll()` method to `WhatsAppManager` to cleanly close all Baileys WebSocket instances
+- Rewrote shutdown handler in `src/index.ts`:
+  - Tracks active HTTP connections via `server.on('connection')` + Set
+  - Sets `Connection: close` header on in-flight responses during drain window
+  - Stops accepting new connections via `server.close()`
+  - Destroys idle keep-alive sockets immediately
+  - Calls `whatsappManager.stopAll()` to close all Baileys sockets
+  - Calls `pool.end()` to drain PostgreSQL connections
+  - 10 s force-exit timeout (`.unref()` so timer doesn't keep process alive)
+  - Guards against double-entry with `isShuttingDown` flag
+- Updated `ecosystem.config.cjs`: added `kill_timeout: 12000` (10 s drain + 2 s buffer)
+### Patterns discovered
+- WhatsAppManager had per-instance `stop()` and `stopInstance()` but no bulk shutdown — added `stopAll()` using `Promise.allSettled`
+- `pool` is exported from `src/lib/db.ts`, `whatsappManager` is re-exported via `src/lib/baileys-client.ts`
+### Gotchas
+- PM2 default kill signal is SIGINT, not SIGTERM — both are handled
+- Must `.unref()` the force-exit timer so it doesn't prevent process from exiting naturally
+- Need to check `_httpMessage` on socket to determine if it has an in-flight request before destroying

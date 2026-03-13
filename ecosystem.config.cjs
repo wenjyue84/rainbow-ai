@@ -20,6 +20,7 @@ module.exports = {
       merge_logs: true,
       wait_ready: true,
       listen_timeout: 15000,
+      kill_timeout: 12000, // Allow 10 s graceful drain + 2 s buffer (US-437)
     },
   ],
 };

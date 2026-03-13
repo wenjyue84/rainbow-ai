@@ -173,6 +173,16 @@ export class WhatsAppManager extends EventEmitter {
     await instance.stop();
   }
 
+  /** Stop all running WhatsApp instances (used during graceful shutdown). */
+  async stopAll(): Promise<void> {
+    const ids = Array.from(this.instances.keys());
+    await Promise.allSettled(ids.map(id => {
+      const instance = this.instances.get(id);
+      return instance?.stop();
+    }));
+    console.log(`[WhatsAppManager] All ${ids.length} instance(s) stopped`);
+  }
+
   async sendTypingIndicator(phone: string, instanceId?: string): Promise<void> {
     const jid = phone.includes('@')
       ? phone

@@ -18,8 +18,9 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
-import { getWhatsAppStatus } from './lib/baileys-client.js';
+import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
+import { pool } from './lib/db.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
@@ -558,21 +559,70 @@ server.listen(PORT, '0.0.0.0', () => {
   });
 });
 
-// Graceful shutdown handlers
-const shutdown = (signal: string) => {
-  console.log(`\n[SHUTDOWN] Received ${signal}. Closing server...`);
+// ── Graceful shutdown with connection draining (US-437) ──────────────
+let isShuttingDown = false;
+
+// Track active connections so we can drain them
+const activeConnections = new Set<import('net').Socket>();
+server.on('connection', (conn) => {
+  activeConnections.add(conn);
+  conn.on('close', () => activeConnections.delete(conn));
+});
+
+const shutdown = async (signal: string) => {
+  if (isShuttingDown) return; // prevent double-entry
+  isShuttingDown = true;
+  console.log(`\n[SHUTDOWN] Received ${signal}. Draining connections...`);
+
+  // 1. Set Connection: close on all in-flight responses so keep-alive clients disconnect
+  //    (Express middleware will add this header to any response sent during drain)
+  app.use((_req, res, next) => {
+    res.setHeader('Connection', 'close');
+    next();
+  });
+
+  // 2. Stop accepting new connections
   if (viteDevServer) viteDevServer.close();
   server.close(() => {
     console.log('[SHUTDOWN] HTTP server closed.');
-    process.exit(0);
   });
 
-  // Force exit if server.close() hangs
-  setTimeout(() => {
-    console.error('[SHUTDOWN] Force exiting...');
-    process.exit(1);
-  }, 5000);
+  // 3. Destroy idle keep-alive connections that have no in-flight request
+  for (const conn of activeConnections) {
+    // If the socket has no pending response, destroy it immediately
+    if (!(conn as any)._httpMessage) {
+      conn.destroy();
+    }
+  }
+
+  // 4. Clean up WhatsApp sockets
+  try {
+    await whatsappManager.stopAll();
+  } catch (err: any) {
+    console.warn('[SHUTDOWN] WhatsApp cleanup error:', err.message);
+  }
+
+  // 5. Drain PostgreSQL pool
+  try {
+    await pool.end();
+    console.log('[SHUTDOWN] PostgreSQL pool drained.');
+  } catch (err: any) {
+    console.warn('[SHUTDOWN] Pool drain error:', err.message);
+  }
+
+  console.log('[SHUTDOWN] Cleanup complete. Exiting.');
+  process.exit(0);
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Force exit after 10 s if graceful shutdown hangs
+const forceExitOnSignal = (signal: string) => {
+  setTimeout(() => {
+    console.error('[SHUTDOWN] Force exiting after 10 s timeout...');
+    process.exit(1);
+  }, 10_000).unref(); // unref so timer alone doesn't keep process alive
+
+  shutdown(signal);
+};
+
+process.on('SIGINT', () => forceExitOnSignal('SIGINT'));
+process.on('SIGTERM', () => forceExitOnSignal('SIGTERM'));
