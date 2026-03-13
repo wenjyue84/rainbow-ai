@@ -23,6 +23,12 @@ module.exports = {
         // Meta CA cert for mTLS webhook continuity (US-478)
         // Replace deploy/certs/meta-outbound-api-ca-2025-12.pem with the real cert before 2026-04-01
         NODE_EXTRA_CA_CERTS: '/var/www/rainbow-ai/deploy/certs/meta-outbound-api-ca-2025-12.pem',
+        // US-499: AWS Secrets Manager — set to 'true' to fetch secrets from SM
+        // instead of .env file. Requires IAM instance profile with
+        // secretsmanager:GetSecretValue permission on the target secret ARNs.
+        // USE_SECRETS_MANAGER: 'true',
+        // AWS_SECRET_NAME: 'rainbow-ai/prod',
+        // AWS_REGION: 'ap-southeast-1',
       },
       autorestart: true,
       max_restarts: 10,

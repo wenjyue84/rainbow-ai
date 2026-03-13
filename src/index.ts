@@ -20,7 +20,8 @@ import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
-import { pool, getPoolMetrics } from './lib/db.js';
+import { pool, getPoolMetrics, initDb } from './lib/db.js';
+import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import webhookRoutes from './routes/webhooks/index.js';
@@ -55,6 +56,24 @@ if (!process.env.BUSINESS_NAME) {
   dotenv.config({ path: join(__dirname_main, '..', '.env.pelangi.local') });
 }
 dotenv.config();
+
+// US-499: Fetch secrets from AWS Secrets Manager (when enabled).
+// Must run BEFORE any module reads DATABASE_URL or API keys.
+try {
+  await initSecrets();
+} catch (err: any) {
+  console.error('[Startup] FATAL: Secrets Manager initialization failed:', err.message);
+  if (process.env.USE_SECRETS_MANAGER === 'true') {
+    // Fail loudly when SM is required but unreachable
+    console.error('[Startup] Set USE_SECRETS_MANAGER=false to fall back to .env file values');
+    process.exit(1);
+  }
+}
+
+// US-499: Initialize DB pool now that secrets/env are loaded.
+// In non-SM mode, initDb() was already called at db.ts import time (backward compat).
+// This is idempotent — safe to call again.
+initDb();
 
 // Startup env validation — warn about missing keys that will cause silent failures
 {
@@ -326,7 +345,11 @@ app.get('/health/ready', async (req, res) => {
     ...(hasRestrictions && { restrictions: accountStatus.activeRestrictions }),
   };
 
-  // 8. PostgreSQL pool metrics (synchronous — no DB query issued)
+  // 8. Secrets Manager health (US-499)
+  const secretsHealth = await checkSecretsHealth();
+  checks.secrets = secretsHealth;
+
+  // 9. PostgreSQL pool metrics (synchronous — no DB query issued)
   const poolMetrics = getPoolMetrics();
   if (poolMetrics.waiting > 0) {
     _poolWaitingStreak++;
