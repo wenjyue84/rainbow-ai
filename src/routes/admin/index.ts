@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { profileRegistry } from '../../assistant/profile-registry.js';
+import { authBruteForceStore, ADMIN_IP_ALLOWLIST } from '../../lib/auth-brute-force.js';
 
 import knowledgeBaseRoutes from './knowledge-base.js';
 import memoryRoutes from './memory.js';
@@ -55,24 +56,40 @@ const router = Router();
 function adminAuth(req: Request, res: Response, next: NextFunction): void {
   const ip = req.ip || req.socket.remoteAddress || '';
   const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  if (isLocal) {
+
+  // Local connections and allowlisted IPs bypass lockout and key check
+  if (isLocal || ADMIN_IP_ALLOWLIST.has(ip)) {
     next();
     return;
   }
+
+  // Reject locked-out IPs before any key check
+  if (authBruteForceStore.isLockedOut(ip)) {
+    res.status(429).json({ error: 'Too Many Requests: IP temporarily locked after repeated failed auth attempts' });
+    return;
+  }
+
   const adminKey = process.env.RAINBOW_ADMIN_KEY;
   if (!adminKey) {
     res.status(401).json({ error: 'Unauthorized: RAINBOW_ADMIN_KEY not configured for remote access' });
     return;
   }
+
   const provided = req.headers['x-admin-key'];
   if (typeof provided === 'string' && provided.length > 0) {
     const providedBuf = Buffer.from(provided);
     const expectedBuf = Buffer.from(adminKey);
     if (providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+      // Successful auth: clear any previous failure record for this IP
+      authBruteForceStore.clearRecord(ip);
       next();
       return;
     }
   }
+
+  // Auth failed: record attempt and log
+  authBruteForceStore.recordFailure(ip);
+  console.warn(`[auth] Failed attempt from IP ${ip} at ${new Date().toISOString()}`);
   res.status(401).json({ error: 'Unauthorized' });
 }
 

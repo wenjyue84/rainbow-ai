@@ -2050,3 +2050,27 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 - `drizzle-kit push` is interactive with unmanaged tables — used raw SQL script for initial table creation
 - The DB upsert uses `excluded.*` syntax for the incremental update pattern
 - `loadTodayCosts()` fails gracefully if table doesn't exist yet (caught at startup)
+
+
+## Iteration N - Story: US-460 Add brute-force protection on admin authentication endpoints
+### What was implemented
+- Created `src/lib/auth-brute-force.ts` — an `AuthBruteForceStore` class that tracks failed
+  auth attempts per IP in a Map with a sliding window. Accepts injectable `now` for testability.
+- Updated `src/routes/admin/index.ts` to import and use the singleton store.
+- The `adminAuth` middleware now:
+  1. Checks if the IP is locked out (429) before processing the key
+  2. Clears the record on successful auth
+  3. Records failure and logs on bad key
+- Singleton store starts a background `setInterval` purge (unref'd so Node can exit cleanly).
+- Wrote 10 unit tests covering: basic lockout, window expiry (time-mocked), clearRecord, multi-IP,
+  and purge — all pass.
+### Patterns discovered
+- Test pattern: extract logic into `src/lib/*.ts` module with injectable timestamps, import in test.
+- `ADMIN_IP_ALLOWLIST` and env vars (`AUTH_RATELIMIT_WINDOW_MS`, `AUTH_RATELIMIT_MAX`) are read
+  at module import time from the singleton file.
+- setInterval timer needs `.unref()` to not prevent Node.js process from exiting in tests.
+### Gotchas
+- `express-rate-limit` already in package.json but only for mutation rate limiting — could not
+  reuse it for failed-auth-only tracking (it counts all requests, not just 401s).
+- /dev/stdin is not available on Windows — piping into `node -e` via stdin fails; read the file
+  directly via `fs.readFileSync('prd.json')` instead.
