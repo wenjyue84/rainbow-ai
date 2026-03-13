@@ -333,12 +333,17 @@ async function handleLLMReply(
     if (shouldEscalateConsecutive) {
       diaryEvent.escalated = true;
 
-      // Log escalation event to DB (fire-and-forget)
+      // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
       context.logEscalationEvent({
         jid: phone,
         profileId: state.profileId,
         trigger: 'consecutive_fallback',
         count: unknownCount,
+        summaryContext: {
+          guestName: msg.pushName,
+          recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
+          escalationReason: 'Bot unable to understand (consecutive fallback)',
+        },
       });
 
       // Send customer-facing message about operator handoff

@@ -3,6 +3,7 @@ import { getTemplate } from './formatter.js';
 import { configStore } from './config-store.js';
 import { updateSlots } from './conversation.js';
 import { updateConversationMode } from './conversation-logger.js';
+import { logEscalationEvent } from '../lib/escalation-events.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 
@@ -84,6 +85,19 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
     historyLength: historyMessages.length,
     triggeredAt: Date.now(),
     resolvedAt: null
+  });
+
+  // US-429: Log escalation event with summary context for warm handoff
+  logEscalationEvent({
+    jid: context.phone,
+    profileId: 'pelangi',
+    trigger: context.reason,
+    metadata: context.metadata,
+    summaryContext: {
+      guestName: context.pushName,
+      recentMessages: historyMessages.map(m => m),
+      escalationReason: label,
+    },
   });
 
   // US-410: Send holding message to guest

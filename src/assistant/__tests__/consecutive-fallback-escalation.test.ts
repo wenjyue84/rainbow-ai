@@ -151,6 +151,10 @@ describe('US-428: Consecutive fallback escalation', () => {
         profileId: 'pelangi',
         trigger: 'consecutive_fallback',
         count: 3,
+        summaryContext: expect.objectContaining({
+          guestName: 'Test',
+          escalationReason: expect.stringContaining('consecutive fallback'),
+        }),
       })
     );
   });

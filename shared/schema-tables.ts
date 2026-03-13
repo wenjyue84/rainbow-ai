@@ -184,6 +184,7 @@ export const escalationEvents = pgTable("escalation_events", {
   trigger: varchar("trigger", { length: 64 }).notNull(), // consecutive_fallback, human_request, complaint, etc.
   count: integer("count"),
   metadata: text("metadata"), // JSON string for additional context
+  summary: text("summary"), // US-429: AI-generated warm handoff summary
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ([
   index("idx_escalation_events_jid").on(table.jid),

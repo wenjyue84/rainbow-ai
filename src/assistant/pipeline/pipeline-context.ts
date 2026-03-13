@@ -82,7 +82,7 @@ export interface IPipelineContext {
 
   escalateToStaff: (context: any) => Promise<string>;
   shouldEscalate: (reason: EscalationReason | null, unknownCount: number, guestCount?: number) => EscalationReason | null;
-  logEscalationEvent: (input: { jid: string; profileId: string; trigger: string; count?: number; metadata?: Record<string, any> }) => void;
+  logEscalationEvent: (input: { jid: string; profileId: string; trigger: string; count?: number; metadata?: Record<string, any>; summaryContext?: { guestName: string; recentMessages: string[]; escalationReason: string } }) => void;
 
   // ─── Tracking ─────────────────────────────────────────────────────
 
