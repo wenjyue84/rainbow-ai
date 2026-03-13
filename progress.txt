@@ -1329,3 +1329,21 @@ Incomplete: Implement graceful shutdown with connection draining on SIGTERM (ID:
 - ConversationState mocks in tests need `activeFlow: null` added to avoid type errors
 - The `activeFlowJson` DB column requires `npm run db:push` to be applied — until then persistence is best-effort
 - WorkflowFlow forwarding logic moved into the adapter's `executeStep()` so state-executor stays generic
+## Iteration 2 - Fri, Mar 13, 2026 12:00:00 PM
+Incomplete: Implement graceful shutdown with connection draining on SIGTERM (ID: US-437) — attempt 2/3
+
+
+## Iteration 3 - Story: US-420 - Implement GDPR right-to-erasure endpoint
+### What was implemented
+- DELETE /api/admin/guests/:jid/data endpoint (already existed from prior iteration)
+- Deletes across 6 tables: rainbow_messages, rainbow_conversations, rainbow_conversation_state, rainbow_feedback, intent_predictions, opt_outs
+- Uses Drizzle transaction for atomic multi-table deletion
+- Audit logging to gdpr_audit_log table with hashed JID (SHA-256)
+- Returns JSON summary: { jid, messages_deleted, conversations_deleted, memory_deleted }
+- 404 for non-existent JIDs
+- 7 Vitest tests covering hashing, schema, table coverage
+### Patterns discovered
+- Implementation was already complete from a prior attempt but never marked as passing
+- All tests pass, build succeeds, server starts cleanly
+### Gotchas
+- None — clean pass on first verification
