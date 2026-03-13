@@ -7,6 +7,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 import express from 'express';
+import { randomBytes } from 'crypto';
 import compression from 'compression';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -169,11 +170,52 @@ const PORT = parseInt(process.env.MCP_SERVER_PORT || '3002', 10);
 // Disable ETags to prevent stale cache on normal refresh
 app.set('etag', false);
 
-// Security headers
+// ── US-464: CSP nonce middleware ─────────────────────────────────────
+// Generate a unique nonce per request for inline scripts.
+app.use((_req, res, next) => {
+  res.locals.cspNonce = randomBytes(16).toString('base64');
+  next();
+});
+
+// Security headers (US-464)
+const isProd = process.env.NODE_ENV === 'production';
 app.use(helmet({
-  contentSecurityPolicy: false, // Admin dashboard uses inline scripts
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", (_req: express.Request, res: express.Response) => `'nonce-${res.locals.cspNonce}'`],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      reportUri: '/csp-report',
+    },
+  },
   crossOriginEmbedderPolicy: false,
   frameguard: false, // Allow embedding in iframes (e.g. from makanmoments.cafe admin)
+  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
+}));
+
+// CORS — restrict to explicit allowlist (US-464)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+app.use(cors({
+  origin: allowedOrigins.length > 0
+    ? (origin, callback) => {
+        // Allow requests with no Origin header (e.g. server-to-server, curl)
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error('CORS: origin not allowed'));
+        }
+      }
+    : true, // No ALLOWED_ORIGINS set — allow all (dev default)
+  credentials: true,
 }));
 
 // Middleware
@@ -185,9 +227,21 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
-app.use(cors());
 app.use(express.json({ limit: '2mb', verify: captureRawBody })); // Allow up to 2MB; captureRawBody stores buf on req.rawBody for webhook HMAC
 app.use(express.urlencoded({ extended: false, limit: '1mb', depth: 5 })); // Express 5: explicit depth cap (CVE-2024-45590)
+
+// ── US-464: CSP violation report endpoint ───────────────────────────
+app.post('/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {
+  const report = req.body?.['csp-report'] ?? req.body;
+  console.warn('[CSP-Violation]', JSON.stringify({
+    documentUri: report?.['document-uri'],
+    violatedDirective: report?.['violated-directive'],
+    blockedUri: report?.['blocked-uri'],
+    sourceFile: report?.['source-file'],
+    lineNumber: report?.['line-number'],
+  }));
+  res.status(204).end();
+});
 
 // Error handler for payload too large
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -395,7 +449,7 @@ try {
   // File may not exist yet during build; getDashboardHtml() will throw at request time
 }
 
-async function getDashboardHtml(_url: string): Promise<string> {
+async function getDashboardHtml(_url: string, nonce: string): Promise<string> {
   if (viteDevServer) {
     // Dev: read fresh from disk, inject Vite HMR client manually.
     // We skip transformIndexHtml because it double-prefixes /public/ URLs
@@ -403,7 +457,7 @@ async function getDashboardHtml(_url: string): Promise<string> {
     // Vite's middleware still serves files correctly (strips base from requests).
     let html = readFileSync(DASHBOARD_HTML_PATH, 'utf-8');
     const adminKeyDev = process.env.RAINBOW_ADMIN_KEY || '';
-    html = html.replace('<head>', `<head>\n  <script>window.__ADMIN_KEY__=${JSON.stringify(adminKeyDev)};</script>\n  <script type="module" src="/public/@vite/client"></script>`);
+    html = html.replace('<head>', `<head>\n  <script nonce="${nonce}">window.__ADMIN_KEY__=${JSON.stringify(adminKeyDev)};</script>\n  <script type="module" src="/public/@vite/client"></script>`);
     return html;
   }
   // Prod: use cached HTML with cache-bust
@@ -414,7 +468,7 @@ async function getDashboardHtml(_url: string): Promise<string> {
   // tabs.js / template-loader.js use raw fetch() (not api()), so we patch window.fetch globally
   // to auto-add X-Admin-Key on all /api/rainbow/ requests.
   const adminKey = process.env.RAINBOW_ADMIN_KEY || '';
-  const interceptorScript = `<script>
+  const interceptorScript = `<script nonce="${nonce}">
 window.__ADMIN_KEY__=${JSON.stringify(adminKey)};
 (function(){var _f=window.fetch;window.fetch=function(url,opts){opts=opts||{};if(typeof url==='string'&&url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var h=Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},opts.headers||{});opts=Object.assign({},opts,{headers:h});}return _f.call(this,url,opts);};})();
 </script>`;
@@ -436,7 +490,7 @@ app.get('/', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     res.setHeader('Surrogate-Control', 'no-store');
-    res.type('html').send(await getDashboardHtml(req.originalUrl));
+    res.type('html').send(await getDashboardHtml(req.originalUrl, res.locals.cspNonce));
   } catch {
     res.status(500).send('Dashboard file not found');
   }
@@ -508,9 +562,10 @@ app.get('/chat/:profileId', (req, res) => {
     const greeting = profile.configStore.getSettings()?.greeting
       || `Hello! I'm the AI assistant for ${profile.name}. How can I help you today?`;
     const profileData = JSON.stringify({ id: profile.id, name: profile.name, greeting });
+    const nonce = res.locals.cspNonce;
     const injected = html.replace(
       '<head>',
-      `<head>\n  <script>window.__WEBCHAT_PROFILE__=${profileData};</script>`
+      `<head>\n  <script nonce="${nonce}">window.__WEBCHAT_PROFILE__=${profileData};</script>`
     );
     res.type('html').send(injected);
   } catch {
@@ -550,7 +605,7 @@ app.get('/:tab', async (req, res, next) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     res.setHeader('Surrogate-Control', 'no-store');
-    res.type('html').send(await getDashboardHtml(req.originalUrl));
+    res.type('html').send(await getDashboardHtml(req.originalUrl, res.locals.cspNonce));
   } catch {
     res.status(500).send('Dashboard file not found');
   }

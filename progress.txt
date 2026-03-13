@@ -2418,3 +2418,24 @@ Completed: Upgrade Node.js runtime to v24 LTS (ID: US-496)
 ## Iteration 4 - Sat, Mar 14, 2026  1:24:12 AM
 Completed: Migrate Express 4 to Express 5 with async error propagation (ID: US-494) in 12m
 
+
+## Iteration 11a - Fri, Mar 14, 2026
+Completed: US-499 - Implement Secrets Manager integration for production credentials rotation
+Already fully implemented in prior iteration. Verified all acceptance criteria met. Marked passes: true.
+
+## Iteration 11b - Fri, Mar 14, 2026
+Completed: US-464 - Harden Express security headers with a configured Helmet CSP policy
+### What was implemented
+- Configured Helmet with explicit CSP directives: default-src 'self', script-src 'self' + nonce, style-src 'self' 'unsafe-inline', img-src 'self' data:, connect-src 'self'
+- Added per-request CSP nonce generation (randomBytes(16).toString('base64'))
+- Updated all inline script injections (dashboard admin key, fetch interceptor, webchat profile) to include nonce attribute
+- Enabled HSTS (max-age=31536000) for production builds
+- Replaced wildcard CORS with explicit ALLOWED_ORIGINS env var allowlist (falls back to allow-all for dev)
+- Added /csp-report POST endpoint that logs violations as structured JSON events
+- X-Powered-By was already removed by Helmet defaults
+### Patterns discovered
+- Helmet v8 supports function-based directives: `(_req, res) => \`'nonce-${res.locals.cspNonce}'\``
+- getDashboardHtml() injects scripts at 3 locations: admin key, fetch interceptor, webchat profile
+### Gotchas
+- There was a duplicate `app.use(cors())` after the new CORS middleware — had to remove
+- res.locals.cspNonce must be set before helmet() processes the response
