@@ -16,6 +16,7 @@ import { maybeWriteDiary } from './memory-writer.js';
 import { detectLanguage, getTemplate } from './formatter.js';
 import { trackError } from '../lib/activity-tracker.js';
 import { withSendRetry } from '../lib/send-retry.js';
+import { isOptedOut } from './opt-out.js';
 
 import { validateAndPrepare } from './pipeline/input-validator.js';
 import { handleActiveStates } from './pipeline/state-executor.js';
@@ -33,7 +34,15 @@ const ctx: RouterContext = {
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initRouter(send: SendMessageFn, api: CallAPIFn): void {
-  ctx.sendMessage = withSendRetry(send);
+  const retrySend = withSendRetry(send);
+  // Wrap with opt-out guard: never deliver outbound messages to opted-out JIDs
+  ctx.sendMessage = async (phone: string, text: string, instanceId?: string) => {
+    if (isOptedOut(phone)) {
+      console.warn(`[Router] Outbound message suppressed — JID ${phone} is opted out`);
+      return;
+    }
+    return retrySend(phone, text, instanceId);
+  };
   ctx.callAPI = api;
   initWorkflowExecutor(ctx.sendMessage);
 

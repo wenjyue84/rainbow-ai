@@ -12,6 +12,7 @@ import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
 import { initMessageQueue, enqueueMessage, closeQueue } from '../lib/message-queue.js';
 import { initFlows } from './flows/index.js';
+import { loadConsentCache } from './consent.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -36,6 +37,7 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   initBooking(callAPI);
   initEscalation(sendMessage);
   initFlows();
+  await loadConsentCache();
   initRouter(sendMessage, callAPI);
 
   // Initialize BullMQ message queue (US-405)

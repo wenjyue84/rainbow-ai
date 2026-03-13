@@ -21,6 +21,7 @@ import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } fro
 import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled } from '../sentiment-tracker.js';
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
+import { recordConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
 
@@ -218,6 +219,11 @@ export async function validateAndPrepare(
       return { continue: false, reason: 'opted_out' };
     }
   }
+
+  // ─── Consent capture (US-424) ────────────────────────────────────
+  // Record first-contact consent for this JID (idempotent, non-blocking).
+  // Must run after opt-out/opt-in handling (opted-out JIDs should not get a new consent record).
+  recordConsent(phone, profileId).catch(() => { });
 
   // Handle non-text messages
   if (msg.messageType !== 'text') {

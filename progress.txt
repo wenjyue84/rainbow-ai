@@ -1369,3 +1369,37 @@ Incomplete: Implement graceful shutdown with connection draining on SIGTERM (ID:
 - PM2 default kill signal is SIGINT, not SIGTERM — both are handled
 - Must `.unref()` the force-exit timer so it doesn't prevent process from exiting naturally
 - Need to check `_httpMessage` on socket to determine if it has an in-flight request before destroying
+## Iteration 4 - Fri, Mar 13, 2026 12:09:01 PM
+Completed: Implement graceful shutdown with connection draining on SIGTERM (ID: US-437) in 5m
+
+
+## Iteration 5 - Fri, Mar 13, 2026 12:20:00 PM
+Completed: Add WhatsApp opt-in consent capture and audit log (ID: US-424)
+
+### What was implemented
+- Created `src/assistant/consent.ts`:
+  - `ensureConsentTable()` — CREATE TABLE IF NOT EXISTS consent_records (raw SQL via pool.query, no db:push needed)
+  - `hashJid(phone)` — SHA-256 of canonicalPhoneKey(phone), never stores raw PII
+  - `loadConsentCache()` — loads all jid_hashes on startup, called from initAssistant
+  - `recordConsent(phone, profileId)` — idempotent INSERT ON CONFLICT DO NOTHING, skips DB on cache hit
+  - `hasConsent(phone)` — O(1) in-memory cache check
+  - `getConsentByJid(jid)` — admin lookup by hashed JID
+- Modified `src/assistant/pipeline/input-validator.ts`:
+  - Added `recordConsent(phone, profileId)` call after opt-out check, before non-text handling
+  - Fires on every first contact (non-blocking: `.catch(() => {})`)
+- Modified `src/assistant/message-router.ts`:
+  - Added opt-out guard wrapper around `ctx.sendMessage` — suppresses outbound messages to opted-out JIDs with warn log
+- Created `src/routes/admin/consent.ts`:
+  - GET /api/admin/consent/:jid — returns consent record for given JID (404 if not found)
+- Modified `src/routes/admin/index.ts`: registered consentRoutes
+- Modified `src/assistant/index.ts`: added `await loadConsentCache()` during initAssistant
+- Created `src/assistant/__tests__/consent.test.ts`: 10 passing tests
+
+### Patterns discovered
+- vi.hoisted() required when vi.mock factory references module-level variables (hoisting issue)
+- pool.query CREATE TABLE IF NOT EXISTS pattern (from gdpr-erasure) works without db:push
+- Non-blocking fire-and-forget: recordConsent(phone, profileId).catch(() => {}) avoids crashing pipeline
+
+### Gotchas
+- vi.mock factory with external const variable causes "Cannot access before initialization" — use vi.hoisted()
+- Consent records are retained independently of 90-day retention (not included in data-retention purge)
