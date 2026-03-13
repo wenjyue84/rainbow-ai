@@ -2796,3 +2796,38 @@ This user story is for a TypeScript/Node.js application, not Frappe/Python. Here
 ### Gotchas
 - Build uses esbuild (not tsc) — tsc has pre-existing type errors, so `npm run check` will show errors unrelated to this story
 - The startup test with background kill returned no output; build success + no new type errors confirms correctness
+## Iteration 7 - Sat, Mar 14, 2026  2:31:26 AM
+Completed: Add response latency P95/P99 metrics endpoint (ID: US-414) in 6m
+
+
+## Pre-analysis for US-415 (Gemini 2.5 Pro)
+This technical brief is for a **Frappe/Python** implementation, based on a user story that appears to be from a Node.js project. Concepts have been translated to their likely Frappe equivalents.
+
+**Subject: Technical Brief for US-415: Profile Health Check Endpoint**
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: This is the primary location for the new API endpoint. Create a new whitelisted method here named `get_profile_health`.
+*   `lhdn_payroll_integration/doctype/profile/profile.py`: The `Profile` DocType controller may need new non-persistent fields to compute or display health status on the form view.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Custom DocType ("Profile"):** The endpoint will target a specific document from a custom DocType that represents a profile (e.g., "Makan Moments Cafe"). This DocType holds the configuration settings.
+*   **File DocType:** Query the `File` doctype to validate the Knowledge Base, filtering on files attached to a specific Profile document to check count and staleness (`modified` timestamp).
+*   **No hooks required.** This is a direct API implementation.
+
+**3. Implementation Approach:**
+1.  In `api.py`, create `@frappe.whitelist() def get_profile_health(profile_name):`.
+2.  Fetch the document: `profile_doc = frappe.get_doc('Profile', profile_name)`.
+3.  **Checks:**
+    *   **Settings/Routing:** Validate fields directly on `profile_doc`.
+    *   **KB:** Use `frappe.get_all('File', ...)` to count attached files.
+    *   **WhatsApp/AI Status:** Read status from a dedicated field on `profile_doc` (e.g., `whatsapp_status`), which should be updated by a separate background job.
+4.  Aggregate check results into a dictionary.
+5.  Set `frappe.response.http_status_code` to 207 on partial failure or 200 on success.
+6.  Return the results dictionary as `frappe.response.message`.
+
+**4. Gotchas & Edge Cases:**
+*   **Performance:** The endpoint must not make live, blocking calls to external services (WhatsApp, AI Provider). It should rely on status fields updated asynchronously by `Scheduler Hooks`.
+*   **Permissions:** Secure the endpoint using `frappe.has_permission` to ensure it is only accessible to `System Manager` or another appropriate role.
+*   **Error Handling:** Return a 404 if the specified `profile_name` does not exist.
+*   **Multi-Status (207):** Ensure the response body clearly distinguishes between passing and failing checks when returning a 207 status.
+
