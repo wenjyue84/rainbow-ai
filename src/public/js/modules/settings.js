@@ -107,6 +107,7 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'failover') renderFailoverTab(container);
   else if (tabId === 'appearance') renderAppearanceTab(container);
   else if (tabId === 'mcp-servers') renderMcpServersTab(container);
+  else if (tabId === 'profile') renderProfileTab(container);
 }
 window.switchSettingsTab = switchSettingsTab;
 
@@ -198,6 +199,62 @@ async function saveBotAvatarValue(value) {
     toast(e.message, 'error');
   }
 }
+
+// ─── Profile Tab (US-449) ─────────────────────────────────────────
+
+async function renderProfileTab(container) {
+  container.innerHTML = '<div class="p-8 text-center"><div class="spinner mx-auto"></div><p class="text-sm text-neutral-500 mt-2">Loading profile...</p></div>';
+
+  try {
+    const [instancesRes, settingsData] = await Promise.all([
+      api('/whatsapp/instances'),
+      Promise.resolve(window.cacheManager.get(SETTINGS_CACHE_KEYS.config)),
+    ]);
+
+    const instances = Array.isArray(instancesRes) ? instancesRes : (instancesRes?.instances || []);
+    const currentInstanceId = settingsData?.whatsappInstanceId || '';
+
+    const options = instances.map(inst => {
+      const selected = inst.id === currentInstanceId ? ' selected' : '';
+      const status = inst.state === 'open' ? ' (connected)' : ' (disconnected)';
+      return '<option value="' + esc(inst.id) + '"' + selected + '>' + esc(inst.label || inst.id) + status + '</option>';
+    }).join('');
+
+    container.innerHTML =
+      '<div class="bg-white border rounded-2xl p-6">' +
+      '<h3 class="font-semibold text-lg mb-2">Profile Settings</h3>' +
+      '<p class="text-sm text-neutral-500 mb-6">Assign a WhatsApp instance to this profile. Outbound replies will be sent through the selected instance.</p>' +
+
+      '<div class="mb-6">' +
+      '<label class="block text-sm font-bold text-neutral-800 mb-2">WhatsApp Instance</label>' +
+      '<div class="flex gap-2">' +
+      '<select id="profile-wa-instance" class="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition bg-white shadow-soft">' +
+      '<option value="">Auto (use inbound instance)</option>' +
+      options +
+      '</select>' +
+      '<button onclick="saveProfileInstance()" class="px-8 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition shadow-medium font-bold">Save</button>' +
+      '</div>' +
+      '<p class="text-[11px] text-neutral-500 mt-2">When set, all outbound messages for this profile route through the selected instance. "Auto" uses the same instance the inbound message arrived on.</p>' +
+      '</div>' +
+      '</div>';
+  } catch (e) {
+    container.innerHTML = '<div class="p-4 text-red-600">Failed to load profile settings: ' + esc(String(e.message || e)) + '</div>';
+  }
+}
+
+async function saveProfileInstance() {
+  const select = document.getElementById('profile-wa-instance');
+  const value = select ? select.value : '';
+  try {
+    await api('/settings', { method: 'PATCH', body: { whatsappInstanceId: value || null } });
+    const settingsData = window.cacheManager.get(SETTINGS_CACHE_KEYS.config);
+    if (settingsData) settingsData.whatsappInstanceId = value || null;
+    toast('WhatsApp instance assignment saved');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+window.saveProfileInstance = saveProfileInstance;
 
 // ─── Notifications Tab ─────────────────────────────────────────────
 

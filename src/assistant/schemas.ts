@@ -136,6 +136,8 @@ export const settingsDataSchema = z.object({
     handbackMode: z.enum(['immediate', 'grace']),
     handbackGracePeriodMs: z.number().int().nonnegative(),
   }).optional(),
+  // US-449: Per-profile WhatsApp instance assignment
+  whatsappInstanceId: z.string().optional(),
 }).passthrough();  // Allow unknown keys (response_modes, feedback, etc.)
 export type SettingsData = z.infer<typeof settingsDataSchema>;
 

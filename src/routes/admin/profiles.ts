@@ -21,6 +21,8 @@ router.get('/profiles', (_req: Request, res: Response) => {
       kbDir: p.config.kbDir,
       dataDir: p.config.dataDir,
       enabled: p.config.enabled,
+      // US-449: Per-profile WhatsApp instance assignment
+      whatsappInstanceId: profileRegistry.getInstanceForProfile(p.id) ?? null,
     })),
     defaultProfileId: profileRegistry.getDefaultProfileId(),
   });
@@ -46,6 +48,8 @@ router.get('/profiles/active', (req: Request, res: Response) => {
     dataDir: profile.config.dataDir,
     enabled: profile.config.enabled,
     isDefault: profile.id === profileRegistry.getDefaultProfileId(),
+    // US-449: Per-profile WhatsApp instance assignment
+    whatsappInstanceId: profileRegistry.getInstanceForProfile(profile.id) ?? null,
   });
 });
 

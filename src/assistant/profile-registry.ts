@@ -191,6 +191,35 @@ class ProfileRegistryClass {
   }
 
   /**
+   * US-449: Get the designated WhatsApp instance ID for a profile.
+   * Reads from the profile's settings.json `whatsappInstanceId` field.
+   * Returns undefined if not configured.
+   */
+  getInstanceForProfile(profileId: string): string | undefined {
+    const profile = this.profiles.get(profileId);
+    if (!profile) return undefined;
+    return (profile.configStore.getSettings() as any).whatsappInstanceId;
+  }
+
+  /**
+   * US-449: Validate whatsappInstanceId settings against registered WhatsApp instances.
+   * Logs warnings for mismatches. Call after WhatsApp instances are loaded.
+   */
+  validateInstanceAssignments(activeInstanceIds: string[]): void {
+    const activeSet = new Set(activeInstanceIds);
+    for (const [id, profile] of this.profiles) {
+      const assignedId = (profile.configStore.getSettings() as any).whatsappInstanceId;
+      if (assignedId && !activeSet.has(assignedId)) {
+        console.warn(
+          `[ProfileRegistry] WARNING: Profile "${id}" has whatsappInstanceId="${assignedId}" ` +
+          `but no active WhatsApp instance with that ID exists. ` +
+          `Available instances: ${activeInstanceIds.join(', ') || '(none)'}`
+        );
+      }
+    }
+  }
+
+  /**
    * Check if the registry has been initialized.
    */
   isInitialized(): boolean {

@@ -229,6 +229,14 @@ export async function validateAndPrepare(
   const profileKB = profile.kb;
   const profileId = profile.id;
 
+  // US-449: Override outbound instanceId with profile's designated instance (if configured).
+  // This ensures replies route through the profile's assigned WhatsApp instance,
+  // not just the instance the message happened to arrive on.
+  const designatedInstance = (profileConfig.getSettings() as any).whatsappInstanceId;
+  if (designatedInstance) {
+    msg.instanceId = designatedInstance;
+  }
+
   // ─── Opt-out / STOP compliance (US-403) ──────────────────────────
   // Check opt-out commands before anything else (text messages only)
   if (msg.messageType === 'text' && msg.text?.trim()) {

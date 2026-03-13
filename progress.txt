@@ -2493,3 +2493,21 @@ This user story describes implementing AWS Secrets Manager for a Node.js/TypeScr
 - .env.example already documents USE_SECRETS_MANAGER, AWS_SECRET_NAME, AWS_REGION
 ### Gotchas
 - This was retry 2 — previous iteration likely implemented it but didn't mark passes=true
+
+## Iteration 11 - Story: US-449 - Add per-profile WhatsApp instance assignment in settings
+### What was implemented
+- Added `whatsappInstanceId` optional field to settingsDataSchema (schemas.ts)
+- Added `getInstanceForProfile(profileId)` to ProfileRegistry to read setting
+- Added `validateInstanceAssignments(activeInstanceIds)` to ProfileRegistry — logs warning if configured instanceId doesn't match any active WhatsApp instance
+- Called validation in baileys-supervisor.ts after Baileys init
+- Updated profiles API (GET /api/rainbow/profiles, GET /api/rainbow/profiles/active) to include whatsappInstanceId
+- Overrode msg.instanceId in input-validator.ts validateAndPrepare() when profile has a designated instance — all downstream sendMessage calls automatically use the profile's instance
+- Added "Profile" sub-tab to Settings admin panel with WhatsApp instance dropdown
+- Save uses existing PATCH /settings endpoint (deepMerge preserves other fields)
+### Patterns discovered
+- Settings PATCH uses deepMerge, so partial updates are safe
+- Pipeline uses msg.instanceId for all outbound routing — overriding it in Phase 1 is the cleanest single point of change
+- Frontend uses esc() from core/utils.js for XSS prevention
+### Gotchas
+- settingsDataSchema uses .passthrough() so unknown keys (like whatsappInstanceId before this change) were already allowed through — no data migration needed
+- Must use value || null (not empty string) when clearing the setting

@@ -18,6 +18,7 @@ import { startDailyReportScheduler } from './daily-report.js';
 import { startRetentionScheduler } from './data-retention.js';
 import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
 import { configStore } from '../assistant/config-store.js';
+import { profileRegistry } from '../assistant/profile-registry.js';
 import { persistDeliveryStatus } from './delivery-status.js';
 
 interface SupervisorConfig {
@@ -66,6 +67,10 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
 
     // Reset retry count on successful init
     retryCount = 0;
+
+    // US-449: Validate per-profile whatsappInstanceId against active WhatsApp instances
+    const activeIds = whatsappManager.getAllStatuses().map(s => s.id);
+    profileRegistry.validateInstanceAssignments(activeIds);
 
     // Initialize Admin Notifier (for system admin alerts)
     initAdminNotifier({
