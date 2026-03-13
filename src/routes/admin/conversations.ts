@@ -581,8 +581,8 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
   }
 });
 
-// Set response mode for a conversation
-router.post('/conversations/:phone/mode', async (req: Request, res: Response) => {
+// Set response mode for a conversation (US-410: also accepts PATCH)
+const handleSetMode = async (req: Request, res: Response) => {
   try {
     const phone = decodeURIComponent(req.params.phone);
     const { mode, setAsGlobalDefault } = req.body;
@@ -639,11 +639,19 @@ router.post('/conversations/:phone/mode', async (req: Request, res: Response) =>
     // Persist to disk so mode survives navigation and restarts
     await updateConversationMode(phone, mode);
 
+    // US-410: If resolving from manual to autopilot, mark handoff as resolved
+    if (mode === 'autopilot') {
+      const { resolveHandoff } = await import('../../assistant/escalation.js');
+      await resolveHandoff(phone);
+    }
+
     console.log(`[Mode Change] Set ${phone} to ${mode} mode${setAsGlobalDefault ? ' (and global default)' : ''}`);
     ok(res, { mode, globalDefaultUpdated: !!setAsGlobalDefault });
   } catch (err: any) {
     serverError(res, err);
   }
-});
+};
+router.post('/conversations/:phone/mode', handleSetMode);
+router.patch('/conversations/:phone/mode', handleSetMode); // US-410: PATCH alias
 
 export default router;

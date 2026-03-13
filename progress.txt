@@ -1403,3 +1403,33 @@ Completed: Add WhatsApp opt-in consent capture and audit log (ID: US-424)
 ### Gotchas
 - vi.mock factory with external const variable causes "Cannot access before initialization" — use vi.hoisted()
 - Consent records are retained independently of 90-day retention (not included in data-retention purge)
+## Iteration 5 - Fri, Mar 13, 2026 12:19:26 PM
+Completed: Add WhatsApp opt-in consent capture and audit log (ID: US-424) in 10m
+
+
+## Iteration 6 - Story: US-410 - Implement human handoff freeze/resume with explicit bot-pause state
+### What was implemented
+- Modified `src/assistant/escalation.ts`:
+  - escalateToStaff() now sets conversation mode to 'manual' via updateSlots + updateConversationMode
+  - Sends holding message to guest: "I've connected you with our team, they will respond shortly."
+  - Includes last 10 messages (not 3) in escalation notification sent to staff
+  - Staff message includes instruction: "Reply !resolve <phone> to resume AI"
+  - Logs HandoffEvent with phone, reason, historyLength, triggeredAt, resolvedAt
+  - Added resolveHandoff() function: resets mode to autopilot, marks handoff resolved, clears timer
+  - Exported HandoffEvent interface and getHandoffLog() for admin visibility
+- Modified `src/assistant/pipeline/input-validator.ts`:
+  - Added !resolve <phone> staff command to handleStaffCommand switch
+  - Normalizes phone input (strips non-digits) for matching
+  - Updated default case to list !resolve in available commands
+- Modified `src/assistant/pipeline/response-processor.ts`:
+  - Manual mode now sends holding message instead of silently skipping
+- Modified `src/routes/admin/conversations.ts`:
+  - Added PATCH alias for /conversations/:phone/mode (AC specifies PATCH)
+  - Mode change to 'autopilot' triggers resolveHandoff() to mark handoff event resolved
+### Patterns discovered
+- updateSlots (in-memory) + updateConversationMode (DB persist) is the dual-write pattern for mode changes
+- Staff commands use a simple !command pattern dispatched via switch in handleStaffCommand
+- Escalation notifications go to primary then secondary with a timeout fallback timer
+### Gotchas
+- resolveHandoff must normalize phone (strip non-digits) to match conversation keys
+- Holding message sent both on initial escalation AND on subsequent messages while in manual mode

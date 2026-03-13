@@ -14,7 +14,7 @@ import { detectLanguage, getTemplate, detectFullLanguage } from '../formatter.js
 import { languageRouter } from '../language-router.js';
 import { configStore } from '../config-store.js';
 import { profileRegistry } from '../profile-registry.js';
-import { handleStaffReply, escalateToStaff } from '../escalation.js';
+import { handleStaffReply, escalateToStaff, resolveHandoff } from '../escalation.js';
 import { isAIAvailable, translateText } from '../ai-client.js';
 import { logMessage, logNonTextExchange } from '../conversation-logger.js';
 import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } from '../knowledge.js';
@@ -162,8 +162,21 @@ export async function handleStaffCommand(
       return;
     }
 
+    case '!resolve': {
+      const guestPhone = parts[1];
+      if (!guestPhone) {
+        await ctx.sendMessage(phone, '⚠️ Usage: !resolve <phone>\nExample: !resolve 60123456789', instanceId);
+        return;
+      }
+      // Normalize: strip leading + and non-digits for matching
+      const normalizedPhone = guestPhone.replace(/[^0-9]/g, '');
+      await resolveHandoff(normalizedPhone);
+      await ctx.sendMessage(phone, `✅ AI resumed for +${normalizedPhone}. Bot is back in autopilot mode.`, instanceId);
+      return;
+    }
+
     default:
-      await ctx.sendMessage(phone, '⚠️ Unknown command. Available: !update, !add, !list, !delete', instanceId);
+      await ctx.sendMessage(phone, '⚠️ Unknown command. Available: !update, !add, !list, !delete, !resolve', instanceId);
       return;
   }
 }

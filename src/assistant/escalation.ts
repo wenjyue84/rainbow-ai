@@ -1,11 +1,28 @@
 import type { EscalationContext, EscalationReason, EscalationTracker, SendMessageFn } from './types.js';
 import { getTemplate } from './formatter.js';
 import { configStore } from './config-store.js';
+import { updateSlots } from './conversation.js';
+import { updateConversationMode } from './conversation-logger.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 
 // Track pending escalations: guestPhone -> tracker
 const pendingEscalations = new Map<string, EscalationTracker>();
+
+// ─── Handoff Event Log (US-410) ─────────────────────────────────────
+export interface HandoffEvent {
+  phone: string;
+  reason: EscalationReason | string;
+  historyLength: number;
+  triggeredAt: number;      // Unix ms
+  resolvedAt: number | null; // Unix ms, set when staff resolves
+}
+
+const handoffLog: HandoffEvent[] = [];
+
+export function getHandoffLog(): HandoffEvent[] {
+  return handoffLog;
+}
 
 export function initEscalation(sendMessage: SendMessageFn): void {
   sendMessageFn = sendMessage;
@@ -37,18 +54,44 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   };
 
   const label = reasonLabels[context.reason] || 'Unknown reason';
-  const recentMsgs = context.recentMessages.slice(-3).join('\n> ');
+
+  // US-410: Include last 10 messages in escalation notification
+  const historyMessages = context.recentMessages.slice(-10);
+  const recentMsgs = historyMessages.map(m => `> ${m}`).join('\n');
 
   const staffMessage = [
-    `*[ESCALATION]* ${label}`,
+    `*[ESCALATION — BOT PAUSED]* ${label}`,
     ``,
     `*Guest:* ${context.pushName} (+${context.phone})`,
     `*Reason:* ${label}`,
     `*Last message:* ${context.originalMessage}`,
     ``,
-    `*Recent conversation:*`,
-    `> ${recentMsgs}`
+    `*Conversation history (last ${historyMessages.length}):*`,
+    recentMsgs,
+    ``,
+    `_Bot is paused for this guest. Reply !resolve ${context.phone} to resume AI._`
   ].join('\n');
+
+  // US-410: Set conversation to manual mode (freeze bot)
+  updateSlots(context.phone, { responseMode: 'manual' });
+  updateConversationMode(context.phone, 'manual').catch(() => { });
+  console.log(`[Handoff] Bot paused for ${context.phone} — reason: ${context.reason}`);
+
+  // US-410: Log handoff event
+  handoffLog.push({
+    phone: context.phone,
+    reason: context.reason,
+    historyLength: historyMessages.length,
+    triggeredAt: Date.now(),
+    resolvedAt: null
+  });
+
+  // US-410: Send holding message to guest
+  try {
+    await sendMessageFn(context.phone, "I've connected you with our team, they will respond shortly.", context.instanceId);
+  } catch (err: any) {
+    console.error('[Handoff] Failed to send holding message:', err.message);
+  }
 
   // Step 1: Send to primary (Alston)
   try {
@@ -101,6 +144,27 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   });
 
   return getTemplate('escalating', 'en');
+}
+
+// US-410: Resolve handoff — resume AI for a guest phone
+export async function resolveHandoff(guestPhone: string): Promise<boolean> {
+  // Set conversation back to autopilot
+  updateSlots(guestPhone, { responseMode: 'autopilot' });
+  await updateConversationMode(guestPhone, 'autopilot');
+
+  // Mark handoff event as resolved
+  const event = handoffLog.find(e => e.phone === guestPhone && e.resolvedAt === null);
+  if (event) {
+    event.resolvedAt = Date.now();
+  }
+
+  // Clear pending escalation timer
+  const tracker = pendingEscalations.get(guestPhone);
+  if (tracker?.timer) clearTimeout(tracker.timer);
+  pendingEscalations.delete(guestPhone);
+
+  console.log(`[Handoff] Resolved for ${guestPhone} — AI resumed`);
+  return true;
 }
 
 // Called from message-router when a staff phone sends a message — clears the timer
