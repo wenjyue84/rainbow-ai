@@ -15,9 +15,14 @@ const router = Router();
 /**
  * GET /webchat/conversations
  * List all webchat conversations (source = 'webchat' in rainbow_conversations).
+ * If x-profile-id header is provided, filter by that profile.
  */
 router.get('/webchat/conversations', async (_req: Request, res: Response) => {
   try {
+    const profileId = (res.locals as any)?.profileId as string | undefined;
+    const profileFilter = profileId ? 'AND c.profile_id = $1' : '';
+    const params: any[] = profileId ? [profileId] : [];
+
     const result = await pool.query(`
       SELECT
         c.phone,
@@ -52,8 +57,9 @@ router.get('/webchat/conversations', async (_req: Request, res: Response) => {
       ) uc ON true
       WHERE c.phone LIKE 'webchat-%'
         AND lm.content IS NOT NULL
+        ${profileFilter}
       ORDER BY lm.timestamp DESC
-    `);
+    `, params);
 
     const conversations = result.rows.map((r: any) => ({
       sessionId: r.phone.replace('webchat-', ''),

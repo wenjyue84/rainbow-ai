@@ -853,3 +853,27 @@ Here is the technical brief for user story US-401.
 ✅ profileId taken from :profileId URL parameter in POST /:profileId/message handler
 ✅ npm run build succeeds (esbuild compiled in 74ms)
 ✅ Server starts successfully and migration executes at startup
+
+## Iteration [5] - Story: US-402 - Filter admin webchat conversations by active profile
+### What was implemented
+- Modified GET /webchat/conversations endpoint to read profileId from res.locals.profileId (set by admin middleware)
+- Added conditional profile filter: if profileId is set, append AND c.profile_id = $1 to WHERE clause
+- Implemented backward compatibility: if no profileId header, return all sessions (no filter applied)
+- Sessions with NULL profile_id are automatically excluded when a profile filter is active (by SQL logic)
+
+### Patterns discovered
+- Admin endpoints use res.locals to pass authenticated data from middleware
+- Conditional SQL query building is done by building filter strings and params arrays dynamically
+- Parameter numbering ($1, $2, etc.) only includes params passed to pool.query()
+- Template literal interpolation (${profileFilter}) is safe for building WHERE clauses from trusted filter strings
+
+### Gotchas
+- NULL profile_id sessions from legacy webchat (before US-401) are excluded when a profile is selected (intended behavior)
+- No x-profile-id header = show all sessions (backward compat, needed for admin dashboard views that aren't profile-specific)
+- The endpoint already filters by c.phone LIKE 'webchat-%' so doesn't need source column check
+
+### Acceptance Criteria Status
+✅ GET /api/rainbow/webchat/conversations with x-profile-id header filters to that profile
+✅ GET /api/rainbow/webchat/conversations with NO header returns ALL sessions (backward compat)
+✅ NULL profile_id sessions excluded when profile filter is active
+✅ npm run build succeeds (57ms esbuild compilation)
