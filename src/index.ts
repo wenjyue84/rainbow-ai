@@ -38,6 +38,7 @@ import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
+import { loadQualityStateFromDb } from './lib/phone-quality.js';
 import { checkMetaCACert } from './lib/meta-ca-check.js';
 import { loadTodayCosts } from './assistant/llm-cost-budget.js';
 import { isReady, markReady, markListening } from './lib/readiness.js';
@@ -73,6 +74,13 @@ try {
   await ensureConfigTables();
 } catch (err: any) {
   console.warn('[Startup] Config tables setup failed (will use JSON files):', err.message);
+}
+
+// US-458: Load phone quality state from DB
+try {
+  await loadQualityStateFromDb();
+} catch (err: any) {
+  console.warn('[Startup] Phone quality state load failed (will default to UNKNOWN):', err.message);
 }
 
 // Initialize ProfileRegistry (multi-profile support)

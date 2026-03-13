@@ -448,6 +448,59 @@ export async function notifyAdminMessagingLimit(
 }
 
 /**
+ * Send phone number quality degradation alert to system admin (US-458).
+ * Fires when a phone_number_quality_update webhook reports FLAGGED, RESTRICTED,
+ * or RED quality rating. Throttled to at most one per 30 minutes per profile.
+ */
+const QUALITY_DEGRADE_COOLDOWN_MS = 30 * 60 * 1000;
+const lastQualityDegradeNotifyAt = new Map<string, number>();
+
+export async function notifyAdminQualityDegradation(
+  profileId: string,
+  rating: string,
+  status: string,
+  phoneNumber: string,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send quality degradation notification');
+    return;
+  }
+
+  const now = Date.now();
+  const lastAt = lastQualityDegradeNotifyAt.get(profileId) ?? 0;
+  if (now - lastAt < QUALITY_DEGRADE_COOLDOWN_MS) {
+    logger.info('Quality degradation notification skipped (cooldown)', { profileId });
+    return;
+  }
+  lastQualityDegradeNotifyAt.set(profileId, now);
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const blocked = status === 'FLAGGED' || status === 'RESTRICTED';
+  const message = `⚠️ *WhatsApp Phone Quality Alert*\n\n` +
+    `Profile: *${profileId}*\n` +
+    `Phone: ${phoneNumber}\n` +
+    `Quality Rating: *${rating}*\n` +
+    `Status: *${status}*\n` +
+    (blocked ? `\n🚫 *Outbound business-initiated messages are now BLOCKED* for this profile.\n` +
+      `Replies to user messages will still be sent.\n` +
+      `Block will be automatically lifted when status returns to CONNECTED.\n` : '') +
+    `\n**Actions:**\n` +
+    `1. Review message quality in Meta Business Manager\n` +
+    `2. Reduce outbound message volume\n` +
+    `3. Ensure messages provide value and are not perceived as spam\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent quality degradation notification', { profileId, rating, status });
+  } catch (err: any) {
+    logger.error('Failed to send quality degradation notification', { error: err.message });
+  }
+}
+
+/**
  * Send AI provider rate limit alert to system admin
  * Notifies when a provider hits too many consecutive 429 errors
  */

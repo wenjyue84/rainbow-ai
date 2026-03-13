@@ -2172,3 +2172,31 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 - appSettings upsert pattern: insert().onConflictDoUpdate({ target: [appSettings.key], set: {...} })
 ### Gotchas
 - The `limit` field returns 'unlimited' string (not Infinity) in JSON to avoid serialization issues
+## Iteration 5 - Fri, Mar 13, 2026 11:00:45 PM
+Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbound when flagged (ID: US-458) — attempt 2/3
+
+
+## Iteration 68 - Story: US-458 - Subscribe to phone_number_quality_update webhook and throttle outbound when flagged
+### What was implemented
+- Created `src/lib/phone-quality.ts` — in-memory quality state manager with DB persistence via `rainbow_configs` table
+  - `getQualityState()`, `getAllQualityStates()`, `isOutboundBlocked()`, `updateQualityState()`
+  - `loadQualityStateFromDb()` for startup initialization
+  - Blocks outbound when status is FLAGGED or RESTRICTED; auto-lifts when CONNECTED
+- Added `POST /webhooks/meta/quality` webhook handler in `src/routes/webhooks/index.ts`
+  - Parses phone_number_quality_update events (FLAGGED, UNFLAGGED, QUALITY_SCORE_CHANGE)
+  - Derives status from event type, updates quality state, triggers admin notification on degradation
+- Added `notifyAdminQualityDegradation()` to `src/lib/admin-notifier.ts` with 30-minute cooldown per profile
+- Created `src/routes/admin/phone-quality.ts` admin endpoint:
+  - `GET /analytics/phone-quality` — all profiles quality status
+  - `GET /analytics/phone-quality/:profileId` — single profile quality status
+- Added quality gate to `src/lib/message-scheduler.ts` — skips scheduled messages when outbound blocked
+- Added quality gate to `src/lib/daily-report.ts` — returns error when outbound blocked
+- Loaded quality state from DB on startup in `src/index.ts`
+- Wrote 9 unit tests in `src/assistant/__tests__/phone-quality.test.ts` — all pass
+### Patterns discovered
+- `rainbow_configs` key/JSONB store is the right place for per-profile state that needs persistence across restarts
+- Business-initiated messages (scheduler, daily-report) are distinct from reply messages — quality gate only blocks proactive outbound
+- Admin notifier cooldown pattern (Map + timestamp) is consistent with existing notifiers in the codebase
+### Gotchas
+- This project uses Baileys (direct WA connection), not Meta Cloud API — the webhook is for when a Meta Cloud API integration is also configured
+- `isOutboundBlocked()` checks for both FLAGGED and RESTRICTED status — RESTRICTED is a more severe version of FLAGGED

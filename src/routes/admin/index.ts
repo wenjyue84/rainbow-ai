@@ -51,6 +51,7 @@ import escalationsRoutes from './escalations.js';
 import qualityMetricsRoutes from './quality-metrics.js';
 import intentGapsRoutes from './intent-gaps.js';
 import messagingLimitsRoutes from './messaging-limits.js';
+import phoneQualityRoutes from './phone-quality.js';
 
 const router = Router();
 
@@ -145,6 +146,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
+  '/analytics/phone-quality',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -207,6 +209,7 @@ router.use(escalationsRoutes);
 router.use(qualityMetricsRoutes);
 router.use(intentGapsRoutes);
 router.use(messagingLimitsRoutes);
+router.use(phoneQualityRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

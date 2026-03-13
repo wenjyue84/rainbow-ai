@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from '
 import { join, dirname } from 'path';
 import { isFrequencyCapError, recordFrequencyCap, trackOutboundMarketing } from './frequency-cap.js';
 import { notifyAdminFrequencyCap } from './admin-notifier.js';
+import { isOutboundBlocked } from './phone-quality.js';
 
 const DATA_FILE = join(process.cwd(), 'data', 'scheduled-messages.json');
 
@@ -136,6 +137,12 @@ async function checkAndSend(): Promise<void> {
 
     // Time to send
     try {
+      // US-458: Block business-initiated messages when phone quality is FLAGGED
+      if (isOutboundBlocked('pelangi')) {
+        console.warn(`[Scheduler] Skipping message ${msg.id} — outbound blocked (phone quality FLAGGED)`);
+        continue;
+      }
+
       trackOutboundMarketing('pelangi');
       const { sendWhatsAppMessage } = await import('./baileys-client.js');
       await sendWhatsAppMessage(msg.phone, msg.content);

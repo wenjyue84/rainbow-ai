@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { callAPI } from './http-client.js';
 import { sendWhatsAppMessage, getWhatsAppStatus } from './baileys-client.js';
+import { isOutboundBlocked } from './phone-quality.js';
 
 const JAY_PHONE = '60127088789';
 
@@ -123,6 +124,11 @@ export async function sendDailyReport(phone?: string): Promise<{ success: boolea
     const status = getWhatsAppStatus();
     if (status.state !== 'open') {
       return { success: false, message: '', error: 'WhatsApp not connected' };
+    }
+
+    // US-458: Block business-initiated messages when phone quality is FLAGGED
+    if (isOutboundBlocked('pelangi')) {
+      return { success: false, message: '', error: 'Outbound blocked — phone quality FLAGGED' };
     }
 
     const msg = await buildDailyReport();
