@@ -877,3 +877,59 @@ Here is the technical brief for user story US-401.
 ✅ GET /api/rainbow/webchat/conversations with NO header returns ALL sessions (backward compat)
 ✅ NULL profile_id sessions excluded when profile filter is active
 ✅ npm run build succeeds (57ms esbuild compilation)
+## Iteration 1 - Fri, Mar 13, 2026  9:23:10 AM
+Completed: Store profile_id on webchat sessions in rainbow_conversations (ID: US-401) in 7m
+
+
+## Pre-analysis for US-403 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the WhatsApp opt-out feature in a Frappe/Python environment.
+
+**Project:** lhdn_payroll_integration
+**User Story:** US-403: Add WhatsApp opt-out / STOP command handling
+
+### Technical Implementation Brief
+
+This brief outlines the implementation of a WhatsApp opt-out feature within the Frappe framework, based on the provided user story.
+
+1.  **DocType Creation:**
+    *   Create a new Frappe DocType named `WhatsApp Opt Out`.
+    *   Fields: `phone` (Data, Unique, Indexed), `is_opted_out` (Check), `opted_out_at` (Datetime), `opted_in_at` (Datetime).
+    *   This DocType will serve as the persistent database record for user consent.
+
+2.  **Core Logic File:**
+    *   Modify `lhdn_payroll_integration/events/whatsapp.py` (or a similar central message processing file).
+    *   This file should contain the primary function that intercepts and processes all inbound messages.
+
+3.  **Implementation Approach:**
+    *   In the main message handler, immediately after receiving a message, query the `WhatsApp Opt Out` DocType to check if `is_opted_out` is true for the sender's phone number. If so, cease further processing.
+    *   Define lists for opt-out (`STOP`, `UNSUBSCRIBE`, `BERHENTI`, `停止`) and opt-in (`START`) keywords.
+    *   If the message matches an opt-out keyword (case-insensitive), create or update the `WhatsApp Opt Out` document: set `is_opted_out=1` and record the timestamp. Send the prescribed confirmation message.
+    *   If the message is `START`, update the document to set `is_opted_out=0` and send the re-subscription confirmation.
+
+4.  **Admin API Endpoint:**
+    *   Create a new whitelisted (`@frappe.whitelist()`) function `get_opt_outs` in `lhdn_payroll_integration/api.py`.
+    *   This function will use `frappe.db.get_list` to return a paginated list of all records where `is_opted_out=1`.
+    *   Ensure the function checks for "System Manager" role to restrict access.
+
+5.  **Gotchas & Edge Cases:**
+    *   Keyword matching must be exact, case-insensitive, and trimmed of whitespace.
+    *   This implementation assumes a pre-existing function for sending WhatsApp replies that can be called after processing the opt-out/in action.
+    *   The initial message processing check must be extremely lightweight to avoid unnecessary load.
+
+
+## Iteration 10 - Story: US-403 - Add WhatsApp opt-out / STOP command handling
+### What was implemented
+- Added `opt_outs` table to Drizzle schema (shared/schema-tables.ts) with phone PK, opted_out_at, opted_in_at
+- Created `src/assistant/opt-out.ts` service module with in-memory cache + DB persistence
+- Opt-out triggers: STOP, BERHENTI, 停止, UNSUBSCRIBE, OPT OUT (case-insensitive)
+- Opt-in triggers: START, MULA, 开始, SUBSCRIBE (case-insensitive)
+- Added opt-out check in `validateAndPrepare` (input-validator.ts) — runs before non-text/staff/rate-limit checks
+- Created admin API route `src/routes/admin/opt-outs.ts`: GET /opt-outs (paginated), DELETE /opt-outs/:phone
+- Opt-out cache loaded on startup alongside other DB configs in index.ts
+- Created opt_outs table in Neon DB via raw SQL (drizzle-kit push has a known conflict with excluded raw tables)
+### Patterns discovered
+- drizzle-kit push fails due to rainbow_config_audit sequence dependency — use raw SQL for new table creation
+- The opt-out check must go AFTER profile resolution but BEFORE staff command handling (staff should not be opted out)
+### Gotchas
+- drizzle-kit push cannot drop sequences used by excluded tables — workaround: CREATE TABLE IF NOT EXISTS via raw pg
+- The onConflictDoUpdate for opt-out upsert resets optedOutAt and clears optedInAt on re-opt-out

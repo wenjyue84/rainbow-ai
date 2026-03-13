@@ -35,6 +35,7 @@ import mcpServersRoutes from './mcp-servers.js';
 import webchatRoutes from './webchat.js';
 import integrationHealthRoutes from './integration-health.js';
 import diagnosticsRoutes from './diagnostics.js';
+import optOutsRoutes from './opt-outs.js';
 
 const router = Router();
 
@@ -151,6 +152,7 @@ router.use(mcpServersRoutes);
 router.use(webchatRoutes);
 router.use(integrationHealthRoutes);
 router.use(diagnosticsRoutes);
+router.use(optOutsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

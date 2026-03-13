@@ -19,6 +19,7 @@ import { logMessage, logNonTextExchange } from '../conversation-logger.js';
 import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } from '../knowledge.js';
 import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled } from '../sentiment-tracker.js';
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
+import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -146,6 +147,37 @@ export async function validateAndPrepare(
   const profileConfig = profile.configStore;
   const profileKB = profile.kb;
   const profileId = profile.id;
+
+  // ─── Opt-out / STOP compliance (US-403) ──────────────────────────
+  // Check opt-out commands before anything else (text messages only)
+  if (msg.messageType === 'text' && msg.text?.trim()) {
+    const trimmedText = msg.text.trim();
+
+    if (isOptOutCommand(trimmedText)) {
+      try {
+        await recordOptOut(phone);
+        await ctx.sendMessage(phone, 'You have been unsubscribed. Reply START to re-subscribe.', msg.instanceId);
+      } catch {
+        // Still return opted_out even if DB write fails
+      }
+      return { continue: false, reason: 'opted_out' };
+    }
+
+    if (isOptInCommand(trimmedText)) {
+      try {
+        await recordOptIn(phone);
+        await ctx.sendMessage(phone, 'Welcome back! You have been re-subscribed.', msg.instanceId);
+      } catch {
+        // Best effort
+      }
+      return { continue: false, reason: 'opted_in' };
+    }
+
+    // Block messages from opted-out numbers
+    if (isOptedOut(phone)) {
+      return { continue: false, reason: 'opted_out' };
+    }
+  }
 
   // Handle non-text messages
   if (msg.messageType !== 'text') {

@@ -151,6 +151,16 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   index("idx_rainbow_messages_phone_role_ts").on(table.phone, table.role, table.timestamp),
 ]));
 
+// ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
+
+export const optOuts = pgTable("opt_outs", {
+  phone: varchar("phone", { length: 64 }).primaryKey(),
+  optedOutAt: timestamp("opted_out_at").notNull().defaultNow(),
+  optedInAt: timestamp("opted_in_at"),
+}, (table) => ([
+  index("idx_opt_outs_opted_out_at").on(table.optedOutAt),
+]));
+
 // ─── Table-derived Types ─────────────────────────────────────────────
 
 export type AppSetting = typeof appSettings.$inferSelect;
@@ -167,3 +177,5 @@ export type RainbowConversation = typeof rainbowConversations.$inferSelect;
 export type InsertRainbowConversation = typeof rainbowConversations.$inferInsert;
 export type RainbowMessage = typeof rainbowMessages.$inferSelect;
 export type InsertRainbowMessage = typeof rainbowMessages.$inferInsert;
+export type OptOut = typeof optOuts.$inferSelect;
+export type InsertOptOut = typeof optOuts.$inferInsert;

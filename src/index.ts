@@ -33,6 +33,7 @@ import { ensureConfigTables } from './lib/config-db.js';
 import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
+import { loadOptOutCache } from './assistant/opt-out.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -102,6 +103,7 @@ try {
     reloadLLMSettingsFromDB(),
     loadIntentTiersFromDB(),
     initPricingFromDB(),
+    loadOptOutCache(),
   ]);
   console.log('[Startup] Standalone configs loaded from DB');
 } catch (err: any) {
