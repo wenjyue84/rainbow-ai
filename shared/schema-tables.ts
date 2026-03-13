@@ -246,6 +246,24 @@ export const optOuts = pgTable("opt_outs", {
   index("idx_opt_outs_opted_out_at").on(table.optedOutAt),
 ]));
 
+// ─── Utterance Gaps (US-432) ─────────────────────────────────────────
+
+export const utteranceGaps = pgTable("utterance_gaps", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  utteranceSample: varchar("utterance_sample", { length: 120 }).notNull(),
+  normalizedKey: varchar("normalized_key", { length: 120 }).notNull(), // lowercase, no punctuation
+  tierReached: varchar("tier_reached", { length: 16 }).notNull(), // T4, layer2, default, etc.
+  count: integer("count").notNull().default(1),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_utterance_gaps_profile_id").on(table.profileId),
+  index("idx_utterance_gaps_count").on(table.count),
+  index("idx_utterance_gaps_last_seen").on(table.lastSeenAt),
+  uniqueIndex("idx_utterance_gaps_profile_normalized").on(table.profileId, table.normalizedKey),
+]));
+
 // ─── Table-derived Types ─────────────────────────────────────────────
 
 export type AppSetting = typeof appSettings.$inferSelect;
@@ -272,3 +290,5 @@ export type ConversationTrace = typeof conversationTraces.$inferSelect;
 export type InsertConversationTrace = typeof conversationTraces.$inferInsert;
 export type MessageQualityMetric = typeof messageQualityMetrics.$inferSelect;
 export type InsertMessageQualityMetric = typeof messageQualityMetrics.$inferInsert;
+export type UtteranceGap = typeof utteranceGaps.$inferSelect;
+export type InsertUtteranceGap = typeof utteranceGaps.$inferInsert;

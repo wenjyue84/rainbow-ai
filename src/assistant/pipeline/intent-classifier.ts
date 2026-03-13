@@ -20,6 +20,7 @@ import { classifyWithTiers } from './stages/tier-classification.js';
 import { applyLayer2Fallback } from './stages/layer2-fallback.js';
 import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
+import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 
 export async function classifyAndRoute(
   state: PipelineState, ctx: RouterContext
@@ -81,6 +82,12 @@ export async function classifyAndRoute(
     result, kb.systemPrompt, summarization.contextMessages,
     processText, devMetadata, context
   );
+
+  // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
+  if (isIntentGap(devMetadata.source, result.confidence)) {
+    recordUtteranceGap(state.profileId, processText, devMetadata.source || 'unknown')
+      .catch(() => {}); // fire-and-forget
+  }
 
   // ─── Stage 5: Routing ─────────────────────────────────────────────
   const routing = await resolveRouting(state, result, ackSent, context);

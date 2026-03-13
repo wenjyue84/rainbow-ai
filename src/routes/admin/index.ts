@@ -47,6 +47,7 @@ import deliveryStatusRoutes from './delivery-status.js';
 import tracesRoutes from './traces.js';
 import escalationsRoutes from './escalations.js';
 import qualityMetricsRoutes from './quality-metrics.js';
+import intentGapsRoutes from './intent-gaps.js';
 
 const router = Router();
 
@@ -175,6 +176,7 @@ router.use(deliveryStatusRoutes);
 router.use(tracesRoutes);
 router.use(escalationsRoutes);
 router.use(qualityMetricsRoutes);
+router.use(intentGapsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {
