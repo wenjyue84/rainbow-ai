@@ -258,8 +258,8 @@ export async function validateAndPrepare(
     }
   }
 
-  // Rate limit check
-  const rateResult = checkRate(phone);
+  // Rate limit check (US-411: profile-specific limits)
+  const rateResult = checkRate(phone, profileConfig);
   if (!rateResult.allowed) {
     trackRateLimited(phone);
     const lang = detectLanguage(text);

@@ -1093,3 +1093,15 @@ Here is the technical brief based on the correct `Node.js` context:
 ### Gotchas
 - StateManager wraps ConversationState with Omit<..., 'lastActiveAt'> — be careful with type alignment when adding fields
 - The response-processor receives `convo` via PipelineState destructuring — has access to full ConversationState for window checks
+
+## Iteration 13 - Story: US-411 - Add per-profile rate limits configurable via settings.json
+### What was implemented
+- Updated `checkRate` signature in `src/assistant/rate-limiter.ts` to accept optional `profileConfig: ConfigStore` parameter
+- When profileConfig provided, reads `rate_limits` from profile-specific settings; otherwise falls back to global configStore
+- Updated call site in `src/assistant/pipeline/input-validator.ts` to pass `profileConfig` to `checkRate(phone, profileConfig)`
+- 5 unit tests: global defaults, profile-specific limits, different profiles on same phone, fallback behavior, per-hour enforcement
+### Patterns discovered
+- Same pattern as `isStaffPhone(jid, ctx, profileConfig)` — optional profileConfig with `store = profileConfig || configStore` fallback
+- Rate limit window state is per-phone globally (not per-profile) — this is correct since a phone is a phone regardless of which profile it comes through
+### Gotchas
+- None — clean 2-file change following established pattern

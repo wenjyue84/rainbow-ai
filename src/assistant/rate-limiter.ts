@@ -1,5 +1,6 @@
 import type { RateLimitResult } from './types.js';
 import { configStore } from './config-store.js';
+import type { ConfigStore } from './config-store.js';
 import { StateManager } from './state-manager.js';
 
 interface WindowEntry {
@@ -36,7 +37,7 @@ export function destroyRateLimiter(): void {
   windowManager.destroy();
 }
 
-export function checkRate(phone: string): RateLimitResult {
+export function checkRate(phone: string, profileConfig?: ConfigStore): RateLimitResult {
   const normalized = phone.replace(/\D/g, '');
 
   // Staff are exempt
@@ -44,7 +45,8 @@ export function checkRate(phone: string): RateLimitResult {
     return { allowed: true };
   }
 
-  const limits = configStore.getSettings().rate_limits;
+  const store = profileConfig || configStore;
+  const limits = store.getSettings().rate_limits;
   const now = Date.now();
 
   // StateManager.getOrCreate() handles TTL checking automatically
