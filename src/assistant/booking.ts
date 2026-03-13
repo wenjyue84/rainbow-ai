@@ -2,6 +2,7 @@ import type { BookingState, BookingStepResult, CallAPIFn, ChatMessage } from './
 import { calculatePrice } from './pricing.js';
 import { formatPriceBreakdown, formatDate, getTemplate } from './formatter.js';
 import { isAIAvailable, chat } from './ai-client.js';
+import { bookingExtractionSchema, safeParseLLMResponse } from './schemas.js';
 
 export type Language = 'en' | 'ms' | 'zh';
 
@@ -105,17 +106,29 @@ If you cannot extract any dates, respond:
     messages.push({ role: 'user', content: userMessage });
 
     const aiResponse = await chat(extractPrompt, history.slice(-5), userMessage);
-    // Try to parse JSON from the response
-    const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.understood === false) return null;
+    const validated = safeParseLLMResponse(aiResponse, bookingExtractionSchema, 'bookingExtraction');
+    if (validated.success) {
+      if (validated.data.understood === false) return null;
       return {
-        checkIn: parsed.checkIn || undefined,
-        checkOut: parsed.checkOut || undefined,
-        guests: typeof parsed.guests === 'number' ? parsed.guests : undefined,
+        checkIn: validated.data.checkIn || undefined,
+        checkOut: validated.data.checkOut || undefined,
+        guests: validated.data.guests || undefined,
         understood: true
       };
+    }
+    // Zod validation failed — try partial recovery from raw JSON
+    const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.understood === false) return null;
+        return {
+          checkIn: parsed.checkIn || undefined,
+          checkOut: parsed.checkOut || undefined,
+          guests: typeof parsed.guests === 'number' ? parsed.guests : undefined,
+          understood: true
+        };
+      } catch { /* fall through */ }
     }
   } catch (err: any) {
     console.warn('[Booking] AI extraction failed:', err.message);

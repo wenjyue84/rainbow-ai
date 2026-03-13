@@ -10,7 +10,7 @@ import {
   isAIAvailable, getAISettings, getProviders, resolveApiKey,
   getGroqInstance, providerChat, chatWithFallback
 } from './ai-provider-manager.js';
-import { aiResponseSchema, aiResponseActionSchema } from './schemas.js';
+import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -227,11 +227,25 @@ export async function classifyAndRespondWithSmartFallback(
 
       if (!content) continue;
 
-      const parsed = JSON.parse(content);
+      const validated = safeParseLLMResponse(content, aiResponseSchema, `smartFallback:${provider.name}`);
       const responseTime = Date.now() - startTime;
 
+      if (validated.success) {
+        console.log(
+          `[AI] Smart fallback success: ${provider.name} (${responseTime}ms) ` +
+          `confidence: ${validated.data.confidence}`
+        );
+        return {
+          ...validated.data,
+          model: provider.name,
+          responseTime
+        };
+      }
+
+      // Zod validation failed — try partial recovery
+      const parsed = JSON.parse(content);
       console.log(
-        `[AI] Smart fallback success: ${provider.name} (${responseTime}ms) ` +
+        `[AI] Smart fallback partial recovery: ${provider.name} (${responseTime}ms) ` +
         `confidence: ${parsed.confidence}`
       );
 
@@ -304,12 +318,21 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
   const responseTime = Date.now() - startTime;
 
   if (content) {
+    const validated = safeParseLLMResponse(content, replyOnlyResultSchema, 'generateReplyOnly');
+    if (validated.success) {
+      return {
+        response: validated.data.response.trim(),
+        confidence: validated.data.confidence ?? 0.7,
+        model: provider?.name || provider?.model || 'unknown',
+        responseTime
+      };
+    }
+    // Zod validation failed — try partial recovery
     try {
       const parsed = JSON.parse(content);
       const confidence = typeof parsed.confidence === 'number'
         ? Math.min(1, Math.max(0, parsed.confidence))
         : 0.7;
-
       const responseText = typeof parsed.response === 'string' ? parsed.response.trim() : '';
       return {
         response: responseText,

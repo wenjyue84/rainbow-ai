@@ -7,6 +7,7 @@ import { configStore } from './config-store.js';
 import { getContextWindows } from './context-windows.js';
 import { isAIAvailable, getAISettings, chatWithFallback, getProviders } from './ai-provider-manager.js';
 import { getLLMSettings } from './llm-settings-loader.js';
+import { classifyResultSchema, safeParseLLMResponse } from './schemas.js';
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -178,6 +179,12 @@ export async function classifyIntent(
   const { content, usage } = await chatWithFallback(messages, aiCfg.max_classify_tokens, aiCfg.classify_temperature, true, t4Ids);
 
   if (content) {
+    const validated = safeParseLLMResponse(content, classifyResultSchema, 'classifyIntent');
+    if (validated.success) {
+      const result = parseClassifyResult(validated.data);
+      return { ...result, usage };
+    }
+    // Zod validation failed — try partial recovery from raw JSON
     try {
       const parsed = JSON.parse(content);
       const result = parseClassifyResult(parsed);
@@ -243,10 +250,25 @@ export async function classifyOnly(
   const responseTime = Date.now() - startTime;
 
   if (content) {
+    const validated = safeParseLLMResponse(content, classifyResultSchema, 'classifyOnly');
+    const routing = configStore.getRouting();
+    const definedIntents = Object.keys(routing);
+
+    if (validated.success) {
+      const d = validated.data;
+      const cat = d.category;
+      const intent = definedIntents.includes(cat) ? cat : 'general';
+      return {
+        intent,
+        confidence: d.confidence,
+        model: provider?.name || provider?.model || 'unknown',
+        responseTime,
+        usage
+      };
+    }
+    // Zod validation failed — try partial recovery from raw JSON
     try {
       const parsed = JSON.parse(content);
-      const routing = configStore.getRouting();
-      const definedIntents = Object.keys(routing);
       const intent = typeof parsed.category === 'string' && definedIntents.includes(parsed.category)
         ? parsed.category
         : (typeof parsed.intent === 'string' && definedIntents.includes(parsed.intent)

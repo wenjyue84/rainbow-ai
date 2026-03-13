@@ -264,6 +264,95 @@ export const updateSingleRouteRequestSchema = z.object({
   { message: 'workflow_id required when action is workflow' }
 );
 
+// ─── LLM Classification Result ──────────────────────────────────────
+
+export const classifyResultSchema = z.object({
+  category: z.string(),
+  confidence: z.number().min(0).max(1),
+  entities: z.record(z.string(), z.unknown()).optional().default({}),
+});
+export type ClassifyResult = z.infer<typeof classifyResultSchema>;
+
+// ─── LLM Reply-Only Result ─────────────────────────────────────────
+
+export const replyOnlyResultSchema = z.object({
+  response: z.string(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+export type ReplyOnlyResult = z.infer<typeof replyOnlyResultSchema>;
+
+// ─── LLM Booking Extraction Result ─────────────────────────────────
+
+export const bookingExtractionSchema = z.object({
+  checkIn: z.string().optional(),
+  checkOut: z.string().optional(),
+  guests: z.number().int().positive().optional(),
+  understood: z.boolean(),
+});
+export type BookingExtraction = z.infer<typeof bookingExtractionSchema>;
+
+// ─── Safe LLM Response Parser ──────────────────────────────────────
+
+export interface LLMParseSuccess<T> {
+  success: true;
+  data: T;
+}
+
+export interface LLMParseFailure {
+  success: false;
+  error: string;
+}
+
+export type LLMParseResult<T> = LLMParseSuccess<T> | LLMParseFailure;
+
+/**
+ * Safely parse a raw LLM response string through a Zod schema.
+ * Logs structured validation errors with schema path and received value.
+ * Returns { success, data } or { success: false, error }.
+ */
+export function safeParseLLMResponse<T>(
+  raw: string,
+  schema: z.ZodType<T>,
+  context: string
+): LLMParseResult<T> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Try extracting JSON from mixed text (LLMs sometimes wrap in markdown)
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        console.warn(`[LLMValidation:${context}] Could not extract valid JSON from response`);
+        return { success: false, error: 'Invalid JSON in LLM response' };
+      }
+    } else {
+      console.warn(`[LLMValidation:${context}] No JSON found in response`);
+      return { success: false, error: 'No JSON in LLM response' };
+    }
+  }
+
+  const result = schema.safeParse(parsed);
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+
+  // Log detailed validation errors with schema path and received value
+  const issues = result.error.issues.map(issue => ({
+    path: issue.path.join('.') || '(root)',
+    message: issue.message,
+    received: issue.path.reduce((obj: any, key) => obj?.[key], parsed),
+  }));
+  console.warn(
+    `[LLMValidation:${context}] Schema validation failed:`,
+    JSON.stringify(issues)
+  );
+
+  return { success: false, error: `Validation failed: ${issues.map(i => `${i.path}: ${i.message}`).join(', ')}` };
+}
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {

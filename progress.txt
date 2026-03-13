@@ -1797,3 +1797,43 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 ## Iteration 5 - Fri, Mar 13, 2026  4:00:41 PM
 Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (ID: US-457) — attempt 2/3
 
+
+## Iteration 6 - Story: US-459 - Validate LLM JSON responses with Zod schemas before downstream processing
+
+### What was implemented
+- Added 3 new Zod schemas to `src/assistant/schemas.ts`:
+  - `classifyResultSchema` — validates LLM classification responses (category/confidence/entities)
+  - `replyOnlyResultSchema` — validates reply-only responses (response/confidence)
+  - `bookingExtractionSchema` — validates booking extraction responses (checkIn/checkOut/guests/understood)
+- Created `safeParseLLMResponse<T>(raw, schema, context)` utility:
+  - Parses raw string through JSON.parse, then validates with Zod schema
+  - Handles markdown-wrapped JSON (extracts `{...}` from mixed text)
+  - Logs structured validation errors with schema path and received value
+  - Returns discriminated union `{ success: true, data: T } | { success: false, error: string }`
+- Migrated 5 LLM response parse sites to Zod-first validation with graceful fallback:
+  1. `classifyIntent()` in ai-classification.ts — classification result
+  2. `classifyOnly()` in ai-classification.ts — classification result
+  3. `classifyAndRespondWithSmartFallback()` in ai-response-generator.ts — full AI response
+  4. `generateReplyOnly()` in ai-response-generator.ts — reply-only result
+  5. `aiExtractBookingInfo()` in booking.ts — booking extraction result
+- All sites: Zod validation first, partial recovery fallback if Zod fails, existing error handling preserved
+- Wrote 14 Vitest tests in `src/assistant/__tests__/llm-validation.test.ts`:
+  - safeParseLLMResponse: valid parse, markdown extraction, structured errors, invalid JSON, optional defaults
+  - replyOnlyResultSchema: valid, optional confidence, missing response rejection
+  - bookingExtractionSchema: valid extraction, understood=false, missing field rejection
+  - aiResponseSchema: valid full response, invalid action rejection, confidence bounds
+
+### Patterns discovered
+- `safeParseLLMResponse` handles the common LLM pattern of wrapping JSON in markdown code blocks
+- Using `z.record(z.string(), z.unknown()).optional().default({})` provides safe defaults for optional nested objects
+- Zod `safeParse` + `error.issues` gives structured paths like `["confidence"]` for precise error reporting
+
+### Acceptance Criteria Met
+✓ All tool-call response payloads and structured LLM outputs validated through Zod schema before use
+✓ When Zod validation fails, error caught and pipeline enters partial recovery / existing fallback path
+✓ Validation errors include schema path and received value in log entry (JSON.stringify of issues array)
+✓ Schemas co-located in src/assistant/schemas.ts
+✓ 4+ existing response types migrated: classify result, AI response, reply-only, booking extraction
+✓ No new runtime dependencies (uses existing zod package)
+✓ npm run build succeeds
+✓ All 14 tests pass
