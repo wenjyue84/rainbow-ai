@@ -1931,3 +1931,25 @@ Incomplete: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (
 ## Iteration 5 - Fri, Mar 13, 2026  9:03:33 PM
 Completed: Instrument LLM calls with OpenTelemetry GenAI semantic conventions (ID: US-457) in 8m
 
+
+## Iteration 7 - Story: US-477 Handle WhatsApp BSUID in message routing
+### What was implemented
+- Added `bsuid` column (varchar 128, unique index) to `rainbow_conversations` schema
+- Added `bsuid` field to `IncomingMessage` type
+- Created `isBsuid()` and `extractBsuid()` functions in instance.ts to detect BSUID from Baileys messages (checks msg.lid, msg.key.participant, and from JID)
+- Created `conversationKey()` function in conversation-db.ts: BSUID-only users get `bsuid:CC.VALUE` prefixed keys, dual-identifier users keep phone as key
+- Updated `canonicalPhoneKey()` to preserve BSUID-prefixed keys
+- Updated `upsertConversation()` to accept/store BSUID and merge BSUID-only records when phone becomes available
+- Added `lookupPhoneByBsuid()` for fallback conversation lookup
+- Added BSUID fallback to `getConversation()` 
+- Passed `bsuid` through the full pipeline: input-validator → conversation-logger → response-processor → state-executor → intent-classifier
+- 12 unit tests covering isBsuid, conversationKey, and canonicalPhoneKey for E.164-only, BSUID-only, and dual-identifier scenarios
+### Patterns discovered
+- BSUID format: `CC.BSUID` (2-letter country code + dot + alphanumeric, up to 128 chars)
+- In Baileys, BSUID surfaces via `msg.lid` field (linked identity)
+- `canonicalPhoneKey` extracts digits which corrupts BSUIDs — needed special prefix handling
+- Drizzle transaction objects (`tx`) support all db methods (select, update, delete, insert)
+### Gotchas
+- `canonicalPhoneKey("MY.abc123")` would extract just "123" (digits), colliding with real phone numbers — solved with BSUID prefix
+- `drizzle-kit push` is interactive when tables exist that aren't in schema — schema change needs to be applied during deploy
+- `upsertConversation` type signature needed widening from `Pick<db, 'insert'>` to include `select|update|delete` for merge logic

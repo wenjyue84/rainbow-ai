@@ -51,6 +51,7 @@ export async function classifyAndRoute(
       await ctx.sendMessage(phone, ackText, msg.instanceId);
       context.logMessage(phone, msg.pushName ?? 'Guest', 'assistant', ackText, {
         action: 'thinking', instanceId: msg.instanceId,
+        ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
       }).catch(() => {});
       console.log(`[Router] Sent thinking ack to ${phone} (LLM taking >3s)`);
     } catch { /* non-fatal */ }

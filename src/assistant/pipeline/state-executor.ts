@@ -109,6 +109,7 @@ export async function handleActiveStates(
     addMessage(phone, 'assistant', result.response, profileId);
     logMessage(phone, msg.pushName, 'assistant', result.response, {
       action, instanceId: msg.instanceId, profileId,
+      ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
     }).catch(() => { });
 
     const cleanResponse = ensureResponseText(result.response, lang);
@@ -158,7 +159,7 @@ export async function handleActiveStates(
 
           const cleanResponse = ensureResponseText(workflowResult.response, lang);
           addMessage(phone, 'assistant', cleanResponse, profileId);
-          logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
+          logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId, ...(msg.bsuid ? { bsuid: msg.bsuid } : {}) }).catch(() => { });
           await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
           return { handled: true };
         }

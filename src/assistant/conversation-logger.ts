@@ -18,6 +18,7 @@ import { rainbowConversations, rainbowMessages } from '../../shared/schema-table
 import {
   ensureDb,
   canonicalPhoneKey,
+  conversationKey,
   rowToMessage,
   upsertConversation,
   invalidateListCache,
@@ -86,7 +87,8 @@ export async function logMessage(
   if (!(await ensureDb())) return;
 
   try {
-    const key = canonicalPhoneKey(phone);
+    const bsuid = meta?.bsuid as string | undefined;
+    const key = conversationKey(phone, bsuid);
     const now = new Date();
 
     // DB-level dedup: skip if identical message was logged in the last 10 seconds.
@@ -108,8 +110,8 @@ export async function logMessage(
 
     // Wrap upsert + insert + cap-delete in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      // Upsert conversation (with profileId so it's correctly scoped)
-      await upsertConversation(key, pushName, meta?.instanceId, tx, meta?.profileId);
+      // Upsert conversation (with profileId and bsuid so it's correctly scoped)
+      await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid);
 
       // Insert message
       await tx.insert(rainbowMessages).values({
@@ -179,12 +181,13 @@ export async function logNonTextExchange(
   userPlaceholder: string,
   assistantReply: string,
   instanceId?: string,
-  profileId?: string
+  profileId?: string,
+  bsuid?: string
 ): Promise<void> {
   if (!(await ensureDb())) return;
 
   try {
-    const key = canonicalPhoneKey(phone);
+    const key = conversationKey(phone, bsuid);
     const now = new Date();
     const nowPlus1 = new Date(now.getTime() + 1);
 
@@ -205,7 +208,7 @@ export async function logNonTextExchange(
 
     // Wrap upsert + insert in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      await upsertConversation(key, pushName, instanceId, tx, profileId);
+      await upsertConversation(phone, pushName, instanceId, tx, profileId, bsuid);
 
       // Insert both messages
       await tx.insert(rainbowMessages).values([
@@ -304,7 +307,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
   );
 }
 
-/** Get full conversation log for a phone number */
+/** Get full conversation log for a phone number or BSUID */
 export async function getConversation(phone: string): Promise<ConversationLog | null> {
   if (!(await ensureDb())) return null;
 
@@ -312,11 +315,20 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
     async () => {
       const key = canonicalPhoneKey(phone);
 
-      const convoRows = await db
+      let convoRows = await db
         .select()
         .from(rainbowConversations)
         .where(eq(rainbowConversations.phone, key))
         .limit(1);
+
+      // US-477: Fallback — try BSUID lookup if phone lookup found nothing
+      if (convoRows.length === 0) {
+        convoRows = await db
+          .select()
+          .from(rainbowConversations)
+          .where(eq(rainbowConversations.bsuid, phone))
+          .limit(1);
+      }
 
       if (convoRows.length === 0) return null;
       const convo = convoRows[0];

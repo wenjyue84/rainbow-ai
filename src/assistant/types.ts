@@ -5,7 +5,7 @@ import type { FlowState } from './pipeline/types.js';
 export type MessageType = 'text' | 'image' | 'audio' | 'video' | 'sticker' | 'document' | 'contact' | 'location';
 
 export interface IncomingMessage {
-  from: string;        // Phone number (no @s.whatsapp.net)
+  from: string;        // Phone number (no @s.whatsapp.net) or BSUID if phone hidden
   text: string;
   pushName: string;    // WhatsApp display name
   messageId: string;
@@ -15,6 +15,7 @@ export interface IncomingMessage {
   instanceId?: string; // Which WhatsApp instance received this message
   rawMessage?: any;    // Raw Baileys message for media download (US-438)
   transcribed?: boolean; // True if text was transcribed from voice note (US-438)
+  bsuid?: string;      // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
 }
 
 // ─── Intent Classification ──────────────────────────────────────────

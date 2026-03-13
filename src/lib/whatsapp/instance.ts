@@ -7,6 +7,41 @@ import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } fro
 import { LidMapper } from './lid-mapper.js';
 import { ensureAvatar } from './avatar-cache.js';
 
+// US-477: BSUID pattern — two-letter country code + dot + alphanumeric (up to 128 chars)
+const BSUID_PATTERN = /^[A-Z]{2}\.[A-Za-z0-9]{1,125}$/;
+
+/**
+ * Check if a string matches the WhatsApp Business-Scoped User ID format.
+ * Format: CC.BSUID where CC is a two-letter country code.
+ */
+export function isBsuid(value: string): boolean {
+  return BSUID_PATTERN.test(value);
+}
+
+/**
+ * Extract BSUID from a Baileys message if present.
+ * Checks: msg.lid field, msg.key.participant, and the resolved `from` JID itself.
+ */
+function extractBsuid(msg: any, resolvedFrom: string): string | undefined {
+  // 1. Check explicit lid field on the message (Baileys v7+)
+  if (msg.lid && typeof msg.lid === 'string') {
+    const raw = msg.lid.replace(/@.*$/, ''); // strip @lid or @s.whatsapp.net suffix
+    if (isBsuid(raw)) return raw;
+  }
+
+  // 2. Check msg.key.participant (group messages or forwarded identity)
+  if (msg.key?.participant && typeof msg.key.participant === 'string') {
+    const raw = msg.key.participant.replace(/@.*$/, '');
+    if (isBsuid(raw)) return raw;
+  }
+
+  // 3. Check if the resolved `from` JID itself is a BSUID (phone hidden)
+  const fromStripped = resolvedFrom.replace(/@.*$/, '');
+  if (isBsuid(fromStripped)) return fromStripped;
+
+  return undefined;
+}
+
 export class WhatsAppInstance {
   id: string;
   label: string;
@@ -312,6 +347,11 @@ export class WhatsAppInstance {
         console.warn(`[Baileys:${this.id}] Unresolved LID: ${remoteJid} (no phone mapping yet)`);
       }
 
+      // US-477: Extract BSUID (Business-Scoped User ID) if present.
+      // Baileys surfaces this as the `lid` field on messages. Format: CC.BSUID
+      // where CC is a two-letter country code and BSUID is alphanumeric (up to 128 chars).
+      const bsuid = extractBsuid(msg, from);
+
       const incoming: IncomingMessage = {
         from,
         text,
@@ -321,7 +361,8 @@ export class WhatsAppInstance {
         timestamp: msg.messageTimestamp ? Number(msg.messageTimestamp) : Math.floor(Date.now() / 1000),
         messageType,
         instanceId: this.id,
-        rawMessage: messageType === 'audio' ? msg : undefined
+        rawMessage: messageType === 'audio' ? msg : undefined,
+        ...(bsuid ? { bsuid } : {}),
       };
 
       if (!isGroup) ensureAvatar(from).catch(() => {}); // fire-and-forget

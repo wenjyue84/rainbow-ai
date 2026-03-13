@@ -267,7 +267,7 @@ export async function validateAndPrepare(
           const fallbackText = fallbackReplies?.[lang]
             || 'Sorry, I couldn\'t understand your voice note. Please type your request.';
           await ctx.sendMessage(phone, fallbackText, msg.instanceId);
-          await logNonTextExchange(phone, msg.pushName, '[Voice message]', fallbackText, msg.instanceId, profileId);
+          await logNonTextExchange(phone, msg.pushName, '[Voice message]', fallbackText, msg.instanceId, profileId, msg.bsuid);
           return { continue: false, reason: 'voice_transcription_failed' };
         }
       }
@@ -280,7 +280,7 @@ export async function validateAndPrepare(
       const nonTextLabel = getNonTextPlaceholder(msg.messageType);
       const replyText = getTemplate('non_text', lang);
       await ctx.sendMessage(phone, replyText, msg.instanceId);
-      await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId);
+      await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId, msg.bsuid);
       return { continue: false, reason: 'non_text' };
     }
   }
@@ -392,7 +392,8 @@ export async function validateAndPrepare(
   addMessage(phone, 'user', text, profileId);
   logMessage(phone, msg.pushName, 'user', text, {
     instanceId: msg.instanceId, profileId,
-    ...(msg.transcribed ? { transcribed: true, messageType: 'audio' } : {})
+    ...(msg.transcribed ? { transcribed: true, messageType: 'audio' } : {}),
+    ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
   }).catch(() => { });
   const lang = convo.language;
 

@@ -127,7 +127,8 @@ export async function processAndSend(
     routedAction: devMetadata.routedAction,
     workflowId: devMetadata.workflowId,
     stepId: devMetadata.stepId,
-    usage: devMetadata.usage
+    usage: devMetadata.usage,
+    ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
   };
 
   if (mode === 'manual') {

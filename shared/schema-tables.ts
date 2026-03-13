@@ -112,6 +112,7 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
 
 export const rainbowConversations = pgTable("rainbow_conversations", {
   phone: varchar("phone", { length: 64 }).primaryKey(),
+  bsuid: varchar("bsuid", { length: 128 }),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
   profileId: text("profile_id").default('pelangi'),
@@ -123,7 +124,9 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
-});
+}, (table) => ([
+  uniqueIndex("idx_rainbow_conversations_bsuid").on(table.bsuid),
+]));
 
 export const rainbowMessages = pgTable("rainbow_messages", {
   id: serial("id").primaryKey(),
