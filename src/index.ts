@@ -488,6 +488,19 @@ app.get(`/:tab(${dashboardTabs.join('|')})`, async (req, res) => {
 // MCP protocol endpoint
 app.post('/mcp', mcpLimiter, createMCPHandler());
 
+// Configure HTTP server timeouts to prevent 502s from load balancer keep-alive races.
+// Node.js defaults (keepAliveTimeout=5s, headersTimeout=60s) are shorter than AWS ALB (60s),
+// causing intermittent 502s when the server closes a keep-alive connection the LB is reusing.
+const KEEP_ALIVE_TIMEOUT = parseInt(process.env.SERVER_KEEP_ALIVE_TIMEOUT || '65000', 10);
+const HEADERS_TIMEOUT = parseInt(process.env.SERVER_HEADERS_TIMEOUT || '66000', 10);
+const REQUEST_TIMEOUT = parseInt(process.env.SERVER_REQUEST_TIMEOUT || '30000', 10);
+
+server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT;
+server.headersTimeout = HEADERS_TIMEOUT;
+server.requestTimeout = REQUEST_TIMEOUT;
+// Destroy sockets that have been open but idle beyond headersTimeout
+server.setTimeout(HEADERS_TIMEOUT + 1000);
+
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {
   const apiUrl = getApiBaseUrl();
@@ -495,6 +508,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
   console.log(`Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`API URL: ${apiUrl}${process.env.DIGIMAN_MANAGER_HOST || process.env.PELANGI_MANAGER_HOST ? ' (internal host)' : ''}`);
+  console.log(`Server timeouts: keepAlive=${KEEP_ALIVE_TIMEOUT}ms headers=${HEADERS_TIMEOUT}ms request=${REQUEST_TIMEOUT}ms`);
 
   // Startup connectivity check: warn if digiman API is unreachable
   setImmediate(async () => {

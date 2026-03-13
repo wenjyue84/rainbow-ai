@@ -1974,3 +1974,24 @@ Completed: Handle WhatsApp BSUID (Business-Scoped User ID) in message routing (I
 - Startup test showed warning fires correctly: "19 day(s) until 2026-04-01 deadline!"
 - The placeholder PEM file starts with `#` — the check uses `isPlaceholder()` to detect this and still warns
 - Real cert must replace deploy/certs/meta-outbound-api-ca-2025-12.pem before 2026-04-01 for mTLS to work
+## Iteration 2 - Fri, Mar 13, 2026  9:48:26 PM
+Completed: Add Meta CA certificate trust store update for mTLS webhook continuity (ID: US-478) in 6m
+
+
+## Iteration N - Story: US-481 - Configure Express HTTP server keep-alive and headers timeouts
+### What was implemented
+- Added `server.keepAliveTimeout = 65000` (> AWS ALB default 60s)
+- Added `server.headersTimeout = 66000` (> keepAliveTimeout per Node docs)
+- Added `server.requestTimeout = 30000`
+- Added `server.setTimeout(headersTimeout + 1000)` for idle socket cleanup
+- All values configurable via `SERVER_KEEP_ALIVE_TIMEOUT`, `SERVER_HEADERS_TIMEOUT`, `SERVER_REQUEST_TIMEOUT` env vars
+- Startup log line: `Server timeouts: keepAlive=Xms headers=Xms request=Xms`
+- Documented all three env vars in `.env.example`
+### Patterns discovered
+- Server is created at line 174 via `createHttpServer(app)`, then `.listen()` is called at ~492
+- Timeout properties must be set BEFORE or AFTER `.listen()` — both work; set before listen callback for clarity
+- Build: esbuild only (no tsc) — build takes ~91ms
+- Startup takes ~30s due to DB connectivity + config loading from Neon
+### Gotchas
+- `server.setTimeout()` sets socket inactivity timeout (not request timeout) — set slightly above headersTimeout
+- `requestTimeout` is Node 18+ only — fine for this project (Node 18+ required)
