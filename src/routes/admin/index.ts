@@ -40,6 +40,7 @@ import kbHealthRoutes from './kb-health.js';
 import dataRetentionRoutes from './data-retention.js';
 import gdprErasureRoutes from './gdpr-erasure.js';
 import consentRoutes from './consent.js';
+import llmCostRoutes from './llm-cost.js';
 
 const router = Router();
 
@@ -107,7 +108,7 @@ const STABLE_PATHS = [
 // Semi-stable endpoints (aggregated stats, refresh every 30s)
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
-  '/conversations/stats', '/intent-manager/stats',
+  '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -161,6 +162,7 @@ router.use(kbHealthRoutes);
 router.use(dataRetentionRoutes);
 router.use(gdprErasureRoutes);
 router.use(consentRoutes);
+router.use(llmCostRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

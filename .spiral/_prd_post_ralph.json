@@ -470,7 +470,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "large",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-409",
@@ -515,7 +515,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-411",
@@ -558,7 +558,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-413",
@@ -739,7 +739,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-421",
@@ -825,7 +825,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-425",
@@ -1077,6 +1077,426 @@
         "Use Node.js stream pipeline to avoid loading all records into memory for large exports",
         "CSV generation: use fast-csv or papaparse npm package",
         "Reference: https://getstream.io/chat/docs/react/gdpr/ and https://quickchat.ai/post/gdpr-compliant-chatbot-guide"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-437",
+      "title": "Implement graceful shutdown with connection draining on SIGTERM",
+      "priority": "critical",
+      "description": "The current src/index.ts has no SIGTERM/SIGINT handler — PM2 will SIGKILL the process after its timeout if the server does not self-terminate. In-flight requests are dropped, the Baileys WebSocket is not cleanly closed, and the PostgreSQL pool is not drained. The fix intercepts signals, adds a Connection: close header during the drain window, and calls pool.end() and sock.logout() before exit.",
+      "acceptanceCriteria": [
+        "SIGTERM handler registered in src/index.ts; process exits within 10 s under normal load",
+        "In-flight HTTP requests complete before server closes (verified with a slow-response integration test)",
+        "pool.end() is called; no 'client was closed and is not queryable' errors in logs after shutdown",
+        "Baileys socket sock?.end() called for each WhatsApp instance before exit",
+        "PM2 kill_timeout in ecosystem.config.cjs raised to 12000 ms to allow the 10 s drain window"
+      ],
+      "technicalNotes": [
+        "Use server.close() + track active connections via connection/close events",
+        "PM2 default signal is SIGINT, configurable via kill_signal in ecosystem config",
+        "server-destroy npm package is an alternative for tracking active connections"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-438",
+      "title": "Transcribe incoming WhatsApp voice notes via Whisper API",
+      "priority": "high",
+      "description": "The pipeline returns early for non-text messages with no text field — voice notes from guests go completely unhandled. Groq (already an LLM provider) exposes a Whisper-compatible endpoint. The fix downloads the audio buffer via Baileys downloadMediaMessage, POSTs to Groq Whisper, and injects the transcript as the message text before classification.",
+      "acceptanceCriteria": [
+        "Incoming audioMessage produces a transcript string injected into IncomingMessage.text before the pipeline runs",
+        "If transcription fails, a polite fallback reply is sent: 'Sorry, I couldn't understand your voice note. Please type your request.'",
+        "Transcript latency is logged; P95 must be < 5 s on a 10-second voice note",
+        "Feature can be disabled per-profile via settings.json (voiceTranscription.enabled: false)",
+        "Transcribed text is stored in rainbow_messages alongside a transcribed: true flag for audit"
+      ],
+      "technicalNotes": [
+        "Use downloadMediaMessage(msg, 'buffer') from Baileys to get audio buffer",
+        "Groq Whisper endpoint: POST /openai/v1/audio/transcriptions with model: 'whisper-large-v3'",
+        "Audio from Baileys arrives as Opus/OGG; convert with ffmpeg child process or @ffmpeg-installer/ffmpeg"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-439",
+      "title": "Expose PostgreSQL pool metrics in /health/ready endpoint",
+      "priority": "high",
+      "description": "The /health/ready endpoint has no visibility into pool.totalCount, pool.idleCount, or pool.waitingCount. Pool exhaustion causes silent hangs rather than fast-fail errors. The readiness check should expose these metrics and flag degraded status when waitingCount > 0.",
+      "acceptanceCriteria": [
+        "GET /health/ready response includes checks.database.pool: { total, idle, waiting }",
+        "Status transitions to 'degraded' when waiting > 0 for more than one consecutive check",
+        "idleTimeoutMillis is validated against the Neon load-balancer idle timeout (300 s) — warn in startup logs if misconfigured",
+        "A unit test asserts the health response shape includes the pool fields",
+        "No additional DB queries are issued to gather the metrics (use pool.totalCount etc. which are synchronous)"
+      ],
+      "technicalNotes": [
+        "pg.Pool exposes totalCount, idleCount, waitingCount as synchronous properties",
+        "Neon serverless driver idle-closes connections at 300 s — idleTimeoutMillis: 30000 is safe",
+        "Add maxUses: 7500 to pool config to recycle connections and prevent slow memory leaks"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-440",
+      "title": "Implement LLM system-prompt caching via cache_control breakpoints",
+      "priority": "high",
+      "description": "The ai-client.ts sends the full system prompt on every LLM call. Anthropic and OpenRouter support prompt caching that makes cached input tokens 10x cheaper and reduces first-token latency by up to 85%. Knowledge base content and static system instructions are ideal cache candidates — they are long, static, and prepended to every request.",
+      "acceptanceCriteria": [
+        "System prompt messages and KB context blocks include cache_control: { type: 'ephemeral' } when provider is Anthropic via OpenRouter or direct",
+        "Cache write/read confirmed by inspecting usage.cache_creation_input_tokens and usage.cache_read_input_tokens in API response; both logged",
+        "Token-cost tracking correctly prices cached reads at 10% of normal input cost",
+        "Providers that don't support caching (Groq, Ollama) receive messages unchanged",
+        "Integration test with mock provider verifies cache_control field is present in outbound payload"
+      ],
+      "technicalNotes": [
+        "Anthropic caching requires prompts >= 1024 tokens to be eligible",
+        "OpenRouter forwards cache_control to Anthropic transparently",
+        "Up to 4 cache breakpoints allowed; cache TTL is 5 minutes by default"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-441",
+      "title": "Detect and handle WhatsApp marketing frequency cap error (131049)",
+      "priority": "high",
+      "description": "Meta's frequency capping limits users to 2 marketing template messages per 24 hours across all businesses. When Rainbow AI sends a scheduled marketing message and Meta rejects it with error 131049, the current retry logic retries — making the problem worse. The system needs to detect this error code, skip retry, log it distinctly, and surface the count in the admin dashboard.",
+      "acceptanceCriteria": [
+        "Error code 131049 is recognized as FREQUENCY_CAP_EXCEEDED and is not retried",
+        "Rejection is recorded in rainbow_messages with status 'frequency_capped' rather than 'failed'",
+        "Admin analytics endpoint exposes frequency_capped_count_24h per instance",
+        "Admin is notified when frequency cap rejections exceed 10% of outbound marketing messages in an hour",
+        "Behavior is covered by a unit test that mocks the 131049 response"
+      ],
+      "technicalNotes": [
+        "Error code is in the errors[].code field of the Cloud API response body",
+        "Relevant to scheduled message flows in src/lib/message-scheduler.ts and Evolution API adapter",
+        "Applies to evolution-client.ts outbound template send paths"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-442",
+      "title": "Implement webhook signature validation for inbound admin API calls",
+      "priority": "high",
+      "description": "Inbound HTTP endpoints (DIGIMAN callbacks, Evolution API webhooks) that accept POST payloads have no HMAC signature verification. A forged webhook can inject arbitrary messages or trigger escalations. The fix adds an X-Hub-Signature-256 HMAC-SHA256 middleware that validates the request body against a shared secret before passing to handlers.",
+      "acceptanceCriteria": [
+        "A reusable validateWebhookSignature(secret) Express middleware in src/lib/ rejects requests with invalid or missing X-Hub-Signature-256 headers with HTTP 401",
+        "All inbound webhook routes (Evolution API, DIGIMAN callback) apply this middleware",
+        "The shared secret is loaded from process.env.WEBHOOK_SECRET with startup warning if unset",
+        "Timing-safe comparison (crypto.timingSafeEqual) is used to prevent timing attacks",
+        "Tests cover: valid signature passes, tampered body rejected, missing header rejected"
+      ],
+      "technicalNotes": [
+        "Use Node.js built-in crypto.createHmac('sha256', secret).update(rawBody).digest('hex')",
+        "rawBody must be captured before express.json() parsing — use custom verify function in json middleware options",
+        "This matches Meta's Cloud API signature scheme exactly (X-Hub-Signature-256)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-443",
+      "title": "Expose Baileys connection state history and reconnect counter in admin dashboard",
+      "priority": "medium",
+      "description": "WhatsAppInstance has a reconnectAttempts counter and MAX_RECONNECT_ATTEMPTS=3, but this state is private and invisible to operators. When Baileys hits max retries and stops reconnecting, the only indication is a log line. The admin dashboard should expose reconnect count, last disconnect reason, and a Force Reconnect button.",
+      "acceptanceCriteria": [
+        "GET /api/rainbow/whatsapp/status response includes reconnectAttempts, maxReconnectAttempts, lastDisconnectCode, lastDisconnectAt per instance",
+        "Admin dashboard WhatsApp card renders these fields",
+        "POST /api/rainbow/whatsapp/:instanceId/reconnect resets reconnectAttempts to 0 and re-calls instance.start() — guarded by admin key",
+        "When reconnectAttempts >= MAX_RECONNECT_ATTEMPTS, status card shows 'Reconnect limit reached' warning in red",
+        "Admin WhatsApp notification is sent when max retries is reached"
+      ],
+      "technicalNotes": [
+        "WhatsAppInstance fields need to be exposed via WhatsAppManager.getStatus()",
+        "Force reconnect endpoint needs to clear reconnectTimeout to avoid double-start races",
+        "The notifyAdminDisconnection call already exists in handleDisconnect but only fires once"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-444",
+      "title": "Add context-aware idle session timeout with state cleanup",
+      "priority": "medium",
+      "description": "rainbow_conversations rows persist indefinitely between messages. When a guest returns after a multi-day gap, the bot continues the old conversation context — confusing the LLM and producing stale responses. A configurable idle timeout (e.g., 8 hours) should mark a conversation as ended and start fresh context on the next message.",
+      "acceptanceCriteria": [
+        "settings.json supports session.idleTimeoutHours (default: 8); if last message timestamp is older than this, a new conversation is started",
+        "The stale conversation row is marked status: 'ended' (not deleted) before the new one is created",
+        "If session.welcomeBackEnabled: true, the bot sends 'Welcome back, {name}!' before processing the new message",
+        "Idle session detection runs in the conversation-context loading path, not as a cron job",
+        "Unit test: a message arriving 9 hours after the previous one with default settings produces a new conversation row"
+      ],
+      "technicalNotes": [
+        "Conversation lookup in src/assistant/conversation-context.ts is the insertion point",
+        "Compare last_message_at against Date.now() - idleTimeoutHours * 3600000",
+        "Distinct from the data-retention purge (which deletes old rows) — this resets in-memory LLM context for live guests"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-445",
+      "title": "Implement multi-stage fallback reply with suggested options",
+      "priority": "medium",
+      "description": "The current fallback stage returns a single generic 'I didn't understand' response. Bots with structured two-stage fallbacks (first offer suggestions, then escalate) have up to 30% higher user retention. Stage 1 should present 3 quick-reply options from common intents; Stage 2 (second consecutive unrecognized) triggers human handoff.",
+      "acceptanceCriteria": [
+        "First unrecognized message in a session returns a structured response with 3 suggested options pulled from T1 intents for the active profile",
+        "Second consecutive unrecognized message triggers the existing escalation path",
+        "The consecutive fallback counter resets when any recognized intent is classified",
+        "Suggested options are configurable in settings.json under fallback.suggestions[]",
+        "Unit test: two consecutive unrecognized messages produce a suggestion response then an escalation"
+      ],
+      "technicalNotes": [
+        "Track consecutive fallback count in conversation state (already stored in DB)",
+        "Use WhatsApp interactive list or plain numbered text list as fallback",
+        "src/assistant/pipeline/stages/layer2-fallback.ts is the correct insertion point"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-446",
+      "title": "Add WhatsApp Business portfolio messaging tier tracking",
+      "priority": "medium",
+      "description": "Since October 2025, WhatsApp messaging limits apply per Business Portfolio (250/2K/10K/100K/unlimited). The current system has no awareness of the portfolio tier or daily message consumption. When nearing the tier limit, outbound messages fail silently. The admin dashboard should display current tier, 24-hour message count, and a warning threshold alert.",
+      "acceptanceCriteria": [
+        "A new app_settings key stores whatsapp_portfolio_tier and whatsapp_portfolio_tier_updated_at",
+        "Admin dashboard has a 'Messaging Limit' card showing tier + 24-hour count vs. limit",
+        "A daily alert fires via admin-notifier when 24-hour outbound count exceeds 80% of the portfolio tier",
+        "GET /api/rainbow/analytics/messaging-limits returns { tier, used24h, limit, percentUsed }",
+        "Tier can be manually set from the admin panel (programmatic Meta Graph API integration deferred)"
+      ],
+      "technicalNotes": [
+        "24-hour count: COUNT(*) on rainbow_messages where direction='outbound' and created_at > NOW() - INTERVAL '24 hours'",
+        "Automatic tier detection via Meta Graph API GET /v18.0/{phone-number-id}?fields=messaging_tier_value can be added later",
+        "Tier limits: 250, 2000, 10000, 100000, unlimited"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-447",
+      "title": "Wire conversation summarizer into pipeline for long-thread context management",
+      "priority": "medium",
+      "description": "src/assistant/conversation-summarizer.ts exists but is not wired into the pipeline's context-building path. The current approach simply truncates oldest messages. Instead, when history exceeds the context window, the oldest messages should be summarized into a compact paragraph and the summary stored in the DB, reducing context size while preserving key information.",
+      "acceptanceCriteria": [
+        "When conversation history exceeds contextWindows.combined messages, the oldest messages are summarized via an LLM call using the cheapest available provider",
+        "The summary is stored in rainbow_conversations.context_summary (new column via Drizzle migration)",
+        "On subsequent turns the summary is prepended to the context window as a system role message",
+        "The summarization call is non-blocking — current user message still gets a reply while summarization happens async",
+        "Token count before/after summarization is logged; summary must reduce context size by >= 40%"
+      ],
+      "technicalNotes": [
+        "src/assistant/conversation-summarizer.ts likely has the logic — the work is plumbing it into conversation-context.ts",
+        "Insert in buildContextMessages() or equivalent context-building utility",
+        "Use cheapest/fastest provider (Groq) for summarization to minimize latency impact"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-448",
+      "title": "Add inbound media message routing and file-type awareness",
+      "priority": "medium",
+      "description": "The pipeline detects imageMessage, videoMessage, documentMessage, and locationMessage but discards the actual media content — only caption text is passed downstream. Guests often send photos of damage, ID scans, or location pins. The pipeline should route media messages to a dedicated handler that acknowledges the media type and can optionally download and store attachments.",
+      "acceptanceCriteria": [
+        "IncomingMessage type gains optional mediaMetadata: { mimeType, fileSize, fileName? } field",
+        "Media messages with no caption text no longer return early silently — they receive a type-specific acknowledgement",
+        "Image and document messages can be downloaded and stored to a configured local path or S3 key (configurable via settings.json)",
+        "Location messages extract lat/lng and append a Google Maps link to the message text for operator context",
+        "All media types are logged in rainbow_messages with message_type column populated correctly"
+      ],
+      "technicalNotes": [
+        "Use Baileys downloadMediaMessage(msg, 'buffer') for download",
+        "locationMessage object has degreesLatitude and degreesLongitude fields",
+        "WhatsApp file size limits: images <= 5 MB, documents <= 100 MB, audio <= 16 MB"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-449",
+      "title": "Add per-profile WhatsApp instance assignment in settings",
+      "priority": "medium",
+      "description": "WhatsAppManager manages multiple Baileys instances (Pelangi + Southern) but there is no explicit mapping between a profile_id and an instanceId. The implicit coupling will break if a third business is added or instances are reordered. A profileId-to-instanceId mapping in settings would make reply routing deterministic and observable.",
+      "acceptanceCriteria": [
+        "settings.json (per profile) includes a whatsappInstanceId field validated on startup against registered instances",
+        "Outbound replies use the profile's designated instance ID, not a fallback heuristic",
+        "GET /api/rainbow/profiles response includes whatsappInstanceId for each profile",
+        "Startup warning is logged if a profile's whatsappInstanceId does not match any active instance",
+        "Admin panel 'Profile Settings' tab exposes instance assignment as a dropdown"
+      ],
+      "technicalNotes": [
+        "src/assistant/profile-registry.ts and src/lib/whatsapp/manager.ts are the two sides of this mapping",
+        "IncomingMessage.instanceId field is already set — the gap is the reverse direction (reply -> instance)",
+        "Add getInstanceForProfile(profileId: string): string to WhatsAppManager"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-450",
+      "title": "Implement startup readiness gate — block requests until DB and config are ready",
+      "priority": "medium",
+      "description": "src/index.ts starts accepting HTTP traffic immediately after app.listen(), but DB initialization, configStore.init(), and profileRegistry.init() run in sequence before that. If any are slow (Neon cold start), requests arrive before the system is ready, causing errors. A readiness flag should gate admin API and pipeline endpoints until all critical initializations complete.",
+      "acceptanceCriteria": [
+        "A module-level isReady flag starts as false and is set to true only after DB, configStore, profileRegistry, and KnowledgeBase init complete",
+        "All admin API routes return HTTP 503 with { status: 'starting' } when isReady is false",
+        "/health (liveness) returns 200 regardless of isReady — only checks process aliveness",
+        "/health/ready returns HTTP 503 when isReady is false",
+        "Time-to-ready is logged at startup (from listen() call to isReady = true)"
+      ],
+      "technicalNotes": [
+        "Kubernetes readiness probes use /health/ready HTTP response code — returning 503 removes pod from load-balancer rotation",
+        "The existing /health/ready endpoint always returns 200 regardless of status — fix: use the status field to determine HTTP status code",
+        "This is a one-file change in src/index.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-451",
+      "title": "Track WhatsApp reconnect events and QR code generation in activity log",
+      "priority": "low",
+      "description": "activity-tracker.ts has trackWhatsAppConnected and trackWhatsAppDisconnected, but QR code generation events (the key signal that a device is unlinked and operator action is needed) and reconnect-attempt events are not tracked. These gaps mean the admin Activity feed gives no warning before the bot goes fully offline.",
+      "acceptanceCriteria": [
+        "trackWhatsAppQRGenerated(instanceId) is called each time a new QR code is produced in instance.ts",
+        "trackWhatsAppReconnectAttempt(instanceId, attempt, maxAttempts) is called inside handleDisconnect",
+        "Both events appear in GET /api/rainbow/activity feed with appropriate icons/severity",
+        "QR code generation event includes a direct link to the QR scan page in the notification body",
+        "Unit test: mocking connection.update with qr value calls the new tracker"
+      ],
+      "technicalNotes": [
+        "instance.ts already logs 'QR code available' to console — add tracker call at the same location",
+        "Admin-notifier send for QR events should notify operator to scan",
+        "Baileys connection.update event fires with { qr } when a new QR code is ready"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-452",
+      "title": "Add PostgreSQL connection pool maxUses recycling to prevent memory leaks",
+      "priority": "low",
+      "description": "src/lib/db.ts configures pg.Pool with max: 10 and idleTimeoutMillis: 30000 but lacks maxUses recycling. PostgreSQL backend processes accumulate memory over thousands of queries; setting maxUses: 7500 recycles connections regularly. On Neon (serverless), this also prevents connections from holding state across cold-start cycles.",
+      "acceptanceCriteria": [
+        "pg.Pool in src/lib/db.ts includes maxUses: 7500",
+        "No regression in existing DB integration tests",
+        "idleTimeoutMillis: 30000 value is confirmed safe against Neon's 300 s idle timeout with a comment",
+        "A comment in db.ts explains the purpose of maxUses",
+        "Pool event 'connect' logs a debug line when a new connection is created"
+      ],
+      "technicalNotes": [
+        "maxUses is a pg-pool option available in pg@8.x",
+        "Drizzle uses pg under the hood — the Pool config is native and fully supported",
+        "This is a one-line change with documented production value"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-453",
+      "title": "Add fetchLatestWaWebVersion failure fallback to prevent startup failure on CDN outage",
+      "priority": "low",
+      "description": "instance.ts calls fetchLatestWaWebVersion() on every Baileys init, making an HTTP request to WhatsApp's servers. If this request fails (network issue, Meta CDN outage), the entire WhatsApp instance fails to start — even though Baileys has a hardcoded fallback version. A try/catch with fallback prevents a CDN hiccup from taking the bot offline.",
+      "acceptanceCriteria": [
+        "fetchLatestWaWebVersion() is wrapped in try/catch; on failure, hardcoded version [2, 3000, 0] is used with a warning log",
+        "Warning log states: 'Failed to fetch latest WA Web version, using fallback. Error: {message}'",
+        "Baileys starts and connects successfully using the fallback version",
+        "The fallback version constant is documented with a comment noting it should be periodically updated",
+        "Unit test: mocking fetchLatestWaWebVersion to throw still allows instance.start() to proceed"
+      ],
+      "technicalNotes": [
+        "fetchLatestWaWebVersion fetches from https://web.whatsapp.com/check-update?version=1&platform=web",
+        "Baileys has an internal DEFAULT_VERSION constant that serves as the fallback",
+        "This is a 5-line change in instance.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-454",
+      "title": "Add WhatsApp AI chatbot policy compliance self-check endpoint",
+      "priority": "low",
+      "description": "WhatsApp's 2026 AI chatbot policy bans general-purpose open-ended AI chatbots but permits task-specific assistants (support, sales, notifications). There is no automated check to ensure the system prompt and intent configuration remain compliant. A compliance self-check endpoint would validate the active system prompt and intent list and warn operators of risky configurations.",
+      "acceptanceCriteria": [
+        "GET /api/rainbow/compliance/check returns { status: 'compliant' | 'warning' | 'violation', checks: [...] }",
+        "Checks include: system prompt does not contain 'I can answer any question' phrases, intent list includes at least one human-handoff path, opt-out handling is enabled",
+        "Endpoint is accessible to admin users only",
+        "A startup warning is logged if the compliance check returns 'violation'",
+        "The check is non-blocking and runs in < 100 ms (no external HTTP calls)"
+      ],
+      "technicalNotes": [
+        "Phrase detection uses simple regex patterns",
+        "Opt-out check verifies src/assistant/opt-out.ts is loaded and loadOptOutCache() has been called",
+        "Meta policy: 'Bots that answer open-ended questions' are banned; support/sales/notifications are allowed"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-455",
+      "title": "Add dynamic token budget allocation based on query complexity",
+      "priority": "low",
+      "description": "src/assistant/context-windows.ts uses fixed message count limits. Research shows dynamic allocation (more history for complex multi-turn queries, less for simple FAQ lookups) improves quality and reduces costs. The classification stage's confidence score can drive this: high-confidence T1/T2 intents get a short context, low-confidence T3/T4 get a full context.",
+      "acceptanceCriteria": [
+        "Context window size for the reply stage varies based on classified tier: T1/T2 use contextWindows.reply, T3/T4 use contextWindows.combined",
+        "The dynamic allocation decision is logged at DEBUG level per message",
+        "Existing getContextWindows() function is unchanged; allocation logic lives in the pipeline's context-building step",
+        "A/B testing flag session.dynamicContextAllocation: true/false allows toggling via settings.json",
+        "Dynamic allocation reduces token usage by >= 15% on a test corpus of T1-heavy conversations"
+      ],
+      "technicalNotes": [
+        "Tier classification result is already available in the pipeline before context building",
+        "Insert the allocation decision in src/assistant/pipeline/stages/routing.ts or context-building utility",
+        "This is an optimization, not a correctness fix — mark as non-blocking"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-456",
+      "title": "Expose admin-configurable webchat session idle timeout",
+      "priority": "low",
+      "description": "The public webchat has no session idle timeout — a browser tab left open holds the session indefinitely. For multi-user hostel kiosks or shared devices, one guest's session remains active when the next person sits down. A configurable idle timeout (default 30 min) should expire the session server-side and notify the client.",
+      "acceptanceCriteria": [
+        "settings.json includes webchat.sessionIdleTimeoutMinutes (default: 30) per profile",
+        "When a webchat session's last_message_at is older than the timeout, subsequent messages from that session token get a new conversation_id",
+        "The webchat UI receives a session_expired SSE event or { error: 'session_expired' } JSON response and displays 'Session expired. Starting a new chat.'",
+        "Session expiry events are logged to rainbow_conversations with status: 'expired'",
+        "Session timeout is exposed and editable in admin 'Webchat Settings' tab"
+      ],
+      "technicalNotes": [
+        "Session IDs in webchat-api.ts map to conversation_id in rainbow_conversations",
+        "Idle check is a simple timestamp comparison at the start of POST /api/chat/message",
+        "The SSE stream in conversations-sse.ts may need a session_expired event type added"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",

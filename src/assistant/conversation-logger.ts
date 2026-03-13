@@ -133,6 +133,9 @@ export async function logMessage(
         usageJson: (meta?.usage || meta?.staffName)
           ? JSON.stringify({ ...(meta?.usage || {}), ...(meta?.staffName ? { staffName: meta.staffName } : {}) })
           : null,
+        promptTokens: meta?.usage?.prompt_tokens ?? null,
+        completionTokens: meta?.usage?.completion_tokens ?? null,
+        totalTokens: meta?.usage?.total_tokens ?? null,
       });
 
       // Cap at 500 messages per conversation
