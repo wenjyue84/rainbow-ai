@@ -26,7 +26,7 @@ import { trackFeedback, trackEmergency, trackWorkflowStarted } from '../../lib/a
 export async function handleActiveStates(
   state: PipelineState, ctx: RouterContext
 ): Promise<StateResult> {
-  const { requestId, phone, processText, convo, lang, text, msg, profileConfig } = state;
+  const { requestId, phone, processText, convo, lang, text, msg, profileConfig, profileId } = state;
 
   // ─── FEEDBACK DETECTION ─────────────────────────────────────────
   if (isAwaitingFeedback(phone)) {
@@ -80,15 +80,15 @@ export async function handleActiveStates(
     const result = await executeWorkflowStep(convo.workflowState, text, wfCtx);
 
     if (result.newState) {
-      updateWorkflowState(phone, result.newState);
-      addMessage(phone, 'assistant', result.response);
-      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow', instanceId: msg.instanceId }).catch(() => { });
+      updateWorkflowState(phone, result.newState, profileId);
+      addMessage(phone, 'assistant', result.response, profileId);
+      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
       const cleanResponse = ensureResponseText(result.response, lang);
       await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
     } else {
-      updateWorkflowState(phone, null);
-      addMessage(phone, 'assistant', result.response);
-      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow_complete', instanceId: msg.instanceId }).catch(() => { });
+      updateWorkflowState(phone, null, profileId);
+      addMessage(phone, 'assistant', result.response, profileId);
+      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow_complete', instanceId: msg.instanceId, profileId }).catch(() => { });
       const cleanResponse = ensureResponseText(result.response, lang);
       await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
 
@@ -106,9 +106,9 @@ export async function handleActiveStates(
   // ─── ACTIVE BOOKING ─────────────────────────────────────────────
   if (convo.bookingState && !['done', 'cancelled'].includes(convo.bookingState.stage)) {
     const result = await handleBookingStep(convo.bookingState, text, lang, convo.messages);
-    updateBookingState(phone, result.newState);
-    addMessage(phone, 'assistant', result.response);
-    logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'booking', instanceId: msg.instanceId }).catch(() => { });
+    updateBookingState(phone, result.newState, profileId);
+    addMessage(phone, 'assistant', result.response, profileId);
+    logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'booking', instanceId: msg.instanceId, profileId }).catch(() => { });
     await ctx.sendMessage(phone, result.response, msg.instanceId);
     return { handled: true };
   }
@@ -139,12 +139,12 @@ export async function handleActiveStates(
         const workflowResult = await executeWorkflowStep(workflowState, null, emergencyWfCtx);
 
         if (workflowResult.newState) {
-          updateWorkflowState(phone, workflowResult.newState);
+          updateWorkflowState(phone, workflowResult.newState, profileId);
         }
 
         const cleanResponse = ensureResponseText(workflowResult.response, lang);
-        addMessage(phone, 'assistant', cleanResponse);
-        logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId }).catch(() => { });
+        addMessage(phone, 'assistant', cleanResponse, profileId);
+        logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
         await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
         return { handled: true };
       }

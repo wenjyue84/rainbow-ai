@@ -795,3 +795,61 @@ This story is a data update, not a code implementation. It targets a JSON config
 - card_locked emergencyType was hostel-specific (capsule bed card) — not applicable to cafe
 ### Gotchas
 - None — straightforward JSON edit
+## Iteration 3 - Fri, Mar 13, 2026 12:28:16 AM
+Completed: Makan Moments Cafe T1 emergency patterns — replace hostel-specific with cafe patterns (ID: US-302) in 3m
+
+
+## Pre-analysis for US-401 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-401.
+
+**Project Stack Correction:** The user story targets a **Node.js/TypeScript** application using a **PostgreSQL** database, not a Frappe/Python environment. All modifications will be in `.ts` files.
+
+**1. Primary File for Modification:**
+*   `src/routes/public/webchat-api.ts`
+
+**2. Key Architectural Components Involved:**
+*   **Database Table:** `rainbow_conversations` (PostgreSQL)
+*   **API Endpoint:** The Express.js route handler for `POST /:profileId/message`
+*   **Core Function:** `persistWebchatExchange()`
+
+**3. Recommended Implementation Approach:**
+1.  In `src/routes/public/webchat-api.ts`, add a fire-and-forget database migration that runs once on module load:
+    `pool.query('ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)');`
+2.  Modify the signature of the `persistWebchatExchange` function to accept a `profileId: string` argument.
+3.  Update the `UPSERT` query within this function to set the `profile_id`:
+    *   Add `profile_id` to the `INSERT` column list.
+    *   Add the corresponding parameter (e.g., `$7`) to the `VALUES` list.
+    *   Add `profile_id = EXCLUDED.profile_id` to the `ON CONFLICT DO UPDATE` clause.
+4.  In the `POST /:profileId/message` route handler, retrieve the `profileId` from the URL and pass it as the final argument when calling `persistWebchatExchange()`.
+
+**4. Edge Cases & Gotchas:**
+*   The database migration must use `IF NOT EXISTS` to be safely idempotent for application restarts.
+*   When adding the new parameter to the SQL query, ensure the parameter indices (e.g., `$1`, `$2`) are correctly updated for all values.
+*   Existing records will have a `NULL` `profile_id`. This is expected and does not require a data back-filling/migration script.
+
+
+## Iteration [4] - Story: US-401 - Store profile_id on webchat sessions
+### What was implemented
+- Added ALTER TABLE migration at module load time to add profile_id VARCHAR(50) column to rainbow_conversations table
+- Updated persistWebchatExchange() function signature to accept optional profileId: string parameter
+- Updated INSERT INTO rainbow_conversations to include profile_id in the column list and $3 parameter for profileId
+- Updated ON CONFLICT DO UPDATE to set profile_id = EXCLUDED.profile_id to update profile_id on conflict
+- Modified POST /:profileId/message handler to pass profileId as the last argument to persistWebchatExchange()
+
+### Patterns discovered
+- Database migrations at module load use pool.query() with .catch(() => {}) to silently ignore errors (idempotent pattern)
+- Fire-and-forget DB writes in request handlers are wrapped in .catch() to avoid blocking responses
+- Function signatures extended with optional parameters (profileId?: string) for backwards compatibility
+
+### Gotchas
+- Migration runs at startup via pool.query() directly after router creation (before rate limiter is applied)
+- NULL profile_id values are acceptable for existing sessions from before this feature was added
+- The profileId parameter to persistWebchatExchange is optional but should always be passed from the route handler
+
+### Acceptance Criteria Status
+✅ rainbow_conversations table has profile_id VARCHAR(50) column (added via ALTER TABLE IF NOT EXISTS)
+✅ persistWebchatExchange() accepts profileId: string parameter
+✅ UPSERT sets profile_id = profileId on INSERT and ON CONFLICT DO UPDATE
+✅ profileId taken from :profileId URL parameter in POST /:profileId/message handler
+✅ npm run build succeeds (esbuild compiled in 74ms)
+✅ Server starts successfully and migration executes at startup

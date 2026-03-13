@@ -76,9 +76,10 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
   }));
 }
 
-export function addMessage(phone: string, role: 'user' | 'assistant', content: string): void {
+export function addMessage(phone: string, role: 'user' | 'assistant', content: string, profileId?: string): void {
+  const key = convoKey(phone, profileId);
   // StateManager.update() automatically updates lastActiveAt
-  conversationManager.update(phone, (convo) => {
+  conversationManager.update(key, (convo) => {
     convo.messages.push({
       role,
       content,
@@ -97,7 +98,7 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
   });
 
   // Debounced persist (messages not stored in DB, but metadata updates)
-  const state = conversationManager.get(phone);
+  const state = conversationManager.get(key);
   if (state) {
     // Runtime invariants (P3C)
     softInvariant(
@@ -110,66 +111,71 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
       'messages exceed MAX_MESSAGES',
       { phone, count: state.messages.length, max: MAX_MESSAGES }
     );
-    schedulePersist(phone, state as ConversationState);
+    schedulePersist(key, state as ConversationState);
   }
 }
 
-export function getMessages(phone: string): ChatMessage[] {
-  return conversationManager.get(phone)?.messages || [];
+export function getMessages(phone: string, profileId?: string): ChatMessage[] {
+  return conversationManager.get(convoKey(phone, profileId))?.messages || [];
 }
 
-export function updateBookingState(phone: string, bookingState: ConversationState['bookingState']): void {
-  conversationManager.update(phone, (convo) => {
+export function updateBookingState(phone: string, bookingState: ConversationState['bookingState'], profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     convo.bookingState = bookingState;
   });
 
   // Critical state — persist immediately
-  const state = conversationManager.get(phone);
+  const state = conversationManager.get(key);
   if (state) {
     softInvariant(
       !(state.bookingState !== null && state.workflowState !== null),
       'bookingState and workflowState are mutually exclusive',
       { phone, hasBooking: !!state.bookingState, hasWorkflow: !!state.workflowState }
     );
-    schedulePersist(phone, state as ConversationState, true);
+    schedulePersist(key, state as ConversationState, true);
   }
 }
 
-export function updateWorkflowState(phone: string, workflowState: ConversationState['workflowState']): void {
-  conversationManager.update(phone, (convo) => {
+export function updateWorkflowState(phone: string, workflowState: ConversationState['workflowState'], profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     convo.workflowState = workflowState;
   });
 
   // Critical state — persist immediately
-  const state = conversationManager.get(phone);
+  const state = conversationManager.get(key);
   if (state) {
     softInvariant(
       !(state.bookingState !== null && state.workflowState !== null),
       'bookingState and workflowState are mutually exclusive',
       { phone, hasBooking: !!state.bookingState, hasWorkflow: !!state.workflowState }
     );
-    schedulePersist(phone, state as ConversationState, true);
+    schedulePersist(key, state as ConversationState, true);
   }
 }
 
-export function incrementUnknown(phone: string): number {
+export function incrementUnknown(phone: string, profileId?: string): number {
+  const key = convoKey(phone, profileId);
   let count = 0;
-  conversationManager.update(phone, (convo) => {
+  conversationManager.update(key, (convo) => {
     convo.unknownCount++;
     count = convo.unknownCount;
   });
   return count;
 }
 
-export function resetUnknown(phone: string): void {
-  conversationManager.update(phone, (convo) => {
+export function resetUnknown(phone: string, profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     convo.unknownCount = 0;
   });
 }
 
-export function clearConversation(phone: string): void {
-  conversationManager.delete(phone);
-  deletePersistedState(phone).catch(() => { });
+export function clearConversation(phone: string, profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.delete(key);
+  deletePersistedState(key).catch(() => { });
 }
 
 // ─── Context-Aware Intent Tracking ──────────────────────────────────
@@ -177,25 +183,28 @@ export function clearConversation(phone: string): void {
 export function updateLastIntent(
   phone: string,
   intent: string,
-  confidence: number
+  confidence: number,
+  profileId?: string
 ): void {
-  conversationManager.update(phone, (convo) => {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     convo.lastIntent = intent;
     convo.lastIntentConfidence = confidence;
     convo.lastIntentTimestamp = Date.now();
   });
 
   // Debounced persist
-  const state = conversationManager.get(phone);
-  if (state) schedulePersist(phone, state as ConversationState);
+  const state = conversationManager.get(key);
+  if (state) schedulePersist(key, state as ConversationState);
 }
 
 export function checkRepeatIntent(
   phone: string,
   intent: string,
-  windowMs: number = 120_000
+  windowMs: number = 120_000,
+  profileId?: string
 ): { isRepeat: boolean; count: number } {
-  const convo = conversationManager.get(phone);
+  const convo = conversationManager.get(convoKey(phone, profileId));
   if (!convo || !convo.lastIntent || !convo.lastIntentTimestamp) {
     return { isRepeat: false, count: 0 };
   }
@@ -211,30 +220,33 @@ export function checkRepeatIntent(
   return { isRepeat: false, count: 0 };
 }
 
-export function getLastIntent(phone: string): string | null {
-  return conversationManager.get(phone)?.lastIntent || null;
+export function getLastIntent(phone: string, profileId?: string): string | null {
+  return conversationManager.get(convoKey(phone, profileId))?.lastIntent || null;
 }
 
 export function updateSlots(
   phone: string,
-  newSlots: Record<string, any>
+  newSlots: Record<string, any>,
+  profileId?: string
 ): void {
-  conversationManager.update(phone, (convo) => {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     // Merge new slots with existing ones
     convo.slots = { ...convo.slots, ...newSlots };
   });
 
   // Debounced persist
-  const state = conversationManager.get(phone);
-  if (state) schedulePersist(phone, state as ConversationState);
+  const state = conversationManager.get(key);
+  if (state) schedulePersist(key, state as ConversationState);
 }
 
-export function getSlots(phone: string): Record<string, any> {
-  return conversationManager.get(phone)?.slots || {};
+export function getSlots(phone: string, profileId?: string): Record<string, any> {
+  return conversationManager.get(convoKey(phone, profileId))?.slots || {};
 }
 
-export function clearSlots(phone: string): void {
-  conversationManager.update(phone, (convo) => {
+export function clearSlots(phone: string, profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
     convo.slots = {};
   });
 }

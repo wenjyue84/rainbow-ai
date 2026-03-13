@@ -15,6 +15,12 @@ import { pool } from '../../lib/db.js';
 
 const router = Router();
 
+// ─── Database Migration (Startup) ──────────────────────────────────────────────
+// Add profile_id column to rainbow_conversations if not exists
+pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {
+  // Silently ignore if already exists or other errors
+});
+
 // Public rate limit: 10 messages per minute per IP
 const webchatLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -130,7 +136,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
 
-    persistWebchatExchange(phone, pushName, sanitizedMessage, result.message, result.responseTime).catch(err => {
+    persistWebchatExchange(phone, pushName, sanitizedMessage, result.message, result.responseTime, profileId).catch(err => {
       console.error('[Webchat] DB persist error:', err.message);
     });
 
@@ -202,17 +208,17 @@ router.get('/:profileId/messages/:sessionId', async (req: Request, res: Response
  */
 async function persistWebchatExchange(
   phone: string, pushName: string,
-  userMessage: string, aiResponse: string, responseTime?: number
+  userMessage: string, aiResponse: string, responseTime?: number, profileId?: string
 ): Promise<void> {
   const now = new Date();
   const nowPlus1 = new Date(now.getTime() + 1);
 
   // Upsert conversation
   await pool.query(
-    `INSERT INTO rainbow_conversations (phone, push_name, created_at, updated_at)
-     VALUES ($1, $2, $3, $3)
-     ON CONFLICT (phone) DO UPDATE SET push_name = $2, updated_at = $3`,
-    [phone, pushName, now]
+    `INSERT INTO rainbow_conversations (phone, push_name, profile_id, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $4)
+     ON CONFLICT (phone) DO UPDATE SET push_name = $2, profile_id = EXCLUDED.profile_id, updated_at = $4`,
+    [phone, pushName, profileId || null, now]
   );
 
   // Insert user message + AI response

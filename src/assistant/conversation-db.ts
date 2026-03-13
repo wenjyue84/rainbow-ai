@@ -65,7 +65,8 @@ export async function upsertConversation(
   phone: string,
   pushName: string,
   instanceId?: string,
-  txOrDb: Pick<typeof db, 'insert'> = db
+  txOrDb: Pick<typeof db, 'insert'> = db,
+  profileId?: string
 ): Promise<void> {
   const key = canonicalPhoneKey(phone);
   const now = new Date();
@@ -76,6 +77,7 @@ export async function upsertConversation(
       phone: key,
       pushName,
       instanceId: instanceId ?? null,
+      profileId: profileId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -84,27 +86,30 @@ export async function upsertConversation(
       set: {
         pushName,
         ...(instanceId ? { instanceId } : {}),
+        ...(profileId ? { profileId } : {}),
         updatedAt: now,
       },
     });
 }
 
-// ─── List cache ─────────────────────────────────────────────────────
+// ─── List cache (per-profile) ────────────────────────────────────────
 
-let _listCache: { data: ConversationSummary[]; ts: number } | null = null;
+const _listCacheMap = new Map<string, { data: ConversationSummary[]; ts: number }>();
 const LIST_CACHE_TTL = 10_000;
+const LIST_CACHE_ALL_KEY = '__all__';
 
 export function invalidateListCache(): void {
-  _listCache = null;
+  _listCacheMap.clear();
 }
 
-export function getListCache(): { data: ConversationSummary[]; ts: number } | null {
-  if (_listCache && Date.now() - _listCache.ts < LIST_CACHE_TTL) {
-    return _listCache;
-  }
+export function getListCache(profileId?: string): { data: ConversationSummary[]; ts: number } | null {
+  const key = profileId ?? LIST_CACHE_ALL_KEY;
+  const entry = _listCacheMap.get(key);
+  if (entry && Date.now() - entry.ts < LIST_CACHE_TTL) return entry;
   return null;
 }
 
-export function setListCache(data: ConversationSummary[]): void {
-  _listCache = { data, ts: Date.now() };
+export function setListCache(data: ConversationSummary[], profileId?: string): void {
+  const key = profileId ?? LIST_CACHE_ALL_KEY;
+  _listCacheMap.set(key, { data, ts: Date.now() });
 }

@@ -59,9 +59,10 @@ router.get('/conversations/stats/response-time', async (_req: Request, res: Resp
 
 // ─── Conversation History (Real Chat) ─────────────────────────────────
 
-router.get('/conversations', async (_req: Request, res: Response) => {
+router.get('/conversations', async (req: Request, res: Response) => {
   try {
-    const conversations = await listConversations();
+    const profileId = res.locals.profileId as string | undefined;
+    const conversations = await listConversations(profileId);
     res.json(conversations);
   } catch (err: any) {
     serverError(res, err);
@@ -325,9 +326,9 @@ router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: 
       return;
     }
 
-    // Load workflow definition
-    const { configStore } = await import('../../assistant/config-store.js');
-    const workflows = configStore.getWorkflows();
+    // Load workflow definition (profile-aware)
+    const { getStore } = await import('./http-utils.js');
+    const workflows = getStore(res).getWorkflows();
     const workflow = workflows.workflows.find((w: any) => w.id === workflowId);
     if (!workflow) {
       notFound(res, `Workflow "${workflowId}"`);
@@ -544,12 +545,13 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
       return;
     }
 
-    // Generate AI suggestion using existing KB + AI logic
+    // Generate AI suggestion using existing KB + AI logic (profile-aware)
     const { guessTopicFiles, buildSystemPrompt } = await import('../../assistant/knowledge-base.js');
     const { chatWithFallback } = await import('../../assistant/ai-provider-manager.js');
-    const { configStore } = await import('../../assistant/config-store.js');
+    const { getStore } = await import('./http-utils.js');
 
-    const settings = configStore.getSettings();
+    const store = getStore(res);
+    const settings = store.getSettings();
     const topicFiles = guessTopicFiles(lastUserMsg.content);
     const systemPrompt = buildSystemPrompt(settings.system_prompt, topicFiles);
 
@@ -590,9 +592,10 @@ router.post('/conversations/:phone/mode', async (req: Request, res: Response) =>
       return;
     }
 
-    // If setting as global default, update settings.json
+    // If setting as global default, update settings.json (profile-aware)
     if (setAsGlobalDefault) {
-      const { configStore } = await import('../../assistant/config-store.js');
+      const { getStore } = await import('./http-utils.js');
+      const configStore = getStore(res);
       const settings = configStore.getSettings();
 
       // Ensure settings object exists

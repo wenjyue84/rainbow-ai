@@ -154,7 +154,7 @@ export async function validateAndPrepare(
     const nonTextLabel = getNonTextPlaceholder(msg.messageType);
     const replyText = getTemplate('non_text', lang);
     await ctx.sendMessage(phone, replyText, msg.instanceId);
-    await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId);
+    await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId);
     return { continue: false, reason: 'non_text' };
   }
 
@@ -210,10 +210,10 @@ export async function validateAndPrepare(
     if (translated) processText = translated;
   }
 
-  // Get or create conversation
-  const convo = getOrCreate(phone, msg.pushName);
-  addMessage(phone, 'user', text);
-  logMessage(phone, msg.pushName, 'user', text, { instanceId: msg.instanceId }).catch(() => { });
+  // Get or create conversation (profile-scoped)
+  const convo = getOrCreate(phone, msg.pushName, profileId);
+  addMessage(phone, 'user', text, profileId);
+  logMessage(phone, msg.pushName, 'user', text, { instanceId: msg.instanceId, profileId }).catch(() => { });
   const lang = convo.language;
 
   // Sentiment analysis

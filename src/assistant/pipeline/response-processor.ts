@@ -30,7 +30,7 @@ import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 export async function processAndSend(
   state: PipelineState, ctx: RouterContext
 ): Promise<void> {
-  const { requestId, phone, text, foreignLang, convo, lang, msg, diaryEvent, devMetadata, profileConfig } = state;
+  const { requestId, phone, text, foreignLang, convo, lang, msg, diaryEvent, devMetadata, profileConfig, profileId } = state;
   let response = state.response;
 
   // Catch-all fallback: if pipeline produced no response, use static fallback
@@ -106,7 +106,7 @@ export async function processAndSend(
     }
   }
 
-  addMessage(phone, 'assistant', response);
+  addMessage(phone, 'assistant', response, profileId);
 
   // ─── Mode dispatch: manual / copilot / autopilot ───────────────
   const mode = getConversationMode(phone, profileConfig);
@@ -117,6 +117,7 @@ export async function processAndSend(
     confidence: diaryEvent.confidence,
     action: diaryEvent.action || undefined,
     instanceId: msg.instanceId,
+    profileId,
     source: devMetadata.source,
     model: devMetadata.model,
     responseTime: devMetadata.responseTime,

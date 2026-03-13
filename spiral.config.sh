@@ -25,4 +25,5 @@ SPIRAL_RESEARCH_MODEL="sonnet"
 
 # ── Focus theme ──────────────────────────────────────────────────────
 # Multi-profile system just shipped — focus on hardening and completeness
-SPIRAL_FOCUS="multi-profile completeness and admin dashboard integration"
+SPIRAL_FOCUS="conversation pipeline and all pending stories"
+SPIRAL_GEMINI_PROMPT="Focus on: conversation pipeline and all pending stories. Research the latest best practices, patterns, and implementation approaches for WhatsApp AI conversation pipeline architecture — including message processing, intent classification, state management, response generation, and multi-profile routing. Provide actionable context for the implementation agent."

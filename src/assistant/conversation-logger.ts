@@ -68,6 +68,7 @@ export async function logMessage(
     confidence?: number;
     action?: string;
     instanceId?: string;
+    profileId?: string;
     manual?: boolean;
     source?: string;
     model?: string;
@@ -107,8 +108,8 @@ export async function logMessage(
 
     // Wrap upsert + insert + cap-delete in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      // Upsert conversation
-      await upsertConversation(key, pushName, meta?.instanceId, tx);
+      // Upsert conversation (with profileId so it's correctly scoped)
+      await upsertConversation(key, pushName, meta?.instanceId, tx, meta?.profileId);
 
       // Insert message
       await tx.insert(rainbowMessages).values({
@@ -116,6 +117,7 @@ export async function logMessage(
         role,
         content,
         timestamp: now,
+        profileId: meta?.profileId ?? null,
         intent: meta?.intent ?? null,
         confidence: meta?.confidence ?? null,
         action: meta?.action ?? null,
@@ -172,7 +174,8 @@ export async function logNonTextExchange(
   pushName: string,
   userPlaceholder: string,
   assistantReply: string,
-  instanceId?: string
+  instanceId?: string,
+  profileId?: string
 ): Promise<void> {
   if (!(await ensureDb())) return;
 
@@ -198,12 +201,12 @@ export async function logNonTextExchange(
 
     // Wrap upsert + insert in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      await upsertConversation(key, pushName, instanceId, tx);
+      await upsertConversation(key, pushName, instanceId, tx, profileId);
 
       // Insert both messages
       await tx.insert(rainbowMessages).values([
-        { phone: key, role: 'user', content: userPlaceholder, timestamp: now },
-        { phone: key, role: 'assistant', content: assistantReply, timestamp: nowPlus1, responseTime: 0 },
+        { phone: key, role: 'user', content: userPlaceholder, timestamp: now, profileId: profileId ?? null },
+        { phone: key, role: 'assistant', content: assistantReply, timestamp: nowPlus1, responseTime: 0, profileId: profileId ?? null },
       ]);
     });
   } catch (err: any) {
@@ -211,9 +214,9 @@ export async function logNonTextExchange(
   }
 }
 
-/** List all conversations with summaries. */
-export async function listConversations(): Promise<ConversationSummary[]> {
-  const cached = getListCache();
+/** List conversations with summaries, optionally scoped to a profile. */
+export async function listConversations(profileId?: string): Promise<ConversationSummary[]> {
+  const cached = getListCache(profileId);
   if (cached) return cached.data;
 
   if (!(await ensureDb())) return [];
@@ -222,11 +225,16 @@ export async function listConversations(): Promise<ConversationSummary[]> {
     async () => {
       // Single query with LATERAL JOINs — eliminates N+1 problem
       // NOTE: db.execute(sql``) returns raw PG column names (snake_case), NOT Drizzle camelCase
+      const profileFilter = profileId
+        ? sql`AND c.profile_id = ${profileId}`
+        : sql``;
+
       const result = await db.execute(sql`
         SELECT
           c.phone,
           c.push_name,
           c.instance_id,
+          c.profile_id,
           c.pinned,
           c.favourite,
           c.created_at,
@@ -261,6 +269,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
         ) uc ON true
         WHERE lm.content IS NOT NULL
           AND c.phone NOT LIKE 'webchat-%'
+          ${profileFilter}
         ORDER BY lm.timestamp DESC
       `);
       const rows: any[] = result.rows;
@@ -269,6 +278,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
         phone: r.phone,
         pushName: r.push_name,
         instanceId: r.instance_id ?? undefined,
+        profileId: r.profile_id ?? undefined,
         lastMessage: (r.last_msg_content || '').slice(0, 100),
         lastMessageRole: r.last_msg_role as 'user' | 'assistant',
         lastMessageAt: r.last_msg_at instanceof Date
@@ -282,7 +292,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
       }));
-      setListCache(summaries);
+      setListCache(summaries, profileId);
       return summaries;
     },
     async () => [],
