@@ -1492,3 +1492,26 @@ Incomplete: Transcribe incoming WhatsApp voice notes via Whisper API (ID: US-438
 ### Gotchas
 - `pg.Pool` TypeScript typings don't declare `totalCount`/`idleCount`/`waitingCount` on older `@types/pg` — if typecheck fails, cast to `any` or augment the type
 - `_poolWaitingStreak` resets across process restarts (expected — it's transient state for current process lifetime)
+## Iteration 8 - Fri, Mar 13, 2026  2:19:31 PM
+Completed: Expose PostgreSQL pool metrics in /health/ready endpoint (ID: US-439) in 7m
+
+
+## Iteration N - Story: US-440 - Implement LLM system-prompt caching via cache_control breakpoints
+### What was implemented
+- Added `supportsPromptCaching(provider)` exported helper: returns true for Anthropic models via OpenRouter (model prefix `anthropic/` or `claude-`) or direct Anthropic API (`api.anthropic.com`)
+- Added `injectCacheControl(messages)` exported helper: transforms system messages to content-array format with `cache_control: { type: 'ephemeral' }` breakpoint
+- Added `logCacheMetrics(usage, providerName)` internal helper: logs cache_creation_input_tokens, cache_read_input_tokens, and computes effective token cost at 10% for cached reads
+- Modified `providerChat()`: for openai-compatible path only, applies `injectCacheControl` when `supportsPromptCaching` returns true; Groq/Ollama/Gemini paths unchanged
+- Added `validateProviderResponse` → calls `logCacheMetrics` when usage data is present
+- 11 unit tests all pass in `prompt-caching.test.ts`
+
+### Patterns discovered
+- Anthropic cache_control uses content array format: `content: [{ type: "text", text: "...", cache_control: { type: "ephemeral" } }]`
+- OpenRouter forwards cache_control transparently to Anthropic — only need to detect openrouter.ai + anthropic/* model prefix
+- Groq/Ollama/Gemini have separate code paths in `providerChat` so they are naturally unaffected
+- Cache usage appears in `usage.cache_creation_input_tokens` and `usage.cache_read_input_tokens` in response
+
+### Gotchas
+- Only system messages get cache breakpoints (user/assistant messages are dynamic and not cache candidates)
+- Anthropic requires >=1024 tokens for cache eligibility — nothing to enforce here, provider handles it silently
+- Up to 4 cache breakpoints allowed; we use 1 (the system prompt)

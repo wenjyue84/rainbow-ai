@@ -78,7 +78,60 @@ export function isAIAvailable(): boolean {
   return getProviders().some(p => resolveApiKey(p) !== null);
 }
 
+// ─── Prompt Caching ──────────────────────────────────────────────────
+
+/**
+ * Returns true if the provider supports Anthropic-style prompt caching.
+ * Caching is supported by: Anthropic models via OpenRouter, direct Anthropic API.
+ * Groq and Ollama do NOT support caching.
+ */
+export function supportsPromptCaching(provider: AIProvider): boolean {
+  const url = provider.base_url ?? '';
+  if (url.includes('openrouter.ai') &&
+      (provider.model.startsWith('anthropic/') || provider.model.startsWith('claude-'))) {
+    return true;
+  }
+  if (url.includes('api.anthropic.com')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Inject cache_control breakpoints into system messages for Anthropic prompt caching.
+ * System prompts are long, static, and prepended to every request — ideal cache candidates.
+ * Returns a new messages array; non-system messages are unchanged.
+ */
+export function injectCacheControl(
+  messages: Array<{ role: string; content: string }>
+): Array<{ role: string; content: string | Array<{ type: string; text: string; cache_control?: { type: string } }> }> {
+  return messages.map(msg => {
+    if (msg.role === 'system' && typeof msg.content === 'string') {
+      return {
+        ...msg,
+        content: [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }],
+      };
+    }
+    return msg;
+  });
+}
+
 // ─── Response Validation ─────────────────────────────────────────────
+
+/** Log Anthropic cache usage and compute effective token cost */
+function logCacheMetrics(usage: any, providerName: string): void {
+  const writes = usage?.cache_creation_input_tokens ?? 0;
+  const reads = usage?.cache_read_input_tokens ?? 0;
+  if (writes > 0 || reads > 0) {
+    const normalInput = usage?.prompt_tokens ?? 0;
+    // Cached reads are priced at 10% of normal input cost
+    const effectiveCost = (normalInput - reads) + reads * 0.1;
+    console.log(
+      `[AI] Cache metrics [${providerName}] — write: ${writes} tokens, read: ${reads} tokens` +
+      ` (effective input cost: ~${effectiveCost.toFixed(0)} token-equivalents)`
+    );
+  }
+}
 
 /** Validate OpenAI-compatible response structure; throws descriptive errors to trigger fallback */
 function validateProviderResponse(data: any, providerName: string, startTime: number): { content: string; usage?: any } {
@@ -104,6 +157,7 @@ function validateProviderResponse(data: any, providerName: string, startTime: nu
   }
   const elapsed = Date.now() - startTime;
   console.log(`[AI] ✓ ${providerName} responded (${elapsed}ms, ${trimmed.length} chars)`);
+  if (data.usage) logCacheMetrics(data.usage, providerName);
   return { content: trimmed, usage: data.usage };
 }
 
@@ -240,9 +294,11 @@ export async function providerChat(
   }
 
   // openai-compatible & ollama both use axios
+  // Inject cache_control breakpoints for Anthropic providers (10x cheaper cached reads)
+  const effectiveMessages = supportsPromptCaching(provider) ? injectCacheControl(messages) : messages;
   const body: any = {
     model: provider.model,
-    messages,
+    messages: effectiveMessages,
     max_tokens: maxTokens,
     temperature
   };
