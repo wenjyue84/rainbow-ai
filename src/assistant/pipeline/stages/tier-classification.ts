@@ -31,6 +31,8 @@ interface ClassificationInput {
   systemPrompt: string;
   lastIntent: string | null;
   devMetadata: DevMetadata;
+  phone?: string;
+  instanceId?: string;
 }
 
 /**
@@ -63,6 +65,27 @@ export async function classifyWithTiers(
     return classifySplitModel(input, context, clearAckTimer);
   } else {
     return classifyDefault(input, context, clearAckTimer);
+  }
+}
+
+/**
+ * Helper: Send WhatsApp typing indicator if enabled
+ */
+async function sendTypingIndicatorIfEnabled(
+  context: IPipelineContext,
+  phone: string | undefined,
+  instanceId: string | undefined
+): Promise<void> {
+  if (!phone || !instanceId) return;
+
+  const settings = context.getSettings();
+  const typingConfig = settings.typingIndicator as any;
+  if (!typingConfig?.enabled) return;
+
+  try {
+    await context.sendWhatsAppTypingIndicator(phone, instanceId);
+  } catch (err: any) {
+    console.warn(`[Tier] Typing indicator failed: ${err.message}`);
   }
 }
 
@@ -108,8 +131,11 @@ async function classifyTieredPipeline(
     };
   }
 
-  // Fast tier caught it, but action needs LLM reply → generate reply only
+  // Fast tier caught it, but action needs LLM reply → generate reply only (T3)
   if (caughtByFastTier) {
+    // Send typing indicator before LLM call for T3
+    await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
+
     const timeSensitiveSet = context.getTimeSensitiveIntentSet();
     const replyPrompt = timeSensitiveSet.has(tierResult.category)
       ? systemPrompt + '\n\n' + context.getTimeContext()
@@ -136,7 +162,10 @@ async function classifyTieredPipeline(
     };
   }
 
-  // No fast tier match → full LLM classify + respond
+  // No fast tier match → full LLM classify + respond (T4)
+  // Send typing indicator before LLM call for T4
+  await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
+
   const llmResult = await context.classifyAndRespond(systemPrompt, contextMessages, processText);
   clearAckTimer();
   devMetadata.source = 'tiered-llm-fallback';
@@ -178,6 +207,9 @@ async function classifySplitModel(
 
   // If action needs a reply, generate with larger model
   if (routedAction === 'llm_reply' || routedAction === 'reply') {
+    // Send typing indicator before LLM reply in split model
+    await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
+
     const timeSensitiveSet = context.getTimeSensitiveIntentSet();
     const replyPrompt = timeSensitiveSet.has(classifyResult.intent)
       ? systemPrompt + '\n\n' + context.getTimeContext()
@@ -223,6 +255,9 @@ async function classifyDefault(
   clearAckTimer: () => void
 ): Promise<ClassificationResult> {
   const { processText, contextMessages, systemPrompt, devMetadata } = input;
+
+  // Send typing indicator before LLM call in default mode
+  await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
   const result = await context.classifyAndRespond(systemPrompt, contextMessages, processText);
   clearAckTimer();

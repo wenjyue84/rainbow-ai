@@ -1584,3 +1584,42 @@ Completed: Detect and handle WhatsApp marketing frequency cap error (131049) (ID
 ### Gotchas
 - Webhook routes must be mounted BEFORE `app.use(express.json())` would strip rawBody, but after `express.json()` is registered (so the body is actually parsed). The `verify` callback is the correct hook.
 - `crypto.timingSafeEqual` requires both Buffers to be the same length — must check lengths first or the call throws; the prefix check prevents this
+## Iteration 11 - Fri, Mar 13, 2026  2:40:51 PM
+Completed: Implement webhook signature validation for inbound admin API calls (ID: US-442) in 7m
+
+
+## Iteration 12 - Story: US-425 Send WhatsApp typing indicator before LLM responses
+### What was implemented
+- Added `typingIndicator.enabled` setting to settings.json (default: true)
+- Modified `src/assistant/pipeline/stages/tier-classification.ts`:
+  - Extended `ClassificationInput` interface to include optional `phone` and `instanceId` fields
+  - Added `sendTypingIndicatorIfEnabled()` helper that checks settings and calls `context.sendWhatsAppTypingIndicator()`
+  - Updated `classifyTieredPipeline()` to send typing indicator before T3 (fuzzy/semantic + LLM) replies
+  - Updated `classifyTieredPipeline()` to send typing indicator before T4 (full LLM) replies
+  - Updated `classifySplitModel()` to send typing indicator before LLM reply
+  - Updated `classifyDefault()` to send typing indicator before LLM call
+  - T1 fast path (regex match <500ms) explicitly does NOT send typing indicator
+- Modified `src/assistant/pipeline/intent-classifier.ts`:
+  - Removed premature typing indicator call at line 38 (was always sending, regardless of tier)
+  - Updated `classifyWithTiers()` call to pass `phone` and `instanceId` parameters
+### Patterns discovered
+- Typing indicator is best-effort — failures are caught and logged as warnings, not fatal
+- The context object already has `sendWhatsAppTypingIndicator()` method via `lib/whatsapp/index.ts`
+- Settings can be checked with `context.getSettings()` and accessed as `settings.typingIndicator?.enabled`
+- Three classification paths all need typing indicator: tieredPipeline T3/T4, splitModel reply path, default mode
+### Gotchas
+- Cannot send typing indicator before fast T1 paths — Baileys presence expires after ~10s, so the message reply arrives before the indicator anyway
+- The helper checks for phone and instanceId being undefined (optional parameters) to handle cases where this info is not available
+- All 478 existing tests still pass with the changes
+
+### Acceptance Criteria Met
+✓ Bot sends typing indicator immediately after LLM processing starts (T3/T4 paths)
+✓ Typing indicator NOT sent for fast T1 regex matches (no LLM)
+✓ sendPresenceUpdate('paused', jid) called after response via existing ack timer mechanism
+✓ Feature controlled by settings.json flag (typingIndicator.enabled) defaulting to true
+✓ Unit tests passing (message-pipeline.test.ts confirmed T3/T4 paths work)
+✓ npm run build succeeds
+✓ Existing tests still pass (478/478)
+
+## Iteration 12 - Fri, Mar 13, 2026  3:15:23 PM
+Completed: Send WhatsApp typing indicator before LLM responses (ID: US-425) in ~8m

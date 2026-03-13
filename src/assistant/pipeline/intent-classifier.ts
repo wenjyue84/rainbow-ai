@@ -34,9 +34,7 @@ export async function classifyAndRoute(
     return;
   }
 
-  // Send typing indicator
-  context.sendWhatsAppTypingIndicator(phone, msg.instanceId).catch(() => {});
-
+  // Typing indicator is now sent during tier classification (T3/T4) only
   // ─── Stage 1: Conversation Summarization ─────────────────────────
   const summarization = await applySummarization(state, context);
 
@@ -66,6 +64,8 @@ export async function classifyAndRoute(
       systemPrompt: kb.systemPrompt,
       lastIntent: convo.lastIntent,
       devMetadata,
+      phone,
+      instanceId: msg.instanceId,
     },
     context,
     () => clearTimeout(ackTimer)
