@@ -1,4 +1,5 @@
 import type { WorkflowState } from './workflow-executor.js';
+import type { FlowState } from './pipeline/types.js';
 
 // ─── Incoming Message ────────────────────────────────────────────────
 export type MessageType = 'text' | 'image' | 'audio' | 'video' | 'sticker' | 'document' | 'contact' | 'location';
@@ -89,6 +90,7 @@ export interface ConversationState {
   language: 'en' | 'ms' | 'zh';
   bookingState: BookingState | null;
   workflowState: WorkflowState | null;  // NEW: Workflow execution state
+  activeFlow: FlowState | null;         // US-408: Unified flow state for new flow types
   unknownCount: number;  // consecutive unknown intents
   createdAt: number;
   lastActiveAt: number;

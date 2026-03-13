@@ -226,6 +226,7 @@ vi.mock('../conversation.js', () => {
           language: 'en',
           bookingState: null,
           workflowState: null,
+          activeFlow: null,
           unknownCount: 0,
           createdAt: Date.now(),
           lastActiveAt: Date.now(),

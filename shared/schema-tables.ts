@@ -94,6 +94,7 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   language: varchar("language", { length: 2 }).notNull().default('en'),
   bookingStateJson: text("booking_state_json"),
   workflowStateJson: text("workflow_state_json"),
+  activeFlowJson: text("active_flow_json"),  // US-408: Unified flow state for new flow types
   unknownCount: integer("unknown_count").notNull().default(0),
   lastIntent: text("last_intent"),
   lastIntentConfidence: real("last_intent_confidence"),

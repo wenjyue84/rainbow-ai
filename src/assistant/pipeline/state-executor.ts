@@ -1,21 +1,24 @@
 /**
  * Pipeline Phase 2: Active State Execution
  *
- * Handles: feedback detection, active workflow continuation,
- * active booking flow, emergency regex detection.
+ * Handles: feedback detection, active flow continuation (unified),
+ * emergency regex detection.
+ *
+ * US-408: Booking and workflow flows are now handled through a single
+ * unified flow dispatch via the Flow interface and FlowRegistry.
  *
  * If any state handler fires, it sends a response and returns { handled: true }.
  * Otherwise returns { handled: false } to continue to classification.
  */
 import axios from 'axios';
-import type { RouterContext, PipelineState, StateResult } from './types.js';
+import type { RouterContext, PipelineState, StateResult, FlowContext } from './types.js';
 import { ensureResponseText } from './input-validator.js';
-import { addMessage, updateBookingState, updateWorkflowState } from '../conversation.js';
+import { addMessage, updateBookingState, updateWorkflowState, updateActiveFlow } from '../conversation.js';
 import { logMessage } from '../conversation-logger.js';
 import { getEmergencyIntent } from '../intents.js';
 import { escalateToStaff } from '../escalation.js';
-import { handleBookingStep, createBookingState } from '../booking.js';
-import { executeWorkflowStep, createWorkflowState, forwardWorkflowSummary, type WorkflowContext } from '../workflow-executor.js';
+import { createWorkflowState, type WorkflowContext } from '../workflow-executor.js';
+import { flowRegistry } from '../flows/index.js';
 import {
   isAwaitingFeedback, detectFeedbackResponse, buildFeedbackData,
   clearAwaitingFeedback
@@ -74,42 +77,42 @@ export async function handleActiveStates(
     }
   }
 
-  // ─── ACTIVE WORKFLOW ────────────────────────────────────────────
-  if (convo.workflowState) {
-    const wfCtx: WorkflowContext = { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId };
-    const result = await executeWorkflowStep(convo.workflowState, text, wfCtx);
+  // ─── US-408: UNIFIED ACTIVE FLOW DISPATCH ─────────────────────────
+  const activeFlow = flowRegistry.getActiveFlow(convo);
+  if (activeFlow) {
+    const { flow, state: flowState, flowType } = activeFlow;
 
-    if (result.newState) {
+    const flowContext: FlowContext = {
+      language: lang,
+      phone,
+      pushName: msg.pushName,
+      instanceId: msg.instanceId,
+      messages: convo.messages,
+      profileId,
+      profileConfig,
+      sendMessage: ctx.sendMessage,
+    };
+
+    const result = await flow.executeStep(flowState, text, flowContext);
+    const action = result.newState ? flowType : `${flowType}_complete`;
+
+    // Update state — use legacy updaters for backward compatibility
+    if (flowType === 'booking') {
+      updateBookingState(phone, result.newState, profileId);
+    } else if (flowType === 'workflow') {
       updateWorkflowState(phone, result.newState, profileId);
-      addMessage(phone, 'assistant', result.response, profileId);
-      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
-      const cleanResponse = ensureResponseText(result.response, lang);
-      await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
     } else {
-      updateWorkflowState(phone, null, profileId);
-      addMessage(phone, 'assistant', result.response, profileId);
-      logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'workflow_complete', instanceId: msg.instanceId, profileId }).catch(() => { });
-      const cleanResponse = ensureResponseText(result.response, lang);
-      await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
-
-      if (result.shouldForward && result.conversationSummary) {
-        const workflows = profileConfig.getWorkflows();
-        const workflow = workflows.workflows.find(w => w.id === convo.workflowState?.workflowId);
-        if (workflow) {
-          await forwardWorkflowSummary(phone, msg.pushName, workflow, convo.workflowState, msg.instanceId);
-        }
-      }
+      // Generic flow types use the unified activeFlow field
+      updateActiveFlow(phone, result.newState ? { flowType, data: result.newState } : null, profileId);
     }
-    return { handled: true };
-  }
 
-  // ─── ACTIVE BOOKING ─────────────────────────────────────────────
-  if (convo.bookingState && !['done', 'cancelled'].includes(convo.bookingState.stage)) {
-    const result = await handleBookingStep(convo.bookingState, text, lang, convo.messages);
-    updateBookingState(phone, result.newState, profileId);
     addMessage(phone, 'assistant', result.response, profileId);
-    logMessage(phone, msg.pushName, 'assistant', result.response, { action: 'booking', instanceId: msg.instanceId, profileId }).catch(() => { });
-    await ctx.sendMessage(phone, result.response, msg.instanceId);
+    logMessage(phone, msg.pushName, 'assistant', result.response, {
+      action, instanceId: msg.instanceId, profileId,
+    }).catch(() => { });
+
+    const cleanResponse = ensureResponseText(result.response, lang);
+    await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
     return { handled: true };
   }
 
@@ -135,18 +138,30 @@ export async function handleActiveStates(
         console.log(`[Router] Emergency → workflow: ${workflow.name} (${route.workflow_id})`);
         trackWorkflowStarted(phone, msg.pushName, workflow.name);
         const workflowState = createWorkflowState(route.workflow_id);
-        const emergencyWfCtx: WorkflowContext = { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId };
-        const workflowResult = await executeWorkflowStep(workflowState, null, emergencyWfCtx);
 
-        if (workflowResult.newState) {
-          updateWorkflowState(phone, workflowResult.newState, profileId);
+        // Use the workflow flow from the registry for emergency workflows too
+        const workflowFlow = flowRegistry.get('workflow');
+        if (workflowFlow) {
+          const flowContext: FlowContext = {
+            language: lang, phone, pushName: msg.pushName,
+            instanceId: msg.instanceId, messages: convo.messages,
+            profileId, profileConfig, sendMessage: ctx.sendMessage,
+          };
+          // Start the workflow (passing null as initial input)
+          const wfCtx: WorkflowContext = { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId };
+          const { executeWorkflowStep } = await import('../workflow-executor.js');
+          const workflowResult = await executeWorkflowStep(workflowState, null, wfCtx);
+
+          if (workflowResult.newState) {
+            updateWorkflowState(phone, workflowResult.newState, profileId);
+          }
+
+          const cleanResponse = ensureResponseText(workflowResult.response, lang);
+          addMessage(phone, 'assistant', cleanResponse, profileId);
+          logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
+          await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
+          return { handled: true };
         }
-
-        const cleanResponse = ensureResponseText(workflowResult.response, lang);
-        addMessage(phone, 'assistant', cleanResponse, profileId);
-        logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId }).catch(() => { });
-        await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
-        return { handled: true };
       }
     }
     // For other emergencies (fire, medical, etc.), fall through to LLM

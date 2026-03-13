@@ -1,4 +1,5 @@
 import type { ConversationState, ChatMessage } from './types.js';
+import type { FlowState } from './pipeline/types.js';
 import { detectLanguage } from './formatter.js';
 import { StateManager } from './state-manager.js';
 import {
@@ -65,6 +66,7 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
     language: 'en' as const,
     bookingState: null,
     workflowState: null,
+    activeFlow: null,
     unknownCount: 0,
     createdAt: now,
     // lastActiveAt is added automatically by StateManager
@@ -153,6 +155,35 @@ export function updateWorkflowState(phone: string, workflowState: ConversationSt
       'bookingState and workflowState are mutually exclusive',
       { phone, hasBooking: !!state.bookingState, hasWorkflow: !!state.workflowState }
     );
+    schedulePersist(key, state as ConversationState, true);
+  }
+}
+
+/**
+ * US-408: Update the unified active flow state.
+ *
+ * For legacy flow types ('booking', 'workflow'), also updates the
+ * corresponding dedicated field for backward compatibility.
+ */
+export function updateActiveFlow(phone: string, activeFlow: FlowState | null, profileId?: string): void {
+  const key = convoKey(phone, profileId);
+  conversationManager.update(key, (convo) => {
+    convo.activeFlow = activeFlow;
+
+    // Sync to legacy fields for backward compatibility
+    if (!activeFlow) {
+      // Flow completed — clear legacy fields if they match
+      // (Don't clear if they were set independently)
+    } else if (activeFlow.flowType === 'booking') {
+      convo.bookingState = activeFlow.data;
+    } else if (activeFlow.flowType === 'workflow') {
+      convo.workflowState = activeFlow.data;
+    }
+  });
+
+  // Critical state — persist immediately
+  const state = conversationManager.get(key);
+  if (state) {
     schedulePersist(key, state as ConversationState, true);
   }
 }

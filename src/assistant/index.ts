@@ -11,6 +11,7 @@ import { initEscalation, destroyEscalation } from './escalation.js';
 import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
 import { initMessageQueue, enqueueMessage, closeQueue } from '../lib/message-queue.js';
+import { initFlows } from './flows/index.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -34,6 +35,7 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   initPricing();
   initBooking(callAPI);
   initEscalation(sendMessage);
+  initFlows();
   initRouter(sendMessage, callAPI);
 
   // Initialize BullMQ message queue (US-405)

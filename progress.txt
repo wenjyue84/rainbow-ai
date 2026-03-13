@@ -1297,3 +1297,35 @@ Incomplete: Add configurable conversation data retention with automatic purge (I
 ## Iteration 7 - Fri, Mar 13, 2026 11:21:24 AM
 Completed: Add configurable conversation data retention with automatic purge (ID: US-419) in 7m
 
+## Iteration 1 - Fri, Mar 13, 2026 11:46:41 AM
+Incomplete: Implement graceful shutdown with connection draining on SIGTERM (ID: US-437) — attempt 1/3
+
+
+## Iteration 8 - Story: US-408 - Generalize the flow execution engine with a unified Flow interface
+### What was implemented
+- Defined `Flow` interface in `src/assistant/pipeline/types.ts` with `start()`, `executeStep()`, `isComplete()` methods
+- Created `FlowState`, `FlowStepResult`, `FlowContext` types for unified flow data passing
+- Created `src/assistant/flows/` directory with:
+  - `registry.ts` — FlowRegistry singleton with `register()`, `get()`, `getActiveFlow()` (detects active flows from both `activeFlow` and legacy `bookingState`/`workflowState`)
+  - `booking-flow.ts` — BookingFlow adapter wrapping existing `handleBookingStep`/`createBookingState`
+  - `workflow-flow.ts` — WorkflowFlow adapter wrapping existing `executeWorkflowStep`/`createWorkflowState` (includes forwarding on completion)
+  - `survey-flow.ts` — Stub SurveyFlow demonstrating extensibility (2-question survey)
+  - `index.ts` — `initFlows()` function registering all flows at startup
+- Added `activeFlow: FlowState | null` to `ConversationState` in `src/assistant/types.ts`
+- Added `updateActiveFlow()` to `src/assistant/conversation.ts` (syncs to legacy fields for backward compat)
+- Refactored `state-executor.ts` to use a single unified flow dispatch via `flowRegistry.getActiveFlow(convo)` instead of separate booking/workflow code blocks
+- Added `activeFlowJson` column to `rainbow_conversation_state` schema table
+- Updated `state-persistence.ts` to load/save the new `activeFlow` field
+- Called `initFlows()` in `src/assistant/index.ts` during assistant initialization
+- Updated test files to include `activeFlow: null` in ConversationState mocks
+
+### Patterns discovered
+- Flow registry detects active flows with priority: `activeFlow` field > `workflowState` > `bookingState`
+- Legacy `bookingState`/`workflowState` fields kept for backward compat with action-dispatch, admin routes, and state persistence
+- New flow types (survey, onboarding, etc.) use the unified `activeFlow` field
+- WorkflowFlow.start() is not used via the unified path — workflows are started from action-dispatch with a specific workflowId
+
+### Gotchas
+- ConversationState mocks in tests need `activeFlow: null` added to avoid type errors
+- The `activeFlowJson` DB column requires `npm run db:push` to be applied — until then persistence is best-effort
+- WorkflowFlow forwarding logic moved into the adapter's `executeStep()` so state-executor stays generic

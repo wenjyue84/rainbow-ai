@@ -10,6 +10,7 @@ function makeConvo(overrides: Partial<ConversationState> = {}): ConversationStat
     language: 'en',
     bookingState: null,
     workflowState: null,
+    activeFlow: null,
     unknownCount: 0,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
