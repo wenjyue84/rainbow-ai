@@ -10,6 +10,7 @@
  *   await safeSend(phone, text, instanceId);
  */
 import type { SendMessageFn } from '../assistant/types.js';
+import { isFrequencyCapError } from './frequency-cap.js';
 
 interface RetryOptions {
   maxAttempts?: number;
@@ -36,6 +37,11 @@ export function withSendRetry(
       try {
         return await send(phone, text, instanceId);
       } catch (err: any) {
+        // Frequency cap is a hard rejection — retrying makes it worse
+        if (isFrequencyCapError(err)) {
+          console.warn(`[SendRetry] Frequency cap exceeded for ${phone} — skipping retry (error 131049)`);
+          throw err;
+        }
         if (attempt === maxAttempts) {
           console.error(
             `[SendRetry] All ${maxAttempts} attempts failed for ${phone}: ${err.message}`

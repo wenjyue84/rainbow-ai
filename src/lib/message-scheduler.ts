@@ -8,6 +8,8 @@
 
 import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { isFrequencyCapError, recordFrequencyCap, trackOutboundMarketing } from './frequency-cap.js';
+import { notifyAdminFrequencyCap } from './admin-notifier.js';
 
 const DATA_FILE = join(process.cwd(), 'data', 'scheduled-messages.json');
 
@@ -134,6 +136,7 @@ async function checkAndSend(): Promise<void> {
 
     // Time to send
     try {
+      trackOutboundMarketing('pelangi');
       const { sendWhatsAppMessage } = await import('./baileys-client.js');
       await sendWhatsAppMessage(msg.phone, msg.content);
 
@@ -171,7 +174,16 @@ async function checkAndSend(): Promise<void> {
         }
       }
     } catch (err: any) {
-      console.error(`[Scheduler] Failed to send message ${msg.id}:`, err.message);
+      if (isFrequencyCapError(err)) {
+        // Meta 131049: do not retry — record as frequency_capped in DB
+        console.warn(`[Scheduler] Message ${msg.id} to ${msg.phone} rejected — frequency cap (131049). Recording and skipping.`);
+        await recordFrequencyCap(msg.phone, msg.content, 'pelangi', notifyAdminFrequencyCap);
+        msg.status = 'cancelled'; // prevent future retry attempts
+        msg.sentAt = now.toISOString();
+        changed = true;
+      } else {
+        console.error(`[Scheduler] Failed to send message ${msg.id}:`, err.message);
+      }
     }
   }
 

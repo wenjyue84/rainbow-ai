@@ -358,6 +358,46 @@ export async function notifyAdminFailoverDeactivated(): Promise<void> {
 }
 
 /**
+ * Send marketing frequency cap threshold alert to system admin.
+ * Fires when >10% of outbound marketing messages in an hour are rejected
+ * with Meta error 131049 (FREQUENCY_CAP_EXCEEDED).
+ */
+export async function notifyAdminFrequencyCap(
+  instanceId: string,
+  cappedCount: number,
+  outboundCount: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send frequency cap notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const rate = outboundCount > 0
+    ? `${(cappedCount / outboundCount * 100).toFixed(1)}%`
+    : 'N/A';
+
+  const message = `⚠️ *WhatsApp Frequency Cap Alert*\n\n` +
+    `Instance: *${instanceId}*\n` +
+    `Rejected (frequency_capped): ${cappedCount}\n` +
+    `Total outbound (this hour): ${outboundCount}\n` +
+    `Rejection rate: ${rate}\n` +
+    `Error: 131049 — FREQUENCY_CAP_EXCEEDED\n\n` +
+    `Meta limits each user to 2 marketing messages per 24h across all businesses.\n` +
+    `Retrying these messages would not help and wastes quota.\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent frequency cap threshold notification', { toPhone: settings.systemAdminPhone });
+  } catch (err: any) {
+    logger.error('Failed to send frequency cap notification', { error: err.message });
+  }
+}
+
+/**
  * Send AI provider rate limit alert to system admin
  * Notifies when a provider hits too many consecutive 429 errors
  */

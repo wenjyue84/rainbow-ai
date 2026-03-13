@@ -41,6 +41,7 @@ import dataRetentionRoutes from './data-retention.js';
 import gdprErasureRoutes from './gdpr-erasure.js';
 import consentRoutes from './consent.js';
 import llmCostRoutes from './llm-cost.js';
+import frequencyCapRoutes from './frequency-cap.js';
 
 const router = Router();
 
@@ -163,6 +164,7 @@ router.use(dataRetentionRoutes);
 router.use(gdprErasureRoutes);
 router.use(consentRoutes);
 router.use(llmCostRoutes);
+router.use(frequencyCapRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

@@ -1515,3 +1515,41 @@ Completed: Expose PostgreSQL pool metrics in /health/ready endpoint (ID: US-439)
 - Only system messages get cache breakpoints (user/assistant messages are dynamic and not cache candidates)
 - Anthropic requires >=1024 tokens for cache eligibility — nothing to enforce here, provider handles it silently
 - Up to 4 cache breakpoints allowed; we use 1 (the system prompt)
+## Iteration 9 - Fri, Mar 13, 2026  2:25:06 PM
+Completed: Implement LLM system-prompt caching via cache_control breakpoints (ID: US-440) in 5m
+
+
+## Iteration N - Story: US-441 - Detect and handle WhatsApp marketing frequency cap error (131049)
+### What was implemented
+- Created `src/lib/frequency-cap.ts` (new module):
+  - `FREQUENCY_CAP_ERROR_CODE = 131049` constant
+  - `FrequencyCapError` class — extends Error, stores phone + instanceId
+  - `isFrequencyCapError(err)` — type guard
+  - `detectFrequencyCapInResponse(body)` — inspects Cloud API / Evolution API error shapes
+  - `trackOutboundMarketing(instanceId)` — increments hourly denominator counter
+  - `recordFrequencyCap(phone, content, instanceId, notifyFn?)` — inserts to DB with source='frequency_capped', checks 10% threshold
+  - `getFrequencyCapStats24h()` — queries DB for count per instance in last 24h
+- Modified `src/lib/evolution-client.ts`:
+  - Added import of `detectFrequencyCapInResponse` + `FrequencyCapError`
+  - In `callEvolutionAPI` catch block: detects 131049 in response body and throws `FrequencyCapError`
+- Modified `src/lib/send-retry.ts`:
+  - Added `isFrequencyCapError` check — skip all remaining retries and re-throw immediately
+- Modified `src/lib/message-scheduler.ts`:
+  - Added `trackOutboundMarketing('pelangi')` before each send attempt
+  - Added `isFrequencyCapError` catch branch: calls `recordFrequencyCap`, marks scheduled message as 'cancelled'
+- Modified `src/lib/admin-notifier.ts`:
+  - Added `notifyAdminFrequencyCap(instanceId, cappedCount, outboundCount)` — sends WhatsApp alert when >10% threshold triggered
+- Created `src/routes/admin/frequency-cap.ts`:
+  - `GET /analytics/frequency-cap` — returns `frequency_capped_count_24h`, `by_instance`, `window_hours`
+- Modified `src/routes/admin/index.ts` — mounted new frequency-cap router
+- Created `src/assistant/__tests__/frequency-cap.test.ts` — 18 tests covering all acceptance criteria
+
+### Patterns discovered
+- `source` field in `rainbow_messages` used to record delivery status (e.g., 'frequency_capped')
+- Hourly bucket pattern (module-level Map keyed by instanceId) for threshold tracking — same pattern as `_poolWaitingStreak`
+- `notifyFn` passed as callback to `recordFrequencyCap` to avoid circular import between frequency-cap.ts and admin-notifier.ts
+
+### Gotchas
+- Cloud API error 131049 can appear in multiple locations in the response body — `error.errors[].code`, top-level `errors[].code`, `error.code`, flat `code`
+- `trackOutboundMarketing` must be called BEFORE the send attempt (to count attempts, not just successes)
+- Minimum 5 outbound messages required before threshold check fires (avoids noise on low-volume instances)

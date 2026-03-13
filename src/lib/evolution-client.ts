@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { detectFrequencyCapInResponse, FrequencyCapError } from './frequency-cap.js';
 
 const EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/+$/, '');
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'pelangi-evo-2026';
@@ -48,6 +49,12 @@ export async function callEvolutionAPI<T>(
     });
     return response.data;
   } catch (error: any) {
+    // Detect Meta 131049 frequency cap — must not be retried
+    if (error.response?.data && detectFrequencyCapInResponse(error.response.data)) {
+      const phone = (data as any)?.number ?? (data as any)?.phone ?? 'unknown';
+      throw new FrequencyCapError(phone, EVOLUTION_INSTANCE_NAME);
+    }
+
     const status = error.response?.status;
     const bodyMessage = error.response?.data?.message || error.response?.data?.error;
     const statusText = error.response?.statusText;
