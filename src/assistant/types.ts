@@ -4,6 +4,12 @@ import type { FlowState } from './pipeline/types.js';
 // ─── Incoming Message ────────────────────────────────────────────────
 export type MessageType = 'text' | 'image' | 'audio' | 'video' | 'sticker' | 'document' | 'contact' | 'location';
 
+export interface MediaMetadata {
+  mimeType: string;
+  fileSize?: number;
+  fileName?: string;
+}
+
 export interface IncomingMessage {
   from: string;        // Phone number (no @s.whatsapp.net) or BSUID if phone hidden
   text: string;
@@ -13,9 +19,10 @@ export interface IncomingMessage {
   timestamp: number;   // Unix seconds
   messageType: MessageType;
   instanceId?: string; // Which WhatsApp instance received this message
-  rawMessage?: any;    // Raw Baileys message for media download (US-438)
+  rawMessage?: any;    // Raw Baileys message for media download (US-438, US-448)
   transcribed?: boolean; // True if text was transcribed from voice note (US-438)
   bsuid?: string;      // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
+  mediaMetadata?: MediaMetadata; // US-448: Media file metadata for images, videos, documents
 }
 
 // ─── Intent Classification ──────────────────────────────────────────

@@ -79,6 +79,30 @@ export function ensureResponseText(response: string, lang: 'en' | 'ms' | 'zh'): 
   return getTemplate('error', lang);
 }
 
+/** US-448: Type-specific acknowledgement for media messages */
+function getMediaAcknowledgement(messageType: MessageType, lang: 'en' | 'ms' | 'zh'): string {
+  const acks: Record<string, Record<'en' | 'ms' | 'zh', string>> = {
+    image: {
+      en: "Thanks for the photo! I've noted it. If you need help with something specific, please describe it in a text message.",
+      ms: "Terima kasih atas gambar! Saya sudah catatkan. Jika perlu bantuan, sila terangkan melalui mesej teks.",
+      zh: "感谢您发送的照片！我已记录下来。如需帮助，请用文字描述。",
+    },
+    video: {
+      en: "Thanks for the video! I've noted it. Could you describe what you need help with in a text message?",
+      ms: "Terima kasih atas video! Saya sudah catatkan. Boleh terangkan apa yang perlu bantuan melalui mesej teks?",
+      zh: "感谢您发送的视频！我已记录下来。请用文字描述您需要的帮助。",
+    },
+    document: {
+      en: "Thanks for the document! I've received it. If you have any questions about it, please let me know.",
+      ms: "Terima kasih atas dokumen! Saya sudah terima. Jika ada soalan, sila beritahu saya.",
+      zh: "感谢您发送的文件！我已收到。如有任何问题，请告知我。",
+    },
+  };
+  const typeAcks = acks[messageType];
+  if (!typeAcks) return getTemplate('non_text', lang);
+  return typeAcks[lang] || typeAcks.en;
+}
+
 /** Placeholder content for non-text messages so live chat shows "[Image]", etc. */
 function getNonTextPlaceholder(messageType: MessageType): string {
   const labels: Record<MessageType, string> = {
@@ -275,15 +299,41 @@ export async function validateAndPrepare(
       }
     }
 
-    // Non-audio non-text messages (image, video, sticker, etc.)
+    // ─── US-448: Media message routing with type-specific acks ──────
     if (msg.messageType !== 'text') {
-      console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
       const lang = msg.text ? detectLanguage(msg.text) : 'en';
       const nonTextLabel = getNonTextPlaceholder(msg.messageType);
-      const replyText = getTemplate('non_text', lang);
-      await ctx.sendMessage(phone, replyText, msg.instanceId);
-      await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId, msg.bsuid);
-      return { continue: false, reason: 'non_text' };
+
+      // Location messages have text (Google Maps link injected by instance.ts) —
+      // let them flow through to the main pipeline for operator context
+      if (msg.messageType === 'location' && msg.text) {
+        console.log(`[Router] ${phone} (${msg.pushName}): [location] — passing through with maps link`);
+        // Fall through to normal text processing below
+      }
+      // Image/video/document with caption text — acknowledge the media, then process caption
+      else if (['image', 'video', 'document'].includes(msg.messageType) && msg.text) {
+        const mediaAck = getMediaAcknowledgement(msg.messageType, lang);
+        console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType} with caption] "${msg.text.slice(0, 60)}"`);
+        await ctx.sendMessage(phone, mediaAck, msg.instanceId);
+        await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid);
+        // Fall through — caption text will be processed by the pipeline
+      }
+      // Image/video/document with NO caption — acknowledge and stop
+      else if (['image', 'video', 'document'].includes(msg.messageType)) {
+        const mediaAck = getMediaAcknowledgement(msg.messageType, lang);
+        console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
+        await ctx.sendMessage(phone, mediaAck, msg.instanceId);
+        await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid);
+        return { continue: false, reason: 'media_acknowledged' };
+      }
+      // Sticker/contact — generic non-text ack
+      else {
+        console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
+        const replyText = getTemplate('non_text', lang);
+        await ctx.sendMessage(phone, replyText, msg.instanceId);
+        await logNonTextExchange(phone, msg.pushName, nonTextLabel, replyText, msg.instanceId, profileId, msg.bsuid);
+        return { continue: false, reason: 'non_text' };
+      }
     }
   }
 
@@ -413,9 +463,12 @@ export async function validateAndPrepare(
   }
 
   addMessage(phone, 'user', text, profileId);
+  // US-448: Log message_type for all media messages that flow through (location, image/video/doc with caption)
+  const loggedMessageType = msg.transcribed ? 'audio' : (msg.messageType !== 'text' ? msg.messageType : undefined);
   logMessage(phone, msg.pushName, 'user', text, {
     instanceId: msg.instanceId, profileId,
-    ...(msg.transcribed ? { transcribed: true, messageType: 'audio' } : {}),
+    ...(loggedMessageType ? { messageType: loggedMessageType } : {}),
+    ...(msg.transcribed ? { transcribed: true } : {}),
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
   }).catch(() => { });
   const lang = convo.language;

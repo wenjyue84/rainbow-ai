@@ -2313,3 +2313,26 @@ Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth sta
 ## Iteration 9 - Sat, Mar 14, 2026 12:25:59 AM
 Completed: Replace useMultiFileAuthState with custom DB-backed Baileys auth state (ID: US-480) in 10m
 
+
+## Iteration 10 - Story: US-448 - Add inbound media message routing and file-type awareness
+### What was implemented
+- Added `MediaMetadata` interface (`mimeType`, `fileSize?`, `fileName?`) and optional `mediaMetadata` field to `IncomingMessage` type
+- Updated `instance.ts` to extract media metadata (mimeType, fileSize, fileName) from Baileys message objects for image, audio, video, and document types
+- `rawMessage` is now passed for ALL media types (image, video, document, audio) — not just audio — enabling future media download in the pipeline
+- Location messages now extract `degreesLatitude`/`degreesLongitude` and inject a Google Maps link as the message text
+- Replaced generic "I can only read text" response with type-specific acknowledgements for image, video, and document messages (trilingual: en/ms/zh)
+- Image/video/document WITH captions: acknowledge the media, then let the caption text flow through the pipeline for AI processing
+- Image/video/document WITHOUT captions: acknowledge the media and stop (no longer silently discarded)
+- Location messages with coordinates flow through to the main pipeline (Google Maps link as text provides operator context)
+- Sticker/contact messages retain the generic non-text acknowledgement
+- `message_type` column in `rainbow_messages` is now correctly populated for all media types that flow through the pipeline (location, image/video/doc with caption)
+- Updated existing test + added sticker test to cover new `media_acknowledged` vs `non_text` reason codes
+
+### Patterns discovered
+- Baileys message objects store media metadata in type-specific sub-objects (e.g., `m.imageMessage.mimetype`, `m.documentMessage.fileName`)
+- `fileLength` is a BigInt/Long in Baileys — needs `Number()` conversion
+- Location messages have `degreesLatitude` and `degreesLongitude` (not `lat`/`lng`)
+
+### Gotchas
+- Media download (S3 storage) is NOT implemented in this story — only metadata extraction and routing. The `rawMessage` is available for future download stages.
+- The `getMediaAcknowledgement` helper is self-contained in input-validator.ts (not in templates.json) to avoid requiring config-store changes for this story

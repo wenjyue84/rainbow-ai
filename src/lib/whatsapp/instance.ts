@@ -1,6 +1,6 @@
 import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
 import fs from 'fs';
-import type { IncomingMessage, MessageType } from '../../assistant/types.js';
+import type { IncomingMessage, MessageType, MediaMetadata } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
 import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifier.js';
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';
@@ -321,25 +321,49 @@ export class WhatsAppInstance {
       const m = msg.message;
       let text = m?.conversation || m?.extendedTextMessage?.text || '';
       let messageType: MessageType = 'text';
+      let mediaMetadata: MediaMetadata | undefined;
 
-      // Detect message type
+      // Detect message type and extract media metadata (US-448)
       if (m?.imageMessage) {
         messageType = 'image';
         text = m.imageMessage.caption || '';
+        mediaMetadata = {
+          mimeType: m.imageMessage.mimetype || 'image/jpeg',
+          fileSize: m.imageMessage.fileLength ? Number(m.imageMessage.fileLength) : undefined,
+        };
       } else if (m?.audioMessage) {
         messageType = 'audio';
+        mediaMetadata = {
+          mimeType: m.audioMessage.mimetype || 'audio/ogg',
+          fileSize: m.audioMessage.fileLength ? Number(m.audioMessage.fileLength) : undefined,
+        };
       } else if (m?.videoMessage) {
         messageType = 'video';
         text = m.videoMessage.caption || '';
+        mediaMetadata = {
+          mimeType: m.videoMessage.mimetype || 'video/mp4',
+          fileSize: m.videoMessage.fileLength ? Number(m.videoMessage.fileLength) : undefined,
+        };
       } else if (m?.stickerMessage) {
         messageType = 'sticker';
       } else if (m?.documentMessage) {
         messageType = 'document';
         text = m.documentMessage.caption || '';
+        mediaMetadata = {
+          mimeType: m.documentMessage.mimetype || 'application/octet-stream',
+          fileSize: m.documentMessage.fileLength ? Number(m.documentMessage.fileLength) : undefined,
+          fileName: m.documentMessage.fileName || undefined,
+        };
       } else if (m?.contactMessage || m?.contactsArrayMessage) {
         messageType = 'contact';
       } else if (m?.locationMessage || m?.liveLocationMessage) {
         messageType = 'location';
+        const loc = m.locationMessage || m.liveLocationMessage;
+        const lat = loc?.degreesLatitude;
+        const lng = loc?.degreesLongitude;
+        if (lat != null && lng != null) {
+          text = `[Location: ${lat}, ${lng}] https://maps.google.com/maps?q=${lat},${lng}`;
+        }
       }
 
       if (!text && messageType === 'text') return;
@@ -360,6 +384,9 @@ export class WhatsAppInstance {
       // where CC is a two-letter country code and BSUID is alphanumeric (up to 128 chars).
       const bsuid = extractBsuid(msg, from);
 
+      // US-448: Pass rawMessage for all media types (not just audio) so pipeline can download
+      const isMediaType = ['image', 'audio', 'video', 'document'].includes(messageType);
+
       const incoming: IncomingMessage = {
         from,
         text,
@@ -369,7 +396,8 @@ export class WhatsAppInstance {
         timestamp: msg.messageTimestamp ? Number(msg.messageTimestamp) : Math.floor(Date.now() / 1000),
         messageType,
         instanceId: this.id,
-        rawMessage: messageType === 'audio' ? msg : undefined,
+        rawMessage: isMediaType ? msg : undefined,
+        ...(mediaMetadata ? { mediaMetadata } : {}),
         ...(bsuid ? { bsuid } : {}),
       };
 

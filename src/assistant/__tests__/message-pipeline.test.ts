@@ -346,8 +346,18 @@ describe('Message Pipeline Integration', () => {
       }
     });
 
-    test('should reject non-text messages and send template', async () => {
+    test('should acknowledge media messages (image with no caption)', async () => {
       const msg = createMessage({ messageType: 'image', text: '' });
+      const result = await validateAndPrepare(msg, ctx);
+      expect(result.continue).toBe(false);
+      if (!result.continue) {
+        expect(result.reason).toBe('media_acknowledged');
+      }
+      expect(ctx.sendMessage).toHaveBeenCalled();
+    });
+
+    test('should reject sticker messages with non_text reason', async () => {
+      const msg = createMessage({ messageType: 'sticker', text: '' });
       const result = await validateAndPrepare(msg, ctx);
       expect(result.continue).toBe(false);
       if (!result.continue) {
