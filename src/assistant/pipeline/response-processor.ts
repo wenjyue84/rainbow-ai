@@ -25,6 +25,7 @@ import { isWithin24HourWindow } from '../session-window.js';
 import { addApproval } from '../approval-queue.js';
 import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
+import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -222,6 +223,9 @@ export async function processAndSend(
     await ctx.sendMessage(phone, response, msg.instanceId);
   }
   trackResponseSent(phone, msg.pushName, devMetadata.routedAction || 'unknown', devMetadata.responseTime);
+
+  // US-495: Track outbound message cost (AI auto-reply = 'service', always within CSW)
+  recordWhatsappMessageCost({ phone, templateType: 'service', profileId }).catch(() => {});
 
   // ─── Feedback prompt (US-407: check 24h session window) ──────
   if (shouldAskFeedback(phone, diaryEvent.intent, diaryEvent.action)) {

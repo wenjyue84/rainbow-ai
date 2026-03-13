@@ -42,6 +42,7 @@ import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { loadQualityStateFromDb } from './lib/phone-quality.js';
 import { checkMetaCACert } from './lib/meta-ca-check.js';
 import { loadTodayCosts } from './assistant/llm-cost-budget.js';
+import { loadTodayWhatsappCosts, startWhatsappCostDailyJob } from './lib/whatsapp-cost.js';
 import { isReady, markReady, markListening } from './lib/readiness.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
@@ -133,6 +134,12 @@ try {
 
 // US-433: Load today's LLM cost accumulators from DB
 loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost data:', err.message));
+
+// US-495: Load today's WhatsApp message cost accumulators from DB
+loadTodayWhatsappCosts().catch(err => console.warn('[Startup] Failed to load WhatsApp cost data:', err.message));
+
+// US-495: Start daily WhatsApp cost aggregation log
+startWhatsappCostDailyJob();
 
 // US-431: Start daily quality metrics aggregation job
 startQualityMetricsJob();

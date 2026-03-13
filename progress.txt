@@ -2369,3 +2369,25 @@ Incomplete: Migrate Express 4 to Express 5 with async error propagation (ID: US-
 - Handlers that log errors before responding (console.error + serverError) were kept with try/catch to preserve logging
 ### Gotchas
 - intent-metamorphic.test.ts MR3 determinism test times out — pre-existing, unrelated to Express 5
+## Iteration 2 - Sat, Mar 14, 2026 12:53:52 AM
+FAILED quality gates: Migrate Express 4 to Express 5 with async error propagation (ID: US-494) — attempt 2/3
+
+
+## Iteration 3 - Story: US-495 - Track per-message WhatsApp template costs
+### What was implemented
+- New `whatsapp_cost_daily` Drizzle table for daily cost aggregation by template type + country
+- `src/lib/whatsapp-cost.ts` module: CSW detection, configurable rate table, cost estimation, in-memory accumulator + async DB flush (mirrors llm-cost-budget.ts pattern)
+- Instrumented response-processor.ts (AI auto-replies → 'service'), message-scheduler.ts (scheduled messages + payment reminders → 'utility')
+- Admin API: GET /analytics/whatsapp-cost (summary), /whatsapp-cost/daily (detailed), /whatsapp-cost/rate-table (GET/PUT)
+- Daily cost aggregation job: logs structured `whatsapp.estimated_cost_usd` metric every 24h
+- Startup: loads today's cost accumulators from DB
+- 18 unit tests: CSW detection (within/outside/error), cost estimation (service free, utility CSW-free, marketing charged, country-specific, defaults), rate table structure, recordWhatsappMessageCost integration
+
+### Patterns discovered
+- vi.hoisted() required for mock variables referenced in vi.mock() factories (Vitest hoisting)
+- In-memory accumulator + fire-and-forget DB upsert pattern (established by llm-cost-budget.ts) works well for cost tracking
+- Default rate table with _default fallback per template type handles unknown countries gracefully
+
+### Gotchas
+- System uses Baileys (direct WA connection), not Cloud API — "template messages" classified by purpose (service/utility/marketing) rather than Meta template API types
+- CSW detection queries rainbow_messages for recent 'user' role messages — assumes all user messages are customer-initiated (correct for this deployment)

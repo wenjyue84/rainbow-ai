@@ -52,6 +52,7 @@ import qualityMetricsRoutes from './quality-metrics.js';
 import intentGapsRoutes from './intent-gaps.js';
 import messagingLimitsRoutes from './messaging-limits.js';
 import phoneQualityRoutes from './phone-quality.js';
+import whatsappCostRoutes from './whatsapp-cost.js';
 
 const router = Router();
 
@@ -210,6 +211,7 @@ router.use(qualityMetricsRoutes);
 router.use(intentGapsRoutes);
 router.use(messagingLimitsRoutes);
 router.use(phoneQualityRoutes);
+router.use(whatsappCostRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

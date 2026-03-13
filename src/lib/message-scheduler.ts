@@ -11,6 +11,7 @@ import { join, dirname } from 'path';
 import { isFrequencyCapError, recordFrequencyCap, trackOutboundMarketing } from './frequency-cap.js';
 import { notifyAdminFrequencyCap } from './admin-notifier.js';
 import { isOutboundBlocked } from './phone-quality.js';
+import { recordWhatsappMessageCost } from './whatsapp-cost.js';
 
 const DATA_FILE = join(process.cwd(), 'data', 'scheduled-messages.json');
 
@@ -161,6 +162,9 @@ async function checkAndSend(): Promise<void> {
       changed = true;
       console.log(`[Scheduler] Sent scheduled message ${msg.id} to ${msg.phone}`);
 
+      // US-495: Track outbound cost (scheduled messages = 'utility')
+      recordWhatsappMessageCost({ phone: msg.phone, templateType: 'utility' }).catch(() => {});
+
       // Handle repeating messages (US-021 foundation)
       if (msg.repeatFrequency && msg.repeatFrequency !== 'none') {
         const nextDate = calculateNextOccurrence(scheduledTime, msg.repeatFrequency);
@@ -238,6 +242,9 @@ async function checkAndSend(): Promise<void> {
 
         markReminderSent(reminder.id);
         console.log(`[Scheduler] Sent payment reminder ${reminder.id} to ${reminder.phone}`);
+
+        // US-495: Track outbound cost (payment reminders = 'utility')
+        recordWhatsappMessageCost({ phone: reminder.phone, templateType: 'utility' }).catch(() => {});
       } catch (err: any) {
         console.error(`[Scheduler] Failed to send payment reminder ${reminder.id}:`, err.message);
       }

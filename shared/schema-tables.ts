@@ -270,6 +270,28 @@ export const llmCostDaily = pgTable("llm_cost_daily", {
   index("idx_llm_cost_daily_provider").on(table.provider),
 ]));
 
+// ─── WhatsApp Message Cost Daily (US-495) ─────────────────────────────
+// Tracks per-message WhatsApp template costs under July 2025 pricing model.
+// Aggregated daily by template_type + country_code + profile.
+
+export const whatsappCostDaily = pgTable("whatsapp_cost_daily", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(), // YYYY-MM-DD (UTC)
+  profileId: text("profile_id").notNull().default('pelangi'),
+  templateType: varchar("template_type", { length: 32 }).notNull(), // marketing, utility, authentication, service
+  countryCode: varchar("country_code", { length: 4 }).notNull().default('MY'), // ISO 3166-1 alpha-2
+  totalMessages: integer("total_messages").notNull().default(0),
+  billableMessages: integer("billable_messages").notNull().default(0), // excludes CSW-free utility
+  cswFreeMessages: integer("csw_free_messages").notNull().default(0), // utility sent within CSW
+  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_wa_cost_daily_date_profile_type_country").on(table.date, table.profileId, table.templateType, table.countryCode),
+  index("idx_wa_cost_daily_date").on(table.date),
+  index("idx_wa_cost_daily_profile").on(table.profileId),
+]));
+
 // ─── Baileys Auth State (US-480) ─────────────────────────────────────
 // Replaces useMultiFileAuthState with DB-backed auth persistence.
 // Each row stores a single credential or signal key, namespaced by profile + type + key id.
@@ -336,3 +358,5 @@ export type LlmCostDaily = typeof llmCostDaily.$inferSelect;
 export type InsertLlmCostDaily = typeof llmCostDaily.$inferInsert;
 export type BaileysAuthState = typeof baileysAuthState.$inferSelect;
 export type InsertBaileysAuthState = typeof baileysAuthState.$inferInsert;
+export type WhatsappCostDaily = typeof whatsappCostDaily.$inferSelect;
+export type InsertWhatsappCostDaily = typeof whatsappCostDaily.$inferInsert;
