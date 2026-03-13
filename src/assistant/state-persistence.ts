@@ -76,7 +76,8 @@ export async function loadActiveStates(
         lastIntentConfidence: row.lastIntentConfidence,
         lastIntentTimestamp: row.lastIntentTimestamp ? row.lastIntentTimestamp.getTime() : null,
         slots: row.slotsJson ? JSON.parse(row.slotsJson) : {},
-        repeatCount: row.repeatCount
+        repeatCount: row.repeatCount,
+        lastUserMessageAt: row.lastUserMessageAt ? row.lastUserMessageAt.getTime() : null
       }
     }));
 
@@ -145,6 +146,7 @@ async function persistState(phone: string, state: ConversationState): Promise<vo
       ? JSON.stringify(state.slots)
       : null,
     repeatCount: state.repeatCount,
+    lastUserMessageAt: state.lastUserMessageAt ? new Date(state.lastUserMessageAt) : null,
     lastActiveAt: now,
     updatedAt: now,
     createdAt: now,
@@ -166,6 +168,7 @@ async function persistState(phone: string, state: ConversationState): Promise<vo
         lastIntentTimestamp: values.lastIntentTimestamp,
         slotsJson: values.slotsJson,
         repeatCount: values.repeatCount,
+        lastUserMessageAt: values.lastUserMessageAt,
         lastActiveAt: values.lastActiveAt,
         updatedAt: values.updatedAt,
       }

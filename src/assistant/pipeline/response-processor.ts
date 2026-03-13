@@ -21,6 +21,7 @@ import {
 import {
   shouldAskFeedback, setAwaitingFeedback, getFeedbackPrompt
 } from '../feedback.js';
+import { isWithin24HourWindow } from '../session-window.js';
 import { addApproval } from '../approval-queue.js';
 import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
@@ -208,22 +209,26 @@ export async function processAndSend(
   }
   trackResponseSent(phone, msg.pushName, devMetadata.routedAction || 'unknown', devMetadata.responseTime);
 
-  // ─── Feedback prompt ──────────────────────────────────────────
+  // ─── Feedback prompt (US-407: check 24h session window) ──────
   if (shouldAskFeedback(phone, diaryEvent.intent, diaryEvent.action)) {
-    console.log(`[Feedback] Asking for feedback from ${phone}`);
-    setAwaitingFeedback(
-      phone,
-      `${phone}-${Date.now()}`,
-      diaryEvent.intent,
-      diaryEvent.confidence,
-      devMetadata.model || null,
-      devMetadata.responseTime || null,
-      devMetadata.source || null
-    );
+    if (!isWithin24HourWindow(convo)) {
+      console.warn(`[Feedback] Suppressed proactive feedback for ${phone} — outside 24h session window`);
+    } else {
+      console.log(`[Feedback] Asking for feedback from ${phone}`);
+      setAwaitingFeedback(
+        phone,
+        `${phone}-${Date.now()}`,
+        diaryEvent.intent,
+        diaryEvent.confidence,
+        devMetadata.model || null,
+        devMetadata.responseTime || null,
+        devMetadata.source || null
+      );
 
-    setTimeout(async () => {
-      const feedbackPrompt = getFeedbackPrompt(lang);
-      await ctx.sendMessage(phone, feedbackPrompt, msg.instanceId);
-    }, 1000);
+      setTimeout(async () => {
+        const feedbackPrompt = getFeedbackPrompt(lang);
+        await ctx.sendMessage(phone, feedbackPrompt, msg.instanceId);
+      }, 1000);
+    }
   }
 }

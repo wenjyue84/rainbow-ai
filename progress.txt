@@ -1039,3 +1039,57 @@ This user story is for a Node.js/TypeScript project using Baileys and BullMQ, no
 ### Gotchas
 - Import path from `pipeline/stages/` to `src/assistant/` needs `../../` not `../` (two levels up)
 - esbuild build warning about CommonJS module.exports in logger.ts is pre-existing, not related
+## Iteration 4 - Fri, Mar 13, 2026  9:44:08 AM
+Incomplete: Add async message queue with BullMQ to decouple webhook ingestion from processing (ID: US-405) — attempt 1/3
+
+
+## Pre-analysis for US-405 (Gemini 2.5 Pro)
+This user story is for a `Node.js/TypeScript` application using `Baileys` and `BullMQ`, not a `Frappe/Python` one. The project structure and technical notes confirm this.
+
+Here is the technical brief based on the correct `Node.js` context:
+
+### Technical Brief: US-405 BullMQ Integration
+
+**1. Python Files to Modify (Corrected for Node.js/TypeScript):**
+*   `src/server.ts` or a similar file where the `Baileys` client is initialized. The event handler for `'messages.upsert'` will be modified to enqueue jobs instead of processing synchronously.
+*   `src/lib/baileys-client.ts` (or equivalent): This is the most likely place to find the core Baileys event handling logic that needs to be changed.
+*   `src/lib/message-handler.ts` (or where `handleIncomingMessage` is defined): This function will be called by the new worker, not the Baileys event handler.
+*   A **new file**, `src/worker.ts`, will be created to define the BullMQ worker process that consumes jobs from the queue.
+*   `src/routes/admin.ts` (or equivalent): The health check endpoint (`/health`) will be updated to include queue metrics (e.g., job counts).
+*   `prd.json` / `profiles.json`: The application's configuration file will be read by the worker to get the concurrency setting.
+
+**2. Frappe DocTypes/Hooks (Corrected for Node.js):**
+*   **Hooks**: The primary hook is the `Baileys` event listener, specifically for `'messages.upsert'`. This is where message ingestion happens.
+*   **Data Structures**: The `JSON` payload for the BullMQ job will serve as the data structure. It should be a clean, serializable object containing the essential parts of the Baileys message object (`WAMessage`), not the entire complex object.
+
+**3. Recommended Implementation Approach:**
+1.  **Setup:** Add the `bullmq` package. Create a shared module (e.g., `src/lib/queue.ts`) to initialize and export the BullMQ `Queue` and `Redis` connection instances.
+2.  **Enqueue:** In the Baileys `'messages.upsert'` handler, replace the direct call to `handleIncomingMessage` with a call to `queue.add('new-message', { message })`.
+3.  **Worker Process:** Create `src/worker.ts`. This file will initialize a `Worker` that connects to the same queue name. The worker's processor function will take the job, extract the message, and pass it to the existing `handleIncomingMessage` function.
+4.  **Error Handling:** Configure the worker with `attempts: 3` and an exponential `backoff` strategy. Use event listeners (`'failed'`) to log failed jobs and move them to a dead-letter queue.
+5.  **Configuration:** The worker's `concurrency` option should be read from the project's settings file. Add a new script to `package.json` like `"worker": "ts-node src/worker.ts"` to run the worker as a separate process.
+
+**4. Edge Cases & Gotchas:**
+*   **Job Payload:** The Baileys message object is complex and may contain non-serializable data. Sanitize it into a simple `JSON` object before adding it to the queue.
+*   **Redis Connection:** Ensure both the main application and the separate worker process can connect to Redis. Connection details must be shared.
+*   **Idempotency:** As per the technical notes, deduplication logic must be implemented *inside* the worker (e.g., checking a Redis key with the message ID before processing) to prevent duplicate processing from retries.
+*   **Graceful Shutdown:** Implement signal handlers (`SIGINT`, `SIGTERM`) in both the main server and the worker to close BullMQ components gracefully, preventing jobs from being lost or stalled.
+
+
+## Iteration 12 - Story: US-407 - WhatsApp 24-hour session window enforcement
+### What was implemented
+- Added `lastUserMessageAt: number | null` to ConversationState type
+- Track `lastUserMessageAt` in conversation.ts `addMessage()` when role is 'user'
+- Added `last_user_message_at` column to `rainbow_conversation_state` DB schema
+- Updated state-persistence.ts to load/save `lastUserMessageAt` field
+- Created `src/assistant/session-window.ts` with `isWithin24HourWindow(convo)` helper
+- Guarded feedback prompt setTimeout in response-processor.ts with 24h window check
+- Added `whatsapp_compliance` config section to settings.json with outbound templates
+- 6 unit tests for session window boundary conditions (all passing)
+### Patterns discovered
+- ConversationState `lastActiveAt` is managed by StateManager automatically (not in the type directly) — new fields like `lastUserMessageAt` should be managed explicitly in the conversation module
+- Feedback prompt is a proactive message sent via setTimeout(1000) — the main place for 24h window enforcement
+- Escalation messages go to staff phones, not guest phones, so they don't need 24h window checks
+### Gotchas
+- StateManager wraps ConversationState with Omit<..., 'lastActiveAt'> — be careful with type alignment when adding fields
+- The response-processor receives `convo` via PipelineState destructuring — has access to full ConversationState for window checks

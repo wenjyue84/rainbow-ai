@@ -72,7 +72,8 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
     lastIntentConfidence: null,
     lastIntentTimestamp: null,
     slots: {},
-    repeatCount: 0
+    repeatCount: 0,
+    lastUserMessageAt: null
   }));
 }
 
@@ -91,9 +92,10 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
       convo.messages = convo.messages.slice(-MAX_MESSAGES);
     }
 
-    // Update language detection from user messages
+    // Update language detection and last user message timestamp
     if (role === 'user') {
       convo.language = detectLanguage(content);
+      convo.lastUserMessageAt = Date.now();
     }
   });
 

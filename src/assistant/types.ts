@@ -98,6 +98,7 @@ export interface ConversationState {
   lastIntentTimestamp: number | null;     // When intent was detected (ms)
   slots: Record<string, any>;             // { checkInDate: "tomorrow", guests: 2 }
   repeatCount: number;                     // consecutive times same intent classified
+  lastUserMessageAt: number | null;        // Timestamp (ms) of last inbound user message (US-407: 24h window)
 }
 
 // ─── Booking State Machine ──────────────────────────────────────────

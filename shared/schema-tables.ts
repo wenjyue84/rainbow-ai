@@ -103,6 +103,7 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   profileId: text("profile_id").default('pelangi'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
+  lastUserMessageAt: timestamp("last_user_message_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
