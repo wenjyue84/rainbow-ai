@@ -2622,3 +2622,65 @@ This brief outlines the implementation plan for creating a new API endpoint to r
 - Need to import `z` from 'zod' at top of ai-response-generator.ts for the generic type constraint
 - The retry message is appended as a user message turn (not system prompt modification) per acceptance criteria
 - Timeout uses Promise.race with setTimeout to enforce the 5s retry limit
+
+
+## Pre-analysis for US-414 (Gemini 2.5 Pro)
+This brief is for a Node.js/TypeScript project, as the user story details do not match the Frappe/Python context.
+
+**Project:** rainbow-ai (Node.js/TypeScript)
+**Objective:** Add a new API endpoint to report P50/P95/P99 response latencies.
+
+**1. Files to Modify:**
+*   `src/routes/admin/analytics.ts`: (Create if not existing) Add the new `GET /api/admin/analytics/latency` route handler here.
+*   `src/lib/db/conversation-db.ts`: Add new database functions to query latency percentiles from `rainbow_messages`.
+
+**2. Involved Components:**
+*   **Database Table:** `rainbow_messages` (specifically the `response_time`, `profile_id`, and `source` columns).
+*   **API Router:** The existing Express admin router.
+
+**3. Implementation Approach:**
+1.  In `analytics.ts`, create a handler for `GET /api/admin/analytics/latency`.
+2.  In `conversation-db.ts`, implement a function `getLatencyPercentiles(interval: '24 hours' | '7 days')`.
+3.  This function will execute a PostgreSQL query using `percentile_cont(0.5)`, `percentile_cont(0.95)`, and `percentile_cont(0.99)` on the `response_time` column.
+4.  The query should `GROUP BY profile_id, source` and filter records using a `WHERE created_at > NOW() - INTERVAL '<interval>'`.
+5.  The route handler will call the DB function for both intervals.
+6.  It will then structure the response and include a `warning` flag if the P95 latency exceeds a configurable threshold.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** The query against `rainbow_messages` may be slow. Ensure an index exists on `(created_at, response_time)` to speed up filtering and ordering.
+*   **No Data:** The query may return nulls for percentiles if there is no data in the time window. The API should handle this gracefully, returning `null` or `0` for the metrics.
+*   **Configuration:** The alert threshold (e.g., 8000ms) must be an environment variable, not hardcoded.
+
+
+## Iteration - Story: US-462 - Persist per-contact language preference and apply it to LLM system prompt
+### What was implemented
+- Created `src/assistant/language-preference.ts` — standalone module for language preference CRUD
+  - In-memory cache (15-minute TTL) to avoid DB reads on every message
+  - `getPreferredLanguage(phone)` — reads from cache or DB (via existing `getContactDetails`)
+  - `isLanguageLocked(phone)` — reads `languageLocked` flag from DB
+  - `setPreferredLanguage(phone, lang)` — writes via `updateContactDetails`, updates cache optimistically
+  - `resolveEffectiveLanguage(phone, detected, confidence, stored, locked)` — pure function resolving the effective language (easy to test)
+  - Thresholds: PREF_WRITE_THRESHOLD=0.70 (first-time write), PREF_OVERRIDE_THRESHOLD=0.85 (override existing)
+- Updated `src/assistant/pipeline/input-validator.ts`:
+  - Imports and calls `getPreferredLanguage` + `isLanguageLocked` (parallel Promise.all)
+  - Calls `resolveEffectiveLanguage` to get the effective language after detection
+  - Updates `detectedLang` with the effective language before it flows into `state.lang`
+- Updated `src/assistant/pipeline/stages/kb-loading.ts`:
+  - Changed language injection to: "Always reply in {langName}. Do not switch languages unless the guest explicitly does so."
+  - More authoritative than the old "detected as" wording (correct whether coming from detection or stored pref)
+- Admin API: already supported via existing `PATCH /conversations/:phone/contact` with `language` and `languageLocked`
+- Admin panel: language visible via existing `contactDetailsJson.language` in contact details
+- Added 19 unit tests covering all acceptance criteria scenarios
+
+### Patterns discovered
+- `ContactDetails` type already has `language` and `languageLocked` fields stored as JSON in `contactDetailsJson`
+- `conversation-contacts.ts` provides `getContactDetails` / `updateContactDetails` — reused for preference storage
+- vi.hoisted() required when using vi.mock factory that references hoisted variables
+- `resolveEffectiveLanguage` is a pure function (no async, no side effects except fire-and-forget write) — easier to test
+
+### Gotchas
+- vi.mock factory variables must use `vi.hoisted()` pattern to avoid "Cannot access before initialization" error
+- The 0.7-0.85 confidence window uses detected language (not stored pref) but does NOT update stored pref
+  — only explicit switches at >= 0.85 override an existing stored preference
+- `languageLocked = true` suppresses auto-writes but does NOT force the stored language for the current message
+  — the effective language is still the detected language (admin lock prevents drift, not responsiveness)

@@ -27,6 +27,7 @@ import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
+import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -401,7 +402,7 @@ export async function validateAndPrepare(
     }
   }
 
-  // ─── Language Detection (US-418) ────────────────────────────────
+  // ─── Language Detection (US-418) + Preference (US-462) ──────────
   const langDetectionSettings = (profileConfig.getSettings() as any).languageDetection;
   const langDetectionEnabled = langDetectionSettings?.enabled !== false;
   const confidenceThreshold = langDetectionSettings?.confidenceThreshold ?? 0.6;
@@ -417,7 +418,22 @@ export async function validateAndPrepare(
     if (detection.language !== 'unknown' && detection.confidence >= confidenceThreshold) {
       detectedLang = detection.language as 'en' | 'ms' | 'zh';
     }
-    console.debug(`[LanguageDetection] "${text.slice(0, 60)}" → ${detection.language} (confidence: ${detection.confidence.toFixed(2)}, threshold: ${confidenceThreshold}, using: ${detectedLang})`);
+
+    // US-462: Load stored preference and resolve effective language
+    const [storedLang, locked] = await Promise.all([
+      getPreferredLanguage(phone),
+      isLanguageLocked(phone),
+    ]);
+    const effectiveLang = resolveEffectiveLanguage(
+      phone,
+      detection.language !== 'unknown' ? detection.language as 'en' | 'ms' | 'zh' : detectedLang,
+      detection.confidence,
+      storedLang,
+      locked,
+    );
+    detectedLang = effectiveLang;
+
+    console.debug(`[LanguageDetection] "${text.slice(0, 60)}" → detected=${detection.language} (conf=${detection.confidence.toFixed(2)}) stored=${storedLang ?? 'none'} locked=${locked} effective=${detectedLang}`);
   }
 
   // Foreign script detection + translation (Thai, Japanese, Korean, etc.)

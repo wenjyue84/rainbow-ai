@@ -50,11 +50,12 @@ export function loadKnowledgeBase(
   // Build system prompt with base persona + selected topic content
   let systemPrompt = context.buildSystemPrompt(settings.system_prompt, topicFiles);
 
-  // Inject detected language instruction (US-418)
+  // Inject language instruction (US-418 + US-462)
+  // state.lang reflects the effective language — either live-detected or restored from stored preference.
   const langDetectionEnabled = (settings as any).languageDetection?.enabled !== false;
   if (langDetectionEnabled && lang) {
     const langName = LANGUAGE_NAMES[lang] || 'English';
-    systemPrompt += `\n\nLANGUAGE INSTRUCTION: The guest's message language has been detected as ${langName} (${lang}). You MUST respond in ${langName}.`;
+    systemPrompt += `\n\nLANGUAGE INSTRUCTION: Always reply in ${langName}. Do not switch languages unless the guest explicitly does so.`;
   }
 
   return {
