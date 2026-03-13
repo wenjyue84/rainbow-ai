@@ -981,3 +981,61 @@ This brief adapts the provided user story for implementation in the `lhdn_payrol
 ### Gotchas
 - Tests failed initially because shared `messageId` caused every test after the first to be treated as duplicate
 - Fix: export `clearDedupCache()` and call in `beforeEach`
+## Iteration 3 - Fri, Mar 13, 2026  9:36:14 AM
+Completed: Implement message deduplication using in-memory cache with TTL (ID: US-404) in 4m
+
+
+## Pre-analysis for US-405 (Gemini 2.5 Pro)
+This user story is for a Node.js/TypeScript project using Baileys and BullMQ, not Frappe/Python. The technical brief is adjusted accordingly.
+
+**Project:** rainbow-ai (Node.js/TypeScript)
+**User Story:** US-405: Add async message queue with BullMQ
+
+### **Technical Brief**
+
+1.  **Key Files to Modify:**
+    *   `src/server.ts`: Likely contains the Baileys client setup and the primary `'messages.upsert'` event listener that needs modification.
+    *   `src/assistant/handler.ts` (or similar): Contains the `handleIncomingMessage` logic that will be moved into the worker.
+    *   `ecosystem.config.cjs`: To add the new BullMQ worker as a separate PM2-managed process.
+    *   `src/routes/health.ts` (or similar): The admin health-check endpoint to expose queue metrics.
+
+2.  **New Files to Create:**
+    *   `src/lib/queue.ts`: To define and export the BullMQ `Queue` and `Worker` instances.
+    *   `src/worker.ts`: The main entry point for the new worker process.
+
+3.  **Implementation Approach:**
+    *   In `src/lib/queue.ts`, initialize and configure a BullMQ `Queue` for incoming messages.
+    *   Modify the Baileys `'messages.upsert'` event listener in `src/server.ts`. Instead of calling the processing logic directly, it should now add the raw message payload to the BullMQ queue and return.
+    *   Create a `worker.ts` file that imports the existing `handleIncomingMessage` function. This worker will process jobs from the queue, calling the handler for each one.
+    *   Configure the worker with a retry strategy (3 attempts, exponential backoff).
+    *   Update `ecosystem.config.cjs` to launch `node dist/worker.js` as a new app.
+
+4.  **Gotchas & Edge Cases:**
+    *   Ensure the Redis instance is properly configured for persistence if needed.
+    *   Worker concurrency must be configurable via an environment variable to manage rate limits on external services (LLM, PMS).
+    *   As specified, deduplication logic must run inside the worker, not at the point of ingestion, to handle retries correctly.
+    *   Gracefully handle worker process crashes and restarts. PM2 will help, but ensure jobs are not lost.
+
+
+## Iteration 14 - Story: US-406 - Implement conversation context pruning to stay within LLM token budget
+### What was implemented
+- Created `src/lib/token-counter.ts` with chars/4 heuristic token estimator (estimateTokens, estimateMessagesTokens)
+- Created `src/assistant/context-pruner.ts` with token-aware context pruning:
+  - Configurable MAX_CONTEXT_TOKENS threshold (default 6000) via settings.json
+  - When exceeded, older messages beyond last 4 turns are summarized into a single "[Conversation Summary]" message
+  - Summary uses same LLM provider via existing `chat()` function
+  - Graceful fallback: on summarization failure, truncates to recent messages only
+- Integrated as Phase 2 in the existing summarization pipeline stage (src/assistant/pipeline/stages/summarization.ts)
+  - Phase 1: Legacy message-count-based summarization (unchanged)
+  - Phase 2: Token-budget enforcement (new)
+- Added `max_context_tokens` and `keep_recent_turns` to `conversation_management` section in settings.json
+
+### Patterns discovered
+- Existing `conversation-summarizer.ts` does message-count-based summarization (threshold: 6 messages, summarize msgs 1-5, keep 6-20)
+- Pipeline context uses dependency injection via `IPipelineContext` — new pruning bypasses this by importing directly (simpler, no DI needed)
+- `context-windows.ts` provides message-count windows (classify:5, reply:10, combined:20) separate from token budget
+- The summarization stage sits between the Baileys message handler and tier classification
+
+### Gotchas
+- Import path from `pipeline/stages/` to `src/assistant/` needs `../../` not `../` (two levels up)
+- esbuild build warning about CommonJS module.exports in logger.ts is pre-existing, not related
