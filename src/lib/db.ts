@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import * as schema from '../../shared/schema.js';
+import { checkPoolerWarning } from './db-url.js';
 
 // CRITICAL: Load .env before accessing process.env
 // This module is imported early, before index.ts calls dotenv.config()
@@ -14,6 +15,15 @@ const dbUrl = process.env.DATABASE_URL;
 if (dbUrl) {
   const maskedUrl = dbUrl.replace(/:([^:@]+)@/, ':***@');
   console.log('[DB] Connection string loaded:', maskedUrl.substring(0, 60) + '...');
+
+  // Warn if using a pooler URL without a direct URL for migrations
+  const poolerWarning = checkPoolerWarning({
+    DATABASE_URL: dbUrl,
+    DATABASE_DIRECT_URL: process.env.DATABASE_DIRECT_URL,
+  });
+  if (poolerWarning) {
+    console.warn(`[DB] ⚠️ ${poolerWarning}`);
+  }
 } else {
   console.log('[DB] ⚠️ DATABASE_URL not set in environment!');
 }

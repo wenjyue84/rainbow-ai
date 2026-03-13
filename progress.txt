@@ -2237,3 +2237,17 @@ Completed: Subscribe to and handle WhatsApp account_update webhook (violations a
 ## Iteration 8 - Fri, Mar 13, 2026 11:22:00 PM
 Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth state (ID: US-480) — attempt 1/3
 
+
+## Iteration 9 - Story: US-498 - Add Neon direct connection URL for schema migrations
+### What was implemented
+- Created `src/lib/db-url.ts` with `resolveMigrationUrl()` and `checkPoolerWarning()` utilities
+- Updated `drizzle.config.ts` to prefer `DATABASE_DIRECT_URL` over `DATABASE_URL` for migrations, with fallback and contextual warnings (pooler vs non-pooler)
+- Updated `src/lib/db.ts` to import `checkPoolerWarning` and warn at startup if pooler URL detected without direct URL
+- Added `DATABASE_DIRECT_URL` to `.env.example` with documentation explaining why direct connections are needed for migrations
+- Application pool in `db.ts` continues to use `DATABASE_URL` exclusively (no change)
+- Wrote 11 unit tests in `src/assistant/__tests__/db-url.test.ts` covering all URL resolution paths
+### Patterns discovered
+- Extracting pure functions into separate modules (db-url.ts) makes them easily unit-testable without needing to mock DB connections
+- drizzle.config.ts can import from src/lib/ since it's processed by tsx/Node directly, not by esbuild
+### Gotchas
+- None — clean implementation
