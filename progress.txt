@@ -1220,3 +1220,28 @@ Completed: Implement automatic language detection and per-language response rout
 ### Gotchas
 - 12-digit bank account numbers overlap with IC pattern (6+2+4=12 digits) — IC regex fires first. Test updated to use 15-digit number to isolate bank account detection. This is acceptable behaviour: 12-digit sequences are more likely IC than bank account.
 - Regex objects with `g` flag maintain `lastIndex` state — must reset `lastIndex = 0` before each `.replace()` call on string inputs (already done in implementation)
+## Iteration 4 - Fri, Mar 13, 2026 10:49:29 AM
+Incomplete: Add configurable conversation data retention with automatic purge (ID: US-419) — attempt 1/3
+
+## Iteration 5 - Story: US-423 - Add LLM provider latency threshold failover
+
+### What was implemented
+- Added `timeout_ms` field (default 6000ms) to each AI provider in settings.json and the Zod schema
+- Replaced hardcoded 15s timeout with per-provider configurable `timeout_ms` in `providerChat()`
+- Created `TimeoutError` class that carries provider, timeout_ms, and elapsed_ms metadata
+- Wrapped all provider calls (Groq SDK, Gemini axios, OpenAI-compat axios) with `withTimeout()` using `Promise.race`
+- Added timeout-specific failover logging: `{ provider, timeout_ms, elapsed_ms, action: 'failover' }` at warn level
+- When ALL providers time out, returns configurable `slow_response_message` from settings.json instead of hanging
+- Added `slow_response_message` to ai settings in settings.json and Zod schema
+- 8 Vitest tests covering: TimeoutError class, default timeout, timeout rejection, fast response pass-through, failover to next provider, all-timeout apology message, structured log output
+
+### Patterns discovered
+- `withTimeout()` wrapper already existed but used generic Error — upgraded to custom `TimeoutError` for type-safe catch handling
+- Axios `timeout` option is a connection-level timeout (may not fire for slow response bodies) — wrapping with `Promise.race` ensures consistent behavior
+- Used `axios.timeout = timeoutMs + 1000` as safety-net backup while `withTimeout` fires first
+- The `chatWithFallback` loop tracks `timeoutCount` separately to distinguish "all timed out" from "all failed" for different messages
+
+### Gotchas
+- ES module same-module function calls can't be spied with `vi.spyOn` — tests must mock via the config store (mock `providers` array) rather than spying on `getProviders()`
+- Circuit breaker `recordFailure()` still fires on timeout (correct behavior — slow providers should trip the breaker too)
+

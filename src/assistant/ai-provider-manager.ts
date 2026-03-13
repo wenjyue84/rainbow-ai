@@ -140,13 +140,28 @@ function validateGeminiResponse(data: any, providerName: string, startTime: numb
   return { content: trimmed, usage };
 }
 
+// ─── Timeout Constants ───────────────────────────────────────────────
+
+export const DEFAULT_TIMEOUT_MS = 6000;
+
 // ─── Timeout Wrapper ─────────────────────────────────────────────────
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMsg: string): Promise<T> {
+export class TimeoutError extends Error {
+  readonly elapsedMs: number;
+  readonly timeoutMs: number;
+  constructor(provider: string, timeoutMs: number, elapsedMs: number) {
+    super(`${provider} request timeout after ${timeoutMs}ms`);
+    this.name = 'TimeoutError';
+    this.timeoutMs = timeoutMs;
+    this.elapsedMs = elapsedMs;
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string, startTime: number): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(errorMsg)), timeoutMs)
+      setTimeout(() => reject(new TimeoutError(providerName, timeoutMs, Date.now() - startTime)), timeoutMs)
     )
   ]);
 }
@@ -161,6 +176,7 @@ export async function providerChat(
   jsonMode: boolean = false
 ): Promise<{ content: string; usage?: any } | null> {
   const startTime = Date.now();
+  const timeoutMs = provider.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   const apiKey = resolveApiKey(provider);
   if (!apiKey && provider.type !== 'ollama') return null;
 
@@ -177,8 +193,9 @@ export async function providerChat(
 
     const response = await withTimeout(
       groq.chat.completions.create(body),
-      15000,
-      `${provider.name} request timeout after 15s`
+      timeoutMs,
+      provider.name,
+      startTime
     );
     return validateProviderResponse(response, provider.name, startTime);
   }
@@ -204,11 +221,12 @@ export async function providerChat(
     const body = { contents, generationConfig };
 
     const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
-    const res = await axios.post(url, body, {
+    const axiosPromise = axios.post(url, body, {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 15000,
+      timeout: timeoutMs + 1000, // safety-net; our withTimeout fires first
       validateStatus: () => true
     });
+    const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
 
     if (res.status !== 200) {
       const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
@@ -239,11 +257,12 @@ export async function providerChat(
     headers['X-Title'] = process.env.OPENROUTER_APP_TITLE || 'Rainbow AI digiman';
   }
 
-  const res = await axios.post(`${provider.base_url}/chat/completions`, body, {
+  const axiosPromise = axios.post(`${provider.base_url}/chat/completions`, body, {
     headers,
-    timeout: 15000,
+    timeout: timeoutMs + 1000, // safety-net; our withTimeout fires first
     validateStatus: () => true
   });
+  const res = await withTimeout(axiosPromise, timeoutMs, provider.name, startTime);
 
   if (res.status !== 200) {
     const errText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
@@ -286,6 +305,8 @@ export async function chatWithFallback(
       .sort((a, b) => (idOrder.get(a.id)!) - (idOrder.get(b.id)!));
   }
 
+  let timeoutCount = 0;
+
   for (const provider of providers) {
     const breaker = circuitBreakerRegistry.getOrCreate(provider.id);
     if (breaker.isOpen()) {
@@ -314,6 +335,18 @@ export async function chatWithFallback(
     } catch (err: any) {
       breaker.recordFailure();
 
+      // Handle latency threshold timeout
+      if (err instanceof TimeoutError) {
+        timeoutCount++;
+        console.warn(`[AI] ⏱️  Latency failover:`, JSON.stringify({
+          provider: provider.id,
+          timeout_ms: err.timeoutMs,
+          elapsed_ms: err.elapsedMs,
+          action: 'failover'
+        }));
+        continue;
+      }
+
       const isRateLimit = err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
       if (isRateLimit) {
         rateLimitManager.recordRateLimit(provider.id);
@@ -332,6 +365,15 @@ export async function chatWithFallback(
         console.warn(`[AI] ${provider.name} failed, trying next:`, err.message);
       }
     }
+  }
+
+  // If all providers timed out, return the configurable slow-response apology
+  if (timeoutCount > 0 && timeoutCount === providers.length) {
+    const ai = getAISettings();
+    const apology = ai.slow_response_message
+      || "I'm sorry, all my AI systems are running slowly right now. Please try again in a moment, or contact our staff for immediate help.";
+    console.error(`[AI] ❌ All ${timeoutCount} providers timed out — returning slow-response apology`);
+    return { content: apology, provider: null };
   }
 
   console.error(`[AI] ❌ All providers failed - no response generated`);

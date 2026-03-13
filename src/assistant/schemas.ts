@@ -71,6 +71,7 @@ export const aiProviderSchema = z.object({
   enabled: z.boolean(),
   priority: z.number().int().min(0),
   available: z.boolean().optional(),
+  timeout_ms: z.number().int().min(1000).optional(), // Per-provider latency threshold (default: 6000ms)
 });
 export type AIProvider = z.infer<typeof aiProviderSchema>;
 
@@ -95,6 +96,7 @@ export const settingsDataSchema = z.object({
     classify_temperature: z.number().min(0).max(2),
     chat_temperature: z.number().min(0).max(2),
     providers: z.array(aiProviderSchema).optional(),
+    slow_response_message: z.string().optional(),
   }),
   routing_mode: routingModeSchema.optional(),
   ocr_provider: z.object({
