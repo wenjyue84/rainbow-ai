@@ -1467,3 +1467,28 @@ Incomplete: Transcribe incoming WhatsApp voice notes via Whisper API (ID: US-438
 - Import path from `stages/` subfolder is `../../ai-provider-manager.js` not `../../assistant/...`
 - Audio from Baileys arrives as Opus/OGG — Groq Whisper accepts it directly, no ffmpeg needed
 - Must check `voiceSettings?.enabled !== false` (not `=== true`) so default is enabled
+
+
+## Iteration N - Story: US-439 Expose PostgreSQL pool metrics in /health/ready endpoint
+
+### What was implemented
+- Added `getPoolMetrics()` export to `src/lib/db.ts` — returns synchronous `{ total, idle, waiting }` from `pool.totalCount`, `pool.idleCount`, `pool.waitingCount` (no DB query issued)
+- Added `maxUses: 7500` to pool config to recycle connections and prevent slow memory leaks
+- Added `idleTimeoutMillis` validation at startup: warns if configured value >= Neon's 300 s idle limit (currently 30 s so no warning fires)
+- Imported `getPoolMetrics` in `src/index.ts` and added check #7 in `/health/ready`:
+  - Tracks `_poolWaitingStreak` counter (module-level variable); increments when `waiting > 0`, resets to 0 otherwise
+  - `ok: false` (degraded) only when streak > 1 (two consecutive checks with waiting > 0), avoiding transient spikes
+  - Response includes `checks.database.pool: { total, idle, waiting }` and a human-readable `detail` string
+- Created `src/assistant/__tests__/health-ready.test.ts` (7 tests) covering:
+  - `getPoolMetrics()` return shape and non-negative values
+  - Streak logic for degraded detection (boundary cases)
+  - Full health response shape contract
+
+### Patterns discovered
+- `pool.totalCount`, `pool.idleCount`, `pool.waitingCount` are synchronous properties on `pg.Pool` — no async work needed
+- Keeping the streak counter as a module-level `let` in `index.ts` is idiomatic; no separate module needed
+- Type cast `as { ok: boolean; detail?: string; pool: {...} }` needed to extend the `checks` map which is typed `Record<string, { ok: boolean; detail?: string }>`
+
+### Gotchas
+- `pg.Pool` TypeScript typings don't declare `totalCount`/`idleCount`/`waitingCount` on older `@types/pg` — if typecheck fails, cast to `any` or augment the type
+- `_poolWaitingStreak` resets across process restarts (expected — it's transient state for current process lifetime)

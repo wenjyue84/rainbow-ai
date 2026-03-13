@@ -20,7 +20,7 @@ import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
-import { pool } from './lib/db.js';
+import { pool, getPoolMetrics } from './lib/db.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
@@ -194,6 +194,9 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(viteDevServer.middlewares);
 }
 
+// Track consecutive /health/ready checks where pool.waitingCount > 0
+let _poolWaitingStreak = 0;
+
 // Health check endpoint (liveness — is the process alive?)
 app.get('/health', (req, res) => {
   res.json({
@@ -268,6 +271,23 @@ app.get('/health/ready', async (req, res) => {
         : 'BullMQ enabled but Redis disconnected'
       : 'Direct processing (Redis not available)'
   };
+
+  // 7. PostgreSQL pool metrics (synchronous — no DB query issued)
+  const poolMetrics = getPoolMetrics();
+  if (poolMetrics.waiting > 0) {
+    _poolWaitingStreak++;
+  } else {
+    _poolWaitingStreak = 0;
+  }
+  // Degrade only after two consecutive checks with waiting > 0 (avoids transient spikes)
+  const poolDegraded = _poolWaitingStreak > 1;
+  checks.database = {
+    ok: !poolDegraded,
+    pool: poolMetrics,
+    detail: poolDegraded
+      ? `Pool pressure: ${poolMetrics.waiting} client(s) waiting (${_poolWaitingStreak} consecutive checks)`
+      : `Pool healthy — total: ${poolMetrics.total}, idle: ${poolMetrics.idle}, waiting: ${poolMetrics.waiting}`
+  } as { ok: boolean; detail?: string; pool: { total: number; idle: number; waiting: number } };
 
   const allHealthy = Object.values(checks).every(c => c.ok);
   // WhatsApp can be disconnected and system still works (manual mode)

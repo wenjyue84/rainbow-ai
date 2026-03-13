@@ -18,6 +18,19 @@ if (dbUrl) {
   console.log('[DB] ⚠️ DATABASE_URL not set in environment!');
 }
 
+// Neon load-balancer forcibly closes idle connections at 300 s.
+// idleTimeoutMillis must be < 300_000 ms to avoid client-side surprises.
+const NEON_IDLE_LIMIT_MS = 300_000;
+const POOL_IDLE_TIMEOUT_MS = 30_000;
+
+if (POOL_IDLE_TIMEOUT_MS >= NEON_IDLE_LIMIT_MS) {
+  console.warn(
+    `[DB] ⚠️ idleTimeoutMillis (${POOL_IDLE_TIMEOUT_MS}ms) >= Neon idle limit ` +
+    `(${NEON_IDLE_LIMIT_MS}ms). Connections may be closed by the load-balancer before ` +
+    'the pool evicts them. Lower idleTimeoutMillis below 300 000.'
+  );
+}
+
 // Database connection pool with improved configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -25,14 +38,24 @@ const pool = new Pool({
     ? { rejectUnauthorized: false }
     : undefined,
   max: 10, // Maximum pool size
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS, // Close idle clients after 30 s (well under Neon's 300 s limit)
   connectionTimeoutMillis: 15000, // Timeout after 15 seconds (Neon cold start can be slow)
+  maxUses: 7500, // Recycle connections to prevent slow memory leaks
 });
 
 // Handle pool errors
 pool.on('error', (err) => {
   console.error('[DB] ⚠️ Unexpected pool error:', err.message);
 });
+
+/** Returns synchronous pool metrics without issuing any DB query. */
+export function getPoolMetrics() {
+  return {
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+  };
+}
 
 export { pool };
 export const db = drizzle(pool, { schema });
