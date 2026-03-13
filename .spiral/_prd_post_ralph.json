@@ -1,0 +1,675 @@
+{
+  "productName": "Rainbow AI Integration Hardening",
+  "branchName": "main",
+  "overview": "Harden Rainbow AI's external system integrations (PMS2/DIGIMAN, fnb-online-ordering, future systems). Make integration easy for non-technical users, add fault tolerance with retry/circuit-breaker at HTTP layer, improve troubleshooting with clear diagnostics, and make connections robust with health monitoring. Currently: http-client.ts has zero retry, zero circuit-breaker, hardcoded 30s timeout, and cryptic error messages.",
+  "goals": [
+    "HTTP client retries transient failures automatically with exponential backoff",
+    "Circuit breaker prevents hammering a dead external API",
+    "Integration errors produce clear, actionable troubleshooting messages",
+    "Admin dashboard shows real-time health of all external connections",
+    "New integrations can be added with minimal configuration via IntegrationClient",
+    "Setup validator catches misconfigurations before they hit production"
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fix build script to use esbuild instead of tsc",
+      "priority": 99,
+      "description": "Already done.",
+      "acceptanceCriteria": [
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-201",
+      "title": "Add HTTP retry with exponential backoff to http-client.ts",
+      "priority": 1,
+      "description": "The current http-client.ts makes a single attempt to call the DIGIMAN API. If the network hiccups or the server returns 502/503, the request fails immediately. WhatsApp sending already has retry logic (send-retry.ts), but the HTTP client does not. Add automatic retry with exponential backoff for transient failures (network errors, 429, 500, 502, 503, 504). Non-retryable errors (400, 401, 403, 404, 409, 422) should fail immediately. This is the single highest-impact change for robustness.",
+      "acceptanceCriteria": [
+        "callAPI retries up to 3 times on transient failures (network error, 429, 500, 502, 503, 504)",
+        "Backoff is exponential: ~1s, ~2s, ~4s (with Â±20% jitter to prevent thundering herd)",
+        "Non-retryable status codes (400, 401, 403, 404, 409, 422) fail immediately without retry",
+        "Each retry logs a warning with attempt number, error, and endpoint",
+        "Total timeout across all retries does not exceed 45 seconds",
+        "Retry behavior can be disabled per-call via options parameter",
+        "npm run build succeeds",
+        "Existing tests still pass"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Pattern: Use axios-retry or implement manually (prefer manual to avoid new dependency)",
+        "Add retry options to callAPI signature: callAPI<T>(method, path, data?, options?: { retry?: boolean, maxRetries?: number, timeoutMs?: number })",
+        "Retryable status codes: 429, 500, 502, 503, 504, ECONNRESET, ECONNREFUSED, ETIMEDOUT, EPIPE",
+        "For 429 (rate limit): respect Retry-After header if present",
+        "Keep the existing error message format but enhance with retry context: 'API Error (after 3 retries): ...'",
+        "Log format: [HTTP] Retry {attempt}/{max} for {method} {path}: {error} (next in {delay}ms)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-202",
+      "title": "Add circuit breaker for DIGIMAN API calls",
+      "priority": 2,
+      "description": "Rainbow AI already has a CircuitBreaker for AI providers (src/assistant/circuit-breaker.ts) but the DIGIMAN HTTP client has no circuit breaker. When the PMS is down, every guest interaction triggers a 30-second timeout â€” multiplied across concurrent guests, this saturates the connection pool and blocks the event loop. Add a circuit breaker to http-client.ts that wraps callAPI. Use the existing CircuitBreaker class from circuit-breaker.ts â€” do NOT create a new one.",
+      "acceptanceCriteria": [
+        "A CircuitBreaker instance wraps DIGIMAN API calls in http-client.ts",
+        "After 5 consecutive failures, circuit opens and fast-fails for 60 seconds",
+        "Fast-fail throws a clear error: 'DIGIMAN API circuit is OPEN â€” API appears down, skipping call to {path}. Will retry after cooldown.'",
+        "After 60s cooldown, one test request is allowed (HALF_OPEN state)",
+        "Success in HALF_OPEN closes the circuit (normal operation resumes)",
+        "Circuit breaker status is exposed via getDigimanCircuitStatus() export",
+        "npm run build succeeds",
+        "Existing tests still pass"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Import CircuitBreaker from '../assistant/circuit-breaker.js' â€” reuse existing class",
+        "Create a module-level instance: const digimanCircuit = new CircuitBreaker('digiman-api', { failureThreshold: 5, cooldownMs: 60000 })",
+        "In callAPI: check digimanCircuit.isOpen() BEFORE making the request. If open, throw immediately.",
+        "On success: call digimanCircuit.recordSuccess()",
+        "On retryable failure (after all retries exhausted): call digimanCircuit.recordFailure()",
+        "On non-retryable failure (4xx): do NOT record as circuit breaker failure (those are client errors, not server issues)",
+        "Export function getDigimanCircuitStatus() that returns digimanCircuit.getStatus()",
+        "This integrates with US-201 retry â€” circuit breaker wraps the retry loop"
+      ],
+      "dependencies": [
+        "US-201"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-203",
+      "title": "Create integration health dashboard API endpoint",
+      "priority": 3,
+      "description": "Add a new admin API endpoint GET /api/admin/integration-health that returns real-time health status of all external connections. This gives operators a single place to check if everything is working. Currently the only health info is the /health/ready endpoint which returns a simple ok/degraded string â€” we need structured data showing each integration's status, last success time, error count, and circuit breaker state.",
+      "acceptanceCriteria": [
+        "GET /api/admin/integration-health returns JSON with health of all integrations",
+        "Response includes: digiman API status (healthy/degraded/down), circuit breaker state, last successful call timestamp, error count in last 5 minutes, average response time",
+        "Response includes: AI provider status for each configured provider (from circuit breaker registry)",
+        "Response includes: WhatsApp connection status (connected/disconnected)",
+        "Response includes: Database connection status (connected/error)",
+        "Each integration shows: name, status, lastSuccessAt, lastErrorAt, errorCount5m, circuitState, avgResponseMs",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "Create new file: src/routes/admin/integration-health.ts",
+        "Register in src/routes/admin/index.ts alongside other admin routes",
+        "For DIGIMAN: import getDigimanCircuitStatus from http-client.ts (from US-202), add request timing tracking",
+        "For AI providers: import circuitBreakerRegistry from circuit-breaker.ts, call getAllStatuses()",
+        "For WhatsApp: import connection status from baileys client (check src/lib/baileys-client.ts or similar)",
+        "For Database: simple SELECT 1 test query or check pool status",
+        "Add a lightweight request tracker to http-client.ts: track last success/error timestamps and rolling 5-min error count",
+        "Return format: { timestamp, overall: 'healthy'|'degraded'|'down', integrations: { digiman: {...}, ai: {...}, whatsapp: {...}, database: {...} } }"
+      ],
+      "dependencies": [
+        "US-202"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-204",
+      "title": "Add integration setup validator and troubleshooting diagnostics",
+      "priority": 4,
+      "description": "Create a setup validator that runs at startup AND can be triggered via admin API. It checks all integration prerequisites (env vars set, URLs reachable, tokens valid, ports open) and provides clear, actionable fix instructions when something is wrong. Currently, misconfiguration produces cryptic axios errors. This is the 'easy for dummies' feature â€” instead of 'ECONNREFUSED', say 'Cannot reach PMS at http://localhost:5000. Is the PMS server running? Try: 1) Check DIGIMAN_API_URL in .env, 2) Verify the PMS is started, 3) Check firewall rules.'",
+      "acceptanceCriteria": [
+        "New module src/lib/integration-validator.ts exports validateIntegrations() function",
+        "Validates: DIGIMAN_API_URL is set and reachable, DIGIMAN_API_TOKEN is set and not expired, DATABASE_URL is set and connectable",
+        "Each check returns: { name, status: 'ok'|'warning'|'error', message, fix? }",
+        "Fix messages are plain English with numbered steps, not technical jargon",
+        "validateIntegrations() runs at server startup (non-blocking, logs results)",
+        "GET /api/admin/diagnostics endpoint triggers full validation and returns results",
+        "Diagnostics include system info: node version, memory usage, uptime, env vars (redacted)",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "Create: src/lib/integration-validator.ts",
+        "Create: src/routes/admin/diagnostics.ts (register in admin/index.ts)",
+        "Validation checks in order: 1) env vars present, 2) URL format valid, 3) DNS resolves, 4) TCP connect, 5) HTTP health endpoint responds, 6) Auth token accepted",
+        "For DIGIMAN: try GET /api/health, if fails try GET /api/occupancy (some deployments don't have /health)",
+        "For Database: try a simple query via the existing db connection",
+        "Error-to-fix mapping examples:",
+        "  ECONNREFUSED â†’ 'PMS server is not running at {url}. Start it with: cd pms2 && npm run dev'",
+        "  401 Unauthorized â†’ 'API token is invalid or expired. Update DIGIMAN_API_TOKEN in .env'",
+        "  ENOTFOUND â†’ 'Cannot resolve hostname {host}. Check DIGIMAN_API_URL spelling and DNS'",
+        "  ETIMEDOUT â†’ 'Connection to {url} timed out. Check firewall rules and network connectivity'",
+        "Redact sensitive env vars: show first 4 + last 4 chars of tokens, full URLs",
+        "Call validateIntegrations() in src/index.ts after server starts (fire-and-forget)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-205",
+      "title": "Add configurable per-endpoint timeout and request tracking",
+      "priority": 5,
+      "description": "The current http-client.ts has a hardcoded 30-second timeout for ALL API calls. Some endpoints are fast (GET /api/health = 200ms) and some are slow (POST /api/units/assign with complex booking = 10s). Add per-call timeout configuration and lightweight request tracking (for the health dashboard in US-203). Also reduce the default timeout from 30s to 15s â€” 30s is too long to block a WhatsApp conversation.",
+      "acceptanceCriteria": [
+        "Default timeout reduced from 30000ms to 15000ms",
+        "callAPI options parameter supports timeoutMs override: callAPI('GET', '/path', null, { timeoutMs: 5000 })",
+        "Request tracker records: last success timestamp, last error timestamp, rolling error count (5-min window), average response time (last 20 requests)",
+        "Request tracker exported via getRequestStats() function",
+        "Error messages include timing info: 'API Error (took 15.2s, timed out): ...'",
+        "npm run build succeeds",
+        "Existing tests still pass"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Add RequestTracker class (or simple object) at module level to track stats",
+        "Track: lastSuccessAt, lastErrorAt, recentErrors (array of {timestamp, path, error}), responseTimes (last 20)",
+        "In callAPI: record start time, on success record response time, on error record to tracker",
+        "Clean up recentErrors older than 5 minutes on each call (simple sliding window)",
+        "getRequestStats() returns: { lastSuccessAt, lastErrorAt, errorCount5m, avgResponseMs, totalRequests }",
+        "This data feeds into the health dashboard (US-203)"
+      ],
+      "dependencies": [
+        "US-201"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-206",
+      "title": "Enhance error messages with actionable troubleshooting hints",
+      "priority": 6,
+      "description": "Currently http-client.ts error messages say things like 'API Error: /api/units 503. Check DIGIMAN_API_URL'. This is not helpful for non-technical users. Enhance ALL error paths to include: what happened, why it might have happened, and what to do about it. Use a troubleshooting hint map that maps error codes/types to plain-English explanations. Also add a troubleshooting section to the admin dashboard.",
+      "acceptanceCriteria": [
+        "Error messages follow format: 'What: {description}. Why: {likely cause}. Fix: {action steps}'",
+        "Network errors (ECONNREFUSED, ETIMEDOUT, ENOTFOUND) produce specific troubleshooting hints",
+        "HTTP errors (401, 403, 404, 500, 502, 503) produce specific hints",
+        "Circuit breaker OPEN state produces a clear explanation and ETA for next retry",
+        "Admin WhatsApp notification on persistent failures (>3 consecutive) includes troubleshooting steps",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/lib/http-client.ts",
+        "Create a troubleshootingHints map: Record<string, { why: string, fix: string }>",
+        "Map keys: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ECONNRESET, 401, 403, 404, 500, 502, 503, 504, CIRCUIT_OPEN",
+        "Example: ECONNREFUSED â†’ { why: 'The PMS server is not accepting connections', fix: '1) Check if PMS is running 2) Verify DIGIMAN_API_URL in .env 3) Check firewall rules' }",
+        "Example: 503 â†’ { why: 'PMS server is overloaded or restarting', fix: 'Wait 30 seconds and retry. If persistent, check PMS server logs and memory usage.' }",
+        "Example: CIRCUIT_OPEN â†’ { why: 'Too many consecutive failures â€” circuit breaker activated to protect system', fix: 'Circuit will auto-recover in {cooldown}s. Check PMS health: curl {url}/api/health' }",
+        "Notification: import notifyAdminConfigError from admin-notifier.ts, send after 3+ consecutive failures"
+      ],
+      "dependencies": [
+        "US-202"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-301",
+      "title": "Profile-aware intent-manager routes: T1 regex and T4 LLM settings",
+      "priority": 7,
+      "description": "The intent-manager.ts backend routes hardcode DATA_DIR to pelangi's data directory, ignoring the x-profile-id header the UI already sends. When a user switches to Makan Moments Cafe in the profile switcher and opens the Understanding tab, the T1 regex patterns and T4 LLM settings still load from pelangi's data dir instead of data-makan/. Add a getProfileDataDir(req) helper that reads x-profile-id from the request header, looks up the profile in profileRegistry, and returns that profile's dataDir. Use this helper in all local-first routes in intent-manager.ts.",
+      "acceptanceCriteria": [
+        "Add getProfileDataDir(req: Request): string helper at top of intent-manager.ts — reads req.headers['x-profile-id'], resolves profile via profileRegistry.getProfile(id), returns profile.config.dataDir. Falls back to DATA_DIR if profile not found or header absent.",
+        "GET /intent-manager/regex fallback uses getProfileDataDir(req) instead of DATA_DIR",
+        "PUT /intent-manager/regex adds a local-first write: when proxy to :5000 fails, write to getProfileDataDir(req)/regex-patterns.json using atomicWriteJSON",
+        "GET /intent-manager/llm-settings uses getProfileDataDir(req) to build the llm-settings path",
+        "PUT /intent-manager/llm-settings uses getProfileDataDir(req) to build the llm-settings write path",
+        "GET /intent-manager/available-providers reads settings.json from getProfileDataDir(req)",
+        "GET /intent-manager/stats fallback reads intent-keywords.json and intent-examples.json from getProfileDataDir(req)",
+        "POST /intent-manager/apply-template uses getProfileDataDir(req) when reading/writing llm-settings.json",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/routes/admin/intent-manager.ts",
+        "Import profileRegistry from '../../assistant/profile-registry.js' at top of file",
+        "Add helper near the top (after imports): function getProfileDataDir(req: Request): string { const profileId = req.headers['x-profile-id'] as string | undefined; if (profileId) { const profile = profileRegistry.getProfile(profileId); if (profile) return profile.config.dataDir; } return DATA_DIR; }",
+        "Note: profileRegistry.getProfile() returns ResolvedProfile | undefined — check the type in src/assistant/profile-registry.ts",
+        "For PUT /intent-manager/regex local fallback: wrap atomicWriteJSON in try/catch so if :5000 is also down, still returns 500 with message",
+        "SETTINGS_PATH remains as a constant but the available-providers route should build it dynamically: join(getProfileDataDir(req), 'settings.json')",
+        "LLM_SETTINGS_PATH constant can remain but routes should compute dynamically: join(getProfileDataDir(req), 'llm-settings.json')"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-302",
+      "title": "Makan Moments Cafe T1 emergency patterns — replace hostel-specific with cafe patterns",
+      "priority": 8,
+      "description": "src/assistant/data-makan/regex-patterns.json is a copy of pelangi's patterns and contains hostel-specific emergencies like card_locked (locked in capsule) which make no sense for a cafe. Makan Moments Cafe needs cafe-appropriate T1 emergency patterns: food allergy, choking on food, food poisoning, kitchen fire. Remove the card_locked/capsule patterns. Keep universal patterns (fire, medical, theft, police, assault, prompt injection).",
+      "acceptanceCriteria": [
+        "data-makan/regex-patterns.json has NO card_locked / capsule patterns",
+        "data-makan/regex-patterns.json has food allergy emergency patterns (EN + MS + ZH) matching words like: allergy, allergic reaction, anaphylaxis / alahan / 过敏",
+        "data-makan/regex-patterns.json has food poisoning patterns (EN + MS + ZH) matching: food poisoning, keracunan makanan / 食物中毒",
+        "data-makan/regex-patterns.json retains: fire, medical emergency, theft/robbery, assault, police, prompt injection patterns",
+        "All patterns use valid regex syntax with /pattern/flags format",
+        "JSON is valid and parses without error"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data-makan/regex-patterns.json",
+        "REMOVE the 3 card_locked patterns (EN: /locked.*card|card.*locked/, MS: /terkunci/, ZH: /锁在里面|出不去/)",
+        "ADD food allergy EN: /\\b(allerg(?:y|ic|ies)|anaphylax(?:is|tic)|hives|swollen\\s+throat)\\b/i with emergencyType: complaint",
+        "ADD food allergy MS: /\\b(alahan|reaksi\\s+alergi|bengkak\\s+tekak)\\b/i",
+        "ADD food allergy ZH: /\\b(过敏|过敏反应|喉咙肿胀)\\b/i",
+        "ADD food poisoning EN: /\\b(food\\s+poison(?:ing|ed)|poisoned|vomit(?:ing|ed)|diarrhea|stomach\\s+(?:pain|cramps?|ache))\\b/i with emergencyType: complaint",
+        "ADD food poisoning MS: /\\b(keracunan\\s+makanan|muntah(?:ing)?|cirit(?:\\s+birit)?|sakit\\s+perut)\\b/i",
+        "ADD food poisoning ZH: /\\b(食物中毒|呕吐|腹泻|肚子痛)\\b/i",
+        "Keep all existing fire, medical, theft, assault, police, prompt injection patterns unchanged"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-401",
+      "title": "Store profile_id on webchat sessions in rainbow_conversations",
+      "priority": 10,
+      "description": "The rainbow_conversations table has no profile_id column, so webchat sessions from Pelangi Capsule, Southern Homestay, and Makan Moments Cafe all look identical in the DB. When the admin switches profiles, all sessions from all profiles still appear. Fix this by: (1) adding a profile_id VARCHAR(50) column to rainbow_conversations (idempotent ALTER TABLE ... ADD COLUMN IF NOT EXISTS), (2) passing profileId into persistWebchatExchange() in webchat-api.ts, (3) storing it in the UPSERT. The migration should run at startup via the existing pool.query pattern.",
+      "acceptanceCriteria": [
+        "rainbow_conversations table has profile_id VARCHAR(50) column after server start (added via ALTER TABLE IF NOT EXISTS in webchat-api.ts startup or first call)",
+        "persistWebchatExchange() accepts a profileId: string parameter",
+        "The UPSERT for rainbow_conversations sets profile_id = profileId on INSERT and ON CONFLICT DO UPDATE",
+        "The profileId is taken from the URL parameter in POST /:profileId/message handler",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/routes/public/webchat-api.ts",
+        "Add migration at top-level (module load) using: pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {})",
+        "Change persistWebchatExchange signature: async function persistWebchatExchange(phone, pushName, userMessage, aiResponse, responseTime, profileId: string)",
+        "In the INSERT for rainbow_conversations: add profile_id to columns, add $7 = profileId to values",
+        "In ON CONFLICT DO UPDATE: add profile_id = EXCLUDED.profile_id",
+        "In the POST /:profileId/message handler: pass profile.id (from profileRegistry.getProfile(profileId)) as the last arg to persistWebchatExchange()",
+        "Existing sessions with NULL profile_id are fine — they will filter correctly (IS NULL or simply not match any profile)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-402",
+      "title": "Filter admin webchat conversations by active profile",
+      "priority": 11,
+      "description": "The admin GET /api/rainbow/webchat/conversations endpoint returns ALL webchat sessions from all profiles. When the admin is viewing the 'makan-moments' profile, they should only see Makan Moments Cafe webchat sessions — not Pelangi or Southern sessions. The x-profile-id header is already sent by the admin UI (webchat-admin.js) and already resolved to res.locals.profileId by the admin middleware. The endpoint just needs to use it in the SQL WHERE clause.",
+      "acceptanceCriteria": [
+        "GET /api/rainbow/webchat/conversations with x-profile-id: makan-moments returns ONLY sessions where profile_id = 'makan-moments'",
+        "GET /api/rainbow/webchat/conversations with x-profile-id: pelangi returns ONLY Pelangi sessions",
+        "GET /api/rainbow/webchat/conversations with NO x-profile-id header returns ALL sessions (backward compat)",
+        "Sessions with NULL profile_id (legacy) are excluded when a profile filter is active",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/routes/admin/webchat.ts",
+        "In GET /webchat/conversations: read profileId from res.locals.profileId (string | undefined)",
+        "If profileId is set: append AND c.profile_id = $1 to WHERE clause, pass [profileId] as query params",
+        "If profileId is NOT set: use existing query with no profile filter (return all)",
+        "The $N parameter numbering in the SQL query must be adjusted carefully if adding a param — prefer building the query conditionally",
+        "Pattern: const profileFilter = profileId ? 'AND c.profile_id = $1' : ''; const params = profileId ? [profileId] : [];",
+        "No changes needed to GET /webchat/conversations/:sessionId or POST /webchat/conversations/:sessionId/reply"
+      ],
+      "dependencies": [
+        "US-401"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-303",
+      "title": "Makan Moments Cafe settings.json — correct system prompt and AI providers",
+      "priority": 9,
+      "description": "src/assistant/data-makan/settings.json has a placeholder system_prompt that says 'You are Rainbow, an AI assistant for Pelangi Capsule Hostel. You're currently in safe mode.' This is wrong for Makan Moments Cafe. It also only has one AI provider (ollama safe mode). Update to a proper cafe assistant prompt and full AI providers list matching pelangi's settings.json.",
+      "acceptanceCriteria": [
+        "system_prompt in data-makan/settings.json references Makan Moments Cafe (not Pelangi Capsule Hostel)",
+        "system_prompt instructs the AI to help customers with menu inquiries, takeaway orders, reservations, operating hours, and cafe information",
+        "system_prompt instructs reply in same language as customer (EN/MS/ZH), keep responses concise, sign off with — Rainbow 🌈",
+        "AI providers list matches the full providers list from src/assistant/data/settings.json",
+        "rate_limits updated to reasonable cafe values: per_minute: 40, per_hour: 200",
+        "JSON is valid and parses without error"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data-makan/settings.json",
+        "system_prompt example: 'You are Rainbow, a friendly AI assistant for Makan Moments Cafe in Johor Bahru, Malaysia. You always clarify that you are an AI bot when introducing yourself. You help customers with menu inquiries, food prices, takeaway and dine-in orders, operating hours, reservations, and general cafe questions. Be warm, concise, and helpful. Reply in the same language as the customer (English, Malay, or Chinese). Keep responses under 300 characters when possible. Sign off with \"— Rainbow 🌈\" on important messages. If unsure, suggest contacting cafe staff.'",
+        "Copy the full 'providers' array from src/assistant/data/settings.json to data-makan/settings.json under ai.providers",
+        "Keep the existing rate_limits, staff, and other structural keys but update values appropriately",
+        "staffName can remain Rachel or be left as-is",
+        "This is a JSON data file change only — no TypeScript code changes needed"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-403",
+      "title": "Add WhatsApp opt-out / STOP command handling",
+      "priority": "critical",
+      "description": "Meta's 2026 compliance requirements explicitly forbid messaging users who have withdrawn consent. There is currently no STOP or opt-out handling in the pipeline — a user typing STOP, UNSUBSCRIBE, or OPT OUT will continue to receive AI responses. This is a compliance risk that could lead to account suspension. An opt-out handler must be added early in the pipeline, before any LLM or staff routing occurs.",
+      "acceptanceCriteria": [
+        "When a user sends STOP, BERHENTI, 停止, UNSUBSCRIBE, or OPT OUT (case-insensitive), the system records an opt-out flag for that phone number in the database",
+        "All subsequent inbound messages from an opted-out phone return { continue: false, reason: 'opted_out' } from validateAndPrepare",
+        "A single confirmation message is sent: 'You have been unsubscribed. Reply START to re-subscribe.'",
+        "An admin API endpoint GET /api/admin/opt-outs returns a paginated list of opted-out phone numbers",
+        "Opt-out status survives server restarts (persisted to DB, not only in-memory)",
+        "Re-subscribing via START removes the opt-out flag and sends a confirmation"
+      ],
+      "technicalNotes": [
+        "Add opt-out check in validateAndPrepare immediately after isGroup check",
+        "Store opt-out in a new DB table opt_outs (phone, opted_out_at, opted_in_at) or add a boolean column to rainbow_conversations",
+        "STOP must work in all three supported languages: English (STOP/UNSUBSCRIBE), Malay (BERHENTI), Chinese (停止)",
+        "Reference: https://gmcsco.com/your-simple-guide-to-whatsapp-api-compliance-2026/ — 'Avoid messaging after opt-out'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-404",
+      "title": "Implement message deduplication using in-memory cache with TTL",
+      "priority": "high",
+      "description": "WhatsApp operates on at-least-once delivery semantics, meaning duplicate message deliveries are a normal operating condition, not an edge case. Without deduplication, the bot can send multiple identical replies to a single user message during network retries. A fast-lookup cache keyed on the Baileys message ID with a TTL of a few hours will discard duplicates before they enter the pipeline.",
+      "acceptanceCriteria": [
+        "When the same msg.id arrives twice within a 5-minute window, the second occurrence returns { continue: false, reason: 'duplicate' } from validateAndPrepare",
+        "The bot sends exactly one response for a duplicated incoming message in an integration test",
+        "Dedup cache evicts entries after a configurable TTL (default 5 minutes, max 2 hours)",
+        "Cache hit is logged at debug level with the message ID",
+        "npm run build succeeds and existing tests pass"
+      ],
+      "technicalNotes": [
+        "Add dedup check at the very top of validateAndPrepare in src/assistant/pipeline/input-validator.ts, before any other processing",
+        "Use a Map<string, number> (msgId -> expiresAt timestamp) as a lightweight in-memory LRU-style store; no new Redis dependency needed for current scale",
+        "Key is msg.id (the Baileys message key ID, e.g. from msg.key.id)",
+        "Eviction can be piggybacked on the existing CLEANUP_INTERVAL_MS pattern used in conversation.ts (300s)",
+        "Reference: WhatsApp at-least-once delivery documented at hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-405",
+      "title": "Add async message queue with BullMQ to decouple webhook ingestion from processing",
+      "priority": "high",
+      "description": "The current pipeline processes messages synchronously inside the Baileys event handler. WhatsApp enforces a strict ~5-10 second delivery window; LLM inference, PMS lookups, and translation can easily exceed this, causing delivery timeouts and triggering retries that produce duplicates. Introducing BullMQ (backed by Redis) decouples ingestion from processing: the event handler enqueues the raw message and returns immediately, while a worker drains the queue at its own pace.",
+      "acceptanceCriteria": [
+        "Incoming Baileys messages are enqueued to a BullMQ queue and the event handler returns within 200ms",
+        "A dedicated worker process consumes messages from the queue and passes them to the existing handleIncomingMessage pipeline",
+        "Failed jobs are retried up to 3 times with exponential backoff before moving to a dead-letter queue",
+        "Queue depth and worker concurrency are exposed via the existing admin health endpoint",
+        "The system processes 100 queued messages in 10 seconds without dropping any (load test)"
+      ],
+      "technicalNotes": [
+        "BullMQ requires a Redis instance; can reuse the same Redis used for rate limiting if one exists, or add lightweight Redis (e.g., redis/redis-stack on Lightsail)",
+        "Worker concurrency should be configurable via settings.json to prevent overwhelming the LLM provider rate limits",
+        "Deduplication (story above) should be applied inside the worker, not at enqueue time, to handle cross-restart dedup correctly",
+        "Reference: https://docs.bullmq.io/ — BullMQ docs; https://github.com/turahe/whatsapp-server for WhatsApp + BullMQ integration pattern"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-406",
+      "title": "Implement conversation context pruning to stay within LLM token budget",
+      "priority": "high",
+      "description": "Conversation history in conversation.ts is capped at MAX_MESSAGES=20 by simple slice, with no regard for token count. A 20-message conversation with long messages can easily exceed 8K–16K tokens, leading to increased cost, degraded LLM attention (lost-in-the-middle effect), and potential API errors on models with smaller context windows. A token-aware pruning strategy that keeps recent messages verbatim and compresses older ones will maintain quality while controlling cost.",
+      "acceptanceCriteria": [
+        "A configurable MAX_CONTEXT_TOKENS threshold (default 6000) is respected before each LLM call",
+        "When history exceeds the threshold, messages older than the last 4 turns are summarized into a single 'conversation summary' assistant message",
+        "The summary is generated by the same LLM provider currently in use (not a separate API call if avoidable)",
+        "Total prompt tokens per conversation never exceed MAX_CONTEXT_TOKENS + system_prompt_tokens",
+        "A token estimator utility (e.g. characters/4 approximation or tiktoken-compatible) is added to src/lib/",
+        "npm run build succeeds and existing tests pass"
+      ],
+      "technicalNotes": [
+        "Add token counting helper to src/lib/token-counter.ts (character/4 heuristic is sufficient for a first pass; exact tiktoken not required)",
+        "Pruning logic belongs in conversation.ts addMessage or in a new src/assistant/context-manager.ts",
+        "Strategy: keep last N turns verbatim + replace older turns with a single compacted summary message",
+        "Reference: https://www.getmaxim.ai/articles/context-window-management-strategies-for-long-context-ai-agents-and-chatbots — hierarchical summarization pattern"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-407",
+      "title": "Add WhatsApp 24-hour session window enforcement for template compliance",
+      "priority": "high",
+      "description": "Meta's WhatsApp Business API rules require that businesses use pre-approved message templates for any outbound message sent outside the 24-hour customer service window. Currently, the bot's proactive messages (feedback prompts, escalation confirmations) are sent as free-form text regardless of when the last user message was received. Violating this rule risks account suspension.",
+      "acceptanceCriteria": [
+        "The timestamp of the last inbound user message per conversation is tracked in ConversationState",
+        "Before sending any proactive/outbound message, a helper isWithin24HourWindow(phone) is checked",
+        "Outbound messages outside the 24-hour window either: (a) use a pre-approved template string from settings.json, or (b) are suppressed with a log warning",
+        "The feedback prompt setTimeout in response-processor.ts uses this check before sending",
+        "Unit test verifies that a proactive message is suppressed when last user message was >24 hours ago"
+      ],
+      "technicalNotes": [
+        "Store lastUserMessageAt: number in ConversationState (already has lastActiveAt but that includes bot messages)",
+        "24-hour window helper: (Date.now() - lastUserMessageAt) < 86_400_000",
+        "Template messages for post-window follow-ups should be defined in settings.json under outbound_templates",
+        "Reference: https://gmcsco.com/your-simple-guide-to-whatsapp-api-compliance-2026/ — 'businesses have 24 hours to respond with any free-form reply'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-408",
+      "title": "Generalize the flow execution engine with a unified Flow interface",
+      "priority": "medium",
+      "description": "state-executor.ts contains parallel but separate logic blocks for activeWorkflow and activeBooking. Each new multi-step conversation type (surveys, onboarding, complaints) requires duplicating this pattern. A generic Flow interface with start/executeStep/isComplete methods allows new flows to be registered without touching state-executor.ts, reducing regression risk and development friction.",
+      "acceptanceCriteria": [
+        "A Flow interface is defined in src/assistant/pipeline/types.ts with start, executeStep, and isComplete methods",
+        "state-executor.ts routes to a single executeStep call regardless of flow type",
+        "Booking and workflow functionalities produce identical responses before and after the refactor (no regression in tests)",
+        "A new stub 'survey' flow can be added by implementing the Flow interface without modifying state-executor.ts",
+        "npm run build succeeds and all existing tests pass"
+      ],
+      "technicalNotes": [
+        "Replace convo.workflowState and convo.bookingState with convo.activeFlow: FlowState | null in ConversationState",
+        "Flow registry maps flowId string to Flow implementation at startup",
+        "Reference: docs/pending-stories.md §3 — detailed interface design already proposed"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-409",
+      "title": "Add knowledge base staleness detection and last-updated metadata",
+      "priority": "medium",
+      "description": "The .rainbow-kb markdown files used for RAG retrieval have no freshness metadata. When property details change (room prices, WiFi passwords, check-in times), outdated KB files silently serve wrong information until manually updated. Adding file-level last-updated timestamps and an admin alert when files exceed a configurable staleness threshold prevents the bot from confidently serving stale data.",
+      "acceptanceCriteria": [
+        "Each KB file's mtime (filesystem modification time) is tracked in the rainbow_kb_files DB table when the file is indexed",
+        "An admin API endpoint GET /api/admin/kb-health returns each file name, last_indexed_at, last_modified_at, and a stale: boolean flag",
+        "A file is flagged as stale when its last_modified_at is older than a configurable threshold (default 30 days)",
+        "The integration health dashboard (GET /api/admin/integration-health) includes a kb_staleness section showing count of stale files",
+        "Stale KB files are logged as warnings on startup"
+      ],
+      "technicalNotes": [
+        "rainbow_kb_files table already exists per CLAUDE.md; add last_modified_at and stale_threshold_days columns",
+        "Staleness check runs during KB indexing in knowledge-base.ts — compare fs.statSync(filePath).mtime to last_indexed_at",
+        "Reference: AWS documentation on RAG freshness — 'document indexes can quickly go stale without scheduled ingestion jobs'"
+      ],
+      "dependencies": [
+        "US-203 (integration health dashboard)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-410",
+      "title": "Implement human handoff freeze/resume with explicit bot-pause state",
+      "priority": "medium",
+      "description": "The current escalation flow notifies staff but does not pause the bot — if the guest sends another message while waiting for a human, the AI will respond autonomously, potentially contradicting the human agent. A formal 'handoff' conversation mode that freezes AI responses and resumes when staff resolve the escalation is required for a coherent hybrid model.",
+      "acceptanceCriteria": [
+        "When escalateToStaff is called, conversation mode is automatically set to 'manual' for the affected phone number",
+        "While in manual mode, the bot sends a single holding message: 'I've connected you with our team, they will respond shortly.'",
+        "A staff !resolve <phone> command or admin API endpoint PATCH /api/admin/conversations/:phone/mode sets the mode back to 'autopilot'",
+        "The conversation history (last 10 messages) is included in the escalation notification sent to staff",
+        "Handoff events are logged with: trigger reason, conversation history length, timestamp, and resolved_at when staff resolve"
+      ],
+      "technicalNotes": [
+        "Conversation mode is already stored in convo.slots.responseMode — set to 'manual' on escalation",
+        "Staff !resolve command should be added to handleStaffCommand in input-validator.ts",
+        "Escalation notification in escalation.ts should include message history array, not just recentMessages string",
+        "Reference: https://www.spurnow.com/en/blogs/chatbot-to-human-handoff — bot should pause decision-making during handoff; context must transfer automatically"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-411",
+      "title": "Add per-profile rate limits configurable via settings.json",
+      "priority": "medium",
+      "description": "The current rate limiter (rate-limiter.ts) applies a single global rate limit to all profiles. Pelangi Capsule (hostel) and Makan Moments Cafe have very different message volume profiles and different risk tolerances for aggressive guests. Profile-specific rate limits, defined in each profile's settings.json, prevent a high-volume Cafe promotion from affecting Pelangi response quality.",
+      "acceptanceCriteria": [
+        "settings.json supports a rate_limits section with per_minute and per_hour fields",
+        "checkRate in rate-limiter.ts accepts an optional profileConfig parameter and uses profile-specific limits when provided",
+        "validateAndPrepare passes the resolved profileConfig to checkRate",
+        "Pelangi profile defaults remain unchanged (backward compatible)",
+        "Unit test verifies that two profiles with different rate limits are enforced independently for the same phone number"
+      ],
+      "technicalNotes": [
+        "checkRate signature: checkRate(phone: string, profileConfig?: ConfigStore): RateResult",
+        "Profile-specific limits read from profileConfig.getSettings().rate_limits",
+        "Fall back to global defaults in rate-limiter.ts if profileConfig is undefined or rate_limits is absent",
+        "Reference: input-validator.ts already passes profileConfig to isStaffPhone — same pattern applies here"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-412",
+      "title": "Track LLM token usage and cost per conversation in the database",
+      "priority": "medium",
+      "description": "devMetadata.usage is already captured in the pipeline (response-processor.ts) and logged per message, but there is no aggregated cost tracking per conversation or per profile. Without this, there is no visibility into which conversation types or profiles drive LLM costs — critical for a multi-tenant deployment across Pelangi, Southern, and Makan Moments.",
+      "acceptanceCriteria": [
+        "rainbow_messages table stores prompt_tokens, completion_tokens, and total_tokens when usage data is available",
+        "A new admin API endpoint GET /api/admin/analytics/llm-cost returns: total tokens by profile, average tokens per conversation, and top 10 most expensive conversations in the last 30 days",
+        "Cost estimate in USD is calculated using a configurable token price table in settings.json ($/1K tokens per model)",
+        "Dashboard widget displays daily token spend with a 7-day sparkline"
+      ],
+      "technicalNotes": [
+        "devMetadata.usage is already typed in response-processor.ts — add to logMeta object passed to logMessage",
+        "Add prompt_tokens, completion_tokens INTEGER columns to rainbow_messages via Drizzle migration",
+        "Cost calculation: (total_tokens / 1000) * model_price_per_1k_tokens — model prices configurable in settings.json",
+        "Reference: conversation-db.ts rowToMessage already parses usageJson from DB row"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-413",
+      "title": "Add dead letter queue for failed message pipeline jobs",
+      "priority": "medium",
+      "description": "When a queued message fails all retries (LLM timeout, DB error, parsing crash), it is currently lost silently. A dead letter queue (DLQ) captures permanently-failed messages for inspection and manual replay, preventing silent message loss in high-reliability scenarios such as guests sending emergency or booking messages.",
+      "acceptanceCriteria": [
+        "Messages that fail all 3 retry attempts are moved to a dedicated DLQ (BullMQ failed queue or equivalent)",
+        "An admin API endpoint GET /api/admin/dlq returns failed jobs with: phone, message content, failure reason, timestamp, and retry count",
+        "An admin API endpoint POST /api/admin/dlq/:jobId/retry replays a single failed job back through the pipeline",
+        "DLQ depth is included in the integration health dashboard",
+        "Operators receive a staff notification (via escalation channel) when DLQ depth exceeds 10 jobs"
+      ],
+      "technicalNotes": [
+        "BullMQ natively tracks failed jobs — use getFailedJobs() on the Queue instance",
+        "DLQ admin endpoint belongs in src/routes/admin/",
+        "This story depends on the async message queue story being implemented first",
+        "Reference: https://docs.bullmq.io/ — BullMQ failed job handling and retry semantics"
+      ],
+      "dependencies": [
+        "Async message queue with BullMQ story"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-414",
+      "title": "Add response latency P95/P99 metrics endpoint",
+      "priority": "low",
+      "description": "devMetadata.responseTime is tracked per message and logged, but there is no aggregated latency percentile reporting. Operations teams have no way to detect latency regressions (e.g., after a new LLM provider is added) or to understand the typical guest wait time. A metrics endpoint exposing P50/P95/P99 response times by profile and intent tier will surface performance issues before they impact guest satisfaction.",
+      "acceptanceCriteria": [
+        "GET /api/admin/analytics/latency returns P50, P95, P99 response times in milliseconds over the last 24 hours and 7 days",
+        "Latency is broken down by profile_id and routing source (t1_regex, t2_fuzzy, t3_kb, t4_llm)",
+        "An alert threshold can be configured (e.g., P95 > 8000ms triggers a warning flag in the response)",
+        "Data is computed from existing response_time values stored in rainbow_messages — no new data collection required"
+      ],
+      "technicalNotes": [
+        "rainbow_messages.response_time is already populated per conversation-db.ts rowToMessage",
+        "Use PostgreSQL percentile_cont(0.95) WITHIN GROUP (ORDER BY response_time) for DB-side percentile computation",
+        "Add to existing analytics admin router in src/routes/admin/",
+        "Reference: response-processor.ts trackResponseSent already captures responseTime"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-415",
+      "title": "Add profile health check endpoint with per-profile status summary",
+      "priority": "low",
+      "description": "When a new profile is deployed (e.g., Makan Moments Cafe), there is no automated way to verify that all its components — settings.json, routing.json, knowledge base, WhatsApp instance — are correctly wired together. A per-profile health endpoint catches misconfiguration before the first real guest message, complementing the existing integration validator.",
+      "acceptanceCriteria": [
+        "GET /api/admin/profiles/:profileId/health returns a structured health report",
+        "Report covers: settings.json schema validity, routing.json completeness (all intents have an action), KB file count and staleness, WhatsApp instance connection status, AI provider availability",
+        "HTTP 200 when all checks pass; HTTP 207 (multi-status) when some checks fail",
+        "Response includes a human-readable summary field suitable for display in the admin dashboard",
+        "Endpoint responds within 2 seconds (no heavy blocking operations)"
+      ],
+      "technicalNotes": [
+        "Reuse existing Zod schemas from src/assistant/schemas.ts to validate config files",
+        "WhatsApp connection status: check Baileys socket state for the given instanceId",
+        "AI provider availability: use existing circuit breaker state from circuit-breaker.ts",
+        "Add to src/routes/admin/ alongside other admin routes"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-416",
+      "title": "Implement intent classification accuracy dashboard",
+      "priority": "low",
+      "description": "The intent tracker already records predictions, corrections, and confirmations (intent-tracker.ts), but there is no aggregated accuracy dashboard. Without this visibility, there is no data-driven way to decide whether to adjust T1 regex patterns, T4 LLM prompts, or confidence thresholds. A dashboard showing per-intent accuracy and false-positive rates will drive systematic improvements.",
+      "acceptanceCriteria": [
+        "GET /api/admin/analytics/intent-accuracy returns per-intent statistics: prediction count, correction count, accuracy percentage, average confidence",
+        "Statistics are filterable by profile_id and date range (last 7 days / 30 days)",
+        "Intents with accuracy below a configurable threshold (default 70%) are flagged with a low_accuracy: true field",
+        "The endpoint computes results from the existing intent_analytics table — no new data collection",
+        "Response time is under 500ms for typical 30-day queries"
+      ],
+      "technicalNotes": [
+        "intent_analytics table is already Drizzle-managed per CLAUDE.md schema section",
+        "Use GROUP BY intent for aggregation; use conditional COUNT (corrections / predictions) for accuracy calculation",
+        "Add to existing analytics admin router in src/routes/admin/",
+        "Reference: src/assistant/intent-tracker.ts for existing tracking hooks"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-417",
+      "title": "Add cross-session guest memory for returning guests",
+      "priority": "low",
+      "description": "The current 1-hour TTL means that a returning guest who last interacted 2 hours ago is treated as a brand new user, forcing them to re-identify themselves and re-explain their context. For a hostel where guests often message over multiple days, storing key guest facts (name, room preference, language) across sessions reduces friction and improves the perception of service quality.",
+      "acceptanceCriteria": [
+        "A guest_profiles table (phone, push_name, language, preferences JSON, last_seen_at) is created and managed by Drizzle",
+        "On getOrCreate, if a guest has a profile record, their preferred language and name are loaded into the new conversation state",
+        "Guest language preference is persisted when a conversation ends (TTL expiry or explicit reset)",
+        "An admin API endpoint GET /api/admin/guests/:phone returns the guest profile with visit history summary",
+        "Profile lookup adds less than 50ms to the getOrCreate call path"
+      ],
+      "technicalNotes": [
+        "guest_profiles table is distinct from rainbow_conversations — it persists indefinitely, not with session TTL",
+        "On conversation expiry callback (onExpire in conversation.ts), write language/pushName to guest_profiles",
+        "Lookup in getOrCreate should be async — consider whether this is acceptable for the current synchronous getOrCreate interface",
+        "This is a medium-complexity change due to the synchronous getOrCreate pattern needing to become async"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    }
+  ]
+}

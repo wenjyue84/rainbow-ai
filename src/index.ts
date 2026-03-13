@@ -254,6 +254,18 @@ app.get('/health/ready', async (req, res) => {
     detail: `Role: ${failoverStatus.role}, Active: ${failoverStatus.isActive}`
   };
 
+  // 6. Message queue (BullMQ) status (US-405)
+  const { getQueueHealth } = await import('./lib/message-queue.js');
+  const queueHealth = await getQueueHealth();
+  checks.messageQueue = {
+    ok: queueHealth.enabled ? queueHealth.connected : true, // not-enabled is OK
+    detail: queueHealth.enabled
+      ? queueHealth.connected
+        ? `BullMQ active — waiting: ${queueHealth.waiting}, active: ${queueHealth.active}, failed: ${queueHealth.failed}, dlq: ${queueHealth.deadLetterCount}, concurrency: ${queueHealth.workerConcurrency}`
+        : 'BullMQ enabled but Redis disconnected'
+      : 'Direct processing (Redis not available)'
+  };
+
   const allHealthy = Object.values(checks).every(c => c.ok);
   // WhatsApp can be disconnected and system still works (manual mode)
   const critical = checks.backend.ok && checks.config.ok;

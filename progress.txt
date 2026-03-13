@@ -1105,3 +1105,40 @@ Here is the technical brief based on the correct `Node.js` context:
 - Rate limit window state is per-phone globally (not per-profile) — this is correct since a phone is a phone regardless of which profile it comes through
 ### Gotchas
 - None — clean 2-file change following established pattern
+## Iteration 5 - Fri, Mar 13, 2026  9:58:10 AM
+Incomplete: Add async message queue with BullMQ to decouple webhook ingestion from processing (ID: US-405) — attempt 2/3
+
+
+## Pre-analysis for US-405 (Gemini 2.5 Pro)
+This technical brief is based on the provided user story, which describes a Node.js/TypeScript environment using Baileys and BullMQ, not a Frappe/Python one.
+
+### **Technical Brief: US-405 - BullMQ Integration**
+
+**Objective:** Decouple WhatsApp message ingestion from processing using a BullMQ message queue to prevent timeouts and enable reliable, asynchronous handling.
+
+**1. Primary Files for Modification:**
+
+*   `src/server.ts` or `src/lib/baileys-client.ts`: Modify the Baileys event handler (likely for `'messages.upsert'`) to stop processing messages directly. Instead, it will become a **producer**, adding the raw message data to a BullMQ queue.
+*   `src/worker.ts` (New File): Create this file to act as the **consumer**. It will initialize a BullMQ `Worker` that pulls jobs from the queue and passes them to the `handleIncomingMessage` function.
+*   `package.json`: Add `bullmq` as a dependency and a new script (e.g., `"worker": "node dist/worker.ts"`) to run the worker process.
+*   `ecosystem.config.cjs`: Update to manage and run the new `worker` process alongside the main application server.
+*   `src/routes/admin.ts` (or similar): Enhance the health/status endpoint to expose queue metrics (e.g., depth, failed jobs).
+
+**2. Key Libraries & Modules:**
+
+*   **BullMQ:** The core library for creating the queue and workers.
+*   **Redis:** Required as the backend for BullMQ. The implementation should connect to the existing Redis instance if available.
+
+**3. Implementation Approach:**
+
+1.  **Producer:** In the Baileys event handler, initialize a `Queue` object and enqueue each incoming message with `queue.add()`. Return immediately.
+2.  **Worker:** In `src/worker.ts`, create a `Worker` that processes jobs from the queue. The worker's main logic will be to call the existing `handleIncomingMessage` pipeline with the job's data.
+3.  **Configuration:** Centralize Redis connection details. Worker concurrency should be loaded from `settings.json`.
+4.  **Error Handling:** Configure jobs with `attempts: 3` and an exponential backoff strategy. Failed jobs should be sent to a dead-letter queue.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Idempotency:** Per technical notes, deduplication must happen inside the worker (e.g., checking a message ID in a database) before processing, not at enqueue time.
+*   **Deployment:** The deployment script (`ecosystem.config.cjs`) is critical and must be updated to run both the API server and the new worker as separate processes.
+*   **Graceful Shutdown:** Ensure both the server and worker handle `SIGTERM`/`SIGINT` signals to close queue connections properly, preventing job hangs.
+

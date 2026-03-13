@@ -10,6 +10,7 @@ import { initBooking } from './booking.js';
 import { initEscalation, destroyEscalation } from './escalation.js';
 import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
+import { initMessageQueue, enqueueMessage, closeQueue } from '../lib/message-queue.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -35,13 +36,21 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   initEscalation(sendMessage);
   initRouter(sendMessage, callAPI);
 
-  // Register incoming message handler
-  registerMessageHandler(handleIncomingMessage);
+  // Initialize BullMQ message queue (US-405)
+  // Worker concurrency from settings, default 3
+  const settings = configStore.getSettings() as any;
+  const queueConcurrency = settings?.message_queue?.worker_concurrency ?? 3;
+  const queueEnabled = await initMessageQueue(handleIncomingMessage, queueConcurrency);
 
-  console.log('[Assistant] WhatsApp AI Assistant ready');
+  // Register enqueueMessage as the Baileys handler — it enqueues to BullMQ
+  // if Redis is available, otherwise falls back to direct handleIncomingMessage
+  registerMessageHandler(enqueueMessage);
+
+  console.log(`[Assistant] WhatsApp AI Assistant ready (queue: ${queueEnabled ? 'BullMQ' : 'direct'})`);
 }
 
 export async function destroyAssistant(): Promise<void> {
+  await closeQueue();
   destroyRateLimiter();
   destroyConversations();
   destroyKnowledge();

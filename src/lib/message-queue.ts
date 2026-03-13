@@ -1,0 +1,341 @@
+/**
+ * Message Queue — BullMQ-based async message processing
+ *
+ * Decouples WhatsApp webhook ingestion from message processing.
+ * The Baileys event handler enqueues raw messages and returns immediately,
+ * while a worker drains the queue at its own pace.
+ *
+ * Falls back to direct (synchronous) processing if Redis is unavailable.
+ *
+ * US-405
+ */
+import { Queue, Worker, QueueEvents, type Job } from 'bullmq';
+import net from 'net';
+import type { IncomingMessage } from '../assistant/types.js';
+
+// ─── Types ───────────────────────────────────────────────────────
+
+export interface QueueHealthMetrics {
+  enabled: boolean;
+  connected: boolean;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  workerConcurrency: number;
+  deadLetterCount: number;
+}
+
+type MessageHandler = (msg: IncomingMessage) => Promise<void>;
+
+// ─── Constants ───────────────────────────────────────────────────
+
+const QUEUE_NAME = 'rainbow-messages';
+const DLQ_NAME = 'rainbow-messages-dlq';
+const MAX_RETRY_ATTEMPTS = 3;
+const DEFAULT_CONCURRENCY = 3;
+const REDIS_CONNECT_TIMEOUT_MS = 3000;
+
+// ─── State ───────────────────────────────────────────────────────
+
+let queue: Queue | null = null;
+let dlq: Queue | null = null;
+let worker: Worker | null = null;
+let queueEvents: QueueEvents | null = null;
+let isConnected = false;
+let directHandler: MessageHandler | null = null;
+let dlqCount = 0;
+
+// ─── Redis connection config ─────────────────────────────────────
+
+function getRedisConfig(): { host: string; port: number; password?: string } {
+  const url = process.env.REDIS_URL;
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      return {
+        host: parsed.hostname || '127.0.0.1',
+        port: parseInt(parsed.port, 10) || 6379,
+        password: parsed.password || undefined,
+      };
+    } catch {
+      // fall through to defaults
+    }
+  }
+  return {
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || undefined,
+  };
+}
+
+/**
+ * Probe Redis connectivity with a raw TCP socket.
+ * Faster and more reliable than ioredis for connectivity checks.
+ */
+async function probeRedis(config: { host: string; port: number }): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, REDIS_CONNECT_TIMEOUT_MS);
+
+    socket.connect(config.port, config.host, () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+// ─── Init ────────────────────────────────────────────────────────
+
+/**
+ * Initialize the message queue system.
+ * If Redis is unavailable, falls back to direct processing.
+ *
+ * @param handler - The message processing function (handleIncomingMessage)
+ * @param concurrency - Worker concurrency (default from settings or 3)
+ */
+export async function initMessageQueue(
+  handler: MessageHandler,
+  concurrency: number = DEFAULT_CONCURRENCY
+): Promise<boolean> {
+  directHandler = handler;
+
+  const redisConfig = getRedisConfig();
+
+  // Fast-fail: probe Redis before creating BullMQ objects
+  const redisAvailable = await probeRedis(redisConfig);
+  if (!redisAvailable) {
+    console.warn(
+      `[MessageQueue] Redis not available at ${redisConfig.host}:${redisConfig.port} — using direct processing`
+    );
+    return false;
+  }
+
+  const connectionOpts = {
+    host: redisConfig.host,
+    port: redisConfig.port,
+    password: redisConfig.password,
+    maxRetriesPerRequest: null as null,
+  };
+
+  try {
+    // Create main queue
+    queue = new Queue(QUEUE_NAME, {
+      connection: connectionOpts,
+      defaultJobOptions: {
+        attempts: MAX_RETRY_ATTEMPTS,
+        backoff: {
+          type: 'exponential',
+          delay: 1000, // 1s, 2s, 4s
+        },
+        removeOnComplete: { count: 1000 }, // keep last 1000 completed
+        removeOnFail: false, // keep failed for DLQ inspection
+      },
+    });
+
+    // Dead letter queue
+    dlq = new Queue(DLQ_NAME, { connection: connectionOpts });
+
+    // Worker — processes jobs from the queue
+    worker = new Worker(
+      QUEUE_NAME,
+      async (job: Job<IncomingMessage>) => {
+        await handler(job.data);
+      },
+      {
+        connection: connectionOpts,
+        concurrency,
+        limiter: {
+          max: concurrency * 10,
+          duration: 1000,
+        },
+      }
+    );
+
+    // Move permanently failed jobs to DLQ
+    worker.on('failed', async (job: Job<IncomingMessage> | undefined, err: Error) => {
+      if (!job) return;
+      const attemptsMade = job.attemptsMade;
+
+      if (attemptsMade >= MAX_RETRY_ATTEMPTS) {
+        console.error(
+          `[MessageQueue] Job ${job.id} permanently failed after ${attemptsMade} attempts: ${err.message}`
+        );
+        // Move to dead letter queue
+        try {
+          if (dlq) {
+            await dlq.add('dead-letter', {
+              originalJobId: job.id,
+              data: job.data,
+              error: err.message,
+              failedAt: new Date().toISOString(),
+            } as any);
+            dlqCount++;
+          }
+        } catch (dlqErr: any) {
+          console.error(`[MessageQueue] Failed to add to DLQ: ${dlqErr.message}`);
+        }
+      } else {
+        console.warn(
+          `[MessageQueue] Job ${job.id} failed (attempt ${attemptsMade}/${MAX_RETRY_ATTEMPTS}): ${err.message}`
+        );
+      }
+    });
+
+    worker.on('error', (err: Error) => {
+      // Suppress connection errors after initial setup — these are expected during Redis restarts
+      if (!err.message.includes('ECONNREFUSED')) {
+        console.error(`[MessageQueue] Worker error: ${err.message}`);
+      }
+    });
+
+    // Queue events for monitoring
+    queueEvents = new QueueEvents(QUEUE_NAME, { connection: connectionOpts });
+
+    // Wait for queue to be ready (should be fast since we already probed)
+    await queue.waitUntilReady();
+
+    isConnected = true;
+    console.log(
+      `[MessageQueue] Connected to Redis at ${redisConfig.host}:${redisConfig.port} — worker concurrency: ${concurrency}`
+    );
+    return true;
+  } catch (err: any) {
+    console.warn(
+      `[MessageQueue] BullMQ init failed (${err.message}) — falling back to direct processing`
+    );
+    await closeQueue();
+    isConnected = false;
+    return false;
+  }
+}
+
+// ─── Enqueue ─────────────────────────────────────────────────────
+
+/**
+ * Enqueue an incoming message for async processing.
+ * If Redis is unavailable, processes directly (fallback).
+ *
+ * Returns within 200ms in queue mode.
+ */
+export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
+  if (isConnected && queue) {
+    try {
+      await queue.add('incoming-message', msg, {
+        jobId: `msg-${msg.messageId}-${Date.now()}`,
+      });
+      return;
+    } catch (err: any) {
+      console.error(`[MessageQueue] Enqueue failed, processing directly: ${err.message}`);
+      // Fall through to direct processing
+    }
+  }
+
+  // Fallback: direct processing
+  if (directHandler) {
+    await directHandler(msg);
+  }
+}
+
+// ─── Health Metrics ──────────────────────────────────────────────
+
+/**
+ * Get queue health metrics for admin dashboard.
+ */
+export async function getQueueHealth(): Promise<QueueHealthMetrics> {
+  if (!isConnected || !queue) {
+    return {
+      enabled: false,
+      connected: false,
+      waiting: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0,
+      workerConcurrency: 0,
+      deadLetterCount: 0,
+    };
+  }
+
+  try {
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getCompletedCount(),
+      queue.getFailedCount(),
+      queue.getDelayedCount(),
+    ]);
+
+    return {
+      enabled: true,
+      connected: true,
+      waiting,
+      active,
+      completed,
+      failed,
+      delayed,
+      workerConcurrency: worker?.opts?.concurrency ?? DEFAULT_CONCURRENCY,
+      deadLetterCount: dlqCount,
+    };
+  } catch (err: any) {
+    console.error(`[MessageQueue] Health check failed: ${err.message}`);
+    return {
+      enabled: true,
+      connected: false,
+      waiting: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0,
+      workerConcurrency: 0,
+      deadLetterCount: dlqCount,
+    };
+  }
+}
+
+/**
+ * Check if the queue is active (connected to Redis).
+ */
+export function isQueueActive(): boolean {
+  return isConnected;
+}
+
+// ─── Shutdown ────────────────────────────────────────────────────
+
+/**
+ * Gracefully close the queue, worker, and Redis connections.
+ */
+export async function closeQueue(): Promise<void> {
+  try {
+    if (queueEvents) {
+      await queueEvents.close();
+      queueEvents = null;
+    }
+    if (worker) {
+      await worker.close();
+      worker = null;
+    }
+    if (dlq) {
+      await dlq.close();
+      dlq = null;
+    }
+    if (queue) {
+      await queue.close();
+      queue = null;
+    }
+  } catch (err: any) {
+    console.error(`[MessageQueue] Shutdown error: ${err.message}`);
+  }
+  isConnected = false;
+}
