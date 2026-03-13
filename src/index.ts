@@ -167,6 +167,9 @@ startQualityMetricsJob();
 const app = express();
 const PORT = parseInt(process.env.MCP_SERVER_PORT || '3002', 10);
 
+// US-504: Disable x-powered-by to prevent server fingerprinting
+app.disable('x-powered-by');
+
 // Disable ETags to prevent stale cache on normal refresh
 app.set('etag', false);
 
@@ -526,7 +529,8 @@ app.get('/admin/whatsapp-qr', async (req, res) => {
       <script>setTimeout(()=>location.reload(),5000)</script>
     </body></html>`);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('[QR] QR code generation failed:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -614,14 +618,25 @@ app.get('/:tab', async (req, res, next) => {
 // MCP protocol endpoint
 app.post('/mcp', mcpLimiter, createMCPHandler());
 
-// ── Express 5 centralized error handler (US-494) ──────────────────
+// ── US-504: Custom 404 handler ─────────────────────────────────────
+// Return generic 404 without revealing the requested path to the client.
+app.use((_req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// ── Express 5 centralized error handler (US-494 + US-504) ──────────
 // Express 5 auto-propagates rejected promises from async handlers here.
 // Admin router has its own error handler; this catches errors from non-admin routes.
+// US-504: Never leak stack traces, file paths, or secrets to the client.
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (res.headersSent) return;
+
+  // Log full error server-side for debugging
+  console.error('[ErrorHandler]', err);
+
   const status = typeof err.status === 'number' ? err.status : 500;
-  const message = err?.message || String(err);
-  res.status(status).json({ error: message });
+  // Never send internal error details to the client
+  res.status(status).json({ error: 'Internal server error' });
 });
 
 // Configure HTTP server timeouts to prevent 502s from load balancer keep-alive races.

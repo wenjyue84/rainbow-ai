@@ -2684,3 +2684,66 @@ This brief is for a Node.js/TypeScript project, as the user story details do not
   — only explicit switches at >= 0.85 override an existing stored preference
 - `languageLocked = true` suppresses auto-writes but does NOT force the stored language for the current message
   — the effective language is still the detected language (admin lock prevents drift, not responsiveness)
+## Iteration 5 - Sat, Mar 14, 2026  2:18:23 AM
+Incomplete: Add response latency P95/P99 metrics endpoint (ID: US-414) — attempt 2/3
+
+
+## Pre-analysis for US-414 (Gemini 2.5 Pro)
+This is a NodeJS/TypeScript project, not Frappe/Python. The technical brief is adapted accordingly.
+
+**Project:** `rainbow-ai` (NodeJS/TypeScript/PostgreSQL)
+**User Story:** US-414: Add response latency P95/P99 metrics endpoint
+
+### Technical Brief for Implementation
+
+**1. Python Files to Modify:**
+This is a TypeScript project. The primary files to modify will be:
+*   `src/routes/admin/analytics.ts` (or a similar file in this directory): To define the new `GET /api/admin/analytics/latency` API endpoint.
+*   `src/lib/db.ts` or a new data-access service file: To house the new database query logic for calculating percentiles.
+*   `shared/schema.ts`: To add response types for the new endpoint's payload.
+
+**2. Frappe DocTypes / Hooks Involved:**
+No Frappe DocTypes are involved. The core data source is the `rainbow_messages` PostgreSQL table. The key columns will be `response_time`, `created_at`, `profile_id`, and the column identifying the routing source (likely `intent_source` or similar).
+
+**3. Recommended Implementation Approach:**
+1.  **Create a New DB Service Function:** In your database access layer, create an async function `getLatencyPercentiles(periodDays: number)`.
+2.  **Build the SQL Query:** This function will execute a raw SQL query against the `rainbow_messages` table. Use `percentile_cont()` for calculations.
+    ```sql
+    SELECT
+      profile_id,
+      routing_source_column, -- Confirm exact column name
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY response_time) AS p50,
+      percentile_cont(0.95) WITHIN GROUP (ORDER BY response_time) AS p95,
+      percentile_cont(0.99) WITHIN GROUP (ORDER BY response_time) AS p99
+    FROM rainbow_messages
+    WHERE created_at >= NOW() - INTERVAL '${periodDays} days'
+      AND response_time IS NOT NULL
+    GROUP BY profile_id, routing_source_column;
+    ```
+3.  **Define the API Endpoint:** In the admin analytics router, add a `GET /latency` handler.
+4.  **Call the Service:** The handler will call `getLatencyPercentiles` twice (for `1` day and `7` days).
+5.  **Format the Response:** Aggregate the results into the required JSON structure, including the configurable warning flag based on the P95 value. The threshold should be read from an environment variable.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Performance:** The `percentile_cont` function can be slow on large tables. Ensure an index exists on `(created_at, response_time)` in the `rainbow_messages` table to speed up the query.
+*   **Data Scarcity:** The query should handle cases where a profile/source combination has no data, returning `null` or `0` for percentiles instead of failing.
+*   **Column Name:** The story refers to "routing source" with examples like `t1_regex`. You must verify the actual column name in the `rainbow_messages` schema that stores this value.
+*   **SQL Injection:** Use a parameterized query library (e.g., Drizzle, Slonik) to safely pass `periodDays` into the query to prevent SQL injection.
+
+
+## Iteration 48 - Story: US-504 - Disable Express x-powered-by header and add secret-redaction to error responses
+### What was implemented
+- Added `app.disable('x-powered-by')` before any route registration in src/index.ts
+- Replaced global error handler to return generic `{ error: 'Internal server error' }` — never leaks err.message, stack traces, file paths, or env var names
+- Added custom 404 handler returning `{ error: 'Not found' }` without revealing the requested path
+- Fixed admin router 404 handler to stop echoing `_req.path` in response
+- Fixed admin router error handler to stop leaking `err.message` in response
+- Fixed QR endpoint catch block to not leak err.message
+- Added integration test (4 tests) verifying: no x-powered-by header, generic 404, generic 500, server-side logging preserved
+### Patterns discovered
+- Express helmet middleware already disables x-powered-by via its xPoweredBy middleware, but explicit `app.disable('x-powered-by')` provides belt-and-suspenders defense
+- Admin router at src/routes/admin/index.ts had its own 404 and error handlers that also leaked info
+- The QR code endpoint at /admin/whatsapp-qr also had a catch that sent err.message to client
+### Gotchas
+- The 404 handler must be placed AFTER all routes but BEFORE the error handler (4 params)
+- Express 5 distinguishes route handlers (3 params) from error handlers (4 params) — the 404 handler is a regular middleware, not an error handler

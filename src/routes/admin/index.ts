@@ -214,15 +214,17 @@ router.use(phoneQualityRoutes);
 router.use(whatsappCostRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
+// US-504: Do not echo the requested path back to the client
 router.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: 'Not found', path: _req.path });
+  res.status(404).json({ error: 'Not found' });
 });
 
 // API error handler: always respond with JSON (never HTML)
+// US-504: Never leak err.message, stack traces, or file paths to client
 router.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   if (res.headersSent) return;
-  const message = err?.message || String(err);
-  res.status(500).json({ error: message });
+  console.error('[AdminErrorHandler]', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 export default router;
