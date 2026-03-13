@@ -25,6 +25,8 @@ import { recordConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
+import { checkIdleSession } from '../idle-session.js';
+import { clearConversation } from '../conversation.js';
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -378,6 +380,27 @@ export async function validateAndPrepare(
     if (piiResult.hadPii) {
       console.warn(`[PiiRedactor] Redacted PII types [${piiResult.types.join(', ')}] from message of ${phone}`);
       processText = piiResult.redacted;
+    }
+  }
+
+  // ─── Idle Session Timeout (US-444) ──────────────────────────────
+  // Runs in the conversation-context loading path, NOT as a cron job.
+  const sessionSettings = (profileConfig.getSettings() as any).session;
+  const idleTimeoutHours = sessionSettings?.idleTimeoutHours ?? 8;
+  const welcomeBackEnabled = sessionSettings?.welcomeBackEnabled !== false;
+
+  const idleResult = await checkIdleSession(phone, idleTimeoutHours, msg.bsuid);
+  if (idleResult.isIdle) {
+    // Clear in-memory conversation state so getOrCreate builds a fresh one
+    clearConversation(phone, profileId);
+
+    // Send welcome-back greeting before processing the new message
+    if (welcomeBackEnabled) {
+      const guestName = idleResult.pushName || msg.pushName || '';
+      const welcomeMsg = guestName
+        ? `Welcome back, ${guestName}!`
+        : 'Welcome back!';
+      await ctx.sendMessage(phone, welcomeMsg, msg.instanceId);
     }
   }
 

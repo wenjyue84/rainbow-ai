@@ -118,6 +118,7 @@ export async function upsertConversation(
       pushName,
       instanceId: instanceId ?? null,
       profileId: profileId ?? null,
+      status: 'active',
       createdAt: now,
       updatedAt: now,
     })
@@ -125,6 +126,7 @@ export async function upsertConversation(
       target: rainbowConversations.phone,
       set: {
         pushName,
+        status: 'active',  // US-444: ensure re-activated after idle timeout
         ...(bsuid ? { bsuid } : {}),
         ...(instanceId ? { instanceId } : {}),
         ...(profileId ? { profileId } : {}),

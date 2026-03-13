@@ -2095,3 +2095,24 @@ Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbou
 ### Gotchas
 - The MAX_RECONNECT_ATTEMPTS is a private static readonly — exposed as maxReconnectAttempts in status for the dashboard to show "X/Y" without hardcoding
 - Admin notification on max retries already existed (notifyAdminDisconnection call in handleDisconnect) — no new notification code needed
+## Iteration 1 - Fri, Mar 13, 2026 10:29:25 PM
+Incomplete: Subscribe to phone_number_quality_update webhook and throttle outbound when flagged (ID: US-458) — attempt 2/3
+
+
+
+## Iteration 8 - Story: US-444 - Add context-aware idle session timeout with state cleanup
+### What was implemented
+- Added `status` column (varchar, default 'active') to `rainbow_conversations` schema in `shared/schema-tables.ts`
+- Added `session` config to `src/assistant/data/settings.json` with `idleTimeoutHours` (default 8) and `welcomeBackEnabled` (default true)
+- Created `src/assistant/idle-session.ts` — `checkIdleSession()` queries last message timestamp, compares with configurable timeout, marks conversation as 'ended' then resets to 'active' with new `createdAt`
+- Integrated idle check into `src/assistant/pipeline/input-validator.ts` before `getOrCreate()` — runs inline in the conversation-context loading path (NOT as a cron job)
+- Updated `upsertConversation()` in `conversation-db.ts` to always set `status: 'active'` on insert and conflict-update
+- If `welcomeBackEnabled`, sends "Welcome back, {name}!" before processing the new message
+- Wrote 9 unit tests in `src/assistant/__tests__/idle-session.test.ts` — all pass
+### Patterns discovered
+- Idle detection fits naturally before `getOrCreate()` in the input-validator pipeline — the conversation-context loading path
+- The `checkIdleSession` function uses injectable `nowMs` for deterministic testing (same pattern as AuthBruteForceStore)
+- Mocking `db.execute` + `ensureDb` is the standard pattern for DB-dependent unit tests in this codebase
+### Gotchas
+- `rainbow_conversations` uses `phone` as PK — can't create a truly separate "new" row. Instead, the session is renewed in-place: status='ended' → reset createdAt → status='active'
+- The `clearConversation()` call clears in-memory state (StateManager) so `getOrCreate()` builds a fresh conversation object

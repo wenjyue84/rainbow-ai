@@ -120,6 +120,7 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   favourite: boolean("favourite").notNull().default(false),
   lastReadAt: timestamp("last_read_at"),
   responseMode: text("response_mode"),
+  status: varchar("status", { length: 16 }).notNull().default('active'),  // US-444: 'active' or 'ended'
   contactDetailsJson: text("contact_details_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
