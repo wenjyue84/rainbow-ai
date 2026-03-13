@@ -2251,3 +2251,22 @@ Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth sta
 - drizzle.config.ts can import from src/lib/ since it's processed by tsx/Node directly, not by esbuild
 ### Gotchas
 - None — clean implementation
+
+
+## Iteration 128 - Story: US-447 - Wire conversation summarizer into pipeline for long-thread context management
+### What was implemented
+- Added `contextSummary` (text) and `contextSummaryAt` (timestamp) columns to `rainbowConversations` in `shared/schema-tables.ts`
+- Wired `conversation-summary-store.ts` (loadContextSummary, saveContextSummary, logSummarizationTokens) into `pipeline/stages/summarization.ts`
+- Phase 0: On each turn, loads stored summary from DB and prepends as `[Previous Conversation Summary]` system message if no fresh summarization needed
+- Phase 1: When message-count summarization fires, persists the new summary to DB via `saveContextSummary()` (fire-and-forget async — does NOT block the user's reply)
+- Token reduction logged via `logSummarizationTokens()` which checks >= 40% threshold
+- Ran `_migrate-447.ts` to add columns to Neon DB (verified via information_schema)
+
+### Patterns discovered
+- `conversation-summary-store.ts` was already fully implemented but not imported anywhere — just needed wiring into the pipeline stage
+- The summarization stage already had 2 phases (message-count + token pruning); added Phase 0 (load stored) cleanly before them
+- Stored summary is only prepended when Phase 1 does NOT generate a fresh summary (avoids double-summarizing)
+
+### Gotchas
+- `drizzle-kit push` fails with pre-existing `Cannot find module './src/lib/db-url.js'` error — raw SQL migration via `_migrate-447.ts` is the reliable alternative
+- The `[Conversation Summary - Messages X-Y]` prefix from the summarizer needs regex stripping before saving to DB to avoid nesting prefixes

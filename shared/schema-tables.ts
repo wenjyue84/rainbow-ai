@@ -122,6 +122,8 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   responseMode: text("response_mode"),
   status: varchar("status", { length: 16 }).notNull().default('active'),  // US-444: 'active' or 'ended'
   contactDetailsJson: text("contact_details_json"),
+  contextSummary: text("context_summary"),                    // US-447: LLM-generated context summary
+  contextSummaryAt: timestamp("context_summary_at"),          // US-447: when the summary was generated
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
