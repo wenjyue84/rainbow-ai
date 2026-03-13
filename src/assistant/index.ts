@@ -10,7 +10,7 @@ import { initBooking } from './booking.js';
 import { initEscalation, destroyEscalation } from './escalation.js';
 import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
-import { initMessageQueue, enqueueMessage, closeQueue } from '../lib/message-queue.js';
+import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler } from '../lib/message-queue.js';
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 
@@ -45,6 +45,17 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   const settings = configStore.getSettings() as any;
   const queueConcurrency = settings?.message_queue?.worker_concurrency ?? 3;
   const queueEnabled = await initMessageQueue(handleIncomingMessage, queueConcurrency);
+
+  // Register DLQ depth alert handler (US-413)
+  // Sends a WhatsApp staff notification when DLQ depth exceeds 10 jobs
+  const esc = configStore.getWorkflow().escalation;
+  if (esc?.primary_phone) {
+    setDLQAlertHandler(async (depth: number) => {
+      const msg = `*[SYSTEM ALERT — Dead Letter Queue]* ${depth} messages have permanently failed and are stuck in the DLQ.\n\nCheck the admin dashboard at /api/admin/dlq to inspect and replay failed jobs.\n\n_This alert fires once per 15 minutes while the DLQ depth remains above 10._`;
+      await sendMessage(esc.primary_phone, msg);
+      console.warn(`[MessageQueue] DLQ alert sent to staff (depth=${depth})`);
+    });
+  }
 
   // Register enqueueMessage as the Baileys handler — it enqueues to BullMQ
   // if Redis is available, otherwise falls back to direct handleIncomingMessage

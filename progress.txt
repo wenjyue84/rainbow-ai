@@ -1626,3 +1626,21 @@ Completed: Send WhatsApp typing indicator before LLM responses (ID: US-425) in ~
 ## Iteration 12 - Fri, Mar 13, 2026  2:47:02 PM
 Incomplete: Add response latency P95/P99 metrics endpoint (ID: US-414) — attempt 1/3
 
+
+## Iteration N - Story: US-413 Add dead letter queue for failed message pipeline jobs
+### What was implemented
+- Added getDLQJobs(), getDLQDepth(), retryDLQJob(), setDLQAlertHandler() to src/lib/message-queue.ts
+- Created src/routes/admin/dlq.ts with GET /dlq and POST /dlq/:jobId/retry endpoints
+- Registered dlq routes in src/routes/admin/index.ts
+- Updated src/routes/admin/integration-health.ts to include message_queue.dlqDepth in response
+- Wired DLQ alert handler in src/assistant/index.ts — sends WhatsApp to escalation primary_phone when dlqCount > 10, rate-limited to 15 min cooldown
+- DLQ was already structurally present in message-queue.ts (US-405); this story added inspection/replay/alerting API layer
+
+### Patterns discovered
+- maybeSendDLQAlert() is called from within the worker 'failed' event on each new DLQ entry
+- Alert uses configStore.getWorkflow().escalation.primary_phone — same channel as human escalations
+- getDLQDepth() uses getJobCounts() which counts across all job states in the DLQ queue
+
+### Gotchas
+- prd.json must be opened with utf-8 encoding explicitly on Windows (default cp1252 fails)
+- The DLQ jobs in message-queue.ts store { originalJobId, data, error, failedAt } as job.data

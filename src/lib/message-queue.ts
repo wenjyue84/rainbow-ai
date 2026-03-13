@@ -182,6 +182,8 @@ export async function initMessageQueue(
               failedAt: new Date().toISOString(),
             } as any);
             dlqCount++;
+            // Fire alert if DLQ depth exceeds threshold
+            maybeSendDLQAlert(dlqCount).catch(() => {});
           }
         } catch (dlqErr: any) {
           console.error(`[MessageQueue] Failed to add to DLQ: ${dlqErr.message}`);
@@ -309,6 +311,113 @@ export async function getQueueHealth(): Promise<QueueHealthMetrics> {
  */
 export function isQueueActive(): boolean {
   return isConnected;
+}
+
+// ─── DLQ Inspection & Replay ─────────────────────────────────────
+
+export interface DLQJob {
+  id: string;
+  phone: string;
+  messageContent: string;
+  failureReason: string;
+  failedAt: string;
+  retryCount: number;
+  originalJobId: string | undefined;
+}
+
+/**
+ * Get all jobs currently in the dead letter queue.
+ */
+export async function getDLQJobs(): Promise<DLQJob[]> {
+  if (!dlq) return [];
+  try {
+    const jobs = await dlq.getJobs(['waiting', 'active', 'completed', 'failed', 'delayed'], 0, 100);
+    return jobs.map((job) => {
+      const data = job.data as any;
+      const msg: IncomingMessage = data.data || {};
+      return {
+        id: job.id ?? '',
+        phone: msg.phone || 'unknown',
+        messageContent: msg.text || (msg as any).message || '',
+        failureReason: data.error || 'unknown',
+        failedAt: data.failedAt || new Date(job.timestamp).toISOString(),
+        retryCount: job.attemptsMade || 0,
+        originalJobId: data.originalJobId,
+      };
+    });
+  } catch (err: any) {
+    console.error(`[MessageQueue] getDLQJobs error: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Get current depth of the dead letter queue.
+ */
+export async function getDLQDepth(): Promise<number> {
+  if (!dlq) return dlqCount;
+  try {
+    const counts = await dlq.getJobCounts('waiting', 'active', 'failed', 'delayed', 'completed');
+    return Object.values(counts).reduce((sum: number, n: number) => sum + n, 0);
+  } catch {
+    return dlqCount;
+  }
+}
+
+/**
+ * Replay a single DLQ job back through the main message queue.
+ */
+export async function retryDLQJob(dlqJobId: string): Promise<{ ok: boolean; error?: string }> {
+  if (!dlq || !queue) {
+    return { ok: false, error: 'Queue not connected' };
+  }
+  try {
+    const job = await dlq.getJob(dlqJobId);
+    if (!job) {
+      return { ok: false, error: `DLQ job ${dlqJobId} not found` };
+    }
+    const data = job.data as any;
+    const originalMsg: IncomingMessage = data.data || {};
+    await queue.add('incoming-message', originalMsg, {
+      jobId: `dlq-retry-${dlqJobId}-${Date.now()}`,
+    });
+    await job.remove();
+    if (dlqCount > 0) dlqCount--;
+    console.log(`[MessageQueue] DLQ job ${dlqJobId} replayed for phone=${originalMsg.phone}`);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// ─── DLQ Depth Alerting ──────────────────────────────────────────
+
+const DLQ_ALERT_THRESHOLD = 10;
+let dlqAlertLastFiredAt = 0;
+const DLQ_ALERT_COOLDOWN_MS = 15 * 60 * 1000; // 15 min cool-down
+
+type DLQAlertFn = (depth: number) => Promise<void>;
+let dlqAlertFn: DLQAlertFn | null = null;
+
+/**
+ * Register a callback that fires when DLQ depth exceeds the threshold (10 jobs).
+ * The callback is rate-limited to once per 15 minutes.
+ */
+export function setDLQAlertHandler(fn: DLQAlertFn): void {
+  dlqAlertFn = fn;
+}
+
+async function maybeSendDLQAlert(depth: number): Promise<void> {
+  if (!dlqAlertFn) return;
+  if (depth < DLQ_ALERT_THRESHOLD) return;
+  const now = Date.now();
+  if (now - dlqAlertLastFiredAt < DLQ_ALERT_COOLDOWN_MS) return;
+  dlqAlertLastFiredAt = now;
+  try {
+    await dlqAlertFn(depth);
+  } catch (err: any) {
+    console.error(`[MessageQueue] DLQ alert callback error: ${err.message}`);
+  }
 }
 
 // ─── Shutdown ────────────────────────────────────────────────────
