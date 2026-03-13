@@ -2289,3 +2289,24 @@ Incomplete: Replace useMultiFileAuthState with custom DB-backed Baileys auth sta
 - grep confirms zero `res.redirect(req.query` patterns after fix
 ### Gotchas
 - The existing redirect was already safe (constructs hash from URL path), but wrapping it in safeRedirect() adds defense-in-depth
+
+## Iteration 9 - Story: US-480 - Replace useMultiFileAuthState with custom DB-backed Baileys auth state
+### What was implemented
+- Created `baileys_auth_state` table in Drizzle schema (shared/schema-tables.ts) with composite unique index on (profile_id, key_type, key_id)
+- Implemented `useDbAuthState(profileId)` in `src/lib/whatsapp/db-auth-state.ts` that:
+  - Reads/writes AuthenticationCreds to Postgres via upsert (no insert+delete write amplification)
+  - Implements SignalKeyStore interface (get/set) with 100ms batched writes in single transaction
+  - Auto-creates table on first use (CREATE TABLE IF NOT EXISTS)
+  - Uses BufferJSON.replacer/reviver for proper Uint8Array/Buffer serialization
+- Replaced `useMultiFileAuthState(this.authDir)` with `useDbAuthState(this.id)` in instance.ts
+- Removed `useMultiFileAuthState` import from instance.ts
+- 6 unit tests: fresh init, save/reload round-trip, signal key round-trip, delete, batching, profile isolation
+### Patterns discovered
+- Baileys BufferJSON.reviver converts Uint8Array to Buffer — tests must compare via Buffer.from()
+- Baileys signal key types: 'pre-key', 'session', 'sender-key', 'sender-key-memory', 'app-state-sync-key', 'app-state-sync-version', 'lid-mapping', 'device-list', 'tctoken'
+- app-state-sync-key requires proto.Message.AppStateSyncKeyData.fromObject() deserialization
+- The authDir is still needed for LID mapper cache files; not removed entirely
+### Gotchas
+- Table creation uses raw SQL (CREATE TABLE IF NOT EXISTS) rather than relying on drizzle-kit push, ensuring it works on first deploy without migration step
+- The Drizzle schema definition exists for future drizzle-kit awareness, but the runtime CREATE TABLE is the actual DDL source
+

@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
 import fs from 'fs';
 import type { IncomingMessage, MessageType } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
@@ -6,6 +6,7 @@ import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifie
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';
 import { LidMapper } from './lid-mapper.js';
 import { ensureAvatar } from './avatar-cache.js';
+import { useDbAuthState } from './db-auth-state.js';
 
 // US-477: BSUID pattern — two-letter country code + dot + alphanumeric (up to 128 chars)
 const BSUID_PATTERN = /^[A-Z]{2}\.[A-Za-z0-9]{1,125}$/;
@@ -98,7 +99,7 @@ export class WhatsAppInstance {
   }
 
   async start(notifyUnlinkedFn: (id: string, label: string) => Promise<void>): Promise<void> {
-    // Ensure auth dir exists
+    // Ensure auth dir exists (still needed for LID mapper cache files)
     if (!fs.existsSync(this.authDir)) {
       fs.mkdirSync(this.authDir, { recursive: true });
     }
@@ -106,7 +107,8 @@ export class WhatsAppInstance {
     // Load existing LID→phone mappings from auth state files
     this.lidMapper.loadFromDisk(this.authDir);
 
-    const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+    // US-480: DB-backed auth state replaces useMultiFileAuthState
+    const { state, saveCreds } = await useDbAuthState(this.id);
 
     const { version } = await fetchLatestWaWebVersion();
     console.log(`[Baileys:${this.id}] Using WA Web version: ${version.join('.')}`);

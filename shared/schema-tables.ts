@@ -270,6 +270,22 @@ export const llmCostDaily = pgTable("llm_cost_daily", {
   index("idx_llm_cost_daily_provider").on(table.provider),
 ]));
 
+// ─── Baileys Auth State (US-480) ─────────────────────────────────────
+// Replaces useMultiFileAuthState with DB-backed auth persistence.
+// Each row stores a single credential or signal key, namespaced by profile + type + key id.
+
+export const baileysAuthState = pgTable("baileys_auth_state", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull(),           // WhatsApp instance id (e.g. "default", "60103084289")
+  keyType: varchar("key_type", { length: 64 }).notNull(),  // "creds" or signal type: "pre-key", "session", "sender-key", etc.
+  keyId: varchar("key_id", { length: 256 }).notNull(),     // specific key identifier (or "creds" for credentials)
+  value: text("value").notNull(),                     // JSON-serialized value (using BufferJSON)
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_baileys_auth_profile_type_id").on(table.profileId, table.keyType, table.keyId),
+  index("idx_baileys_auth_profile").on(table.profileId),
+]));
+
 // ─── Utterance Gaps (US-432) ─────────────────────────────────────────
 
 export const utteranceGaps = pgTable("utterance_gaps", {
@@ -318,3 +334,5 @@ export type UtteranceGap = typeof utteranceGaps.$inferSelect;
 export type InsertUtteranceGap = typeof utteranceGaps.$inferInsert;
 export type LlmCostDaily = typeof llmCostDaily.$inferSelect;
 export type InsertLlmCostDaily = typeof llmCostDaily.$inferInsert;
+export type BaileysAuthState = typeof baileysAuthState.$inferSelect;
+export type InsertBaileysAuthState = typeof baileysAuthState.$inferInsert;
