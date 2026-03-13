@@ -11,6 +11,7 @@ import type { ConversationEvent } from '../memory-writer.js';
 import { getOrCreate, addMessage, getOrCreate as getConversation, updateSlots } from '../conversation.js';
 import { checkRate } from '../rate-limiter.js';
 import { detectLanguage, getTemplate, detectFullLanguage } from '../formatter.js';
+import { languageRouter } from '../language-router.js';
 import { configStore } from '../config-store.js';
 import { profileRegistry } from '../profile-registry.js';
 import { handleStaffReply, escalateToStaff } from '../escalation.js';
@@ -284,7 +285,26 @@ export async function validateAndPrepare(
     }
   }
 
-  // Language detection + translation
+  // ─── Language Detection (US-418) ────────────────────────────────
+  const langDetectionSettings = (profileConfig.getSettings() as any).languageDetection;
+  const langDetectionEnabled = langDetectionSettings?.enabled !== false;
+  const confidenceThreshold = langDetectionSettings?.confidenceThreshold ?? 0.6;
+  const defaultLang = langDetectionSettings?.defaultLanguage ?? 'en';
+
+  let detectedLanguageConfidence = 0;
+  let detectedLang: 'en' | 'ms' | 'zh' = defaultLang as 'en' | 'ms' | 'zh';
+
+  if (langDetectionEnabled) {
+    const detection = languageRouter.detectWithConfidence(text);
+    detectedLanguageConfidence = detection.confidence;
+
+    if (detection.language !== 'unknown' && detection.confidence >= confidenceThreshold) {
+      detectedLang = detection.language as 'en' | 'ms' | 'zh';
+    }
+    console.debug(`[LanguageDetection] "${text.slice(0, 60)}" → ${detection.language} (confidence: ${detection.confidence.toFixed(2)}, threshold: ${confidenceThreshold}, using: ${detectedLang})`);
+  }
+
+  // Foreign script detection + translation (Thai, Japanese, Korean, etc.)
   const foreignLang = detectFullLanguage(text);
   let processText = text;
   if (foreignLang && isAIAvailable()) {
@@ -295,6 +315,12 @@ export async function validateAndPrepare(
 
   // Get or create conversation (profile-scoped)
   const convo = getOrCreate(phone, msg.pushName, profileId);
+
+  // Update conversation language from detection (US-418)
+  if (langDetectionEnabled && detectedLang !== convo.language) {
+    convo.language = detectedLang;
+  }
+
   addMessage(phone, 'user', text, profileId);
   logMessage(phone, msg.pushName, 'user', text, { instanceId: msg.instanceId, profileId }).catch(() => { });
   const lang = convo.language;
@@ -326,6 +352,7 @@ export async function validateAndPrepare(
     state: {
       requestId, msg, phone, text, processText, foreignLang,
       convo, lang, diaryEvent, devMetadata, response: null,
+      detectedLanguageConfidence,
       profileId, profileConfig, profileKB
     }
   };

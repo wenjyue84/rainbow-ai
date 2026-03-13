@@ -2,6 +2,7 @@
  * Pipeline Stage 2: Knowledge Base Loading
  *
  * Selects relevant topic files based on message content and builds system prompt.
+ * Injects detected language instruction into the prompt (US-418).
  */
 
 import type { IPipelineContext } from '../pipeline-context.js';
@@ -13,11 +14,18 @@ export interface KBLoadingResult {
   kbFiles: string[];
 }
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  ms: 'Malay',
+  zh: 'Chinese',
+};
+
 /**
  * Stage 2: Knowledge Base Loading
  *
  * Selects relevant topic files based on message content,
  * builds system prompt with persona + topics.
+ * Appends detected language instruction so the LLM responds in the correct language.
  *
  * @param state - Pipeline state containing processText and devMetadata
  * @param context - Pipeline context with KB dependencies
@@ -27,7 +35,7 @@ export function loadKnowledgeBase(
   state: PipelineState,
   context: IPipelineContext
 ): KBLoadingResult {
-  const { processText, devMetadata } = state;
+  const { processText, lang, devMetadata } = state;
   const settings = context.getSettings();
 
   // Guess which topic files are relevant to this message
@@ -40,7 +48,14 @@ export function loadKnowledgeBase(
   console.log(`[KB Loading] Topic files: [${topicFiles.join(', ')}]`);
 
   // Build system prompt with base persona + selected topic content
-  const systemPrompt = context.buildSystemPrompt(settings.system_prompt, topicFiles);
+  let systemPrompt = context.buildSystemPrompt(settings.system_prompt, topicFiles);
+
+  // Inject detected language instruction (US-418)
+  const langDetectionEnabled = (settings as any).languageDetection?.enabled !== false;
+  if (langDetectionEnabled && lang) {
+    const langName = LANGUAGE_NAMES[lang] || 'English';
+    systemPrompt += `\n\nLANGUAGE INSTRUCTION: The guest's message language has been detected as ${langName} (${lang}). You MUST respond in ${langName}.`;
+  }
 
   return {
     systemPrompt,

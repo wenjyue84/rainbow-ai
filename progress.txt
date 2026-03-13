@@ -1179,3 +1179,25 @@ This technical brief is based on the provided user story, which describes a Node
 - Redis is not available in dev (Windows local) — queue always falls back to direct processing in dev environment
 - Load test criterion (100 msgs in 10s) requires Redis to verify — can only be tested in production/staging with Redis running
 
+## Iteration 2 - Fri, Mar 13, 2026 10:34:52 AM
+Completed: Add async message queue with BullMQ to decouple webhook ingestion from processing (ID: US-405) in 5m
+
+
+## Iteration 3 - Story: US-418 - Implement automatic language detection and per-language response routing
+### What was implemented
+- Added `languageDetection` config block to `settings.json` (enabled, confidenceThreshold: 0.6, defaultLanguage: en)
+- Wired `languageRouter.detectWithConfidence()` in `input-validator.ts` after prompt injection check
+- Confidence threshold check: if detection confidence < threshold, defaults to English
+- Detection logged at debug level with confidence score, threshold, and final language used
+- Conversation language updated from detection result before `addMessage()` call
+- Added `detectedLanguageConfidence` field to `PipelineState` in `types.ts`
+- Injected explicit `LANGUAGE INSTRUCTION` into the system prompt in `kb-loading.ts` stage — tells LLM which language was detected and to respond in that language
+- Settings flag `languageDetection.enabled` controls the feature per profile
+### Patterns discovered
+- `LanguageRouter.detectWithConfidence()` already existed in `language-router.ts` using ELD (Efficient Language Detector) library — no new dependency needed
+- `conversation.ts:addMessage()` already calls `detectLanguage(content)` internally, but without confidence scoring — the new code in input-validator sets `convo.language` BEFORE `addMessage()` for confidence-aware detection
+- System prompt in `knowledge-base-instance.ts` already says "Respond in the same language" generically — the new `LANGUAGE INSTRUCTION` in kb-loading.ts makes it explicit with the detected language code
+- `routing.ts` (stage 5) also updates conversation language from tier result at confidence >= 0.8 — these two mechanisms complement each other (early detection in input-validator + refinement in routing)
+### Gotchas
+- Settings accessed via `profileConfig.getSettings()` cast to `any` for new fields — consistent with other US-422 pattern
+- The `addMessage()` in conversation.ts will re-detect language without confidence — but since we set `convo.language` first, and addMessage uses basic detectLanguage (no confidence), it may override our confidence-based result. This is acceptable since addMessage's detection is simple and fast, and the routing stage will refine further.

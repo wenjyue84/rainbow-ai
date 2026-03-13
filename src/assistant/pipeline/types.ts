@@ -40,6 +40,8 @@ export interface PipelineState {
   devMetadata: DevMetadata;
   response: string | null;
   imageUrl?: string | null;
+  /** Language detection confidence (US-418) */
+  detectedLanguageConfidence?: number;
   /** Multi-profile support */
   profileId: string;
   profileConfig: ConfigStore;
