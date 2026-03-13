@@ -191,6 +191,30 @@ export const escalationEvents = pgTable("escalation_events", {
   index("idx_escalation_events_created_at").on(table.createdAt),
 ]));
 
+// ─── Conversation Traces (US-427) ────────────────────────────────────
+
+export const conversationTraces = pgTable("conversation_traces", {
+  id: serial("id").primaryKey(),
+  traceId: varchar("trace_id", { length: 64 }).notNull(),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: text("profile_id").default('pelangi'),
+  tier: varchar("tier", { length: 8 }).notNull(), // T1, T2, T3, T4
+  intent: text("intent"),
+  llmProvider: text("llm_provider"),
+  model: text("model"),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  classificationMs: integer("classification_ms"),
+  llmMs: integer("llm_ms"),
+  totalMs: integer("total_ms"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_conv_traces_jid").on(table.jid),
+  index("idx_conv_traces_created_at").on(table.createdAt),
+  index("idx_conv_traces_tier").on(table.tier),
+]));
+
 // ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
 
 export const optOuts = pgTable("opt_outs", {
@@ -223,3 +247,5 @@ export type MessageDeliveryStatus = typeof messageDeliveryStatus.$inferSelect;
 export type InsertMessageDeliveryStatus = typeof messageDeliveryStatus.$inferInsert;
 export type EscalationEvent = typeof escalationEvents.$inferSelect;
 export type InsertEscalationEvent = typeof escalationEvents.$inferInsert;
+export type ConversationTrace = typeof conversationTraces.$inferSelect;
+export type InsertConversationTrace = typeof conversationTraces.$inferInsert;

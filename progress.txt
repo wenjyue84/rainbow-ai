@@ -1719,3 +1719,35 @@ Story: US-428 - Implement tiered escalation based on consecutive low-confidence 
 ✓ Vitest test simulates 3 consecutive unknowns and asserts escalation on 3rd
 ✓ npm run build succeeds
 ✓ All 484 tests pass
+
+
+## Iteration N - Story: US-427 - Emit structured conversation trace events for LLM observability
+
+### What was implemented
+- Added `conversationTraces` table to `shared/schema-tables.ts` with columns: id, trace_id, jid, profile_id, tier, intent, llm_provider, model, prompt_tokens, completion_tokens, classification_ms, llm_ms, total_ms, error, created_at
+- Created `src/lib/trace-collector.ts` with:
+  - `deriveTier(source)` maps devMetadata.source → T1/T2/T3/T4
+  - `emitTrace(params, config)` builds the trace event and fires it fire-and-forget via setImmediate
+  - `queryTraces({jid, limit})` for admin API reads
+  - Dual backend: 'db' (Drizzle insert to conversation_traces) or 'file' (JSONL append to logs/traces.jsonl)
+  - Falls back to JSONL file if DB insert fails
+- Added `traceStart: number` to `PipelineState` (performance.now() captured in input-validator.ts at state construction)
+- Integrated `emitTrace` in `message-router.ts` after `processAndSend` — reads `traces` config from profileConfig.getSettings()
+- Added `traces: { enabled: true, backend: "db", debug_mode: false }` to all 5 profile settings.json files
+- Created `src/routes/admin/traces.ts` with GET /traces?jid=&limit= endpoint
+- Registered `tracesRoutes` in `src/routes/admin/index.ts`
+- Created conversation_traces table via raw SQL (drizzle-kit push TUI requires interactive input)
+
+### Patterns discovered
+- `devMetadata.source` in pipeline types.ts tracks the classification path; use it to derive T1-T4 tier
+- `drizzle-kit push` uses an interactive TUI prompt for ambiguous changes (rename vs create) — use raw SQL for CI/scripted table creation
+- `setImmediate` is the correct fire-and-forget primitive for post-response work (not setTimeout(0))
+- T1 suppression: `if (tier === 'T1' && !config.debug_mode) return` before any DB/file write
+
+### Acceptance Criteria Met
+✓ Structured trace event: { trace_id, jid, profile_id, tier, intent, llm_provider, model, prompt_tokens, completion_tokens, stage_latencies, error? }
+✓ Traces written to DB table (default) OR JSONL file (configurable via settings.json traces.backend)
+✓ Admin API GET /traces?jid=&limit= returns recent trace records
+✓ T1 regex matches suppressed unless debug_mode=true
+✓ Trace emission is fire-and-forget (setImmediate, never blocks response path)
+✓ npm run build succeeds

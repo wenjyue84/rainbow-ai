@@ -22,6 +22,7 @@ import { validateAndPrepare } from './pipeline/input-validator.js';
 import { handleActiveStates } from './pipeline/state-executor.js';
 import { classifyAndRoute } from './pipeline/intent-classifier.js';
 import { processAndSend } from './pipeline/response-processor.js';
+import { emitTrace } from '../lib/trace-collector.js';
 
 // ─── Router context (shared across pipeline) ────────────────────
 
@@ -78,6 +79,26 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
 
     // Phase 4: Response processing & delivery
     await processAndSend(state, ctx);
+
+    // US-427: Emit structured trace event (fire-and-forget, after response sent)
+    const traceCfg = (state.profileConfig.getSettings() as any).traces;
+    if (traceCfg) {
+      const { devMetadata, diaryEvent } = state;
+      emitTrace(
+        {
+          jid: state.phone,
+          profileId: state.profileId,
+          devMetadataSource: devMetadata.source,
+          intent: diaryEvent.intent ?? null,
+          model: devMetadata.model,
+          promptTokens: devMetadata.usage?.prompt_tokens,
+          completionTokens: devMetadata.usage?.completion_tokens,
+          responseTimeMs: devMetadata.responseTime,
+          traceStart: state.traceStart,
+        },
+        traceCfg
+      );
+    }
 
     // Auto-diary: write noteworthy events
     try {

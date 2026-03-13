@@ -44,6 +44,7 @@ import llmCostRoutes from './llm-cost.js';
 import frequencyCapRoutes from './frequency-cap.js';
 import dlqRoutes from './dlq.js';
 import deliveryStatusRoutes from './delivery-status.js';
+import tracesRoutes from './traces.js';
 
 const router = Router();
 
@@ -169,6 +170,7 @@ router.use(llmCostRoutes);
 router.use(frequencyCapRoutes);
 router.use(dlqRoutes);
 router.use(deliveryStatusRoutes);
+router.use(tracesRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 router.use((_req: Request, res: Response) => {

@@ -424,7 +424,8 @@ export async function validateAndPrepare(
       requestId, msg, phone, text, processText, foreignLang,
       convo, lang, diaryEvent, devMetadata, response: null,
       detectedLanguageConfidence,
-      profileId, profileConfig, profileKB
+      profileId, profileConfig, profileKB,
+      traceStart: performance.now()
     }
   };
 }

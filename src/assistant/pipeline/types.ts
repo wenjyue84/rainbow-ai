@@ -46,6 +46,8 @@ export interface PipelineState {
   profileId: string;
   profileConfig: ConfigStore;
   profileKB: KnowledgeBaseInstance;
+  /** US-427: performance.now() at state creation, used for total_ms trace latency */
+  traceStart: number;
 }
 
 export type ValidationResult =
