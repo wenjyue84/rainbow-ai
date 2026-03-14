@@ -30,7 +30,8 @@ export const fnbOrderTools: MCPTool[] = [
         notes: { type: 'string', description: 'Special instructions or notes (optional)' }
       },
       required: ['items', 'phone', 'estimated_arrival']
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_get_order_status',
@@ -41,7 +42,8 @@ export const fnbOrderTools: MCPTool[] = [
         orderId: { type: 'string', description: 'Order ID (short ID e.g. "MM-A1B2" or full UUID)' }
       },
       required: ['orderId']
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_get_operating_hours',
@@ -49,7 +51,8 @@ export const fnbOrderTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   // Admin tools (require FNB_MCP_SECRET)
   {
@@ -58,7 +61,8 @@ export const fnbOrderTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_approve_order',
@@ -69,7 +73,8 @@ export const fnbOrderTools: MCPTool[] = [
         orderId: { type: 'string', description: 'Order ID to approve' }
       },
       required: ['orderId']
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_update_order_status',
@@ -81,7 +86,8 @@ export const fnbOrderTools: MCPTool[] = [
         status: { type: 'string', description: 'New status (e.g. "preparing", "ready", "completed", "cancelled")' }
       },
       required: ['orderId', 'status']
-    }
+    },
+    allowedProfiles: ['makan-moments']
   }
 ];
 

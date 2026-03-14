@@ -6,6 +6,8 @@ export interface MCPTool {
     properties: Record<string, any>;
     required?: string[];
   };
+  /** Profiles this tool is available to. Omit to make available to all profiles. */
+  allowedProfiles?: string[];
 }
 
 export interface MCPToolResult {

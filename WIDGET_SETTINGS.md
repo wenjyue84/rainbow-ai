@@ -140,6 +140,29 @@ widget.js is served **from Rainbow AI (Lightsail)**. Update widget UI once → a
 
 AI behavior (KB, prompts, profiles) is also centralized in Rainbow AI. Both the embedding and the AI logic live in one place.
 
+### FnB AI Waiter Integration
+
+The `makan-moments` profile has live MCP tool access to `fnb-online-ordering` data:
+
+| Tool | Description |
+|------|-------------|
+| `fnb_get_menu` | Fetch full menu, optionally filtered by category |
+| `fnb_get_menu_item` | Get price/description for a specific item code |
+| `fnb_get_categories` | List all menu categories |
+| `fnb_get_cafe_info` | Hours, address, WiFi, FAQ |
+| `fnb_create_order` | Place a customer pre-order (returns order ID) |
+| `fnb_get_order_status` | Check status of an existing order |
+| `fnb_get_operating_hours` | Check if cafe is currently open |
+
+**Quick-start:**
+1. Set `FNB_MCP_URL=http://localhost:3031/api/mcp` in rainbow-ai `.env`
+2. Set `FNB_MCP_SECRET=<your-secret>` (optional — required for admin tools only)
+3. Ensure `fnb-online-ordering` is running and its `/api/mcp` endpoint is accessible
+4. Customer chat at `http://localhost:3031/en` proxies to `/api/fnb/chat` on rainbow-ai
+5. Rainbow AI uses `makan-moments` profile which has live FnB tools enabled
+
+**Architecture:** Customer chat → fnb-online-ordering proxy → rainbow-ai `/api/fnb/chat` → makan-moments profile → MCP call → fnb-online-ordering `/api/mcp`
+
 ### Future: MCP Architecture
 - Rainbow AI (Lightsail) → MCP **client**
 - `fnb-online-ordering`, PMS2 → MCP **servers** exposing domain tools (`get_menu`, `check_availability`, etc.)

@@ -12,7 +12,8 @@ export const fnbMenuTools: MCPTool[] = [
       properties: {
         category: { type: 'string', description: 'Category to filter by (optional)' }
       }
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_get_menu_item',
@@ -23,7 +24,8 @@ export const fnbMenuTools: MCPTool[] = [
         code: { type: 'string', description: 'Menu item code (e.g. "NR01")' }
       },
       required: ['code']
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_get_categories',
@@ -31,7 +33,8 @@ export const fnbMenuTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
-    }
+    },
+    allowedProfiles: ['makan-moments']
   },
   {
     name: 'fnb_get_cafe_info',
@@ -39,7 +42,8 @@ export const fnbMenuTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
-    }
+    },
+    allowedProfiles: ['makan-moments']
   }
 ];
 

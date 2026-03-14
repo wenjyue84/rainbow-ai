@@ -6,6 +6,17 @@ import { unitTools, listUnits, getOccupancy, checkAvailability } from './units.j
 import { dashboardTools, getDashboard, getOverdueGuests } from './dashboard.js';
 import { problemTools, listProblems, exportWhatsappIssues } from './problems.js';
 
+// FnB tools (makan-moments profile only)
+import {
+  fnbMenuTools,
+  fnbGetMenu, fnbGetMenuItem, fnbGetCategories, fnbGetCafeInfo
+} from './fnb-menu.js';
+import {
+  fnbOrderTools,
+  fnbCreateOrder, fnbGetOrderStatus, fnbGetOperatingHours,
+  fnbGetPendingOrders, fnbApproveOrder, fnbUpdateOrderStatus
+} from './fnb-orders.js';
+
 // Phase 2: Write operation tools (HTTP API based)
 import {
   guestWriteTools,
@@ -95,6 +106,32 @@ class ToolRegistry {
     this.register(whatsappTools[1], whatsappQrcode);
     this.register(whatsappTools[2], whatsappSend);
     this.register(whatsappTools[3], whatsappSendGuestStatus);
+
+    // FnB tools (makan-moments profile only)
+    for (const tool of fnbMenuTools) this.register(tool, this.getFnbMenuHandler(tool.name));
+    for (const tool of fnbOrderTools) this.register(tool, this.getFnbOrderHandler(tool.name));
+  }
+
+  private getFnbMenuHandler(name: string): ToolHandler {
+    const map: Record<string, ToolHandler> = {
+      fnb_get_menu: fnbGetMenu,
+      fnb_get_menu_item: fnbGetMenuItem,
+      fnb_get_categories: fnbGetCategories,
+      fnb_get_cafe_info: fnbGetCafeInfo
+    };
+    return map[name] || ((_args) => Promise.resolve({ content: [{ type: 'text', text: `Unknown fnb menu tool: ${name}` }], isError: true }));
+  }
+
+  private getFnbOrderHandler(name: string): ToolHandler {
+    const map: Record<string, ToolHandler> = {
+      fnb_create_order: fnbCreateOrder,
+      fnb_get_order_status: fnbGetOrderStatus,
+      fnb_get_operating_hours: fnbGetOperatingHours,
+      fnb_get_pending_orders: fnbGetPendingOrders,
+      fnb_approve_order: fnbApproveOrder,
+      fnb_update_order_status: fnbUpdateOrderStatus
+    };
+    return map[name] || ((_args) => Promise.resolve({ content: [{ type: 'text', text: `Unknown fnb order tool: ${name}` }], isError: true }));
   }
 
   private register(tool: MCPTool, handler: ToolHandler) {
@@ -104,6 +141,23 @@ class ToolRegistry {
 
   listTools(): MCPTool[] {
     return Array.from(this.tools.values());
+  }
+
+  /** Returns tools available for a given profile. Tools with no allowedProfiles are available to all. */
+  getToolsForProfile(profileId: string): MCPTool[] {
+    return Array.from(this.tools.values()).filter(
+      t => !t.allowedProfiles || t.allowedProfiles.includes(profileId)
+    );
+  }
+
+  /** Returns handler map for tools available to a given profile. */
+  getHandlersForProfile(profileId: string): Map<string, ToolHandler> {
+    const result = new Map<string, ToolHandler>();
+    for (const tool of this.getToolsForProfile(profileId)) {
+      const handler = this.handlers.get(tool.name);
+      if (handler) result.set(tool.name, handler);
+    }
+    return result;
   }
 
   async executeTool(name: string, args: any): Promise<MCPToolResult> {
