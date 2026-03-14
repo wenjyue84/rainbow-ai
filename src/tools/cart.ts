@@ -587,10 +587,52 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       };
     }
 
-    if (matches.length === 1) {
+    // ─── Out-of-stock handling (US-854) ──────────────────────────────
+    // Check if the top match(es) are unavailable and suggest alternatives
+    const unavailableMatch = matches.find(m => m.available === false);
+    const availableMatches = matches.filter(m => m.available !== false);
+
+    // If the best match is unavailable (single match or top match is the one they wanted)
+    if (matches.length === 1 && unavailableMatch) {
+      clearDisambiguation(sessionId);
+      // Fetch alternatives from the same category
+      const category = unavailableMatch.category;
+      let alternativesText = '';
+
+      if (category) {
+        const categoryItems = await fetchMenuItems(category);
+        const alternatives = categoryItems
+          .filter(item => item.available !== false && item.name.toLowerCase() !== unavailableMatch.name.toLowerCase())
+          .slice(0, 3);
+
+        if (alternatives.length > 0) {
+          // Store alternatives as disambiguation so guest can pick one
+          const state = { pendingItem: query, candidates: alternatives, createdAt: Date.now() };
+          setDisambiguation(sessionId, state);
+          const list = formatDisambiguationList(state);
+          alternativesText = `\n\nHere are some similar items from ${category} you might enjoy:\n\n${list}\n\nWould you like any of these instead? (Reply with a number or name)`;
+        }
+      }
+
+      if (!alternativesText) {
+        alternativesText = '\n\nWould you like me to show you the full menu so you can pick something else?';
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Sorry, ${unavailableMatch.name} is currently out of stock.${alternativesText}`
+        }]
+      };
+    }
+
+    // Multiple matches — filter to available only if some are available
+    const effectiveMatches = availableMatches.length > 0 ? availableMatches : matches;
+
+    if (effectiveMatches.length === 1) {
       // Unambiguous — add directly to cart
       clearDisambiguation(sessionId);
-      const match = matches[0];
+      const match = effectiveMatches[0];
       const item: CartItem = { name: match.name, qty, code: match.code, price: match.price, notes };
       const items = cartAddItem(sessionId, item);
       transitionOrderStage(sessionId, 'ORDERING');
@@ -604,7 +646,7 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     }
 
     // Multiple matches — store disambiguation state and ask guest to choose
-    const state = { pendingItem: query, candidates: matches, createdAt: Date.now() };
+    const state = { pendingItem: query, candidates: effectiveMatches, createdAt: Date.now() };
     setDisambiguation(sessionId, state);
     const list = formatDisambiguationList(state);
 

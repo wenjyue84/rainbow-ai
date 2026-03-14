@@ -156,6 +156,7 @@ function normalizeItems(raw: any[]): DisambiguationCandidate[] {
         : typeof r.rate === 'number' ? r.rate
         : undefined,
       category: r.category || r.item_group || r.group || undefined,
+      available: typeof r.available === 'boolean' ? r.available : undefined,
     }));
 }
 

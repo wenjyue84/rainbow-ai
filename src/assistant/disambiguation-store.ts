@@ -11,6 +11,7 @@ export interface DisambiguationCandidate {
   name: string;
   price?: number;
   category?: string;
+  available?: boolean;
 }
 
 export interface DisambiguationState {

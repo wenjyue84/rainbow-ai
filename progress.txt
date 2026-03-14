@@ -6470,3 +6470,59 @@ Based on the user story JSON and project structure, here is a technical brief fo
 ### Gotchas
 - Each `describe` block in the test file defines its own `newSid()` — new test blocks need their own
 - `cartClear()` deletes the entire session entry, which correctly removes `tableInfo` too
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story describes a feature for a TypeScript/Node.js application, not a Frappe/Python one. The technical brief has been adjusted for the correct technology stack.
+
+**Project:** rainbow-ai (Node.js/TypeScript)
+**Feature:** Profile Configuration Cloning (US-827)
+
+**Technical Brief:**
+
+This task involves creating an API endpoint to duplicate a user profile, serving as a template for new profiles.
+
+**1. Files to Modify:**
+*   `src/routes/admin/profiles.ts` (or similar): To add the new API endpoint `POST /api/admin/profiles/:sourceId/clone`.
+*   `src/lib/profiles.ts` (or a relevant service/db interaction file): To house the core logic for cloning profile data from the database.
+*   `src/types/profiles.ts`: To add or update types related to the clone request body if necessary.
+
+**2. Involved Schemas/Tables (Not Frappe DocTypes):**
+*   `rainbow_configs`: The primary table holding profile settings. The implementation will deep-copy rows, substituting the `profileId`.
+*   `rainbow_kb_files`: This table's rows will also be duplicated for the new profile ID to link knowledge base metadata.
+
+**3. Implementation Approach:**
+1.  Implement the `POST /api/admin/profiles/:sourceId/clone` endpoint.
+2.  The endpoint handler will extract `{ newProfileId, displayName }` from the request body.
+3.  Create a database transaction to ensure atomicity.
+4.  Inside the transaction, read all `rainbow_configs` and `rainbow_kb_files` associated with the `sourceId`.
+5.  Create new records for the `newProfileId`, explicitly filtering out any WhatsApp auth-related settings (e.g., phone number, session data).
+6.  Return the `{ newProfileId }` upon successful completion.
+
+**4. Edge Cases & Gotchas:**
+*   **Non-existent Source:** The endpoint must handle cases where the `sourceId` does not exist (return 404).
+*   **Duplicate `newProfileId`:** Prevent cloning if the target `newProfileId` already exists (return 409 Conflict).
+*   **Transactional Integrity:** The entire copy operation must be wrapped in a database transaction to prevent partial clones on failure.
+*   **Exclusions:** Be vigilant in excluding all WhatsApp-specific data to ensure the new profile starts clean.
+
+
+
+## Iteration 9 - Story: US-854 - Out-of-stock graceful handling
+### What was implemented
+- Added `available` field to `DisambiguationCandidate` interface in `disambiguation-store.ts`
+- Updated `normalizeItems()` in `fnb-menu.ts` to parse `available` boolean from FnB MCP response
+- Updated `cart_search_item` handler in `cart.ts` with out-of-stock detection:
+  - When a single match is found with `available: false`, apologises and fetches 2-3 alternatives from same category
+  - Alternatives are stored as disambiguation state so guest can pick one via `cart_pick_item`
+  - If no alternatives exist in the category, offers to show full menu
+  - When multiple matches exist, filters out unavailable items (falls back to all if none available)
+- Added OUT-OF-STOCK handling rules to AI waiter system prompt in `webchat-api.ts`
+
+### Patterns discovered
+- FnB MCP response items may include `available` boolean — `normalizeItems()` already handles flexible field mapping
+- `fetchMenuItems(category)` already supports category filtering, perfect for fetching same-category alternatives
+- The disambiguation flow (store → pick) provides a natural UX for suggesting alternatives
+
+### Gotchas
+- `available` field is optional — when FnB MCP doesn't return it, items are treated as available (no false positives)
+- The `cart_add_item` tool doesn't check availability (by design — it's for exact names from the AI). The check is in `cart_search_item` where menu items are fetched.
