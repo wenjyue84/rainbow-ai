@@ -380,3 +380,22 @@ export type WhatsappCostDaily = typeof whatsappCostDaily.$inferSelect;
 export type InsertWhatsappCostDaily = typeof whatsappCostDaily.$inferInsert;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = typeof adminUsers.$inferInsert;
+
+// ─── Template Quality Events (US-831) ─────────────────────────────────
+// Tracks Meta Cloud API message_template_status_update webhook events.
+// Records template status transitions (APPROVED → PAUSED → DISABLED etc.)
+export const templateQualityEvents = pgTable("template_quality_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateName: text("template_name").notNull(),
+  oldStatus: text("old_status"),
+  newStatus: text("new_status").notNull(),
+  reason: text("reason"),
+  profileId: text("profile_id").default('pelangi'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_template_quality_events_name").on(table.templateName),
+  index("idx_template_quality_events_created").on(table.createdAt),
+]));
+
+export type TemplateQualityEvent = typeof templateQualityEvents.$inferSelect;
+export type InsertTemplateQualityEvent = typeof templateQualityEvents.$inferInsert;

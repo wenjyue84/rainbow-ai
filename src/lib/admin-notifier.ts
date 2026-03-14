@@ -649,6 +649,59 @@ export async function notifyAdminAccountRestriction(
 }
 
 /**
+ * Send WhatsApp message template status change alert to system admin (US-831).
+ * Fires when a message_template_status_update webhook reports PAUSED or DISABLED.
+ * Throttled to at most one notification per 10 minutes per template.
+ */
+const TEMPLATE_STATUS_COOLDOWN_MS = 10 * 60 * 1000;
+const lastTemplateStatusNotifyAt = new Map<string, number>();
+
+export async function notifyAdminTemplatePaused(
+  templateName: string,
+  newStatus: string,
+  reason: string | undefined,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send template status notification');
+    return;
+  }
+
+  const now = Date.now();
+  const lastAt = lastTemplateStatusNotifyAt.get(templateName) ?? 0;
+  if (now - lastAt < TEMPLATE_STATUS_COOLDOWN_MS) {
+    logger.info('Template status notification skipped (cooldown)', { templateName });
+    return;
+  }
+  lastTemplateStatusNotifyAt.set(templateName, now);
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const emoji = newStatus === 'DISABLED' ? '🚨' : '⚠️';
+  const message = `${emoji} *WhatsApp Template ${newStatus}*\n\n` +
+    `Template: *${templateName}*\n` +
+    `New Status: *${newStatus}*\n` +
+    (reason ? `Reason: ${reason}\n` : '') +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    `**Impact:**\n` +
+    `Proactive messages using this template will silently fail.\n\n` +
+    `**Actions:**\n` +
+    `1. Log into Meta Business Manager → Message Templates\n` +
+    `2. Review the template quality and rejection reasons\n` +
+    (newStatus === 'PAUSED'
+      ? `3. Template will auto-resume if quality improves within the pause window\n`
+      : `3. Create a new template to replace the disabled one\n`) +
+    `4. Monitor via Rainbow Admin: GET /api/rainbow/analytics/template-quality`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent template status notification', { templateName, newStatus });
+  } catch (err: any) {
+    logger.error('Failed to send template status notification', { error: err.message });
+  }
+}
+
+/**
  * Send slow database query alert to system admin (US-515).
  * Fires when pg_stat_statements detects any query with mean_exec_time > 2000ms.
  * Throttled to at most one notification per 30 minutes.

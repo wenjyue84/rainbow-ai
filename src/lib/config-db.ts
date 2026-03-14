@@ -57,8 +57,21 @@ export async function ensureConfigTables(): Promise<void> {
         new_version INTEGER,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      -- US-831: Template quality events for Meta message_template_status_update webhook
+      CREATE TABLE IF NOT EXISTS template_quality_events (
+        id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        template_name   TEXT NOT NULL,
+        old_status      TEXT,
+        new_status       TEXT NOT NULL,
+        reason          TEXT,
+        profile_id      TEXT DEFAULT 'pelangi',
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_template_quality_events_name ON template_quality_events(template_name);
+      CREATE INDEX IF NOT EXISTS idx_template_quality_events_created ON template_quality_events(created_at);
     `);
-    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit)');
+    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events)');
   } catch (err: any) {
     console.error('[ConfigDB] Failed to create tables:', err.message);
   }

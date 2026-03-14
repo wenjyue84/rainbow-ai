@@ -4744,3 +4744,33 @@ Completed: Baileys circuit breaker: long cooldown after consecutive reconnect fa
 ### Gotchas
 - The `shouldSendReply` flag ensures exactly one throttle notice per window, regardless of how many subsequent messages arrive.
 - The admin route is purely read-only (in-memory data); no DB writes needed.
+## Iteration 4 - Sun, Mar 15, 2026 12:55:47 AM
+Incomplete: Monitor WhatsApp message template quality and alert on pause/disable (ID: US-831) — attempt 1/3
+
+
+## Iteration - Story: US-831 Monitor WhatsApp message template quality and alert on pause/disable
+### What was implemented
+- Added `template_quality_events` Drizzle table to `shared/schema-tables.ts` with fields: template_name, old_status, new_status, reason, profile_id, created_at (+ indexes on template_name and created_at)
+- Added startup `CREATE TABLE IF NOT EXISTS` migration in `src/lib/config-db.ts` (ensureConfigTables)
+- Added `POST /webhooks/meta/template-status` webhook handler in `src/routes/webhooks/index.ts`:
+  - Parses Meta `message_template_status_update` webhook payload (entry[].changes[] structure)
+  - Returns HTTP 200 immediately before any async work (satisfies <5s response requirement)
+  - Persists events to `template_quality_events` DB table via Drizzle insert
+  - Fires `notifyAdminTemplatePaused()` for PAUSED or DISABLED status
+- Added `notifyAdminTemplatePaused()` to `src/lib/admin-notifier.ts`:
+  - Sends WhatsApp alert to admin with template name, status, reason, and action items
+  - 10-minute cooldown per template name to prevent spam
+- Created `src/routes/admin/template-quality.ts`:
+  - `GET /analytics/template-quality` — returns current status per template (latest event) + last 50 events timeline
+  - `GET /analytics/template-quality/summary` — 24h summary with paused/disabled/approved counts
+- Registered route in `src/routes/admin/index.ts` with 30s semi-stable cache
+- Updated `src/routes/admin/daily-report-notify.ts` to include template quality section in daily report
+
+### Patterns discovered
+- Meta template status webhook uses same `entry[].changes[]` structure as account_update — consistent pattern
+- Webhook handler follows established pattern: res.status(200) first, then async DB/notification work
+- Daily report integration queries template_quality_events for last 24h and appends section only if events exist
+
+### Gotchas
+- prd.json has encoding issues (surrogates) — use Edit tool or manual sed, not Python json.dump
+- Drizzle-kit push has pre-existing module resolution issue on Windows — startup CREATE TABLE IF NOT EXISTS migration is the reliable path

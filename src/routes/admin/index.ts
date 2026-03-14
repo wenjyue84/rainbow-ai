@@ -59,6 +59,7 @@ import analyticsKpisRoutes from './analytics-kpis.js';
 import slowQueriesRoutes from './slow-queries.js';
 import fallbackAlertRoutes from './fallback-alert.js';
 import jidRateLimiterRoutes from './jid-rate-limiter.js';
+import templateQualityRoutes from './template-quality.js';
 import authRoutes from './auth.js';
 
 const router = Router();
@@ -154,7 +155,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality', '/analytics/latency', '/analytics/kpis',
+  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -225,6 +226,7 @@ router.use(analyticsKpisRoutes);
 router.use(slowQueriesRoutes);
 router.use(fallbackAlertRoutes);
 router.use(jidRateLimiterRoutes);
+router.use(templateQualityRoutes);
 router.use(authRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)

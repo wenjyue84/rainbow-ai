@@ -22,7 +22,10 @@ import {
   notifyAdminQualityDegradation,
   notifyAdminAccountViolation,
   notifyAdminAccountRestriction,
+  notifyAdminTemplatePaused,
 } from '../../lib/admin-notifier.js';
+import { db } from '../../lib/db.js';
+import { templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 
 const router = Router();
@@ -189,6 +192,72 @@ router.post('/webhooks/meta/account', signatureGuard, (req: Request, res: Respon
         console.warn(
           `[webhook:meta:account] account_update: phone=${phoneNumber} event=${event} (unhandled)`
         );
+      }
+    }
+  }
+});
+
+// ─── Meta Cloud API: message_template_status_update webhook (US-831) ──────
+// Meta POSTs message_template_status_update when a template status transitions
+// (e.g. APPROVED → PAUSED, PAUSED → DISABLED). Must be subscribed in the
+// Meta App Dashboard alongside the messages field.
+//
+// Payload shape (inside entry[].changes[]):
+//   field = 'message_template_status_update'
+//   value.message_template_name = template name
+//   value.event = 'APPROVED' | 'PAUSED' | 'DISABLED' | etc.
+//   value.previous_category / value.new_category (optional)
+//   value.reason (optional — e.g. 'LOW_QUALITY')
+router.post('/webhooks/meta/template-status', signatureGuard, (req: Request, res: Response) => {
+  // Acknowledge receipt immediately so Meta does not retry.
+  res.status(200).json({ ok: true });
+
+  const body = req.body as {
+    entry?: Array<{
+      changes?: Array<{
+        field?: string;
+        value?: {
+          message_template_name?: string;
+          event?: string;
+          previous_category?: string;
+          new_category?: string;
+          reason?: string;
+        };
+      }>;
+    }>;
+    [key: string]: unknown;
+  };
+
+  const entries = body.entry ?? [];
+  for (const entry of entries) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'message_template_status_update') continue;
+
+      const value = change.value;
+      if (!value) continue;
+
+      const templateName = value.message_template_name ?? 'unknown';
+      const newStatus = value.event ?? 'UNKNOWN';
+      const reason = value.reason ?? undefined;
+
+      console.warn(
+        `[webhook:meta:template-status] template=${templateName} status=${newStatus} reason=${reason ?? 'none'}`
+      );
+
+      // Persist to template_quality_events table
+      db.insert(templateQualityEvents).values({
+        templateName,
+        oldStatus: null,
+        newStatus,
+        reason: reason ?? null,
+        profileId: 'pelangi',
+      }).catch(err =>
+        console.error('[webhook:meta:template-status] Failed to persist event:', err.message)
+      );
+
+      // Notify admin on PAUSED or DISABLED
+      if (newStatus === 'PAUSED' || newStatus === 'DISABLED') {
+        notifyAdminTemplatePaused(templateName, newStatus, reason).catch(() => {});
       }
     }
   }

@@ -9,6 +9,9 @@ import type { Request, Response } from 'express';
 import { loadAdminNotificationSettings } from '../../lib/admin-notification-settings.js';
 import { sendToOperatorWithEscalation } from '../../lib/operator-escalation.js';
 import { ok, badRequest, serverError } from './http-utils.js';
+import { db } from '../../lib/db.js';
+import { templateQualityEvents } from '../../../shared/schema.js';
+import { desc, sql } from 'drizzle-orm';
 
 const router = Router();
 
@@ -51,6 +54,32 @@ router.post('/notify-daily-report', async (req: Request, res: Response) => {
     const outs = Number(checkOuts) || 0;
     const overdue = Number(overdueGuests) || 0;
 
+    // Fetch template quality summary for last 24h (US-831)
+    let templateQualitySection: string[] = [];
+    try {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const events24h = await db
+        .select()
+        .from(templateQualityEvents)
+        .where(sql`${templateQualityEvents.createdAt} >= ${oneDayAgo}`)
+        .orderBy(desc(templateQualityEvents.createdAt));
+
+      if (events24h.length > 0) {
+        const paused = events24h.filter(e => e.newStatus === 'PAUSED').length;
+        const disabled = events24h.filter(e => e.newStatus === 'DISABLED').length;
+        templateQualitySection = [
+          '',
+          `📋 *Template Quality*`,
+          `Events (24h): ${events24h.length}`,
+          ...(paused > 0 ? [`⚠️ Paused: ${paused}`] : []),
+          ...(disabled > 0 ? [`🚨 Disabled: ${disabled}`] : []),
+          ...(paused === 0 && disabled === 0 ? [`✅ All templates healthy`] : []),
+        ];
+      }
+    } catch {
+      // Non-critical — skip template quality if DB query fails
+    }
+
     const lines = [
       `📊 *Daily Report — ${date}*`,
       '',
@@ -66,6 +95,7 @@ router.post('/notify-daily-report', async (req: Request, res: Response) => {
       `💰 *Financials*`,
       `Collected today: RM ${revenue.toFixed(2)}`,
       `Outstanding: RM ${outstanding.toFixed(2)}`,
+      ...templateQualitySection,
       '',
       '🤖 _Notification by Rainbow AI_',
     ];
