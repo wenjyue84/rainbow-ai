@@ -5,7 +5,7 @@
 import axios from 'axios';
 import type { ChatMessage } from './types.js';
 import type { MCPTool, MCPToolResult, ToolHandler } from '../types/mcp.js';
-import { configStore } from './config-store.js';
+import { configStore, ConfigStore } from './config-store.js';
 import { getContextWindows } from './context-windows.js';
 import {
   isAIAvailable, getAISettings, getProviders, resolveApiKey,
@@ -42,8 +42,8 @@ const DEFAULT_FALLBACK_MESSAGES = {
   zh: "抱歉，我没有理解您的意思。您能重新表述一下您的问题吗？我可以帮助您处理预订、入住/退房、设施和旅舍的一般信息。"
 } as const;
 
-export function getUnknownFallbackMessages(): Record<string, string> {
-  const settings = configStore.getSettings();
+export function getUnknownFallbackMessages(store?: ConfigStore): Record<string, string> {
+  const settings = (store || configStore).getSettings();
   const custom = (settings as any)?.unknownFallback;
   if (custom && (custom.en || custom.ms || custom.zh)) {
     return {
@@ -97,7 +97,8 @@ export async function chatWithToolsLoop(
   history: ChatMessage[],
   userMessage: string,
   tools: MCPTool[],
-  toolHandlers: Map<string, ToolHandler>
+  toolHandlers: Map<string, ToolHandler>,
+  profileConfigStore?: ConfigStore
 ): Promise<string> {
   if (!isAIAvailable()) {
     throw new Error('AI not available');
@@ -139,7 +140,7 @@ export async function chatWithToolsLoop(
 
     // No tool calls — return the text response
     if (!toolCalls || toolCalls.length === 0) {
-      return content || UNKNOWN_FALLBACK_MESSAGES.en;
+      return content || getUnknownFallbackMessages(profileConfigStore).en;
     }
 
     // Append assistant message with tool_calls
@@ -180,7 +181,7 @@ export async function chatWithToolsLoop(
 
   // Max loops exhausted — return last content or fallback
   console.warn('[AI] chatWithToolsLoop: max loops exhausted');
-  return UNKNOWN_FALLBACK_MESSAGES.en;
+  return getUnknownFallbackMessages(profileConfigStore).en;
 }
 
 // ─── Structured Output Retry (US-471) ─────────────────────────────────

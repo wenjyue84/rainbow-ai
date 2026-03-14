@@ -3165,3 +3165,15 @@ PRD implementation complete. All acceptance criteria met, tests pass, build succ
 ## Iteration 4 - Sat, Mar 14, 2026  6:32:46 PM
 Completed: Write Vitest tests: ToolRegistry profile filtering for FnB tools (ID: US-704) in 7m
 
+
+## Iteration N - Story: US-801 Fix hostel fallback text appearing in makan-moments AI waiter
+### What was implemented
+- Updated `getUnknownFallbackMessages()` in ai-response-generator.ts to accept optional `ConfigStore` param; falls back to module-level configStore if not provided
+- Updated `chatWithToolsLoop()` to accept optional `profileConfigStore?: ConfigStore` param and pass it to `getUnknownFallbackMessages()` at both fallback points (no tool calls + max loops exhausted)
+- Updated chat-engine.ts: replaced `UNKNOWN_FALLBACK_MESSAGES` import with `getUnknownFallbackMessages`, passed `store` to `chatWithToolsLoop()`, and used `getUnknownFallbackMessages(store)[detectedLang]` in the catch-all fallback
+- Added `unknownFallback` object to data-makan/settings.json with cafe-appropriate text in en/ms/zh (no hostel words)
+### Patterns discovered
+- ConfigStore is a class (not interface), so it can be imported directly as both value and type
+- Python file I/O on Windows requires explicit `encoding='utf-8'` when prd.json contains non-ASCII characters
+### Gotchas
+- The Chinese text in the PRD technicalNotes was garbled due to double-encoding; used correct UTF-8 Chinese directly

@@ -9,7 +9,7 @@ import type { ConfigStore } from './config-store.js';
 import type { KnowledgeBaseInstance } from './knowledge-base-instance.js';
 import type { MCPTool, ToolHandler } from '../types/mcp.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
-import { UNKNOWN_FALLBACK_MESSAGES, chatWithToolsLoop } from './ai-response-generator.js';
+import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -188,7 +188,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {
     const topicFiles = kb.guessTopicFiles(message);
     const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers);
+    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers, store);
     const responseTime = Date.now() - startTime;
     return {
       message: result,
@@ -433,7 +433,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     const detectedLang = (intentResult.detectedLanguage === 'ms' || intentResult.detectedLanguage === 'zh')
       ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh'
       : 'en';
-    finalMessage = UNKNOWN_FALLBACK_MESSAGES[detectedLang];
+    finalMessage = getUnknownFallbackMessages(store)[detectedLang];
     llmModel = llmModel === 'none' ? 'static_fallback' : llmModel;
   }
 
