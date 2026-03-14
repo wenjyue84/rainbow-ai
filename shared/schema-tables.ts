@@ -428,3 +428,21 @@ export const experimentMetrics = pgTable("experiment_metrics", {
 
 export type ExperimentMetric = typeof experimentMetrics.$inferSelect;
 export type InsertExperimentMetric = typeof experimentMetrics.$inferInsert;
+
+// ─── Webchat Consent Log (US-841) ───────────────────────────────────
+// Records timestamped opt-in consent from webchat widget visitors.
+// Session IDs are truncated hashes for privacy; user agents are hashed.
+
+export const webchatConsentLog = pgTable("webchat_consent_log", {
+  id: serial("id").primaryKey(),
+  sessionIdHash: varchar("session_id_hash", { length: 64 }).notNull(),
+  acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  userAgentHash: varchar("user_agent_hash", { length: 64 }),
+}, (table) => ([
+  index("idx_webchat_consent_log_profile").on(table.profileId),
+  index("idx_webchat_consent_log_accepted_at").on(table.acceptedAt),
+]));
+
+export type WebchatConsentLog = typeof webchatConsentLog.$inferSelect;
+export type InsertWebchatConsentLog = typeof webchatConsentLog.$inferInsert;

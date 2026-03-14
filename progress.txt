@@ -6201,3 +6201,54 @@ Based on the user story, here is a technical brief for implementing the profile 
 - `db:push` blocks on interactive prompts in non-TTY environment; use direct SQL for simple additive migrations
 - Audio handling: voice transcription path (`msg.rawMessage` present) is separate from the generic audio fallback path (no rawMessage)
 - Media replies MUST NOT be checked for the `mediaRepliesEnabled` toggle in the transcription failure path (that has its own `voiceTranscription.fallbackReply` config)
+## Iteration 5 - Sun, Mar 15, 2026  5:14:58 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story describes a profile cloning feature. The technical notes reference a Node.js/TypeScript environment, but the request asks for a technical brief for a Frappe/Python implementation within the `lhdn_payroll_integration` app. This brief translates the story's intent into the Frappe framework.
+
+**Technical Brief: Profile Cloning Feature**
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/api/payroll_profile.py`: Create this new file to house the backend cloning logic.
+*   `lhdn_payroll_integration/hooks.py`: Modify this to whitelist the new API endpoint for cloning.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/lhdn_profile/lhdn_profile.js`: The client-side script to add a "Clone" button and call the API.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Primary DocType:** `LHDN Profile` (assuming this is the central configuration DocType, analogous to "profile" in the story).
+*   **Child DocTypes:** The clone logic must perform a deep copy of all child tables linked to `LHDN Profile`, which likely represent routing rules, intents, and settings.
+*   **Hooks:** `api_method` in `hooks.py` to expose the `clone_profile` function.
+
+**3. Recommended Implementation:**
+*   Create a whitelisted Python function `clone_profile` that accepts `source_name` and `new_name`.
+*   The function will use `frappe.copy_doc(source_doc)` as the foundation, which handles the deep copy of the document and its child table entries.
+*   After copying, programmatically clear any fields that should not be transferred, such as API credentials or specific auth states (as per the "WhatsApp auth state is NOT copied" requirement).
+*   Add a custom button to the `LHDN Profile` form view via its `.js` file, which prompts the user for a new profile name and then calls the `clone_profile` API endpoint.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the user has `create` permissions for the `LHDN Profile` DocType before allowing the clone operation.
+*   The API must validate that the `new_name` for the cloned profile does not already exist.
+*   The `frappe.copy_doc` method is powerful but ensure it correctly handles all nested child tables specific to this DocType.
+
+
+## Iteration 6 - Story: US-841 Webchat widget consent banner with timestamped opt-in log
+### What was implemented
+- Added `webchat_consent_log` table to Drizzle schema (`shared/schema-tables.ts`) with columns: session_id_hash, accepted_at, profile_id, user_agent_hash
+- Created table via direct SQL `ALTER TABLE` pattern (avoids interactive db:push)
+- Added `POST /api/chat/:profileId/consent-log` endpoint in `src/routes/public/webchat-api.ts` — hashes user-agent (SHA-256, truncated to 16 chars), truncates session hash
+- Added consent banner overlay to `src/public/webchat.html`:
+  - Shows on first widget load before chat interface
+  - [Accept] stores `{accepted: true, ts}` in localStorage with 365-day TTL, logs to server, then initializes chat
+  - [Decline] hides chat interface, shows privacy message with "Review consent options" link
+  - Focus-trapped within dialog (Tab cycles between Decline/Accept), Escape declines
+  - Consent text configurable per profile via `profile.consentText` (injected via `__WEBCHAT_PROFILE__`)
+  - WCAG 2.1 AA: role="dialog", aria-label, aria-modal, focus-visible outlines, keyboard-only navigation
+### Patterns discovered
+- `webchat.html` is a self-contained single-file app — all JS is inline in a single IIFE
+- Profile config is injected server-side via `window.__WEBCHAT_PROFILE__` in `src/index.ts` (line ~638)
+- Consent UI must be rendered BEFORE chat initialization to prevent any data collection before opt-in
+- Wrapping existing chat code in an `initChat()` function allows conditional initialization after consent
+### Gotchas
+- The `autofocus` attribute on the Accept button doesn't reliably work in all browsers when the element is inside a dynamically-shown dialog; setTimeout focus is used as fallback
+- localStorage key is namespaced per profile (`rb_consent_{profileId}`) to support multi-profile deployments

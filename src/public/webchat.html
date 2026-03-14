@@ -246,6 +246,103 @@
       background: var(--border);
     }
 
+    /* Consent banner (US-841) */
+    .consent-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .consent-banner {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 360px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+    }
+
+    .consent-banner h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .consent-banner p {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .consent-banner a {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+
+    .consent-banner a:focus {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .consent-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .consent-buttons button {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+
+    .consent-buttons button:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .consent-accept {
+      background: var(--primary);
+      color: white;
+    }
+
+    .consent-accept:hover { background: var(--primary-dark); }
+
+    .consent-decline {
+      background: var(--bg);
+      color: var(--text-muted);
+      border: 1px solid var(--border) !important;
+    }
+
+    .consent-decline:hover { background: var(--border); }
+
+    .consent-declined-msg {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .consent-declined-msg a {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+
+    .chat-hidden { display: none !important; }
+
     /* Desktop centering */
     @media (min-width: 640px) {
       body {
@@ -276,7 +373,25 @@
 </head>
 <body>
   <div class="chat-container">
-    <div class="header">
+    <!-- US-841: Consent banner overlay -->
+    <div class="consent-overlay" id="consentOverlay" role="dialog" aria-label="Data processing consent" aria-modal="true" style="display:none;">
+      <div class="consent-banner">
+        <h2 id="consentTitle">Data Processing Consent</h2>
+        <p id="consentText">This chat collects and processes your messages to provide AI-powered assistance. By continuing, you consent to our data processing practices.</p>
+        <div class="consent-buttons">
+          <button class="consent-decline" id="consentDecline" type="button">Decline</button>
+          <button class="consent-accept" id="consentAccept" type="button" autofocus>Accept</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- US-841: Shown when user declines consent -->
+    <div class="consent-declined-msg" id="declinedMsg" style="display:none;">
+      <p>Chat is unavailable without data processing consent.</p>
+      <p><a href="#" id="retryConsent">Review consent options</a></p>
+    </div>
+
+    <div class="header" id="chatHeader">
       <div class="header-avatar" id="avatar"></div>
       <div class="header-info">
         <h1 id="profileName">AI Assistant</h1>
@@ -315,6 +430,122 @@
     (function() {
       // Profile config injected by server
       const profile = window.__WEBCHAT_PROFILE__ || { id: 'unknown', name: 'AI Assistant', greeting: 'Hello! How can I help you today?' };
+
+      // ─── US-841: Consent Banner Logic ──────────────────────────────────
+      var CONSENT_KEY = 'rb_consent_' + profile.id;
+      var CONSENT_TTL_DAYS = 365;
+
+      var consentOverlay = document.getElementById('consentOverlay');
+      var consentAccept = document.getElementById('consentAccept');
+      var consentDecline = document.getElementById('consentDecline');
+      var declinedMsg = document.getElementById('declinedMsg');
+      var retryConsent = document.getElementById('retryConsent');
+      var chatHeader = document.getElementById('chatHeader');
+
+      // Configurable consent text from profile (injected via __WEBCHAT_PROFILE__)
+      var consentConfig = profile.consentText || null;
+      if (consentConfig) {
+        var consentTextEl = document.getElementById('consentText');
+        if (consentTextEl) consentTextEl.textContent = consentConfig;
+      }
+
+      function hasValidConsent() {
+        try {
+          var stored = localStorage.getItem(CONSENT_KEY);
+          if (!stored) return false;
+          var parsed = JSON.parse(stored);
+          if (!parsed.accepted || !parsed.ts) return false;
+          var ageMs = Date.now() - parsed.ts;
+          return ageMs < CONSENT_TTL_DAYS * 24 * 60 * 60 * 1000;
+        } catch (e) { return false; }
+      }
+
+      function showConsentBanner() {
+        consentOverlay.style.display = 'flex';
+        // Hide chat elements
+        document.getElementById('messages').classList.add('chat-hidden');
+        document.querySelector('.input-area').classList.add('chat-hidden');
+        // Focus the accept button for keyboard access
+        setTimeout(function() { consentAccept.focus(); }, 100);
+      }
+
+      function hideConsentBanner() {
+        consentOverlay.style.display = 'none';
+        declinedMsg.style.display = 'none';
+        document.getElementById('messages').classList.remove('chat-hidden');
+        document.querySelector('.input-area').classList.remove('chat-hidden');
+      }
+
+      function logConsentToServer(sessionHash) {
+        try {
+          fetch('/api/chat/' + encodeURIComponent(profile.id) + '/consent-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionIdHash: sessionHash,
+              acceptedAt: new Date().toISOString(),
+            }),
+          }).catch(function() { /* silent — non-critical */ });
+        } catch (e) { /* silent */ }
+      }
+
+      function onConsentAccept() {
+        var ts = Date.now();
+        localStorage.setItem(CONSENT_KEY, JSON.stringify({ accepted: true, ts: ts }));
+        hideConsentBanner();
+
+        // Generate a truncated hash from session key for consent logging
+        var raw = CONSENT_KEY + '_' + ts;
+        var hash = raw.split('').reduce(function(h, c) { h = ((h << 5) - h) + c.charCodeAt(0); return h & h; }, 0);
+        logConsentToServer(Math.abs(hash).toString(16));
+
+        // Initialize chat after consent
+        initChat();
+      }
+
+      function onConsentDecline() {
+        consentOverlay.style.display = 'none';
+        declinedMsg.style.display = 'block';
+        document.getElementById('messages').classList.add('chat-hidden');
+        document.querySelector('.input-area').classList.add('chat-hidden');
+        chatHeader.classList.add('chat-hidden');
+      }
+
+      consentAccept.addEventListener('click', onConsentAccept);
+      consentDecline.addEventListener('click', onConsentDecline);
+
+      // Keyboard: trap focus within consent dialog
+      consentOverlay.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+          var focusables = [consentDecline, consentAccept];
+          var first = focusables[0];
+          var last = focusables[focusables.length - 1];
+          if (e.shiftKey) {
+            if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+          } else {
+            if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+          }
+        }
+        if (e.key === 'Escape') { onConsentDecline(); }
+      });
+
+      retryConsent.addEventListener('click', function(e) {
+        e.preventDefault();
+        declinedMsg.style.display = 'none';
+        chatHeader.classList.remove('chat-hidden');
+        showConsentBanner();
+      });
+
+      // Check consent status and either show banner or init chat
+      if (hasValidConsent()) {
+        initChat();
+      } else {
+        showConsentBanner();
+      }
+
+      // ─── End Consent Logic ─────────────────────────────────────────────
+
+      function initChat() {
 
       // Emoji map for profile avatars
       const avatarMap = { pelangi: '\u{1F3E8}', southern: '\u{1F3E0}', 'makan-moments': '\u{2615}' };
@@ -637,6 +868,8 @@
           window.parent.postMessage({ type: 'rainbow-close' }, '*');
         }
       });
+
+      } // end initChat()
     })();
   </script>
 </body>

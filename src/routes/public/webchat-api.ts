@@ -508,6 +508,37 @@ router.get('/:profileId/messages/:sessionId', async (req: Request, res: Response
 });
 
 /**
+ * POST /api/chat/:profileId/consent-log (US-841)
+ * Log webchat consent acceptance with truncated session hash and user agent hash.
+ */
+router.post('/:profileId/consent-log', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionIdHash, acceptedAt } = req.body;
+
+  if (!sessionIdHash || typeof sessionIdHash !== 'string') {
+    res.status(400).json({ error: 'sessionIdHash (string) required' });
+    return;
+  }
+
+  // Hash user-agent for privacy
+  const ua = req.headers['user-agent'] || '';
+  const userAgentHash = crypto.createHash('sha256').update(ua).digest('hex').slice(0, 16);
+  const truncatedSessionHash = sessionIdHash.slice(0, 16);
+
+  try {
+    await pool.query(
+      `INSERT INTO webchat_consent_log (session_id_hash, accepted_at, profile_id, user_agent_hash)
+       VALUES ($1, $2, $3, $4)`,
+      [truncatedSessionHash, acceptedAt ? new Date(acceptedAt) : new Date(), profileId, userAgentHash]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[Webchat] Consent log error:', err.message);
+    res.status(500).json({ error: 'Failed to log consent' });
+  }
+});
+
+/**
  * Persist user message + AI response to rainbow_messages/rainbow_conversations.
  */
 async function persistWebchatExchange(

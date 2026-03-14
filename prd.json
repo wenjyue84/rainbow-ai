@@ -1,10 +1,10 @@
 {
-  "productName": "Rainbow AI \u2014 FnB Widget Bug Fixes (Image 3 + Image 4)",
+  "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
   "branchName": "master",
   "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
   "goals": [
     "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
-    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble \u2014 chatWithToolsLoop sanitizes LLM output",
+    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble — chatWithToolsLoop sanitizes LLM output",
     "Fix webchat-api tool injection: /chat/makan-moments widget gets FnB tool-calling capability",
     "Fix unicode corruption in system prompt (em dash + rainbow emoji garbled)",
     "Graceful tool-failure fallback: if FNB_MCP_URL is down, AI gives a helpful answer instead of hostel fallback",
@@ -28,7 +28,7 @@
       "technicalNotes": [
         "Edit src/assistant/ai-response-generator.ts: update getUnknownFallbackMessages() to accept optional configStore param. Update chatWithToolsLoop to call getUnknownFallbackMessages(profileConfigStore) for its fallback at line 142 and 183. Add optional configStore param to chatWithToolsLoop signature.",
         "Edit src/assistant/chat-engine.ts: pass store to getUnknownFallbackMessages() in the catch-all fallback at the bottom of processChat(). Also pass store to chatWithToolsLoop.",
-        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '\u62b1\u6b49\uff0c\u6211\u73b0\u5728\u65e0\u6cd5\u83b7\u53d6\u8be5\u4fe1\u606f\u3002\u8bf7\u8054\u7cfb\u6211\u4eec\u7684\u5458\u5de5\uff0c\u6216\u5c1d\u8bd5\uff1a\u663e\u793a\u83dc\u5355 / \u4e0b\u5355 / \u67e5\u8be2\u8ba2\u5355\u3002'}"
+        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '抱歉，我现在无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。'}"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -38,12 +38,12 @@
       "id": "US-802",
       "title": "Fix raw JSON displayed in chat widget when LLM returns JSON format",
       "priority": "high",
-      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop \u2014 if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
+      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop — if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
       "acceptanceCriteria": [
         "chatWithToolsLoop never returns a string starting with '{' to the caller",
         "If LLM content is valid JSON with a 'response' or 'text' string field, that field value is returned",
         "If JSON has no extractable text, profile-aware fallback is returned instead",
-        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' \u2014 chatWithToolsLoop must return 'Test reply'",
+        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' — chatWithToolsLoop must return 'Test reply'",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -81,10 +81,10 @@
       "id": "US-804",
       "title": "Fix corrupted unicode in makan-moments system prompt (em dash + emoji)",
       "priority": "medium",
-      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: '\u00e2\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
+      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: 'â\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
       "acceptanceCriteria": [
-        "data-makan/settings.json system_prompt sign-off is properly encoded (no '\u00e2' or garbled bytes)",
-        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('\u00e2'))\" returns false",
+        "data-makan/settings.json system_prompt sign-off is properly encoded (no 'â' or garbled bytes)",
+        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('â'))\" returns false",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -103,7 +103,7 @@
         "When all tool results have isError:true, chatWithToolsLoop makes a final toolless LLM call",
         "Final call uses the same system prompt and conversation history but no tools array",
         "If final call also fails, returns profile-aware fallback (not hardcoded hostel text)",
-        "Test: mock all tool handlers to return {isError:true} \u2014 result should be a non-empty meaningful text, not the hostel fallback",
+        "Test: mock all tool handlers to return {isError:true} — result should be a non-empty meaningful text, not the hostel fallback",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -122,9 +122,9 @@
       "description": "Write targeted tests to prevent regression of the two bugs seen in the screenshots: (1) hostel fallback text appearing in makan-moments widget, (2) raw JSON being returned from chatWithToolsLoop. Also test the webchat-api tool injection fix.",
       "acceptanceCriteria": [
         "File src/assistant/__tests__/fnb-widget-bugs.test.ts exists",
-        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' \u2192 result is 'OK' (not raw JSON)",
-        "Test: chatWithToolsLoop with all tool handlers throwing \u2192 result does NOT contain 'hostel' or 'check-in' or 'bookings'",
-        "Test: getUnknownFallbackMessages() with makan-moments configStore \u2192 returns text without 'hostel'",
+        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' → result is 'OK' (not raw JSON)",
+        "Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel' or 'check-in' or 'bookings'",
+        "Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'",
         "npm run test:run passes"
       ],
       "technicalNotes": [
@@ -146,7 +146,7 @@
       "id": "US-807",
       "title": "Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off",
       "priority": "low",
-      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '\u2014 Makan Moments AI' (cafe-appropriate, no hostel branding).",
+      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '— Makan Moments AI' (cafe-appropriate, no hostel branding).",
       "acceptanceCriteria": [
         "data-makan/settings.json system_prompt instructs sign-off as cafe-appropriate name, not generic hostel Rainbow",
         "npm run build passes"
@@ -170,16 +170,16 @@
         "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
         "data-makan/routing.json maps operating_hours to action: static_reply",
         "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
-        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, \u7d20\u98df",
+        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
         "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
-        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, \u4eca\u65e5\u7279\u9910",
-        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, \u51e0\u70b9\u5f00",
+        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
+        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
         "npm run build passes"
       ],
       "technicalNotes": [
-        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|\u7d20\u98df|\u658b)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|\u5b9e\u60e0|\u4fbf\u5b9c)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|\u4eca\u65e5\u7279\u9910|\u63a8\u8350|\u62db\u724c)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
+        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
         "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
-        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly \u2014 ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"\u6709\u7684\uff01\u6211\u4eec\u63d0\u4f9b\u7d20\u98df\u9009\u9879\uff0c\u5305\u62ec\u7d20\u6930\u6d46\u996d\u3001\u852c\u83dc\u7092\u996d\u548c\u65b0\u9c9c\u6c99\u62c9\u3002\u8bf7\u8be2\u95ee\u6211\u4eec\u7684\u5458\u5de5\u4e86\u89e3\u4eca\u65e5\u7d20\u98df\u9009\u62e9\uff01\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15\u4ee5\u4e0b\u8d85\u503c\u9009\u62e9\uff1a\u6930\u6d46\u996d(RM8)\u3001\u7092\u9762(RM10)\u3001\u62c9\u8336(RM3)\u3001\u9ed1\u5496\u5561(RM3)\u3001\u5410\u53f8\u5957\u9910(RM7)\u3002\u8bf7\u8be2\u95ee\u5458\u5de5\u4e86\u89e3\u5b8c\u6574\u83dc\u5355\uff01\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"\u6211\u4eec\u7684\u70ed\u95e8\u9009\u62e9\uff1a\u7279\u8272\u6930\u6d46\u996d\u3001\u9a6c\u6765\u7092\u9762\u548c\u5496\u55b1\u714e\u997c\u3002\u67e5\u770b\u6211\u4eec\u7684\u6bcf\u65e5\u7279\u4f9b\u677f\u6216\u8be2\u95ee\u5458\u5de5\u4e86\u89e3\u4eca\u65e5\u63a8\u8350\uff01\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM \u2013 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG \u2013 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments\u5496\u5561\u5385\u6bcf\u5929\u8425\u4e1a\u65f6\u95f4\uff1a\u65e9\u4e0a7\u70b9\u81f3\u665a\u4e0a10\u70b9\u3002\u63d0\u4f9b\u65e9\u9910\u3001\u5348\u9910\u548c\u665a\u9910\u3002\u6700\u540e\u4e0b\u5355\u65f6\u95f4\uff1a\u665a\u4e0a9\u70b930\u5206\u3002\"}}"
+        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -189,16 +189,16 @@
       "id": "US-809",
       "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
       "priority": "high",
-      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage \u2014 the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
       "acceptanceCriteria": [
         "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
         "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
         "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
-        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents \u2192 #intents/activeProfileId)",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
         "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
         "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
         "Refreshing the page restores both the tab and the profile from the URL",
-        "getTabInfoFromUrl() returns {main, profileId, sub} \u2014 profileId is parts[1] if it matches a known profile ID, else null",
+        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -207,7 +207,7 @@
         "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
         "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
         "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
-        "Backward compat: existing flat links like #intents still work \u2014 the redirect to #intents/profileId happens automatically on page load."
+        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -844,7 +844,7 @@
         "Behaviour is configurable per-profile via settings.json `features.typingIndicator: true|false`"
       ],
       "technicalNotes": [
-        "`sendWhatsAppTypingIndicator` already exists in `src/lib/whatsapp/index.ts` \u2014 integrate into `src/assistant/message-router.ts` before pipeline dispatch",
+        "`sendWhatsAppTypingIndicator` already exists in `src/lib/whatsapp/index.ts` — integrate into `src/assistant/message-router.ts` before pipeline dispatch",
         "Baileys API: `sock.sendPresenceUpdate('composing', jid)` and `sock.sendPresenceUpdate('paused', jid)`",
         "Gate behind `delay > 500ms` check to avoid unnecessary presence updates for instant cached replies"
       ],
@@ -859,14 +859,14 @@
       "description": "The current reconnect logic (3 attempts, max 60s delay) is insufficient to prevent WhatsApp account bans caused by rapid connect/disconnect cycling. When the supervisor and Baileys instance both retry simultaneously, hundreds of failed handshakes can trigger abuse detection. A circuit breaker must open after N consecutive failures and enforce a 30-minute cooldown.",
       "acceptanceCriteria": [
         "After 5 consecutive connection failures (configurable), the circuit opens and no further reconnection is attempted for 30 minutes",
-        "A WARNING-level log is emitted: `[Baileys:id] Circuit breaker OPEN \u2014 5 consecutive failures. Cooling down for 30 min.`",
+        "A WARNING-level log is emitted: `[Baileys:id] Circuit breaker OPEN — 5 consecutive failures. Cooling down for 30 min.`",
         "An admin WhatsApp notification is sent when the circuit opens",
         "After the 30-minute cooldown the circuit enters HALF-OPEN, attempts one reconnection, and either closes (success) or reopens with another 30-min cooldown",
         "Circuit state (open/closed/half-open, last-open timestamp, failure count) is exposed on `GET /api/rainbow/status` per instance"
       ],
       "technicalNotes": [
-        "Implement inside `src/lib/whatsapp/instance.ts` `handleDisconnect()` \u2014 replace current 3-attempt counter with a circuit-breaker state machine",
-        "Separate from `baileys-supervisor.ts` which handles supervisor-level crashes \u2014 this is instance-level connection cycling",
+        "Implement inside `src/lib/whatsapp/instance.ts` `handleDisconnect()` — replace current 3-attempt counter with a circuit-breaker state machine",
+        "Separate from `baileys-supervisor.ts` which handles supervisor-level crashes — this is instance-level connection cycling",
         "Use `Date.now()` timestamps rather than a library; no external dependency needed"
       ],
       "dependencies": [],
@@ -886,8 +886,8 @@
         "Webhook handler returns HTTP 200 within 5 seconds to avoid Meta retry storms"
       ],
       "technicalNotes": [
-        "Meta sends `message_template_status_update` to the registered webhook \u2014 add handler to `src/routes/webhooks/index.ts`",
-        "This is a Meta Cloud API webhook, not a Baileys event \u2014 requires Meta webhook subscription to include `message_template_status_update` field",
+        "Meta sends `message_template_status_update` to the registered webhook — add handler to `src/routes/webhooks/index.ts`",
+        "This is a Meta Cloud API webhook, not a Baileys event — requires Meta webhook subscription to include `message_template_status_update` field",
         "Distinct from existing phone number quality tracking in `src/lib/phone-quality.ts`"
       ],
       "dependencies": [],
@@ -909,7 +909,7 @@
       ],
       "technicalNotes": [
         "Mirror the query pattern from `src/routes/admin/gdpr-erasure.ts` but SELECT instead of DELETE",
-        "Canonicalize the JID using `canonicalPhoneKey()` before querying \u2014 same as erasure endpoint",
+        "Canonicalize the JID using `canonicalPhoneKey()` before querying — same as erasure endpoint",
         "Use `Content-Disposition: attachment; filename=data-export-{hash}.json` header for download"
       ],
       "dependencies": [],
@@ -923,7 +923,7 @@
       "description": "A single WhatsApp number can flood the bot with hundreds of messages per minute, exhausting AI provider quotas and degrading service for all users. The existing rate limiter operates at a profile level, not per individual user JID. A sliding-window per-JID limiter should throttle abusive senders with a polite rejection message.",
       "acceptanceCriteria": [
         "Each unique sender JID is limited to 10 messages per 60-second sliding window (configurable per profile in settings.json)",
-        "When the limit is exceeded, the bot sends one brief reply: 'Too many messages \u2014 please wait a moment before sending more.' and drops subsequent messages until the window resets",
+        "When the limit is exceeded, the bot sends one brief reply: 'Too many messages — please wait a moment before sending more.' and drops subsequent messages until the window resets",
         "The throttle reply is sent at most once per window (not once per dropped message)",
         "Rate limit counters are in-memory (not Redis-dependent) with TTL-based cleanup to avoid memory leaks",
         "Admin dashboard shows current throttled JID count and throttle events in the last 24 hours"
@@ -932,7 +932,7 @@
         "Implement as middleware in `src/assistant/message-router.ts` before pipeline dispatch",
         "Use a `Map<string, {count: number, windowStart: number}>` with periodic cleanup (every 5 minutes)",
         "Default limits: 10 msg/60s; configurable `rateLimiting.perUserWindowMs` and `perUserMaxMessages` in settings.json",
-        "Distinct from `src/lib/frequency-cap.ts` (outbound cap) \u2014 this is inbound abuse prevention"
+        "Distinct from `src/lib/frequency-cap.ts` (outbound cap) — this is inbound abuse prevention"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -944,14 +944,14 @@
       "priority": "medium",
       "description": "When staff or automated workflows send media via `sendWhatsAppMedia`, there is no pre-send validation. Sending an oversized video (>16MB) or unsupported MIME type silently fails at the WhatsApp level with no actionable error surfaced to the admin.",
       "acceptanceCriteria": [
-        "Before sending, validate MIME type against WhatsApp-supported list: JPEG/PNG (images \u22645MB), MP4 (video \u226416MB, H.264+AAC only), AAC/MP3/OGG/AMR (audio \u226416MB), PDF/DOCX/XLSX (documents \u2264100MB)",
+        "Before sending, validate MIME type against WhatsApp-supported list: JPEG/PNG (images ≤5MB), MP4 (video ≤16MB, H.264+AAC only), AAC/MP3/OGG/AMR (audio ≤16MB), PDF/DOCX/XLSX (documents ≤100MB)",
         "If validation fails, `sendWhatsAppMedia` throws a structured error with fields: `code: 'MEDIA_VALIDATION_FAILED'`, `reason`, `actualSizeMb`, `limitMb`",
         "Admin API routes that call `sendWhatsAppMedia` return HTTP 422 with the validation error details",
         "A unit test covers each unsupported type and the boundary size condition for images and videos",
         "Validation is skipped when the media URL is a remote HTTPS URL (size cannot be pre-checked without fetching)"
       ],
       "technicalNotes": [
-        "`sendWhatsAppMedia` is in `src/lib/whatsapp/index.ts` \u2014 add a `validateMedia(buffer, mimeType)` helper called before `sock.sendMessage()`",
+        "`sendWhatsAppMedia` is in `src/lib/whatsapp/index.ts` — add a `validateMedia(buffer, mimeType)` helper called before `sock.sendMessage()`",
         "WhatsApp size limits: image 5MB, video 16MB, audio 16MB, document 100MB, sticker 100KB",
         "Add `src/lib/whatsapp/media-validator.ts` as a new file with exported `validateWhatsAppMedia()` function"
       ],
@@ -972,7 +972,7 @@
         "`img-src` is extended to include `https://pps.whatsapp.net data:` to allow WhatsApp avatar images in the dashboard"
       ],
       "technicalNotes": [
-        "Edit the `helmet()` call in `src/index.ts` \u2014 add to `connectSrc` array",
+        "Edit the `helmet()` call in `src/index.ts` — add to `connectSrc` array",
         "AI provider base URLs can be derived from `src/assistant/data/settings.json` `providers[].baseUrl` at startup",
         "Use `Content-Security-Policy-Report-Only` in development mode to catch violations without blocking"
       ],
@@ -994,9 +994,9 @@
         "Admin dashboard shows open handoffs with elapsed time and SLA status (green/amber/red)"
       ],
       "technicalNotes": [
-        "Integrate with `src/assistant/escalation.ts` \u2014 on escalation creation, insert a pending SLA record",
+        "Integrate with `src/assistant/escalation.ts` — on escalation creation, insert a pending SLA record",
         "Use a cron job (every 2 minutes) to check for breached SLAs rather than Node.js `setTimeout` (which doesn't survive restarts)",
-        "`escalation_events` table already exists \u2014 add `sla_breached_at` and `human_responded_at` columns via Drizzle migration",
+        "`escalation_events` table already exists — add `sla_breached_at` and `human_responded_at` columns via Drizzle migration",
         "Detect human response by checking if an outbound message for that phone was sent after the escalation timestamp"
       ],
       "dependencies": [],
@@ -1038,7 +1038,7 @@
         "When retention is disabled for a profile, an audit log entry is created recording who disabled it and when"
       ],
       "technicalNotes": [
-        "`src/lib/data-retention.ts` already reads from `configStore` per profile \u2014 the backend logic is complete",
+        "`src/lib/data-retention.ts` already reads from `configStore` per profile — the backend logic is complete",
         "Missing piece: admin UI tab + API endpoint to write `settings.retention.*` values back via `configStore.updateSettings()`",
         "Expose `GET /api/rainbow/retention/stats?profile=X` (wrapping `getRetentionStats`) for the preview feature"
       ],
@@ -1060,7 +1060,7 @@
         "A daily cron job checks for overdue notifications and sends a reminder alert if deadlines are approaching within 6 hours"
       ],
       "technicalNotes": [
-        "Lightweight workflow management \u2014 no external PDPC API integration required (notification is done manually by admin, system tracks deadlines)",
+        "Lightweight workflow management — no external PDPC API integration required (notification is done manually by admin, system tracks deadlines)",
         "Create `src/routes/admin/breach-report.ts` following the same pattern as `src/routes/admin/gdpr-erasure.ts`",
         "Use existing `admin-notifier.ts` for the WhatsApp alert"
       ],
@@ -1110,7 +1110,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-842",
@@ -1120,13 +1120,13 @@
       "acceptanceCriteria": [
         "At server startup, before calling `makeWASocket`, a `validateAuthState(instanceId)` check queries DB auth rows and verifies JSON parseability of credential fields",
         "If validation fails (unparseable JSON, missing required creds fields), corrupted rows are deleted and the QR pairing flow is re-initiated",
-        "An admin WhatsApp notification is sent: '[instanceId] auth state was corrupted and cleared \u2014 please re-scan QR code'",
+        "An admin WhatsApp notification is sent: '[instanceId] auth state was corrupted and cleared — please re-scan QR code'",
         "Validation results are logged at INFO level: `[DbAuth:pelangi] Auth state healthy: creds OK, 42 signal keys`",
         "A new admin endpoint `GET /api/rainbow/instances/:id/auth-health` returns auth state validity without triggering recovery"
       ],
       "technicalNotes": [
         "Add `validateAuthState(instanceId: string)` to `src/lib/whatsapp/db-auth-state.ts`",
-        "Check: `SELECT key, value FROM wa_auth_state WHERE instance_id = $1` \u2014 attempt `JSON.parse(value)` for each row",
+        "Check: `SELECT key, value FROM wa_auth_state WHERE instance_id = $1` — attempt `JSON.parse(value)` for each row",
         "Required credential fields for a valid Baileys session: `noiseKey`, `signedIdentityKey`, `registrationId`, `advSecretKey`",
         "Call validation from `WhatsAppInstance.start()` before `useDbAuthState()` in `src/lib/whatsapp/instance.ts`"
       ],
@@ -1142,13 +1142,13 @@
       "acceptanceCriteria": [
         "On the very first message from a new JID (no prior `rainbow_conversations` record), a data notice follows the normal welcome response",
         "Notice text is configurable in `knowledge.json` under key `data_notice_first_contact`",
-        "The notice is sent only once per JID \u2014 subsequent conversations do not include it",
+        "The notice is sent only once per JID — subsequent conversations do not include it",
         "If the JID has previously opted out (exists in `opt_outs` table), the notice is not sent"
       ],
       "technicalNotes": [
-        "Check for first-contact in `src/assistant/message-router.ts` using `conversationDb.getOrCreateConversation()` return value \u2014 if `created: true`, it is a first contact",
+        "Check for first-contact in `src/assistant/message-router.ts` using `conversationDb.getOrCreateConversation()` return value — if `created: true`, it is a first contact",
         "Inject the notice as a suffix to the reply before `sendWhatsAppMessage` is called",
-        "Reuse existing STOP keyword opt-out handling \u2014 do not duplicate opt-out logic"
+        "Reuse existing STOP keyword opt-out handling — do not duplicate opt-out logic"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -1189,8 +1189,8 @@
       ],
       "technicalNotes": [
         "Locate existing cost tracking in `src/routes/admin/whatsapp-cost.ts` and `src/assistant/__tests__/whatsapp-cost.test.ts`",
-        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message \u2014 use MYR rates for Malaysia",
-        "The message category (marketing/utility) must be determined at send time \u2014 proactive messages are typically marketing, reactive replies are utility"
+        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message — use MYR rates for Malaysia",
+        "The message category (marketing/utility) must be determined at send time — proactive messages are typically marketing, reactive replies are utility"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -1230,9 +1230,9 @@
         "Verify `rainbow_config_audit` table is being populated by ALL config write paths, not just current partial coverage"
       ],
       "technicalNotes": [
-        "`rainbow_config_audit` table already exists \u2014 audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
+        "`rainbow_config_audit` table already exists — audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
         "Add an `auditConfigChange(adminUser, endpoint, before, after)` helper and call it from all config mutation routes",
-        "The before-value must be captured BEFORE the write \u2014 common bug to avoid"
+        "The before-value must be captured BEFORE the write — common bug to avoid"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
