@@ -15,8 +15,8 @@ import { getTemplate } from '../formatter.js';
 import { escalateToStaff } from '../escalation.js';
 import { logMessage } from '../conversation-logger.js';
 import {
-  shouldEscalateOnSentiment, markSentimentEscalation,
-  isSentimentAnalysisEnabled
+  shouldEscalateOnSentimentForProfile, markSentimentEscalation,
+  isSentimentEnabledForProfile
 } from '../sentiment-tracker.js';
 import {
   shouldAskFeedback, setAwaitingFeedback, getFeedbackPrompt
@@ -73,9 +73,10 @@ export async function processAndSend(
     response += disclaimer;
   }
 
-  // ─── Sentiment-based escalation ────────────────────────────────
-  if (isSentimentAnalysisEnabled()) {
-    const sentimentCheck = shouldEscalateOnSentiment(phone);
+  // ─── Sentiment-based escalation (US-822: per-profile, reason='sentiment') ──
+  const sentimentSettings = profileConfig.getSettings();
+  if (isSentimentEnabledForProfile(sentimentSettings)) {
+    const sentimentCheck = shouldEscalateOnSentimentForProfile(phone, sentimentSettings);
     if (sentimentCheck.shouldEscalate) {
       console.log(
         `[Sentiment] Escalating: ${sentimentCheck.consecutiveCount} consecutive negative messages from ${phone}`
@@ -84,19 +85,33 @@ export async function processAndSend(
       await escalateToStaff({
         phone,
         pushName: msg.pushName,
-        reason: (sentimentCheck.reason || 'sentiment_negative') as any,
+        reason: 'sentiment' as any,
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text,
-        instanceId: msg.instanceId
+        instanceId: msg.instanceId,
+        profileId,
       });
       markSentimentEscalation(phone);
 
-      const sentimentMessages = {
+      // US-822: Log escalation event with reason='sentiment'
+      const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+      logEscalationEvent({
+        jid: phone,
+        profileId,
+        trigger: 'sentiment',
+        count: sentimentCheck.consecutiveCount,
+        metadata: { consecutiveNegative: sentimentCheck.consecutiveCount },
+      });
+
+      // US-822: Configurable escalation message per profile
+      const configuredMessages = (sentimentSettings as any).sentiment_analysis?.escalation_messages;
+      const defaultMessages: Record<string, string> = {
         en: "\n\nI sense you may be frustrated. I've alerted our team, and someone will reach out to you shortly.",
         ms: "\n\nSaya faham anda mungkin kecewa. Saya telah maklumkan pasukan kami, dan seseorang akan menghubungi anda tidak lama lagi.",
         zh: "\n\n我感觉到您可能有些不满。我已通知我们的团队,他们会尽快与您联系。"
       };
-      response += sentimentMessages[lang] || sentimentMessages.en;
+      const messages = configuredMessages || defaultMessages;
+      response += messages[lang] || messages.en || defaultMessages.en;
     }
   }
 

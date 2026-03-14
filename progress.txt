@@ -5464,3 +5464,68 @@ This technical brief is based on the provided user story JSON. The story describ
 - prd.json must be opened with `encoding='utf-8'` on Windows (cp1252 default fails on special chars)
 - vitest `vi.resetModules()` in afterEach needed to avoid module registry pollution between HTTP tests
 - Handler registry mutations in tests must restore original handlers in `finally` blocks
+## Iteration 5 - Sun, Mar 15, 2026  3:18:42 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This is a technical brief for implementing the profile cloning feature.
+
+**Project Context:** The user story and project files indicate a **TypeScript/Node.js** application using a SQL database with Drizzle ORM, not a Python/Frappe one. The implementation should follow this stack.
+
+### Technical Brief: US-827 Profile Cloning
+
+**1. Files to Modify:**
+*   **`src/routes/admin/profiles.ts` (or similar):** This is the likely location for API route definitions. Add the new `POST /api/admin/profiles/:sourceId/clone` endpoint here.
+*   **`src/lib/profiles.ts` or a new `src/lib/profileCloningService.ts`:** Create or extend a service file to contain the core cloning logic, separating it from the route handler. This file will handle the database interactions.
+*   **`shared/schema.ts`:** Review the Drizzle schema for `rainbow_configs` and `rainbow_kb_files` to ensure you select and insert data correctly.
+
+**2. Key Entities & Routes:**
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Request Body:** `{ newProfileId: string, displayName: string }`
+*   **Database Tables (Drizzle Schema):**
+    *   `rainbow_configs`: Contains the core JSON settings to be cloned.
+    *   `rainbow_kb_files`: Contains metadata about knowledge base files.
+
+**3. Implementation Approach:**
+1.  In your profiles route file, define the new `POST` endpoint.
+2.  Create a service function `cloneProfile(sourceId, newProfileId, displayName)`.
+3.  Use a Drizzle transaction (`db.transaction(async (tx) => { ... })`) to ensure the entire operation is atomic.
+4.  Inside the transaction:
+    a.  Query all `rainbow_configs` for the `sourceId`.
+    b.  Filter out any sensitive/instance-specific configurations (e.g., keys related to WhatsApp auth state or phone numbers).
+    c.  Use a `map` operation to transform the fetched configs into new objects, replacing the `profileId` with `newProfileId`.
+    d.  Perform a bulk insert of the new config objects into `rainbow_configs`.
+    e.  Repeat the query-map-insert process for the `rainbow_kb_files` table.
+5.  The route handler should call this service and return the `newProfileId` upon success.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The operation must be transactional. If any part of the clone fails, the database should be rolled back to its initial state to prevent partially cloned, corrupted profiles.
+*   **Uniqueness:** The `newProfileId` must be unique. The API should include a check and fail if the ID already exists before starting the clone.
+*   **Data Exclusion:** Be explicit in identifying and skipping configuration keys that should not be cloned, as specified in the technical notes (e.g., WhatsApp credentials).
+*   **Error Handling:** Return a `404` if the `sourceId` does not exist. Provide clear error messages for other failures (e.g., duplicate `newProfileId`).
+
+
+## Iteration 14 - Story: US-822 Sentiment-based early escalation trigger in message processing pipeline
+### What was implemented
+- Updated `consecutive_threshold` from 2 to 3 in both `src/assistant/data/settings.json` and `src/assistant/data-southern/settings.json` to match AC ("3 or more messages")
+- Added `escalation_messages` field (EN/MS/ZH) to `sentiment_analysis` settings for per-profile configurable escalation messages
+- Added `isSentimentEnabledForProfile(settings)` to `src/assistant/sentiment-tracker.ts` — profile-aware enable/disable check
+- Added `shouldEscalateOnSentimentForProfile(phone, profileSettings?)` — profile-aware escalation check using profile-specific threshold and cooldown
+- Changed escalation reason from `'sentiment_negative'` to `'sentiment'` per AC requirement
+- Updated `src/assistant/pipeline/input-validator.ts` to use `isSentimentEnabledForProfile(profileConfig.getSettings())` instead of global `isSentimentAnalysisEnabled()`
+- Updated `src/assistant/pipeline/response-processor.ts`:
+  - Uses profile-aware `isSentimentEnabledForProfile` and `shouldEscalateOnSentimentForProfile`
+  - Loads configurable `escalation_messages` from profile settings (falls back to hardcoded defaults)
+  - Directly logs to `escalation_events` table with `trigger='sentiment'` and consecutive count metadata
+  - Passes `profileId` to `escalateToStaff` call
+- Created `src/assistant/__tests__/sentiment-escalation.test.ts` — 14 tests covering:
+  - analyzeSentiment keyword detection (negative, positive, neutral, emojis)
+  - shouldEscalateOnSentimentForProfile: threshold enforcement, reset on non-negative, per-profile override, unknown phone
+  - isSentimentEnabledForProfile: enabled/disabled/missing/default states
+### Patterns discovered
+- The sentiment tracker already existed with full analysis/tracking/escalation logic — the gap was wiring profile-awareness and matching the story's specific ACs
+- `markSentimentEscalation` sets `lastEscalationAt = Date.now()` which triggers cooldown — tests need unique phone numbers or 0 cooldown to avoid interference
+- 'hello' contains 'hell' which matches the NEGATIVE_PATTERNS — pre-existing behavior, avoid in tests
+### Gotchas
+- The `escalateToStaff` already logs to `escalation_events` via its internal flow — the additional direct `logEscalationEvent` call ensures the `trigger='sentiment'` reason is recorded even if `escalateToStaff` uses a different internal trigger name

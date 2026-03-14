@@ -18,7 +18,7 @@ import { handleStaffReply, escalateToStaff, resolveHandoff } from '../escalation
 import { isAIAvailable, translateText } from '../ai-client.js';
 import { logMessage, logNonTextExchange } from '../conversation-logger.js';
 import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } from '../knowledge.js';
-import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled } from '../sentiment-tracker.js';
+import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled, isSentimentEnabledForProfile } from '../sentiment-tracker.js';
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent } from '../consent.js';
@@ -523,8 +523,9 @@ export async function validateAndPrepare(
   }).catch(() => { });
   const lang = convo.language;
 
-  // Sentiment analysis
-  if (isSentimentAnalysisEnabled()) {
+  // Sentiment analysis (US-822: per-profile enable/disable)
+  const profileSettings = profileConfig.getSettings();
+  if (isSentimentEnabledForProfile(profileSettings)) {
     const messageSentiment = analyzeSentiment(processText);
     trackSentiment(phone, text, messageSentiment);
     console.log(`[Sentiment] ${phone}: ${messageSentiment} (${text.slice(0, 50)}...)`);

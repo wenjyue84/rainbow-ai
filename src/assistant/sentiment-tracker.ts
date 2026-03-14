@@ -21,7 +21,7 @@ interface SentimentState {
 const sentimentManager = new StateManager<SentimentState>(3_600_000);
 
 // Configuration (loaded from settings)
-let CONSECUTIVE_THRESHOLD = 2; // Default: Escalate after 2 consecutive negative
+let CONSECUTIVE_THRESHOLD = 3; // Default: Escalate after 3 consecutive negative (US-822)
 const HISTORY_MAX_LENGTH = 10; // Keep last 10 messages
 let ESCALATION_COOLDOWN_MS = 30 * 60 * 1000; // Default: 30 min
 
@@ -51,6 +51,14 @@ export function isSentimentAnalysisEnabled(): boolean {
   if (!settings || !settings.sentiment_analysis) {
     return false;
   }
+  return settings.sentiment_analysis.enabled !== false;
+}
+
+/**
+ * US-822: Profile-aware check — uses profile-specific settings object.
+ */
+export function isSentimentEnabledForProfile(settings: any): boolean {
+  if (!settings || !settings.sentiment_analysis) return false;
   return settings.sentiment_analysis.enabled !== false;
 }
 
@@ -209,16 +217,35 @@ export function shouldEscalateOnSentiment(phone: string): {
   reason: string | null;
   consecutiveCount: number;
 } {
+  return shouldEscalateOnSentimentForProfile(phone);
+}
+
+/**
+ * US-822: Profile-aware escalation check.
+ * Accepts optional profile-specific settings to use profile threshold/cooldown.
+ */
+export function shouldEscalateOnSentimentForProfile(phone: string, profileSettings?: any): {
+  shouldEscalate: boolean;
+  reason: string | null;
+  consecutiveCount: number;
+} {
   const state = sentimentManager.get(phone);
 
   if (!state) {
     return { shouldEscalate: false, reason: null, consecutiveCount: 0 };
   }
 
+  // Use profile-specific or global settings
+  const sa = profileSettings?.sentiment_analysis;
+  const threshold = sa?.consecutive_threshold ?? CONSECUTIVE_THRESHOLD;
+  const cooldownMs = sa?.cooldown_minutes != null
+    ? sa.cooldown_minutes * 60 * 1000
+    : ESCALATION_COOLDOWN_MS;
+
   // Check if we escalated recently (cooldown)
   if (state.lastEscalationAt) {
     const timeSinceEscalation = Date.now() - state.lastEscalationAt;
-    if (timeSinceEscalation < ESCALATION_COOLDOWN_MS) {
+    if (timeSinceEscalation < cooldownMs) {
       console.log(
         `[Sentiment] Cooldown active for ${phone} ` +
         `(${Math.round(timeSinceEscalation / 1000)}s since last escalation)`
@@ -228,10 +255,10 @@ export function shouldEscalateOnSentiment(phone: string): {
   }
 
   // Escalate if threshold reached
-  if (state.consecutiveNegative >= CONSECUTIVE_THRESHOLD) {
+  if (state.consecutiveNegative >= threshold) {
     return {
       shouldEscalate: true,
-      reason: 'sentiment_negative',
+      reason: 'sentiment',
       consecutiveCount: state.consecutiveNegative
     };
   }
