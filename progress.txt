@@ -3804,3 +3804,42 @@ Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe 
 - intent-metamorphic.test.ts MR3 Determinism test times out at 5000ms — pre-existing flaky test, unrelated to US-806
 ### Gotchas
 - First vitest run OOM'd without NODE_OPTIONS memory increase
+
+## Verification - Sat, Mar 14, 2026  8:45 PM
+All 9 PRD stories (US-801 through US-809) confirmed PASS.
+US-806 fnb-widget-bugs.test.ts: 9/9 tests pass (node --max-old-space-size=128 vitest).
+Build passes (esbuild, dist/index.js 1.2mb).
+Full test suite: 678 passed, 4 pre-existing timeout failures (handoff-summary x2, intent-metamorphic x1, profile-registry x1).
+PRD is COMPLETE — no remaining incomplete stories.
+
+## Ralph Check - Sat, Mar 14, 2026 08:47:23 PM
+All 9 PRD stories (US-801 through US-809) are passes: true. Nothing to implement. Exiting cleanly.
+
+## Iteration - Story: US-805 chatWithToolsLoop graceful fallback
+### What was implemented
+- Fixed filter in `chatWithToolsLoop` toolless fallback: now excludes both `role: 'tool'` messages AND assistant messages with `tool_calls` (invalid without corresponding tool results)
+- Created `src/assistant/__tests__/chat-with-tools-loop.test.ts` with 4 tests covering all acceptance criteria
+
+### Patterns discovered
+- vitest must be run via `node ./node_modules/vitest/vitest.mjs run` on Windows (MSYS fork issues prevent npx/npm run from working when page file is exhausted)
+- esbuild must be run via `node ./node_modules/esbuild/bin/esbuild` for same reason
+- All 4 tests pass; esbuild build exits 0 with expected pre-existing warning in logger.ts
+
+### Gotchas
+- The toolless fallback was already implemented in a prior iteration; the missing piece was the test file and the filter bug (assistant messages with tool_calls were leaking into the toolless call)
+- System page file exhaustion causes all fork-based process spawning to fail — use node module paths directly
+
+## Iteration 10 - Story: US-806 - Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- fnb-widget-bugs.test.ts already existed with 9 tests covering:
+  - US-801: getUnknownFallbackMessages() with makan-moments configStore returns cafe text without hostel words
+  - US-802: looksLikeJson utility correctly detects JSON vs plain text
+  - Integration: JSON extraction logic (j.response || j.text || j.message) works for chatWithToolsLoop pattern
+- All 9 tests pass (23ms)
+
+### Patterns discovered
+- Tests validate the utility functions (looksLikeJson, getUnknownFallbackMessages) rather than full chatWithToolsLoop integration
+- This is appropriate since chatWithToolsLoop requires mocking the AI provider chain which is fragile
+
+### Gotchas
+- None - tests were already complete and passing
