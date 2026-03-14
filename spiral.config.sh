@@ -6,7 +6,7 @@
 SPIRAL_PYTHON="python"
 
 # ── Validation command (Phase V) ─────────────────────────────────────
-SPIRAL_VALIDATE_CMD="npm run check 2>&1 | tail -30 && echo 'TypeScript check passed'"
+SPIRAL_VALIDATE_CMD="npm run build 2>&1 | tail -20 && npm run test:run 2>&1 | tail -40"
 
 # ── Test reports directory ───────────────────────────────────────────
 SPIRAL_REPORTS_DIR="test-reports"
@@ -14,8 +14,8 @@ SPIRAL_REPORTS_DIR="test-reports"
 # ── Story ID prefix ─────────────────────────────────────────────────
 SPIRAL_STORY_PREFIX="US"
 
-# ── Skip test synthesis (no timestamped test reports to scan) ────────
-SPIRAL_SKIP_TEST_SYNTHESIS=1
+# ── Test synthesis: convert failing tests to fix-stories ─────────────
+SPIRAL_SKIP_TEST_SYNTHESIS=0
 
 # ── Max pending stories (focused run) ────────────────────────────────
 SPIRAL_MAX_PENDING=10
@@ -30,4 +30,4 @@ SPIRAL_RESEARCH_MODEL="sonnet"
 SPIRAL_OPEN_DASHBOARD=1
 
 # ── Focus theme ──────────────────────────────────────────────────────
-SPIRAL_FOCUS="FnB AI Waiter: rainbow-ai /api/fnb/chat SSE endpoint + FnB MCP client tools for makan-moments profile"
+SPIRAL_FOCUS="FnB AI Waiter widget UX improvement: wire tool-calling loop into chat engine, add FnB intents, smooth pre-ordering flow (phone collection + order confirmation), Vitest tests for registry filtering and tool handlers"
