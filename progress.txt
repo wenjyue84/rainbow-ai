@@ -2981,3 +2981,23 @@ Completed: Add /api/fnb/chat SSE streaming endpoint in rainbow-ai (ID: US-601) i
 ### Gotchas
 - Tools are NOT yet registered in registry.ts — that's US-604 (separate story)
 - FNB_MCP_URL defaults to http://localhost:3031/api/mcp when env var is not set
+## Iteration 2 - Sat, Mar 14, 2026  4:54:29 PM
+Completed: Add FnB MCP client tools for menu browsing in rainbow-ai (ID: US-602) in 3m
+
+
+## Iteration 15 - Story: US-603 - Add FnB MCP client tools for order management
+### What was implemented
+- Created `src/tools/fnb-orders.ts` with 6 MCP tool definitions and handlers:
+  - Public: fnb_create_order (items, phone, estimated_arrival, optional notes), fnb_get_order_status (orderId), fnb_get_operating_hours
+  - Admin: fnb_get_pending_orders, fnb_approve_order, fnb_update_order_status (require FNB_MCP_SECRET)
+- Shared `callFnbMcp()` helper with `requireAuth` parameter — admin tools check for FNB_MCP_SECRET and include x-mcp-secret header
+- Follows same pattern as fnb-menu.ts (callFnbMcp helper, MCPTool/MCPToolResult types)
+- fnb_get_order_status maps to fnb_get_order on the MCP server side (per technicalNotes)
+
+### Patterns discovered
+- Admin vs public tool split handled by requireAuth flag on callFnbMcp — clean separation without duplicating the HTTP call logic
+- fnb-menu.ts always sends FNB_MCP_SECRET if available; fnb-orders.ts only sends it for admin tools
+
+### Gotchas
+- Tools NOT yet registered in registry.ts — that's US-604
+- MCP server tool name is fnb_get_order (not fnb_get_order_status) — handler maps the name
