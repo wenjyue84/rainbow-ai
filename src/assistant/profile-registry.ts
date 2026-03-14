@@ -20,6 +20,8 @@ export interface ProfileConfig {
   dataDir: string;
   dbConfigPrefix: string;
   enabled: boolean;
+  /** Optional public-facing URL for this property (shown as external link in admin UI) */
+  siteUrl?: string;
 }
 
 export interface ProfilesFile {

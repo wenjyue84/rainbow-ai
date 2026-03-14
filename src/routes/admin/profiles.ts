@@ -23,6 +23,9 @@ router.get('/profiles', (_req: Request, res: Response) => {
       enabled: p.config.enabled,
       // US-449: Per-profile WhatsApp instance assignment
       whatsappInstanceId: profileRegistry.getInstanceForProfile(p.id) ?? null,
+      // External link to the property's public-facing website or app
+      // e.g. pelangicapsulehostel.com, pms-southern.vercel.app, fnb-online-order.vercel.app/en
+      siteUrl: p.config.siteUrl ?? null,
     })),
     defaultProfileId: profileRegistry.getDefaultProfileId(),
   });

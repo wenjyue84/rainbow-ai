@@ -91,6 +91,23 @@
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
         var isActive = p.id === currentId;
+
+        // External link icon — shown for non-active profiles that have a siteUrl set in profiles.json
+        // Profile → siteUrl mapping (to verify in Vercel deployment):
+        //   pelangi       → https://pelangicapsulehostel.com/
+        //   southern      → https://pms-southern.vercel.app/
+        //   makan-moments → https://fnb-online-order.vercel.app/en
+        var externalLinkHtml = p.siteUrl
+          ? '<a href="' + escHtml(p.siteUrl) + '" target="_blank" rel="noopener noreferrer" '
+            + 'onclick="event.stopPropagation()" '
+            + 'class="ml-auto flex-shrink-0 text-neutral-400 hover:text-primary-500 transition-colors" '
+            + 'title="Open ' + escHtml(p.name) + ' site">'
+            + '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+            + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" '
+            + 'd="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>'
+            + '</svg></a>'
+          : '';
+
         html += '<button onclick="window.profileSwitcher.switchTo(\'' + p.id + '\')" '
           + 'class="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition '
           + (isActive
@@ -101,7 +118,9 @@
           + (isActive ? 'bg-primary-500' : 'bg-neutral-300')
           + '"></span>'
           + '<span>' + escHtml(p.name) + '</span>'
-          + (isActive ? '<svg class="w-4 h-4 ml-auto text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : '')
+          + (isActive
+            ? '<svg class="w-4 h-4 ml-auto text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+            : externalLinkHtml)
           + '</button>';
       }
       dd.innerHTML = html;
