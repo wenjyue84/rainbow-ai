@@ -3425,3 +3425,16 @@ Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji
 ## Iteration 1 - Sat, Mar 14, 2026  8:23:34 PM
 Completed: Add static replies for widget quick-reply buttons (vegetarian, budget, hours, specials) (ID: US-808) in 16m
 
+
+## Iteration 2 - Story: US-804 Fix corrupted unicode in makan-moments system prompt
+### What was implemented
+- Replaced all mojibake `â€"` (UTF-8 em dash bytes misread as Windows-1252) with proper `—` (U+2014) across settings.json
+- Replaced `ðŸŒˆ` (UTF-8 rainbow emoji bytes misread as Windows-1252) with proper `🌈` (U+1F308)
+- Fixed 6 occurrences of corrupted em dashes (system_prompt sign-off + 5 provider descriptions)
+- Fixed 1 occurrence of corrupted rainbow emoji in system_prompt sign-off
+### Patterns discovered
+- The mojibake pattern is classic: UTF-8 multi-byte chars interpreted as Windows-1252/Latin-1
+- `â€"` = bytes E2 80 94 (em dash in UTF-8) read as three Latin-1 chars
+- `ðŸŒˆ` = bytes F0 9F 8C 88 (rainbow emoji in UTF-8) read as four Latin-1 chars
+### Gotchas
+- esbuild OOM'd on first build attempt (system resource issue, not code-related) — succeeded on retry
