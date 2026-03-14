@@ -212,7 +212,10 @@ function buildMakanMomentsContext(sessionId: string) {
   const makanSettings = makanProfile?.configStore.getSettings() as any;
   const paymentMethods: string[] | undefined = makanSettings?.paymentMethods;
 
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods });
+  // US-868: Read kitchen queue thresholds from settings
+  const kitchenQueue = makanSettings?.kitchenQueue as { queueWarningThreshold?: number; waitTimeWarningMinutes?: number } | undefined;
+
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);

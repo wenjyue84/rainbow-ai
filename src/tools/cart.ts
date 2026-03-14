@@ -15,7 +15,7 @@ import {
 import {
   transitionOrderStage, clearOrderStage,
 } from '../assistant/order-stage-store.js';
-import { fnbCreateOrder, fnbGetOrderStatus } from './fnb-orders.js';
+import { fnbCreateOrder, fnbGetOrderStatus, fnbGetKitchenStatus } from './fnb-orders.js';
 import { setSessionOrderId, getSessionOrderId } from '../assistant/order-id-store.js';
 import {
   setDisambiguation, getDisambiguation, clearDisambiguation,
@@ -278,6 +278,11 @@ export const cartTools: MCPTool[] = [
 export interface CartHandlerOptions {
   /** Available payment methods for the profile (US-867). Default: ['cash'] */
   paymentMethods?: string[];
+  /** Kitchen queue warning thresholds (US-868) */
+  kitchenQueue?: {
+    queueWarningThreshold?: number;
+    waitTimeWarningMinutes?: number;
+  };
 }
 
 /**
@@ -306,8 +311,44 @@ function formatPaymentGuidance(methods: string[]): string {
  * Create per-session cart handlers that close over the sessionId.
  * Call this once per webchat request and merge the result into the tool handlers map.
  */
+/**
+ * Check kitchen status and return a warning string if the kitchen is busy.
+ * Returns empty string if kitchen is not busy or status unavailable (non-blocking).
+ */
+async function getKitchenWarning(queueThreshold: number, waitThreshold: number): Promise<string> {
+  try {
+    const result = await fnbGetKitchenStatus();
+    if (result.isError) return '';
+
+    const text = result.content.map((c: any) => c.text || '').join('\n').trim();
+    if (!text) return '';
+
+    // Extract pending order count
+    const pendingMatch = text.match(/pending[:\s]*(\d+)/i)
+      || text.match(/queue[:\s]*(\d+)/i)
+      || text.match(/orders?[:\s]*(\d+)/i);
+    const pendingCount = pendingMatch ? parseInt(pendingMatch[1], 10) : 0;
+
+    // Extract estimated wait time in minutes
+    const waitMatch = text.match(/(?:estimated?|wait|eta)[:\s]*(\d+)\s*(?:min|minute)/i);
+    const waitMinutes = waitMatch ? parseInt(waitMatch[1], 10) : 0;
+
+    if (pendingCount > queueThreshold || waitMinutes > waitThreshold) {
+      const waitStr = waitMinutes > 0
+        ? `about ${waitMinutes} minutes`
+        : `about ${Math.max(waitThreshold, 25)} minutes`;
+      return `\n\n⚠️ Note: Kitchen is currently busy. Estimated wait is ${waitStr}.`;
+    }
+  } catch {
+    // Non-blocking: silently skip if anything fails
+  }
+  return '';
+}
+
 export function createCartHandlers(sessionId: string, options?: CartHandlerOptions): Map<string, (args: any) => Promise<MCPToolResult>> {
   const paymentMethods = options?.paymentMethods ?? ['cash'];
+  const queueThreshold = options?.kitchenQueue?.queueWarningThreshold ?? 5;
+  const waitThreshold = options?.kitchenQueue?.waitTimeWarningMinutes ?? 20;
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -492,10 +533,14 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
           ? `\nTable: ${tableInfo.tableNumber}`
           : '\nOrder type: Dine-in'
       : '';
+
+    // US-868: Check kitchen queue status (non-blocking)
+    const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
+
     return {
       content: [{
         type: 'text',
-        text: `Here is your order summary:\n\n${summary}${tableLine}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
+        text: `Here is your order summary:\n\n${summary}${tableLine}${kitchenWarning}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
       }]
     };
   });
@@ -578,10 +623,13 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     // US-867: Append payment method guidance after successful order placement
     const paymentGuidance = formatPaymentGuidance(paymentMethods);
 
+    // US-868: Include kitchen wait time in acknowledgement
+    const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
+
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kitchenWarning}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

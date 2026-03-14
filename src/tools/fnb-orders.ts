@@ -152,6 +152,52 @@ export async function fnbGetOperatingHours(_args: any): Promise<MCPToolResult> {
   return callFnbMcp('fnb_get_operating_hours');
 }
 
+// --- Kitchen status with 2-minute cache (US-868) ---
+
+let kitchenStatusCache: { data: MCPToolResult; timestamp: number } | null = null;
+const KITCHEN_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+export async function fnbGetKitchenStatus(): Promise<MCPToolResult> {
+  // Return cached result if fresh
+  if (kitchenStatusCache && Date.now() - kitchenStatusCache.timestamp < KITCHEN_CACHE_TTL_MS) {
+    return kitchenStatusCache.data;
+  }
+
+  // 2-second timeout to keep it non-blocking
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (FNB_MCP_SECRET) headers['x-mcp-secret'] = FNB_MCP_SECRET;
+
+    const res = await fetch(FNB_MCP_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ tool: 'get_kitchen_status', input: {} }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      return { content: [{ type: 'text', text: '' }], isError: true };
+    }
+
+    const data = await res.json();
+    const text = data.content
+      ? data.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+      : JSON.stringify(data, null, 2);
+
+    const result: MCPToolResult = { content: [{ type: 'text', text }] };
+    kitchenStatusCache = { data: result, timestamp: Date.now() };
+    return result;
+  } catch {
+    clearTimeout(timeoutId);
+    return { content: [{ type: 'text', text: '' }], isError: true };
+  }
+}
+
 // --- Admin tool handlers ---
 
 export async function fnbGetPendingOrders(_args: any): Promise<MCPToolResult> {

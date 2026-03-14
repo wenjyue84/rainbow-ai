@@ -7170,3 +7170,96 @@ Here is the technical brief for implementing user story US-828.
 *   **Stats Source**: The technical notes do not specify where rate-limiting events are logged. This data source must be identified or created to build the `.../stats` endpoint.
 *   **Persistence Complexity**: Files like `migrate-configs-to-db.ts` suggest a potential mix of file-based and DB-based configuration. Ensure you are writing to the correct, canonical `rainbow_configs` layer.
 
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Based on the user story and project files, the context is a Node.js/TypeScript application, not a Frappe/Python project. The following technical brief is adapted for the actual technology stack.
+
+**Technical Brief: US-828 Admin UI for Rate Limiting**
+
+**1. Files to Modify (TypeScript/Node.js):**
+
+*   `src/routes/admin/settings.ts`: To handle reads/writes of the new rate limit config.
+*   `src/routes/admin/stats.ts`: For the new `GET /api/admin/rate-limits/stats` endpoint.
+*   `src/components/Settings/RateLimits.tsx` (New File): A new frontend component for the admin UI.
+*   `shared/schema.ts`: To add the `rate_limits` configuration schema.
+*   `src/lib/config.ts`: To ensure the config service loads and provides the new settings.
+*   `src/services/rate-limiter.ts`: The existing enforcement logic that will consume the new config.
+
+**2. Key DocTypes and Hooks (Project-specific Analogues):**
+
+*   **Config Schema (`rainbow_configs`):** The story involves adding a `rate_limits` object to this existing persistence layer.
+*   **API Routes:**
+    *   `GET /api/admin/settings?profileId=[id]`: Extend to return rate limit settings.
+    *   `POST /api/admin/settings`: Extend to validate and save rate limit settings.
+    *   `GET /api/admin/rate-limits/stats?profileId=[id]`: A new route to provide the 24-hour block count.
+
+**3. Recommended Implementation Approach:**
+
+1.  Extend the configuration schema in `shared/schema.ts` with a `rate_limits` object containing `enabled: boolean` and `max_messages_per_user_per_24h: number`.
+2.  Build the React UI component with a toggle and numeric input, fetching its state from the settings API.
+3.  On save, the UI should `POST` the updated `rate_limits` object for the relevant profile to the `/api/admin/settings` endpoint.
+4.  Implement the `/api/admin/rate-limits/stats` endpoint to query a logging or event table for users who have been rate-limited within the last 24 hours.
+5.  Ensure the existing message-sending pipeline reads the `rate_limits.enabled` and `rate_limits.max_messages_per_user_per_24h` values from the config service for the correct profile.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Config Propagation:** Settings must take effect within 1 minute, implying a potential cache. Ensure the update mechanism invalidates this cache across all relevant services.
+*   **Per-Profile Logic:** All API calls and UI components must correctly handle `profileId` to manage settings on a per-profile basis.
+*   **Stats Performance:** The query for rate-limited users must be efficient. Index the table used for tracking rate-limit events by timestamp and profile ID.
+*   **Zero Value:** Clarify if setting the limit to `0` means "disabled" or "block all". The UI should handle this case gracefully.
+
+## Iteration 1 - Sun, Mar 15, 2026  7:50:44 AM
+Incomplete: Admin UI for per-profile WhatsApp frequency cap and rate limit configuration (ID: US-828) — attempt 2/3
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+---
+
+### **Technical Brief: US-828 Rate Limit Admin UI**
+
+This brief outlines the implementation of a UI for managing per-profile WhatsApp rate limits within the Frappe framework.
+
+**1. DocTypes & Hooks:**
+*   **Primary DocType:** Create a new `DocType` named `WhatsApp Profile Settings`. This will store the rate-limiting rules.
+*   **Fields:**
+    *   `profile_name`: (Data or Link to a future "Profile" DocType)
+    *   `rate_limiting_enabled`: (Check)
+    *   `max_outbound_per_day`: (Int)
+*   **Controller/API:** Use `@frappe.whitelist()` for API endpoints.
+*   **UI:** The new `DocType` will automatically generate a list and form view for admins.
+
+**2. Files to Modify:**
+*   **`.../doctype/whatsapp_profile_settings/whatsapp_profile_settings.py`**: For server-side logic, including the whitelisted function to get rate limit stats.
+*   **`.../doctype/whatsapp_profile_settings/whatsapp_profile_settings.js`**: For custom client-side UI behavior, like fetching and displaying the rate-limited user count.
+*   **Locate & Refactor**: Find the existing Python module where rate-limiting is currently enforced. This logic must be updated to read configuration from the new `WhatsApp Profile Settings` DocType instead of its current source.
+
+**3. Implementation Approach:**
+1.  Define the `WhatsApp Profile Settings` DocType as described above.
+2.  In `whatsapp_profile_settings.py`, create a whitelisted function `get_rate_limit_stats(profile_name)` that queries the message logs to count users who were blocked in the last 24 hours.
+3.  In the enforcement logic file, replace the hardcoded/API-only settings with a Frappe DB call (`frappe.db.get_value` or a document query) to fetch rules from `WhatsApp Profile Settings`.
+4.  The settings will be dynamic, as Frappe document values are read from the database, satisfying the "no restart" requirement.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** The `get_rate_limit_stats` query on message logs could be slow. Consider adding a dedicated, indexed log entry when a user is rate-limited.
+*   **Caching:** Ensure the core enforcement logic doesn't use a stale, cached version of the settings. Fetch settings on-demand when processing a message.
+*   **Defaults:** Implement a fallback behavior for profiles that do not have an explicit rule defined in the new DocType.
+
+
+## Iteration - Sat, Mar 15, 2026 - Story: US-868 Kitchen queue awareness
+### What was implemented
+- Added `fnbGetKitchenStatus()` to `src/tools/fnb-orders.ts` with 2-minute cache and 2-second timeout
+- Added `getKitchenWarning()` helper to `src/tools/cart.ts` that checks kitchen status and returns warning if queue > threshold
+- Modified `order_request_confirmation` handler to show kitchen busy warning before confirmation
+- Modified `order_confirm_submit` handler to include kitchen wait time in order acknowledgement
+- Added `kitchenQueue` config to `src/assistant/data-makan/settings.json` with configurable `queueWarningThreshold` (5) and `waitTimeWarningMinutes` (20)
+- Passed `kitchenQueue` settings through `webchat-api.ts` -> `createCartHandlers`
+- Created `src/tools/service-requests.ts` stub to fix pre-existing broken import in `workflow-enhancer.ts`
+### Patterns discovered
+- Cart handler options pattern: add new config fields to `CartHandlerOptions` interface, read from settings in `webchat-api.ts`, pass through to `createCartHandlers()`
+- Non-blocking MCP calls: use AbortController with timeout + try/catch for graceful degradation
+- Kitchen status cache: simple module-level `{ data, timestamp }` pattern avoids hammering FnB MCP
+### Gotchas
+- Pre-existing build error: `workflow-enhancer.ts` imported non-existent `service-requests.js` — had to create stub
+- The `callFnbMcp` helper doesn't support AbortSignal, so `fnbGetKitchenStatus` uses raw fetch directly
