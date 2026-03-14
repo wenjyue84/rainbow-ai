@@ -4,23 +4,24 @@ import type { DisambiguationCandidate } from '../assistant/disambiguation-store.
 const FNB_MCP_URL = process.env.FNB_MCP_URL || 'http://localhost:3031/api/mcp';
 const FNB_MCP_SECRET = process.env.FNB_MCP_SECRET || '';
 
-// ─── Menu Response Cache (5-minute TTL per profile+category) ─────────────────
+// ─── Menu Response Cache (5-minute TTL per profile+category+tags) ────────────
 const MENU_CACHE_TTL_MS = 5 * 60 * 1000;
 interface MenuCacheEntry { text: string; expiresAt: number; }
 const menuCache = new Map<string, MenuCacheEntry>();
 
-function getMenuCacheKey(profileId: string, category?: string): string {
-  return `${profileId}::${category || '__all__'}`;
+function getMenuCacheKey(profileId: string, category?: string, dietaryTags?: string[]): string {
+  const tagsKey = dietaryTags && dietaryTags.length > 0 ? `::tags:${[...dietaryTags].sort().join(',')}` : '';
+  return `${profileId}::${category || '__all__'}${tagsKey}`;
 }
 
-function getMenuCache(profileId: string, category?: string): string | undefined {
-  const entry = menuCache.get(getMenuCacheKey(profileId, category));
+function getMenuCache(profileId: string, category?: string, dietaryTags?: string[]): string | undefined {
+  const entry = menuCache.get(getMenuCacheKey(profileId, category, dietaryTags));
   if (entry && Date.now() < entry.expiresAt) return entry.text;
   return undefined;
 }
 
-function setMenuCache(profileId: string, text: string, category?: string): void {
-  menuCache.set(getMenuCacheKey(profileId, category), { text, expiresAt: Date.now() + MENU_CACHE_TTL_MS });
+function setMenuCache(profileId: string, text: string, category?: string, dietaryTags?: string[]): void {
+  menuCache.set(getMenuCacheKey(profileId, category, dietaryTags), { text, expiresAt: Date.now() + MENU_CACHE_TTL_MS });
 }
 
 // Re-export for convenience
@@ -29,11 +30,16 @@ export type { DisambiguationCandidate as MenuItem };
 export const fnbMenuTools: MCPTool[] = [
   {
     name: 'fnb_get_menu',
-    description: 'Get the full cafe menu. Optionally filter by category.',
+    description: 'Get the full cafe menu. Optionally filter by category and/or dietary tags.',
     inputSchema: {
       type: 'object',
       properties: {
-        category: { type: 'string', description: 'Category to filter by (optional)' }
+        category: { type: 'string', description: 'Category to filter by (optional)' },
+        dietary_tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Dietary tags to filter by (optional). Supported: vegetarian, vegan, halal, no-pork, no-nuts, gluten-free, dairy-free. AND logic applies — only items matching ALL tags are returned.'
+        }
       }
     },
     allowedProfiles: ['makan-moments']
@@ -108,15 +114,19 @@ async function callFnbMcp(tool: string, input: Record<string, any> = {}): Promis
 export async function fnbGetMenu(args: any): Promise<MCPToolResult> {
   const profileId = args._profileId || 'makan-moments';
   const category = args.category as string | undefined;
-  const cached = getMenuCache(profileId, category);
+  const dietaryTags = Array.isArray(args.dietary_tags) ? (args.dietary_tags as string[]) : undefined;
+
+  const cached = getMenuCache(profileId, category, dietaryTags);
   if (cached) return { content: [{ type: 'text', text: cached }] };
 
   const input: Record<string, any> = {};
   if (category) input.category = category;
+  if (dietaryTags && dietaryTags.length > 0) input.dietary_tags = dietaryTags;
+
   const result = await callFnbMcp('fnb_get_menu', input);
   if (!result.isError) {
     const text = result.content[0]?.text || '';
-    if (text) setMenuCache(profileId, text, category);
+    if (text) setMenuCache(profileId, text, category, dietaryTags);
   }
   return result;
 }
