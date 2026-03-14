@@ -55,6 +55,7 @@ import {
 } from './lib/slow-query-monitor.js';
 import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
+import { startHandoffSlaCron } from './lib/handoff-sla.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -175,6 +176,9 @@ startQualityMetricsJob();
 
 // US-814: Start daily fallback rate alert scheduler (runs at 8AM)
 startFallbackAlertScheduler();
+
+// US-836: Start SLA cron for human handoff breach alerts (runs every 2 min)
+startHandoffSlaCron();
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

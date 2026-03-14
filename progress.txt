@@ -5910,3 +5910,55 @@ Here is the technical brief for implementing the profile cloning feature.
 *   **Exclusions:** Explicitly ensure WhatsApp auth state, phone numbers, or other instance-specific settings are not copied, per the technical notes.
 *   **Performance:** Use Drizzle's batch insert capability for efficiency to meet the 5-second completion requirement.
 
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+### Technical Brief: US-827 Profile Cloning for Frappe/Python
+
+This story requires a backend function to duplicate a configuration profile. The implementation will be a whitelisted Python method within the `lhdn_payroll_integration` app.
+
+**1. Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: Create a new `clone_profile` function here to contain the core logic.
+*   `lhdn_payroll_integration/hooks.py`: Add the path to the new `clone_profile` function to the `whitelisted_methods` list to expose it as an API endpoint.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Primary DocType:** A central "Business Profile" DocType is the target for cloning.
+*   **Child DocTypes:** The settings to be copied (routing, intents, etc.) are likely stored in Child DocTypes linked to the main profile DocType.
+*   **Hook:** `whitelisted_methods` for the API endpoint.
+
+**3. Implementation Approach:**
+1.  Define a whitelisted function: `clone_profile(source_profile, new_name)`.
+2.  Use `frappe.copy_doc()` to create a deep copy of the source profile document. This automatically duplicates child table entries.
+3.  After copying, programmatically fetch the new document.
+4.  Clear any fields that should not be transferred (e.g., WhatsApp connection details, phone numbers) by setting them to `None`.
+5.  Save the newly modified document using `doc.save()`.
+
+**4. Edge Cases & Gotchas:**
+*   **`frappe.copy_doc`:** Ensure any sensitive or instance-specific fields in the DocType definition are marked with "No Copy" to prevent them from being duplicated.
+*   **Permissions:** The cloning logic must handle Frappe's permission model, likely by using `ignore_permissions=True` during the save operation.
+*   **Naming:** The new profile name must be unique. The API method should validate this and return an error if the name is already taken.
+
+
+## Iteration 6 - Story: US-836 Human handoff SLA timer with breach alert to admin
+
+### What was implemented
+- `src/lib/handoff-sla.ts` — new module with:
+  - `startHandoffSlaCron()` — setInterval every 2 min, queries DB for escalations past SLA window
+  - `markHumanResponded(jid)` — updates human_responded_at on open escalations for a JID
+  - `getOpenHandoffs()` — admin dashboard query with green/amber/red SLA status
+  - SLA breach detection queries `escalation_events WHERE sla_breached_at IS NULL AND human_responded_at IS NULL AND created_at <= NOW() - sla_duration`
+  - Safety check: `NOT EXISTS (manual=true message in rainbow_messages after escalation)` to catch admin-sent messages
+- `src/lib/escalation-events.ts` — no changes (table already had sla_breached_at, human_responded_at)
+- `src/assistant/escalation.ts` — imports markHumanResponded from handoff-sla
+- `src/routes/admin/conversations.ts` — calls markHumanResponded after admin manual message send
+- `src/routes/admin/escalations.ts` — new endpoint `GET /escalations/handoffs/open` returning SLA dashboard data
+- `src/index.ts` — imports and calls startHandoffSlaCron() at startup
+
+### Patterns discovered
+- Cron jobs use setInterval with .unref() to avoid blocking test process
+- Admin manual messages are the primary way to detect human response (manual=true in rainbow_messages)
+- getWhatsAppStatus() returns 'connected' when WhatsApp is ready for sending
+- Default SLA is 15 minutes, configurable via settings.handoff.slaDurationMinutes
+
+### Gotchas
+- getSlaConfiguredMinutes uses dynamic import (ESM) to avoid circular dependency at module load
+- `NOT EXISTS` subquery on manual=true messages serves as DB-level safety net independent of markHumanResponded calls

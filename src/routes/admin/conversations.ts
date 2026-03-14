@@ -371,6 +371,10 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
     const { logMessage } = await import('../../assistant/conversation-logger.js');
     await logMessage(phone, pushName, 'assistant', message, { manual: true, instanceId: targetInstanceId, staffName: senderName });
 
+    // US-836: Mark SLA timer as resolved (human responded)
+    const { markHumanResponded } = await import('../../lib/handoff-sla.js');
+    markHumanResponded(phone).catch(() => {});
+
     console.log(`[Admin] Manual message sent by ${senderName} to ${phone} via ${targetInstanceId || 'default'}: ${message.substring(0, 50)}...`);
     ok(res, { message: 'Message sent successfully', usedInstance: targetInstanceId, staffName: senderName });
   } catch (err: any) {

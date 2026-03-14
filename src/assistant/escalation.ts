@@ -6,6 +6,7 @@ import { updateConversationMode } from './conversation-logger.js';
 import { logEscalationEvent } from '../lib/escalation-events.js';
 import { pool } from '../lib/db.js';
 import { sessionWindowActive, logSessionExpired } from '../lib/session-window.js';
+import { markHumanResponded } from '../lib/handoff-sla.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 

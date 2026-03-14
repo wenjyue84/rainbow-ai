@@ -1,14 +1,16 @@
 /**
- * Admin API: Escalation Events (US-429)
+ * Admin API: Escalation Events (US-429, US-836)
  *
- * GET /escalations        — List recent escalation events
- * GET /escalations/:id    — Get single escalation event with summary
+ * GET /escalations              — List recent escalation events
+ * GET /escalations/:id          — Get single escalation event with summary
+ * GET /escalations/handoffs/open — Open handoffs with SLA status (US-836)
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
 import { escalationEvents } from '../../../shared/schema-tables.js';
 import { eq, desc } from 'drizzle-orm';
+import { getOpenHandoffs } from '../../lib/handoff-sla.js';
 
 const router = Router();
 
@@ -23,6 +25,12 @@ router.get('/escalations', async (_req: Request, res: Response) => {
     .limit(limit);
 
   res.json({ escalations: rows });
+});
+
+// GET /escalations/handoffs/open — Open handoffs with SLA status (US-836)
+router.get('/escalations/handoffs/open', async (_req: Request, res: Response) => {
+  const handoffs = await getOpenHandoffs();
+  res.json({ handoffs });
 });
 
 // GET /escalations/:id — Get single escalation event with summary
