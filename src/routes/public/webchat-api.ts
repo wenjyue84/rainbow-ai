@@ -15,6 +15,7 @@ import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
 import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
+import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 
 const router = Router();
 
@@ -164,18 +165,41 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       const cartHandlers = createCartHandlers(sessionId);
       allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
-      // Inject current cart state into the system prompt context
+      // Inject current cart state and order stage into the system prompt context
       const currentCartItems = cartGetItems(sessionId);
       const cartSummary = cartFormatSummary(currentCartItems);
+      const currentStage = getOrderStage(sessionId);
+      const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
       systemPromptSuffix = [
-        '## Current Cart State',
+        '## Current Order State',
         `Session: ${sessionId}`,
+        `Order Stage: ${currentStage} — ${stageDescription}`,
+        '',
+        '## Current Cart',
         cartSummary,
         '',
-        '## Cart Instructions',
-        'You are an AI waiter. Use cart_add_item to add items when guests order, cart_remove_item when they cancel/remove items, cart_view when they ask what they\'ve ordered, and cart_clear after an order is placed or when they want to start over.',
-        'Always confirm what you\'ve added or removed from the cart in your response.',
-        'Accumulate orders across multiple messages — do NOT submit an order unless the guest explicitly confirms.',
+        '## Order Stage Machine — STRICT RULES',
+        'You are an AI waiter. Follow these rules based on the order stage:',
+        '',
+        'BROWSING stage: Guest is asking about the menu. Answer questions, describe dishes, show prices.',
+        '  • Do NOT add anything to cart unless guest expresses clear intent to order.',
+        '',
+        'ORDERING stage: Guest is adding items to their order.',
+        '  • Use cart_add_item when guest says "I want X", "give me X", "order X", "can I get X".',
+        '  • Use cart_remove_item when guest says remove/cancel/drop an item.',
+        '  • Use cart_view when guest asks to see their current order.',
+        '  • When guest signals they are DONE ordering (e.g. "that\'s all", "place my order", "ready to order"),',
+        '    call order_request_confirmation to show the summary and ask "Shall I place this order?".',
+        '  • Do NOT submit the order on your own — always confirm first.',
+        '',
+        'CONFIRMING stage: You already asked "Shall I place this order?" — WAIT for yes/no.',
+        '  • If guest says YES / confirm / go ahead / place it: call order_confirm_submit.',
+        '  • If guest says NO / wait / cancel / change my mind: call order_back_to_cart.',
+        '  • Do NOT ask for confirmation again — you are already in confirming stage.',
+        '',
+        'PLACED stage: Order submitted. Cart is cleared.',
+        '  • Thank the guest. Offer to help with anything else.',
+        '  • If they want to order again, start fresh from BROWSING.',
       ].join('\n');
     }
 
