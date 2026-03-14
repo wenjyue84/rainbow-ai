@@ -2957,3 +2957,27 @@ Incomplete: Add slow query monitoring via pg_stat_statements on Neon (ID: US-515
 ### Gotchas
 - processChat returns the complete response synchronously — true token-by-token streaming would require changes to ai-client.ts
 - For now, the full response is sent as a single SSE text event which matches what fnb-online-ordering expects
+## Iteration 1 - Sat, Mar 14, 2026  4:50:41 PM
+Completed: Add /api/fnb/chat SSE streaming endpoint in rainbow-ai (ID: US-601) in 5m
+
+
+## Iteration 14 - Story: US-602 - Add FnB MCP client tools for menu browsing
+### What was implemented
+- Created `src/tools/fnb-menu.ts` with 4 MCP tool definitions and handlers:
+  - fnb_get_menu: full menu, optional category filter
+  - fnb_get_menu_item: single item lookup by code
+  - fnb_get_categories: list all categories
+  - fnb_get_cafe_info: hours, address, WiFi, FAQ
+- Shared `callFnbMcp()` helper that POSTs to FNB_MCP_URL with {tool, input} body
+- Handles both MCP {content:[...]} and raw JSON responses
+- Network errors return graceful error messages (no throws)
+- Added FNB_MCP_URL and FNB_MCP_SECRET to .env.example
+
+### Patterns discovered
+- FnB MCP tools are HTTP client tools (call external service) vs existing tools which call internal APIs via callAPI()
+- Global fetch (Node 18+) used instead of importing a library — no extra dependency needed
+- Tool file exports both the tools array (fnbMenuTools) and individual handler functions
+
+### Gotchas
+- Tools are NOT yet registered in registry.ts — that's US-604 (separate story)
+- FNB_MCP_URL defaults to http://localhost:3031/api/mcp when env var is not set
