@@ -1,5 +1,5 @@
 {
-  "productName": "Rainbow AI — FnB AI Waiter Enhancement",
+  "productName": "Rainbow AI \u2014 FnB AI Waiter Enhancement",
   "branchName": "master",
   "overview": "End-to-end AI waiter integration: rainbow-ai makan-moments profile handles customer chat from fnb-online-ordering, acting as MCP client to query live menu data and place orders in the fnb-online-ordering system.",
   "goals": [
@@ -48,125 +48,82 @@
       "id": "US-604a",
       "title": "Tag FnB tools with allowedProfiles in MCPTool type",
       "priority": "high",
-      "description": "Single-file change: add optional allowedProfiles field to MCPTool interface in src/types/mcp.ts, then add allowedProfiles: ['makan-moments'] to each tool definition in src/tools/fnb-menu.ts and src/tools/fnb-orders.ts. Do NOT change registry.ts yet — that is US-604b.",
-      "acceptanceCriteria": [
-        "src/types/mcp.ts MCPTool interface has: allowedProfiles?: string[]",
-        "All 4 tool objects in src/tools/fnb-menu.ts have allowedProfiles: ['makan-moments']",
-        "All tool objects in src/tools/fnb-orders.ts have allowedProfiles: ['makan-moments']",
-        "Existing hostel tool files (guests.ts, units.ts, etc.) are NOT modified",
-        "TypeScript compiles without errors (npm run check)"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-602",
+        "US-603"
       ],
-      "technicalNotes": [
-        "ONLY edit 3 files: src/types/mcp.ts, src/tools/fnb-menu.ts, src/tools/fnb-orders.ts",
-        "In mcp.ts find the MCPTool interface and add: allowedProfiles?: string[]",
-        "In fnb-menu.ts and fnb-orders.ts, add allowedProfiles: ['makan-moments'] to each tool object in the array",
-        "Do not touch registry.ts, chat-engine.ts, or any other file"
-      ],
-      "dependencies": ["US-602", "US-603"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-604b",
       "title": "Add getToolsForProfile() to ToolRegistry filtering by allowedProfiles",
       "priority": "high",
-      "description": "Single-file change: update src/tools/registry.ts to add a getToolsForProfile(profileId: string) method. This method returns only tools whose allowedProfiles includes the profileId, OR tools with no allowedProfiles (backwards-compatible: untagged tools are available to all profiles). The existing getTools() method stays unchanged for backwards compatibility.",
-      "acceptanceCriteria": [
-        "src/tools/registry.ts has a new getToolsForProfile(profileId: string): MCPTool[] method",
-        "getToolsForProfile('makan-moments') returns fnb tools (fnb_get_menu, fnb_create_order, etc.) but NOT hostel tools",
-        "getToolsForProfile('pelangi') returns hostel tools (list_guests, get_guest, etc.) but NOT fnb tools",
-        "getToolsForProfile('pelangi') still returns tools that have no allowedProfiles set (backwards compatible)",
-        "TypeScript compiles without errors (npm run check)"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-604a"
       ],
-      "technicalNotes": [
-        "ONLY edit src/tools/registry.ts",
-        "Add method: getToolsForProfile(profileId: string): MCPTool[] { return this.tools.filter(t => !t.allowedProfiles || t.allowedProfiles.includes(profileId)); }",
-        "Also add getHandlersForProfile(profileId: string) similarly for the handlers map",
-        "Do NOT remove or change getTools() — keep it for backwards compatibility",
-        "Also register fnbMenuTools and fnbOrdersTools in the constructor: import them from fnb-menu.ts and fnb-orders.ts and call this.register() for each"
-      ],
-      "dependencies": ["US-604a"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-604c",
       "title": "Update makan-moments system prompt to mention live FnB tools",
       "priority": "high",
-      "description": "Single-file change: update src/assistant/data-makan/settings.json to add a sentence to system_prompt telling the AI it has access to live menu and order tools. This makes the AI aware it should USE the tools rather than guess from training data.",
-      "acceptanceCriteria": [
-        "src/assistant/data-makan/settings.json system_prompt contains a sentence about live menu tools",
-        "The added sentence mentions: fnb_get_menu for menu questions, fnb_create_order for placing orders, fnb_get_order_status for checking orders",
-        "Existing system_prompt content is preserved — only append, do not replace",
-        "Valid JSON (no parse errors)"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-604a"
       ],
-      "technicalNotes": [
-        "ONLY edit src/assistant/data-makan/settings.json",
-        "Read the file first, then append to the system_prompt string",
-        "Append: ' You have access to live cafe tools: use fnb_get_menu to look up the current menu and prices, fnb_create_order to place a pre-order for a customer, and fnb_get_order_status to check an existing order. Always use these tools for accurate, real-time information instead of guessing.'"
-      ],
-      "dependencies": ["US-604a"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-605",
       "title": "Verify /api/fnb/chat connects to makan-moments profile with FnB MCP tools end-to-end",
       "priority": "high",
-      "description": "Integration check: run npm run check in rainbow-ai to confirm TypeScript is clean. Then do a curl smoke test against /api/fnb/chat to confirm it responds. Fix any wiring issues found. Add FNB_MCP_URL to .env.example.",
-      "acceptanceCriteria": [
-        "npm run check passes in rainbow-ai with no new errors",
-        "curl -X POST http://localhost:3002/api/fnb/chat -H 'Content-Type: application/json' -d '{\"message\":\"hello\",\"history\":[]}' returns an SSE response (does not need live fnb server)",
-        "FNB_MCP_URL=http://localhost:3031/api/mcp added to .env.example with comment",
-        "FNB_MCP_SECRET added to .env.example with comment"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-601",
+        "US-604b",
+        "US-604c"
       ],
-      "technicalNotes": [
-        "Run: npm run check — fix any new TS errors introduced by US-604a/b/c",
-        "Run: npm run build — ensure esbuild bundle succeeds",
-        "Check .env.example exists and add the two new vars if missing",
-        "The curl test just needs a response — the AI may not call fnb tools if FNB_MCP_URL is not set, that is OK"
-      ],
-      "dependencies": ["US-601", "US-604b", "US-604c"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-606",
       "title": "Enhance fnb-online-ordering AI waiter chat UI with order-aware quick replies",
       "priority": "medium",
-      "description": "Update the fnb-online-ordering chat widget quick replies and placeholder text. In src/components/chat/quick-replies.tsx update the initial suggestion buttons to be FnB-specific: 'Show me the menu', 'What are today's specials?', 'Place an order', 'Check my order status', 'What time do you open?'. In src/components/chat/chat-panel.tsx update the input placeholder to 'Ask about the menu or place an order...'.",
-      "acceptanceCriteria": [
-        "QuickReplies initial buttons include 'Show me the menu' and 'Place an order'",
-        "Input placeholder text is 'Ask about the menu or place an order...'",
-        "No TypeScript errors in fnb-online-ordering (npm run build passes)"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-605"
       ],
-      "technicalNotes": [
-        "Project path: C:/Users/Jyue/Documents/1-projects/Software Projects/fnb-online-ordering",
-        "File: src/components/chat/quick-replies.tsx — update the initial quick reply buttons array",
-        "File: src/components/chat/chat-panel.tsx — update placeholder prop on the input element",
-        "Keep changes minimal — do not add order confirmation cards (that is a future story)"
-      ],
-      "dependencies": ["US-605"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-607",
       "title": "Add .env.example documentation for FnB AI waiter integration in rainbow-ai",
       "priority": "low",
-      "description": "Update rainbow-ai's .env.example to document FNB_MCP_URL and FNB_MCP_SECRET. Update WIDGET_SETTINGS.md with a quick-start guide for the FnB AI waiter integration.",
-      "acceptanceCriteria": [
-        ".env.example has FNB_MCP_URL with comment",
-        ".env.example has FNB_MCP_SECRET with comment",
-        "WIDGET_SETTINGS.md has a section: FnB AI Waiter Integration"
+      "description": "Done.",
+      "acceptanceCriteria": [],
+      "technicalNotes": [],
+      "dependencies": [
+        "US-605"
       ],
-      "technicalNotes": [
-        "Check existing .env.example in rainbow-ai root",
-        "WIDGET_SETTINGS.md is an untracked file in rainbow-ai root — update it"
-      ],
-      "dependencies": ["US-605"],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     }
   ]
 }
