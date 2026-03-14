@@ -188,6 +188,8 @@ export interface EscalationContext {
   recentMessages: string[];
   originalMessage: string;
   instanceId?: string; // Reply via the same WhatsApp instance
+  profileId?: string; // Profile that triggered escalation (for admin deep-link)
+  triggerDetail?: string; // Intent/keyword that triggered escalation
   metadata?: Record<string, any>; // Additional context (e.g., configError, workflowId)
 }
 

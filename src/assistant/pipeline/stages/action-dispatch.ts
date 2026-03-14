@@ -91,6 +91,8 @@ async function handleStaticReply(
       phone, pushName: msg.pushName, reason: 'complaint',
       recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
       originalMessage: text, instanceId: msg.instanceId,
+      profileId: state.profileId,
+      triggerDetail: `Intent: ${result.intent}`,
     });
     diaryEvent.escalated = true;
     console.log(`[Dispatch] Complaint override: ${result.intent} → LLM + escalate`);
@@ -105,6 +107,8 @@ async function handleStaticReply(
       phone, pushName: msg.pushName, reason: 'unknown_repeated',
       recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
       originalMessage: text, instanceId: msg.instanceId,
+      profileId: state.profileId,
+      triggerDetail: `Repeated unknown intent (${repeatCheck.count + 1}x): ${result.intent}`,
     });
     console.log(`[Dispatch] Repeat escalation: ${result.intent} (${repeatCheck.count + 1}x)`);
   } else if (repeatCheck.isRepeat) {
@@ -212,6 +216,8 @@ async function handleEscalate(
     phone, pushName: msg.pushName, reason: 'complaint',
     recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
     originalMessage: text, instanceId: msg.instanceId,
+    profileId: state.profileId,
+    triggerDetail: `Intent: ${result.intent}`,
   });
 }
 
@@ -380,6 +386,8 @@ async function handleLLMReply(
         phone, pushName: msg.pushName, reason: 'unknown_repeated',
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
+        profileId: state.profileId,
+        triggerDetail: `Consecutive fallback (${unknownCount}x unmatched)`,
       });
       context.resetUnknown(phone);
       console.log(`[Dispatch] Stage 2 escalation (US-445): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);

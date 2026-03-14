@@ -4580,3 +4580,23 @@ Completed: CSAT and resolution rate analytics with alert thresholds in admin das
 ### Gotchas
 - `isNull` from drizzle-orm used for WHERE processed_at IS NULL query — don't use sql template for this
 - Unused `lt` import from drizzle-orm removed to keep imports clean
+## Iteration 3 - Sat, Mar 14, 2026 11:40:00 PM
+Completed: WhatsApp opt-out tracking and 24-hour compliance processing enforcement (ID: US-812) in 10m
+
+
+## Iteration N - Story: US-813 Human handoff escalation notification includes last 5 messages
+### What was implemented
+- Added `profileId` and `triggerDetail` (optional) fields to `EscalationContext` interface in `types.ts`
+- Added `fetchLastDbMessages()` helper in `escalation.ts` that queries `rainbow_messages WHERE phone = ? ORDER BY timestamp DESC LIMIT 5`, reverses for chronological order, falls back to in-memory slice on DB error
+- Updated `escalateToStaff()` to use DB messages (last 5), build admin deep-link from `DIGIMAN_API_URL`, and include `triggerDetail` in notification body
+- Updated secondary fallback message to include same deep-link and trigger detail
+- Updated 4 `escalateToStaff()` call sites in `action-dispatch.ts` to pass `profileId: state.profileId` and descriptive `triggerDetail`
+
+### Patterns discovered
+- `pool` is exported from `src/lib/db.js` for raw pg queries
+- `state.profileId` is available in pipeline stages for passing to escalation context
+- `DIGIMAN_API_URL` or `PELANGI_API_URL` env var is the admin panel base URL
+
+### Gotchas
+- Empty string lines in notification arrays must be filtered (`.filter(line => line !== '')`) since triggerLine and deepLink may be empty strings
+- The fallback message used `> ${recentMsgs}` (double-wrapping the blockquotes) — corrected to just `recentMsgs`

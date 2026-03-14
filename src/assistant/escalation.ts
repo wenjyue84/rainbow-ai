@@ -4,6 +4,7 @@ import { configStore } from './config-store.js';
 import { updateSlots } from './conversation.js';
 import { updateConversationMode } from './conversation-logger.js';
 import { logEscalationEvent } from '../lib/escalation-events.js';
+import { pool } from '../lib/db.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 
@@ -37,6 +38,30 @@ export function destroyEscalation(): void {
   pendingEscalations.clear();
 }
 
+/**
+ * Fetch last N messages from rainbow_messages for a given phone number.
+ * Returns formatted strings like "user: hello" / "assistant: hi there".
+ * Falls back to empty array on DB error.
+ */
+async function fetchLastDbMessages(phone: string, limit: number): Promise<string[]> {
+  try {
+    const result = await pool.query(
+      `SELECT role, content FROM rainbow_messages
+       WHERE phone = $1
+       ORDER BY timestamp DESC
+       LIMIT $2`,
+      [phone, limit]
+    );
+    // Reverse so oldest is first (chronological order)
+    return (result.rows as Array<{ role: string; content: string }>)
+      .reverse()
+      .map(r => `${r.role}: ${r.content}`);
+  } catch (err: any) {
+    console.warn('[Escalation] Failed to fetch DB messages for handoff, using in-memory:', err.message);
+    return [];
+  }
+}
+
 export async function escalateToStaff(context: EscalationContext): Promise<string> {
   if (!sendMessageFn) {
     console.error('[Escalation] sendMessage not initialized');
@@ -56,22 +81,39 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   const label = reasonLabels[context.reason] || 'Unknown reason';
 
-  // US-410: Include last 10 messages in escalation notification
-  const historyMessages = context.recentMessages.slice(-10);
+  // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
+  const dbMessages = await fetchLastDbMessages(context.phone, 5);
+  const historyMessages = dbMessages.length > 0
+    ? dbMessages
+    : context.recentMessages.slice(-5);
   const recentMsgs = historyMessages.map(m => `> ${m}`).join('\n');
+
+  // US-813: Build admin panel deep-link
+  const adminBaseUrl = (process.env.DIGIMAN_API_URL || process.env.PELANGI_API_URL || '').replace(/\/+$/, '');
+  const profileId = context.profileId || 'pelangi';
+  const deepLink = adminBaseUrl
+    ? `${adminBaseUrl}/admin#conversations?profileId=${profileId}&phone=${context.phone}`
+    : '';
+
+  // US-813: Include trigger detail (intent/keyword) if provided
+  const triggerLine = context.triggerDetail
+    ? `*Trigger:* ${context.triggerDetail}`
+    : '';
 
   const staffMessage = [
     `*[ESCALATION — BOT PAUSED]* ${label}`,
     ``,
     `*Guest:* ${context.pushName} (+${context.phone})`,
     `*Reason:* ${label}`,
+    triggerLine,
     `*Last message:* ${context.originalMessage}`,
+    deepLink ? `*View conversation:* ${deepLink}` : '',
     ``,
     `*Conversation history (last ${historyMessages.length}):*`,
     recentMsgs,
     ``,
     `_Bot is paused for this guest. Reply !resolve ${context.phone} to resume AI._`
-  ].join('\n');
+  ].filter(line => line !== '').join('\n');
 
   // US-410: Set conversation to manual mode (freeze bot)
   updateSlots(context.phone, { responseMode: 'manual' });
@@ -129,11 +171,13 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
         ``,
         `*Guest:* ${context.pushName} (+${context.phone})`,
         `*Reason:* ${label}`,
+        triggerLine,
         `*Last message:* ${context.originalMessage}`,
+        deepLink ? `*View conversation:* ${deepLink}` : '',
         ``,
         `*Recent conversation:*`,
-        `> ${recentMsgs}`
-      ].join('\n');
+        recentMsgs
+      ].filter(line => line !== '').join('\n');
 
       if (sendMessageFn) {
         await sendMessageFn(currentEsc.secondary_phone, fallbackMsg, context.instanceId);
