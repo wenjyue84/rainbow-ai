@@ -9,6 +9,35 @@ const MENU_CACHE_TTL_MS = 5 * 60 * 1000;
 interface MenuCacheEntry { text: string; expiresAt: number; }
 const menuCache = new Map<string, MenuCacheEntry>();
 
+// ─── Daily Specials Cache (30-min TTL, expires at midnight) ──────────────────
+const SPECIALS_CACHE_TTL_MS = 30 * 60 * 1000;
+interface SpecialsCacheEntry { text: string; expiresAt: number; }
+const specialsCache = new Map<string, SpecialsCacheEntry>();
+
+function getSpecialsCacheKey(profileId: string): string {
+  return `specials::${profileId}`;
+}
+
+function getMidnightTimestamp(): number {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return midnight.getTime();
+}
+
+function getSpecialsCache(profileId: string): string | undefined {
+  const entry = specialsCache.get(getSpecialsCacheKey(profileId));
+  if (entry && Date.now() < entry.expiresAt) return entry.text;
+  return undefined;
+}
+
+function setSpecialsCache(profileId: string, text: string): void {
+  const ttlExpiry = Date.now() + SPECIALS_CACHE_TTL_MS;
+  const midnightExpiry = getMidnightTimestamp();
+  // Expire at whichever comes first: 30-min TTL or midnight
+  const expiresAt = Math.min(ttlExpiry, midnightExpiry);
+  specialsCache.set(getSpecialsCacheKey(profileId), { text, expiresAt });
+}
+
 function getMenuCacheKey(profileId: string, category?: string, dietaryTags?: string[], maxPrice?: number): string {
   const tagsKey = dietaryTags && dietaryTags.length > 0 ? `::tags:${[...dietaryTags].sort().join(',')}` : '';
   const priceKey = maxPrice ? `::maxPrice:${maxPrice}` : '';
@@ -71,6 +100,15 @@ export const fnbMenuTools: MCPTool[] = [
   {
     name: 'fnb_get_cafe_info',
     description: 'Get cafe info: hours, address, WiFi, FAQ',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  {
+    name: 'fnb_get_daily_specials',
+    description: 'Get today\'s daily specials, promotions, and limited-time items. Returns items marked as special or on promotion with original and discounted prices.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -178,6 +216,49 @@ export async function fnbGetCategories(_args: any): Promise<MCPToolResult> {
 
 export async function fnbGetCafeInfo(_args: any): Promise<MCPToolResult> {
   return callFnbMcp('fnb_get_cafe_info');
+}
+
+/**
+ * US-864: Get daily specials and promotions.
+ * Tries fnb_get_daily_specials MCP endpoint first; falls back to fnb_get_menu with isSpecial=true.
+ * Cached for 30 minutes per profile, expires at midnight for fresh daily specials.
+ */
+export async function fnbGetDailySpecials(args: any): Promise<MCPToolResult> {
+  const profileId = args._profileId || 'makan-moments';
+
+  const cached = getSpecialsCache(profileId);
+  if (cached) return { content: [{ type: 'text', text: cached }] };
+
+  // Try dedicated specials endpoint first
+  let result = await callFnbMcp('fnb_get_daily_specials', {});
+
+  // Fallback: use fnb_get_menu with isSpecial filter if dedicated endpoint returns error
+  if (result.isError) {
+    result = await callFnbMcp('fnb_get_menu', { is_special: true });
+  }
+
+  if (!result.isError) {
+    const text = result.content[0]?.text || '';
+    if (text) {
+      const formatted = formatSpecialsResponse(text);
+      setSpecialsCache(profileId, formatted);
+      return { content: [{ type: 'text', text: formatted }] };
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Format the specials response to highlight urgency and pricing.
+ * Adds urgency indicators for limited-quantity items.
+ */
+function formatSpecialsResponse(text: string): string {
+  // Add urgency markers for limited quantity mentions
+  return text
+    .replace(/only\s+(\d+)\s+left/gi, '⚡ Only $1 left today')
+    .replace(/limited\s+(?:to\s+)?(\d+)/gi, '⚡ Limited to $1')
+    .replace(/(\d+)\s+(?:portion|serving|item)s?\s+(?:only|left|remaining)/gi, '⚡ $1 $2 only');
 }
 
 // ─── Structured Menu Item Fetch (for disambiguation) ──────────────────────────

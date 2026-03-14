@@ -17,7 +17,7 @@ import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
 import { buildListMessage, listMessageToText } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
-import { fnbGetMenu } from '../../../tools/fnb-menu.js';
+import { fnbGetMenu, fnbGetDailySpecials } from '../../../tools/fnb-menu.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -363,6 +363,12 @@ async function handleLLMReply(
     return;
   }
 
+  // US-864: Handle MENU_SPECIALS intent specially
+  if (result.intent === 'MENU_SPECIALS') {
+    await handleMenuSpecials(state, context);
+    return;
+  }
+
   state.response = result.response;
 
   // Track unknown intents OR low-confidence results for operator escalation
@@ -486,6 +492,55 @@ async function handleMenuFilterPrice(
   } else {
     state.response = result.content[0]?.text || 'I couldn\'t retrieve the menu. Please ask our staff for assistance.';
   }
+}
+
+/**
+ * US-864: Handle MENU_SPECIALS intent
+ * Fetches daily specials and promotions via fnbGetDailySpecials.
+ * Falls back to a graceful message if no specials are found.
+ */
+async function handleMenuSpecials(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const lang = state.convo.language || 'en';
+
+  console.log(`[Dispatch] US-864 MENU_SPECIALS: fetching specials for profile=${state.profileId}`);
+
+  const result = await fnbGetDailySpecials({ _profileId: state.profileId });
+
+  if (result.isError) {
+    const errorMessages: Record<string, string> = {
+      en: "I'm unable to check today's specials right now. Please ask our staff or check back shortly!",
+      ms: "Maaf, saya tidak dapat menyemak promosi hari ini buat masa ini. Sila tanya staf kami atau cuba lagi sebentar.",
+      zh: "抱歉，我现在无法查看今日特餐。请询问我们的员工或稍后再试！"
+    };
+    state.response = errorMessages[lang] || errorMessages.en;
+    return;
+  }
+
+  const text = result.content[0]?.text || '';
+
+  if (!text || text.trim().length === 0) {
+    // No specials today — offer popular items instead
+    const noSpecialsMessages: Record<string, string> = {
+      en: "There are no specials today, but our menu is always full of great choices! Would you like to see the full menu?",
+      ms: "Tiada promosi khas hari ini, tetapi menu kami sentiasa penuh dengan pilihan yang hebat! Nak tengok menu penuh?",
+      zh: "今天没有特别优惠，但我们的菜单一直有很多好选择！要看完整菜单吗？"
+    };
+    state.response = noSpecialsMessages[lang] || noSpecialsMessages.en;
+    return;
+  }
+
+  const headerMessages: Record<string, string> = {
+    en: "Here are today's specials and promotions! 🌟",
+    ms: "Ini promosi dan special hari ini! 🌟",
+    zh: "今日特餐和优惠来了！🌟"
+  };
+
+  state.response = `${headerMessages[lang] || headerMessages.en}\n\n${text}`;
 }
 
 /**

@@ -9,7 +9,7 @@ import { problemTools, listProblems, exportWhatsappIssues } from './problems.js'
 // FnB tools (makan-moments profile only)
 import {
   fnbMenuTools,
-  fnbGetMenu, fnbGetMenuItem, fnbGetCategories, fnbGetCafeInfo
+  fnbGetMenu, fnbGetMenuItem, fnbGetCategories, fnbGetCafeInfo, fnbGetDailySpecials
 } from './fnb-menu.js';
 import {
   fnbOrderTools,
@@ -117,7 +117,8 @@ class ToolRegistry {
       fnb_get_menu: fnbGetMenu,
       fnb_get_menu_item: fnbGetMenuItem,
       fnb_get_categories: fnbGetCategories,
-      fnb_get_cafe_info: fnbGetCafeInfo
+      fnb_get_cafe_info: fnbGetCafeInfo,
+      fnb_get_daily_specials: fnbGetDailySpecials
     };
     return map[name] || ((_args) => Promise.resolve({ content: [{ type: 'text', text: `Unknown fnb menu tool: ${name}` }], isError: true }));
   }

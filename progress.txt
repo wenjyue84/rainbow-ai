@@ -6810,3 +6810,62 @@ Here is a technical brief tailored to the actual project context:
 *   **Stat Query Performance:** The query for counting rate-limited users must be efficient and indexed, especially if the event log is large.
 *   **Input Validation:** The numeric input for `max_messages` should be validated on both the client and server (e.g., must be a positive integer).
 
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not a Frappe/Python one. The following brief is based on the provided JSON and likely project structure.
+
+**Technical Brief for US-828: Admin UI for WhatsApp Rate Limiting**
+
+1.  **Files to Modify:**
+    *   `src/routes/admin/Settings.tsx` (or similar): New React component for the UI.
+    *   `src/routes/api/admin/rate-limits.ts`: New backend route for statistics.
+    *   `src/services/ConfigService.ts` (or similar): Logic to update settings in the database.
+    *   `shared/schema.ts`: Add `rate_limits` to the profile configuration TypeScript types.
+    *   `src/lib/RateLimiter.ts`: Ensure it reads the new config structure.
+
+2.  **DocTypes / Data Models Involved:**
+    *   **`rainbow_configs` table:** The persistence layer for the new settings.
+    *   **Profile Configuration Schema:** A new `rate_limits` object needs to be added to the per-profile config schema, containing `max_messages_per_user_per_24h` (number) and `enabled` (boolean).
+
+3.  **Implementation Approach:**
+    *   **Backend:** Create a new API endpoint `GET /api/admin/rate-limits/stats` that queries the application logs or a dedicated events table to count users who have hit the rate limit in the last 24 hours for a given profile.
+    *   **Frontend:** In the admin settings panel, create a new section. It should fetch the current rate limit settings for the selected profile and bind them to a numeric input and a toggle switch. On change, it should call the existing configuration update API to persist the new values.
+
+4.  **Gotchas & Edge Cases:**
+    *   **Config Caching:** The configuration service must have a cache TTL of less than 60 seconds or a hot-reload mechanism to ensure settings apply quickly.
+    *   **Stats Performance:** The query for rate-limited users must be optimized to avoid slow performance on large datasets.
+    *   **UI State:** Ensure the UI correctly re-fetches data when the administrator switches between different profiles.
+    *   **Input Validation:** The numeric input for "max messages" must be validated to only accept positive integers.
+
+
+## Iteration 8 - US-864: Daily specials and promotions
+### What was implemented
+- Added `fnb_get_daily_specials` tool to `src/tools/fnb-menu.ts`
+  - Tries dedicated `fnb_get_daily_specials` MCP endpoint first
+  - Falls back to `fnb_get_menu` with `is_special: true` filter if endpoint unavailable
+  - 30-minute TTL cache that also expires at midnight (whichever is sooner)
+  - Adds urgency markers (⚡) for limited-quantity mentions in response text
+- Registered new tool in `src/tools/registry.ts` handler map
+- Added `MENU_SPECIALS` intent to `src/assistant/data/routing.json`
+- Added `MENU_SPECIALS` keywords to `src/assistant/data/intent-keywords.json`
+  - English: today's special, any promotions, any deals, what's new, limited items, etc.
+  - Malay: special hari ini, ada promosi, ada tawaran, item terhad, etc.
+  - Chinese: 今日特餐, 有优惠吗, 促销, 限量, etc.
+- Added `handleMenuSpecials` handler in `src/assistant/pipeline/stages/action-dispatch.ts`
+  - Dispatched when intent is MENU_SPECIALS (before generic llm_reply path)
+  - Graceful fallback: no specials today → offers to show full menu
+  - Error fallback: can't reach MCP → friendly error message in guest's language
+  - Tri-lingual responses (en/ms/zh)
+
+### Patterns discovered
+- Same pattern as MENU_FILTER_PRICE: check intent before state.response = result.response
+- Specials cache key per profile, TTL = min(30min, midnight)
+- Tool registration: add to fnbMenuTools array + getFnbMenuHandler map
+
+### Gotchas
+- formatSpecialsResponse modifies text inline with regex; safe since MCP text is untrusted
+- getMidnightTimestamp() uses local server time — ensure server timezone matches cafe timezone in production
+
+### Build/Test
+- Build: successful (3 pre-existing warnings only)
+- Server startup: clean start confirmed
