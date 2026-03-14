@@ -46,6 +46,12 @@ import { checkMetaCACert } from './lib/meta-ca-check.js';
 import { loadTodayCosts } from './assistant/llm-cost-budget.js';
 import { loadTodayWhatsappCosts, startWhatsappCostDailyJob } from './lib/whatsapp-cost.js';
 import { isReady, markReady, markListening } from './lib/readiness.js';
+import {
+  ensurePgStatStatements,
+  startSlowQueryMonitor,
+  setSlowQueryAlertHandler,
+} from './lib/slow-query-monitor.js';
+import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -163,6 +169,21 @@ startWhatsappCostDailyJob();
 
 // US-431: Start daily quality metrics aggregation job
 startQualityMetricsJob();
+
+// US-515: Enable pg_stat_statements and start slow query monitor
+ensurePgStatStatements(pool).then(() => {
+  setSlowQueryAlertHandler(async (report) => {
+    const critical = report.rows.filter(r => r.meanExecTimeMs > 2000);
+    if (critical.length > 0) {
+      await notifyAdminSlowQuery(
+        critical[0].query,
+        critical[0].meanExecTimeMs,
+        critical.length
+      );
+    }
+  });
+  startSlowQueryMonitor(pool);
+}).catch(err => console.warn('[Startup] Slow query monitor init failed:', err.message));
 
 const app = express();
 const PORT = parseInt(process.env.MCP_SERVER_PORT || '3002', 10);

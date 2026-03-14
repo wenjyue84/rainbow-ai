@@ -647,3 +647,48 @@ export async function notifyAdminAccountRestriction(
     logger.error('Failed to send account restriction notification', { error: err.message });
   }
 }
+
+/**
+ * Send slow database query alert to system admin (US-515).
+ * Fires when pg_stat_statements detects any query with mean_exec_time > 2000ms.
+ * Throttled to at most one notification per 30 minutes.
+ */
+const SLOW_QUERY_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+let lastSlowQueryAlertAt = 0;
+
+export async function notifyAdminSlowQuery(
+  topQuery: string,
+  meanExecTimeMs: number,
+  totalCount: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send slow query notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastSlowQueryAlertAt < SLOW_QUERY_ALERT_COOLDOWN_MS) {
+    logger.info('Slow query notification skipped (cooldown)');
+    return;
+  }
+  lastSlowQueryAlertAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const truncated = topQuery.length > 300 ? topQuery.slice(0, 300) + '...' : topQuery;
+  const message = `🐢 *Slow Database Query Detected*\n\n` +
+    `Mean exec time: *${meanExecTimeMs.toFixed(0)}ms* (threshold: 2000ms)\n` +
+    `Queries above threshold: ${totalCount}\n\n` +
+    `Top offender:\n\`\`\`\n${truncated}\n\`\`\`\n\n` +
+    `⚠️ Note: Neon resets statistics on compute suspend (scale-to-zero).\n\n` +
+    `📊 View all: GET /api/rainbow/metrics/slow-queries\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent slow query alert notification', { meanExecTimeMs, totalCount });
+  } catch (err: any) {
+    logger.error('Failed to send slow query notification', { error: err.message });
+  }
+}

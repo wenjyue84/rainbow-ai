@@ -2917,3 +2917,21 @@ Incomplete: Add slow query monitoring via pg_stat_statements on Neon (ID: US-515
 ### Gotchas
 - Widget iframe loads /chat/:profileId (not /webchat.html) — the /webchat.html endpoint is for direct access and future standardization
 - CSP frame-ancestors takes precedence over X-Frame-Options in modern browsers; helmet frameguard already disabled
+
+
+## Iteration 13 - Story: US-515 Add slow query monitoring via pg_stat_statements on Neon
+### What was implemented
+- `src/lib/slow-query-monitor.ts`: ensurePgStatStatements, startSlowQueryMonitor (setInterval 10min), getSlowQueries, setSlowQueryAlertHandler
+- `src/routes/admin/slow-queries.ts`: GET /metrics/slow-queries endpoint with threshold_ms param
+- `src/lib/admin-notifier.ts`: notifyAdminSlowQuery (30min cooldown, 2000ms alert threshold)
+- `src/index.ts`: imports + startup wiring (ensurePgStatStatements → setAlertHandler → startMonitor)
+- `src/routes/admin/index.ts`: registered slowQueriesRoutes
+### Patterns discovered
+- Periodic jobs use setInterval (not BullMQ) since BullMQ is only for message processing
+- Pool imported directly from src/lib/db.ts for non-Drizzle pg_stat_statements queries
+- Admin routes follow: Router + ok/serverError from http-utils + registered in index.ts
+- Alert notifications: add new function to admin-notifier.ts with cooldown pattern
+### Gotchas
+- pg_stat_statements extension requires superuser; non-fatal on failure (logged as warn)
+- Neon resets pg_stat_statements on scale-to-zero — documented in endpoint response
+- pool type import uses `import('pg').Pool` due to ESM type-only import pattern
