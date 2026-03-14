@@ -1,0 +1,98 @@
+{
+  "productName": "Rainbow AI — FnB AI Waiter Enhancement",
+  "branchName": "master",
+  "overview": "End-to-end AI waiter integration: rainbow-ai makan-moments profile handles customer chat from fnb-online-ordering, acting as MCP client to query live menu data and place orders in the fnb-online-ordering system. Customers at localhost:3031/en can chat with the AI waiter, ask about the menu, and place pre-orders — all powered by rainbow-ai's makan-moments profile calling back to fnb-online-ordering's MCP server.",
+  "goals": [
+    "Add /api/fnb/chat SSE endpoint in rainbow-ai so the fnb-online-ordering proxy can connect",
+    "Add FnB MCP client tools in rainbow-ai (menu browsing, order creation, order status)",
+    "Register FnB tools for makan-moments profile only, not hostel profiles",
+    "Configure makan-moments profile to use FnB tools when answering customer questions",
+    "Fix and verify end-to-end: customer chat → rainbow-ai → MCP call → live fnb data",
+    "Enhance fnb-online-ordering chat UI with order-aware quick replies and better UX"
+  ],
+  "userStories": [
+    {
+      "id": "US-602",
+      "title": "Add FnB MCP client tools for menu browsing in rainbow-ai",
+      "priority": "high",
+      "description": "Create src/tools/fnb-menu.ts with MCP client tools that call fnb-online-ordering's /api/mcp endpoint. These tools let rainbow-ai's makan-moments profile fetch live menu data when customers ask questions. Tools: fnb_get_menu (full menu, filterable by category), fnb_get_menu_item (single item by code), fnb_get_categories (category list), fnb_get_cafe_info (hours, address, WiFi, FAQ). The FnB MCP endpoint is at FNB_MCP_URL env var (default http://localhost:3031/api/mcp). Public tools don't need auth; admin tools need x-mcp-secret header.",
+      "acceptanceCriteria": [
+        "src/tools/fnb-menu.ts exists with 4 tool definitions and handlers",
+        "fnb_get_menu calls POST FNB_MCP_URL with {\"tool\":\"fnb_get_menu\",\"input\":{}}",
+        "fnb_get_menu_item calls with {\"tool\":\"fnb_get_menu_item\",\"input\":{\"code\":\"...\"}}}",
+        "fnb_get_categories and fnb_get_cafe_info implemented similarly",
+        "FNB_MCP_URL defaults to http://localhost:3031/api/mcp if not set",
+        "Tools handle network errors gracefully (return error message, don't throw)",
+        "TypeScript compiles without errors"
+      ],
+      "technicalNotes": [
+        "File: src/tools/fnb-menu.ts",
+        "Export: fnbMenuTools (MCPTool[] array) and handler functions",
+        "The fnb /api/mcp endpoint accepts POST with body: {tool: string, input: object} and optionally x-mcp-secret header",
+        "Use node fetch (already available) to call the endpoint",
+        "Each tool handler should: fetch the endpoint, return the result.content or result text",
+        "See existing src/tools/guests.ts for the pattern to follow",
+        "Add FNB_MCP_URL and FNB_MCP_SECRET to .env.example"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-603",
+      "title": "Add FnB MCP client tools for order management in rainbow-ai",
+      "priority": "high",
+      "description": "Create src/tools/fnb-orders.ts with order management tools. Public tools (no auth): fnb_create_order (create a new pre-order for a customer — requires items array, customer phone, estimated arrival time), fnb_get_order_status (check order status by order ID — public, customer-facing), fnb_get_operating_hours (check if cafe is currently open). Admin tools (need FNB_MCP_SECRET): fnb_get_pending_orders (list pending orders for staff review), fnb_approve_order (approve an order), fnb_update_order_status (update status).",
+      "acceptanceCriteria": [
+        "src/tools/fnb-orders.ts exists with tool definitions and handlers",
+        "fnb_create_order has proper input schema: items (array of {code, qty}), phone (string), estimated_arrival (ISO datetime string)",
+        "fnb_get_order_status takes orderId string, returns status + items",
+        "fnb_get_operating_hours returns whether cafe is open now and today's hours",
+        "Admin tools include x-mcp-secret header from FNB_MCP_SECRET env var",
+        "Tools return friendly error messages on network failure",
+        "TypeScript compiles without errors"
+      ],
+      "technicalNotes": [
+        "File: src/tools/fnb-orders.ts",
+        "The fnb /api/mcp endpoint supports tools: fnb_create_order, fnb_get_order, fnb_get_operating_hours",
+        "For admin tools: include header 'x-mcp-secret': process.env.FNB_MCP_SECRET",
+        "fnb_create_order input schema must match fnb-online-ordering's MCP tool: items: [{code, qty}], phone, estimated_arrival, notes (optional)",
+        "Return the full order object including orderId so the AI can tell the customer their order ID",
+        "fnb_get_order_status: takes shortId (e.g. MM-XXXX) or full orderId"
+      ],
+      "dependencies": [
+        "US-602"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-604",
+      "title": "Register FnB MCP tools for makan-moments profile in rainbow-ai tool registry",
+      "priority": "high",
+      "description": "Update src/tools/registry.ts to register fnb-menu and fnb-orders tools, but ONLY activate them for the makan-moments profile. The existing hostel tools (guests, units, problems, dashboard) should remain active for pelangi/southern profiles. Create a profile-aware tool registry or add a profileId filter so makan-moments gets FnB tools and hostel profiles get hostel tools. Also update the makan-moments data-makan/settings.json system_prompt to explicitly mention that MCP tools are available for live menu data.",
+      "acceptanceCriteria": [
+        "FnB tools are registered in the tool registry",
+        "fnb_get_menu, fnb_get_menu_item, fnb_get_categories, fnb_get_cafe_info appear in tool list for makan-moments profile",
+        "fnb_create_order, fnb_get_order_status, fnb_get_operating_hours appear for makan-moments profile",
+        "Hostel tools (list_guests, get_guest, etc.) do NOT appear for makan-moments profile",
+        "data-makan/settings.json system_prompt mentions tool availability (menu lookup, order placement)",
+        "TypeScript compiles without errors"
+      ],
+      "technicalNotes": [
+        "Option A: Add a profileId parameter to tool registry getTools() method and return different tool sets per profile",
+        "Option B: Add a separate ToolRegistry class instance per profile (simpler)",
+        "Option C: Add a 'profiles' field to each tool definition (allowedProfiles: string[])",
+        "The chat-engine or message-router must pass the profileId when executing tools so the right tools are used",
+        "Update data-makan/settings.json: add to system_prompt 'You have access to live menu data via tools. Use fnb_get_menu to answer menu questions. Use fnb_create_order to help customers place orders.'",
+        "Check if src/assistant/chat-engine.ts has tool execution — it must pass profileId to the registry"
+      ],
+      "dependencies": [
+        "US-602",
+        "US-603"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    }
+  ]
+}

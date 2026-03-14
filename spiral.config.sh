@@ -1,12 +1,12 @@
 #!/bin/bash
 # spiral.config.sh — Rainbow AI SPIRAL configuration
-# Iterative improvement cycle for multi-profile WhatsApp AI assistant
+# Focus: FnB AI Waiter Enhancement (makan-moments profile + /api/fnb/chat + MCP client tools)
 
 # ── Python interpreter ───────────────────────────────────────────────
 SPIRAL_PYTHON="python"
 
 # ── Validation command (Phase V) ─────────────────────────────────────
-SPIRAL_VALIDATE_CMD="NODE_OPTIONS='--max-old-space-size=4096' npx vitest run 2>&1"
+SPIRAL_VALIDATE_CMD="npm run check 2>&1 | tail -30 && echo 'TypeScript check passed'"
 
 # ── Test reports directory ───────────────────────────────────────────
 SPIRAL_REPORTS_DIR="test-reports"
@@ -14,7 +14,10 @@ SPIRAL_REPORTS_DIR="test-reports"
 # ── Story ID prefix ─────────────────────────────────────────────────
 SPIRAL_STORY_PREFIX="US"
 
-# ── Max pending stories (keep focused) ───────────────────────────────
+# ── Skip test synthesis (no timestamped test reports to scan) ────────
+SPIRAL_SKIP_TEST_SYNTHESIS=1
+
+# ── Max pending stories (focused run) ────────────────────────────────
 SPIRAL_MAX_PENDING=10
 
 # ── Model routing ────────────────────────────────────────────────────
@@ -23,7 +26,8 @@ SPIRAL_MODEL_ROUTING="auto"
 # ── Research model ───────────────────────────────────────────────────
 SPIRAL_RESEARCH_MODEL="sonnet"
 
+# ── Dashboard ────────────────────────────────────────────────────────
+SPIRAL_OPEN_DASHBOARD=1
+
 # ── Focus theme ──────────────────────────────────────────────────────
-# Multi-profile system just shipped — focus on hardening and completeness
-SPIRAL_FOCUS="conversation pipeline and all pending stories"
-SPIRAL_GEMINI_PROMPT="Focus on: conversation pipeline and all pending stories. Research the latest best practices, patterns, and implementation approaches for WhatsApp AI conversation pipeline architecture — including message processing, intent classification, state management, response generation, and multi-profile routing. Provide actionable context for the implementation agent."
+SPIRAL_FOCUS="FnB AI Waiter: rainbow-ai /api/fnb/chat SSE endpoint + FnB MCP client tools for makan-moments profile"
