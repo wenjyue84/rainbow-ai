@@ -140,6 +140,14 @@ export async function chatWithToolsLoop(
 
     // No tool calls — return the text response
     if (!toolCalls || toolCalls.length === 0) {
+      if (content && looksLikeJson(content)) {
+        try {
+          const j = JSON.parse(content);
+          const extracted = j.response || j.text || j.message || null;
+          if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted;
+        } catch {}
+        return getUnknownFallbackMessages(profileConfigStore).en;
+      }
       return content || getUnknownFallbackMessages(profileConfigStore).en;
     }
 
@@ -179,8 +187,18 @@ export async function chatWithToolsLoop(
     }
   }
 
-  // Max loops exhausted — return last content or fallback
+  // Max loops exhausted — try to extract text from last assistant message before giving up
   console.warn('[AI] chatWithToolsLoop: max loops exhausted');
+  const lastMsg = messages.slice().reverse().find((m: any) => m.role === 'assistant' && m.content);
+  if (lastMsg?.content && looksLikeJson(lastMsg.content)) {
+    try {
+      const j = JSON.parse(lastMsg.content);
+      const extracted = j.response || j.text || j.message || null;
+      if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted;
+    } catch {}
+  } else if (lastMsg?.content && typeof lastMsg.content === 'string') {
+    return lastMsg.content;
+  }
   return getUnknownFallbackMessages(profileConfigStore).en;
 }
 

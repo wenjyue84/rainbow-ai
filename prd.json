@@ -54,7 +54,7 @@
         "US-801"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-803",
@@ -183,6 +183,34 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-809",
+      "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
+      "priority": "high",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "acceptanceCriteria": [
+        "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
+        "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
+        "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
+        "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
+        "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
+        "Refreshing the page restores both the tab and the profile from the URL",
+        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/public/js/core/tabs.js: update getTabInfoFromUrl() to return {main, profileId, sub} where profileId = parts[1] if parts.length >= 2 and parts[1] is a valid profile ID (check against window.KNOWN_PROFILE_IDS or just accept any non-subtab string). Sub becomes parts[2] when profileId is present.",
+        "Define PROFILE_SPECIFIC_TABS = [\"dashboard\",\"intents\",\"understanding\",\"responses\",\"performance\",\"chat-simulator\",\"tests\",\"knowledge-base\",\"workflows\"] in tabs.js.",
+        "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
+        "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
+        "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
+        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false
     }
   ]

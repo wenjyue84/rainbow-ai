@@ -3177,3 +3177,23 @@ Completed: Write Vitest tests: ToolRegistry profile filtering for FnB tools (ID:
 - Python file I/O on Windows requires explicit `encoding='utf-8'` when prd.json contains non-ASCII characters
 ### Gotchas
 - The Chinese text in the PRD technicalNotes was garbled due to double-encoding; used correct UTF-8 Chinese directly
+## Iteration 1 - Sat, Mar 14, 2026  7:58:08 PM
+Completed: Fix hostel fallback text appearing in makan-moments AI waiter (ID: US-801) in 4m
+
+
+## Iteration N - Story: US-802 Fix raw JSON displayed in chat widget
+### What was implemented
+- Added looksLikeJson guard in chatWithToolsLoop at the "no tool calls" return (line ~143)
+- If LLM content starts with '{', tries JSON.parse and extracts response/text/message field
+- If no extractable text found, returns profile-aware fallback instead of raw JSON string
+- Also added guard at max loops exhausted path: checks last assistant message for JSON content
+- If last message is plain text, returns it; if JSON, tries to extract text fields
+
+### Patterns discovered
+- looksLikeJson() already existed in the file — reused without duplication
+- getUnknownFallbackMessages(profileConfigStore) is the correct profile-aware fallback call
+- The messages array contains mixed roles: system, user, assistant, tool
+
+### Gotchas
+- prd.json uses UTF-8 with em-dash characters — must open with encoding='utf-8' in Python
+- Build warning about CommonJS module variable is pre-existing, not caused by this change
