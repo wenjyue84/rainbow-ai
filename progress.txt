@@ -5529,3 +5529,48 @@ This is a technical brief for implementing the profile cloning feature.
 - 'hello' contains 'hell' which matches the NEGATIVE_PATTERNS — pre-existing behavior, avoid in tests
 ### Gotchas
 - The `escalateToStaff` already logs to `escalation_events` via its internal flow — the additional direct `logEscalationEvent` call ensures the `trigger='sentiment'` reason is recorded even if `escalateToStaff` uses a different internal trigger name
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the provided user story, here is a technical brief for implementing the profile cloning feature within a Frappe/Python environment.
+
+**Note:** The user story JSON appears to describe a feature for a NodeJS/TypeScript application. This brief translates the requirements into a plausible implementation plan for a Frappe-based Python app.
+
+---
+
+### **Technical Brief for Profile Cloning (US-827)**
+
+**1. Python Files to Modify:**
+
+*   **`[app_name]/api.py`**: This is the most likely candidate for the core logic. A new whitelisted API function, `clone_profile`, should be created here to handle the cloning request.
+*   **`[app_name]/doctype/profile/profile.py`**: If there's complex server-side logic tied to the `Profile` DocType, some of the cloning logic could be placed here, but a dedicated API endpoint is cleaner.
+*   **`[app_name]/doctype/profile/profile_list.js`**: A client-side script will be needed here to add the "Clone Profile" button to the list view, handle the user prompt for the new profile name, and make the API call.
+
+**2. Frappe DocTypes & Hooks Involved:**
+
+*   **DocTypes:**
+    *   **`Profile`**: A parent/main DocType representing a business profile. It would contain fields for `display_name` and other high-level settings.
+    *   **`Profile Routing Rule`**: A Child Table DocType within `Profile` to store routing rules (equivalent to `routing.json`).
+    *   **`Profile Setting`**: A Child Table DocType within `Profile` for key-value settings (equivalent to `settings.json`).
+    *   **`Profile KB File`**: A Child Table DocType within `Profile` for knowledge base file metadata (equivalent to `knowledge.json`).
+*   **Hooks:**
+    *   The primary hook is a new whitelisted API function (`@frappe.whitelist()`) that will be called from the frontend.
+
+**3. Recommended Implementation Approach:**
+
+1.  **Create API Endpoint:** Define a new function `clone_profile(source_name, new_name)` in `[app_name]/api.py` and expose it using the `@frappe.whitelist()` decorator.
+2.  **Pre-check:** In the function, first verify that the `source_name` exists and the `new_name` does not, using `frappe.db.exists()`.
+3.  **Fetch Source Doc:** Load the complete source document, including its child tables, using `source_doc = frappe.get_doc('Profile', source_name)`.
+4.  **Create New Doc:** Instantiate a new Profile document with `new_doc = frappe.new_doc('Profile')`. Set `new_doc.display_name = new_name`.
+5.  **Deep Copy Fields:** Iterate through the source document's child tables (`Profile Routing Rule`, `Profile Setting`, etc.). For each entry in a source child table, append a new row to the corresponding child table in `new_doc`, copying the data.
+6.  **Exclude Sensitive Data:** During the copy, explicitly skip any fields related to authentication (e.g., `whatsapp_auth_state`, `phone_number`).
+7.  **Save New Doc:** Save the new document to the database using `new_doc.insert(ignore_permissions=True)`. This will save the parent and all its child documents in a single transaction.
+8.  **Return New Name:** The API should return the name of the newly created document so the client-side script can redirect the user.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Atomicity:** Using `doc.insert()` ensures the entire clone operation is atomic. If any part fails, the new profile will not be created.
+*   **Naming Collision:** The code must gracefully handle attempts to create a clone with a name that is already in use.
+*   **Permissions:** The API should be callable by an admin role. Using `ignore_permissions=True` during the insert is recommended for a backend administrative action.
+*   **UI Feedback:** The client script must show a confirmation dialog before calling the API and provide clear feedback to the user on success (redirect) or failure (error message).
+
