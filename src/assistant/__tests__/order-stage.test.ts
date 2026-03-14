@@ -446,3 +446,62 @@ describe('Full order flow: BROWSING → ORDERING → CONFIRMING → PLACED', () 
     expect(cartGetItems(sid)).toHaveLength(0);
   });
 });
+
+// ─── US-862: Order Cancellation ────────────────────────────────────
+
+describe('cart_cancel_order handler (US-862)', () => {
+  const newSid = () => 'cancel-' + Math.random().toString(36).slice(2);
+
+  it('clears cart and resets to BROWSING when order is in progress', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Nasi Lemak', qty: 1, price: 8.50 });
+    await handlers.get('cart_add_item')!({ name: 'Teh Tarik', qty: 2, price: 2.50 });
+    expect(getOrderStage(sid)).toBe('ORDERING');
+
+    const result = await handlers.get('cart_cancel_order')!({});
+    expect(result.content[0].text).toContain('cleared');
+    expect(getOrderStage(sid)).toBe('BROWSING');
+    expect(cartGetItems(sid)).toHaveLength(0);
+  });
+
+  it('clears cart even from CONFIRMING stage', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Roti Canai', qty: 1, price: 3.50 });
+    setOrderStage(sid, 'CONFIRMING');
+
+    const result = await handlers.get('cart_cancel_order')!({});
+    expect(result.content[0].text).toContain('cleared');
+    expect(getOrderStage(sid)).toBe('BROWSING');
+    expect(cartGetItems(sid)).toHaveLength(0);
+  });
+
+  it('returns nothing-to-cancel message when cart is already empty', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+
+    const result = await handlers.get('cart_cancel_order')!({});
+    expect(result.content[0].text).toContain('nothing to cancel');
+    expect(getOrderStage(sid)).toBe('BROWSING');
+  });
+
+  it('returns kitchen message when order is already placed (PLACED stage)', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    setOrderStage(sid, 'PLACED');
+
+    const result = await handlers.get('cart_cancel_order')!({});
+    expect(result.content[0].text).toContain('kitchen');
+    expect(result.content[0].text).toContain('staff');
+  });
+
+  it('message includes invitation to start new order after cancellation', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Curry Puff', qty: 3, price: 1.50 });
+
+    const result = await handlers.get('cart_cancel_order')!({});
+    expect(result.content[0].text).toMatch(/new order|start/i);
+  });
+});

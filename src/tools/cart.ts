@@ -128,6 +128,23 @@ export const cartTools: MCPTool[] = [
     },
     allowedProfiles: ['makan-moments']
   },
+  {
+    name: 'cart_cancel_order',
+    description: [
+      'Cancel the entire order and clear the cart. Use when the guest says:',
+      '"cancel my order", "forget it", "start over", "clear my cart", "nevermind", "I changed my mind", "scratch that".',
+      'Acts immediately — no confirmation required.',
+      '• If cart is empty (nothing to cancel), tell the guest there is nothing to cancel.',
+      '• If order is already in the kitchen (PLACED stage), tell the guest and offer to contact staff.',
+      '• Otherwise, clear the cart and reset to BROWSING.',
+      'Do NOT use this to cancel a single item — use cart_remove_item for that.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
   // ─── Disambiguation Tools ────────────────────────────────────────
   {
     name: 'cart_search_item',
@@ -351,6 +368,43 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       content: [{
         type: 'text',
         text: `No problem! Your cart still has:\n\n${summary}\n\nFeel free to add or remove items, or let me know when you're ready to order.`
+      }]
+    };
+  });
+
+  handlers.set('cart_cancel_order', async (_args: any) => {
+    const { getOrderStage } = await import('../assistant/order-stage-store.js');
+    const stage = getOrderStage(sessionId);
+
+    // Order already sent to kitchen — cannot cancel
+    if (stage === 'PLACED') {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Your order has already been sent to the kitchen and cannot be cancelled here. Please speak to our staff directly and they will assist you.'
+        }]
+      };
+    }
+
+    const items = cartGetItems(sessionId);
+
+    // Nothing to cancel
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is nothing to cancel — your cart is already empty. Let me know if you would like to order something!'
+        }]
+      };
+    }
+
+    // Clear cart and reset to BROWSING
+    cartClear(sessionId);
+    clearOrderStage(sessionId);
+    return {
+      content: [{
+        type: 'text',
+        text: 'Your order has been cleared. Let me know if you would like to start a new order!'
       }]
     };
   });

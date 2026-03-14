@@ -5132,3 +5132,67 @@ This brief outlines the implementation plan for adding a cart item quantity upda
 - The `transitionOrderStage(sessionId, 'BROWSING')` call on cart-empty mirrors `cart_remove_item` pattern
 ### Gotchas
 - prd.json must be read/written with utf-8 encoding on Windows (cp1252 default fails on em-dashes in story text)
+## Iteration 7 - Sun, Mar 15, 2026  2:24:43 AM
+Completed: Cart quantity update: guest can change quantity of an item already in cart (ID: US-861) in 5m
+
+
+## Pre-analysis for US-862 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for implementation within a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration` (Interpreted as the target app for this functionality)
+**User Story:** US-862 - Order cancellation before kitchen submission.
+
+---
+
+### **Technical Implementation Brief**
+
+**1. Python Files to Modify:**
+
+*   **`.../api/intent_handler.py`** or **`.../events/message_handler.py`**: This file likely contains the core logic for processing incoming message intents. A new case for the `ORDER_CANCEL` intent must be added here.
+*   **`.../doctype/sales_order/sales_order.py`**: If the cart/order is managed via the `Sales Order` DocType, this controller file will need a method to handle cancellation, such as `cancel_draft_order`.
+*   **`.../hooks.py`**: A `doc_event` hook might be needed on a custom "Session" or "Cart" DocType to manage state changes, but handling it in the intent handler is likely more direct.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **`Sales Order` (DocType):** The in-progress order is likely a `Sales Order` with a `docstatus` of `0` (Draft). Cancellation would mean deleting this draft document. The check for "order already submitted" would involve checking if the `docstatus` is `1` (Submitted).
+*   **`POS Invoice` or Custom "Kitchen Order" (DocType):** If a different DocType represents a submitted order, that will be the key document to check for preventing cancellation.
+*   **`on_update` (Hook):** A server-side hook on the session/cart DocType could be used to trigger real-time updates, but an API-led approach from the intent handler is more common for chat applications.
+
+**3. Recommended Implementation Approach:**
+
+1.  **Intent Recognition:** Add `"ORDER_CANCEL"` to the intent mapping file (equivalent to `routing.json`), routing it to a new `handle_order_cancellation` function.
+2.  **State Check:** In `handle_order_cancellation`, retrieve the user's current session.
+3.  **Check for Submitted Order:** Look for a submitted (`docstatus: 1`) `Sales Order` or `POS Invoice` linked to the user's session/ID. If found, return the "order is in the kitchen" message.
+4.  **Check for Empty Cart:** If no submitted order exists, check if there is a draft `Sales Order` or items in the session cart. If empty, return the "nothing to cancel" message.
+5.  **Execute Cancellation:** If a draft order exists, use `frappe.delete_doc('Sales Order', doc_name)` to delete the draft. Clear any cart-related fields in the user's session document.
+6.  **Confirm Cancellation:** Return the success message: "Your order has been cleared..."
+
+**4. Edge Cases & Gotchas:**
+
+*   **State Management:** Ensure the session state (`orderStage`) and the Frappe DocType (`Sales Order` draft) are kept perfectly in sync. Deleting the DocType must be coupled with clearing the session.
+*   **Race Conditions:** A user could try to cancel at the exact moment the order is being submitted. The check for `docstatus: 1` must be atomic and reliable.
+*   **User Identification:** The mechanism linking the chat user to the Frappe `User` or `Guest` session must be robust to ensure the correct order is cancelled.
+
+
+## Iteration N - Story: US-862 Order cancellation
+### What was implemented
+- Added `cart_cancel_order` MCP tool definition to `cartTools` array in `src/tools/cart.ts`
+  - allowedProfiles: ['makan-moments']
+  - No required args (acts immediately on full cart)
+- Added `cart_cancel_order` handler in `createCartHandlers()` in `src/tools/cart.ts`
+  - PLACED stage → "order in kitchen, speak to staff" (no cart mutation)
+  - Empty cart + BROWSING → "nothing to cancel" message
+  - Otherwise → cartClear + clearOrderStage → BROWSING, confirms cancellation
+- Added ORDER_CANCEL intent to `src/assistant/data/routing.json`
+  - action: llm_reply (AI uses cart_cancel_order tool)
+- Added 5 Vitest tests in `src/assistant/__tests__/order-stage.test.ts`:
+  - Clears cart from ORDERING stage
+  - Clears cart from CONFIRMING stage
+  - Nothing-to-cancel when cart is empty
+  - Kitchen message when stage is PLACED
+  - Includes invitation to start new order after clearing
+### Patterns discovered
+- Handler uses dynamic import for `getOrderStage` to check PLACED state before checking cart length
+- PLACED → cart is already cleared (order_confirm_submit calls cartClear), so checking stage first avoids false "nothing to cancel" response
+### Gotchas
+- PLACED stage means cart is already empty, so stage check MUST come before cart-empty check
