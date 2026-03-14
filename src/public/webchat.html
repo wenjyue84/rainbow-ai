@@ -403,8 +403,27 @@
         } catch {}
       }
 
+      // Create a bot message bubble for streaming (returns the bubble element to append text to)
+      function appendStreamBubble() {
+        var div = document.createElement('div');
+        div.className = 'message bot';
+
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = '';
+        div.appendChild(bubble);
+
+        var time = document.createElement('div');
+        time.className = 'message-time';
+        time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        div.appendChild(time);
+
+        messagesEl.insertBefore(div, typingEl);
+        return bubble;
+      }
+
       async function sendMessage() {
-        const text = inputEl.value.trim();
+        var text = inputEl.value.trim();
         if (!text || sending) return;
 
         sending = true;
@@ -421,36 +440,93 @@
         showTyping();
 
         try {
-          const resp = await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/message', {
+          var resp = await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               message: text,
-              history: history.slice(-20), // Send last 20 messages for context
+              history: history.slice(-20),
               sessionId: sessionId,
+              stream: true,
             }),
           });
 
-          const data = await resp.json();
+          var contentType = resp.headers.get('content-type') || '';
 
-          if (resp.ok && data.message) {
-            hideTyping();
-            // Update sessionId if server assigned one
-            if (data.sessionId && data.sessionId !== sessionId) {
-              sessionId = data.sessionId;
-              sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+          if (contentType.includes('text/event-stream') && resp.body) {
+            // ─── SSE Streaming Response ────────────────────────────
+            var reader = resp.body.getReader();
+            var decoder = new TextDecoder();
+            var bubble = null;
+            var fullText = '';
+            var sseBuffer = '';
+
+            while (true) {
+              var chunk = await reader.read();
+              if (chunk.done) break;
+
+              sseBuffer += decoder.decode(chunk.value, { stream: true });
+              var sseLines = sseBuffer.split('\n');
+              sseBuffer = sseLines.pop() || '';
+
+              for (var i = 0; i < sseLines.length; i++) {
+                var line = sseLines[i].trim();
+                if (!line.startsWith('data: ')) continue;
+
+                try {
+                  var evt = JSON.parse(line.slice(6));
+
+                  if (evt.done) {
+                    // Stream complete — update sessionId if server assigned one
+                    if (evt.sessionId && evt.sessionId !== sessionId) {
+                      sessionId = evt.sessionId;
+                      sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+                    }
+                    lastPollTimestamp = Date.now();
+                    continue;
+                  }
+
+                  if (evt.token) {
+                    if (!bubble) {
+                      hideTyping();
+                      bubble = appendStreamBubble();
+                    }
+                    fullText += evt.token;
+                    bubble.textContent = fullText;
+                    scrollToBottom();
+                  }
+                } catch (e) { /* skip malformed SSE */ }
+              }
             }
-            appendMessage('bot', data.message);
-            history.push({ role: 'assistant', content: data.message });
-            saveHistory();
-            scrollToBottom();
-            // Update poll timestamp so we don't re-fetch these messages
-            lastPollTimestamp = Date.now();
-          } else {
+
             hideTyping();
-            const errMsg = data.error || 'Something went wrong. Please try again.';
-            appendMessage('bot', errMsg);
-            scrollToBottom();
+            if (fullText) {
+              if (!bubble) appendMessage('bot', fullText);
+              history.push({ role: 'assistant', content: fullText });
+              saveHistory();
+              scrollToBottom();
+            }
+          } else {
+            // ─── Non-Streaming JSON Fallback ─────────────────────────
+            var data = await resp.json();
+
+            if (resp.ok && data.message) {
+              hideTyping();
+              if (data.sessionId && data.sessionId !== sessionId) {
+                sessionId = data.sessionId;
+                sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+              }
+              appendMessage('bot', data.message);
+              history.push({ role: 'assistant', content: data.message });
+              saveHistory();
+              scrollToBottom();
+              lastPollTimestamp = Date.now();
+            } else {
+              hideTyping();
+              var errMsg = data.error || 'Something went wrong. Please try again.';
+              appendMessage('bot', errMsg);
+              scrollToBottom();
+            }
           }
         } catch (err) {
           hideTyping();

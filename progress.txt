@@ -5336,3 +5336,70 @@ The target environment, `lhdn_payroll_integration` (a Frappe/Python app), is com
 ### Gotchas
 - Admin UI tooltip (popover showing supported vars) is in the React admin panel, not this backend; skipped as out of scope for this iteration
 - `msg.pushName` can be empty string for anonymous contacts; handled by defaulting to '' (guest sees no name)
+## Iteration 3 - Sun, Mar 15, 2026  2:46:28 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This technical brief is based on the provided user story JSON and the project structure in your session context. The user story describes a feature for a Node.js/TypeScript application, not a Frappe/Python one as mentioned in the prompt.
+
+**Project:** rainbow-ai
+**Feature:** Profile Cloning (US-827)
+
+**Technical Brief for Claude**
+
+**1. Primary Files to Modify:**
+*   `src/routes/admin/profiles.ts` (or similar): To add the new `POST /api/admin/profiles/:sourceId/clone` API endpoint.
+*   `src/lib/profiles.ts` (or a new service file): To house the core `cloneProfile` business logic that interacts with the database.
+*   `shared/schema.ts`: May need inspection to understand the structure of the tables being cloned.
+
+**2. Relevant Data Models / Schemas (Drizzle ORM):**
+*   `rainbow_configs`: The main table to be deep-copied. Contains various settings identified by a key.
+*   `rainbow_kb_files`: Metadata for knowledge base files. These rows should be copied for the new profile.
+
+**3. Recommended Implementation Approach:**
+*   Define the new POST route in the Express.js router, extracting `sourceId`, `newProfileId`, and `displayName`.
+*   Create a `cloneProfile(sourceId, newProfileId, displayName)` function in a service/lib file.
+*   Use Drizzle to query all `rainbow_configs` and `rainbow_kb_files` where `profileId` matches `sourceId`.
+*   Wrap the logic in a database transaction (`db.transaction(async (tx) => { ... })`).
+*   Inside the transaction, map over the queried rows in memory, creating new objects with the `newProfileId`.
+*   Perform a bulk insert (`tx.insert(...).values(...)`) for the new config and KB file rows.
+*   Return the `newProfileId` in the API response.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire clone operation must be atomic. Use a transaction to prevent partial clones if an error occurs.
+*   **Exclusions:** Carefully filter out sensitive or instance-specific settings during the copy, specifically WhatsApp authentication state and phone number details, as noted in the story.
+*   **Uniqueness:** The endpoint handler must validate that the `newProfileId` does not already exist before initiating the clone.
+*   **Error Handling:** Ensure the source profile exists before attempting to read from it.
+
+
+## Iteration 12 - Story: US-820 Server-Sent Events streaming for progressive AI responses in webchat widget
+### What was implemented
+- Created `src/assistant/chat-stream.ts` with SSE streaming infrastructure:
+  - `setupSSEHeaders()` — sets Content-Type, Cache-Control, X-Accel-Buffering headers
+  - `sseEvent()` / `sendStaticSSE()` — SSE event helpers
+  - `streamChatResponse()` — streams plain LLM text via SSE with provider fallback
+  - `streamChatWithTools()` — executes tools non-streaming, then streams final text response
+  - `streamFromProvider()` — handles Groq SDK streaming, OpenAI-compatible SSE, and Google Gemini fallback
+- Modified `src/routes/public/webchat-api.ts`:
+  - Extracted `buildMakanMomentsContext()` helper to avoid duplication between streaming/non-streaming paths
+  - Added streaming branch: when `req.body.stream === true`, uses SSE instead of JSON response
+  - Handles client disconnect detection, error recovery, and DB persistence after streaming
+  - Non-streaming path preserved as fallback
+- Modified `src/public/webchat.html`:
+  - Client sends `stream: true` in POST body
+  - Uses `response.body.getReader()` to read SSE chunks progressively
+  - `appendStreamBubble()` creates a bot message bubble for token-by-token rendering
+  - Typing indicator (animated dots) shown from message submit until first token arrives
+  - Falls back to JSON parsing if server responds with non-SSE content type
+### Patterns discovered
+- Groq SDK natively supports `stream: true` returning async iterables
+- OpenAI-compatible providers return SSE with `data: {...}\n\n` format; need buffer-based line parsing
+- Google Gemini streaming API differs from OpenAI; fell back to non-streaming single chunk for simplicity
+- The system prompt from `kb.buildSystemPrompt()` is personality/KB only — no JSON format instructions — so streaming plain text works without prompt modification
+- For tool-calling streaming: tools execute non-streaming first, then final text response is streamed from providers (without tools parameter to avoid re-triggering tool calls)
+### Gotchas
+- Need `X-Accel-Buffering: no` header for Nginx proxy SSE compatibility
+- Streaming timeout needs to be much longer than normal requests (30s+) since tokens arrive gradually
+- `axios` with `responseType: 'stream'` returns Node.js readable stream; need `for await` to iterate chunks
+- Client SSE buffer must handle partial lines across fetch chunks (split on newline, keep remainder)

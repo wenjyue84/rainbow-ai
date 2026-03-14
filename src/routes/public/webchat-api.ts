@@ -17,6 +17,7 @@ import { cartTools, createCartHandlers } from '../../tools/cart.js';
 import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
+import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 
 const router = Router();
 
@@ -142,10 +143,96 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
   res.json({ greeting, sessionId });
 });
 
+// ─── Makan-Moments Context Builder ─────────────────────────────────────
+// Extracted to reuse in both streaming and non-streaming paths.
+function buildMakanMomentsContext(sessionId: string) {
+  const fnbTools = toolRegistry.getToolsForProfile('makan-moments');
+  const fnbHandlers = toolRegistry.getHandlersForProfile('makan-moments');
+  const allTools = [...fnbTools, ...cartTools];
+  const cartHandlers = createCartHandlers(sessionId);
+  const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
+
+  const currentCartItems = cartGetItems(sessionId);
+  const cartSummary = cartFormatSummary(currentCartItems);
+  const currentStage = getOrderStage(sessionId);
+  const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
+  const pendingDisambig = getDisambiguation(sessionId);
+
+  const disambigSection = pendingDisambig
+    ? [
+        '',
+        '## Pending Item Disambiguation',
+        `The guest previously searched for "${pendingDisambig.pendingItem}" and was shown ${pendingDisambig.candidates.length} options.`,
+        'If the guest replies with a number or a name, call cart_pick_item with their selection.',
+        'If the guest asks about something else, the disambiguation is abandoned — clear it by calling cart_search_item with the new query.',
+      ].join('\n')
+    : '';
+
+  const systemPromptSuffix = [
+    '## Current Order State',
+    `Session: ${sessionId}`,
+    `Order Stage: ${currentStage} — ${stageDescription}`,
+    '',
+    '## Current Cart',
+    cartSummary,
+    disambigSection,
+    '',
+    '## Order Stage Machine — STRICT RULES',
+    'You are an AI waiter. Follow these rules based on the order stage:',
+    '',
+    'BROWSING stage: Guest is asking about the menu. Answer questions, describe dishes, show prices.',
+    '  • Do NOT add anything to cart unless guest expresses clear intent to order.',
+    '  • Category browsing: When guest asks for items from a specific category (e.g. "show me the drinks",',
+    '    "what rice dishes do you have", "any desserts?", "list the mains"), call fnb_get_menu({ category: "<name>" }).',
+    '    Supported categories: drinks, mains, rice, noodles, desserts, snacks, set meals, sides.',
+    '  • Dietary filtering: When guest asks about dietary requirements, call fnb_get_menu({ dietary_tags: [...] }).',
+    '    Map guest phrases to canonical tags:',
+    '      vegetarian / veggie / sayur / no meat / tanpa daging → "vegetarian"',
+    '      vegan / plant-based → "vegan"',
+    '      halal → "halal"',
+    '      no pork / pork-free / no babi / tanpa babi → "no-pork"',
+    '      no nuts / nut-free / no peanuts / kacang / peanut allergy → "no-nuts"',
+    '      gluten-free / no gluten / no wheat → "gluten-free"',
+    '      dairy-free / lactose-free / no milk → "dairy-free"',
+    '    Multiple filters use AND logic: "vegetarian and no nuts" → dietary_tags: ["vegetarian", "no-nuts"].',
+    '    If no items match, say honestly: "I don\'t see any [tag] options on our menu right now. Would you like to ask our staff?"',
+    '    Do NOT guess or invent items — only list what the menu response contains.',
+    '    If the menu response does not indicate dietary tags, list what is returned and note that guests should confirm with staff for allergy safety.',
+    '  • Item detail: When guest asks about a specific dish, call fnb_get_menu_item and include any dietary tags shown.',
+    '  • Format results as a plain numbered list (no markdown tables):',
+    '    "1. Item Name — RM X.XX\\n   Brief description"',
+    '  • Show maximum 8 items per response. If more exist, add: "...and X more. Ask me to show more!"',
+    '  • If category is not found or returns no items, call fnb_get_categories to list available categories.',
+    '  • Use plain text only — no markdown tables, no asterisks, no headers — for WhatsApp/chat compatibility.',
+    '',
+    'ORDERING stage: Guest is adding items to their order.',
+    '  • Use cart_search_item when the guest uses a vague or partial name (e.g. "the chicken", "nasi", "iced coffee").',
+    '  • Use cart_add_item only when the guest uses the exact menu item name and you are certain it matches.',
+    '  • Use cart_pick_item when the guest replies with a number or name after a disambiguation list.',
+    '  • Use cart_remove_item when guest says remove/cancel/drop an item.',
+    '  • Use cart_view when guest asks to see their current order.',
+    '  • When guest signals they are DONE ordering (e.g. "that\'s all", "place my order", "ready to order"),',
+    '    call order_request_confirmation to show the summary and ask "Shall I place this order?".',
+    '  • Do NOT submit the order on your own — always confirm first.',
+    '',
+    'CONFIRMING stage: You already asked "Shall I place this order?" — WAIT for yes/no.',
+    '  • If guest says YES / confirm / go ahead / place it: call order_confirm_submit.',
+    '  • If guest says NO / wait / cancel / change my mind: call order_back_to_cart.',
+    '  • Do NOT ask for confirmation again — you are already in confirming stage.',
+    '',
+    'PLACED stage: Order submitted. Cart is cleared.',
+    '  • Thank the guest. Offer to help with anything else.',
+    '  • If they want to order again, start fresh from BROWSING.',
+  ].join('\n');
+
+  return { allTools, allHandlers, systemPromptSuffix };
+}
+
 /**
  * POST /api/chat/:profileId/message
  *
  * Process a webchat message for a specific profile.
+ * Supports SSE streaming when `stream: true` is in the request body.
  * Returns only public-safe fields (no intent/debug data).
  */
 router.post('/:profileId/message', async (req: Request, res: Response) => {
@@ -181,105 +268,92 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   // Safety validation
   const safetyError = validateInputSafety(sanitizedMessage);
   if (safetyError) {
-    res.json({
-      message: `I'm an AI assistant for ${profile.name}. I noticed your message contains unusual patterns. Please send a normal question and I'll be happy to help!`,
-      responseTime: 0,
-      sessionId,
-    });
+    if (req.body.stream) {
+      sendStaticSSE(res, `I'm an AI assistant for ${profile.name}. I noticed your message contains unusual patterns. Please send a normal question and I'll be happy to help!`, 0, sessionId);
+    } else {
+      res.json({
+        message: `I'm an AI assistant for ${profile.name}. I noticed your message contains unusual patterns. Please send a normal question and I'll be happy to help!`,
+        responseTime: 0,
+        sessionId,
+      });
+    }
     return;
   }
 
+  // ─── Streaming SSE Path ──────────────────────────────────────────────
+  if (req.body.stream) {
+    const startTime = Date.now();
+    setupSSEHeaders(res);
+
+    let disconnected = false;
+    req.on('close', () => { disconnected = true; });
+
+    try {
+      const isMakanMoments = profileId === 'makan-moments';
+      const conversationHistory = (Array.isArray(history) ? history : []).map((m: any) => ({
+        role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: m.content,
+        timestamp: Date.now()
+      }));
+
+      // Build system prompt from KB
+      const topicFiles = profile.kb.guessTopicFiles(sanitizedMessage);
+      let systemPrompt = profile.kb.buildSystemPrompt(
+        profile.configStore.getSettings().system_prompt, topicFiles, profile.configStore
+      );
+
+      let fullText: string;
+
+      if (isMakanMoments) {
+        // Tool-calling path: stream with tools
+        const ctx = buildMakanMomentsContext(sessionId);
+        systemPrompt = `${systemPrompt}\n\n${ctx.systemPromptSuffix}`;
+        fullText = await streamChatWithTools(
+          res, systemPrompt, conversationHistory, sanitizedMessage,
+          ctx.allTools, ctx.allHandlers
+        );
+      } else {
+        // Non-tool path: stream LLM response directly
+        fullText = await streamChatResponse(res, systemPrompt, conversationHistory, sanitizedMessage);
+      }
+
+      const responseTime = Date.now() - startTime;
+
+      if (!disconnected) {
+        sseEvent(res, { done: true, responseTime, sessionId });
+        res.end();
+      }
+
+      // Persist to DB (fire-and-forget)
+      const phone = 'webchat-' + sessionId;
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
+      persistWebchatExchange(phone, pushName, sanitizedMessage, fullText, responseTime, profileId).catch(err => {
+        console.error('[Webchat] DB persist error:', err.message);
+      });
+    } catch (err: any) {
+      console.error(`[Webchat Stream] Error for ${profileId}:`, err.message);
+      if (!disconnected) {
+        sseEvent(res, { token: "I apologize, but I encountered an error. Please try again or contact staff." });
+        sseEvent(res, { done: true, responseTime: Date.now() - startTime, sessionId });
+        res.end();
+      }
+    }
+    return;
+  }
+
+  // ─── Non-Streaming JSON Path (existing behavior) ─────────────────────
   try {
     const isMakanMoments = profileId === 'makan-moments';
-    const fnbTools = isMakanMoments ? toolRegistry.getToolsForProfile('makan-moments') : [];
-    const fnbHandlers = isMakanMoments ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
-
-    // Cart: inject tools and per-session handlers for makan-moments
-    let allTools = fnbTools;
-    let allHandlers = fnbHandlers;
+    let allTools = isMakanMoments ? toolRegistry.getToolsForProfile('makan-moments') : [];
+    let allHandlers = isMakanMoments ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
     let systemPromptSuffix: string | undefined;
 
     if (isMakanMoments) {
-      // Add cart tools to the tool list
-      allTools = [...fnbTools, ...cartTools];
-
-      // Create per-session cart handlers (close over sessionId)
-      const cartHandlers = createCartHandlers(sessionId);
-      allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
-
-      // Inject current cart state, order stage, and disambiguation state into system prompt
-      const currentCartItems = cartGetItems(sessionId);
-      const cartSummary = cartFormatSummary(currentCartItems);
-      const currentStage = getOrderStage(sessionId);
-      const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
-      const pendingDisambig = getDisambiguation(sessionId);
-
-      const disambigSection = pendingDisambig
-        ? [
-            '',
-            '## Pending Item Disambiguation',
-            `The guest previously searched for "${pendingDisambig.pendingItem}" and was shown ${pendingDisambig.candidates.length} options.`,
-            'If the guest replies with a number or a name, call cart_pick_item with their selection.',
-            'If the guest asks about something else, the disambiguation is abandoned — clear it by calling cart_search_item with the new query.',
-          ].join('\n')
-        : '';
-
-      systemPromptSuffix = [
-        '## Current Order State',
-        `Session: ${sessionId}`,
-        `Order Stage: ${currentStage} — ${stageDescription}`,
-        '',
-        '## Current Cart',
-        cartSummary,
-        disambigSection,
-        '',
-        '## Order Stage Machine — STRICT RULES',
-        'You are an AI waiter. Follow these rules based on the order stage:',
-        '',
-        'BROWSING stage: Guest is asking about the menu. Answer questions, describe dishes, show prices.',
-        '  • Do NOT add anything to cart unless guest expresses clear intent to order.',
-        '  • Category browsing: When guest asks for items from a specific category (e.g. "show me the drinks",',
-        '    "what rice dishes do you have", "any desserts?", "list the mains"), call fnb_get_menu({ category: "<name>" }).',
-        '    Supported categories: drinks, mains, rice, noodles, desserts, snacks, set meals, sides.',
-        '  • Dietary filtering: When guest asks about dietary requirements, call fnb_get_menu({ dietary_tags: [...] }).',
-        '    Map guest phrases to canonical tags:',
-        '      vegetarian / veggie / sayur / no meat / tanpa daging → "vegetarian"',
-        '      vegan / plant-based → "vegan"',
-        '      halal → "halal"',
-        '      no pork / pork-free / no babi / tanpa babi → "no-pork"',
-        '      no nuts / nut-free / no peanuts / kacang / peanut allergy → "no-nuts"',
-        '      gluten-free / no gluten / no wheat → "gluten-free"',
-        '      dairy-free / lactose-free / no milk → "dairy-free"',
-        '    Multiple filters use AND logic: "vegetarian and no nuts" → dietary_tags: ["vegetarian", "no-nuts"].',
-        '    If no items match, say honestly: "I don\'t see any [tag] options on our menu right now. Would you like to ask our staff?"',
-        '    Do NOT guess or invent items — only list what the menu response contains.',
-        '    If the menu response does not indicate dietary tags, list what is returned and note that guests should confirm with staff for allergy safety.',
-        '  • Item detail: When guest asks about a specific dish, call fnb_get_menu_item and include any dietary tags shown.',
-        '  • Format results as a plain numbered list (no markdown tables):',
-        '    "1. Item Name — RM X.XX\\n   Brief description"',
-        '  • Show maximum 8 items per response. If more exist, add: "...and X more. Ask me to show more!"',
-        '  • If category is not found or returns no items, call fnb_get_categories to list available categories.',
-        '  • Use plain text only — no markdown tables, no asterisks, no headers — for WhatsApp/chat compatibility.',
-        '',
-        'ORDERING stage: Guest is adding items to their order.',
-        '  • Use cart_search_item when the guest uses a vague or partial name (e.g. "the chicken", "nasi", "iced coffee").',
-        '  • Use cart_add_item only when the guest uses the exact menu item name and you are certain it matches.',
-        '  • Use cart_pick_item when the guest replies with a number or name after a disambiguation list.',
-        '  • Use cart_remove_item when guest says remove/cancel/drop an item.',
-        '  • Use cart_view when guest asks to see their current order.',
-        '  • When guest signals they are DONE ordering (e.g. "that\'s all", "place my order", "ready to order"),',
-        '    call order_request_confirmation to show the summary and ask "Shall I place this order?".',
-        '  • Do NOT submit the order on your own — always confirm first.',
-        '',
-        'CONFIRMING stage: You already asked "Shall I place this order?" — WAIT for yes/no.',
-        '  • If guest says YES / confirm / go ahead / place it: call order_confirm_submit.',
-        '  • If guest says NO / wait / cancel / change my mind: call order_back_to_cart.',
-        '  • Do NOT ask for confirmation again — you are already in confirming stage.',
-        '',
-        'PLACED stage: Order submitted. Cart is cleared.',
-        '  • Thank the guest. Offer to help with anything else.',
-        '  • If they want to order again, start fresh from BROWSING.',
-      ].join('\n');
+      const ctx = buildMakanMomentsContext(sessionId);
+      allTools = ctx.allTools;
+      allHandlers = ctx.allHandlers;
+      systemPromptSuffix = ctx.systemPromptSuffix;
     }
 
     const result = await processChat({
