@@ -5962,3 +5962,65 @@ This story requires a backend function to duplicate a configuration profile. The
 ### Gotchas
 - getSlaConfiguredMinutes uses dynamic import (ESM) to avoid circular dependency at module load
 - `NOT EXISTS` subquery on manual=true messages serves as DB-level safety net independent of markHumanResponded calls
+## Iteration 1 - Sun, Mar 15, 2026  4:42:10 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the user story, this feature is for a Node.js/TypeScript application, not a Frappe/Python project. The technical notes refer to a `POST` endpoint and database tables (`rainbow_configs`, `rainbow_kb_files`), which align with the provided `tsconfig.json` and `.ts` files in the project structure, not a Frappe environment.
+
+Here is the technical brief for implementing the story in the correct (TypeScript) context:
+
+---
+
+**Technical Brief for US-827: Profile Cloning**
+
+1.  **Files to Modify:**
+    *   `src/routes/admin/profiles.ts` (or a similar routing file): To add the new `POST /api/admin/profiles/:sourceId/clone` endpoint.
+    *   `src/services/ProfileService.ts` (or a new service file): To encapsulate the core cloning logic, including database interactions.
+    *   `src/lib/db/profiles.ts` (or equivalent data access layer): To implement the specific database queries for reading from and writing to the configuration tables.
+
+2.  **Key Components Involved:**
+    *   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+    *   **Request Body Schema:** `{ newProfileId: string, displayName: string }`
+    *   **Database Tables:** `rainbow_configs` and `rainbow_kb_files`.
+
+3.  **Recommended Implementation Approach:**
+    1.  Define the new route and link it to a controller function that takes `sourceId`, `newProfileId`, and `displayName` as input.
+    2.  Create a service method `cloneProfile(sourceId, newProfileId, ...)` that wraps the entire operation in a database transaction.
+    3.  Inside the transaction:
+        *   Query `rainbow_configs` for all rows matching the `sourceId`.
+        *   Map the results to new objects, replacing the `sourceId` with `newProfileId`.
+        *   Perform a bulk insert of these new rows.
+        *   Repeat the query-map-insert process for the `rainbow_kb_files` metadata table.
+    4.  Return the `{ newProfileId }` upon successful completion.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Transactionality:** The entire operation must be atomic. If copying `rainbow_kb_files` fails, the `rainbow_configs` copy must be rolled back.
+    *   **ID Collision:** The service must check if `newProfileId` already exists before starting the clone to prevent conflicts.
+    *   **Data Exclusion:** Strictly avoid copying WhatsApp authentication details or any configs with phone-number-specific settings. This requires a denylist filter during the data mapping step.
+    *   **Source Validation:** Ensure the `sourceId` exists before attempting to clone; return a 404 if it does not.
+
+
+## Iteration 2 - Sun, Mar 15, 2026 - Story: US-837 System prompt A/B experiment framework
+### What was implemented
+- New Drizzle table `experiment_metrics` for per-variant tracking (shared/schema-tables.ts)
+- Zod schemas for experiment config: `experimentSchema`, `experimentVariantSchema`, `experimentsConfigSchema` (src/assistant/schemas.ts)
+- Core experiment module `src/lib/experiments.ts` with:
+  - `resolveVariant()` — deterministic MD5 hash assignment (phone + experimentId)
+  - `resolveExperimentPrompt()` — finds first active experiment and resolves prompt override
+  - `trackExperimentMessage()`, `trackExperimentFallback()`, `trackExperimentCsat()` — fire-and-forget upsert metrics
+  - `getExperimentResults()` — aggregated variant comparison query
+- KB loading stage (`src/assistant/pipeline/stages/kb-loading.ts`) now resolves experiment variant at prompt-assembly step, overriding system_prompt when active
+- Admin API routes (`src/routes/admin/experiments.ts`): CRUD + activate/deactivate + results endpoint
+- Settings schema extended with optional `experiments` array field
+
+### Patterns discovered
+- Zod schema ordering matters in ESM — schemas referenced inside z.object() must be defined earlier in the file (hoisting doesn't apply to const in ESM)
+- Settings schema uses `.passthrough()` allowing unknown keys, so experiments field coexists with existing config
+- KB loading stage receives PipelineState with phone field, making it the natural place for experiment resolution
+- Fire-and-forget DB upserts with `.catch()` pattern used consistently for metrics tracking
+
+### Gotchas
+- `experimentsConfigSchema` had to be moved BEFORE `settingsDataSchema` to avoid ReferenceError at runtime (ESM const temporal dead zone)
+- Experiment variant is resolved per-message at the KB loading stage, not cached, ensuring hot config changes take effect immediately

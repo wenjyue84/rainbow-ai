@@ -84,6 +84,24 @@ export const routingModeSchema = z.object({
 });
 export type RoutingMode = z.infer<typeof routingModeSchema>;
 
+// ─── Experiments (US-837) ────────────────────────────────────────────
+
+export const experimentVariantSchema = z.object({
+  id: z.string().min(1),
+  weight: z.number().int().positive(),
+  systemPromptOverride: z.string().min(1),
+});
+export type ExperimentVariant = z.infer<typeof experimentVariantSchema>;
+
+export const experimentSchema = z.object({
+  id: z.string().min(1),
+  active: z.boolean(),
+  variants: z.array(experimentVariantSchema).min(1),
+});
+export type Experiment = z.infer<typeof experimentSchema>;
+
+export const experimentsConfigSchema = z.array(experimentSchema).optional().default([]);
+
 // ─── Settings ───────────────────────────────────────────────────────
 
 export const settingsDataSchema = z.object({
@@ -138,6 +156,8 @@ export const settingsDataSchema = z.object({
   }).optional(),
   // US-449: Per-profile WhatsApp instance assignment
   whatsappInstanceId: z.string().optional(),
+  // US-837: A/B experiment framework
+  experiments: experimentsConfigSchema.optional(),
 }).passthrough();  // Allow unknown keys (response_modes, feedback, etc.)
 export type SettingsData = z.infer<typeof settingsDataSchema>;
 

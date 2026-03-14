@@ -402,3 +402,28 @@ export const templateQualityEvents = pgTable("template_quality_events", {
 
 export type TemplateQualityEvent = typeof templateQualityEvents.$inferSelect;
 export type InsertTemplateQualityEvent = typeof templateQualityEvents.$inferInsert;
+
+// ─── Experiment Metrics (US-837) ─────────────────────────────────────
+// Tracks per-variant metrics for A/B experiment framework.
+// Aggregated daily by experiment + variant + phone hash.
+
+export const experimentMetrics = pgTable("experiment_metrics", {
+  id: serial("id").primaryKey(),
+  experimentId: varchar("experiment_id", { length: 128 }).notNull(),
+  variantId: varchar("variant_id", { length: 128 }).notNull(),
+  phoneHash: varchar("phone_hash", { length: 64 }).notNull(), // MD5 hash of phone for privacy
+  messageCount: integer("message_count").notNull().default(0),
+  fallbackCount: integer("fallback_count").notNull().default(0),
+  csatSum: integer("csat_sum").notNull().default(0),
+  csatCount: integer("csat_count").notNull().default(0),
+  windowDate: text("window_date").notNull(), // YYYY-MM-DD (UTC)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_experiment_metrics_exp_var_phone_date").on(table.experimentId, table.variantId, table.phoneHash, table.windowDate),
+  index("idx_experiment_metrics_experiment").on(table.experimentId),
+  index("idx_experiment_metrics_window_date").on(table.windowDate),
+]));
+
+export type ExperimentMetric = typeof experimentMetrics.$inferSelect;
+export type InsertExperimentMetric = typeof experimentMetrics.$inferInsert;
