@@ -3499,3 +3499,24 @@ No code changes needed. The file `src/assistant/data-makan/settings.json` was in
 - npm run build encountered memory allocation error (system resource constraint, not code issue)
 - Alternative verification: Node.js JSON.parse and unicode content checks all passed
 - settings.json is valid JSON with properly encoded em dash and rainbow emoji
+## Iteration 1 - Sat, Mar 14, 2026  8:25:57 PM
+Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 4m
+
+
+## Iteration - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+No code changes needed. US-809 was already fully implemented in both tabs.js and profile-switcher.js:
+- PROFILE_SPECIFIC_TABS array defined with all 9 profile-specific tabs
+- getTabInfoFromUrl() returns {main, profileId, sub} parsing profile IDs from URL hash
+- handleNavigation() auto-switches profile when URL contains a different profileId
+- loadTab() redirects to include profileId for profile-specific tabs if missing
+- Click handlers include profileId for profile-specific tabs
+- profileSwitcher.switchTo() updates URL hash with new profileId
+- _applyProfileSwitch() for internal state changes without URL update
+- window.KNOWN_PROFILE_IDS exposed after API load for URL parsing
+- Build passes (esbuild, 1 pre-existing warning)
+### Patterns discovered
+- US-809 was implemented across two files: tabs.js (URL parsing, navigation, click handlers) and profile-switcher.js (profile switching with URL update)
+- The _applyProfileSwitch helper separates state update from URL update to avoid infinite hashchange loops
+### Gotchas
+- esbuild OOM on Windows with Git Bash — system memory pressure can cause build failures unrelated to code changes
