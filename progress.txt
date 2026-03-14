@@ -3065,3 +3065,25 @@ Workflow covers: (1) call fnb_get_menu first, (2) help choose items, (3) collect
 - data-makan/settings.json is copied to dist/ by the build script via cpSync
 ### Gotchas
 - File had garbled encoding in raw view but Python reads it correctly as UTF-8
+## Iteration 3 - Sat, Mar 14, 2026  6:24:45 PM
+Completed: Improve pre-ordering system prompt: phone collection + order confirmation (ID: US-703) in 2m
+
+
+## Iteration 4 - Story: US-704 - Write Vitest tests: ToolRegistry profile filtering for FnB tools
+### What was implemented
+Created `src/assistant/__tests__/fnb-tool-registry.test.ts` with 5 tests validating tool registry profile filtering:
+- Test 1: getToolsForProfile('makan-moments') includes fnb_get_menu
+- Test 2: getToolsForProfile('makan-moments') includes fnb_create_order
+- Test 3: getToolsForProfile('pelangi') has no tools starting with 'fnb_'
+- Test 4: all FnB tools have allowedProfiles containing 'makan-moments'
+- Test 5: getHandlersForProfile('makan-moments').has('fnb_get_menu') is true
+All tests passed in 6ms. Build succeeded without new errors.
+### Patterns discovered
+- FnB tools are defined with explicit allowedProfiles: ['makan-moments'] in fnb-menu.ts and fnb-orders.ts
+- Hostel tools (guests, units, etc.) omit allowedProfiles, making them available to all profiles
+- toolRegistry.getToolsForProfile() filters by checking !t.allowedProfiles || t.allowedProfiles.includes(profileId)
+- This design allows gradual profile-scoped tool expansion without breaking existing features
+### Gotchas
+- Registry pattern uses getToolsForProfile() internally in getHandlersForProfile() to ensure consistency
+- All FnB tool handlers must be properly mapped in getFnbMenuHandler() and getFnbOrderHandler() for handlers map to work
+
