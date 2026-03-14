@@ -18,6 +18,8 @@ import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
+import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
+import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
 
 const router = Router();
 
@@ -149,6 +151,12 @@ router.get('/:profileId/history', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch history' });
   }
 });
+
+// ─── Webchat Idle Config Helper ──────────────────────────────────────────────
+function getWebchatIdleConfig(profile: any): Partial<WebchatIdleConfig> | undefined {
+  const settings = profile.configStore.getSettings() as any;
+  return settings.webchat_idle ?? undefined;
+}
 
 const DEFAULT_WELCOME_MESSAGE =
   "Welcome! I'm your AI assistant. How can I help you today?";
@@ -306,6 +314,12 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     sessionId = 'web_' + crypto.randomUUID().slice(0, 8) + '_' + Date.now();
   }
 
+  // US-826: Reset idle/timed-out session when user sends a new message
+  const phone = 'webchat-' + sessionId;
+  resetWebchatSession(phone).catch(err => {
+    console.error('[Webchat] Session reset error:', err.message);
+  });
+
   // Sanitize input
   const sanitizedMessage = sanitizeInput(message);
   if (!sanitizedMessage) {
@@ -373,7 +387,6 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       }
 
       // Persist to DB (fire-and-forget)
-      const phone = 'webchat-' + sessionId;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
       const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
       persistWebchatExchange(phone, pushName, sanitizedMessage, fullText, responseTime, profileId).catch(err => {
@@ -416,7 +429,6 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     });
 
     // Persist to DB (fire-and-forget, don't block response)
-    const phone = 'webchat-' + sessionId;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
 
@@ -446,24 +458,31 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
  * Returns messages after a given timestamp.
  */
 router.get('/:profileId/messages/:sessionId', async (req: Request, res: Response) => {
-  const { sessionId } = req.params;
+  const { profileId, sessionId } = req.params;
   const after = req.query.after ? Number(req.query.after) : 0;
   const phone = 'webchat-' + sessionId;
 
   try {
+    // US-826: Lazy idle check — may insert a re-engagement message
+    const profile = profileRegistry.getProfile(profileId);
+    if (profile) {
+      const idleCfg = getWebchatIdleConfig(profile);
+      await checkWebchatIdle(phone, idleCfg);
+    }
+
     let query: string;
     let params: any[];
 
     if (after > 0) {
       const afterDate = new Date(after);
-      query = `SELECT role, content, timestamp, staff_name
+      query = `SELECT role, content, timestamp, staff_name, source
                FROM rainbow_messages
                WHERE phone = $1 AND timestamp > $2
                ORDER BY timestamp ASC
                LIMIT 100`;
       params = [phone, afterDate];
     } else {
-      query = `SELECT role, content, timestamp, staff_name
+      query = `SELECT role, content, timestamp, staff_name, source
                FROM rainbow_messages
                WHERE phone = $1
                ORDER BY timestamp ASC
@@ -478,6 +497,7 @@ router.get('/:profileId/messages/:sessionId', async (req: Request, res: Response
       content: r.content,
       timestamp: r.timestamp instanceof Date ? r.timestamp.getTime() : new Date(r.timestamp).getTime(),
       staffName: r.staff_name || null,
+      isReengagement: r.source === 'webchat-reengagement' || undefined,
     }));
 
     res.json({ messages, sessionId });

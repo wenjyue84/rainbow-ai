@@ -5790,3 +5790,90 @@ Here is the technical brief for implementing the profile cloning feature in Frap
 - `baileys-client.ts` is a backward-compat re-export layer
 ### Gotchas
 - Acceptance criterion says "skip validation for remote HTTPS URLs" — not applicable here since `sendWhatsAppMedia` takes a Buffer, not a URL
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+### Technical Brief: Profile Cloning (US-827)
+
+This brief outlines the implementation for a profile cloning feature within the existing Node.js/TypeScript application. Note: The project is TypeScript-based, not Frappe/Python.
+
+**1. Python Files to Modify (Corrected for TypeScript):**
+*   `src/routes/admin/profiles.ts` (or equivalent): To add the new API endpoint for cloning.
+*   `src/lib/profiles.ts` or `src/lib/db/profiles.ts`: A new or existing service file to contain the core database cloning logic.
+*   `src/types/profiles.ts`: To add any new types for the clone request body if necessary.
+
+**2. Frappe DocTypes/Hooks (Corrected for this stack):**
+*   **Drizzle Schema/Tables:** The operation will primarily interact with the `rainbow_configs` and `rainbow_kb_files` tables, as defined in a file like `shared/schema.ts`. No Frappe DocTypes are involved.
+
+**3. Recommended Implementation Approach:**
+1.  Define a new route: `POST /api/admin/profiles/:sourceId/clone` in the admin router.
+2.  The route handler should extract `sourceId` from params and `{ newProfileId, displayName }` from the request body.
+3.  Create a `cloneProfile` service function that performs the core logic within a database transaction (`db.transaction(...)`).
+4.  Inside the transaction:
+    *   Query all `rainbow_configs` and `rainbow_kb_files` rows matching the `sourceId`.
+    *   Map these results into new arrays of objects, replacing the `sourceId` with the `newProfileId` and updating the `displayName`.
+    *   Use a bulk insert operation to create the new rows in their respective tables.
+5.  Return the `newProfileId` in the API response.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire copy operation must be wrapped in a database transaction to prevent partial clones on failure.
+*   **Uniqueness:** The backend must validate that the requested `newProfileId` does not already exist before initiating the clone.
+*   **Exclusions:** Explicitly filter out any records related to WhatsApp authentication (`whatsapp-auth`) or other instance-specific settings during the copy.
+*   **Error Handling:** Ensure the API returns a clear error if the `sourceId` does not exist.
+
+## Iteration 5 - Sun, Mar 15, 2026  4:11:39 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This is a Node.js/TypeScript project, not Python/Frappe. The implementation should use Drizzle ORM.
+
+**Technical Brief for Profile Cloning (US-827)**
+
+**1. Files to Modify:**
+*   `src/routes/admin.ts` (or similar): Add the new `POST /api/admin/profiles/:sourceId/clone` endpoint.
+*   `src/lib/profileService.ts` (or equivalent): Create a new function to handle the core cloning logic.
+*   `shared/schema.ts`: Reference the Drizzle schemas for `rainbow_configs` and `rainbow_kb_files`.
+
+**2. Involved Tables (Not Frappe DocTypes):**
+*   `rainbow_configs`: Primary table for all profile settings. The clone will duplicate rows from this table.
+*   `rainbow_kb_files`: Table for knowledge base file metadata. This will also be duplicated.
+
+**3. Implementation Approach:**
+1.  In the route handler, extract `sourceId`, `newProfileId`, and `displayName` from the request.
+2.  Create a service function that wraps all database operations in a single Drizzle transaction.
+3.  Inside the transaction:
+    a.  Fetch all `rainbow_configs` where `profile_id` matches `sourceId`.
+    b.  Filter out any configs that should not be copied (e.g., `whatsapp-auth` keys).
+    c.  Map the results to a new array of objects, replacing the `profile_id` with `newProfileId` and updating the main profile's `displayName`.
+    d.  Use the Drizzle ORM to perform a batch insert of the new config rows.
+    e.  Repeat this fetch-map-insert process for the `rainbow_kb_files` metadata.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire copy process MUST be in a single database transaction to prevent partial clones.
+*   **Exclusions:** Be sure to identify and explicitly filter out all instance-specific settings, especially WhatsApp credentials and phone numbers, from the `rainbow_configs` copy.
+*   **Uniqueness:** The backend must validate that the `newProfileId` is unique before initiating the transaction.
+*   **No File I/O:** This operation is purely database-level. Do not copy any files or directories on disk (`whatsapp-auth/`, `.rainbow-kb/`, etc.).
+
+
+## Iteration 6 - Sun, Mar 15, 2026
+Complete: Webchat session idle timeout with configurable re-engagement message (ID: US-826)
+
+### What was implemented
+- Created `src/assistant/webchat-idle-timeout.ts` — lazy-check module for webchat idle detection
+- Integrated idle check into message polling endpoint (`GET /:profileId/messages/:sessionId`)
+- When client polls and session is idle > configured timeout (default 30 min), a re-engagement message is auto-inserted into DB
+- If no user response within 10 minutes of re-engagement, session marked as `timed_out`
+- When user sends a new message, timed-out/reengagement sessions are reset to active
+- Admin webchat conversations list now excludes timed_out sessions from active count (with `?include_timed_out=true` override)
+- Added `webchat_idle` config block to `settings.json` (enabled, timeout_minutes, reengagement_message, reengagement_window_minutes)
+- All re-engagement messages use `source = 'webchat-reengagement'` for easy identification
+
+### Patterns discovered
+- Webchat sessions use `phone = 'webchat-' + sessionId` convention throughout
+- The `rainbow_conversations.status` column supports arbitrary string values (used 'reengagement_sent' and 'timed_out')
+- Client polling endpoint is the ideal place for lazy idle checks since it runs periodically from the browser
+
+### Gotchas
+- The `phone` variable was declared multiple times in webchat-api.ts POST handler (different scopes). Cleaned up duplicates.
+- Settings are accessed via `profile.configStore.getSettings()` which returns an untyped object — used `as any` cast for webchat_idle access

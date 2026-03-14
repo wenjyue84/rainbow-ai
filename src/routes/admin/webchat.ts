@@ -23,6 +23,11 @@ router.get('/webchat/conversations', async (_req: Request, res: Response) => {
     const profileFilter = profileId ? 'AND c.profile_id = $1' : '';
     const params: any[] = profileId ? [profileId] : [];
 
+    // US-826: Exclude timed_out sessions from active list by default;
+    // include them if ?include_timed_out=true is passed
+    const includeTimedOut = _req.query.include_timed_out === 'true';
+    const statusFilter = includeTimedOut ? '' : "AND COALESCE(c.status, 'active') != 'timed_out'";
+
     const result = await pool.query(`
       SELECT
         c.phone,
@@ -30,6 +35,7 @@ router.get('/webchat/conversations', async (_req: Request, res: Response) => {
         c.pinned,
         c.last_read_at,
         c.created_at,
+        c.status,
         lm.content   AS last_msg_content,
         lm.role       AS last_msg_role,
         lm.timestamp  AS last_msg_at,
@@ -57,6 +63,7 @@ router.get('/webchat/conversations', async (_req: Request, res: Response) => {
       ) uc ON true
       WHERE c.phone LIKE 'webchat-%'
         AND lm.content IS NOT NULL
+        ${statusFilter}
         ${profileFilter}
       ORDER BY lm.timestamp DESC
     `, params);
@@ -73,6 +80,7 @@ router.get('/webchat/conversations', async (_req: Request, res: Response) => {
       messageCount: Number(r.message_count ?? 0),
       unreadCount: Number(r.unread_count ?? 0),
       pinned: r.pinned,
+      status: r.status || 'active',
       createdAt: r.created_at instanceof Date
         ? r.created_at.getTime()
         : new Date(r.created_at).getTime(),
