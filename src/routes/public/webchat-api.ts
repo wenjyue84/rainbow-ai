@@ -13,6 +13,8 @@ import { profileRegistry } from '../../assistant/profile-registry.js';
 import { sanitizeInput, validateInputSafety, processChat } from '../../assistant/chat-engine.js';
 import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
+import { cartTools, createCartHandlers } from '../../tools/cart.js';
+import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
 
 const router = Router();
 
@@ -124,8 +126,37 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   }
 
   try {
-    const fnbTools = profileId === 'makan-moments' ? toolRegistry.getToolsForProfile('makan-moments') : [];
-    const fnbHandlers = profileId === 'makan-moments' ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
+    const isMakanMoments = profileId === 'makan-moments';
+    const fnbTools = isMakanMoments ? toolRegistry.getToolsForProfile('makan-moments') : [];
+    const fnbHandlers = isMakanMoments ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
+
+    // Cart: inject tools and per-session handlers for makan-moments
+    let allTools = fnbTools;
+    let allHandlers = fnbHandlers;
+    let systemPromptSuffix: string | undefined;
+
+    if (isMakanMoments) {
+      // Add cart tools to the tool list
+      allTools = [...fnbTools, ...cartTools];
+
+      // Create per-session cart handlers (close over sessionId)
+      const cartHandlers = createCartHandlers(sessionId);
+      allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
+
+      // Inject current cart state into the system prompt context
+      const currentCartItems = cartGetItems(sessionId);
+      const cartSummary = cartFormatSummary(currentCartItems);
+      systemPromptSuffix = [
+        '## Current Cart State',
+        `Session: ${sessionId}`,
+        cartSummary,
+        '',
+        '## Cart Instructions',
+        'You are an AI waiter. Use cart_add_item to add items when guests order, cart_remove_item when they cancel/remove items, cart_view when they ask what they\'ve ordered, and cart_clear after an order is placed or when they want to start over.',
+        'Always confirm what you\'ve added or removed from the cart in your response.',
+        'Accumulate orders across multiple messages — do NOT submit an order unless the guest explicitly confirms.',
+      ].join('\n');
+    }
 
     const result = await processChat({
       message: sanitizedMessage,
@@ -133,8 +164,9 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       sessionId: sessionId || undefined,
       configStore: profile.configStore,
       kb: profile.kb,
-      tools: fnbTools,
-      toolHandlers: fnbHandlers,
+      tools: allTools,
+      toolHandlers: allHandlers,
+      systemPromptSuffix,
     });
 
     // Persist to DB (fire-and-forget, don't block response)

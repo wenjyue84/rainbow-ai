@@ -28,6 +28,8 @@ export interface ChatOptions {
   kb: KnowledgeBaseInstance;
   tools?: MCPTool[];
   toolHandlers?: Map<string, ToolHandler>;
+  /** Optional text appended to the system prompt (e.g. current cart state). */
+  systemPromptSuffix?: string;
 }
 
 export interface ChatResult {
@@ -188,7 +190,10 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   // Tool-calling mode: bypass intent classification and use tool loop
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {
     const topicFiles = kb.guessTopicFiles(message);
-    const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+    const baseSystemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+    const systemPrompt = options.systemPromptSuffix
+      ? `${baseSystemPrompt}\n\n${options.systemPromptSuffix}`
+      : baseSystemPrompt;
     const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers, store);
     const responseTime = Date.now() - startTime;
     return {

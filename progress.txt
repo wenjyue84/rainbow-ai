@@ -4802,3 +4802,22 @@ Completed: Monitor WhatsApp message template quality and alert on pause/disable 
 
 ## Iteration 6 - Sun, Mar 15, 2026 1:14:43 AM
 Completed: Lazy-load webchat widget JS bundle to avoid Core Web Vitals regression (ID: US-816) in 4m
+## Iteration 6 - Sun, Mar 15, 2026  1:15:35 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 1/3
+
+
+## Iteration - Story: US-848 Conversational cart: AI waiter maintains running order across multiple messages
+### What was implemented
+- Created `src/assistant/cart-store.ts`: In-memory per-session cart store with CartItem type, cartAddItem/cartRemoveItem/cartGetItems/cartClear/cartFormatSummary. 1-hour TTL cleanup every 15 min.
+- Created `src/tools/cart.ts`: 4 MCP tools (cart_add_item, cart_remove_item, cart_view, cart_clear) with `createCartHandlers(sessionId)` factory that closes over the sessionId per-request.
+- Modified `src/assistant/chat-engine.ts`: Added `systemPromptSuffix?: string` to ChatOptions; applied it in the tool-calling path by appending to the base system prompt.
+- Modified `src/routes/public/webchat-api.ts`: For makan-moments profile, injects cart tools + per-session handlers + current cart summary as systemPromptSuffix so the AI always knows cart state.
+
+### Patterns discovered
+- Per-session tool handlers: create them fresh per-request, closing over sessionId. This avoids any global state conflicts.
+- `systemPromptSuffix` is the cleanest injection point because the tool-calling path builds systemPrompt inline from KB; suffix appended after KB content.
+- cartFormatSummary outputs WhatsApp-friendly bullet list with RM prices and subtotals.
+
+### Gotchas
+- Cart tools use `allowedProfiles: ['makan-moments']` but they are injected directly in webchat-api.ts (not via registry), so the allowedProfiles field is informational only here.
+- cartAddItem merges qty when the same item name (case-insensitive) is added again, rather than creating duplicates.
