@@ -84,25 +84,6 @@
       }
     },
 
-    /**
-     * US-809: Switch profile state without reloading tab or changing URL.
-     * Used by tabs.js handleNavigation() when URL already has the profileId.
-     */
-    _applyProfileSwitch: function (profileId) {
-      activeProfileId = profileId;
-      localStorage.setItem(STORAGE_KEY, profileId);
-      this.renderLabel();
-      this.renderDropdown();
-      if (window.cacheManager && typeof window.cacheManager.clearAll === 'function') {
-        window.cacheManager.clearAll();
-      }
-      cachedRouting = {};
-      cachedKnowledge = { static: [], dynamic: {} };
-      cachedWorkflows = { workflows: [] };
-      cachedSettings = null;
-      cachedIntentNames = [];
-    },
-
     /** Render the button label */
     renderLabel: function () {
       var label = document.getElementById('profile-switcher-label');
@@ -179,18 +160,14 @@
           // US-809: Expose known profile IDs for URL parsing in tabs.js
           window.KNOWN_PROFILE_IDS = profiles.map(function (p) { return p.id; });
 
-          // US-809: Re-check URL for profile-scoped navigation now that IDs are known
+          // US-809: Re-check URL now that profile IDs are confirmed from API
           if (typeof window.getTabInfoFromUrl === 'function') {
             var urlInfo = window.getTabInfoFromUrl();
+            var profileTabs = window.PROFILE_SPECIFIC_TABS || [];
             if (urlInfo.profileId && urlInfo.profileId !== (activeProfileId || defaultProfileId)) {
-              // URL specifies a different profile — switch to it and reload tab
-              self._applyProfileSwitch(urlInfo.profileId);
-              if (typeof window.loadTab === 'function') {
-                window.loadTab(urlInfo.main, urlInfo.sub);
-              }
-            } else if (window.PROFILE_SPECIFIC_TABS &&
-                       window.PROFILE_SPECIFIC_TABS.indexOf(urlInfo.main) !== -1 &&
-                       !urlInfo.profileId) {
+              // URL specifies a different profile — switch to it
+              self.switchTo(urlInfo.profileId);
+            } else if (profileTabs.indexOf(urlInfo.main) !== -1 && !urlInfo.profileId) {
               // Profile-specific tab without profileId — redirect to include it
               var pid = activeProfileId || defaultProfileId;
               window.location.hash = urlInfo.main + '/' + pid + (urlInfo.sub ? '/' + urlInfo.sub : '');
