@@ -5686,3 +5686,93 @@ Implement a feature to clone a `LHDN Payroll Profile` DocType, duplicating it as
 ### Gotchas
 - localhost Ollama URLs must be excluded from CSP (they don't need it, and would be wrong in production)
 - `readFileSync` is fine for settings.json read at startup (one-time cost)
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This is a brief for a TypeScript/Node.js project using Drizzle ORM, not Frappe/Python.
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**User Story:** US-827: Profile configuration cloning
+
+### 1. Files to Modify
+
+*   **`src/routes/admin/profiles.ts` (or similar):** A new route file will be needed to handle the `POST /api/admin/profiles/:sourceId/clone` endpoint.
+*   **`src/lib/services/profileService.ts` (or new file):** This will house the core cloning logic, fetching the source profile's data and creating the new one.
+*   **`shared/schema.ts`:** Reference this file to understand the structure of the `rainbow_configs` and `rainbow_kb_files` tables. No modifications should be needed.
+
+### 2. Key Components Involved
+
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Request Body:** `{ "newProfileId": "...", "displayName": "..." }`
+*   **Database Tables (Drizzle ORM):**
+    *   `rainbow_configs`: Contains all profile settings (routing, intents, etc.).
+    *   `rainbow_kb_files`: Contains metadata for knowledge base files.
+
+### 3. Recommended Implementation
+
+1.  Define the new `POST` endpoint in the admin router.
+2.  In the service layer, create a function that takes `sourceId`, `newProfileId`, and `displayName`.
+3.  Wrap the logic in a Drizzle database transaction (`db.transaction(...)`).
+4.  Query all `rainbow_configs` and `rainbow_kb_files` records where `profileId` matches `sourceId`.
+5.  Filter out WhatsApp authentication/phone-number-related keys from the `rainbow_configs` results.
+6.  Map the results to new record objects, replacing `sourceId` with `newProfileId`.
+7.  Use Drizzle's bulk `insert()` method to write all the new records to the database.
+8.  Return the `newProfileId` in the API response.
+
+### 4. Edge Cases & Gotchas
+
+*   **Atomicity:** The entire clone process must be a single database transaction to prevent creating partial/corrupt profiles on failure.
+*   **ID Uniqueness:** The service must validate that `newProfileId` does not already exist before attempting the clone.
+*   **Data Exclusion:** Be precise in identifying and excluding all settings related to WhatsApp authentication. Do NOT copy anything from the `whatsapp-auth/` directory.
+*   **File System:** The operation should ONLY copy database metadata (`rainbow_kb_files`); do not touch or copy the actual KB files on the disk.
+
+## Iteration 3 - Sun, Mar 15, 2026  3:52:53 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the profile cloning feature in Frappe:
+
+**Project:** lhdn_payroll_integration
+**Story:** US-827: Profile configuration cloning
+
+**1. Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: Create a new whitelisted public method `clone_profile` here to handle the core logic.
+*   `lhdn_payroll_integration/hooks.py`: Add the `clone_profile` method to the `api_allowed_whitelisted_methods` to expose it as a REST endpoint.
+
+**2. Involved DocTypes & Hooks:**
+*   **DocTypes:**
+    *   `Business Profile` (Assuming this is the primary DocType for a profile).
+    *   `Profile Settings` (A child DocType or separate table corresponding to `rainbow_configs`).
+    *   `Profile KB` (A child DocType or separate table for `rainbow_kb_files` metadata).
+*   **Hooks:**
+    *   `on_update` for the `Business Profile` could be considered, but a dedicated API endpoint is a cleaner approach as specified.
+
+**3. Recommended Implementation Approach:**
+*   In `api.py`, the `clone_profile` function will accept `source_profile`, `new_profile_id`, and `display_name`.
+*   Use `frappe.get_doc('Business Profile', source_profile)` to load the source document.
+*   Create a new `Business Profile` doc (`frappe.new_doc`). Set the new `name` and `display_name`.
+*   Iterate through the source profile's child tables for settings and KB files. For each entry, create a new record attached to the new profile, ensuring you deep-copy values and exclude sensitive auth data (e.g., WhatsApp tokens).
+*   Use a `frappe.db.commit()` and `try/except` block with `frappe.db.rollback()` to ensure the entire clone operation is atomic.
+
+**4. Edge Cases & Gotchas:**
+*   **Unique Name:** The `new_profile_id` must be validated to ensure it doesn't already exist before any cloning begins.
+*   **Auth State:** Explicitly filter out and do not copy any fields related to authentication or session state (e.g., `whatsapp_auth_state`, `phone_number`).
+*   **File Duplication:** The goal is to copy metadata, not the on-disk files. Ensure the new `Profile KB` records point to the existing `File` documents, not new copies.
+
+
+## Iteration 4 - Sat, Mar 15, 2026
+### Story: US-824 - Intent coverage gap analysis: surface high-frequency unmatched patterns in admin
+### What was implemented
+- Story was already fully implemented from a previous Spiral iteration:
+  - Backend: `src/routes/admin/analytics-intent-gaps.ts` — GET /analytics/intent-gaps endpoint with keyword frequency clustering over rainbow_messages where intent='unknown'
+  - Frontend HTML: `src/public/templates/tabs/performance.html` — Intent Coverage Gaps section with loading/empty/results states and day filter dropdown
+  - Frontend JS: `src/public/js/modules/intent-gaps-analysis.js` — Loads gap data, renders keyword clusters with message count + example + Create Intent button
+  - Module chunk: `src/public/js/module-chunks/performance-chunk.js` — Imports and exposes loadIntentGapsAnalysis globally
+  - Route mounting: `src/routes/admin/index.ts` line 228 — analyticsIntentGapsRoutes mounted
+  - Caching: Route path in SEMI_STABLE_PATHS for 30s cache
+### Patterns discovered
+- Some stories are fully implemented by Spiral workers but not marked as passes=true in prd.json
+- Always verify existing implementation before starting new code
+### Gotchas
+- None — clean implementation, all acceptance criteria met
