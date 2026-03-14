@@ -6869,3 +6869,74 @@ This user story is for a TypeScript/Node.js project, not a Frappe/Python one. Th
 ### Build/Test
 - Build: successful (3 pre-existing warnings only)
 - Server startup: clean start confirmed
+## Iteration 1 - Sun, Mar 15, 2026  6:49:17 AM
+Incomplete: Admin UI for per-profile WhatsApp frequency cap and rate limit configuration (ID: US-828) — attempt 2/3
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Okay, I'll start by analyzing the project structure to understand the context of the user story.
+**Warning:** The current project is a Node.js/TypeScript application, not a Frappe/Python app. The following technical brief is based on the provided user story but adapted to a conceptual Frappe/Python architecture as requested for the `lhdn_payroll_integration` app.
+
+### Technical Brief for US-828: Admin UI for WhatsApp Rate Limiting
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/doctype/rainbow_config/rainbow_config.py`**: To extend the schema with rate limit fields.
+*   **`lhdn_payroll_integration/doctype/rainbow_config/rainbow_config.js`**: For client-side logic in the admin UI.
+*   **`lhdn_payroll_integration/api.py`**: To add the new `/api/admin/rate-limits/stats` endpoint.
+
+**2. Frappe DocTypes and Hooks:**
+
+*   **DocType:** `Rainbow Config` (`rainbow_configs`). This will be modified to store the new rate-limiting settings per profile.
+*   **Hooks:** No new hooks are likely needed; modifications will be within the DocType's controller and linked scripts.
+
+**3. Implementation Approach:**
+
+1.  **Extend `Rainbow Config` DocType:** Add a new "Rate Limits" Section Break. Inside, add `max_messages_per_user_per_24h` (Int) and `enabled` (Check) fields.
+2.  **Admin UI:** The new fields will automatically appear in the `Rainbow Config` settings form. Use the DocType's JS file (`rainbow_config.js`) to add logic for fetching and displaying the rate-limited user count.
+3.  **Stats Endpoint:** Create a new whitelisted `get_rate_limit_stats` function in `api.py` that accepts a `profileId` and queries message logs to count users who have hit the cap in the last 24 hours.
+4.  **Real-time Updates:** The settings will be managed by Frappe's standard model, and a client-side script can poll the new stats endpoint periodically (e.g., every minute) to update the count.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Performance:** The rate limit stats query must be efficient. Index the message log table by timestamp and user ID.
+*   **Multi-Profile Handling:** Ensure all queries and settings are filtered by the `profileId`.
+*   **Default Values:** Set sensible defaults for the new fields in the DocType definition to prevent issues if they are not explicitly configured.
+*   **Restart vs. Cache:** Frappe's settings are cached. While a server restart isn't needed, ensure any in-memory configuration is refreshed after settings are saved. Frappe's built-in caching should handle this, but it's worth verifying.
+
+
+## Iteration 9 - US-865: Set meal and combo handling
+### What was implemented
+- Extended `DisambiguationCandidate` in `src/assistant/disambiguation-store.ts` with `SetMealChoice` interface and `choices` field
+- Updated `normalizeItems()` in `src/tools/fnb-menu.ts` to capture choices/components/customizations from MCP response via `normalizeChoices()` helper
+- Extended `CartItem` in `src/assistant/cart-store.ts` with `SetMealComponent` interface and `components` field
+- Updated `cartFormatSummary()` to display chosen components with indented tree format (└ Drink: Teh Tarik)
+- Created `src/assistant/set-meal-store.ts` — per-session pending set meal state store
+  - Tracks: item info, choices array, selections array, TTL cleanup
+  - Functions: startSetMeal, getPendingSetMeal, clearPendingSetMeal, fillChoice, allChoicesFilled, toCartComponents, formatChoicePrompt
+- Enhanced `cart_search_item` handler in `src/tools/cart.ts`: when matched item has choices, starts set meal customisation flow instead of adding directly
+- Enhanced `cart_pick_item` handler: when picked disambiguation item has choices, starts set meal flow
+- Added `cart_set_meal_choose` tool and handler:
+  - Numeric selection (1, 2, 3)
+  - Name matching (case-insensitive substring)
+  - Skip/default handling: "any", "anything", "skip", "you choose", "surprise me", "apa-apa", "随便", "都可以" → picks first option
+  - Invalid selection: re-shows options
+  - After all choices filled: adds to cart with components, shows summary
+- Updated cart_clear and cart_cancel_order to also clear pending set meal state
+- Updated tool descriptions to guide AI toward cart_search_item for set meals
+
+### Patterns discovered
+- Set meal detection is at the tool level (not intent level) — leverages existing cart_search_item flow
+- MCP response can have choices, components, or customizations arrays (all handled)
+- Each option can be a string or object with name/label field
+- PendingSetMeal store follows same pattern as DisambiguationState store (TTL, interval cleanup)
+- cartTools array + createCartHandlers pattern: add tool def to array, add handler in function
+
+### Gotchas
+- cart_add_item bypasses set meal detection since it doesn't fetch menu — AI must use cart_search_item for set meals (tool description updated)
+- Components display in summary uses newlines with indentation — WhatsApp renders this well
+- Skip/default uses first option in the list — cafe should list preferred defaults first in MCP
+
+### Build/Test
+- Build: successful (3 pre-existing warnings only)
+- Server startup: clean start confirmed

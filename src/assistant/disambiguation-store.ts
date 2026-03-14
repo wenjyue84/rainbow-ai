@@ -6,12 +6,21 @@
  * guest can select by number or name in the next turn.
  */
 
+export interface SetMealChoice {
+  /** Choice group name, e.g. "Drink", "Side" */
+  name: string;
+  /** Available options to pick from */
+  options: string[];
+}
+
 export interface DisambiguationCandidate {
   code?: string;
   name: string;
   price?: number;
   category?: string;
   available?: boolean;
+  /** Set meal / combo choice groups (if present, item requires customisation) */
+  choices?: SetMealChoice[];
 }
 
 export interface DisambiguationState {

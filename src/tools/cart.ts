@@ -21,6 +21,12 @@ import {
   setDisambiguation, getDisambiguation, clearDisambiguation,
   formatDisambiguationList, type DisambiguationCandidate,
 } from '../assistant/disambiguation-store.js';
+import {
+  startSetMeal, getPendingSetMeal, clearPendingSetMeal,
+  getNextUnfilledChoice, fillChoice, allChoicesFilled,
+  toCartComponents, formatChoicePrompt,
+} from '../assistant/set-meal-store.js';
+import type { SetMealComponent } from '../assistant/cart-store.js';
 import { fetchMenuItems } from './fnb-menu.js';
 import { findMenuItemMatches } from '../assistant/menu-matcher.js';
 
@@ -29,7 +35,7 @@ import { findMenuItemMatches } from '../assistant/menu-matcher.js';
 export const cartTools: MCPTool[] = [
   {
     name: 'cart_add_item',
-    description: 'Add an item to the guest\'s cart. Use this when the guest says they want to order something. Transitions order stage to ORDERING.',
+    description: 'Add a known item to the guest\'s cart. Use this when you already know the exact item name, code, and price. For set meals or combos, use cart_search_item instead — it detects choices and guides customisation. Transitions order stage to ORDERING.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -208,7 +214,9 @@ export const cartTools: MCPTool[] = [
     description: [
       'Search the menu for an item by name and add it to cart if unambiguous.',
       'Use this instead of cart_add_item when the guest uses a partial or vague name (e.g. "the chicken", "nasi", "something spicy").',
-      '• Single match → item is added to cart automatically.',
+      'Also use this for set meals and combos — it detects items with choices and guides the guest through customisation.',
+      '• Single match (regular item) → item is added to cart automatically.',
+      '• Single match (set meal/combo) → starts choice-by-choice customisation flow.',
       '• Multiple matches → shows a numbered list and asks the guest to choose.',
       '• No match → apologises and offers to show the full menu.',
       'If there is already a pending disambiguation, the guest may reply with a number — use cart_pick_item for that.',
@@ -237,6 +245,25 @@ export const cartTools: MCPTool[] = [
         selection: { type: 'string', description: 'The guest\'s selection — a number (e.g. "2") or a name (e.g. "Chicken Rice")' },
         qty: { type: 'number', description: 'Quantity to add (default 1)' },
         notes: { type: 'string', description: 'Special instructions for this item (optional)' }
+      },
+      required: ['selection']
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  // ─── Set Meal / Combo Tools ────────────────────────────────────
+  {
+    name: 'cart_set_meal_choose',
+    description: [
+      'Select an option for a pending set meal / combo customisation.',
+      'Use this when the guest is choosing a component for their set meal (e.g. picking a drink or side).',
+      'The guest can reply with a number (e.g. "1", "2") or the option name (e.g. "Teh Tarik").',
+      'If the guest says "any", "anything", "you choose", or "skip", the first/default option is chosen.',
+      'After all choices are filled, the set meal is automatically added to the cart.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selection: { type: 'string', description: 'The guest\'s choice — a number (e.g. "1") or option name (e.g. "Teh Tarik"), or "any"/"skip" for default' }
       },
       required: ['selection']
     },
@@ -338,6 +365,7 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
 
   handlers.set('cart_clear', async (_args: any) => {
     cartClear(sessionId);
+    clearPendingSetMeal(sessionId);
     clearOrderStage(sessionId);
     return {
       content: [{ type: 'text', text: 'Cart cleared.' }]
@@ -563,8 +591,9 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       };
     }
 
-    // Clear cart and reset to BROWSING
+    // Clear cart, pending set meals, and reset to BROWSING
     cartClear(sessionId);
+    clearPendingSetMeal(sessionId);
     clearOrderStage(sessionId);
     return {
       content: [{
@@ -726,9 +755,32 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     const effectiveMatches = availableMatches.length > 0 ? availableMatches : matches;
 
     if (effectiveMatches.length === 1) {
-      // Unambiguous — add directly to cart
+      // Unambiguous match found
       clearDisambiguation(sessionId);
       const match = effectiveMatches[0];
+
+      // US-865: Detect set meal / combo — if item has choices, start customisation flow
+      if (match.choices && match.choices.length > 0) {
+        const pending = startSetMeal(sessionId, {
+          name: match.name,
+          code: match.code,
+          price: match.price,
+          qty,
+          notes,
+          choices: match.choices,
+        });
+        transitionOrderStage(sessionId, 'ORDERING');
+        const priceStr = match.price !== undefined ? ` (RM ${match.price.toFixed(2)})` : '';
+        const prompt = formatChoicePrompt(pending);
+        return {
+          content: [{
+            type: 'text',
+            text: `Great choice! ${match.name}${priceStr} is a set meal with ${match.choices.length} choice${match.choices.length > 1 ? 's' : ''} to make.\n\n${prompt}`
+          }]
+        };
+      }
+
+      // Regular item — add directly to cart
       const item: CartItem = { name: match.name, qty, code: match.code, price: match.price, notes };
       const items = cartAddItem(sessionId, item);
       transitionOrderStage(sessionId, 'ORDERING');
@@ -796,6 +848,28 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     }
 
     clearDisambiguation(sessionId);
+
+    // US-865: If chosen item is a set meal, start customisation flow
+    if (chosen.choices && chosen.choices.length > 0) {
+      const pending = startSetMeal(sessionId, {
+        name: chosen.name,
+        code: chosen.code,
+        price: chosen.price,
+        qty,
+        notes,
+        choices: chosen.choices,
+      });
+      transitionOrderStage(sessionId, 'ORDERING');
+      const priceStr = chosen.price !== undefined ? ` (RM ${chosen.price.toFixed(2)})` : '';
+      const prompt = formatChoicePrompt(pending);
+      return {
+        content: [{
+          type: 'text',
+          text: `Great choice! ${chosen.name}${priceStr} is a set meal with ${chosen.choices.length} choice${chosen.choices.length > 1 ? 's' : ''} to make.\n\n${prompt}`
+        }]
+      };
+    }
+
     const item: CartItem = { name: chosen.name, qty, code: chosen.code, price: chosen.price, notes };
     const items = cartAddItem(sessionId, item);
     transitionOrderStage(sessionId, 'ORDERING');
@@ -805,6 +879,104 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       content: [{
         type: 'text',
         text: `Added ${qty}x ${chosen.name}${priceStr} to your cart.\n\nCurrent cart:\n${cartFormatSummary(items)}`
+      }]
+    };
+  });
+
+  // ─── Set Meal Choice Handler (US-865) ─────────────────────────
+
+  handlers.set('cart_set_meal_choose', async (args: any) => {
+    const selection: string = String(args.selection || '').trim();
+
+    const pending = getPendingSetMeal(sessionId);
+    if (!pending) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is no pending set meal to customise. Please order a set meal first.'
+        }]
+      };
+    }
+
+    const choiceIdx = getNextUnfilledChoice(pending);
+    if (choiceIdx === -1) {
+      // All filled already — shouldn't happen, but handle gracefully
+      clearPendingSetMeal(sessionId);
+      return {
+        content: [{
+          type: 'text',
+          text: 'All choices have already been made. The set meal should be in your cart.'
+        }]
+      };
+    }
+
+    const choice = pending.choices[choiceIdx];
+    const isSkip = /^(any|anything|skip|you choose|surprise me|whatever|apa-apa|apa saja|随便|都可以)$/i.test(selection);
+
+    let selectedOption: string;
+
+    if (isSkip) {
+      // Default to first option
+      selectedOption = choice.options[0];
+    } else {
+      // Try numeric selection
+      const num = parseInt(selection, 10);
+      if (!isNaN(num) && num >= 1 && num <= choice.options.length) {
+        selectedOption = choice.options[num - 1];
+      } else {
+        // Try name match (case-insensitive substring)
+        const q = selection.toLowerCase();
+        const found = choice.options.find(o => o.toLowerCase().includes(q));
+        if (found) {
+          selectedOption = found;
+        } else {
+          // No match — show options again
+          const optionLines = choice.options.map((opt, i) => `${i + 1}. ${opt}`);
+          return {
+            content: [{
+              type: 'text',
+              text: `Sorry, "${selection}" is not one of the options for ${choice.name}.\n\nPlease choose:\n${optionLines.join('\n')}\n\nOr say "any" to pick the default.`
+            }]
+          };
+        }
+      }
+    }
+
+    // Fill the choice
+    fillChoice(pending, choiceIdx, selectedOption);
+
+    const defaultNote = isSkip ? ` (default: ${selectedOption})` : '';
+    const confirmText = `${choice.name}: ${selectedOption}${defaultNote} ✓`;
+
+    // Check if more choices remain
+    if (!allChoicesFilled(pending)) {
+      const nextPrompt = formatChoicePrompt(pending);
+      return {
+        content: [{
+          type: 'text',
+          text: `${confirmText}\n\n${nextPrompt}`
+        }]
+      };
+    }
+
+    // All choices filled — add to cart with components
+    const components: SetMealComponent[] = toCartComponents(pending);
+    const item: CartItem = {
+      name: pending.name,
+      code: pending.code,
+      qty: pending.qty,
+      price: pending.price,
+      notes: pending.notes,
+      components,
+    };
+    const items = cartAddItem(sessionId, item);
+    clearPendingSetMeal(sessionId);
+
+    const summary = cartFormatSummary(items);
+    return {
+      content: [{
+        type: 'text',
+        text: `${confirmText}\n\nAll choices made! Added ${pending.qty}x ${pending.name} to your cart.\n\nCurrent cart:\n${summary}`
       }]
     };
   });

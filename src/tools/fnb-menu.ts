@@ -263,6 +263,18 @@ function formatSpecialsResponse(text: string): string {
 
 // ─── Structured Menu Item Fetch (for disambiguation) ──────────────────────────
 
+function normalizeChoices(raw: any[]): import('../assistant/disambiguation-store.js').SetMealChoice[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const choices = raw
+    .filter(c => c && (c.name || c.group || c.label) && Array.isArray(c.options))
+    .map(c => ({
+      name: String(c.name || c.group || c.label),
+      options: (c.options as any[]).map((o: any) => typeof o === 'string' ? o : String(o.name || o.label || o)),
+    }))
+    .filter(c => c.options.length > 0);
+  return choices.length > 0 ? choices : undefined;
+}
+
 function normalizeItems(raw: any[]): DisambiguationCandidate[] {
   return raw
     .filter(r => r && (r.name || r.item_name || r.title))
@@ -275,6 +287,7 @@ function normalizeItems(raw: any[]): DisambiguationCandidate[] {
         : undefined,
       category: r.category || r.item_group || r.group || undefined,
       available: typeof r.available === 'boolean' ? r.available : undefined,
+      choices: normalizeChoices(r.choices || r.components || r.customizations),
     }));
 }
 

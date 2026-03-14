@@ -6,12 +6,21 @@
  * on checkout or idle timeout.
  */
 
+export interface SetMealComponent {
+  /** Choice group name, e.g. "Drink", "Side" */
+  choiceName: string;
+  /** Selected option, e.g. "Teh Tarik" */
+  selectedItem: string;
+}
+
 export interface CartItem {
   name: string;
   code?: string;
   qty: number;
   price?: number; // unit price in MYR
   notes?: string;
+  /** Chosen components for set meals / combos */
+  components?: SetMealComponent[];
 }
 
 export interface TableInfo {
@@ -166,7 +175,13 @@ export function cartFormatSummary(items: CartItem[]): string {
     const priceStr = item.price !== undefined ? ` (RM ${item.price.toFixed(2)} each)` : '';
     const subtotalStr = subtotal !== null ? ` = RM ${subtotal.toFixed(2)}` : '';
     const notesStr = item.notes ? ` [${item.notes}]` : '';
-    return `• ${item.qty}x ${item.name}${priceStr}${subtotalStr}${notesStr}`;
+    let line = `• ${item.qty}x ${item.name}${priceStr}${subtotalStr}${notesStr}`;
+    // Show chosen components for set meals
+    if (item.components && item.components.length > 0) {
+      const compLines = item.components.map(c => `  └ ${c.choiceName}: ${c.selectedItem}`);
+      line += '\n' + compLines.join('\n');
+    }
+    return line;
   });
 
   const summary = lines.join('\n');
