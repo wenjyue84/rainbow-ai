@@ -45,47 +45,42 @@
       if (chevron) chevron.style.transform = '';
     },
 
-    /** US-809: Apply profile switch state without changing URL (used by tabs.js hashchange) */
-    _applyProfileSwitch: function (profileId) {
+    /** Switch to a profile by ID — updates URL for profile-specific tabs (US-809) */
+    switchTo: function (profileId) {
       activeProfileId = profileId;
       localStorage.setItem(STORAGE_KEY, profileId);
+      this.close();
       this.renderLabel();
       this.renderDropdown();
 
-      // Clear cacheManager so stale data from previous profile is gone
+      // 1. Clear cacheManager so stale data from previous profile is gone
       if (window.cacheManager && typeof window.cacheManager.clearAll === 'function') {
         window.cacheManager.clearAll();
       }
 
-      // Reset global cached state vars to their defaults (from state.js)
+      // 2. Reset global cached state vars to their defaults (from state.js)
       cachedRouting = {};
       cachedKnowledge = { static: [], dynamic: {} };
       cachedWorkflows = { workflows: [] };
       cachedSettings = null;
       cachedIntentNames = [];
-    },
 
-    /** Switch to a profile by ID — updates URL for profile-specific tabs */
-    switchTo: function (profileId) {
-      this._applyProfileSwitch(profileId);
-      this.close();
-
-      // US-809: Update URL hash for profile-specific tabs
+      // 3. Get current tab info
       var tabInfo = typeof window.getTabInfoFromUrl === 'function'
         ? window.getTabInfoFromUrl()
         : { main: 'dashboard', profileId: null, sub: null };
 
-      if (window.PROFILE_SPECIFIC_TABS &&
-          window.PROFILE_SPECIFIC_TABS.indexOf(tabInfo.main) !== -1) {
-        var newHash = tabInfo.main + '/' + profileId;
-        if (tabInfo.sub) newHash += '/' + tabInfo.sub;
-        window.location.hash = newHash;
-        // hashchange will trigger loadTab
-      } else {
-        // Global tab — reload directly
-        if (typeof window.loadTab === 'function') {
-          window.loadTab(tabInfo.main, tabInfo.sub);
-        }
+      // 4. US-809: Update URL hash for profile-specific tabs
+      //    Use replaceState to avoid triggering hashchange loop
+      var profileTabs = window.PROFILE_SPECIFIC_TABS || [];
+      if (profileTabs.indexOf(tabInfo.main) !== -1) {
+        var newHash = '#' + tabInfo.main + '/' + profileId + (tabInfo.sub ? '/' + tabInfo.sub : '');
+        history.replaceState(null, '', newHash);
+      }
+
+      // 5. Reload the active tab with new profile context
+      if (typeof window.loadTab === 'function') {
+        window.loadTab(tabInfo.main, tabInfo.sub);
       }
     },
 

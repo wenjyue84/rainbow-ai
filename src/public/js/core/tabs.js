@@ -182,19 +182,6 @@ async function loadTab(tabName, subTab = null) {
   // Normalize tab name
   const effectiveTabName = tabNameMapping[tabName] || tabName;
 
-  // ── US-809: Redirect to include profileId for profile-specific tabs ──
-  if (PROFILE_SPECIFIC_TABS.includes(effectiveTabName) &&
-      window.KNOWN_PROFILE_IDS && window.KNOWN_PROFILE_IDS.length > 0) {
-    const { profileId } = getTabInfoFromUrl();
-    if (!profileId && window.profileSwitcher) {
-      const activeId = window.profileSwitcher.getActiveProfileId();
-      if (activeId) {
-        window.location.hash = effectiveTabName + '/' + activeId + (subTab ? '/' + subTab : '');
-        return; // hashchange will re-trigger loadTab
-      }
-    }
-  }
-
   // ── US-160: Clean up intervals/listeners from the previous tab ──
   cleanupCurrentTab(_currentTab, effectiveTabName);
   _currentTab = effectiveTabName;
