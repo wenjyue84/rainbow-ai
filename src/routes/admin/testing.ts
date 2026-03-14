@@ -89,7 +89,7 @@ router.post('/intents/test', async (req: Request, res: Response) => {
 // ─── Test AI Provider (dynamic) ──────────────────────────────────────
 
 router.post('/test-ai/:provider', async (req: Request, res: Response) => {
-  const providerId = req.params.provider;
+  const providerId = req.params.provider as string;
   try {
     const result = await testProvider(providerId);
     res.json(result);

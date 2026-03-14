@@ -86,7 +86,7 @@ router.get('/memory', async (_req: Request, res: Response) => {
 
 // GET /memory/:date — Read specific day's log
 router.get('/memory/:date', async (req: Request, res: Response) => {
-  const { date } = req.params;
+  const date = req.params.date as string;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     badRequest(res, 'Invalid date format. Use YYYY-MM-DD');
     return;
@@ -108,7 +108,7 @@ router.get('/memory/:date', async (req: Request, res: Response) => {
 
 // PUT /memory/:date — Update (overwrite) day's log with backup
 router.put('/memory/:date', async (req: Request, res: Response) => {
-  const { date } = req.params;
+  const date = req.params.date as string;
   const { content } = req.body;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     badRequest(res, 'Invalid date format. Use YYYY-MM-DD');
@@ -135,7 +135,7 @@ router.put('/memory/:date', async (req: Request, res: Response) => {
 
 // POST /memory/:date/append — Append timestamped entry to a section
 router.post('/memory/:date/append', async (req: Request, res: Response) => {
-  const { date } = req.params;
+  const date = req.params.date as string;
   const { section, entry } = req.body;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     badRequest(res, 'Invalid date format. Use YYYY-MM-DD');

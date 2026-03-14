@@ -27,7 +27,7 @@ router.get('/escalations', async (_req: Request, res: Response) => {
 
 // GET /escalations/:id — Get single escalation event with summary
 router.get('/escalations/:id', async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) {
     res.status(400).json({ error: 'Invalid escalation ID' });
     return;

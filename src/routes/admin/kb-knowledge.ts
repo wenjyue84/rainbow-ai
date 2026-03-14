@@ -51,7 +51,7 @@ router.post('/knowledge', (req: Request, res: Response) => {
 });
 
 router.put('/knowledge/:intent', (req: Request, res: Response) => {
-  const { intent } = req.params;
+  const intent = req.params.intent as string;
   const { response } = req.body;
   const data = getStore(res).getKnowledge();
 
@@ -103,7 +103,7 @@ router.post('/knowledge/upload-image', uploadReplyImage.single('image'), (req: R
 
 // Serve uploaded images
 router.get('/uploads/:filename', (req: Request, res: Response) => {
-  const safeName = req.params.filename.replace(/[^a-z0-9._-]/gi, '');
+  const safeName = (req.params.filename as string).replace(/[^a-z0-9._-]/gi, '');
   const filePath = path.join(UPLOADS_DIR, safeName);
   if (!existsSync(filePath)) {
     notFound(res, 'File');
@@ -113,7 +113,7 @@ router.get('/uploads/:filename', (req: Request, res: Response) => {
 });
 
 router.delete('/knowledge/:intent', (req: Request, res: Response) => {
-  const { intent } = req.params;
+  const intent = req.params.intent as string;
   const data = getStore(res).getKnowledge();
 
   if (req.query.dynamic === 'true') {

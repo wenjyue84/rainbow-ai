@@ -91,6 +91,8 @@ router.post('/webhooks/meta/quality', signatureGuard, (req: Request, res: Respon
     status = 'FLAGGED';
   } else if (event === 'UNFLAGGED') {
     status = 'CONNECTED';
+  } else if (event === 'RESTRICTED') {
+    status = 'RESTRICTED';
   }
   // QUALITY_SCORE_CHANGE keeps current status but updates the rating
 

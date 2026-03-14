@@ -30,7 +30,7 @@ router.get('/opt-outs', async (req: Request, res: Response) => {
 
 // DELETE /api/rainbow/opt-outs/:phone — Admin can remove opt-out
 router.delete('/opt-outs/:phone', async (req: Request, res: Response) => {
-  const phone = req.params.phone;
+  const phone = req.params.phone as string;
   if (!phone) {
     res.status(400).json({ error: 'Phone number is required' });
     return;

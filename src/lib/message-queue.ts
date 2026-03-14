@@ -337,7 +337,7 @@ export async function getDLQJobs(): Promise<DLQJob[]> {
       const msg: IncomingMessage = data.data || {};
       return {
         id: job.id ?? '',
-        phone: msg.phone || 'unknown',
+        phone: msg.from || 'unknown',
         messageContent: msg.text || (msg as any).message || '',
         failureReason: data.error || 'unknown',
         failedAt: data.failedAt || new Date(job.timestamp).toISOString(),
@@ -383,7 +383,7 @@ export async function retryDLQJob(dlqJobId: string): Promise<{ ok: boolean; erro
     });
     await job.remove();
     if (dlqCount > 0) dlqCount--;
-    console.log(`[MessageQueue] DLQ job ${dlqJobId} replayed for phone=${originalMsg.phone}`);
+    console.log(`[MessageQueue] DLQ job ${dlqJobId} replayed for phone=${originalMsg.from}`);
     return { ok: true };
   } catch (err: any) {
     return { ok: false, error: err.message };

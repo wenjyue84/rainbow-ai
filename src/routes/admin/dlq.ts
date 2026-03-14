@@ -25,7 +25,7 @@ router.get('/dlq', async (_req: Request, res: Response) => {
 });
 
 router.post('/dlq/:jobId/retry', async (req: Request, res: Response) => {
-  const { jobId } = req.params;
+  const jobId = req.params.jobId as string;
   if (!jobId) {
     res.status(400).json({ error: 'jobId is required' });
     return;

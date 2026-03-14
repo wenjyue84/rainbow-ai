@@ -47,7 +47,7 @@ dbReady.then(ok => { if (ok) ensureAuditTable().catch(() => {}); });
  * Permanently erases all guest data for the given JID.
  */
 router.delete('/guests/:jid/data', async (req: Request, res: Response) => {
-  const jidParam = decodeURIComponent(req.params.jid);
+  const jidParam = decodeURIComponent(req.params.jid as string);
   if (!jidParam) return badRequest(res, 'JID parameter is required');
 
   const ready = await dbReady;

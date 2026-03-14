@@ -393,7 +393,7 @@ router.post('/auth/disable-2fa', async (req: Request, res: Response) => {
 
 router.get('/auth/status/:username', async (req: Request, res: Response) => {
   try {
-    const { username } = req.params;
+    const username = req.params.username as string;
     const [user] = await db.select({ totpEnabled: adminUsers.totpEnabled })
       .from(adminUsers)
       .where(eq(adminUsers.username, username))

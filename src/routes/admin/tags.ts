@@ -82,7 +82,7 @@ router.post('/tags', (req: Request, res: Response) => {
 
 // DELETE /tags/:tag — remove a tag from global list
 router.delete('/tags/:tag', (req: Request, res: Response) => {
-  const tagToRemove = decodeURIComponent(req.params.tag).trim();
+  const tagToRemove = decodeURIComponent(req.params.tag as string).trim();
   if (!tagToRemove) {
     res.status(400).json({ error: 'Tag name required' });
     return;

@@ -45,7 +45,7 @@ router.get('/conversations/dates-map', async (_req: Request, res: Response) => {
 
 router.get('/conversations/:phone/contact', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const details = await getContactDetails(phone);
     res.json(details);
   } catch (err: any) {
@@ -55,7 +55,7 @@ router.get('/conversations/:phone/contact', async (req: Request, res: Response) 
 
 router.patch('/conversations/:phone/contact', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const allowed = ['name', 'email', 'country', 'language', 'languageLocked', 'checkIn', 'checkOut', 'unit', 'notes', 'contactStatus', 'paymentStatus', 'tags'];
     const partial: Record<string, any> = {};
     for (const key of allowed) {
@@ -74,7 +74,7 @@ router.patch('/conversations/:phone/contact', async (req: Request, res: Response
 
 router.get('/conversations/:phone/context', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const cleanPhone = phone.replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9+]/g, '');
     const contextDir = path.join(process.cwd(), '.rainbow-kb', 'guests');
     const contextFile = path.join(contextDir, `${cleanPhone}-context.md`);
@@ -96,7 +96,7 @@ router.get('/conversations/:phone/context', async (req: Request, res: Response) 
 
 router.put('/conversations/:phone/context', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const { content } = req.body;
     if (typeof content !== 'string') {
       badRequest(res, 'content (string) required');

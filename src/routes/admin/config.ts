@@ -26,7 +26,7 @@ router.put('/routing', (req: Request, res: Response) => {
 });
 
 router.patch('/routing/:intent', (req: Request, res: Response) => {
-  const { intent } = req.params;
+  const intent = req.params.intent as string;
   const result = updateSingleRouteRequestSchema.safeParse(req.body);
   if (!result.success) {
     badRequest(res, result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
@@ -153,7 +153,7 @@ router.post('/templates', (req: Request, res: Response) => {
 });
 
 router.put('/templates/:key', (req: Request, res: Response) => {
-  const { key } = req.params;
+  const key = req.params.key as string;
   const data = getStore(res).getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
@@ -167,7 +167,7 @@ router.put('/templates/:key', (req: Request, res: Response) => {
 });
 
 router.delete('/templates/:key', (req: Request, res: Response) => {
-  const { key } = req.params;
+  const key = req.params.key as string;
   const data = getStore(res).getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
@@ -436,7 +436,7 @@ router.get('/circuit-breaker/status', (_req: Request, res: Response) => {
  * Manually reset a specific provider's circuit breaker
  */
 router.post('/circuit-breaker/reset/:providerId', (req: Request, res: Response) => {
-  const { providerId } = req.params;
+  const providerId = req.params.providerId as string;
   circuitBreakerRegistry.reset(providerId);
   ok(res, { providerId, status: 'reset' });
 });
@@ -490,7 +490,7 @@ router.get('/rate-limit/status', (_req: Request, res: Response) => {
  * Manually reset a specific provider's rate limit state
  */
 router.post('/rate-limit/reset/:providerId', (req: Request, res: Response) => {
-  const { providerId } = req.params;
+  const providerId = req.params.providerId as string;
   rateLimitManager.resetProvider(providerId);
   ok(res, { providerId, status: 'rate limit reset' });
 });

@@ -308,7 +308,7 @@ router.get('/intent/predictions/validated', async (req: Request, res: Response) 
 // When approved as correct, also adds the message to intent-examples.json for training.
 router.patch('/intent/predictions/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { actualIntent } = req.body;
 
     if (!actualIntent) {

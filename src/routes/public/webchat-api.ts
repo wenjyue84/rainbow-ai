@@ -44,7 +44,7 @@ const KB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  * Allows external apps to fetch Rainbow AI's knowledge context.
  */
 router.get('/:profileId/kb-context', async (req: Request, res: Response) => {
-  const { profileId } = req.params;
+  const profileId = req.params.profileId as string;
 
   const profile = profileRegistry.getProfile(profileId);
   if (!profile) {
@@ -83,7 +83,7 @@ router.get('/:profileId/kb-context', async (req: Request, res: Response) => {
  * Returns only public-safe fields (no intent/debug data).
  */
 router.post('/:profileId/message', async (req: Request, res: Response) => {
-  const { profileId } = req.params;
+  const profileId = req.params.profileId as string;
   const { message, history } = req.body;
   let { sessionId } = req.body;
 

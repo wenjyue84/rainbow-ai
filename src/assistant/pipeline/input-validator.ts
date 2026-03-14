@@ -431,7 +431,7 @@ export async function validateAndPrepare(
       storedLang,
       locked,
     );
-    detectedLang = effectiveLang;
+    detectedLang = effectiveLang as 'en' | 'ms' | 'zh';
 
     console.debug(`[LanguageDetection] "${text.slice(0, 60)}" → detected=${detection.language} (conf=${detection.confidence.toFixed(2)}) stored=${storedLang ?? 'none'} locked=${locked} effective=${detectedLang}`);
   }

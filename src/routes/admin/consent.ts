@@ -16,7 +16,7 @@ const router = Router();
 
 // GET /api/admin/consent/:jid
 router.get('/consent/:jid', async (req: Request, res: Response) => {
-  const jidParam = decodeURIComponent(req.params.jid ?? '');
+  const jidParam = decodeURIComponent((req.params.jid as string) ?? '');
   if (!jidParam) return badRequest(res, 'JID parameter is required');
 
   try {

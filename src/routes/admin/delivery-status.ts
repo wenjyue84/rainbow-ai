@@ -14,7 +14,7 @@ const router = Router();
 
 // GET /messages/:id/status — delivery status for a specific message
 router.get('/messages/:id/status', async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   if (!id) {
     res.status(400).json({ error: 'Message ID is required' });
     return;
@@ -30,7 +30,7 @@ router.get('/messages/:id/status', async (req: Request, res: Response) => {
 
 // GET /delivery-status/:phone — all delivery statuses for a phone number
 router.get('/delivery-status/:phone', async (req: Request, res: Response) => {
-  const { phone } = req.params;
+  const phone = req.params.phone as string;
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
 
   const statuses = await getDeliveryStatusByPhone(phone, limit);

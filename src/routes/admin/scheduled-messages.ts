@@ -27,9 +27,10 @@ router.get('/scheduled-messages', (req: Request, res: Response) => {
 
 // GET /scheduled-messages/:id — get single message
 router.get('/scheduled-messages/:id', (req: Request, res: Response) => {
-  const msg = getScheduledMessage(req.params.id);
+  const msgId = req.params.id as string;
+  const msg = getScheduledMessage(msgId);
   if (!msg) {
-    notFound(res, `Scheduled message "${req.params.id}"`);
+    notFound(res, `Scheduled message "${msgId}"`);
     return;
   }
   res.json(msg);
@@ -88,9 +89,9 @@ router.put('/scheduled-messages/:id', (req: Request, res: Response) => {
   if (repeatFrequency !== undefined) updates.repeatFrequency = repeatFrequency;
   if (repeatEndDate !== undefined) updates.repeatEndDate = repeatEndDate;
 
-  const updated = updateScheduledMessage(req.params.id, updates);
+  const updated = updateScheduledMessage(req.params.id as string, updates);
   if (!updated) {
-    notFound(res, `Scheduled message "${req.params.id}" (must be pending to edit)`);
+    notFound(res, `Scheduled message "${req.params.id as string}" (must be pending to edit)`);
     return;
   }
 
@@ -99,12 +100,13 @@ router.put('/scheduled-messages/:id', (req: Request, res: Response) => {
 
 // DELETE /scheduled-messages/:id — cancel a pending scheduled message
 router.delete('/scheduled-messages/:id', (req: Request, res: Response) => {
-  const cancelled = cancelScheduledMessage(req.params.id);
+  const msgId = req.params.id as string;
+  const cancelled = cancelScheduledMessage(msgId);
   if (!cancelled) {
-    notFound(res, `Scheduled message "${req.params.id}" (must be pending to cancel)`);
+    notFound(res, `Scheduled message "${msgId}" (must be pending to cancel)`);
     return;
   }
-  ok(res, { cancelled: req.params.id });
+  ok(res, { cancelled: msgId });
 });
 
 export default router;

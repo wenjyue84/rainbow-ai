@@ -370,7 +370,7 @@ router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: 
 
 // Get pending approvals for a conversation
 router.get('/conversations/:phone/approvals', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const { getApprovalsByPhone } = await import('../../assistant/approval-queue.js');
   const approvals = getApprovalsByPhone(phone);
   res.json({ approvals });
@@ -379,8 +379,8 @@ router.get('/conversations/:phone/approvals', async (req: Request, res: Response
 // Approve and send a queued response
 router.post('/conversations/:phone/approvals/:id/approve', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
-    const { id } = req.params;
+    const phone = decodeURIComponent(req.params.phone as string);
+    const id = req.params.id as string;
     const { editedResponse } = req.body;
 
     const { approveAndSend, getApproval } = await import('../../assistant/approval-queue.js');
@@ -422,7 +422,7 @@ router.post('/conversations/:phone/approvals/:id/approve', async (req: Request, 
 
 // Reject a queued response
 router.post('/conversations/:phone/approvals/:id/reject', async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { rejectApproval } = await import('../../assistant/approval-queue.js');
 
   if (!rejectApproval(id)) {
@@ -437,7 +437,7 @@ router.post('/conversations/:phone/approvals/:id/reject', async (req: Request, r
 // US-090: Generate AI notes summary from conversation
 router.post('/conversations/:phone/generate-notes', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const log = await getConversation(phone);
     if (!log || !log.messages || log.messages.length === 0) {
       badRequest(res, 'No messages to summarize');
@@ -482,7 +482,7 @@ router.post('/conversations/:phone/generate-notes', async (req: Request, res: Re
 // Generate AI suggestion without sending (Manual mode)
 router.post('/conversations/:phone/suggest', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const { context } = req.body; // Optional: staff can provide context
 
     const log = await getConversation(phone);
@@ -541,7 +541,7 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
 
 // Set response mode for a conversation (US-410: also accepts PATCH)
 const handleSetMode = async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const { mode, setAsGlobalDefault } = req.body;
 
   if (!['autopilot', 'copilot', 'manual'].includes(mode)) {

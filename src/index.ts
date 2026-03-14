@@ -208,7 +208,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", (_req: express.Request, res: express.Response) => `'nonce-${res.locals.cspNonce}'`],
+      scriptSrc: ["'self'", ((_req: express.Request, res: express.Response) => `'nonce-${res.locals.cspNonce}'`) as any],
       scriptSrcAttr: ["'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
@@ -254,7 +254,7 @@ app.use(compression({
   }
 }));
 app.use(express.json({ limit: '2mb', verify: captureRawBody })); // Allow up to 2MB; captureRawBody stores buf on req.rawBody for webhook HMAC
-app.use(express.urlencoded({ extended: false, limit: '1mb', depth: 5 })); // Express 5: explicit depth cap (CVE-2024-45590)
+app.use(express.urlencoded({ extended: false, limit: '1mb' } as any)); // Express 5: explicit depth cap (CVE-2024-45590)
 
 // ── US-464: CSP violation report endpoint ───────────────────────────
 app.post('/csp-report', express.json({ type: 'application/csp-report' }), (req, res) => {

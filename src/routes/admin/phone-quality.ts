@@ -24,7 +24,7 @@ router.get('/analytics/phone-quality', (_req: Request, res: Response) => {
 
 /** GET /analytics/phone-quality/:profileId — single profile */
 router.get('/analytics/phone-quality/:profileId', (req: Request, res: Response) => {
-  const { profileId } = req.params;
+  const profileId = req.params.profileId as string;
   const state = getQualityState(profileId);
   res.json({
     profileId,

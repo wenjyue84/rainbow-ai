@@ -56,7 +56,7 @@ router.patch('/whatsapp/instances/:id', (req: Request, res: Response) => {
     return;
   }
   try {
-    const status = whatsappManager.updateInstanceLabel(req.params.id, label.trim());
+    const status = whatsappManager.updateInstanceLabel(req.params.id as string, label.trim());
     ok(res, { instance: status });
   } catch (e: any) {
     if (e.message?.includes('not found')) {
@@ -69,8 +69,9 @@ router.patch('/whatsapp/instances/:id', (req: Request, res: Response) => {
 
 router.delete('/whatsapp/instances/:id', async (req: Request, res: Response) => {
   try {
-    await whatsappManager.removeInstance(req.params.id);
-    ok(res, { message: `Instance "${req.params.id}" removed` });
+    const instanceId = req.params.id as string;
+    await whatsappManager.removeInstance(instanceId);
+    ok(res, { message: `Instance "${instanceId}" removed` });
   } catch (e: any) {
     badRequest(res, e.message);
   }
@@ -78,8 +79,9 @@ router.delete('/whatsapp/instances/:id', async (req: Request, res: Response) => 
 
 router.post('/whatsapp/instances/:id/logout', async (req: Request, res: Response) => {
   try {
-    await whatsappManager.logoutInstance(req.params.id);
-    ok(res, { message: `Instance "${req.params.id}" logged out` });
+    const instanceId = req.params.id as string;
+    await whatsappManager.logoutInstance(instanceId);
+    ok(res, { message: `Instance "${instanceId}" logged out` });
   } catch (e: any) {
     badRequest(res, e.message);
   }
@@ -88,11 +90,12 @@ router.post('/whatsapp/instances/:id/logout', async (req: Request, res: Response
 // US-443: Force reconnect — resets reconnect counter and re-starts the instance
 router.post('/whatsapp/instances/:id/reconnect', async (req: Request, res: Response) => {
   try {
-    await whatsappManager.forceReconnectInstance(req.params.id);
-    ok(res, { message: `Instance "${req.params.id}" force-reconnecting`, instanceId: req.params.id });
+    const instanceId = req.params.id as string;
+    await whatsappManager.forceReconnectInstance(instanceId);
+    ok(res, { message: `Instance "${instanceId}" force-reconnecting`, instanceId });
   } catch (e: any) {
     if (e.message?.includes('not found')) {
-      notFound(res, `Instance "${req.params.id}"`);
+      notFound(res, `Instance "${req.params.id as string}"`);
     } else {
       serverError(res, e);
     }
@@ -101,9 +104,10 @@ router.post('/whatsapp/instances/:id/reconnect', async (req: Request, res: Respo
 
 router.get('/whatsapp/instances/:id/qr', async (req: Request, res: Response) => {
   try {
-    const status = whatsappManager.getInstanceStatus(req.params.id);
+    const instanceId = req.params.id as string;
+    const status = whatsappManager.getInstanceStatus(instanceId);
     if (!status) {
-      notFound(res, `Instance "${req.params.id}"`);
+      notFound(res, `Instance "${instanceId}"`);
       return;
     }
     let qrDataUrl: string | null = null;
@@ -124,7 +128,7 @@ router.get('/whatsapp/instances/:id/qr', async (req: Request, res: Response) => 
 // ─── WhatsApp Avatar ─────────────────────────────────────────────────
 
 router.get('/whatsapp/avatar/:phone', async (req: Request, res: Response) => {
-  const phone = req.params.phone.replace(/[^0-9]/g, '');
+  const phone = (req.params.phone as string).replace(/[^0-9]/g, '');
   if (!phone) { res.status(400).end(); return; }
 
   // Check cache first (fast path)

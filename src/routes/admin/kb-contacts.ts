@@ -40,7 +40,7 @@ router.get('/contact-contexts', async (_req: Request, res: Response) => {
 /** Get a specific contact context file */
 router.get('/contact-contexts/:phone', async (req: Request, res: Response) => {
   try {
-    const phone = req.params.phone.replace(/\D/g, '');
+    const phone = (req.params.phone as string).replace(/\D/g, '');
     if (!phone) { badRequest(res, 'phone required'); return; }
     const filename = `${phone}-context.md`;
     const filePath = path.join(CONTACTS_DIR, filename);
@@ -55,7 +55,7 @@ router.get('/contact-contexts/:phone', async (req: Request, res: Response) => {
 /** Save/update a contact context file */
 router.put('/contact-contexts/:phone', async (req: Request, res: Response) => {
   try {
-    const phone = req.params.phone.replace(/\D/g, '');
+    const phone = (req.params.phone as string).replace(/\D/g, '');
     if (!phone) { badRequest(res, 'phone required'); return; }
     const { content } = req.body;
     if (typeof content !== 'string') { badRequest(res, 'content (string) required'); return; }

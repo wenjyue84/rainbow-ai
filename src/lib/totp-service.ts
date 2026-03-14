@@ -55,7 +55,7 @@ export function generateTotpSecret(): string {
 
 /** Build an otpauth:// URI suitable for QR-code encoding. */
 export function buildOtpauthUri(secret: string, accountName: string): string {
-  return generateURI({ issuer: ISSUER, label: accountName, secret, type: 'totp' });
+  return generateURI({ issuer: ISSUER, label: accountName, secret, type: 'totp' } as any);
 }
 
 /**
@@ -63,7 +63,7 @@ export function buildOtpauthUri(secret: string, accountName: string): string {
  * Allows ±1 time window to account for clock skew.
  */
 export function verifyTotp(token: string, secret: string): boolean {
-  const result = verifySync({ token, secret, window: 1 });
+  const result = verifySync({ token, secret, window: 1 } as any);
   return result.valid;
 }
 

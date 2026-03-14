@@ -43,7 +43,7 @@ router.get('/kb-files', async (_req: Request, res: Response) => {
 });
 
 router.get('/kb-files/:filename', async (req: Request, res: Response) => {
-  const { filename } = req.params;
+  const filename = req.params.filename as string;
   const fnErr = validateFilename(filename);
   if (fnErr) {
     badRequest(res, fnErr);
@@ -59,7 +59,7 @@ router.get('/kb-files/:filename', async (req: Request, res: Response) => {
 });
 
 router.put('/kb-files/:filename', async (req: Request, res: Response) => {
-  const { filename } = req.params;
+  const filename = req.params.filename as string;
   const { content } = req.body;
   const fnErr = validateFilename(filename);
   if (fnErr) {

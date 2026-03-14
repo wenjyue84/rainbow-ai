@@ -8,6 +8,7 @@
 import type { ConfigStore } from './config-store.js';
 import type { KnowledgeBaseInstance } from './knowledge-base-instance.js';
 import type { MCPTool, ToolHandler } from '../types/mcp.js';
+import type { ChatMessage as TypesChatMessage } from './types.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 
@@ -16,7 +17,7 @@ import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-gen
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  timestamp?: string;
+  timestamp?: number;
 }
 
 export interface ChatOptions {
@@ -178,11 +179,11 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   const { message, history, sessionId, configStore: store, kb } = options;
   const startTime = Date.now();
 
-  const conversationHistory: ChatMessage[] = history.map(msg => ({
+  const conversationHistory = history.map(msg => ({
     role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
     content: msg.content,
-    timestamp: msg.timestamp || new Date().toISOString()
-  }));
+    timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now()
+  })) as TypesChatMessage[];
 
   // Tool-calling mode: bypass intent classification and use tool loop
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {

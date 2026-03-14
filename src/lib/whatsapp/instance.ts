@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion, type AnyMessageContent } from '@whiskeysockets/baileys';
 import fs from 'fs';
 import type { IncomingMessage, MessageType, MediaMetadata } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
@@ -513,7 +513,7 @@ export class WhatsAppInstance {
     }
 
     try {
-      const result = await this.sock.sendMessage(resolvedJid, content);
+      const result = await this.sock.sendMessage(resolvedJid, content as AnyMessageContent);
       const type = 'listMessage' in content ? 'list' : 'buttonsMessage' in content ? 'buttons' : 'interactive';
       console.log(`[Baileys:${this.id}] Sent ${type} to ${resolvedJid}`);
       return result;

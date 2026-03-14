@@ -68,7 +68,7 @@ export async function transcribeVoiceNote(
     }
 
     // Create a File object from the buffer for Groq SDK
-    const audioFile = new File([buffer], 'voice.ogg', { type: 'audio/ogg' });
+    const audioFile = new File([buffer as unknown as BlobPart], 'voice.ogg', { type: 'audio/ogg' });
 
     // Call Groq Whisper API with timeout
     const controller = new AbortController();
