@@ -113,9 +113,8 @@ async function callFnbMcp(tool: string, input: Record<string, any> = {}, require
     });
 
     if (!res.ok) {
-      const text = await res.text();
       return {
-        content: [{ type: 'text', text: `FnB MCP error (${res.status}): ${text}` }],
+        content: [{ type: 'text', text: 'The cafe ordering system returned an error. Please try again or contact staff.' }],
         isError: true
       };
     }
@@ -128,7 +127,7 @@ async function callFnbMcp(tool: string, input: Record<string, any> = {}, require
     return { content: [{ type: 'text', text }] };
   } catch (error: any) {
     return {
-      content: [{ type: 'text', text: `FnB MCP connection error: ${error.message}` }],
+      content: [{ type: 'text', text: 'Unable to reach the cafe ordering system right now. Please try again or ask our staff for help.' }],
       isError: true
     };
   }

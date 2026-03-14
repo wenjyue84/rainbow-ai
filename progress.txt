@@ -3133,3 +3133,32 @@ Build succeeded without new errors.
 - processChat() with tools and toolHandlers bypasses intent classification and uses tool-calling loop
 - fetchUrl mocking affects all code paths including FnB tool handlers
 
+
+## Iteration 7 - Story: US-707 - Graceful degradation: user-friendly errors when FNB_MCP_URL unavailable
+### What was implemented
+Updated error handling in FnB tool handlers to return user-friendly messages instead of technical errors:
+- fnb-menu.ts callFnbMcp() catch block: 'FnB MCP connection error: ${error.message}' → 'Unable to reach the cafe ordering system right now. Please try again or ask our staff for help.'
+- fnb-menu.ts HTTP error: 'FnB MCP error (${status}): ${text}' → 'The cafe ordering system returned an error. Please try again or contact staff.'
+- fnb-orders.ts: Same friendly messages applied
+- Updated fnb-tools.test.ts to verify friendly error messages (no ECONNREFUSED, 404, etc. exposed)
+All tests pass (5/5). Build succeeded without new errors.
+### Patterns discovered
+- Error message abstraction principle: users see friendly text, technical debug info never exposed
+- Consistent messaging across both fnb-menu.ts and fnb-orders.ts for unified UX
+- MCPToolResult structure preserves isError: true flag for tool-calling loop to handle gracefully
+- Test assertions updated to verify friendly text presence instead of technical details
+### Gotchas
+- Tests needed updating when error messages changed - assertions must match new user-friendly text
+- Must remove await res.text() call from HTTP error case since message is now static (efficiency improvement)
+
+## Summary: All User Stories Complete
+✓ US-701: Tool-calling loop added to chat engine
+✓ US-702: FnB intents added to makan-moments routing
+✓ US-703: Pre-ordering system prompt improved
+✓ US-704: ToolRegistry profile filtering tests
+✓ US-705: FnB tool handlers MCPToolResult tests
+✓ US-706: Makan-moments integration tests
+✓ US-707: Graceful error degradation complete
+
+PRD implementation complete. All acceptance criteria met, tests pass, build succeeds.
+

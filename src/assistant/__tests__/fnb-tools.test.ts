@@ -41,7 +41,8 @@ describe('FnB Tool Handlers - MCPToolResult Shape', () => {
     expect(result).toHaveProperty('content');
     expect(result).toHaveProperty('isError', true);
     expect(result.content[0]).toHaveProperty('type', 'text');
-    expect(result.content[0].text).toContain('FnB MCP connection error');
+    expect(result.content[0].text).toContain('Unable to reach');
+    expect(result.content[0].text).not.toContain('ECONNREFUSED');
   });
 
   it('fnbGetOrderStatus({orderId:"MM-1234"}) calls fetch and returns result', async () => {
@@ -90,6 +91,7 @@ describe('FnB Tool Handlers - MCPToolResult Shape', () => {
     const result = await fnbGetMenuItem({ code: 'INVALID' });
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('FnB MCP error');
+    expect(result.content[0].text).toContain('cafe ordering system returned an error');
+    expect(result.content[0].text).not.toContain('404');
   });
 });
