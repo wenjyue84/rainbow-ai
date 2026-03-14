@@ -6138,3 +6138,66 @@ Here is the technical brief:
 
 ### Gotchas
 - The `deadlineStatus()` helper is shared between the GET response formatter and the cron check to ensure consistent status reporting
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for implementing the profile cloning feature.
+
+**Note:** The provided user story appears to describe a NodeJS/TypeScript application (`rainbow-ai`), not a Frappe/Python one. This brief translates the requirements into their logical Frappe/Python equivalents.
+
+---
+
+### **Technical Brief: Profile Configuration Cloning**
+
+**1. Python Files & JS to Modify:**
+
+*   **`…/doctype/business_profile/business_profile.py`**: This file will house the core server-side logic. A new `@frappe.whitelist()` function, `clone_profile`, should be added here.
+*   **`…/doctype/business_profile/business_profile_list.js`**: This client-side script is needed to add a "Clone" button to the `Business Profile` list view, handle the user prompt for the new name, and trigger the API call.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **`Business Profile`**: The primary parent DocType that represents a profile.
+*   **Child DocTypes**: The story implies child tables for settings like `Routing Rules`, `Intents`, and `Static Replies`. These would be `Table` fields within the `Business Profile` DocType.
+*   **Hooks**: No modifications to `hooks.py` should be necessary; the logic can be self-contained within the DocType's controller and list view script.
+
+**3. Recommended Implementation Approach:**
+
+1.  **Backend (`business_profile.py`):**
+    *   Implement `clone_profile(source_name, new_display_name)` decorated with `@frappe.whitelist()`.
+    *   Use `frappe.copy_doc('Business Profile', source_name)` to perform a deep copy of the document and all its child table entries (e.g., routing rules, intents).
+    *   Set the `display_name` on the newly created doc.
+    *   Explicitly nullify sensitive/instance-specific fields on the new doc, such as `whatsapp_auth_token` or `phone_number`, to prevent copying connection state.
+    *   Save the new document using `new_doc.save(ignore_permissions=True)` and return its name (`new_doc.name`).
+
+2.  **Frontend (`business_profile_list.js`):**
+    *   Use the `page.add_inner_button` or `list_view.add_action` method to add a "Clone" button.
+    *   The button's handler should first use `frappe.prompt` to ask the admin for the "New Profile Name".
+    *   On confirmation, use `frappe.call` to invoke the `clone_profile` whitelisted method.
+    *   On a successful response, navigate the user to the new profile's form view using `frappe.set_route('Form', 'Business Profile', new_profile_name)`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Permissions**: The cloning function should be protected by role checks, but the `doc.save()` call inside may need `ignore_permissions=True` to ensure child table rows are created correctly.
+*   **Data Exclusion**: Be rigorous in identifying and clearing all fields that should not be carried over, especially API keys, tokens, or other credentials.
+*   **Performance**: The 5-second completion criteria might be challenging if a profile contains thousands of child DocType entries. Test with a large source profile.
+*   **User Feedback**: The client-side script must provide clear success (`frappe.msgprint`) or failure (`frappe.throw`) feedback to the admin during the operation.
+
+
+## Iteration N - Story: US-840 WhatsApp media message acknowledgement in AI conversation flow
+### What was implemented
+- Added 3 new template keys to `src/assistant/data/templates.json`: `media_received`, `audio_received`, `document_received`
+- Added `features.mediaRepliesEnabled: true` to `src/assistant/data/settings.json` for per-profile toggle
+- Replaced hardcoded `getMediaAcknowledgement()` function in `input-validator.ts` with `getMediaTemplateKey()` that maps messageType → template key
+- Updated media handling block to check `features.mediaRepliesEnabled` before sending any reply
+- Added explicit audio-without-rawMessage handler (uses `audio_received` template, returns `media_acknowledged`)
+- Updated `logNonTextExchange()` in `conversation-logger.ts` to accept and log `messageType` parameter
+- Added `media_url` column to `rainbow_messages` schema in `shared/schema-tables.ts`
+- Ran `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS media_url text` directly via pg client
+### Patterns discovered
+- `getTemplate(key, lang)` reads from `templates.json` via `configStore.getTemplates()` — adding new keys there is the canonical way to add configurable replies
+- `db:push` is interactive and requires a PTY for the rename/create table selection; for additive column changes, direct SQL `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` is simpler
+- The `logNonTextExchange` function was missing `messageType` from the insert; this is a pre-existing gap
+### Gotchas
+- `db:push` blocks on interactive prompts in non-TTY environment; use direct SQL for simple additive migrations
+- Audio handling: voice transcription path (`msg.rawMessage` present) is separate from the generic audio fallback path (no rawMessage)
+- Media replies MUST NOT be checked for the `mediaRepliesEnabled` toggle in the transcription failure path (that has its own `voiceTranscription.fallbackReply` config)

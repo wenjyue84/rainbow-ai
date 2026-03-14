@@ -182,7 +182,8 @@ export async function logNonTextExchange(
   assistantReply: string,
   instanceId?: string,
   profileId?: string,
-  bsuid?: string
+  bsuid?: string,
+  messageType?: string
 ): Promise<void> {
   if (!(await ensureDb())) return;
 
@@ -210,9 +211,9 @@ export async function logNonTextExchange(
     await db.transaction(async (tx) => {
       await upsertConversation(phone, pushName, instanceId, tx, profileId, bsuid);
 
-      // Insert both messages
+      // Insert both messages (US-840: include messageType for media tracking)
       await tx.insert(rainbowMessages).values([
-        { phone: key, role: 'user', content: userPlaceholder, timestamp: now, profileId: profileId ?? null },
+        { phone: key, role: 'user', content: userPlaceholder, timestamp: now, profileId: profileId ?? null, messageType: messageType ?? null },
         { phone: key, role: 'assistant', content: assistantReply, timestamp: nowPlus1, responseTime: 0, profileId: profileId ?? null },
       ]);
     });
