@@ -82,6 +82,10 @@ export async function sendWhatsAppTypingIndicator(phone: string, instanceId?: st
   return whatsappManager.sendTypingIndicator(phone, instanceId);
 }
 
+export async function sendWhatsAppPausedIndicator(phone: string, instanceId?: string): Promise<void> {
+  return whatsappManager.sendPausedIndicator(phone, instanceId);
+}
+
 export async function logoutWhatsApp(): Promise<void> {
   const statuses = whatsappManager.getAllStatuses();
   if (statuses.length === 0) throw new Error('No WhatsApp instances configured');

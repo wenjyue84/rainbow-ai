@@ -476,6 +476,18 @@ export class WhatsAppInstance {
     }
   }
 
+  async sendPausedIndicator(jid: string): Promise<void> {
+    if (!this.sock || this.state !== 'open') return;
+
+    const resolvedJid = this.lidMapper.resolve(jid, this.authDir);
+
+    try {
+      await this.sock.sendPresenceUpdate('paused', resolvedJid);
+    } catch {
+      // Non-fatal — best-effort clear
+    }
+  }
+
   async sendMessage(jid: string, text: string): Promise<any> {
     if (!this.sock || this.state !== 'open') {
       throw new Error(`Instance "${this.id}" not connected`);

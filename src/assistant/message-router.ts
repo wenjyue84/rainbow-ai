@@ -17,6 +17,7 @@ import { detectLanguage, getTemplate } from './formatter.js';
 import { trackError } from '../lib/activity-tracker.js';
 import { withSendRetry } from '../lib/send-retry.js';
 import { isOptedOut } from './opt-out.js';
+import { sendWhatsAppTypingIndicator, sendWhatsAppPausedIndicator } from '../lib/whatsapp/index.js';
 
 import { validateAndPrepare } from './pipeline/input-validator.js';
 import { handleActiveStates } from './pipeline/state-executor.js';
@@ -69,6 +70,20 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
 
   const rid = state.requestId;
 
+  // US-829: Typing indicator — send 'composing' before pipeline dispatch
+  const typingCfg = (state.profileConfig.getSettings() as any).typingIndicator;
+  const typingEnabled = typingCfg?.enabled !== false;
+  let typingRefresh: ReturnType<typeof setInterval> | null = null;
+
+  if (typingEnabled) {
+    // Fire-and-forget composing presence
+    sendWhatsAppTypingIndicator(phone, msg.instanceId).catch(() => {});
+    // Re-send every 20s to prevent WhatsApp's 25-second auto-dismiss
+    typingRefresh = setInterval(() => {
+      sendWhatsAppTypingIndicator(phone, msg.instanceId).catch(() => {});
+    }, 20_000);
+  }
+
   try {
     // Phase 2: Active state handling (feedback, workflow, booking, emergency)
     const stateResult = await handleActiveStates(state, ctx);
@@ -114,6 +129,12 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
       await ctx.sendMessage(phone, getTemplate('error', lang), msg.instanceId);
     } catch {
       // Can't even send error message — give up silently
+    }
+  } finally {
+    // Clear typing indicator refresh and send 'paused' presence
+    if (typingRefresh) clearInterval(typingRefresh);
+    if (typingEnabled) {
+      sendWhatsAppPausedIndicator(phone, msg.instanceId).catch(() => {});
     }
   }
 }

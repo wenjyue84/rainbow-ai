@@ -4657,3 +4657,25 @@ Completed: Daily fallback rate alert notification when AI misunderstanding excee
 ## Iteration 6 - Sun, Mar 15, 2026 12:13:49 AM
 Completed: Enforce WhatsApp 24-hour session window check before sending outbound messages (ID: US-815) in 8m
 
+
+## Iteration - Story: US-829 Emit WhatsApp typing indicator during AI processing delay
+### What was implemented
+- Added `sendPausedIndicator(jid)` to `src/lib/whatsapp/instance.ts` — sends `paused` presence update to clear typing indicator
+- Added `sendPausedIndicator(phone, instanceId?)` to `src/lib/whatsapp/manager.ts` — mirrors existing `sendTypingIndicator` pattern
+- Added `sendWhatsAppPausedIndicator()` export to `src/lib/whatsapp/index.ts`
+- Updated `src/assistant/message-router.ts`:
+  - Imported `sendWhatsAppTypingIndicator` and `sendWhatsAppPausedIndicator` from whatsapp lib
+  - After `validateAndPrepare` returns `continue: true`, reads `typingIndicator.enabled` from profile settings (defaults true if missing)
+  - Sends `composing` presence immediately (fire-and-forget) before pipeline dispatch
+  - Sets a `setInterval` every 20s to re-send `composing` (prevents WhatsApp's 25s auto-dismiss)
+  - In `finally` block: clears the interval and sends `paused` presence after pipeline completes
+- `settings.json` already had `typingIndicator.enabled: true` — no JSON changes needed
+
+### Patterns discovered
+- `typingEnabled = typingCfg?.enabled !== false` — treats missing config as enabled (safe default)
+- `finally` block in `handleIncomingMessage` is the right place to clear indicators — fires on both success and error paths
+- `setInterval().unref()` is NOT called here — interval is always <20s and always cleared in finally
+
+### Gotchas
+- Typing indicator is only skipped when `validateAndPrepare` returns `continue: false` (duplicate, group, opted-out, etc.) — this naturally satisfies "NOT sent if message is silently dropped"
+- The 20s refresh interval must be cleared in `finally` not `catch` to ensure it runs on all paths including success

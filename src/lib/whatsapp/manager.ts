@@ -210,6 +210,25 @@ export class WhatsAppManager extends EventEmitter {
     }
   }
 
+  async sendPausedIndicator(phone: string, instanceId?: string): Promise<void> {
+    const jid = phone.includes('@')
+      ? phone
+      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+
+    if (instanceId) {
+      const instance = this.instances.get(instanceId);
+      if (instance) await instance.sendPausedIndicator(jid);
+      return;
+    }
+
+    for (const instance of this.instances.values()) {
+      if (instance.state === 'open') {
+        await instance.sendPausedIndicator(jid);
+        return;
+      }
+    }
+  }
+
   async sendMessage(phone: string, text: string, instanceId?: string): Promise<any> {
     // If it's already a full JID (@s.whatsapp.net, @lid, @g.us), use as-is
     // Otherwise format as @s.whatsapp.net
