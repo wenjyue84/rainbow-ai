@@ -4346,3 +4346,30 @@ All 9 user stories marked as `passes: true` in prd.json:
 ### Status
 ✅ All acceptance criteria met. 5/5 tests passing. Build passes.
 Marked passes=true in prd.json
+
+## Iteration [Ralph] - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- PROFILE_SPECIFIC_TABS constant defined in tabs.js includes: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows
+- getTabInfoFromUrl() parses URL hash and returns {main, profileId, sub} where profileId is extracted if it matches a known profile ID
+- handleNavigation() function auto-appends profileId for profile-specific tabs when missing from URL
+- handleNavigation() auto-switches profile when URL specifies a different profileId than currently active
+- profileSwitcher.switchTo() updates URL hash to include profileId for profile-specific tabs (lines 73-79)
+- profile-switcher.js init() exposes KNOWN_PROFILE_IDS from API profiles (line 161)
+- profile-switcher.js init() re-checks URL after profiles load and redirects if needed (lines 163-175)
+- Tab click handlers include profileId in URL for profile-specific tabs (lines 366-371 in tabs.js)
+- Backward compatibility maintained: existing flat links like #intents automatically redirect to #intents/profileId
+### Patterns discovered
+- URL format for profile-specific tabs: #tabName/profileId or #tabName/profileId/subTab
+- Global tabs (settings, system-status, help, live-chat, history) don't include profileId
+- history.replaceState() used to avoid triggering hashchange loop when updating URL
+- KNOWN_PROFILE_IDS populated from API after profile fetch (used for validating profileId in URL)
+### Status
+✅ All acceptance criteria met. Build passes. Story ready for production.
+- Navigation to #intents/makan-moments auto-switches to makan-moments and loads cafe intents
+- Navigation to #intents/pelangi auto-switches to pelangi and loads hostel intents
+- Profile switching updates URL hash for profile-specific tabs
+- Missing profileId auto-appended on load (#intents → #intents/activeProfileId)
+- Global tabs keep flat URLs
+- Refreshing page restores both tab and profile from URL
+- getTabInfoFromUrl() returns correct {main, profileId, sub} structure
+Marked passes=true in prd.json
