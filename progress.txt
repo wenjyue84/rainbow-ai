@@ -3333,3 +3333,66 @@ Completed: Profile-scoped admin tab URLs (ID: US-809) in 1m
 ## Iteration 2 - Sat, Mar 14, 2026  8:20:02 PM
 FAILED quality gates: Profile-scoped admin tab URLs: every tab includes profileId in hash (ID: US-809) — attempt 1/3
 
+## Iteration 1 - Sat, Mar 14, 2026  8:20:27 PM
+Incomplete: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) — attempt 2/3
+
+
+## Iteration 9 - Story: US-809 - Profile-scoped admin tab URLs
+### What was implemented
+- getTabInfoFromUrl() now returns {main, profileId, sub} — profileId extracted from URL hash for profile-specific tabs
+- handleNavigation() in tabs.js auto-appends profileId for profile-specific tabs, auto-switches profile when URL differs
+- Tab click handlers include profileId in hash for profile-specific tabs (e.g. #intents/makan-moments)
+- switchTo() in profile-switcher.js uses history.replaceState to update URL hash without triggering hashchange loop
+- _applyProfileSwitch() added as state-only profile switch (no reload/URL change) for use by handleNavigation
+- profile-switcher init() re-checks URL after loading profiles from API to handle late-resolved profile IDs
+- PROFILE_SPECIFIC_TABS: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows
+- Global tabs (settings, whatsapp, staff-review, help, live-chat) unaffected — no profileId in URL
+- Backward compatible: #intents auto-redirects to #intents/activeProfileId
+
+### Patterns discovered
+- history.replaceState avoids hashchange loops when updating URL from switchTo
+- _applyProfileSwitch (state-only) vs switchTo (state + URL + reload) separation prevents circular navigation
+- KNOWN_PROFILE_IDS updated dynamically after profile-switcher API fetch
+
+### Gotchas
+- Setting window.location.hash to same value does NOT trigger hashchange — switchTo must use replaceState + direct loadTab call
+- Profile-switcher init is async (fetches API) but tabs.js runs synchronously — need default KNOWN_PROFILE_IDS + re-check after API load
+
+## Iteration N - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- Added PROFILE_SPECIFIC_TABS constant in tabs.js: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows
+- Updated getTabInfoFromUrl() to return {main, profileId, sub} — uses KNOWN_PROFILE_IDS to disambiguate profileId vs subtab in parts[1]
+- Added handleNavigation() in tabs.js: single function for hashchange + initial load; redirects bare profile-specific tabs to #tab/profileId, auto-switches profile if URL specifies a different one
+- Updated initTabs() click handlers to include profileId for profile-specific tabs
+- Updated switchTo() in profile-switcher.js: uses history.replaceState to update URL (avoids hashchange loop), then calls loadTab directly
+- Added _applyProfileSwitch() helper in profile-switcher.js (state-only switch, no URL or loadTab side effects)
+- profile-switcher.js init() sets window.KNOWN_PROFILE_IDS from API response and re-checks URL for profile restoration on page refresh
+- Hardcoded KNOWN_PROFILE_IDS defaults in tabs.js for immediate use before API loads
+
+### Patterns discovered
+- Use history.replaceState (not location.hash) when updating URL from within switchTo to avoid hashchange re-entry loop
+- handleNavigation() centralizes all URL-parsing logic; loadTab() is pure tab rendering with no URL manipulation
+- Hardcoded profile ID defaults in tabs.js solve race condition before profile-switcher API loads
+
+### Gotchas
+- The redirect in handleNavigation returns early; hashchange re-fires with profileId present on second pass
+- switchTo() uses getTabInfoFromUrl() BEFORE replaceState, capturing the old URL's sub-tab so it's preserved
+
+## Iteration - Fri, Mar 14, 2026 - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- tabs.js: Added PROFILE_SPECIFIC_TABS constant and window.KNOWN_PROFILE_IDS (hardcoded defaults, updated by profile-switcher after API load)
+- tabs.js: getTabInfoFromUrl() now returns {main, profileId, sub} — profileId is parts[1] if tab is profile-specific AND parts[1] matches a known profile ID
+- tabs.js: Added handleNavigation() function that auto-appends profileId for profile-specific tabs when missing (#intents → #intents/pelangi) and auto-switches profile when URL profileId differs from active
+- tabs.js: Click handlers now include profileId for profile-specific tabs
+- profile-switcher.js: switchTo() uses history.replaceState to update URL hash with profileId (avoids hashchange loop)
+- profile-switcher.js: Added _applyProfileSwitch() for silent profile state change (used by init() for late URL re-check)
+- profile-switcher.js: init() sets window.KNOWN_PROFILE_IDS from API response and re-checks URL for profile-scoped navigation
+- Global tabs (settings, system-status, live-chat, help, history) keep flat URLs without profileId
+### Patterns discovered
+- Profile-specific tab URL format: #tab/profileId or #tab/profileId/subTab
+- switchTo uses replaceState (not location.hash) to avoid double hashchange trigger
+- handleNavigation() is the single entry point for both initTabs and hashchange events
+- KNOWN_PROFILE_IDS has hardcoded defaults for initial page load before API response arrives
+### Gotchas
+- Must use replaceState in switchTo to avoid hashchange → handleNavigation → switchTo loop
+- Profile IDs must be validated against KNOWN_PROFILE_IDS to distinguish from sub-tab names (e.g., #responses/static-replies vs #responses/pelangi)
