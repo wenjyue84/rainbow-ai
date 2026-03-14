@@ -18,6 +18,27 @@ import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
 
 const router = Router();
 
+// ─── Session Greeting Tracker ─────────────────────────────────────────────────
+// Tracks which sessions have already received the welcome greeting (in-memory).
+// Prevents duplicate greetings on page reload when no messages have been sent yet.
+const SESSION_GREETING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface GreetingSession {
+  sentAt: number;
+}
+
+const greetingSessions = new Map<string, GreetingSession>();
+
+// Cleanup stale greeting sessions every hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, session] of greetingSessions) {
+    if (now - session.sentAt > SESSION_GREETING_TTL_MS) {
+      greetingSessions.delete(key);
+    }
+  }
+}, 60 * 60 * 1000);
+
 // ─── Database Migration (Startup) ──────────────────────────────────────────────
 // Add profile_id column to rainbow_conversations if not exists
 pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {

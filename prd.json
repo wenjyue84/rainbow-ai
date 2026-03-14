@@ -1467,6 +1467,316 @@
       ],
       "estimatedComplexity": "small",
       "passes": false
+    },
+    {
+      "id": "US-858",
+      "title": "AI waiter welcome message: introduce ordering capability on first webchat open",
+      "priority": "high",
+      "description": "When a guest opens the webchat widget for the first time in a session, the AI waiter should send a warm greeting that explains what it can do: browse the menu, take an order, check order status. This sets expectations and reduces friction. Currently the widget shows a blank chat or a generic greeting that does not mention ordering.",
+      "acceptanceCriteria": [
+        "On session open, AI sends a greeting within 1 second before any guest message",
+        "Greeting includes: welcome line, brief explanation of ordering capability, and a prompt to start",
+        "Example: Welcome to Makan Moments! I am your AI waiter. You can browse our menu, place an order, or ask me anything about our food. What would you like today?",
+        "Greeting shown only once per session, not on every page reload if history is restored",
+        "Greeting is configurable per profile via settings.json welcomeMessage field"
+      ],
+      "technicalNotes": [
+        "Inject greeting as an assistant message on webchat session init in webchat-api.ts",
+        "Read welcomeMessage from profile settings.json with fallback to default",
+        "Set sessionGreetingSent: boolean in session state to prevent duplicate greetings",
+        "Greeting injected before any system prompt processing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-859",
+      "title": "Category-based menu browsing: guest can filter menu by category or dish type",
+      "priority": "high",
+      "description": "Guests should be able to ask for a specific category of food and get a clean formatted list, not the entire menu. Queries like show me the drinks, what rice dishes do you have, or any desserts should return only items from that category with names, descriptions and prices.",
+      "acceptanceCriteria": [
+        "Category queries detected: show me X, what X do you have, any X, list the X where X is a category name",
+        "FnB MCP get_menu_items called with category filter",
+        "Response formatted as a numbered list: name, brief description, price",
+        "Maximum 8 items shown per category with see more option if more exist",
+        "If category not found, AI suggests available categories",
+        "Works for: drinks, mains, rice, noodles, desserts, snacks, set meals, sides"
+      ],
+      "technicalNotes": [
+        "Add MENU_BROWSE_CATEGORY intent to routing.json",
+        "Extract category from guest message using keyword mapping before LLM call",
+        "Format response as clean text list without markdown tables for WhatsApp compatibility",
+        "Cache menu response for 5 minutes per profile to avoid repeated MCP calls"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-860",
+      "title": "Dietary filter: guest can ask for vegetarian, halal, or allergen-free menu items",
+      "priority": "high",
+      "description": "Malaysian cafe guests frequently ask about dietary requirements. The AI waiter should be able to filter the menu by dietary tags such as vegetarian, vegan, halal, no pork, no nuts, gluten-free and return only matching items. This is critical for inclusivity and safety.",
+      "acceptanceCriteria": [
+        "Dietary queries detected: what is vegetarian, halal options, anything without peanuts, no pork please",
+        "FnB MCP get_menu_items called with dietary tag filter",
+        "Response lists matching items with their dietary tags shown",
+        "If no items match, AI says so honestly and does not hallucinate options",
+        "Multiple filters supported: vegetarian AND no nuts returns items matching both",
+        "Dietary tags also shown in item detail when guest asks about a specific dish"
+      ],
+      "technicalNotes": [
+        "Add MENU_FILTER_DIETARY intent to routing.json",
+        "Map common phrases to tags: vegetarian, vegan, halal, no-pork, no-nuts, gluten-free",
+        "Pass tags array to get_menu_items MCP call",
+        "If MCP does not support tag filter, filter client-side from full menu response"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-861",
+      "title": "Cart quantity update: guest can change quantity of an item already in cart",
+      "priority": "high",
+      "description": "Currently guests can only add or remove items. They should also be able to say make it 2 nasi lemak or change the teh tarik to 3 without removing and re-adding. Quantity updates must reflect immediately in the cart summary.",
+      "acceptanceCriteria": [
+        "Quantity update phrases detected: make it X, change to X, I want X of those, update quantity to X",
+        "Named item quantity updated in cart: change my nasi lemak to 2 updates nasi lemak qty to 2",
+        "If item not in cart, AI says the item is not in your order yet and offers to add it",
+        "Zero quantity treated as removal: make it 0 or change to 0 removes the item",
+        "Updated cart summary shown after each quantity change",
+        "Vitest test for qty update, zero-qty removal, and not-in-cart edge case"
+      ],
+      "technicalNotes": [
+        "Add updateCartItemQty function alongside existing addToCart and removeFromCart",
+        "Parse quantity from message: /\\b(\\d+)\\b/ after detecting update intent",
+        "Update CartItem.qty in session state",
+        "Inject updated cart context into next system prompt"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-862",
+      "title": "Order cancellation: guest can cancel entire order before kitchen submission",
+      "priority": "high",
+      "description": "Before an order is confirmed and sent to the kitchen, a guest should be able to cancel everything and start over. Cancel my order, forget it, I changed my mind should clear the cart and return to a ready state without any awkwardness.",
+      "acceptanceCriteria": [
+        "Cancellation intent detected: cancel my order, forget it, start over, clear my cart, nevermind",
+        "AI confirms the cancellation: Your order has been cleared. Let me know if you would like to start a new order.",
+        "Cart and order stage reset to empty BROWSING state",
+        "If cart is already empty, AI says there is nothing to cancel",
+        "If order already submitted to kitchen, AI says the order is in the kitchen and offers to contact staff instead",
+        "No confirmation prompt required for cancellation: act immediately"
+      ],
+      "technicalNotes": [
+        "Add ORDER_CANCEL intent to routing.json",
+        "Clear cartItems and reset orderStage to BROWSING in session state",
+        "Check orderId in session: if order already placed, route to human handoff instead of clearing"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-863",
+      "title": "Budget-based ordering: guest can ask what they can get for a certain amount",
+      "priority": "medium",
+      "description": "Guests sometimes have a budget constraint: what can I get for RM 15 or show me dishes under RM 10. The AI waiter should filter the menu by price range and present affordable options, helping guests make decisions faster.",
+      "acceptanceCriteria": [
+        "Price query detected: under RM X, below X ringgit, what can I get for X, cheap options",
+        "FnB MCP get_menu_items called with maxPrice filter",
+        "Response lists items at or below the stated price sorted cheapest first",
+        "If no items in range, AI states the minimum price and suggests closest options",
+        "Price range also supported: between RM 10 and RM 20"
+      ],
+      "technicalNotes": [
+        "Add MENU_FILTER_PRICE intent to routing.json",
+        "Parse price from message: /RM\\s*(\\d+(\\.\\d+)?)/ or /\\b(\\d+(\\.\\d+)?)\\s*ringgit/i",
+        "Pass maxPrice to get_menu_items MCP or filter client-side",
+        "Sort results by price ascending"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-864",
+      "title": "Daily specials and promotions: AI waiter surfaces time-sensitive menu items",
+      "priority": "medium",
+      "description": "Guests frequently ask what are today's specials or any promotions. The AI waiter should be able to retrieve and present daily specials, limited items, and active promotions from the FnB MCP so guests do not miss deals.",
+      "acceptanceCriteria": [
+        "Specials query detected: today's special, what's new, any promotions, any deals, limited items",
+        "FnB MCP get_daily_specials or get_promotions called",
+        "Response highlights special items with their original price and special price if discounted",
+        "If no specials today, AI says so and optionally shows popular items instead",
+        "Specials shown with urgency indicator if limited quantity: Only 5 left today"
+      ],
+      "technicalNotes": [
+        "Add MENU_SPECIALS intent to routing.json",
+        "Call get_daily_specials MCP tool; fall back to get_menu_items with isSpecial filter if endpoint not available",
+        "Cache specials response for 30 minutes per profile",
+        "Expire cache at midnight to ensure fresh daily specials each day"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-865",
+      "title": "Set meal and combo handling: AI waiter guides guest through set meal customisation",
+      "priority": "medium",
+      "description": "Many cafe menus include set meals with choices such as Set A: main plus drink. When a guest orders a set meal, the AI waiter should prompt for each required choice in sequence rather than assuming defaults or failing silently.",
+      "acceptanceCriteria": [
+        "Set meal detected when ordered item has choices or components array in MCP response",
+        "AI prompts for each unfilled choice in sequence: For your Set A, which drink would you like? Options: 1. Teh Tarik 2. Milo 3. Sirap",
+        "Guest selects by number or name, selection stored in CartItem.components",
+        "All choices must be filled before item is added to cart",
+        "If guest skips or says any, a default is chosen and AI confirms it",
+        "Completed set meal shown in cart summary with chosen components listed"
+      ],
+      "technicalNotes": [
+        "Extend CartItem to include components: { name: string, choice: string }[]",
+        "Add pendingSetMeal: { itemId, remainingChoices } to session state",
+        "Check for set meal in progress before processing other intents",
+        "Set meal completion adds the full item to cart and clears pendingSetMeal"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-866",
+      "title": "Malay-language ordering: AI waiter correctly handles Malay and Manglish order phrases",
+      "priority": "medium",
+      "description": "Malaysian guests naturally mix Malay and English when ordering. Phrases like saya nak nasi lemak, boleh tambah teh tarik, tapau untuk bawa balik, and kurang manis must be understood and processed correctly by the AI waiter without requiring English.",
+      "acceptanceCriteria": [
+        "Malay add-to-cart phrases work: saya nak X, boleh bagi X, nak order X, satu X",
+        "Malay remove phrases work: cancel X, tak nak X, buang X",
+        "Malay special instructions work: kurang manis (less sugar), pedas sikit (a little spicy), tanpa bawang (no onion)",
+        "Malay takeaway phrase works: tapau, bawa balik detected as takeaway order type",
+        "Manglish works: can I have, I want lah, add one more lah",
+        "Vitest tests with at least 5 Malay phrase scenarios"
+      ],
+      "technicalNotes": [
+        "Extend intent keyword list in intent-keywords.json with Malay variants",
+        "Add Malay instruction mappings: kurang manis to less sugar, pedas to spicy, tanpa to without",
+        "AI system prompt instructs LLM to respond in the same language the guest uses",
+        "No separate language model needed: extend existing keyword matching with Malay terms"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-867",
+      "title": "Payment method guidance: AI waiter explains how to pay after order is confirmed",
+      "priority": "medium",
+      "description": "After an order is confirmed and submitted to the kitchen, guests are often left wondering how to pay. The AI waiter should proactively inform guests of the available payment methods immediately after order submission without waiting to be asked.",
+      "acceptanceCriteria": [
+        "Payment info shown automatically after every successful order placement",
+        "Message includes available payment methods configured per profile: cash, QR code, card",
+        "Example: Your order is placed! You can pay by cash or scan our QR code at the counter when ready.",
+        "Payment methods configurable in profile settings.json under paymentMethods array",
+        "If guest asks how to pay before ordering, same info is returned on demand",
+        "Payment message is brief: one to two sentences max"
+      ],
+      "technicalNotes": [
+        "Append payment info message after place_order success response in US-851 confirmation flow",
+        "Read paymentMethods from profile settings.json: [cash, qr, card, online]",
+        "Add PAYMENT_INFO intent to routing.json for on-demand queries",
+        "Default payment methods if not configured: cash only"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-868",
+      "title": "Kitchen queue awareness: inform guest of estimated wait when orders are backed up",
+      "priority": "medium",
+      "description": "During peak hours when the kitchen has many pending orders, the AI waiter should proactively mention the estimated wait time before the guest confirms their order. This manages expectations and reduces complaints about slow service.",
+      "acceptanceCriteria": [
+        "Before showing order confirmation summary, check FnB MCP get_kitchen_status",
+        "If queue has more than 5 pending orders or estimated wait is over 20 minutes, AI warns guest",
+        "Warning shown in order confirmation: Note: Kitchen is currently busy. Estimated wait is about 25 minutes.",
+        "Guest can still proceed or cancel after seeing the wait time",
+        "If kitchen status unavailable, skip warning silently without error",
+        "Wait time shown in order acknowledgement message as well"
+      ],
+      "technicalNotes": [
+        "Call FnB MCP get_kitchen_status before rendering order confirmation in US-851 flow",
+        "Thresholds configurable: queueWarningThreshold and waitTimeWarningMinutes in settings.json",
+        "Non-blocking: if MCP call fails or times out after 2 seconds, proceed without warning",
+        "Kitchen status cached for 2 minutes to avoid hammering MCP on every order"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-869",
+      "title": "Post-order feedback: AI waiter requests a quick star rating after order is served",
+      "priority": "low",
+      "description": "After an order is marked as served by the kitchen, the AI waiter should send a follow-up message asking for a simple 1 to 5 star rating. This captures real-time guest satisfaction and surfaces issues before guests leave a bad review elsewhere.",
+      "acceptanceCriteria": [
+        "Feedback request sent when FnB MCP order status changes to SERVED",
+        "Message is brief: Hope you enjoyed your meal! Rate your experience: 1 to 5 stars",
+        "Guest can reply with a number 1 to 5 or skip entirely with no follow-up",
+        "Rating stored via FnB MCP submit_feedback or in rainbow_messages table",
+        "Low ratings of 1 or 2 trigger an empathetic follow-up: Sorry to hear that. Let us know how we can improve.",
+        "High ratings of 4 or 5 get a thank you: Thank you for the kind words! See you again soon.",
+        "Feedback only requested once per order"
+      ],
+      "technicalNotes": [
+        "Listen for order status webhook event ORDER_SERVED from FnB MCP",
+        "Check feedbackRequested: boolean in session state before sending",
+        "Store rating and orderId in rainbow_messages or new order_feedback table",
+        "Low rating alert optionally notifiable to admin via existing admin-notifier.ts"
+      ],
+      "dependencies": [
+        "US-855"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-870",
+      "title": "Popular items suggestion: AI waiter proactively recommends top-ordered dishes when guest is undecided",
+      "priority": "low",
+      "description": "When a guest seems undecided (asking what is good, what do you recommend, what is popular), the AI waiter should surface the top 3 to 5 most ordered items from the FnB MCP rather than giving a generic response. Data-driven recommendations feel personalised and help guests decide faster.",
+      "acceptanceCriteria": [
+        "Undecided intent detected: what is good, what do you recommend, what is popular, what should I order",
+        "FnB MCP get_popular_items called with optional limit of 5",
+        "Response highlights top items with a short appeal: Our most popular dish is Nasi Lemak Special at RM 9.50, loved by most guests!",
+        "Each recommendation includes name, price, and one-line description",
+        "If popularity data unavailable, fall back to items tagged as featured or bestseller",
+        "Guest can pick any item directly from the recommendation list"
+      ],
+      "technicalNotes": [
+        "Add MENU_RECOMMEND intent to routing.json",
+        "Call get_popular_items MCP tool; fall back to get_menu_items with isFeatured filter",
+        "Limit to 3 to 5 items to keep response scannable",
+        "Response includes a natural call to action: Want me to add any of these to your order?"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
     }
   ]
 }
