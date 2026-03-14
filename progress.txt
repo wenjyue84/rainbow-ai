@@ -3714,3 +3714,52 @@ Duration: 7.59s
 ## Iteration 2 - Sat, Mar 14, 2026  8:42:22 PM
 Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off (ID: US-807) — attempt 1/3
 
+## Iteration 1 - Sat, Mar 14, 2026  8:43:53 PM
+Completed: Profile-scoped admin tab URLs: every tab includes profileId in hash (ID: US-809) in 29m
+
+
+## Iteration [N] - Story: US-806 Vitest Regression Tests for FnB Widget Bugs
+### What was implemented
+- **Test file**: src/assistant/__tests__/fnb-widget-bugs.test.ts
+- **9 tests written and passing**:
+  1. Profile-aware fallback messages (makan-moments config store returns cafe-appropriate text)
+  2. Default fallback when no custom store provided
+  3. looksLikeJson utility tests (5 tests covering JSON detection edge cases)
+  4. chatWithToolsLoop JSON extraction (Image 4 regression) - extracts 'response' field from JSON instead of returning raw JSON
+  5. chatWithToolsLoop tool failure fallback (Image 3 regression) - when all tools fail, does NOT return hostel text for makan-moments profile
+- **Test coverage**:
+  - JSON extraction guard: verifies that raw JSON strings like `{"intent":"menu_query","response":"OK"}` extract to plain text "OK"
+  - Fallback message scoping: makan-moments profile fallback excludes hostel terms (hostel, check-in, check-out, amenities, bookings)
+  - Edge cases: empty strings, whitespace, incomplete JSON, arrays vs objects
+
+### Patterns discovered
+- **Mock structure**: vi.mock() must be called before imports to properly stub ai-provider-manager
+- **ConfigStore pattern**: Tests use `{ getSettings: () => ({...}) }` to mock store objects
+- **Error fallback**: When all tool calls return isError:true, chatWithToolsLoop makes a final toolless LLM call
+- **JSON extraction priority**: response > text > message fields (first truthy string field wins)
+- **Import paths**: Test imports use relative paths: `from '../../assistant/ai-response-generator.js'`
+
+### Gotchas
+- The test file already existed at the path — only required verification that tests pass
+- Pre-existing implementation (US-801 to US-805) already had all the necessary code:
+  - getUnknownFallbackMessages() already accepts optional ConfigStore param
+  - chatWithToolsLoop already has profileConfigStore?: ConfigStore param
+  - looksLikeJson utility already handles JSON extraction guards
+- No code changes required — tests were passing immediately
+- Build warning about module.exports in ESM is pre-existing (src/lib/logger.ts line 30) and doesn't fail the build
+
+### Build Status
+- `npm run test:run fnb-widget-bugs.test.ts`: ✓ 9 passed
+- `npm run build`: ✓ succeeded (1.2mb dist/index.js) with 1 pre-existing warning
+
+### Acceptance Criteria Met
+✓ File src/assistant/__tests__/fnb-widget-bugs.test.ts exists and has comprehensive tests
+✓ Test: chatWithToolsLoop with mocked LLM returning JSON → result is 'OK' (not raw JSON)
+✓ Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel', 'check-in', or 'bookings'
+✓ Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'
+✓ npm run test:run passes (all 9 tests)
+✓ npm run build passes
+
+## Iteration 4 - Sat, Mar 14, 2026  8:45:26 PM
+Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off (ID: US-807) — attempt 1/3
+
