@@ -6641,3 +6641,60 @@ This technical brief adapts the provided user story, which appears to be for a N
 - `hasConsent()` must be checked BEFORE `recordConsent()` is called — `recordConsent` adds to the in-memory cache synchronously after DB write, but the flag capture happens before the async call starts
 - If consent cache fails to load on startup, `hasConsent()` returns false for everyone — but this is acceptable since it's a one-time notice (not harmful to re-send)
 - Other profile data directories (data-southern, data-makan, data-pms-*) don't have the notice entry; operators can add it to their profile's knowledge.json as needed
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story is for a Node.js/TypeScript project, not Frappe/Python. The file structure and technical notes point to a Drizzle ORM and TypeScript environment.
+
+**Project:** lhdn_payroll_integration (Node.js/TypeScript)
+**User Story:** US-827: Profile configuration cloning
+
+### Technical Brief
+
+**1. Files to Modify:**
+*   **New Route:** Create the endpoint `POST /api/admin/profiles/:sourceId/clone` within the API routing structure. A good candidate would be `src/routes/admin/profiles.ts`.
+*   **Database Schema:** The relevant table schemas are likely defined in `shared/schema.ts`. You will interact with the `rainbow_configs` and `rainbow_kb_files` tables.
+*   **Service Logic:** Business logic for the cloning operation could be placed in a service file, e.g., `src/lib/profiles.ts`.
+
+**2. Key Data Structures (Instead of DocTypes):**
+*   **`rainbow_configs` table:** This table stores the core profile settings (like `routing.json`, `settings.json` mentioned in the story). This is your primary source for cloning.
+*   **`rainbow_kb_files` table:** This contains metadata about knowledge base files associated with a profile.
+
+**3. Implementation Approach:**
+*   Your new API endpoint will receive the `sourceId` from the URL and `{ newProfileId, displayName }` in the request body.
+*   Use a database transaction to ensure atomicity.
+*   Query all records from `rainbow_configs` and `rainbow_kb_files` where the `profile_id` matches the `sourceId`.
+*   For each record, create a new object, replace the `profile_id` with `newProfileId`, and insert it back into the respective table.
+*   The endpoint should return the `newProfileId` upon successful completion.
+
+**4. Gotchas & Edge Cases:**
+*   **CRITICAL:** Do NOT copy the WhatsApp authentication state or any files on the disk (e.g., `.rainbow-kb/` content). The clone operation is for database records only.
+*   Use a transaction to prevent creating partial profiles if an error occurs mid-clone.
+*   Handle errors gracefully: return a `404` if the `sourceId` does not exist and a `409` if the `newProfileId` is already taken.
+*   The story mentions JSON files, but technical notes and recent migrations point to the database as the source of truth. Prioritize the database tables (`rainbow_configs`).
+
+
+
+## Iteration 12 - Story: US-827 - Profile configuration cloning
+### What was implemented
+- Added `POST /api/rainbow/profiles/:sourceId/clone` endpoint in `src/routes/admin/profiles.ts`
+- Endpoint accepts `{ newProfileId, displayName }` body and validates inputs (format, uniqueness)
+- Clones all 7 config files (knowledge, intents, templates, settings, workflow, workflows, routing) from source to new profile:
+  - DB: copies `rainbow_configs` rows with new `dbConfigPrefix` key prefix in a transaction
+  - Disk: copies JSON files from source `dataDir` to new `src/assistant/data-{newProfileId}/`
+- Strips WhatsApp-specific fields (`whatsappInstanceId`, `whatsappPhoneNumber`) from cloned settings
+- Also copies `kb-patterns.json` if present in source data dir
+- Creates empty KB directory at `.rainbow-kb-{newProfileId}/`
+- Adds new profile entry to `profiles.json` with generated paths and empty instanceIds
+- Returns 201 with the new profileId, list of copied files, and paths
+
+### Patterns discovered
+- Profile DB config keys use `dbConfigPrefix:filename` format (e.g., `southern:knowledge.json`), with default pelangi having empty prefix (just `knowledge.json`)
+- `ProfilesFile` type is already exported from `profile-registry.ts` — reusable for reading/writing profiles.json
+- `pool` from `src/lib/db.ts` can be used directly for raw SQL in admin routes
+- New profiles require server restart to be picked up by `ProfileRegistryClass.init()`
+
+### Gotchas
+- The default pelangi profile has empty `dbConfigPrefix`, so its config keys are bare filenames (no prefix). All other profiles use `prefix:filename` format. The clone endpoint always uses the new profileId as the prefix.
+- `rainbow_kb_files` table has a flat namespace (no profile prefix) — KB files are loaded per-profile from disk `kbDir`. The clone creates an empty kbDir; operators must populate KB content separately.
+- Using `ON CONFLICT (key) DO NOTHING` for DB inserts prevents overwriting if a partial clone is retried.
