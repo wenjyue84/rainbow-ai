@@ -265,8 +265,8 @@
       </div>
     </div>
 
-    <div class="messages" id="messages">
-      <div class="typing" id="typing">
+    <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite">
+      <div class="typing" id="typing" aria-hidden="true">
         <div class="typing-dot"></div>
         <div class="typing-dot"></div>
         <div class="typing-dot"></div>
@@ -279,8 +279,9 @@
         rows="1"
         placeholder="Type a message..."
         autocomplete="off"
+        aria-label="Type your message"
       ></textarea>
-      <button class="send-btn" id="sendBtn" title="Send">
+      <button class="send-btn" id="sendBtn" aria-label="Send message">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -498,6 +499,31 @@
 
       // Focus input on load
       inputEl.focus();
+
+      // ─── Keyboard accessibility ─────────────────────────────────────────────
+      // Focus trap: cycle Tab/Shift+Tab between input and send button
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+          var focusables = [inputEl, sendBtn];
+          var first = focusables[0];
+          var last = focusables[focusables.length - 1];
+          if (e.shiftKey) {
+            if (document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            }
+          } else {
+            if (document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+        }
+        // Escape: close widget panel via postMessage to parent
+        if (e.key === 'Escape') {
+          window.parent.postMessage({ type: 'rainbow-close' }, '*');
+        }
+      });
     })();
   </script>
 </body>

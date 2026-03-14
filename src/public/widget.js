@@ -192,15 +192,24 @@
     panel.classList.remove('open');
     isOpen = false;
     btn.setAttribute('aria-expanded', 'false');
+    btn.focus();
   }
 
   btn.addEventListener('click', function () {
     if (isOpen) { closePanel(); } else { openPanel(); }
   });
 
-  // Close on Escape key
+  // Close on Escape key (also handles Escape sent from inside iframe via postMessage)
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && isOpen) { closePanel(); }
+    // When panel is open and focus is on toggle button, Tab moves focus into iframe
+    if (e.key === 'Tab' && !e.shiftKey && isOpen && document.activeElement === btn) {
+      var iframe = panel.querySelector('iframe');
+      if (iframe) {
+        e.preventDefault();
+        iframe.focus();
+      }
+    }
   });
 
   // ── Listen for postMessages from iframe ───────────────────────────────────

@@ -4514,3 +4514,20 @@ Completed: Fix sign-off language: rainbow-ai webchat widget shows correct cafe s
 - Marked US-807 as passes=true in prd.json
 
 ### All 9 user stories now pass
+
+## Iteration - Story: US-810 WCAG 2.1 AA keyboard accessibility for webchat widget
+### What was implemented
+- webchat.html: Added role="log" aria-label="Chat conversation" aria-live="polite" to #messages container
+- webchat.html: Added aria-hidden="true" to typing indicator (prevents screen reader noise)
+- webchat.html: Added aria-label="Type your message" to textarea
+- webchat.html: Replaced title="Send" with aria-label="Send message" on send button
+- webchat.html: Added focus trap (Tab/Shift+Tab cycles between #input and #sendBtn)
+- webchat.html: Added Escape handler that postMessages rainbow-close to parent window
+- widget.js: Added btn.focus() in closePanel() to return focus to toggle button after close
+- widget.js: Added Tab handler on outer document: when panel open and btn has focus, Tab moves focus into iframe
+### Patterns discovered
+- widget.js already had aria-expanded and aria-haspopup="dialog" on toggle button
+- Cross-frame focus trapping requires cooperation: webchat.html traps focus internally, widget.js handles outer boundary
+- typing indicator needs aria-hidden="true" to avoid spurious screen reader announcements
+### Gotchas
+- iframe.focus() moves focus to the iframe element (browser handles inner content); full cross-frame trap requires postMessage cooperation (handled by Escape postMessage from webchat.html)
