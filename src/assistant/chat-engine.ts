@@ -314,7 +314,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
 
       // Advance or complete workflow
       if (effectiveWorkflow.currentStepIndex + 1 < workflow.steps.length) {
-        const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message }, { role: 'assistant', content: finalMessage }]);
+        const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message, timestamp: Date.now() }, { role: 'assistant', content: finalMessage, timestamp: Date.now() }]);
         setWorkflowState(saveKey, effectiveWorkflow.workflowId, effectiveWorkflow.currentStepIndex + 1);
       } else {
         deleteWorkflowState(lookupKey);
@@ -399,7 +399,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
         };
 
         if (editStep.waitForReply && stopIndex + 1 < workflow.steps.length) {
-          const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message }, { role: 'assistant', content: finalMessage }]);
+          const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message, timestamp: Date.now() }, { role: 'assistant', content: finalMessage, timestamp: Date.now() }]);
           setWorkflowState(saveKey, workflowId, stopIndex + 1);
         }
       }
