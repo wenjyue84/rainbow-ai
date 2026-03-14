@@ -127,6 +127,8 @@ export async function chatWithToolsLoop(
 
   const chatCfg = getAISettings();
   const MAX_LOOPS = 3;
+  let totalToolCalls = 0;
+  let errorToolCalls = 0;
 
   for (let loop = 0; loop < MAX_LOOPS; loop++) {
     const { content, toolCalls } = await chatWithFallback(
@@ -183,7 +185,36 @@ export async function chatWithToolsLoop(
         content: JSON.stringify(result.content)
       });
 
+      totalToolCalls++;
+      if (result.isError) errorToolCalls++;
       console.log(`[AI] Tool call: ${fnName} → ${result.isError ? 'ERROR' : 'OK'} (loop ${loop + 1}/${MAX_LOOPS})`);
+    }
+  }
+
+  // All tool calls failed — try one final toolless LLM call before giving up
+  if (totalToolCalls > 0 && errorToolCalls === totalToolCalls) {
+    console.warn('[AI] chatWithToolsLoop: all tool calls failed, attempting toolless fallback');
+    try {
+      const nonToolMessages = messages.filter((m: any) => m.role !== 'tool');
+      const { content: finalContent } = await chatWithFallback(
+        nonToolMessages,
+        chatCfg.max_chat_tokens,
+        chatCfg.chat_temperature,
+        false,
+        undefined,
+        undefined
+      );
+      if (finalContent && looksLikeJson(finalContent)) {
+        try {
+          const j = JSON.parse(finalContent);
+          const extracted = j.response || j.text || j.message || null;
+          if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted;
+        } catch {}
+      } else if (finalContent) {
+        return finalContent;
+      }
+    } catch (err: any) {
+      console.warn('[AI] chatWithToolsLoop: toolless fallback also failed:', err.message);
     }
   }
 
