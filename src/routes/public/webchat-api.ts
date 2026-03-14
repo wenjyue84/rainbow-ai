@@ -16,6 +16,7 @@ import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
 import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
+import { getDisambiguation } from '../../assistant/disambiguation-store.js';
 
 const router = Router();
 
@@ -165,11 +166,23 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       const cartHandlers = createCartHandlers(sessionId);
       allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
-      // Inject current cart state and order stage into the system prompt context
+      // Inject current cart state, order stage, and disambiguation state into system prompt
       const currentCartItems = cartGetItems(sessionId);
       const cartSummary = cartFormatSummary(currentCartItems);
       const currentStage = getOrderStage(sessionId);
       const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
+      const pendingDisambig = getDisambiguation(sessionId);
+
+      const disambigSection = pendingDisambig
+        ? [
+            '',
+            '## Pending Item Disambiguation',
+            `The guest previously searched for "${pendingDisambig.pendingItem}" and was shown ${pendingDisambig.candidates.length} options.`,
+            'If the guest replies with a number or a name, call cart_pick_item with their selection.',
+            'If the guest asks about something else, the disambiguation is abandoned — clear it by calling cart_search_item with the new query.',
+          ].join('\n')
+        : '';
+
       systemPromptSuffix = [
         '## Current Order State',
         `Session: ${sessionId}`,
@@ -177,6 +190,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         '',
         '## Current Cart',
         cartSummary,
+        disambigSection,
         '',
         '## Order Stage Machine — STRICT RULES',
         'You are an AI waiter. Follow these rules based on the order stage:',
@@ -185,7 +199,9 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         '  • Do NOT add anything to cart unless guest expresses clear intent to order.',
         '',
         'ORDERING stage: Guest is adding items to their order.',
-        '  • Use cart_add_item when guest says "I want X", "give me X", "order X", "can I get X".',
+        '  • Use cart_search_item when the guest uses a vague or partial name (e.g. "the chicken", "nasi", "iced coffee").',
+        '  • Use cart_add_item only when the guest uses the exact menu item name and you are certain it matches.',
+        '  • Use cart_pick_item when the guest replies with a number or name after a disambiguation list.',
         '  • Use cart_remove_item when guest says remove/cancel/drop an item.',
         '  • Use cart_view when guest asks to see their current order.',
         '  • When guest signals they are DONE ordering (e.g. "that\'s all", "place my order", "ready to order"),',

@@ -4841,3 +4841,25 @@ Completed: Conversational cart: AI waiter maintains running order across multipl
 - PLACED→ORDERING is intentionally invalid; after placing, guests must start fresh from BROWSING.
 ## Iteration 8 - Sun, Mar 15, 2026 01:38:53 AM
 Completed: Order intent classifier: distinguish browsing vs ordering vs confirming (ID: US-849)
+## Iteration 1 - Sun, Mar 15, 2026  1:39:30 AM
+Completed: Order intent classifier: distinguish browsing vs ordering vs confirming (ID: US-849) in 9m
+
+
+## Iteration - Story: US-850 Menu item disambiguation: handle partial or ambiguous item names in orders
+### What was implemented
+- Created `src/assistant/disambiguation-store.ts`: Per-session state for pending disambiguation with 30-min TTL. Exports `setDisambiguation`, `getDisambiguation`, `clearDisambiguation`, `formatDisambiguationList`.
+- Created `src/assistant/menu-matcher.ts`: Levenshtein distance (no external lib), `findMenuItemMatches()` with 4-tier scoring: exact(0), prefix(1), substring(2), word-Levenshtein+3.
+- Modified `src/tools/fnb-menu.ts`: Added `fetchMenuItems()` that calls `fnb_get_menu` via MCP, tries 5 response shapes (flat array, {items}, {data}, {menu}, MCP content text), falls back to regex text parsing. Added `normalizeItems()` and `parseMenuFromText()` helpers.
+- Modified `src/tools/cart.ts`: Added `cart_search_item` and `cart_pick_item` tools + handlers. `cart_search_item` fetches live menu, runs fuzzy match, adds directly on single match, stores disambiguation on multi-match, apologises on no-match. `cart_pick_item` resolves selection by number or name (with fallback fuzzy match).
+- Modified `src/routes/public/webchat-api.ts`: Imported `getDisambiguation`, added disambiguation section to `systemPromptSuffix` telling AI to use `cart_pick_item` when pending, updated ORDERING stage rules to prefer `cart_search_item` for vague names.
+- Created `src/assistant/__tests__/menu-disambig.test.ts`: 20 unit tests covering levenshtein, findMenuItemMatches, store CRUD, TTL expiry, and formatDisambiguationList. All 20 pass.
+
+### Patterns discovered
+- `AbortSignal.timeout(8000)` on fetch for the FnB MCP call — avoids hanging disambiguation on slow external service.
+- `fetchMenuItems` graceful fallback: if FnB server is down (returns empty array), `cart_search_item` adds the item directly like `cart_add_item` (lossless degradation).
+- Disambiguation state is cleared automatically when a new `cart_search_item` call resolves to 1 or 0 matches.
+
+### Gotchas
+- The FnB MCP response format is opaque (text content); normalizeItems + parseMenuFromText cover both JSON shapes and plain-text menus.
+- `cart_search_item` must clear any existing disambiguation before setting a new one (done via `clearDisambiguation` in 0-match path; setDisambiguation overwrites in multi-match path).
+- prd.json updated via Node.js (not Python) to avoid surrogate encoding issues.

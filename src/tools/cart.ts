@@ -13,6 +13,12 @@ import {
 import {
   transitionOrderStage, clearOrderStage,
 } from '../assistant/order-stage-store.js';
+import {
+  setDisambiguation, getDisambiguation, clearDisambiguation,
+  formatDisambiguationList, type DisambiguationCandidate,
+} from '../assistant/disambiguation-store.js';
+import { fetchMenuItems } from './fnb-menu.js';
+import { findMenuItemMatches } from '../assistant/menu-matcher.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -100,6 +106,46 @@ export const cartTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  // ─── Disambiguation Tools ────────────────────────────────────────
+  {
+    name: 'cart_search_item',
+    description: [
+      'Search the menu for an item by name and add it to cart if unambiguous.',
+      'Use this instead of cart_add_item when the guest uses a partial or vague name (e.g. "the chicken", "nasi", "something spicy").',
+      '• Single match → item is added to cart automatically.',
+      '• Multiple matches → shows a numbered list and asks the guest to choose.',
+      '• No match → apologises and offers to show the full menu.',
+      'If there is already a pending disambiguation, the guest may reply with a number — use cart_pick_item for that.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What the guest is looking for (e.g. "chicken", "nasi lemak", "iced coffee")' },
+        qty: { type: 'number', description: 'Quantity to add if a single match is found (default 1)' },
+        notes: { type: 'string', description: 'Special instructions for this item (optional)' }
+      },
+      required: ['query']
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  {
+    name: 'cart_pick_item',
+    description: [
+      'Select an item from a pending disambiguation list by number or name.',
+      'Use this when the guest replies with a number (e.g. "1", "number 2") or a more specific name after you showed them a disambiguation list.',
+      'The selected item is added to the cart. If there is no pending disambiguation, this tool does nothing useful.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selection: { type: 'string', description: 'The guest\'s selection — a number (e.g. "2") or a name (e.g. "Chicken Rice")' },
+        qty: { type: 'number', description: 'Quantity to add (default 1)' },
+        notes: { type: 'string', description: 'Special instructions for this item (optional)' }
+      },
+      required: ['selection']
     },
     allowedProfiles: ['makan-moments']
   }
@@ -216,6 +262,128 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       content: [{
         type: 'text',
         text: `No problem! Your cart still has:\n\n${summary}\n\nFeel free to add or remove items, or let me know when you're ready to order.`
+      }]
+    };
+  });
+
+  // ─── Disambiguation Handlers ─────────────────────────────────────
+
+  handlers.set('cart_search_item', async (args: any) => {
+    const query: string = String(args.query || '').trim();
+    const qty: number = typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1;
+    const notes: string | undefined = args.notes || undefined;
+
+    if (!query) {
+      return { content: [{ type: 'text', text: 'Please tell me what item you are looking for.' }] };
+    }
+
+    // Fetch menu items from FnB MCP
+    const menuItems = await fetchMenuItems();
+
+    if (menuItems.length === 0) {
+      // FnB system unavailable — fall back to direct cart_add_item behaviour
+      const items = cartAddItem(sessionId, { name: query, qty, notes });
+      transitionOrderStage(sessionId, 'ORDERING');
+      return {
+        content: [{
+          type: 'text',
+          text: `Added ${qty}x ${query} to your cart.\n\nCurrent cart:\n${cartFormatSummary(items)}`
+        }]
+      };
+    }
+
+    const matches = findMenuItemMatches(query, menuItems);
+
+    if (matches.length === 0) {
+      clearDisambiguation(sessionId);
+      return {
+        content: [{
+          type: 'text',
+          text: `Sorry, I couldn't find anything matching "${query}" on the menu.\n\nWould you like me to show you the full menu, or can you describe what you're looking for?`
+        }]
+      };
+    }
+
+    if (matches.length === 1) {
+      // Unambiguous — add directly to cart
+      clearDisambiguation(sessionId);
+      const match = matches[0];
+      const item: CartItem = { name: match.name, qty, code: match.code, price: match.price, notes };
+      const items = cartAddItem(sessionId, item);
+      transitionOrderStage(sessionId, 'ORDERING');
+      const priceStr = match.price !== undefined ? ` (RM ${match.price.toFixed(2)})` : '';
+      return {
+        content: [{
+          type: 'text',
+          text: `Added ${qty}x ${match.name}${priceStr} to your cart.\n\nCurrent cart:\n${cartFormatSummary(items)}`
+        }]
+      };
+    }
+
+    // Multiple matches — store disambiguation state and ask guest to choose
+    const state = { pendingItem: query, candidates: matches, createdAt: Date.now() };
+    setDisambiguation(sessionId, state);
+    const list = formatDisambiguationList(state);
+
+    return {
+      content: [{
+        type: 'text',
+        text: `I found a few items that match "${query}":\n\n${list}\n\nWhich one would you like? (Reply with a number or the full name)`
+      }]
+    };
+  });
+
+  handlers.set('cart_pick_item', async (args: any) => {
+    const selection: string = String(args.selection || '').trim();
+    const qty: number = typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1;
+    const notes: string | undefined = args.notes || undefined;
+
+    const state = getDisambiguation(sessionId);
+
+    if (!state || state.candidates.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'There is no pending item selection. Please tell me what you would like to order.' }]
+      };
+    }
+
+    let chosen: DisambiguationCandidate | undefined;
+
+    // Try numeric selection first
+    const num = parseInt(selection, 10);
+    if (!isNaN(num) && num >= 1 && num <= state.candidates.length) {
+      chosen = state.candidates[num - 1];
+    } else {
+      // Try name match (case-insensitive substring)
+      const q = selection.toLowerCase();
+      chosen = state.candidates.find(c => c.name.toLowerCase().includes(q));
+
+      // If still not found, try fuzzy match within the candidate list
+      if (!chosen) {
+        const fuzzy = findMenuItemMatches(selection, state.candidates, { threshold: 3, maxResults: 1 });
+        chosen = fuzzy[0];
+      }
+    }
+
+    if (!chosen) {
+      const list = formatDisambiguationList(state);
+      return {
+        content: [{
+          type: 'text',
+          text: `Sorry, I didn't recognise "${selection}". Please choose from:\n\n${list}`
+        }]
+      };
+    }
+
+    clearDisambiguation(sessionId);
+    const item: CartItem = { name: chosen.name, qty, code: chosen.code, price: chosen.price, notes };
+    const items = cartAddItem(sessionId, item);
+    transitionOrderStage(sessionId, 'ORDERING');
+    const priceStr = chosen.price !== undefined ? ` (RM ${chosen.price.toFixed(2)})` : '';
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Added ${qty}x ${chosen.name}${priceStr} to your cart.\n\nCurrent cart:\n${cartFormatSummary(items)}`
       }]
     };
   });
