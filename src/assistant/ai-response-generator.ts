@@ -4,6 +4,7 @@
  */
 import axios from 'axios';
 import type { ChatMessage } from './types.js';
+import type { MCPTool, MCPToolResult, ToolHandler } from '../types/mcp.js';
 import { configStore } from './config-store.js';
 import { getContextWindows } from './context-windows.js';
 import {
@@ -83,6 +84,103 @@ export async function chat(
 
   if (content) return content;
   throw new Error('AI temporarily unavailable');
+}
+
+// ─── Chat with Tools Loop (US-701) ───────────────────────────────────
+
+/**
+ * Send a chat message with tools to the LLM, handle tool_calls in response,
+ * execute handlers, and loop until a final text response (max 3 loops).
+ */
+export async function chatWithToolsLoop(
+  systemPrompt: string,
+  history: ChatMessage[],
+  userMessage: string,
+  tools: MCPTool[],
+  toolHandlers: Map<string, ToolHandler>
+): Promise<string> {
+  if (!isAIAvailable()) {
+    throw new Error('AI not available');
+  }
+
+  const cw = getContextWindows();
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt }
+  ];
+
+  const recentHistory = history.slice(-cw.combined);
+  for (const msg of recentHistory) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+  messages.push({ role: 'user', content: userMessage });
+
+  // Convert MCPTool[] to OpenAI function-calling format
+  const openAiTools = tools.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.inputSchema
+    }
+  }));
+
+  const chatCfg = getAISettings();
+  const MAX_LOOPS = 3;
+
+  for (let loop = 0; loop < MAX_LOOPS; loop++) {
+    const { content, toolCalls } = await chatWithFallback(
+      messages as any,
+      chatCfg.max_chat_tokens,
+      chatCfg.chat_temperature,
+      false,
+      undefined,
+      openAiTools
+    );
+
+    // No tool calls — return the text response
+    if (!toolCalls || toolCalls.length === 0) {
+      return content || UNKNOWN_FALLBACK_MESSAGES.en;
+    }
+
+    // Append assistant message with tool_calls
+    messages.push({ role: 'assistant', content: content || null, tool_calls: toolCalls });
+
+    // Execute each tool call and append results
+    for (const call of toolCalls) {
+      const fnName = call.function?.name;
+      const fnArgs = call.function?.arguments;
+      let parsedArgs: any = {};
+      try {
+        parsedArgs = typeof fnArgs === 'string' ? JSON.parse(fnArgs) : fnArgs || {};
+      } catch {
+        parsedArgs = {};
+      }
+
+      const handler = toolHandlers.get(fnName);
+      let result: MCPToolResult;
+      if (handler) {
+        try {
+          result = await handler(parsedArgs);
+        } catch (err: any) {
+          result = { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+        }
+      } else {
+        result = { content: [{ type: 'text', text: `Unknown tool: ${fnName}` }], isError: true };
+      }
+
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: JSON.stringify(result.content)
+      });
+
+      console.log(`[AI] Tool call: ${fnName} → ${result.isError ? 'ERROR' : 'OK'} (loop ${loop + 1}/${MAX_LOOPS})`);
+    }
+  }
+
+  // Max loops exhausted — return last content or fallback
+  console.warn('[AI] chatWithToolsLoop: max loops exhausted');
+  return UNKNOWN_FALLBACK_MESSAGES.en;
 }
 
 // ─── Structured Output Retry (US-471) ─────────────────────────────────

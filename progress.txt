@@ -3001,3 +3001,19 @@ Completed: Add FnB MCP client tools for menu browsing in rainbow-ai (ID: US-602)
 ### Gotchas
 - Tools NOT yet registered in registry.ts — that's US-604
 - MCP server tool name is fnb_get_order (not fnb_get_order_status) — handler maps the name
+
+## Iteration 8 - Story: US-701 Add tool-calling loop to chat engine for FnB profile
+### What was implemented
+- Added `tools?: any[]` parameter to `providerChat()` and `chatWithFallback()` in ai-provider-manager.ts
+- Modified `validateProviderResponse()` to handle tool_calls in LLM responses (content can be null when tool_calls present)
+- Added tools to request body for groq and openai-compatible providers with `tool_choice: 'auto'`
+- Created `chatWithToolsLoop()` in ai-response-generator.ts — converts MCPTool[] to OpenAI function-calling format, sends to LLM, executes tool handlers on tool_calls, loops until final text (max 3 loops)
+- Added `tools?: MCPTool[]` and `toolHandlers?: Map<string, ToolHandler>` to ChatOptions in chat-engine.ts
+- processChat() now short-circuits to chatWithToolsLoop() when tools are provided, bypassing intent classification
+- fnb-chat.ts now passes `toolRegistry.getToolsForProfile('makan-moments')` and `toolRegistry.getHandlersForProfile('makan-moments')` to processChat()
+### Patterns discovered
+- Tool messages use `role: 'tool'` with `tool_call_id` — different from regular chat messages, needs `any[]` type assertion
+- LLM returns `content: null` + `tool_calls: [...]` when it wants to call tools; validateProviderResponse needed to handle this
+- Google Gemini has a completely different tool format — skipped for now, tools only work with OpenAI-compatible and Groq providers
+### Gotchas
+- chatWithFallback result check `result.content` would skip tool-call-only responses — changed to `result.content || result.toolCalls?.length`

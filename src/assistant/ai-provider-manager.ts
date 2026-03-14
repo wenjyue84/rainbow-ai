@@ -144,7 +144,7 @@ function logCacheMetrics(usage: any, providerName: string): void {
 }
 
 /** Validate OpenAI-compatible response structure; throws descriptive errors to trigger fallback */
-function validateProviderResponse(data: any, providerName: string, startTime: number): { content: string; usage?: any } {
+function validateProviderResponse(data: any, providerName: string, startTime: number): { content: string; usage?: any; toolCalls?: any[] } {
   if (!data) {
     throw new Error(`${providerName}: empty response body`);
   }
@@ -157,6 +157,13 @@ function validateProviderResponse(data: any, providerName: string, startTime: nu
   const message = data.choices[0]?.message;
   if (!message || typeof message !== 'object') {
     throw new Error(`${providerName}: choices[0] missing message object`);
+  }
+  // Tool calls: content may be null when LLM wants to call tools
+  if (message.tool_calls && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    const elapsed = Date.now() - startTime;
+    console.log(`[AI] ✓ ${providerName} responded with ${message.tool_calls.length} tool call(s) (${elapsed}ms)`);
+    if (data.usage) logCacheMetrics(data.usage, providerName);
+    return { content: message.content || '', usage: data.usage, toolCalls: message.tool_calls };
   }
   if (typeof message.content !== 'string') {
     throw new Error(`${providerName}: message.content is not a string (got ${typeof message.content})`);
@@ -237,8 +244,9 @@ export async function providerChat(
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
   temperature: number,
-  jsonMode: boolean = false
-): Promise<{ content: string; usage?: any } | null> {
+  jsonMode: boolean = false,
+  tools?: any[]
+): Promise<{ content: string; usage?: any; toolCalls?: any[] } | null> {
   // Resolve provider type name for OTel attributes
   const providerTypeName = provider.type === 'google-gemini' ? 'google'
     : provider.type === 'groq' ? 'groq'
@@ -275,7 +283,7 @@ export async function providerChat(
         return null;
       }
 
-      let result: { content: string; usage?: any } | null = null;
+      let result: { content: string; usage?: any; toolCalls?: any[] } | null = null;
 
       if (provider.type === 'groq') {
         const groq = groqInstances.get(provider.id);
@@ -291,6 +299,7 @@ export async function providerChat(
           temperature
         };
         if (jsonMode) body.response_format = { type: 'json_object' };
+        if (tools && tools.length > 0) { body.tools = tools; body.tool_choice = 'auto'; }
 
         const response = await withTimeout(
           groq.chat.completions.create(body),
@@ -347,6 +356,7 @@ export async function providerChat(
           temperature
         };
         if (jsonMode) body.response_format = { type: 'json_object' };
+        if (tools && tools.length > 0) { body.tools = tools; body.tool_choice = 'auto'; }
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey && provider.type !== 'ollama') {
@@ -427,8 +437,9 @@ export async function chatWithFallback(
   maxTokens: number,
   temperature: number,
   jsonMode: boolean = false,
-  providerIds?: string[]
-): Promise<{ content: string | null; provider: AIProvider | null; usage?: any }> {
+  providerIds?: string[],
+  tools?: any[]
+): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   let providers = getProviders();
 
   if (providerIds && providerIds.length > 0) {
@@ -464,14 +475,14 @@ export async function chatWithFallback(
     }
 
     try {
-      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode);
-      if (result && result.content) {
+      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
+      if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
         // Record token usage for cost tracking (US-433)
         recordLLMUsage(provider.id, provider.model, result.usage);
         console.log(`[AI] ✅ Success using: ${provider.name} (${provider.id})`);
-        return { content: result.content, provider, usage: result.usage };
+        return { content: result.content, provider, usage: result.usage, toolCalls: result.toolCalls };
       }
     } catch (err: any) {
       breaker.recordFailure();

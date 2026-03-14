@@ -1,129 +1,188 @@
 {
-  "productName": "Rainbow AI \u2014 FnB AI Waiter Enhancement",
+  "productName": "Rainbow AI \u00e2\u20ac\u201d FnB AI Waiter: Smooth Pre-Ordering + Tests",
   "branchName": "master",
-  "overview": "End-to-end AI waiter integration: rainbow-ai makan-moments profile handles customer chat from fnb-online-ordering, acting as MCP client to query live menu data and place orders in the fnb-online-ordering system.",
+  "overview": "Wire FnB tools into the chat engine (currently broken), add FnB intents, harden the pre-ordering flow with phone collection and order confirmation, and add comprehensive Vitest tests.",
   "goals": [
-    "Add /api/fnb/chat SSE endpoint in rainbow-ai so the fnb-online-ordering proxy can connect",
-    "Add FnB MCP client tools in rainbow-ai (menu browsing, order creation, order status)",
-    "Register FnB tools for makan-moments profile only, not hostel profiles",
-    "Configure makan-moments profile to use FnB tools when answering customer questions",
-    "Fix and verify end-to-end: customer chat -> rainbow-ai -> MCP call -> live fnb data",
-    "Enhance fnb-online-ordering chat UI with order-aware quick replies and better UX"
+    "Wire FnB MCP tools into chat engine so AI can actually execute them (currently tools exist but are never called)",
+    "Add FnB intents to makan-moments profile for correct classification of menu/order queries",
+    "Smooth pre-ordering: phone collection, order confirmation, order ID returned clearly",
+    "Vitest tests for FnB tool handlers, profile filtering, and end-to-end chat flow",
+    "Tests visible in admin panel at http://localhost:3002/#dashboard/makan-moments/tests"
   ],
   "userStories": [
     {
-      "id": "US-601",
-      "title": "Add /api/fnb/chat SSE streaming endpoint in rainbow-ai",
+      "id": "US-701",
+      "title": "Add tool-calling loop to chat engine for FnB profile",
       "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
+      "description": "processChat() has no tool-calling support. FnB tools are registered in the registry but never executed \u00e2\u20ac\u201d the AI knows about them from the system prompt but cannot call them. Fix: add tools/toolHandlers to ChatOptions, add chatWithToolsLoop() in ai-response-generator.ts, update fnb-chat.ts to pass tools.",
+      "acceptanceCriteria": [
+        "ChatOptions in chat-engine.ts has optional fields: tools?: MCPTool[] and toolHandlers?: Map<string, ToolHandler>",
+        "processChat() calls chatWithToolsLoop() instead of classifyAndRespond() when tools are provided",
+        "chatWithToolsLoop() sends tools to LLM in OpenAI format, handles tool_calls in response, executes handlers, loops until final text (max 3 loops)",
+        "fnb-chat.ts passes toolRegistry.getToolsForProfile('makan-moments') and toolRegistry.getHandlersForProfile('makan-moments') to processChat()",
+        "npm run build passes without new errors"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/chat-engine.ts: add to ChatOptions interface: tools?: MCPTool[]; toolHandlers?: Map<string, ToolHandler>; Add import for MCPTool/ToolHandler types. In processChat(), if options.tools && options.tools.length > 0, call chatWithToolsLoop() and return {message: result, intent:'tool_use', confidence:1, responseTime:..., model:'tool'}",
+        "Edit src/assistant/ai-response-generator.ts: add export async function chatWithToolsLoop(systemPrompt, history, userMessage, tools, toolHandlers). Build messages array. Convert tools to OpenAI format: tools.map(t => ({type:'function',function:{name:t.name,description:t.description,parameters:t.inputSchema}})). Call chatWithFallback() passing tools. Check if response message has tool_calls. If yes, execute each handler, append as {role:'tool',tool_call_id:call.id,content:JSON.stringify(result.content)}, then call LLM again. Return final text. Max 3 loops.",
+        "Edit src/assistant/ai-provider-manager.ts: check chatWithFallback() signature. Add optional parameter tools?: any[] and pass it in the fetch body as tools:tools,tool_choice:'auto' when provided.",
+        "Edit src/routes/public/fnb-chat.ts: import {toolRegistry} from '../../tools/registry.js'. Before processChat() call, add: tools: toolRegistry.getToolsForProfile('makan-moments'), toolHandlers: toolRegistry.getHandlersForProfile('makan-moments')"
+      ],
       "dependencies": [],
-      "estimatedComplexity": "medium",
+      "estimatedComplexity": "large",
       "passes": true
     },
     {
-      "id": "US-602",
-      "title": "Add FnB MCP client tools for menu browsing in rainbow-ai",
+      "id": "US-702",
+      "title": "Add FnB intents to makan-moments intents.json and routing.json",
       "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
+      "description": "The makan-moments intents.json has only hostel intents (check-in, checkout, capsule, WiFi). Add FnB-specific intents: menu_query, order_placement, order_status, operating_hours, food_recommendation so these are classified correctly.",
+      "acceptanceCriteria": [
+        "data-makan/intents.json has a CAFE_OPERATIONS phase with 5 intents",
+        "data-makan/routing.json maps all 5 to action: 'llm_reply'",
+        "menu_query patterns match: menu, makanan, what do you have, show me the menu",
+        "order_placement patterns match: i want to order, nak order, place an order",
+        "order_status patterns match: check my order, order status, MM-",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/intents.json: use Python to load JSON, insert new phase at index 0 of categories array: {phase:'CAFE_OPERATIONS',description:'Cafe menu ordering and operations',intents:[{category:'menu_query',professional_term:'Menu Inquiry',patterns:['\\\\b(menu|makanan|hidangan|what.*have|show.*menu|senarai|\u00e9\u00a3\u0178\u00e7\u2030\u00a9)\\\\b'],flags:'i',enabled:true,min_confidence:0.7},{category:'order_placement',patterns:['\\\\b(i.*want.*order|nak.*order|place.*order|i.*like.*order|pesan|\u00e7\u201a\u00b9\u00e9\u00a4\udc90|\u00e6\u02c6\u2018\u00e8\u00a6\udc81)\\\\b'],flags:'i',enabled:true,min_confidence:0.67},{category:'order_status',patterns:['\\\\b(check.*order|order.*status|status.*order|MM-[A-Z0-9]+|semak.*pesanan|\u00e6\u0178\u00a5.*\u00e5\udc8d\u2022)\\\\b'],flags:'i',enabled:true,min_confidence:0.7},{category:'operating_hours',patterns:['\\\\b(open|close|hours?|timing|when.*open|berapa.*masa|\u00e8\udc90\u00a5\u00e4\u00b8\u0161|jam.*buka)\\\\b'],flags:'i',enabled:true,min_confidence:0.75},{category:'food_recommendation',patterns:['\\\\b(recommend|suggest|popular|best.*seller|favourite|apa.*sedap|\u00e5\u00a5\u00bd\u00e5\udc90\u0192)\\\\b'],flags:'i',enabled:true,min_confidence:0.7}]}",
+        "Edit src/assistant/data-makan/routing.json: add 5 entries at top: menu_query, order_placement, order_status, operating_hours, food_recommendation all with {action:'llm_reply'}"
+      ],
       "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true
+      "estimatedComplexity": "small",
+      "passes": false
     },
     {
-      "id": "US-603",
-      "title": "Add FnB MCP client tools for order management in rainbow-ai",
+      "id": "US-703",
+      "title": "Improve pre-ordering system prompt: phone collection + order confirmation",
       "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true
-    },
-    {
-      "id": "US-604a",
-      "title": "Tag FnB tools with allowedProfiles in MCPTool type",
-      "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
+      "description": "Update makan-moments system_prompt with specific pre-ordering workflow instructions: call fnb_get_menu first, collect phone number, confirm order before placing, present order ID after placement.",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt includes pre-ordering workflow",
+        "Instructions: call fnb_get_menu first before recommending items",
+        "Instructions: ask for mobile number before placing order",
+        "Instructions: confirm order summary before calling fnb_create_order",
+        "Instructions: present order ID clearly after success",
+        "Instructions: graceful fallback if tool fails",
+        "Valid JSON, npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: use Python to load JSON, append to system_prompt string",
+        "Append: ' Pre-ordering workflow: (1) When customer wants to order, call fnb_get_menu first for current items and real prices. (2) Help customer choose items. (3) Ask for mobile number: May I have your mobile number? e.g. 60XXXXXXXXX. (4) Confirm full order: items, quantities, total price, and arrival time. (5) Call fnb_create_order only after customer confirms. (6) After placing say: Your order ID is [ID] - save this to check status anytime. If any tool call fails, apologize and suggest: Please call us directly or send us a WhatsApp.'",
+        "Python write: with open(..., w, encoding=utf-8) as f: json.dump(data, f, indent=2, ensure_ascii=False)"
+      ],
       "dependencies": [
-        "US-602",
-        "US-603"
+        "US-701"
       ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
-      "id": "US-604b",
-      "title": "Add getToolsForProfile() to ToolRegistry filtering by allowedProfiles",
-      "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-604a"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-604c",
-      "title": "Update makan-moments system prompt to mention live FnB tools",
-      "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-604a"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-605",
-      "title": "Verify /api/fnb/chat connects to makan-moments profile with FnB MCP tools end-to-end",
-      "priority": "high",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-601",
-        "US-604b",
-        "US-604c"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-606",
-      "title": "Enhance fnb-online-ordering AI waiter chat UI with order-aware quick replies",
+      "id": "US-704",
+      "title": "Write Vitest tests: ToolRegistry profile filtering for FnB tools",
       "priority": "medium",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
-      "dependencies": [
-        "US-605"
+      "description": "Add tests proving that getToolsForProfile and getHandlersForProfile work correctly: FnB tools for makan-moments only, not for hostel profiles.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/fnb-tool-registry.test.ts exists",
+        "Test: getToolsForProfile('makan-moments') includes fnb_get_menu and fnb_create_order",
+        "Test: getToolsForProfile('pelangi') has no tool with name starting with 'fnb_'",
+        "Test: all FnB tools have allowedProfiles containing 'makan-moments'",
+        "Test: getHandlersForProfile('makan-moments').has('fnb_get_menu') is true",
+        "npm run test:run passes"
       ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/fnb-tool-registry.test.ts",
+        "import { toolRegistry } from '../../tools/registry.js'",
+        "describe block with 4 tests: makan-moments gets fnb tools, pelangi has no fnb tools, all fnb tools have allowedProfiles, handlers map works",
+        "Use toContain or some() to check tool names",
+        "Use every(t => !t.name.startsWith('fnb_')).toBe(true) for pelangi check"
+      ],
+      "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
-      "id": "US-607",
-      "title": "Add .env.example documentation for FnB AI waiter integration in rainbow-ai",
-      "priority": "low",
-      "description": "Done.",
-      "acceptanceCriteria": [],
-      "technicalNotes": [],
+      "id": "US-705",
+      "title": "Write Vitest tests: FnB tool handlers return correct MCPToolResult shape",
+      "priority": "medium",
+      "description": "Unit tests for fnbGetMenu, fnbCreateOrder, fnbGetOrderStatus with mocked fetch. Verify proper MCPToolResult shape and graceful error handling.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/fnb-tools.test.ts exists",
+        "Test: fnbGetMenu({}) with successful mock returns { content: [{type:'text', text: ...}] }",
+        "Test: fnbGetMenu({}) with fetch throwing returns { content: [...], isError: true }",
+        "Test: fnbGetOrderStatus({orderId:'MM-1234'}) calls fetch and returns result",
+        "npm run test:run passes"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/fnb-tools.test.ts",
+        "import { fnbGetMenu, fnbGetMenuItem } from '../../tools/fnb-menu.js'",
+        "import { fnbGetOrderStatus, fnbCreateOrder } from '../../tools/fnb-orders.js'",
+        "Use vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:true, json:()=>Promise.resolve({content:[{type:'text',text:'Menu data'}]})})) for success",
+        "Use vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))) for failure",
+        "beforeAll: process.env.FNB_MCP_URL = 'http://test-mock/api/mcp'",
+        "afterEach: vi.restoreAllMocks()"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-706",
+      "title": "Add makan-moments chat flow tests visible in admin tests panel",
+      "priority": "medium",
+      "description": "Integration tests for the full makan-moments chat flow using processChat() with mocked FnB data. 5+ tests covering greeting, menu query, hours, order flow, multilingual. Visible via admin panel tests tab.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/makan-moments-flow.test.ts exists with 5+ tests",
+        "Tests: greeting, show menu, open hours, order nasi lemak asks for phone, Malay tunjuk menu query",
+        "Tests mock fetch for FnB tool responses",
+        "Tests use processChat() with makan-moments profile and FnB tools",
+        "npm run test:run passes"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/makan-moments-flow.test.ts",
+        "import { processChat } from '../../assistant/chat-engine.js'",
+        "import { profileRegistry } from '../../assistant/profile-registry.js'",
+        "import { toolRegistry } from '../../tools/registry.js'",
+        "beforeAll: mock fetch globally, get makan-moments profile",
+        "Helper: async function testChat(message) { return processChat({message, history:[], sessionId:'test-'+Date.now(), configStore:profile.configStore, kb:profile.kb, tools, toolHandlers}) }",
+        "Test 1: result = await testChat('hello') -> expect(result.message.length).toBeGreaterThan(5)",
+        "Test 2: testChat('show me the menu') -> expect(result.message.length).toBeGreaterThan(5)",
+        "Test 3: testChat('what time do you open?') -> expect(result.message).toBeTruthy()",
+        "Test 4: testChat('I want to order nasi lemak') -> expect(result.message).toBeTruthy()",
+        "Test 5: testChat('tunjuk menu') -> expect(result.message.length).toBeGreaterThan(5)",
+        "vi.setConfig({testTimeout:30000}) for slow AI provider calls",
+        "Skip tests if makan-moments profile not available: if (!profile) return"
+      ],
       "dependencies": [
-        "US-605"
+        "US-701"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-707",
+      "title": "Graceful degradation: user-friendly errors when FNB_MCP_URL unavailable",
+      "priority": "low",
+      "description": "Replace raw error messages like 'FnB MCP connection error: fetch failed' with user-friendly text. When tools fail, AI should tell customer to contact staff, not expose technical errors.",
+      "acceptanceCriteria": [
+        "fnb-menu.ts callFnbMcp() catch returns user-friendly text, not raw error.message",
+        "fnb-orders.ts same fix",
+        "Test: fnbGetMenu with ECONNREFUSED does NOT return text containing 'ECONNREFUSED' or 'FnB MCP connection error'",
+        "HTTP error case also returns friendly text",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/tools/fnb-menu.ts callFnbMcp() catch block: change text to 'Unable to reach the cafe ordering system right now. Please try again or ask our staff for help.'",
+        "Edit src/tools/fnb-orders.ts callFnbMcp() catch block: same friendly message",
+        "For HTTP error case (res.ok is false): change text to 'The cafe ordering system returned an error. Please try again or contact staff.'",
+        "Keep isError: true in both cases"
+      ],
+      "dependencies": [
+        "US-705"
       ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     }
   ]
 }

@@ -7,8 +7,9 @@
 
 import type { ConfigStore } from './config-store.js';
 import type { KnowledgeBaseInstance } from './knowledge-base-instance.js';
+import type { MCPTool, ToolHandler } from '../types/mcp.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
-import { UNKNOWN_FALLBACK_MESSAGES } from './ai-response-generator.js';
+import { UNKNOWN_FALLBACK_MESSAGES, chatWithToolsLoop } from './ai-response-generator.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ export interface ChatOptions {
   sessionId?: string;
   configStore: ConfigStore;
   kb: KnowledgeBaseInstance;
+  tools?: MCPTool[];
+  toolHandlers?: Map<string, ToolHandler>;
 }
 
 export interface ChatResult {
@@ -180,6 +183,26 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     content: msg.content,
     timestamp: msg.timestamp || new Date().toISOString()
   }));
+
+  // Tool-calling mode: bypass intent classification and use tool loop
+  if (options.tools && options.tools.length > 0 && options.toolHandlers) {
+    const topicFiles = kb.guessTopicFiles(message);
+    const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers);
+    const responseTime = Date.now() - startTime;
+    return {
+      message: result,
+      intent: 'tool_use',
+      confidence: 1,
+      responseTime,
+      model: 'tool',
+      source: 'tools',
+      action: 'tool_use',
+      routedAction: 'tool_use',
+      kbFiles: topicFiles.length > 0 ? topicFiles : [],
+      contextCount: conversationHistory.length
+    };
+  }
 
   // Check for active workflow
   const lookupKey = sessionId || getSessionKey(conversationHistory);

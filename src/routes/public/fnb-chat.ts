@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { sanitizeInput, validateInputSafety, processChat } from '../../assistant/chat-engine.js';
+import { toolRegistry } from '../../tools/registry.js';
 
 const router = Router();
 
@@ -180,6 +181,8 @@ router.post('/chat', async (req: Request, res: Response) => {
       sessionId,
       configStore: profile.configStore,
       kb: profile.kb,
+      tools: toolRegistry.getToolsForProfile('makan-moments'),
+      toolHandlers: toolRegistry.getHandlersForProfile('makan-moments'),
     });
 
     // Send the response as SSE event(s)
