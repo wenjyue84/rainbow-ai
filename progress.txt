@@ -7139,3 +7139,34 @@ This brief is tailored for a Node.js/TypeScript environment, as the project stru
 ### Gotchas
 - The Makan knowledge.json was a copy of Pelangi's, so payment_info had bank account details for the hostel, not the cafe
 - Default payment methods fall back to ['cash'] if not configured, per acceptance criteria
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Here is the technical brief for implementing user story US-828.
+
+**Note:** The user story and project structure relate to a **TypeScript/Node.js** application (`rainbow-ai`), not a Frappe/Python one. This brief is based on the actual project context.
+
+***
+
+### **Technical Brief: US-828 Admin UI for Rate Limiting**
+
+**1. Python Files to Modify (Translated to TypeScript):**
+*   **`src/routes/admin/settings.ts`**: (or similar) Add the new `GET /api/admin/rate-limits/stats` endpoint. Also, modify the existing POST/PUT endpoint for settings to handle the new `rate_limits` object.
+*   **`src/lib/config.ts` / `shared/schema.ts`**: Update the application's configuration schema to include `rate_limits: { enabled: boolean, max_messages_per_user_per_24h: number }`.
+*   **`src/services/rate-limiter.ts`**: (or wherever enforcement logic lives) Ensure this service dynamically reads from the updated configuration without requiring a restart.
+*   **`src/app/components/admin/RateLimitSettings.tsx`**: (or similar) A new React component for the settings UI.
+
+**2. Frappe DocTypes/Hooks (Translated to Node.js Concepts):**
+*   **API Routes**: The primary integration points are API routes for fetching stats and updating settings.
+*   **Configuration Object**: The `rainbow_configs` persistence layer serves as the "DocType" for storing these settings. The schema itself needs modification.
+*   **Middleware/Service**: The existing rate-limiting logic, likely implemented as middleware, is the "hook" that will be affected by the config change.
+
+**3. Recommended Implementation Approach:**
+1.  **Backend**: First, extend the `rainbow_configs` schema. Then, create the `GET .../stats` API endpoint; this will need to query the data source where rate-limit hits are logged (e.g., a database table or Redis cache). Update the existing settings endpoint to validate and save the new `rate_limits` data.
+2.  **Frontend**: Build a new React component with a toggle for `enabled` and a numeric input for the message limit. This component will fetch data from both the main settings endpoint and the new stats endpoint. On save, it will PUT the new configuration to the backend.
+
+**4. Edge Cases & Gotchas:**
+*   **Config Hot-Reloading**: The "no restart" requirement is critical. The config provider must support being reloaded periodically or on-demand, so services get the new values within the 1-minute window.
+*   **Stats Source**: The technical notes do not specify where rate-limiting events are logged. This data source must be identified or created to build the `.../stats` endpoint.
+*   **Persistence Complexity**: Files like `migrate-configs-to-db.ts` suggest a potential mix of file-based and DB-based configuration. Ensure you are writing to the correct, canonical `rainbow_configs` layer.
+

@@ -1627,7 +1627,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-865",
@@ -1652,7 +1652,7 @@
         "US-848"
       ],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-866",
@@ -1677,7 +1677,7 @@
         "US-848"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-867",
@@ -1702,7 +1702,7 @@
         "US-851"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-868",
@@ -1776,6 +1776,437 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-871",
+      "title": "WhatsApp Flows: in-chat check-in form for hostel guests",
+      "priority": "high",
+      "description": "Allow guests to complete a structured check-in form (name, IC/passport number, arrival time, room preferences) directly inside WhatsApp using a WhatsApp Flow, eliminating the need for a separate web link or paper form. This reduces front-desk workload and improves the arrival experience for digital-first guests. WhatsApp Flows support multi-screen forms with dropdowns, text inputs, and confirmation screens without leaving the chat.",
+      "acceptanceCriteria": [
+        "A WhatsApp Flow is triggered when a guest sends a check-in intent message (e.g. 'checking in today')",
+        "Flow collects: full name, IC/passport number, expected arrival time, bed/room preference, and emergency contact",
+        "On completion, a booking confirmation summary is sent in-chat and stored in the Rainbow AI database",
+        "Flow is linked to the correct profile (Pelangi) and does not appear for Makan Moments sessions",
+        "If the Flow cannot be triggered (e.g. Baileys does not support interactive flows), fallback to structured text prompts occurs gracefully"
+      ],
+      "technicalNotes": [
+        "WhatsApp Flows are only available via the Cloud API, not Baileys; assess whether to proxy through a Cloud API gateway or implement text-based equivalent for Baileys",
+        "Flow JSON spec: https://developers.facebook.com/docs/whatsapp/flows/",
+        "Store collected data in rainbow_conversations or a dedicated guest_checkin table",
+        "Flows support: text inputs, dropdowns, radio buttons, checkboxes, date pickers, and multi-screen navigation"
+      ],
+      "dependencies": [
+        "WhatsApp Cloud API access or Flows-compatible gateway"
+      ],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-872",
+      "title": "WhatsApp interactive list message for menu category browsing",
+      "priority": "high",
+      "description": "Replace plain-text menu listings in the Makan Moments chatbot with WhatsApp interactive List Messages, presenting up to 10 sections (e.g. Mains, Drinks, Desserts) with up to 10 items each. This uses the WhatsApp Cloud API interactive message type and produces a native, tappable UI rather than a wall of text. Users tap a row to select an item, reducing mis-typed orders.",
+      "acceptanceCriteria": [
+        "When user sends 'menu' or triggers category browsing intent, a WhatsApp list message is sent with at least 3 sections matching the actual menu categories",
+        "Selecting an item from the list triggers the add-to-cart flow",
+        "Fallback to text-based menu is served if the channel does not support interactive messages (e.g. webchat widget)",
+        "List messages are only served on the makan-moments profile, not the hostel profile"
+      ],
+      "technicalNotes": [
+        "WhatsApp Cloud API interactive list message type: 'list' with up to 10 rows per section",
+        "Requires Cloud API — verify Baileys supports sending interactive list messages (it does via message patching)",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/",
+        "Row IDs map to menu item SKUs for deterministic cart operations"
+      ],
+      "dependencies": [
+        "Conversational cart (already implemented)",
+        "Menu data source/API"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-873",
+      "title": "Voice message transcription and intent processing via Whisper",
+      "priority": "high",
+      "description": "Allow guests and cafe customers to send WhatsApp voice messages that are automatically transcribed using Groq Whisper and fed into the intent classification pipeline as text. Many Malaysian users, particularly older guests or those placing complex orders, prefer voice over typing. Without this, voice messages currently go unhandled, producing confusion or silence.",
+      "acceptanceCriteria": [
+        "When a voice message (audio/ogg or audio/mp4) is received, the system downloads the audio, transcribes it via Whisper API, and processes the transcript as a regular text message",
+        "Transcription latency is under 5 seconds for messages up to 30 seconds long",
+        "If transcription fails, the bot sends a fallback message asking the user to type their request",
+        "Transcribed text is logged alongside the original audio reference in rainbow_messages",
+        "Works for both Pelangi and Makan Moments profiles"
+      ],
+      "technicalNotes": [
+        "Baileys provides audio messages as buffers; pass to Whisper API endpoint",
+        "Use Groq Whisper for lower latency and cost vs. OpenAI directly",
+        "n8n workflow template reference: https://n8n.io/workflows/6077-transcribe-whatsapp-audio-messages-with-whisper-ai-via-groq/",
+        "Store transcription in message metadata field, not as message content, to preserve audit trail"
+      ],
+      "dependencies": [
+        "Groq API key in env"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-874",
+      "title": "Automatic language detection and response in Chinese (Mandarin) and Tamil",
+      "priority": "high",
+      "description": "Detect when an incoming message is written in Mandarin Chinese or Tamil and respond in the same language, without requiring the user to explicitly switch language. Malaysia's multicultural population (Chinese ~23%, Tamil ~7%) commonly messages in their mother tongue. Failing to respond in-language creates a significant exclusion barrier and reduces order conversion for Makan Moments.",
+      "acceptanceCriteria": [
+        "The system detects the primary language of each incoming message using a language detection library or LLM metadata",
+        "Responses are generated in the detected language (Malay, English, Chinese Simplified, Tamil)",
+        "Language preference is stored per-JID so subsequent messages default to the detected language",
+        "User can override language at any time by messaging in a different language",
+        "System prompt and knowledge base queries are adapted to the target language at runtime",
+        "Language detection adds no more than 200ms to pipeline latency"
+      ],
+      "technicalNotes": [
+        "Use franc-min (lightweight language detection) or LLM-native language detection from model response metadata",
+        "Store detected language in conversation metadata in rainbow_conversations",
+        "System prompt injection: append 'Respond in {language}' to the system prompt based on detected language",
+        "Reference: https://gallabox.com/blog/multilingual-whatsapp-chatbot",
+        "For Tamil, verify that the LLM provider (NVIDIA Kimi K2.5 / OpenRouter) supports Tamil output quality"
+      ],
+      "dependencies": [
+        "Per-JID conversation state storage (already exists)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-875",
+      "title": "In-chat room amenity and housekeeping request handling",
+      "priority": "high",
+      "description": "Allow Pelangi Capsule guests to request housekeeping services (extra towels, pillow, room cleaning) and report maintenance issues (broken AC, faulty socket) via WhatsApp, with the request routed to the correct staff queue and confirmed to the guest with an estimated response time. This automates the most common in-stay service requests without requiring phone calls or walking to reception.",
+      "acceptanceCriteria": [
+        "Intents for common requests are classified: 'extra towel', 'room cleaning', 'maintenance issue', 'extra pillow', 'wifi password'",
+        "Classified requests are logged in a service_requests table with guest JID, room number, request type, timestamp, and status",
+        "A WhatsApp notification is sent to the staff operations number with request details",
+        "Guest receives confirmation message with estimated wait time (configurable per request type)",
+        "Staff can mark a request as fulfilled via admin API, triggering a completion message to the guest",
+        "Request intents are scoped to Pelangi profile only"
+      ],
+      "technicalNotes": [
+        "New DB table: service_requests (id, jid, profile, room_number, request_type, details, status, created_at, resolved_at)",
+        "Staff notification uses existing outbound WhatsApp send mechanism",
+        "Admin API endpoint: PATCH /api/service-requests/:id/resolve",
+        "Estimated wait times stored in settings.json per request_type key",
+        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
+      ],
+      "dependencies": [
+        "Table/room number capture (already implemented)",
+        "Outbound WhatsApp send"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-876",
+      "title": "POS webhook receiver: push confirmed orders to kitchen display system",
+      "priority": "high",
+      "description": "After the customer confirms their order in the Makan Moments chatbot, transmit the order to a configurable POS/KDS webhook endpoint so kitchen staff see the ticket in real time without manual re-entry. This closes the gap between chatbot order intake and kitchen workflow, eliminating the current manual relay step that introduces errors and delays.",
+      "acceptanceCriteria": [
+        "On order confirmation, the system POSTs an order payload to a configurable KDS_WEBHOOK_URL environment variable",
+        "Payload contains: order ID, items (name, qty, special instructions), table/pickup identifier, customer JID (hashed), timestamp",
+        "If the webhook call fails, the order is queued for retry (max 3 attempts with exponential backoff) and an alert is sent to the ops WhatsApp number",
+        "Webhook URL, auth header, and retry settings are configurable without redeploy",
+        "Order status response from POS (accepted/rejected) is relayed back to the customer in chat",
+        "Integration can be disabled per-profile via settings.json if POS is not connected"
+      ],
+      "technicalNotes": [
+        "Outbound HTTP POST using existing fetch pattern in src/tools/",
+        "KDS_WEBHOOK_URL and KDS_WEBHOOK_AUTH_TOKEN as env vars",
+        "Retry queue: in-memory with persistent fallback to DB table order_webhook_queue",
+        "Reference: https://n8n.io/workflows/3942-ai-powered-restaurant-order-chatbot-with-gpt-4o-for-pos-integration/",
+        "Order payload schema should follow a documented OpenAPI spec in src/assistant/schemas.ts"
+      ],
+      "dependencies": [
+        "Order confirmation summary (already implemented)",
+        "Conversational cart (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-877",
+      "title": "Allergen and dietary warning display on item selection",
+      "priority": "high",
+      "description": "When a customer selects a menu item, proactively display allergen and dietary information (e.g. 'Contains: peanuts, gluten. Suitable for: halal.') before adding to cart. Customers with allergies currently have no way to get allergen information from the chatbot without asking explicitly, creating a food safety and liability gap.",
+      "acceptanceCriteria": [
+        "Each menu item in the data source has an optional allergens array and dietary_flags array (e.g. ['halal', 'gluten-free'])",
+        "When an item is selected (before cart add), the bot displays a formatted allergen notice if the item has any allergen data",
+        "Customer must confirm (reply 'yes' or tap a confirm button) before the item is added to cart",
+        "If no allergen data exists for an item, a standard 'please inform staff of any allergies' message is shown instead",
+        "Allergen data is editable via admin API without redeploy"
+      ],
+      "technicalNotes": [
+        "Extend menu item schema in src/assistant/schemas.ts with allergens: string[] and dietary_flags: string[]",
+        "Allergen display uses a pre-formatted template in knowledge.json",
+        "Admin API: PATCH /api/menu-items/:id with allergen and dietary_flags fields",
+        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/"
+      ],
+      "dependencies": [
+        "Menu item data schema with allergen fields"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-878",
+      "title": "PDPA 2024 amendment: include DPO contact email in first-contact data notice",
+      "priority": "high",
+      "description": "Update the structured data notice sent to users on first WhatsApp interaction to include the mandatory Data Protection Officer (DPO) contact email, as required by Malaysia's Personal Data Protection (Amendment) Act 2024 effective 1 June 2025. The amendment requires organizations processing personal data to publish a designated DPO contact on public channels, which includes the WhatsApp chatbot's first-contact notice.",
+      "acceptanceCriteria": [
+        "The first-contact data notice message includes the DPO email address in a clearly labelled field (e.g. 'Data Protection Officer: dpo@example.com')",
+        "DPO email is configurable per-profile in settings.json (Pelangi and Southern Homestay may have different DPOs)",
+        "If DPO email is not configured, the data notice falls back to a general contact email with a warning logged",
+        "The data notice template in knowledge.json is updated to include a {dpo_email} interpolation variable",
+        "Existing conversations that have already received a data notice are NOT re-sent (idempotency check by JID)"
+      ],
+      "technicalNotes": [
+        "Malaysia PDPA Amendment Act 2024, effective 1 June 2025: DPO appointment mandatory for large-scale processing",
+        "DPO must be reachable via published contact: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
+        "Template variable interpolation (already implemented) can be used for {dpo_email}",
+        "Existing structured data notice story covers sending mechanism — this story only adds the DPO field"
+      ],
+      "dependencies": [
+        "Structured data notice (already implemented)",
+        "Template variable interpolation (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-879",
+      "title": "Menu sync via admin API: live price and availability updates without redeploy",
+      "priority": "high",
+      "description": "Provide an admin API endpoint to update menu item prices, availability, and descriptions in real time, syncing changes to the in-memory menu state used by the AI ordering pipeline without requiring a server restart or file edit. Cafe menus change frequently (daily specials, sold-out items, price adjustments), and the current file-based menu data requires SSH or a redeploy to update.",
+      "acceptanceCriteria": [
+        "POST /api/admin/menu-items creates a new menu item with name, description, price, category, allergens, dietary_flags, and available fields",
+        "PATCH /api/admin/menu-items/:id updates any menu item field including available (boolean)",
+        "Changes are written to the DB and immediately reflected in the AI pipeline's in-memory menu state (no restart needed)",
+        "When available is set to false, the item is excluded from menu browsing responses and triggers the existing out-of-stock graceful handling",
+        "All menu changes are logged in the admin audit log with before/after diff",
+        "Admin API endpoints require DIGIMAN_API_TOKEN auth"
+      ],
+      "technicalNotes": [
+        "New DB table: menu_items (id, profile, name, description, price, category, allergens jsonb, dietary_flags jsonb, available, display_order, created_at, updated_at)",
+        "Cache invalidation: on PATCH, update in-memory Map directly (no restart needed)",
+        "Menu data currently in src/assistant/data/ JSON files — migrate to DB-backed store with in-memory cache",
+        "Reference: https://hostie.ai/resources/how-to-set-up-ai-texting-takeout-orders-toast-pos-2025"
+      ],
+      "dependencies": [
+        "Out-of-stock graceful handling (already implemented)",
+        "Admin audit log (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-880",
+      "title": "Tiered confidence-based fallback with progressive escalation",
+      "priority": "medium",
+      "description": "Implement a three-tier fallback sequence when the AI cannot confidently classify a message: (1) ask user to rephrase, (2) offer a structured quick-reply menu of main functions, (3) escalate to human agent on third consecutive failure. This reduces user frustration from dead-end silence while keeping human escalation as a last resort.",
+      "acceptanceCriteria": [
+        "A per-JID failure counter is maintained in conversation state, reset on successful intent classification",
+        "On first failure: bot asks user to rephrase in a friendly tone",
+        "On second consecutive failure: bot presents a quick-reply list of 4-5 core capabilities",
+        "On third consecutive failure: bot sends a human handoff message and notifies staff",
+        "Failure counter resets after any successful intent classification",
+        "All fallback events are logged in intent_analytics with failure_tier (1, 2, or 3)"
+      ],
+      "technicalNotes": [
+        "Store failure_count in conversation metadata in rainbow_conversations",
+        "Quick-reply options are profile-specific (hostel vs. cafe) and configurable in settings.json",
+        "Third-tier escalation reuses the existing human handoff escalation flow",
+        "Reference: https://articles.chatnexus.io/knowledge-base/handling-chatbot-failures-gracefully-when-ai-doesn/"
+      ],
+      "dependencies": [
+        "Human handoff escalation (already implemented)",
+        "Conversation state storage"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-881",
+      "title": "Order modification window after submission: allow item changes before kitchen acceptance",
+      "priority": "medium",
+      "description": "Allow customers to change their order after confirming but before the kitchen has accepted it at the POS/KDS. In a chatbot-first ordering flow, customers frequently realize mistakes immediately after confirming. Without a modification window, every correction requires a cancellation and full re-order, degrading experience and creating kitchen confusion. The window is time-bounded (configurable, default 2 minutes).",
+      "acceptanceCriteria": [
+        "After order confirmation, the bot informs the customer they have N minutes to make changes (configurable via settings.json)",
+        "Within the window, the customer can say 'change order' to re-open the cart with current items pre-populated",
+        "Once the window expires (or kitchen accepts via POS webhook), modification requests are rejected with a polite explanation",
+        "A modified order re-sends the updated POS webhook payload and updates the order record in the DB",
+        "If no POS integration is active, the modification window still applies against a timer-based lock"
+      ],
+      "technicalNotes": [
+        "Order lock state stored in conversation metadata: order_id, confirmed_at, kitchen_accepted (bool)",
+        "Timer implemented as a setTimeout cleared on kitchen acceptance webhook callback",
+        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/",
+        "Cart re-opening reuses the existing conversational cart add/remove flow"
+      ],
+      "dependencies": [
+        "POS webhook receiver (this iteration)",
+        "Conversational cart (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-882",
+      "title": "Proactive abandoned-cart recovery message on WhatsApp session idle",
+      "priority": "medium",
+      "description": "When a customer has items in their cart and the WhatsApp conversation goes idle for a configurable period (default: 30 minutes) without confirming the order, send a proactive WhatsApp message reminding them of their cart and offering to resume or clear it. This is distinct from the existing webchat idle timeout story. WhatsApp abandoned-cart reminders achieve ~98% open rates and can recover up to 25% of abandoned carts.",
+      "acceptanceCriteria": [
+        "When a WhatsApp conversation has an active non-empty cart and no activity for the configured idle period, a single recovery message is sent",
+        "Recovery message includes the cart summary (items and total) and quick-reply options: 'Resume order' and 'Clear cart'",
+        "Only one recovery message is sent per cart session (no spam loops)",
+        "If user replies 'Resume order', the conversation resumes from the cart confirmation step",
+        "If user replies 'Clear cart' or the recovery message is ignored for 24 hours, the cart is cleared",
+        "Recovery idle period is configurable per-profile in settings.json"
+      ],
+      "technicalNotes": [
+        "Implement a cart_idle_timer per-JID, stored in conversation state with setTimeout or a cron-based checker",
+        "Use the existing outbound WhatsApp send mechanism for the proactive message",
+        "Comply with WhatsApp 24-hour session window: recovery message must be sent within 24h of the last user message",
+        "Reference: https://gallabox.com/blog/whatsapp-abandoned-cart-recovery",
+        "Track recovery_message_sent boolean in cart state to prevent duplicate messages"
+      ],
+      "dependencies": [
+        "Conversational cart (already implemented)",
+        "WhatsApp 24-hour session window check (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-883",
+      "title": "ARIA live region announcements for new webchat widget messages",
+      "priority": "medium",
+      "description": "Add ARIA live regions to the webchat widget so that new messages from the bot are automatically announced by screen readers (NVDA, JAWS, VoiceOver) without the user having to navigate to them. The existing keyboard accessibility story covers tab/keyboard navigation but does not address dynamic content announcement — a separate WCAG 2.1 SC 4.1.3 (Status Messages) requirement.",
+      "acceptanceCriteria": [
+        "The message list container has aria-live='polite' and aria-relevant='additions' set",
+        "Each new bot message added to the DOM is announced by screen readers without focus being moved away from the input field",
+        "The chat widget's unread message count badge uses an aria-label that updates dynamically",
+        "Typing indicator (if shown) uses aria-live='polite' with a short announcement (e.g. 'Assistant is typing...')",
+        "Focus is not stolen from the input field when new messages arrive",
+        "Tested and passing with NVDA + Firefox and VoiceOver + Safari"
+      ],
+      "technicalNotes": [
+        "Apply aria-live='polite' to the messages container div, NOT to each individual message",
+        "Avoid aria-live='assertive' which interrupts current screen reader output",
+        "Reference: https://www.sprinklr.com/help/articles/accessibility/live-chat-accessibility/65eecea5748e35549d8ef0e2",
+        "WCAG 2.1 SC 4.1.3 Status Messages: https://www.levelaccess.com/blog/wcag-2-1-exploring-new-success-criteria/",
+        "Do NOT set aria-live on the entire widget container — scope it to the messages list only"
+      ],
+      "dependencies": [
+        "WCAG 2.1 AA keyboard accessibility story (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-884",
+      "title": "Pre-arrival automated WhatsApp message sequence for confirmed hostel bookings",
+      "priority": "medium",
+      "description": "Send a timed sequence of pre-arrival WhatsApp messages to guests after a booking is confirmed: (1) booking confirmation with key details immediately, (2) directions and check-in instructions 24 hours before arrival, (3) a 'we're ready for you' message 1 hour before check-in time. Hotels using this pattern report a 40% reduction in service queries.",
+      "acceptanceCriteria": [
+        "A booking record (guest JID, arrival date/time, room type) can be submitted via POST /api/bookings",
+        "Three scheduled messages are queued: confirmation (immediate), directions (T-24h), ready message (T-1h)",
+        "Each message content is a configurable template in knowledge.json with variable interpolation (guest name, check-in time, room type)",
+        "If the arrival is within 24 hours of booking, the T-24h message is skipped to avoid duplicate sends",
+        "All scheduled messages respect the WhatsApp 24-hour session window; if expired, use a pre-approved utility template",
+        "Scheduled messages can be cancelled if the booking is cancelled before send time"
+      ],
+      "technicalNotes": [
+        "Use a DB-backed scheduler: scheduled_messages table (id, jid, profile, send_at, template_key, variables jsonb, status, booking_id)",
+        "Template variable interpolation (already implemented) covers message personalization",
+        "Utility template pre-approval required for T-24h and T-1h messages if session window may expire",
+        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
+      ],
+      "dependencies": [
+        "WhatsApp 24-hour session window check (already implemented)",
+        "Template variable interpolation (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-885",
+      "title": "WhatsApp product catalog single-item card for item detail showcase",
+      "priority": "medium",
+      "description": "Send a WhatsApp Single Product Message when a user asks about a specific menu item, displaying the item image, name, description, and price as a native WhatsApp card. This leverages the WhatsApp Business catalog integration to show rich product information without a web redirect. Improves conversion by reducing friction from image-less text descriptions.",
+      "acceptanceCriteria": [
+        "When a user asks about a specific item by name (e.g. 'tell me more about the nasi lemak'), the bot responds with a Single Product Message card",
+        "Card displays: item image, name, price, and short description",
+        "User can tap 'Add to cart' directly from the card",
+        "Catalog is kept in sync with the active menu data source",
+        "If catalog is not configured, fallback to a text description with an image attachment occurs"
+      ],
+      "technicalNotes": [
+        "Requires WhatsApp Business catalog setup in Meta Business Manager",
+        "Single Product Message API type: interactive with type 'product'",
+        "Catalog syncs via Meta Commerce API or manual upload",
+        "Reference: https://developers.cm.com/messaging/docs/whatsapp-catalogue-product-messages"
+      ],
+      "dependencies": [
+        "WhatsApp catalog configured in Meta Business Manager",
+        "Menu data source"
+      ],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-886",
+      "title": "WhatsApp message reaction emoji as lightweight CSAT signal",
+      "priority": "low",
+      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals — mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
+      "acceptanceCriteria": [
+        "Incoming webhook events of type 'reaction' are parsed and not silently discarded",
+        "Thumbs-up reaction on a bot message increments the positive CSAT counter for that conversation session",
+        "Thumbs-down reaction triggers a follow-up message asking the user what went wrong (optional short text reply)",
+        "Reaction data is stored in conversation_feedback table with message_id, emoji, and timestamp",
+        "Reaction handling is profile-agnostic (works for both Pelangi and Makan Moments)"
+      ],
+      "technicalNotes": [
+        "Baileys emits reaction events in the messages.upsert event as a message with a reaction key",
+        "WhatsApp Cloud API reaction webhook: messages[].type == 'reaction', with reaction.message_id and reaction.emoji fields",
+        "Map emoji to sentiment: thumbs-up/heart = positive, thumbs-down = negative, others = neutral/ignored",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/"
+      ],
+      "dependencies": [
+        "CSAT and resolution rate analytics (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-887",
+      "title": "WhatsApp Business Calling API: click-to-call escalation button",
+      "priority": "low",
+      "description": "When a conversation is escalated to a human agent, send an interactive WhatsApp message with a call button allowing the guest to initiate a voice call to Pelangi reception directly within WhatsApp. The WhatsApp Business Calling API (launched July 2025) supports user-initiated inbound calls triggered by a button in an interactive message template.",
+      "acceptanceCriteria": [
+        "On human escalation trigger, the bot sends an interactive message with a 'Call Reception' button alongside the existing text handoff message",
+        "Tapping the button initiates a WhatsApp voice call to the configured business phone number",
+        "The calling feature is only active during configured business hours (falls back to text-only message outside hours)",
+        "Call button is only sent on the Pelangi profile (hostel context), not Makan Moments",
+        "Feature can be toggled on/off in settings.json without a redeploy"
+      ],
+      "technicalNotes": [
+        "WhatsApp Business Calling API launched July 1, 2025; requires Cloud API access, not available via Baileys alone",
+        "Interactive call template with click-to-call: https://developers.facebook.com/docs/whatsapp/cloud-api/calling/",
+        "Business hours check reuses existing offline hours logic",
+        "Requires explicit user opt-in if business wants to initiate outbound calls (inbound via button is user-initiated)"
+      ],
+      "dependencies": [
+        "WhatsApp Cloud API access",
+        "Human handoff escalation (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
       "passes": false
     }
   ]
