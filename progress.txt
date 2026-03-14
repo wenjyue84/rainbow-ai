@@ -5308,3 +5308,31 @@ Here is the technical brief based on the actual project described:
 ### Gotchas
 - ILIKE is sufficient for MVP (<50k rows); GIN index with to_tsvector can be added later when table grows
 - Profile filter must be applied in the matching subquery (not just outer WHERE) to correctly scope results
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+I am unable to generate the requested technical brief. The user story provided (US-827: Profile configuration cloning) describes a feature for a Node.js/TypeScript application, likely the "Rainbow AI" project from the session context.
+
+Evidence from the story:
+-   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone` is a Node.js/Express-style route.
+-   **Database/Config:** Mentions `rainbow_configs`, `rainbow_kb_files`, and a `whatsapp-auth/` directory, which are specific to the Rainbow AI project, not a standard Frappe app.
+-   **File Touches:** Lists `.mjs` and `.ts` files.
+
+The target environment, `lhdn_payroll_integration` (a Frappe/Python app), is completely different. A technical brief for Frappe based on this story would be inaccurate and irrelevant. Please provide a user story that is actually related to the Frappe `lhdn_payroll_integration` application.
+
+
+## Iteration 11 - Story: US-819 Template variable interpolation in static reply messages
+### What was implemented
+- Created `src/assistant/interpolate.ts` with two exports:
+  - `interpolate(template, variables, fallback='')` — replaces `{{key}}` placeholders using regex
+  - `buildInterpolationContext(pushName, profileId, bookingState)` — builds the variable map from PipelineState
+- Supported variables: `{{guestName}}` (pushName), `{{profileName}}` (profileId), `{{checkInDate}}` (bookingState.checkIn), `{{checkOutDate}}` (bookingState.checkOut)
+- Applied interpolation in `handleStaticReply` in `src/assistant/pipeline/stages/action-dispatch.ts` just before the image URL attachment step — covers ALL static reply branches (complaint, problem, repeat, multi-intent, default)
+- Unresolvable variables resolve to empty string (fallback param)
+### Patterns discovered
+- All static reply branches share a single exit point at the image URL attachment — ideal place to apply interpolation post-processing
+- `convo.bookingState` is the source for checkIn/checkOut dates; it's null if no booking session active
+- `state.profileId` is the profile identifier string (e.g. "pelangi", "southern")
+### Gotchas
+- Admin UI tooltip (popover showing supported vars) is in the React admin panel, not this backend; skipped as out of scope for this iteration
+- `msg.pushName` can be empty string for anonymous contacts; handled by defaulting to '' (guest sees no name)

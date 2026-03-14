@@ -16,6 +16,7 @@ import type { ClassificationResult } from './tier-classification.js';
 import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
 import { buildListMessage, listMessageToText } from '../../formatter.js';
+import { interpolate, buildInterpolationContext } from '../../interpolate.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -172,6 +173,16 @@ async function handleStaticReply(
       console.warn(`[Dispatch] No static reply for "${result.intent}", using LLM response`);
       state.response = result.response;
     }
+  }
+
+  // US-819: Apply template variable interpolation before delivery
+  if (state.response) {
+    const vars = buildInterpolationContext(
+      msg.pushName,
+      state.profileId,
+      convo.bookingState
+    );
+    state.response = interpolate(state.response, vars);
   }
 
   // Attach image if the static reply has one configured
