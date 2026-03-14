@@ -6312,3 +6312,44 @@ This user story describes a feature for a TypeScript/Node.js application, not a 
 ### Gotchas
 - Admin notifier `notifyAdminAuthStateCorruption` fires async/fire-and-forget at startup (non-blocking)
 - Build uses esbuild, passes with 3 pre-existing warnings (no new warnings introduced)
+## Iteration 7 - Sun, Mar 15, 2026  5:27:50 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+### Technical Brief: Profile Cloning (US-827)
+
+This brief outlines the implementation plan for creating a profile cloning feature within the existing Node.js/TypeScript application.
+
+**1. Python Files to Modify:**
+The project is a TypeScript/Node.js application. The primary files to modify will be:
+-   **`src/routes/admin/profiles.ts`** (or a similar route handler): To add the new `POST /api/admin/profiles/:sourceId/clone` endpoint.
+-   **`src/lib/profileService.ts`** (or a new `cloneProfile.ts` service): To encapsulate the core logic for copying profile data from the source to the new profile. This keeps the route handler clean.
+-   **`src/lib/db/schema.ts`** (or `shared/schema.ts`): May require inspection to understand the exact structure of `rainbow_configs` and `rainbow_kb_files` tables.
+
+**2. Frappe DocTypes/Hooks Involved:**
+The equivalent components in this architecture are:
+-   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+-   **Database Tables (Drizzle ORM):**
+    -   `rainbow_configs`: This table will be the primary source for settings like `routing.json`, `knowledge.json`, etc.
+    -   `rainbow_kb_files`: Metadata for knowledge base files will be duplicated from this table.
+
+**3. Recommended Implementation Approach:**
+1.  Define the new route in `src/routes/admin/profiles.ts`. It should validate the request body for `newProfileId` and `displayName`.
+2.  The route handler will call a new function, e.g., `cloneProfile(sourceId, newProfileId, displayName)`, in the profile service layer.
+3.  Inside `cloneProfile`, use a database transaction (e.g., `db.transaction(async (tx) => { ... })`) to ensure atomicity.
+4.  Within the transaction:
+    a.  Query all `rainbow_configs` rows where `profileId` matches the `sourceId`.
+    b.  Filter out any sensitive or instance-specific configurations (e.g., WhatsApp credentials, phone numbers).
+    c.  Map the resulting rows to new objects, replacing the `profileId` with `newProfileId`.
+    d.  Perform a batch insert of the new rows into `rainbow_configs`.
+    e.  Repeat the query-map-insert process for the `rainbow_kb_files` table.
+5.  Return the `newProfileId` in the API response.
+
+**4. Edge Cases & Gotchas:**
+-   **Transactional Integrity:** The entire clone operation must be wrapped in a single database transaction. A failure at any step should roll back all changes to prevent creating a corrupt, partially-cloned profile.
+-   **Data Exclusion:** Be vigilant about excluding any data related to the WhatsApp session (`whatsapp-auth/`) or phone numbers from the `settings.json` or other config files. The clone should *never* copy live credentials.
+-   **ID Uniqueness:** The backend must verify that the `newProfileId` provided by the client does not already exist before initiating the transaction to prevent a primary key violation.
+-   **Non-existent Source:** If the `sourceId` does not exist, the API should return a `404 Not Found` error.
+-   **File System:** The user story is explicit: do not copy any files on the disk (e.g., the actual KB documents), only the database metadata records.
+
