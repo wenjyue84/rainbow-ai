@@ -73,14 +73,24 @@ export async function processAndSend(
     response += disclaimer;
   }
 
-  // ─── US-843: First-contact data notice (PDPA compliance) ────────
+  // ─── US-843 + US-878: First-contact data notice (PDPA compliance, DPO email) ──
   if (state.isFirstContact) {
     const knowledgeData = profileConfig.getKnowledge();
     const noticeEntry = knowledgeData.static.find((e: any) => e.intent === 'data_notice_first_contact');
-    const notice = noticeEntry?.response?.[lang] || noticeEntry?.response?.en;
+    let notice = noticeEntry?.response?.[lang] || noticeEntry?.response?.en;
     if (notice) {
+      // US-878: Interpolate {dpo_email} with per-profile DPO contact (PDPA Amendment 2024)
+      const pdpaSettings = (profileConfig.getSettings() as any).pdpa;
+      let dpoEmail: string;
+      if (pdpaSettings?.dpo_email) {
+        dpoEmail = pdpaSettings.dpo_email;
+      } else {
+        dpoEmail = pdpaSettings?.general_contact_email || 'privacy@example.com';
+        console.warn(`[ResponseProcessor][US-878] DPO email not configured for profile ${profileId} — falling back to general contact. Configure pdpa.dpo_email in settings.json.`);
+      }
+      notice = notice.replace(/\{dpo_email\}/g, dpoEmail);
       response += notice;
-      console.log(`[ResponseProcessor] Data notice appended for first-contact JID ${phone}`);
+      console.log(`[ResponseProcessor] Data notice appended for first-contact JID ${phone} (DPO: ${dpoEmail})`);
     }
   }
 

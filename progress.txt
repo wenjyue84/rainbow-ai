@@ -6940,3 +6940,52 @@ Okay, I'll start by analyzing the project structure to understand the context of
 ### Build/Test
 - Build: successful (3 pre-existing warnings only)
 - Server startup: clean start confirmed
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This brief is based on the provided user story and file structure, which indicate a **Node.js/TypeScript** project, not a Frappe/Python one.
+
+**Project:** Node.js/TypeScript/React Application
+**Objective:** Implement an admin UI for managing per-profile rate limits.
+
+---
+
+### **Technical Brief for US-828**
+
+**1. Python Files to Modify (Translated to TypeScript):**
+*   `src/routes/admin/settings.tsx`: (Assumption) A React component for the admin settings UI where the new toggle and input field will be added.
+*   `src/routes/api/admin.ts`: (Assumption) An Express router file where the new `GET /api/admin/rate-limits/stats` endpoint will be defined.
+*   `shared/schema.ts`: The schema definition for `rainbow_configs` must be updated to include the new `rate_limits` object.
+*   `src/services/ConfigService.ts`: (Assumption) The service responsible for loading and serving `rainbow_configs`. May need adjustment for the new schema.
+*   `src/services/RateLimitService.ts`: (Assumption) The existing service that enforces rate limits; it will consume the new config values.
+
+**2. Frappe DocTypes/Hooks (Translated to Project Concepts):**
+*   **DocType:** The `rainbow_configs` data structure, likely defined with Zod or a similar schema tool in `shared/schema.ts`. This will be extended with a `rate_limits` section.
+*   **Hooks:** This corresponds to the new API endpoint controller for `GET /api/admin/rate-limits/stats`, which will be triggered by a `fetch` call from the admin UI.
+
+**3. Recommended Implementation Approach:**
+1.  **Schema:** Modify the `rainbow_configs` schema in `shared/schema.ts` to add an optional `rate_limits` object containing `enabled: boolean` and `max_messages_per_user_per_24h: number`.
+2.  **Backend:** Implement the `GET /api/admin/rate-limits/stats` endpoint. The handler will query the relevant data source (e.g., Redis, logs, or a database table) to count users who have hit their message cap in the last 24 hours for a given `profileId`.
+3.  **Frontend:** In the admin settings component, add a "Rate Limits" section. Use `fetch` to get/set the new config values and to display the count from the new stats endpoint.
+4.  **Integration:** Ensure the existing rate-limiting logic correctly reads from the new, dynamically updated `rainbow_configs` properties.
+
+**4. Edge Cases & Gotchas:**
+*   **Config Caching:** The system likely caches `rainbow_configs`. Ensure the update mechanism invalidates the cache or that the config is re-fetched periodically, meeting the "1-minute" requirement.
+*   **Stats Performance:** The query for counting rate-limited users must be performant and not overload the primary data store.
+*   **Authentication:** The new API endpoint and UI section must be protected and accessible only to authenticated administrators.
+*   **Default Values:** The rate-limiting service must handle cases where the `rate_limits` config is not present for a profile, gracefully defaulting to disabled or a sensible system-wide default.
+
+
+## Iteration N - Story: US-878 PDPA 2024 DPO Email in First-Contact Data Notice
+### What was implemented
+- Added `pdpa.dpo_email` and `pdpa.general_contact_email` fields to both Pelangi and Southern profile settings.json files
+- Updated `data_notice_first_contact` template in Pelangi knowledge.json to include `{dpo_email}` interpolation variable in all 3 languages (en/ms/zh)
+- Added `data_notice_first_contact` entry to Southern knowledge.json (it was missing) with `{dpo_email}` interpolation
+- Updated `response-processor.ts` to read DPO email from `profileConfig.getSettings().pdpa.dpo_email`, interpolate into notice, and log a warning with fallback to `general_contact_email` if DPO email is not configured
+### Patterns discovered
+- Southern profile knowledge.json did NOT have a `data_notice_first_contact` entry despite the Pelangi one having it — always check both profiles when adding knowledge entries
+- `settingsDataSchema` uses `.passthrough()` so no schema changes needed for new settings fields
+- String interpolation done with `.replace(/\{dpo_email\}/g, dpoEmail)` — simple regex replace, no template engine needed
+### Gotchas
+- Each profile has its own dataDir (data-southern, data-makan, etc.) with separate knowledge.json and settings.json files
+- profileId is available in the `state` object passed to processAndSend — used for warning log message
