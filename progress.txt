@@ -4727,3 +4727,20 @@ Incomplete: Baileys circuit breaker: long cooldown after consecutive reconnect f
 ### Gotchas
 - Previous attempt (retry 1) failed — this retry succeeded by keeping the existing MAX_RECONNECT_ATTEMPTS logic alongside the circuit breaker (they serve different purposes: short-term retry vs long-term cycling protection)
 - `forceReconnect()` resets circuit breaker entirely — manual admin intervention overrides the cooldown
+## Iteration 3 - Sun, Mar 15, 2026 12:47:33 AM
+Completed: Baileys circuit breaker: long cooldown after consecutive reconnect failures (ID: US-830) in 6m
+
+
+## Iteration - Story: US-833 Per-JID inbound message rate limiter
+### What was implemented
+- Created `src/assistant/jid-rate-limiter.ts`: sliding-window per-JID limiter with in-memory Map, TTL cleanup every 5 minutes, throttle event log for 24-hour admin stats.
+- Added `rateLimiting: { enabled, perUserWindowMs: 60000, perUserMaxMessages: 10 }` to `src/assistant/data/settings.json`.
+- Wired into `src/assistant/pipeline/input-validator.ts` after staff check (staff exempt), before existing profile-level `checkRate`. Sends one throttle reply per window via `shouldSendReply` flag.
+- Created `src/routes/admin/jid-rate-limiter.ts`: GET /analytics/jid-rate-limiter returns throttledJidCount + throttleEventsLast24h.
+- Registered new route in `src/routes/admin/index.ts`.
+### Patterns discovered
+- `startJidRateLimiterCleanup(windowMs)` is called at module load in input-validator.ts so the window size is known at init time.
+- `isStaffPhone()` guard reuses existing helper — staff bypass per-JID throttle exactly as they bypass profile-level limits.
+### Gotchas
+- The `shouldSendReply` flag ensures exactly one throttle notice per window, regardless of how many subsequent messages arrive.
+- The admin route is purely read-only (in-memory data); no DB writes needed.

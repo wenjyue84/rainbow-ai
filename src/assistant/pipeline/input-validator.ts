@@ -28,6 +28,10 @@ import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
+import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
+
+// Start per-JID rate limiter cleanup (default 60s window)
+startJidRateLimiterCleanup(60_000);
 
 // ─── Message Deduplication Cache (US-404) ────────────────────────────
 // WhatsApp uses at-least-once delivery; this cache discards duplicate msg IDs.
@@ -374,6 +378,28 @@ export async function validateAndPrepare(
     if (text.startsWith('!')) {
       await handleStaffCommand(phone, text, msg.instanceId, ctx);
       return { continue: false, reason: 'staff_command' };
+    }
+  }
+
+  // ─── Per-JID inbound rate limit (US-833) ─────────────────────────
+  // Applied to non-staff senders only; distinct from the profile-level outbound cap.
+  if (!isStaffPhone(phone, ctx, profileConfig)) {
+    const rlSettings = (profileConfig.getSettings() as any).rateLimiting;
+    const rlEnabled = rlSettings?.enabled !== false;
+
+    if (rlEnabled) {
+      const windowMs = rlSettings?.perUserWindowMs ?? 60_000;
+      const maxMessages = rlSettings?.perUserMaxMessages ?? 10;
+      const jidResult = checkJidRate(phone, windowMs, maxMessages);
+
+      if (!jidResult.allowed) {
+        trackRateLimited(phone);
+        if (jidResult.shouldSendReply) {
+          await ctx.sendMessage(phone, 'Too many messages \u2014 please wait a moment before sending more.', msg.instanceId);
+        }
+        console.warn(`[JidRateLimiter] ${phone} throttled (${maxMessages}/${windowMs}ms window)`);
+        return { continue: false, reason: 'jid_rate_limited' };
+      }
     }
   }
 

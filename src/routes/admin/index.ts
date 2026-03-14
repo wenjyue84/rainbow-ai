@@ -58,6 +58,7 @@ import analyticsLatencyRoutes from './analytics-latency.js';
 import analyticsKpisRoutes from './analytics-kpis.js';
 import slowQueriesRoutes from './slow-queries.js';
 import fallbackAlertRoutes from './fallback-alert.js';
+import jidRateLimiterRoutes from './jid-rate-limiter.js';
 import authRoutes from './auth.js';
 
 const router = Router();
@@ -223,6 +224,7 @@ router.use(analyticsLatencyRoutes);
 router.use(analyticsKpisRoutes);
 router.use(slowQueriesRoutes);
 router.use(fallbackAlertRoutes);
+router.use(jidRateLimiterRoutes);
 router.use(authRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
