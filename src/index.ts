@@ -25,6 +25,7 @@ import { pool, getPoolMetrics, initDb } from './lib/db.js';
 import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
+import fnbChatRoutes from './routes/public/fnb-chat.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import { captureRawBody } from './lib/webhook-signature.js';
 import { safeRedirect } from './lib/safe-redirect.js';
@@ -587,6 +588,9 @@ const WEBCHAT_HTML_PATH = join(__dirname_main, 'public', 'webchat.html');
 
 // Webchat API (rate limited separately — 10 req/min per IP)
 app.use('/api/chat', webchatApiRoutes);
+
+// FnB AI Waiter chat (SSE streaming, makan-moments profile)
+app.use('/api/fnb', fnbChatRoutes);
 
 // Webchat page — serves branded chat UI per profile
 app.get('/chat/:profileId', (req, res) => {

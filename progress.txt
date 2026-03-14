@@ -2935,3 +2935,25 @@ Incomplete: Add slow query monitoring via pg_stat_statements on Neon (ID: US-515
 - pg_stat_statements extension requires superuser; non-fatal on failure (logged as warn)
 - Neon resets pg_stat_statements on scale-to-zero — documented in endpoint response
 - pool type import uses `import('pg').Pool` due to ESM type-only import pattern
+## Iteration 2 - Sat, Mar 14, 2026  4:07:25 PM
+Incomplete: Add slow query monitoring via pg_stat_statements on Neon (ID: US-515) — attempt 1/3
+
+
+## Iteration 13 - Story: US-601 - Add /api/fnb/chat SSE streaming endpoint
+### What was implemented
+- Created `src/routes/public/fnb-chat.ts` with POST /api/fnb/chat endpoint
+- Supports both Vercel AI SDK UIMessage[] format and legacy {message, history} format
+- SSE streaming with `data: {"type":"text","text":"..."}` events terminated by `data: [DONE]`
+- Hardcoded to makan-moments profile
+- Rate limited (configurable via FNB_CHAT_RATE_LIMIT env var, default 10 req/min)
+- Reuses sanitizeInput, validateInputSafety, processChat from chat-engine.ts
+- Mounted at `/api/fnb` in src/index.ts alongside webchat API
+
+### Patterns discovered
+- webchat-api.ts pattern is the canonical reference for public chat endpoints
+- profileRegistry.getProfile(id) returns ResolvedProfile with configStore and kb
+- processChat is not natively streaming — returns full response, so we send as single SSE event
+
+### Gotchas
+- processChat returns the complete response synchronously — true token-by-token streaming would require changes to ai-client.ts
+- For now, the full response is sent as a single SSE text event which matches what fnb-online-ordering expects
