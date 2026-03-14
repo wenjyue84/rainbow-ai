@@ -66,25 +66,25 @@ router.get('/conversations', async (req: Request, res: Response) => {
 // ─── Pin & Favourite ─────────────────────────────────────────────────
 
 router.patch('/conversations/:phone/pin', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const pinned = await togglePin(phone);
   ok(res, { pinned });
 });
 
 router.patch('/conversations/:phone/favourite', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const favourite = await toggleFavourite(phone);
   ok(res, { favourite });
 });
 
 router.patch('/conversations/:phone/read', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   await markConversationAsRead(phone);
   ok(res);
 });
 
 router.get('/conversations/:phone', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const log = await getConversation(phone);
   if (!log) {
     notFound(res, 'Conversation');
@@ -94,13 +94,13 @@ router.get('/conversations/:phone', async (req: Request, res: Response) => {
 });
 
 router.delete('/conversations/:phone', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const deleted = await deleteConversation(phone);
   res.json({ ok: deleted });
 });
 
 router.post('/conversations/:phone/clear', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const { clearConversationMessages } = await import('../../assistant/conversation-logger.js');
   await clearConversationMessages(phone);
   ok(res, { cleared: true });
@@ -110,7 +110,7 @@ router.post('/conversations/:phone/clear', async (req: Request, res: Response) =
 
 // Get pinned/starred message indices for a conversation
 router.get('/conversations/:phone/message-metadata', async (req: Request, res: Response) => {
-  const phone = decodeURIComponent(req.params.phone);
+  const phone = decodeURIComponent(req.params.phone as string);
   const pinned = metadata.pinned[phone] || [];
   const starred = metadata.starred[phone] || [];
   res.json({ pinned, starred });
@@ -119,8 +119,8 @@ router.get('/conversations/:phone/message-metadata', async (req: Request, res: R
 // Toggle pin on a specific message
 router.post('/conversations/:phone/messages/:msgIdx/pin', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
-    const msgIdx = req.params.msgIdx;
+    const phone = decodeURIComponent(req.params.phone as string);
+    const msgIdx = req.params.msgIdx as string;
 
     if (!metadata.pinned[phone]) metadata.pinned[phone] = [];
     const arr = metadata.pinned[phone];
@@ -142,8 +142,8 @@ router.post('/conversations/:phone/messages/:msgIdx/pin', async (req: Request, r
 // Toggle star on a specific message
 router.post('/conversations/:phone/messages/:msgIdx/star', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
-    const msgIdx = req.params.msgIdx;
+    const phone = decodeURIComponent(req.params.phone as string);
+    const msgIdx = req.params.msgIdx as string;
 
     if (!metadata.starred[phone]) metadata.starred[phone] = [];
     const arr = metadata.starred[phone];
@@ -165,7 +165,7 @@ router.post('/conversations/:phone/messages/:msgIdx/star', async (req: Request, 
 // Send a reaction to a message via WhatsApp
 router.post('/conversations/:phone/messages/:msgIdx/react', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const { emoji, instanceId } = req.body;
 
     if (!emoji || typeof emoji !== 'string') {
@@ -186,7 +186,7 @@ router.post('/conversations/:phone/messages/:msgIdx/react', async (req: Request,
 // Send manual message to guest
 router.post('/conversations/:phone/send', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const { message, instanceId, staffName } = req.body;
 
     if (!message || typeof message !== 'string') {
@@ -232,7 +232,7 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
 // Send media (image/video/document) to guest
 router.post('/conversations/:phone/send-media', upload.single('file'), async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const file = req.file;
     const caption = req.body.caption || '';
     const instanceId = req.body.instanceId;
@@ -284,7 +284,7 @@ router.post('/conversations/:phone/send-media', upload.single('file'), async (re
 // Trigger a workflow for a specific contact (US-016: // command palette)
 router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: Response) => {
   try {
-    const phone = decodeURIComponent(req.params.phone);
+    const phone = decodeURIComponent(req.params.phone as string);
     const { workflowId, instanceId, staffName } = req.body;
 
     if (!workflowId || typeof workflowId !== 'string') {
