@@ -4824,3 +4824,20 @@ Incomplete: Profile configuration cloning: duplicate an existing profile as a st
 ## Iteration 7 - Sun, Mar 15, 2026  1:22:31 AM
 Completed: Conversational cart: AI waiter maintains running order across multiple messages (ID: US-848) in 6m
 
+
+## Iteration - Story: US-849 Order intent classifier: BROWSING/ORDERING/CONFIRMING/PLACED
+### What was implemented
+- Created `src/assistant/order-stage-store.ts`: Stage state machine with getOrderStage/setOrderStage/clearOrderStage/transitionOrderStage. Enforces valid transitions (BROWSING→ORDERING→CONFIRMING→PLACED). Invalid transitions silently stay put.
+- Modified `src/tools/cart.ts`: Added 3 new tools (order_request_confirmation, order_confirm_submit, order_back_to_cart) + stage-aware behavior on existing tools (cart_add_item→ORDERING, cart_remove_item→BROWSING when empty, cart_clear clears stage too).
+- Modified `src/routes/public/webchat-api.ts`: Imports getOrderStage + ORDER_STAGE_DESCRIPTIONS; injects current stage + strict per-stage instructions into systemPromptSuffix.
+- Modified `src/assistant/data/routing.json`: Added ORDER_BROWSE, ORDER_ITEM_ADD, ORDER_CONFIRM, ORDER_DECLINE intents.
+- Created `src/assistant/__tests__/order-stage.test.ts`: 24 unit tests — all pass.
+### Patterns discovered
+- routing.json is gitignored (src/assistant/data/) — need `git add -f` to commit it.
+- transitionOrderStage() uses a static validTransitions map — easy to extend.
+- systemPromptSuffix is the best injection point for order-stage context; keeps stage instructions isolated from main KB system prompt.
+### Gotchas
+- order_confirm_submit calls clearOrderStage() after transitionOrderStage(PLACED) — stage reads as BROWSING post-placement (correct since TTL cleanup would do the same).
+- PLACED→ORDERING is intentionally invalid; after placing, guests must start fresh from BROWSING.
+## Iteration 8 - Sun, Mar 15, 2026 01:38:53 AM
+Completed: Order intent classifier: distinguish browsing vs ordering vs confirming (ID: US-849)
