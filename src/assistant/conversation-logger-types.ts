@@ -66,4 +66,5 @@ export interface ConversationSummary {
   pinned?: boolean;
   favourite?: boolean;
   createdAt: number;
+  sessionActive?: boolean;  // US-815: true if within 24h session window
 }

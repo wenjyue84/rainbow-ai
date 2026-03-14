@@ -4629,3 +4629,28 @@ Completed: Human handoff escalation notification includes last 5 messages of con
 - MIN_MESSAGES_TO_ALERT = 5 prevents noisy alerts on tiny volumes (e.g., 1 unknown / 3 total = 33%)
 - Empty recipient falls back to DEFAULT_RECIPIENT constant (60127088789)
 - Scheduler uses setTimeout → setInterval pattern (not cron) for 8AM target (matches quality-metrics)
+## Iteration 5 - Sun, Mar 15, 2026 12:05:01 AM
+Completed: Daily fallback rate alert notification when AI misunderstanding exceeds 20% (ID: US-814) in 14m
+
+
+## Iteration - Story: US-815 Enforce WhatsApp 24-hour session window check before sending outbound messages
+### What was implemented
+- Created `src/lib/session-window.ts`:
+  - `sessionWindowActive(phone)` — queries `MAX(timestamp)` for role='user' from rainbow_messages, returns true if within 24h. Fails open (returns true) on DB error
+  - `batchSessionWindowStatus(phones[])` — single GROUP BY query for all phones, used in listConversations
+  - `logSessionExpired(phone, source, preview)` — console.warn with reason=session_expired
+- Updated `conversation-logger-types.ts`: Added `sessionActive?: boolean` to `ConversationSummary`
+- Updated `conversation-logger.ts` `listConversations()`: Added LATERAL JOIN to compute `session_active` per row via `MAX(timestamp) > NOW() - INTERVAL '24 hours'`
+- Updated `message-scheduler.ts`: Added session window check before sending scheduled messages AND payment reminders. Both leave status as 'pending' (not cancelled) when session expired — will retry next interval
+- Updated `src/routes/admin/conversations.ts`: Added session check in POST /conversations/:phone/send. Returns HTTP 422 with error='session_expired' if window is expired. Staff can see this in UI
+- Updated `src/assistant/escalation.ts`: Added session window check before sending holding message to guest (staff notifications not blocked since they have their own session context)
+
+### Patterns discovered
+- `pool` from `src/lib/db.js` is the right import for raw pg queries in lib/ files (not drizzle db)
+- `batchSessionWindowStatus` not used in final solution — the LATERAL JOIN in listConversations is more efficient
+- PostgreSQL boolean `COALESCE(expr, false)` returns 't' or 'f' as string in raw pg result rows — check both `=== true` and `=== 't'`
+
+### Gotchas
+- Session window check in escalation ONLY blocks the guest holding message — staff notifications (primary/secondary) are not blocked since they're operator phones, not guest session-dependent
+- Admin manual send returns 422 (not 403) for session_expired — 422 = Unprocessable Entity (semantic error in business logic), which allows the frontend to handle it gracefully
+- Scheduled messages that fail session check are left as 'pending' (not cancelled) — they'll be retried every 30s. This satisfies "queued as pending rather than dropped silently"

@@ -5,6 +5,7 @@ import { updateSlots } from './conversation.js';
 import { updateConversationMode } from './conversation-logger.js';
 import { logEscalationEvent } from '../lib/escalation-events.js';
 import { pool } from '../lib/db.js';
+import { sessionWindowActive, logSessionExpired } from '../lib/session-window.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 
@@ -142,11 +143,19 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
     },
   });
 
-  // US-410: Send holding message to guest
-  try {
-    await sendMessageFn(context.phone, "I've connected you with our team, they will respond shortly.", context.instanceId);
-  } catch (err: any) {
-    console.error('[Handoff] Failed to send holding message:', err.message);
+  // US-815: Check session window before sending holding message to guest
+  const guestSessionActive = await sessionWindowActive(context.phone);
+
+  // US-410: Send holding message to guest (only if session window is active)
+  if (guestSessionActive) {
+    try {
+      await sendMessageFn(context.phone, "I've connected you with our team, they will respond shortly.", context.instanceId);
+    } catch (err: any) {
+      console.error('[Handoff] Failed to send holding message:', err.message);
+    }
+  } else {
+    logSessionExpired(context.phone, 'escalation-holding-message', "I've connected you with our team, they will respond shortly.");
+    console.info('[Escalation] Skipped guest holding message — session window expired for', context.phone);
   }
 
   // Step 1: Send to primary (Alston)

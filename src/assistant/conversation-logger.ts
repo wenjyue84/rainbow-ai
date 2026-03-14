@@ -250,7 +250,9 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           lm.role       AS last_msg_role,
           lm.timestamp  AS last_msg_at,
           COALESCE(mc.total, 0)::int  AS message_count,
-          COALESCE(uc.unread, 0)::int AS unread_count
+          COALESCE(uc.unread, 0)::int AS unread_count,
+          -- US-815: session window — true if last user msg within 24h
+          COALESCE(sw.last_user_at > NOW() - INTERVAL '24 hours', false) AS session_active
         FROM rainbow_conversations c
         LEFT JOIN LATERAL (
           SELECT content, role, timestamp
@@ -274,6 +276,12 @@ export async function listConversations(profileId?: string): Promise<Conversatio
               OR timestamp > c.last_read_at
             )
         ) uc ON true
+        LEFT JOIN LATERAL (
+          SELECT MAX(timestamp) AS last_user_at
+          FROM rainbow_messages
+          WHERE phone = c.phone
+            AND role = 'user'
+        ) sw ON true
         WHERE lm.content IS NOT NULL
           AND c.phone NOT LIKE 'webchat-%'
           ${profileFilter}
@@ -298,6 +306,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         createdAt: r.created_at instanceof Date
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
+        sessionActive: r.session_active === true || r.session_active === 't', // US-815
       }));
       setListCache(summaries, profileId);
       return summaries;

@@ -13,6 +13,7 @@ import { notifyAdminFrequencyCap } from './admin-notifier.js';
 import { isOutboundBlocked } from './phone-quality.js';
 import { recordWhatsappMessageCost } from './whatsapp-cost.js';
 import { isOptedOut } from '../assistant/opt-out.js';
+import { sessionWindowActive, logSessionExpired } from './session-window.js';
 
 const DATA_FILE = join(process.cwd(), 'data', 'scheduled-messages.json');
 
@@ -154,6 +155,13 @@ async function checkAndSend(): Promise<void> {
         continue;
       }
 
+      // US-815: Enforce 24-hour session window — keep pending if expired
+      if (!(await sessionWindowActive(msg.phone))) {
+        logSessionExpired(msg.phone, 'scheduler', msg.content);
+        // Leave status as 'pending' so it will be retried when session reopens
+        continue;
+      }
+
       trackOutboundMarketing('pelangi');
       const { sendWhatsAppMessage } = await import('./baileys-client.js');
       await sendWhatsAppMessage(msg.phone, msg.content);
@@ -239,6 +247,12 @@ async function checkAndSend(): Promise<void> {
       if (isOptedOut(reminder.phone)) {
         console.warn(`[Scheduler] Skipping payment reminder ${reminder.id} — phone ${reminder.phone} has opted out`);
         continue;
+      }
+
+      // US-815: Enforce 24-hour session window for payment reminders
+      if (!(await sessionWindowActive(reminder.phone))) {
+        logSessionExpired(reminder.phone, 'payment-reminder', reminder.template);
+        continue; // Leave overdue — will retry next check interval
       }
 
       try {

@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { listConversations, getConversation, deleteConversation, getResponseTimeStats, togglePin, toggleFavourite, markConversationAsRead, updateConversationMode } from '../../assistant/conversation-logger.js';
 import { whatsappManager } from '../../lib/baileys-client.js';
+import { sessionWindowActive, logSessionExpired } from '../../lib/session-window.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
 import contactsRouter from './conversations-contacts.js';
 import sseRouter from './conversations-sse.js';
@@ -212,6 +213,18 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
           return;
         }
       }
+    }
+
+    // US-815: Check 24-hour session window before sending
+    const sessionActive = await sessionWindowActive(phone);
+    if (!sessionActive) {
+      logSessionExpired(phone, 'admin-manual-send', message);
+      res.status(422).json({
+        error: 'session_expired',
+        message: 'Cannot send free-form message — no user message in the last 24 hours. Use a Message Template instead.',
+        sessionActive: false,
+      });
+      return;
     }
 
     const { sendWhatsAppMessage } = await import('../../lib/baileys-client.js');
