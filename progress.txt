@@ -3087,3 +3087,25 @@ All tests passed in 6ms. Build succeeded without new errors.
 - Registry pattern uses getToolsForProfile() internally in getHandlersForProfile() to ensure consistency
 - All FnB tool handlers must be properly mapped in getFnbMenuHandler() and getFnbOrderHandler() for handlers map to work
 
+
+## Iteration 5 - Story: US-705 - Write Vitest tests: FnB tool handlers return correct MCPToolResult shape
+### What was implemented
+Created `src/assistant/__tests__/fnb-tools.test.ts` with 5 unit tests validating FnB tool handlers:
+- Test 1: fnbGetMenu({}) with successful fetch returns {content: [{type:'text', text: ...}]}
+- Test 2: fnbGetMenu({}) with fetch throwing returns {content: [...], isError: true}
+- Test 3: fnbGetOrderStatus({orderId:'MM-1234'}) calls fetch and returns result
+- Test 4: fnbCreateOrder with valid args returns correct MCPToolResult
+- Test 5: fnbGetMenuItem with fetch HTTP error returns isError: true
+All tests passed (5/5). Build succeeded without new errors.
+### Patterns discovered
+- FnB tool handlers (fnbGetMenu, fnbCreateOrder, fnbGetOrderStatus, etc.) are async functions that wrap callFnbMcp()
+- callFnbMcp() returns MCPToolResult with content array and optional isError flag
+- On success: {content: [{type: 'text', text: 'data...'}]} (no isError)
+- On fetch error: {content: [{type: 'text', text: 'FnB MCP connection error: ...'}], isError: true}
+- On HTTP error: {content: [{type: 'text', text: 'FnB MCP error (status): ...'}], isError: true}
+- vi.stubGlobal('fetch', mockFn) mocks fetch for all code paths
+- afterEach vi.restoreAllMocks() necessary to clean up stubs between tests
+### Gotchas
+- Error messages currently expose technical details (e.g., ECONNREFUSED, HTTP status codes) - this is addressed in US-707
+- Must set process.env.FNB_MCP_URL in beforeAll for tests to work (default is 'http://localhost:3031/api/mcp')
+
