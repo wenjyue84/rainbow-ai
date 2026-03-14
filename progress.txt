@@ -3932,3 +3932,24 @@ Incomplete: Profile-scoped admin tab URLs: every tab includes profileId in hash 
 ## Iteration 1 - Sat, Mar 14, 2026  8:50:33 PM
 Incomplete: Profile-scoped admin tab URLs: every tab includes profileId in hash (ID: US-809) — attempt 2/3
 
+
+## Iteration - Story: US-806 Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- File src/assistant/__tests__/fnb-widget-bugs.test.ts already existed with 9 comprehensive tests
+- Tests verify: looksLikeJson utility, profile-aware fallback messages, JSON extraction from chatWithToolsLoop
+- Tests confirm hostel fallback text does NOT appear in makan-moments widget when tools fail
+- Tests confirm raw JSON is NOT returned from chatWithToolsLoop (extraction logic works)
+- All 9 tests pass (12ms total runtime)
+### Patterns discovered
+- looksLikeJson function exported from ai-response-generator.ts (lines 705-708) — detects JSON strings starting with { or [{
+- chatWithToolsLoop accepts optional profileConfigStore parameter (line 101) — passes store to getUnknownFallbackMessages
+- JSON extraction implemented in 3 places: (1) when no tool calls (line 145-151), (2) toolless fallback (line 209-214), (3) max loops exhausted (line 226-231)
+- getUnknownFallbackMessages function accepts optional store parameter (line 45) and returns cafe-appropriate fallback for makan-moments
+### Quality checks
+- npm run test:run src/assistant/__tests__/fnb-widget-bugs.test.ts: ✓ 9 tests pass
+- npm run test:run (full suite): 681 passed tests (1 unrelated timeout in intent-metamorphic.test.ts)
+- npm run build: ✓ success (1.2MB bundle, 52s)
+### Gotchas
+- No implementation work needed — all requirements already in place from US-801, US-802, US-805 implementations
+
+Completed: Vitest regression tests for Image 3 and Image 4 bugs (ID: US-806) in 0m

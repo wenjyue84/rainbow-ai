@@ -54,7 +54,7 @@
         "US-801"
       ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-803",
@@ -75,7 +75,7 @@
         "US-802"
       ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-804",
@@ -92,7 +92,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-805",
@@ -113,7 +113,7 @@
         "US-801"
       ],
       "estimatedComplexity": "medium",
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-806",
@@ -140,7 +140,7 @@
         "US-802"
       ],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-807",
@@ -158,59 +158,6 @@
         "US-804"
       ],
       "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-808",
-      "title": "Add static replies for widget quick-reply buttons (vegetarian, budget, hours, specials)",
-      "priority": "high",
-      "description": "The widget quick-reply buttons (\"Any vegetarian options?\", \"What's under RM15?\") currently trigger LLM calls, which are slow and unreliable when FNB_MCP_URL is down. Add specific intents and static knowledge replies so these common questions get instant answers from the admin-configurable responses at http://localhost:3002/#responses, with no LLM call needed.",
-      "acceptanceCriteria": [
-        "data-makan/intents.json has 4 new intents: vegetarian_query, budget_query, specials_query, and operating_hours updated with new patterns",
-        "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
-        "data-makan/routing.json maps operating_hours to action: static_reply",
-        "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
-        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
-        "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
-        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
-        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
-        "npm run build passes"
-      ],
-      "technicalNotes": [
-        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
-        "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
-        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-809",
-      "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
-      "priority": "high",
-      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
-      "acceptanceCriteria": [
-        "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
-        "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
-        "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
-        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
-        "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
-        "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
-        "Refreshing the page restores both the tab and the profile from the URL",
-        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
-        "npm run build passes"
-      ],
-      "technicalNotes": [
-        "Edit src/public/js/core/tabs.js: update getTabInfoFromUrl() to return {main, profileId, sub} where profileId = parts[1] if parts.length >= 2 and parts[1] is a valid profile ID (check against window.KNOWN_PROFILE_IDS or just accept any non-subtab string). Sub becomes parts[2] when profileId is present.",
-        "Define PROFILE_SPECIFIC_TABS = [\"dashboard\",\"intents\",\"understanding\",\"responses\",\"performance\",\"chat-simulator\",\"tests\",\"knowledge-base\",\"workflows\"] in tabs.js.",
-        "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
-        "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
-        "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
-        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
       "passes": false
     }
   ]
