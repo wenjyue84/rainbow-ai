@@ -5196,3 +5196,55 @@ Based on the user story, here is a technical brief for implementation within a F
 - PLACED → cart is already cleared (order_confirm_submit calls cartClear), so checking stage first avoids false "nothing to cancel" response
 ### Gotchas
 - PLACED stage means cart is already empty, so stage check MUST come before cart-empty check
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Here is a technical brief for user story US-827.
+
+**Note:** The user story and project files indicate a Node.js/TypeScript application, not a Frappe/Python one. This brief is tailored to the actual project structure.
+
+---
+**Subject:** Technical Brief for US-827: Profile Cloning
+**Project:** Rainbow AI (Node.js/TypeScript)
+
+**1. Core Objective:**
+Implement a `POST /api/admin/profiles/:sourceId/clone` endpoint to duplicate a profile's configuration, creating a new profile template without copying instance-specific data like WhatsApp sessions.
+
+**2. Files to Modify:**
+*   `src/routes/admin/profiles.ts` (or similar): To define the new API route, handle request/response, and call the cloning service.
+*   `src/lib/database/profiles.service.ts` (or equivalent): A new function, `cloneProfile(sourceId, newProfileId, displayName)`, should be created here to orchestrate the database operations.
+*   `src/types/profiles.ts`: May require minor additions for clone request body validation.
+
+**3. Data Structures Involved (Not Frappe DocTypes):**
+*   **Database Tables:** The operation will primarily interact with `rainbow_configs` and `rainbow_kb_files` tables. It involves reading rows matching the `sourceId` and inserting them as new rows with the `newProfileId`.
+
+**4. Recommended Implementation:**
+1.  Define the new `POST` route to accept `{ newProfileId, displayName }`.
+2.  In the service layer, wrap the logic in a database transaction.
+3.  First, `SELECT` all relevant configuration records from `rainbow_configs` where `profileId = :sourceId`.
+4.  In-memory, map these records to new objects, replacing the `profileId` with `newProfileId`.
+5.  Perform a bulk `INSERT` with the new records.
+6.  Repeat the select/map/insert process for the `rainbow_kb_files` metadata table.
+7.  Return the `newProfileId` in a 201 response.
+
+**5. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire copy process *must* be in a single transaction to prevent partial clones.
+*   **Uniqueness:** The endpoint must first verify that `newProfileId` does not already exist to avoid a primary key conflict (return 409 Conflict).
+*   **Exclusion:** Strictly avoid copying any WhatsApp authentication state or phone number-specific settings as per the requirements.
+*   **Error Handling:** Return a 404 if the `sourceId` profile doesn't exist.
+
+
+## Iteration 9 - Story: US-817 Export individual conversation transcript as JSON or PDF from admin
+### What was implemented
+- Added `GET /api/admin/conversations/:phone/export?format=json|pdf` endpoint in `src/routes/admin/conversations.ts`
+- JSON format: serializes all messages with role, content, ISO timestamps, intent, confidence, staffName, model; sets Content-Disposition attachment for download
+- PDF format: generates a print-optimized HTML file (downloadable as .html); admin opens and uses File > Print > Save as PDF in browser
+- Phone number masked (last 4 digits → "xxxx") in filename for PII compliance; full number retained in JSON body
+- Filename format: `conv_6012xxxx_2026-03-15.json` / `.html`
+- Route placed BEFORE `/:phone` generic route to avoid Express routing conflicts
+### Patterns discovered
+- Express route ordering matters: specific routes like `/:phone/export` must be registered before generic `/:phone` routes
+- ConversationLog and LoggedMessage types are exported from conversation-logger.ts (re-exported from conversation-logger-types.ts)
+- HTML-to-print approach avoids adding pdfkit dependency while meeting "human-readable chat layout" acceptance criteria
+### Gotchas
+- The `format=pdf` returns HTML, not a binary PDF — this is intentional (print-to-PDF approach); filename is `.html`
+- Import type must be added alongside function imports from conversation-logger.js

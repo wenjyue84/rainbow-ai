@@ -4,6 +4,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { listConversations, getConversation, deleteConversation, getResponseTimeStats, togglePin, toggleFavourite, markConversationAsRead, updateConversationMode } from '../../assistant/conversation-logger.js';
+import type { ConversationLog, LoggedMessage } from '../../assistant/conversation-logger.js';
 import { whatsappManager } from '../../lib/baileys-client.js';
 import { sessionWindowActive, logSessionExpired } from '../../lib/session-window.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
@@ -82,6 +83,130 @@ router.patch('/conversations/:phone/read', async (req: Request, res: Response) =
   const phone = decodeURIComponent(req.params.phone as string);
   await markConversationAsRead(phone);
   ok(res);
+});
+
+// ─── Conversation Export (US-817) ─────────────────────────────────────
+
+function maskPhone(phone: string): string {
+  return phone.length > 4 ? phone.slice(0, -4) + 'xxxx' : 'xxxx';
+}
+
+function buildConversationHtml(log: ConversationLog, profileId?: string): string {
+  const exportDate = new Date().toLocaleString();
+  const maskedPhone = maskPhone(log.phone);
+
+  const rows = log.messages.map((m: LoggedMessage) => {
+    const isUser = m.role === 'user';
+    const timeStr = new Date(m.timestamp).toLocaleString();
+    const intentBadge = m.intent ? ` <span class="intent">[${m.intent}]</span>` : '';
+    const sender = isUser
+      ? log.pushName
+      : (m.manual && m.staffName ? `Staff: ${m.staffName}` : 'AI Assistant');
+    const bubbleClass = isUser ? 'bubble user-bubble' : 'bubble assistant-bubble';
+    const rowClass = isUser ? 'msg-row user-row' : 'msg-row asst-row';
+    const content = m.content
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+    return `<div class="${rowClass}"><div class="${bubbleClass}"><div class="meta">${sender}${intentBadge}</div><div class="body">${content}</div><div class="ts">${timeStr}</div></div></div>`;
+  }).join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Conversation Export — ${maskedPhone}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f4f4;padding:20px;color:#1a1a1a}
+.wrap{max-width:780px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.hdr{background:#1e3a5f;color:#fff;padding:18px 22px}
+.hdr h1{font-size:17px;margin-bottom:6px}
+.hdr p{font-size:12px;opacity:.82;margin-top:2px}
+.chat{padding:16px}
+.msg-row{display:flex;margin-bottom:10px}
+.user-row{justify-content:flex-end}
+.asst-row{justify-content:flex-start}
+.bubble{max-width:72%;padding:9px 13px;border-radius:12px;word-break:break-word}
+.user-bubble{background:#dcf8c6;border-bottom-right-radius:3px}
+.asst-bubble{background:#e8e8e8;border-bottom-left-radius:3px}
+.meta{font-size:11px;font-weight:600;color:#555;margin-bottom:3px}
+.body{font-size:13.5px;line-height:1.5;white-space:pre-wrap}
+.ts{font-size:10px;color:#999;margin-top:4px;text-align:right}
+.intent{color:#2563eb;font-weight:400}
+.ftr{text-align:center;font-size:11px;color:#aaa;padding:12px;border-top:1px solid #eee}
+@media print{body{background:#fff;padding:0}.wrap{box-shadow:none;border-radius:0}.hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Rainbow AI — Conversation Export</h1>
+    <p>Phone: ${maskedPhone} &nbsp;|&nbsp; Guest: ${log.pushName} &nbsp;|&nbsp; Profile: ${profileId || 'default'}</p>
+    <p>Messages: ${log.messages.length} &nbsp;|&nbsp; Exported: ${exportDate}</p>
+  </div>
+  <div class="chat">
+${rows}
+  </div>
+  <div class="ftr">Rainbow AI Conversation Export &mdash; ${exportDate}</div>
+</div>
+</body>
+</html>`;
+}
+
+// Export endpoint must be placed BEFORE /:phone to avoid being swallowed by that route
+router.get('/conversations/:phone/export', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone as string);
+    const format = ((req.query.format as string) || 'json').toLowerCase();
+    const profileId = res.locals.profileId as string | undefined;
+
+    const log = await getConversation(phone);
+    if (!log) {
+      notFound(res, 'Conversation');
+      return;
+    }
+
+    const maskedPhone = maskPhone(phone);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const baseFilename = `conv_${maskedPhone}_${dateStr}`;
+
+    if (format === 'json') {
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        phone: log.phone,
+        pushName: log.pushName,
+        profileId: profileId || 'default',
+        status: log.responseMode || 'active',
+        createdAt: new Date(log.createdAt).toISOString(),
+        updatedAt: new Date(log.updatedAt).toISOString(),
+        messages: log.messages.map((m: LoggedMessage) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.timestamp).toISOString(),
+          intent: m.intent ?? null,
+          confidence: m.confidence ?? null,
+          action: m.action ?? null,
+          manual: m.manual ?? false,
+          staffName: m.staffName ?? null,
+          model: m.model ?? null,
+        })),
+      };
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.json"`);
+      res.json(exportData);
+    } else if (format === 'pdf') {
+      // HTML with print CSS — admin can File > Print > Save as PDF
+      const html = buildConversationHtml(log, profileId);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${baseFilename}.html"`);
+      res.send(html);
+    } else {
+      badRequest(res, 'format must be "json" or "pdf"');
+    }
+  } catch (err: any) {
+    console.error('[Admin] Export failed:', err);
+    serverError(res, err);
+  }
 });
 
 router.get('/conversations/:phone', async (req: Request, res: Response) => {
