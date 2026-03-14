@@ -81,6 +81,33 @@ export function cartGetItems(sessionId: string): CartItem[] {
   return session ? [...session.items] : [];
 }
 
+/**
+ * Set the quantity of a named cart item (case-insensitive match).
+ * - qty <= 0  → removes the item (treated as removal)
+ * - item not found → returns found: false, items unchanged
+ */
+export function cartUpdateItemQty(
+  sessionId: string,
+  name: string,
+  qty: number
+): { found: boolean; removed: boolean; items: CartItem[] } {
+  const session = getOrCreate(sessionId);
+  const normalizedName = name.trim().toLowerCase();
+  const idx = session.items.findIndex(i => i.name.toLowerCase() === normalizedName);
+
+  if (idx === -1) {
+    return { found: false, removed: false, items: [...session.items] };
+  }
+
+  if (qty <= 0) {
+    session.items.splice(idx, 1);
+    return { found: true, removed: true, items: [...session.items] };
+  }
+
+  session.items[idx].qty = Math.floor(qty);
+  return { found: true, removed: false, items: [...session.items] };
+}
+
 /** Clear all items from the cart (e.g. after checkout or timeout). */
 export function cartClear(sessionId: string): void {
   cartSessions.delete(sessionId);

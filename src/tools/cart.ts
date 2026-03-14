@@ -8,7 +8,7 @@
 import type { MCPTool, MCPToolResult } from '../types/mcp.js';
 import {
   cartAddItem, cartRemoveItem, cartGetItems, cartClear,
-  cartFormatSummary, type CartItem
+  cartUpdateItemQty, cartFormatSummary, type CartItem
 } from '../assistant/cart-store.js';
 import {
   transitionOrderStage, clearOrderStage,
@@ -67,6 +67,24 @@ export const cartTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  {
+    name: 'cart_update_qty',
+    description: [
+      'Update the quantity of an item already in the guest\'s cart.',
+      'Use when the guest says "make it 2", "change the teh tarik to 3", "I want 2 of those", "update to X".',
+      'If qty is 0 the item is removed from the cart.',
+      'If the named item is not in the cart, tell the guest it is not in their order yet.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name of the menu item to update (e.g. "Nasi Lemak")' },
+        qty: { type: 'number', description: 'New quantity. Set to 0 to remove the item.' }
+      },
+      required: ['name', 'qty']
     },
     allowedProfiles: ['makan-moments']
   },
@@ -196,6 +214,43 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     const cartMsg = items.length > 0 ? `\n\nUpdated cart:\n${summary}` : '\n\nYour cart is now empty.';
     return {
       content: [{ type: 'text', text: `Removed ${removed.qty}x ${removed.name} from cart.${cartMsg}` }]
+    };
+  });
+
+  handlers.set('cart_update_qty', async (args: any) => {
+    const name: string = String(args.name || '').trim();
+    const qty: number = typeof args.qty === 'number' ? Math.max(0, Math.floor(args.qty)) : 0;
+
+    if (!name) {
+      return { content: [{ type: 'text', text: 'Please tell me which item to update.' }] };
+    }
+
+    const { found, removed, items } = cartUpdateItemQty(sessionId, name, qty);
+
+    if (!found) {
+      return {
+        content: [{
+          type: 'text',
+          text: `"${name}" is not in your order yet. Would you like me to add it?`
+        }]
+      };
+    }
+
+    if (removed) {
+      if (items.length === 0) {
+        transitionOrderStage(sessionId, 'BROWSING');
+      }
+      const cartMsg = items.length > 0
+        ? `\n\nUpdated cart:\n${cartFormatSummary(items)}`
+        : '\n\nYour cart is now empty.';
+      return {
+        content: [{ type: 'text', text: `Removed ${name} from your cart (quantity set to 0).${cartMsg}` }]
+      };
+    }
+
+    const summary = cartFormatSummary(items);
+    return {
+      content: [{ type: 'text', text: `Updated ${name} to ${qty}x.\n\nCurrent cart:\n${summary}` }]
     };
   });
 

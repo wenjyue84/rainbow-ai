@@ -24,6 +24,7 @@ import {
   cartRemoveItem,
   cartClear,
   cartGetItems,
+  cartUpdateItemQty,
 } from '../cart-store.js';
 import { createCartHandlers } from '../../tools/cart.js';
 
@@ -139,6 +140,119 @@ describe('Order Stage Store — descriptions', () => {
       expect(ORDER_STAGE_DESCRIPTIONS[stage]).toBeTruthy();
       expect(typeof ORDER_STAGE_DESCRIPTIONS[stage]).toBe('string');
     }
+  });
+});
+
+// ─── cartUpdateItemQty Unit Tests (US-861) ─────────────────────────
+
+describe('cartUpdateItemQty — quantity update', () => {
+  const newSid = () => 'qty-unit-' + Date.now() + '-' + Math.random();
+
+  it('updates quantity of an existing item', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Nasi Lemak', qty: 1, price: 8.50 });
+    const { found, removed, items } = cartUpdateItemQty(sid, 'Nasi Lemak', 3);
+    expect(found).toBe(true);
+    expect(removed).toBe(false);
+    expect(items[0].qty).toBe(3);
+    cartClear(sid);
+  });
+
+  it('is case-insensitive for item name match', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Teh Tarik', qty: 1 });
+    const { found } = cartUpdateItemQty(sid, 'teh tarik', 2);
+    expect(found).toBe(true);
+    const items = cartGetItems(sid);
+    expect(items[0].qty).toBe(2);
+    cartClear(sid);
+  });
+
+  it('removes item when qty is 0', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Roti Canai', qty: 2 });
+    const { found, removed, items } = cartUpdateItemQty(sid, 'Roti Canai', 0);
+    expect(found).toBe(true);
+    expect(removed).toBe(true);
+    expect(items).toHaveLength(0);
+    cartClear(sid);
+  });
+
+  it('removes item when qty is negative', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Milo Ais', qty: 1 });
+    const { removed } = cartUpdateItemQty(sid, 'Milo Ais', -1);
+    expect(removed).toBe(true);
+    expect(cartGetItems(sid)).toHaveLength(0);
+    cartClear(sid);
+  });
+
+  it('returns found: false when item is not in cart', () => {
+    const sid = newSid();
+    const { found, items } = cartUpdateItemQty(sid, 'Char Kway Teow', 2);
+    expect(found).toBe(false);
+    expect(items).toHaveLength(0);
+  });
+});
+
+// ─── cart_update_qty Handler Tests (US-861) ───────────────────────
+
+describe('Cart handlers — cart_update_qty tool (US-861)', () => {
+  const newSid = () => 'qty-handler-' + Date.now() + '-' + Math.random();
+
+  it('updates qty and returns updated cart summary', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Nasi Lemak', qty: 1, price: 8.50 });
+
+    const result = await handlers.get('cart_update_qty')!({ name: 'Nasi Lemak', qty: 2 });
+    expect(result.content[0].text).toContain('Updated Nasi Lemak to 2x');
+    expect(result.content[0].text).toContain('Current cart');
+
+    const items = cartGetItems(sid);
+    expect(items[0].qty).toBe(2);
+
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('removes item when qty is 0 and shows empty cart message', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Kopi O', qty: 2 });
+
+    const result = await handlers.get('cart_update_qty')!({ name: 'Kopi O', qty: 0 });
+    expect(result.content[0].text).toContain('Removed Kopi O');
+    expect(result.content[0].text).toContain('empty');
+    expect(cartGetItems(sid)).toHaveLength(0);
+    expect(getOrderStage(sid)).toBe('BROWSING');
+
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('zero-qty removal keeps ORDERING stage when other items remain', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Laksa', qty: 1 });
+    await handlers.get('cart_add_item')!({ name: 'Teh Tarik', qty: 1 });
+
+    await handlers.get('cart_update_qty')!({ name: 'Laksa', qty: 0 });
+
+    expect(getOrderStage(sid)).toBe('ORDERING');
+    expect(cartGetItems(sid)).toHaveLength(1);
+
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('returns not-in-cart message when item is not in order', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+
+    const result = await handlers.get('cart_update_qty')!({ name: 'Satay', qty: 3 });
+    expect(result.content[0].text).toContain('not in your order yet');
+    expect(result.content[0].text).toContain('Satay');
   });
 });
 

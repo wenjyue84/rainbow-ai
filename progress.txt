@@ -5071,3 +5071,64 @@ The user story and project context point to a TypeScript/Node.js application, no
 ### Gotchas
 - MCP may not support dietary_tags natively; system prompt instructs LLM to filter from returned items and not hallucinate
 - Must tell LLM explicitly: "Do NOT invent items — only list what the menu response contains"
+## Iteration 6 - Sun, Mar 15, 2026  2:18:44 AM
+Completed: Dietary filter: guest can ask for vegetarian, halal, or allergen-free menu items (ID: US-860) in 7m
+
+
+## Pre-analysis for US-861 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude agent.
+
+---
+
+**TO:** Claude Code Agent
+**FROM:** Gemini Preparatory Agent
+**RE:** Technical Brief for User Story US-861: Cart Quantity Update
+
+This brief outlines the implementation plan for adding a cart item quantity update feature to the Frappe/Python application, based on the provided user story.
+
+**1. Target Files for Modification:**
+*   **Primary Logic:** `lhdn_payroll_integration/api/cart_logic.py` (Hypothesized). The new `update_cart_item_quantity` function should be added here, alongside the existing `add_to_cart` and `remove_from_cart` functions.
+*   **API Endpoint:** `lhdn_payroll_integration/api/endpoints.py` (Hypothesized). A new whitelisted `@frappe.whitelist()` endpoint will be needed to expose the `update_cart_item_quantity` function to the frontend/chat interface.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:** No direct DocType modifications are expected. The cart state is managed in the user's session (`frappe.session`). This session likely holds a list of dictionaries or objects representing cart items (`{'item_code': 'NL-01', 'qty': 1}`).
+*   **Hooks:** No `hooks.py` changes are anticipated for this core logic update.
+
+**3. Implementation Approach:**
+1.  In `cart_logic.py`, define `def update_cart_item_quantity(item_code, new_quantity):`.
+2.  Retrieve the cart from `frappe.session.get('cart', [])`.
+3.  If `new_quantity` is 0, call the existing `remove_from_cart(item_code)` function.
+4.  Otherwise, find the item in the session cart by `item_code`.
+5.  If found, update its `qty`. If not found, return a message indicating the item isn't in the cart.
+6.  Update the session with the modified cart: `frappe.session['cart'] = cart`.
+7.  In `endpoints.py`, create a new whitelisted function that calls the logic function and returns the updated cart summary.
+
+**4. Edge Cases & Gotchas:**
+*   **Zero Quantity:** A quantity of 0 should be treated as a request to remove the item from the cart.
+*   **Item Not In Cart:** The function must gracefully handle requests to update items not currently in the user's session cart.
+*   **Input Validation:** Ensure the quantity parsed from the user's message is a valid non-negative integer.
+*   **Session Management:** The cart is not persisted in the database; it lives entirely within the Frappe session. Ensure all cart operations correctly read from and write back to `frappe.session`.
+
+
+## Iteration N - Story: US-861 Cart quantity update
+### What was implemented
+- Added `cartUpdateItemQty(sessionId, name, qty)` to `src/assistant/cart-store.ts`
+  - qty <= 0 treats as removal (returns removed: true)
+  - item not found returns found: false
+  - case-insensitive name matching (same as add/remove)
+- Added `cart_update_qty` MCP tool definition to `cartTools` array in `src/tools/cart.ts`
+  - allowedProfiles: ['makan-moments']
+  - required fields: name, qty
+- Added `cart_update_qty` handler in `createCartHandlers()` in `src/tools/cart.ts`
+  - zero-qty → removes item, transitions to BROWSING if cart empty
+  - not-found → "not in your order yet, would you like me to add it?"
+  - success → shows updated cart summary
+- Added 9 Vitest tests in `src/assistant/__tests__/order-stage.test.ts`:
+  - Unit tests: qty update, case-insensitive, zero-qty removal, negative-qty removal, not-in-cart
+  - Handler tests: update qty, zero-qty removal empties cart, zero-qty keeps ORDERING with other items, not-in-cart message
+### Patterns discovered
+- `cartUpdateItemQty` uses same case-insensitive findIndex pattern as `cartRemoveItem`
+- Handler closes over sessionId exactly like other cart handlers (no changes to factory signature needed)
+- The `transitionOrderStage(sessionId, 'BROWSING')` call on cart-empty mirrors `cart_remove_item` pattern
+### Gotchas
+- prd.json must be read/written with utf-8 encoding on Windows (cp1252 default fails on em-dashes in story text)
