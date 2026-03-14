@@ -57,6 +57,91 @@ const DELETE_ONE = `
   WHERE profile_id = $1 AND key_type = $2 AND key_id = $3
 `;
 
+// ─── Validation ─────────────────────────────────────────────────────────
+
+/** Required top-level fields that indicate a valid Baileys credential record. */
+const REQUIRED_CREDS_FIELDS = ['noiseKey', 'signedIdentityKey', 'registrationId', 'advSecretKey'];
+
+export interface AuthStateValidationResult {
+  healthy: boolean;
+  credentialsPresent: boolean;
+  credentialsValid: boolean;
+  signalKeyCount: number;
+  corruptedKeys: string[];
+  clearedRows: number;
+}
+
+/**
+ * Validate the stored DB auth state for a given instanceId.
+ *
+ * - Checks that `creds` row is present and JSON-parseable.
+ * - Verifies required Baileys credential fields.
+ * - Checks all signal key rows for JSON parse errors.
+ * - If corrupted rows are found and `dryRun` is false, deletes them and returns clearedRows > 0.
+ * - If `dryRun` is true, reports corruption without deleting anything.
+ */
+export async function validateAuthState(instanceId: string, dryRun = false): Promise<AuthStateValidationResult> {
+  // Ensure table exists first
+  await pool.query(ENSURE_TABLE);
+
+  const SELECT_ALL = `SELECT key_type, key_id, value FROM baileys_auth_state WHERE profile_id = $1`;
+  const DELETE_ALL = `DELETE FROM baileys_auth_state WHERE profile_id = $1`;
+
+  const rows = await pool.query(SELECT_ALL, [instanceId]);
+
+  if (rows.rows.length === 0) {
+    // No rows — fresh state, healthy (will init on first connect)
+    console.info(`[DbAuth:${instanceId}] Auth state healthy: no rows (fresh instance)`);
+    return { healthy: true, credentialsPresent: false, credentialsValid: false, signalKeyCount: 0, corruptedKeys: [], clearedRows: 0 };
+  }
+
+  const corruptedKeys: string[] = [];
+  let credentialsPresent = false;
+  let credentialsValid = false;
+  let signalKeyCount = 0;
+
+  for (const row of rows.rows) {
+    const label = `${row.key_type}:${row.key_id}`;
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      corruptedKeys.push(label);
+      continue;
+    }
+
+    if (row.key_type === 'creds' && row.key_id === 'creds') {
+      credentialsPresent = true;
+      const obj = parsed as Record<string, unknown>;
+      const missingFields = REQUIRED_CREDS_FIELDS.filter(f => !(f in obj));
+      if (missingFields.length > 0) {
+        corruptedKeys.push(`${label} (missing: ${missingFields.join(', ')})`);
+      } else {
+        credentialsValid = true;
+      }
+    } else {
+      signalKeyCount++;
+    }
+  }
+
+  if (corruptedKeys.length > 0) {
+    if (!dryRun) {
+      // Delete all rows for this instance — corrupted session needs full re-pair
+      await pool.query(DELETE_ALL, [instanceId]);
+      const clearedRows = rows.rows.length;
+      console.warn(`[DbAuth:${instanceId}] Auth state corrupted — cleared ${clearedRows} rows. Corrupted: ${corruptedKeys.join(', ')}`);
+      return { healthy: false, credentialsPresent, credentialsValid, signalKeyCount, corruptedKeys, clearedRows };
+    } else {
+      console.warn(`[DbAuth:${instanceId}] Auth state corrupted (dry-run, not cleared). Corrupted: ${corruptedKeys.join(', ')}`);
+      return { healthy: false, credentialsPresent, credentialsValid, signalKeyCount, corruptedKeys, clearedRows: 0 };
+    }
+  }
+
+  console.info(`[DbAuth:${instanceId}] Auth state healthy: creds OK, ${signalKeyCount} signal keys`);
+  return { healthy: true, credentialsPresent, credentialsValid, signalKeyCount, corruptedKeys: [], clearedRows: 0 };
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────
 
 /**

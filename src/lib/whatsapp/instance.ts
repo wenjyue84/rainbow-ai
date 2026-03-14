@@ -6,7 +6,8 @@ import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifie
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';
 import { LidMapper } from './lid-mapper.js';
 import { ensureAvatar } from './avatar-cache.js';
-import { useDbAuthState } from './db-auth-state.js';
+import { useDbAuthState, validateAuthState } from './db-auth-state.js';
+import { notifyAdminAuthStateCorruption } from '../admin-notifier.js';
 
 // US-830: Circuit breaker states for connection management
 type CircuitState = 'closed' | 'open' | 'half-open';
@@ -127,6 +128,15 @@ export class WhatsAppInstance {
 
     // Load existing LID→phone mappings from auth state files
     this.lidMapper.loadFromDisk(this.authDir);
+
+    // US-842: Validate auth state before connecting — detect and clear corrupted credentials
+    const validation = await validateAuthState(this.id);
+    if (!validation.healthy) {
+      console.warn(`[Baileys:${this.id}] Auth state was corrupted and cleared (${validation.clearedRows} rows). Initiating QR re-pair.`);
+      notifyAdminAuthStateCorruption(this.id, validation.clearedRows).catch(err => {
+        console.error(`[Baileys:${this.id}] Failed to send auth corruption notification:`, err.message);
+      });
+    }
 
     // US-480: DB-backed auth state replaces useMultiFileAuthState
     const { state, saveCreds } = await useDbAuthState(this.id);

@@ -6252,3 +6252,63 @@ This user story describes a profile cloning feature. The technical notes referen
 ### Gotchas
 - The `autofocus` attribute on the Accept button doesn't reliably work in all browsers when the element is inside a dynamically-shown dialog; setTimeout focus is used as fallback
 - localStorage key is namespaced per profile (`rb_consent_{profileId}`) to support multi-profile deployments
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story describes a feature for a TypeScript/Node.js application, not a Frappe/Python one. The following technical brief is based on the provided JSON and the project's file structure.
+
+---
+
+### **Technical Brief for US-827: Profile Cloning**
+
+**1. Files to Modify:**
+*   **`src/routes/admin/profiles.ts`** (or equivalent): Create a new route handler for the `POST /api/admin/profiles/:sourceId/clone` endpoint. This will validate the request body (`newProfileId`, `displayName`) and call the service layer.
+*   **`src/services/profileService.ts`** (hypothetical): A new method, `cloneProfile(sourceId, newProfileData)`, should be added to handle the core business logic, ensuring separation from the routing layer.
+*   **`shared/schema.ts`**: The schema definitions for `rainbow_configs` and `rainbow_kb_files` will be used by the ORM (likely Drizzle) to perform the database operations.
+
+**2. Key Components Involved (Node.js/Drizzle equivalent of DocTypes/Hooks):**
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`. This is the main entry point for the operation.
+*   **Database Table:** `rainbow_configs`. The cloning process requires a deep copy of all configuration rows matching the source profile, re-inserting them with the new `profileId`.
+*   **Database Table:** `rainbow_kb_files`. This table's rows will also be duplicated for the new profile to link its KB file metadata.
+
+**3. Recommended Implementation Approach:**
+1.  Implement an admin-only middleware to protect the new API endpoint.
+2.  In the `profileService.cloneProfile` method, wrap the logic in a database transaction to ensure atomicity.
+3.  Inside the transaction, query all `rainbow_configs` and `rainbow_kb_files` records associated with the `sourceId`.
+4.  Map over the query results to create new arrays of records, replacing the `sourceId` with the `newProfileId` in each object.
+5.  Use the ORM's bulk insert functionality to efficiently write the new records for both tables.
+6.  Return the `newProfileId` in the API response so the UI can navigate to the newly created profile.
+
+**4. Edge Cases & Gotchas:**
+*   **Data Integrity:** The entire operation must be atomic. If copying `rainbow_kb_files` fails, the `rainbow_configs` insertion should be rolled back to prevent a corrupt profile.
+*   **Exclusions:** Be vigilant about *not* copying sensitive or instance-specific data. The `technicalNotes` explicitly forbid copying WhatsApp authentication state.
+*   **Uniqueness Constraint:** The `newProfileId` must be unique. The service should validate this before initiating the transaction to prevent a database error.
+*   **Performance:** The acceptance criteria demand completion within 5 seconds. Avoid row-by-row insertions in loops; use bulk database operations instead.
+
+
+## Iteration 12 - Story: US-842 - Baileys DB auth state health check and corruption recovery at startup
+
+### What was implemented
+- `validateAuthState(instanceId, dryRun?)` added to `src/lib/whatsapp/db-auth-state.ts`
+  - Queries all rows for the instance from `baileys_auth_state`
+  - Verifies JSON parseability of every row value
+  - Checks creds row for required fields: noiseKey, signedIdentityKey, registrationId, advSecretKey
+  - On corruption (dryRun=false): deletes all rows for the instance, logs WARN
+  - On corruption (dryRun=true): reports without deleting (used by health check endpoint)
+  - Returns `AuthStateValidationResult` with healthy/credentialsPresent/credentialsValid/signalKeyCount/corruptedKeys/clearedRows
+- `notifyAdminAuthStateCorruption(instanceId, clearedRows)` added to `src/lib/admin-notifier.ts`
+  - Sends WhatsApp admin notification with re-pair instructions
+- `WhatsAppInstance.start()` in `instance.ts` now calls `validateAuthState(this.id)` before `useDbAuthState()`
+  - On corruption: logs WARN, fires admin notification (non-blocking)
+  - QR pairing flow initiates automatically because corrupted rows are cleared before `makeWASocket`
+- `GET /api/rainbow/instances/:id/auth-health` added to `src/routes/admin/whatsapp.ts`
+  - Calls `validateAuthState(instanceId, true)` — read-only, no recovery triggered
+  - Returns health report JSON
+
+### Patterns discovered
+- `validateAuthState` uses `dryRun` flag to support both recovery mode (startup) and read-only mode (health check endpoint)
+- Table name in db-auth-state.ts is `baileys_auth_state` with `profile_id` column (not `instance_id`)
+
+### Gotchas
+- Admin notifier `notifyAdminAuthStateCorruption` fires async/fire-and-forget at startup (non-blocking)
+- Build uses esbuild, passes with 3 pre-existing warnings (no new warnings introduced)

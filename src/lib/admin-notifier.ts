@@ -747,6 +747,43 @@ export async function notifyAdminSlowQuery(
 }
 
 /**
+ * Send auth state corruption cleared notification to system admin (US-842).
+ */
+export async function notifyAdminAuthStateCorruption(
+  instanceId: string,
+  clearedRows: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send auth state corruption notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) {
+    logger.info('Auth state corruption notifications disabled in settings');
+    return;
+  }
+
+  const message = `⚠️ *WhatsApp Auth State Corrupted & Cleared*\n\n` +
+    `Instance: *${instanceId}*\n` +
+    `Cleared rows: ${clearedRows}\n\n` +
+    `The stored Baileys credentials were corrupted (unparseable JSON or missing required fields). ` +
+    `They have been cleared automatically.\n\n` +
+    `*Action required:* Please re-scan the QR code to re-pair this instance.\n\n` +
+    `1. Visit: http://localhost:3002/dashboard\n` +
+    `2. Click "Pair QR" next to *${instanceId}*\n` +
+    `3. Scan with WhatsApp > Linked Devices > Link a Device\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent auth state corruption notification', { instanceId, clearedRows });
+  } catch (err: any) {
+    logger.error('Failed to send auth state corruption notification', { error: err.message });
+  }
+}
+
+/**
  * Send PDPA breach report notification to system admin (US-839).
  */
 export async function notifyAdminBreachReport(

@@ -5,6 +5,7 @@ import { logoutWhatsApp, whatsappManager } from '../../lib/baileys-client.js';
 import { getAvatarFilePath, ensureAvatar } from '../../lib/whatsapp/avatar-cache.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
 import { failoverCoordinator } from '../../lib/failover-coordinator.js';
+import { validateAuthState } from '../../lib/whatsapp/db-auth-state.js';
 
 const router = Router();
 
@@ -119,6 +120,26 @@ router.get('/whatsapp/instances/:id/qr', async (req: Request, res: Response) => 
       state: status.state,
       qr: status.qr,
       qrDataUrl
+    });
+  } catch (e: any) {
+    serverError(res, e);
+  }
+});
+
+// US-842: Auth state health check (read-only, no recovery triggered)
+router.get('/whatsapp/instances/:id/auth-health', async (req: Request, res: Response) => {
+  try {
+    const instanceId = req.params.id as string;
+    // dryRun=true: read-only health check, does not trigger recovery or row deletion
+    const result = await validateAuthState(instanceId, true);
+    ok(res, {
+      instanceId,
+      healthy: result.healthy,
+      credentialsPresent: result.credentialsPresent,
+      credentialsValid: result.credentialsValid,
+      signalKeyCount: result.signalKeyCount,
+      corruptedKeys: result.corruptedKeys,
+      clearedRows: result.clearedRows,
     });
   } catch (e: any) {
     serverError(res, e);
