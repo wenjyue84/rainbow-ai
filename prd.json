@@ -422,7 +422,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_prd_post_ralph.json",
@@ -1235,6 +1235,236 @@
         "The before-value must be captured BEFORE the write — common bug to avoid"
       ],
       "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-848",
+      "title": "Conversational cart: AI waiter maintains running order across multiple messages",
+      "priority": "high",
+      "description": "Currently the AI waiter treats each message independently. Implement an in-conversation cart state so guests can say I want the nasi lemak then add a teh tarik then actually remove the nasi lemak and the AI tracks the evolving order. Cart state persists for the webchat session and clears on checkout or timeout.",
+      "acceptanceCriteria": [
+        "AI waiter accumulates line items across multiple turns in the same session",
+        "Guest can add items: add X, I also want Y",
+        "Guest can remove items: remove X, cancel the Y",
+        "Guest can view cart: what have I ordered so far returns a formatted summary",
+        "Cart is cleared after order confirmation or session timeout",
+        "Cart state stored in session with no persistence needed across page reloads"
+      ],
+      "technicalNotes": [
+        "Add cartItems: CartItem[] to webchat session state in webchat-api.ts",
+        "CartItem: { name: string, qty: number, price?: number, notes?: string }",
+        "Inject current cart into system prompt context so AI always knows what is in cart",
+        "Handle synonyms: remove, cancel, drop, forget all trigger item removal"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-849",
+      "title": "Order intent classifier: distinguish browsing vs ordering vs confirming",
+      "priority": "high",
+      "description": "The AI waiter needs to reliably tell the difference between: (1) a guest asking about the menu (browsing), (2) a guest expressing intent to order such as I want or can I get, and (3) a guest confirming a finalized order such as yes place the order. Misclassifying these leads to premature order submission or missed orders. Implement a dedicated order-stage intent layer.",
+      "acceptanceCriteria": [
+        "BROWSING intent: menu questions, item queries, price checks with no cart mutation",
+        "ORDERING intent: item requests captured and added to cart, no submission yet",
+        "CONFIRM intent: order submitted to kitchen only after explicit guest confirmation",
+        "AI asks for confirmation before submitting: shows full order summary and Shall I place this order",
+        "Declining confirmation returns guest to ORDERING stage",
+        "Vitest unit tests for each intent transition"
+      ],
+      "technicalNotes": [
+        "Add ORDER_BROWSE, ORDER_ITEM_ADD, ORDER_CONFIRM, ORDER_DECLINE intents to routing.json",
+        "Order stage state machine: BROWSING to ORDERING to CONFIRMING to PLACED",
+        "Store current order stage in session alongside cart state"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-850",
+      "title": "Menu item disambiguation: handle partial or ambiguous item names in orders",
+      "priority": "high",
+      "description": "When a guest says I want the chicken and there are multiple chicken dishes such as Chicken Rice, Chicken Chop, Fried Chicken, the AI waiter must ask a clarifying question rather than guessing. Implement fuzzy menu item matching with disambiguation flow.",
+      "acceptanceCriteria": [
+        "Single match: item added to cart directly with AI confirmation including name and price",
+        "Multiple matches: AI lists matching options numbered 1-N and asks guest to choose",
+        "No match: AI apologises and offers to show the full menu or nearest category",
+        "Guest can reply with a number or name to select from disambiguation list",
+        "Disambiguation state persisted across turns until resolved or abandoned"
+      ],
+      "technicalNotes": [
+        "Fetch menu items from FnB MCP tool get_menu_items",
+        "Fuzzy match using simple substring plus Levenshtein distance with no external lib needed",
+        "Store pending disambiguation in session state: { pendingItem: string, candidates: MenuItem[] }"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-851",
+      "title": "Order confirmation summary: show itemised receipt before submitting to kitchen",
+      "priority": "high",
+      "description": "Before an order is submitted, the AI waiter must display a clear itemised summary showing each item, quantity, unit price, and total. Guest must explicitly confirm before the order is sent to kitchen. This prevents wrong orders and builds guest trust.",
+      "acceptanceCriteria": [
+        "Confirmation message shows: item name, qty, unit price, subtotal per line, grand total",
+        "Message ends with a clear CTA: Shall I place this order? Reply YES to confirm or tell me what to change.",
+        "Order only submitted after guest replies YES or confirm or ok or sure (case-insensitive)",
+        "If guest requests changes, cart returns to ORDERING stage and changes are applied",
+        "Confirmed orders trigger FnB MCP place_order tool call",
+        "Guest receives acknowledgement: Your order has been placed with estimated wait time"
+      ],
+      "technicalNotes": [
+        "Format summary as WhatsApp-friendly text with line breaks and no markdown tables",
+        "Call FnB MCP place_order with full cart payload on confirmation",
+        "place_order response should include order ID and estimated wait surfaced to guest"
+      ],
+      "dependencies": [
+        "US-849"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-852",
+      "title": "Special instructions capture: attach guest notes to individual order items",
+      "priority": "medium",
+      "description": "Guests should be able to say no onion, extra spicy, less sugar and have those notes attached to the relevant cart item. The AI waiter should detect instruction phrases and prompt if ambiguous which item the instruction applies to.",
+      "acceptanceCriteria": [
+        "Instruction phrases attached to most recently added item by default",
+        "If multiple items in cart and instruction is ambiguous, AI asks which item it applies to",
+        "Notes shown in order confirmation summary per line item",
+        "Notes passed to FnB MCP place_order in item.notes field",
+        "Common instruction variants handled: no X, extra X, less X, without X, add X on the side"
+      ],
+      "technicalNotes": [
+        "CartItem.notes string field for special instructions",
+        "Detect instruction intent with keyword patterns before full LLM classification"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-853",
+      "title": "Table number capture: AI waiter asks for table or pickup preference during ordering",
+      "priority": "medium",
+      "description": "After a guest adds their first item, the AI waiter should ask once for table number or whether it is a takeaway. This is required for kitchen routing and should not be asked again if already provided in the same session.",
+      "acceptanceCriteria": [
+        "AI asks for table number after first item is added to cart one time only per session",
+        "Accepts: table number such as table 5 or T5, takeaway or tapau, dine-in without number",
+        "Table info stored in session and included in order confirmation summary",
+        "Passed to FnB MCP place_order as tableNumber or orderType field",
+        "If guest volunteers table number proactively, AI does not ask again"
+      ],
+      "technicalNotes": [
+        "Add tableNumber and orderType fields to session state",
+        "Detect table number patterns with regex for table N, tN, takeaway, tapau"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-854",
+      "title": "Out-of-stock graceful handling: AI waiter suggests alternatives when item unavailable",
+      "priority": "medium",
+      "description": "When a guest orders an item that is currently out of stock as returned by FnB MCP, the AI waiter should inform them clearly and suggest the closest alternatives from the same category rather than simply refusing.",
+      "acceptanceCriteria": [
+        "Out-of-stock detection: FnB MCP returns unavailable status for item",
+        "AI responds with sorry message and suggests 2-3 alternatives from same category",
+        "Alternatives fetched from same menu category as unavailable item",
+        "Guest can accept an alternative to be added to cart or decline and browse further",
+        "If no alternatives exist, AI apologises and offers to show full menu"
+      ],
+      "technicalNotes": [
+        "Handle FnB MCP get_menu_items response where item.available is false",
+        "Fetch category siblings via get_menu_items with category filter and available true",
+        "Limit to 2-3 alternatives to avoid overwhelming the guest"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-855",
+      "title": "Order status enquiry: guest can ask where their order is after placing it",
+      "priority": "medium",
+      "description": "After an order is placed, guests should be able to ask where is my order, how long more, is my food ready and get a live status update from the kitchen via FnB MCP.",
+      "acceptanceCriteria": [
+        "ORDER_STATUS intent detected from natural language queries about order progress",
+        "AI calls FnB MCP get_order_status with the session order ID",
+        "Status stages communicated in plain language: Received, Preparing, Ready, Served",
+        "If no order placed in session, AI says there is no active order for you yet",
+        "Estimated wait time shown if available from MCP response"
+      ],
+      "technicalNotes": [
+        "Store placed orderId in session state after successful place_order MCP call",
+        "Add ORDER_STATUS intent to routing.json with handler in fnb-waiter pipeline",
+        "Map kitchen status codes to guest-friendly strings"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-856",
+      "title": "Repeat order shortcut: AI waiter offers to repeat last order for returning guests",
+      "priority": "low",
+      "description": "If a returning guest has a previous order on record, the AI waiter should proactively offer to repeat it at the start of the conversation. This reduces friction for regulars and makes the experience feel personalised.",
+      "acceptanceCriteria": [
+        "On session start, check FnB MCP for last order by guest JID or phone",
+        "If found within last 30 days, AI offers to repeat previous order",
+        "Guest reply YES loads previous order into cart as starting point",
+        "Guest reply NO proceeds to normal browsing flow",
+        "If no prior order found, normal welcome message shown"
+      ],
+      "technicalNotes": [
+        "Call FnB MCP get_order_history with jid and limit 1 on webchat session init",
+        "Trigger only for webchat widget not WhatsApp to avoid unsolicited messages",
+        "Last order check is best-effort and fails silently if MCP unavailable"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-857",
+      "title": "Upsell suggestions: AI waiter recommends add-ons after main item is ordered",
+      "priority": "low",
+      "description": "After a guest adds a main item to the cart, the AI waiter should make one natural upsell suggestion such as a drink pairing or add-on based on the item category. Should feel conversational and never pushy and suggested once per session max.",
+      "acceptanceCriteria": [
+        "Triggered once after first main item added to cart",
+        "Suggestion fetched from FnB MCP get_upsell_suggestions or category-based fallback",
+        "AI message is brief: Great choice! Would you also like a suggestion to go with that?",
+        "Guest can accept to add to cart, decline, or ignore with no follow-up if declined",
+        "Upsell only triggered once per session regardless of how many items are added"
+      ],
+      "technicalNotes": [
+        "Add upsellOffered boolean to session state to prevent repeat triggering",
+        "If MCP has no upsell endpoint, use category-based hardcoded map: rice to drink, cake to coffee",
+        "Keep suggestion message to one sentence max"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
       "estimatedComplexity": "small",
       "passes": false
     }

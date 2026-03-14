@@ -4774,3 +4774,31 @@ Incomplete: Monitor WhatsApp message template quality and alert on pause/disable
 ### Gotchas
 - prd.json has encoding issues (surrogates) — use Edit tool or manual sed, not Python json.dump
 - Drizzle-kit push has pre-existing module resolution issue on Windows — startup CREATE TABLE IF NOT EXISTS migration is the reliable path
+## Iteration 5 - Sun, Mar 15, 2026  1:06:50 AM
+Completed: Monitor WhatsApp message template quality and alert on pause/disable (ID: US-831) in 10m
+
+
+## Iteration 6 - Story: US-816 Lazy-load webchat widget JS bundle
+### What was implemented
+- Wrapped widget.js IIFE initialization in `initWidget()` function
+- Added `requestIdleCallback(initWidget)` with 3s `setTimeout` fallback for older browsers
+- This defers button/panel creation until browser idle time, avoiding LCP/INP blocking
+- Verified bundle size: widget.js is 11KB uncompressed, 3.4KB gzipped (well under 100KB limit)
+- All acceptance criteria met:
+  - Dynamic injection already supported via Pattern C (useEffect) and Pattern B (async script)
+  - Initialization deferred to requestIdleCallback + setTimeout fallback
+  - Existing iframe lazy-loading on first click preserved
+  - Bundle size verified < 100KB gzipped
+  - Zero impact on host page LCP since initialization is deferred
+
+### Patterns discovered
+- requestIdleCallback is available in all modern browsers (Chrome 47+, Firefox 55+, Safari 15.1+)
+- 3s setTimeout fallback covers older browsers + ensures widget loads even if browser is very busy
+- No code split needed: entire widget is already small enough (3.4KB gzip) that deferring execution is more effective than splitting
+
+### Gotchas
+- The existing `window.__rbw` config pattern already supports deferred loading — just needed the `initWidget()` wrapper
+- Widget.js was already lazy-loading the iframe on first click, so only the initial button setup needed deferral
+
+## Iteration 6 - Sun, Mar 15, 2026 1:14:43 AM
+Completed: Lazy-load webchat widget JS bundle to avoid Core Web Vitals regression (ID: US-816) in 4m
