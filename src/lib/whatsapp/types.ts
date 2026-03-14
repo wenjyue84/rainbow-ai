@@ -32,6 +32,13 @@ export interface WhatsAppInstanceStatus {
   maxReconnectAttempts: number; // Max reconnect attempts before giving up (US-443)
   lastDisconnectCode: number | null; // Baileys DisconnectReason status code (US-443)
   lastDisconnectAt: string | null; // ISO timestamp of last disconnect event (US-443)
+  // US-830: Circuit breaker state for connection cycling protection
+  circuitBreaker: {
+    state: 'closed' | 'open' | 'half-open';
+    consecutiveFailures: number;
+    lastOpenedAt: string | null;       // ISO timestamp when circuit last opened
+    cooldownEndsAt: string | null;     // ISO timestamp when cooldown expires (null if not open)
+  };
 }
 
 // ─── Message Handler Type ───────────────────────────────────────────

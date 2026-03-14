@@ -4702,3 +4702,28 @@ Completed: Emit WhatsApp typing indicator during AI processing delay (ID: US-829
 ### Gotchas
 - `isNull` must be imported from `drizzle-orm` alongside `eq` and `and`
 - Drizzle does not have a `.count()` shorthand for raw counts — used `pool.query` directly for the threshold check
+## Iteration 2 - Sun, Mar 15, 2026 12:40:50 AM
+Incomplete: Baileys circuit breaker: long cooldown after consecutive reconnect failures (ID: US-830) — attempt 1/3
+
+
+
+## Iteration 3 - Story: US-830 Baileys circuit breaker: long cooldown after consecutive reconnect failures
+### What was implemented
+- Added `CircuitBreakerState` interface and `CircuitState` type (`closed`/`open`/`half-open`) to `src/lib/whatsapp/instance.ts`
+- Circuit breaker fields on `WhatsAppInstance`: `circuitBreaker` state object + `cooldownTimeout` timer
+- Modified `handleDisconnect()`: tracks `consecutiveFailures`; after 5 failures (configurable), sets state to `open` and schedules a 30-min cooldown timer
+- After cooldown: state transitions to `half-open`, attempts single reconnection
+- `handleConnected()`: on success, closes circuit breaker and resets failure count; logs HALF-OPEN → CLOSED transition
+- `forceReconnect()` and `stop()`: clear cooldown timer and reset circuit breaker state
+- Updated `WhatsAppInstanceStatus` type with `circuitBreaker` field containing `state`, `consecutiveFailures`, `lastOpenedAt`, `cooldownEndsAt`
+- `getStatus()` computes `cooldownEndsAt` ISO timestamp from `lastOpenedAt + cooldownMs`
+- Admin notification sent via existing `notifyAdminDisconnection()` when circuit opens
+
+### Patterns discovered
+- Circuit breaker is instance-level (not supervisor-level) — `baileys-supervisor.ts` handles supervisor crashes separately
+- `Date.now()` timestamps for internal state, converted to ISO strings only at API boundary in `getStatus()`
+- `cooldownTimeout` must be cleared in both `stop()` and `forceReconnect()` to prevent orphaned timers
+
+### Gotchas
+- Previous attempt (retry 1) failed — this retry succeeded by keeping the existing MAX_RECONNECT_ATTEMPTS logic alongside the circuit breaker (they serve different purposes: short-term retry vs long-term cycling protection)
+- `forceReconnect()` resets circuit breaker entirely — manual admin intervention overrides the cooldown

@@ -8,6 +8,17 @@ import { LidMapper } from './lid-mapper.js';
 import { ensureAvatar } from './avatar-cache.js';
 import { useDbAuthState } from './db-auth-state.js';
 
+// US-830: Circuit breaker states for connection management
+type CircuitState = 'closed' | 'open' | 'half-open';
+
+interface CircuitBreakerState {
+  state: CircuitState;
+  consecutiveFailures: number;
+  lastOpenedAt: number | null;   // Date.now() timestamp
+  cooldownMs: number;            // 30 minutes default
+  maxFailures: number;           // 5 consecutive failures to trip
+}
+
 // US-477: BSUID pattern — two-letter country code + dot + alphanumeric (up to 128 chars)
 const BSUID_PATTERN = /^[A-Z]{2}\.[A-Za-z0-9]{1,125}$/;
 
@@ -59,6 +70,16 @@ export class WhatsAppInstance {
   private static readonly MAX_RECONNECT_ATTEMPTS = 3;
   private lastDisconnectCode: number | null = null;
   private lastDisconnectAt: string | null = null;
+
+  // US-830: Circuit breaker — prevents rapid reconnect cycling that triggers WhatsApp bans
+  private circuitBreaker: CircuitBreakerState = {
+    state: 'closed',
+    consecutiveFailures: 0,
+    lastOpenedAt: null,
+    cooldownMs: 30 * 60 * 1000,  // 30 minutes
+    maxFailures: 5,
+  };
+  private cooldownTimeout: ReturnType<typeof setTimeout> | null = null;
   private messageHandler: MessageHandler | null = null;
   private messageStatusHandler: MessageStatusHandler | null = null;
   private lidMapper: LidMapper;
@@ -218,8 +239,39 @@ export class WhatsAppInstance {
     this.lastDisconnectAt = new Date().toISOString();
 
     if (statusCode !== DisconnectReason.loggedOut) {
+      // US-830: Circuit breaker — track consecutive failures
+      this.circuitBreaker.consecutiveFailures++;
       this.reconnectAttempts++;
 
+      // US-830: Check if circuit breaker should OPEN
+      if (this.circuitBreaker.consecutiveFailures >= this.circuitBreaker.maxFailures) {
+        this.circuitBreaker.state = 'open';
+        this.circuitBreaker.lastOpenedAt = Date.now();
+
+        const reason = `Circuit breaker OPEN — ${this.circuitBreaker.consecutiveFailures} consecutive failures. Cooling down for ${this.circuitBreaker.cooldownMs / 60000} min.`;
+        console.warn(`[Baileys:${this.id}] ${reason}`);
+        trackWhatsAppDisconnected(this.id, reason);
+
+        // Admin notification
+        notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
+          console.error(`[Baileys:${this.id}] Failed to notify admin of circuit breaker:`, err.message);
+        });
+
+        // Schedule HALF-OPEN transition after cooldown
+        if (this.cooldownTimeout) clearTimeout(this.cooldownTimeout);
+        this.cooldownTimeout = setTimeout(() => {
+          this.cooldownTimeout = null;
+          this.circuitBreaker.state = 'half-open';
+          console.log(`[Baileys:${this.id}] Circuit breaker HALF-OPEN — attempting single reconnection`);
+          this.reconnectAttempts = 0; // reset for the half-open attempt
+          this.start(notifyUnlinkedFn);
+        }, this.circuitBreaker.cooldownMs);
+
+        this.reconnectTimeout = null;
+        return;
+      }
+
+      // Circuit is closed or half-open — allow reconnect with backoff
       if (this.reconnectAttempts > WhatsAppInstance.MAX_RECONNECT_ATTEMPTS) {
         const reason = `code ${statusCode}, stopped after ${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS} attempts`;
         console.warn(`[Baileys:${this.id}] ${reason}. Please visit dashboard to restart.`);
@@ -262,7 +314,19 @@ export class WhatsAppInstance {
   private handleConnected(): void {
     this.qr = null;
     const wasReconnecting = this.reconnectAttempts > 0;
+    const wasHalfOpen = this.circuitBreaker.state === 'half-open';
     this.reconnectAttempts = 0;
+
+    // US-830: Connection succeeded — close circuit breaker, reset failure count
+    if (wasHalfOpen) {
+      console.log(`[Baileys:${this.id}] Circuit breaker CLOSED — reconnection successful after cooldown`);
+    }
+    this.circuitBreaker.state = 'closed';
+    this.circuitBreaker.consecutiveFailures = 0;
+    if (this.cooldownTimeout) {
+      clearTimeout(this.cooldownTimeout);
+      this.cooldownTimeout = null;
+    }
 
     // Clear unlinked status when reconnected
     this.unlinkedFromWhatsApp = false;
@@ -418,6 +482,13 @@ export class WhatsAppInstance {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    // US-830: Reset circuit breaker on manual force reconnect
+    if (this.cooldownTimeout) {
+      clearTimeout(this.cooldownTimeout);
+      this.cooldownTimeout = null;
+    }
+    this.circuitBreaker.state = 'closed';
+    this.circuitBreaker.consecutiveFailures = 0;
     this.reconnectAttempts = 0;
 
     // Stop existing socket cleanly before restarting
@@ -439,6 +510,11 @@ export class WhatsAppInstance {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
+    }
+    // US-830: Clear cooldown timer on stop
+    if (this.cooldownTimeout) {
+      clearTimeout(this.cooldownTimeout);
+      this.cooldownTimeout = null;
     }
     this.reconnectAttempts = 0;
 
@@ -564,6 +640,13 @@ export class WhatsAppInstance {
 
   getStatus(): Omit<WhatsAppInstanceStatus, 'firstConnectedAt'> {
     const user = (this.sock as any)?.user;
+
+    // US-830: Compute cooldown end timestamp for API consumers
+    let cooldownEndsAt: string | null = null;
+    if (this.circuitBreaker.state === 'open' && this.circuitBreaker.lastOpenedAt) {
+      cooldownEndsAt = new Date(this.circuitBreaker.lastOpenedAt + this.circuitBreaker.cooldownMs).toISOString();
+    }
+
     return {
       id: this.id,
       label: this.label,
@@ -577,7 +660,13 @@ export class WhatsAppInstance {
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: WhatsAppInstance.MAX_RECONNECT_ATTEMPTS,
       lastDisconnectCode: this.lastDisconnectCode,
-      lastDisconnectAt: this.lastDisconnectAt
+      lastDisconnectAt: this.lastDisconnectAt,
+      circuitBreaker: {
+        state: this.circuitBreaker.state,
+        consecutiveFailures: this.circuitBreaker.consecutiveFailures,
+        lastOpenedAt: this.circuitBreaker.lastOpenedAt ? new Date(this.circuitBreaker.lastOpenedAt).toISOString() : null,
+        cooldownEndsAt,
+      },
     };
   }
 }
