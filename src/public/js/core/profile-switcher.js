@@ -84,6 +84,25 @@
       }
     },
 
+    /**
+     * US-809: Switch profile state without reloading tab or changing URL.
+     * Used by tabs.js handleNavigation() when URL already has the profileId.
+     */
+    _applyProfileSwitch: function (profileId) {
+      activeProfileId = profileId;
+      localStorage.setItem(STORAGE_KEY, profileId);
+      this.renderLabel();
+      this.renderDropdown();
+      if (window.cacheManager && typeof window.cacheManager.clearAll === 'function') {
+        window.cacheManager.clearAll();
+      }
+      cachedRouting = {};
+      cachedKnowledge = { static: [], dynamic: {} };
+      cachedWorkflows = { workflows: [] };
+      cachedSettings = null;
+      cachedIntentNames = [];
+    },
+
     /** Render the button label */
     renderLabel: function () {
       var label = document.getElementById('profile-switcher-label');

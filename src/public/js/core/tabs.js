@@ -324,9 +324,9 @@ function handleNavigation() {
   // Auto-switch profile if URL specifies a different one
   if (profileId && window.profileSwitcher) {
     const currentProfile = window.profileSwitcher.getActiveProfileId();
-    if (currentProfile !== profileId &&
-        typeof window.profileSwitcher._applyProfileSwitch === 'function') {
-      window.profileSwitcher._applyProfileSwitch(profileId);
+    if (currentProfile !== profileId) {
+      window.profileSwitcher.switchTo(profileId);
+      return; // switchTo handles loadTab internally
     }
   }
 
