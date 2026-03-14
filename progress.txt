@@ -4531,3 +4531,29 @@ Completed: Fix sign-off language: rainbow-ai webchat widget shows correct cafe s
 - typing indicator needs aria-hidden="true" to avoid spurious screen reader announcements
 ### Gotchas
 - iframe.focus() moves focus to the iframe element (browser handles inner content); full cross-frame trap requires postMessage cooperation (handled by Escape postMessage from webchat.html)
+## Iteration 1 - Sat, Mar 14, 2026 11:21:04 PM
+Completed: WCAG 2.1 AA keyboard accessibility for webchat widget (ID: US-810) in 4m
+
+
+## Iteration - Story: US-811 CSAT and resolution rate analytics with alert thresholds
+### What was implemented
+- Created `src/routes/admin/analytics-kpis.ts` — GET /analytics/kpis endpoint returning 4 KPIs:
+  - CSAT score (from rainbow_feedback: thumbsUp/total * 100)
+  - AI Resolution rate (conversations without escalation / total conversations)
+  - Human handoff rate (unique escalated JIDs / total conversations)
+  - Fallback rate (unknown intent messages / total user messages)
+- Filterable by profileId (query param) and days (7/30/90)
+- Visual alerts when CSAT < 80% or resolution rate < 60%
+- Per-profile filtering via profileId on escalation_events, rainbow_conversations, rainbow_messages tables
+- Added KPI cards section to performance.html template (above existing two-column layout)
+- Created `src/public/js/modules/analytics-kpis.js` — frontend module that fetches and renders KPI cards
+- Cards show green border when healthy, red border + alert banner when threshold crossed
+- Registered in admin route index.ts, added to SEMI_STABLE_PATHS (30s cache)
+- Wired into performance-chunk.js lazy loader and performance.js tab loader
+### Patterns discovered
+- rainbow_feedback table has no profileId column — CSAT is cross-profile by design
+- Unknown intents use intent='unknown' or intent='unknown_intent' in rainbow_messages
+- Resolution rate = total conversations - conversations with escalation events (by unique JID)
+### Gotchas
+- All 4 queries run in parallel via Promise.all for minimal latency
+- Used `count(distinct jid)` for escalations to avoid double-counting the same conversation

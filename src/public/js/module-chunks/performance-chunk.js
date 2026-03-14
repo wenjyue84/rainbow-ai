@@ -20,6 +20,8 @@ import {
   cleanupPerformance
 } from '/public/js/modules/performance-stats.js';
 
+import { refreshKpiMetrics } from '/public/js/modules/analytics-kpis.js';
+
 // ─── Window globals ──────────────────────────────────────────────
 
 window.loadPerformance = loadPerformance;
@@ -32,5 +34,6 @@ window.loadIntentAccuracy = loadIntentAccuracy;
 window.refreshIntentAccuracy = refreshIntentAccuracy;
 window.refreshPerformanceData = refreshPerformanceData;
 window.cleanupPerformance = cleanupPerformance;
+window.refreshKpiMetrics = refreshKpiMetrics;
 
 console.log('[LazyChunk] Performance modules registered');

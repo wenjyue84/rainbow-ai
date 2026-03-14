@@ -54,6 +54,7 @@ import messagingLimitsRoutes from './messaging-limits.js';
 import phoneQualityRoutes from './phone-quality.js';
 import whatsappCostRoutes from './whatsapp-cost.js';
 import analyticsLatencyRoutes from './analytics-latency.js';
+import analyticsKpisRoutes from './analytics-kpis.js';
 import slowQueriesRoutes from './slow-queries.js';
 import authRoutes from './auth.js';
 
@@ -150,7 +151,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality', '/analytics/latency',
+  '/analytics/phone-quality', '/analytics/latency', '/analytics/kpis',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -216,6 +217,7 @@ router.use(messagingLimitsRoutes);
 router.use(phoneQualityRoutes);
 router.use(whatsappCostRoutes);
 router.use(analyticsLatencyRoutes);
+router.use(analyticsKpisRoutes);
 router.use(slowQueriesRoutes);
 router.use(authRoutes);
 

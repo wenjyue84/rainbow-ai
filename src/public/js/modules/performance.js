@@ -13,6 +13,11 @@ import { toast } from '../core/utils.js';
  */
 export async function loadPerformance() {
   try {
+    // Load KPI metrics (US-811)
+    if (typeof refreshKpiMetrics === 'function') {
+      refreshKpiMetrics();
+    }
+
     // Load feedback stats
     if (typeof loadFeedbackStats === 'function') {
       await loadFeedbackStats();
