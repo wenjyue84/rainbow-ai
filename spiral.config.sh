@@ -5,8 +5,8 @@
 # ── Python interpreter ───────────────────────────────────────────────
 SPIRAL_PYTHON="python"
 
-# ── Validation command (Phase V) ─────────────────────────────────────
-SPIRAL_VALIDATE_CMD="npm run build 2>&1 | tail -20 && npm run test:run 2>&1 | tail -40"
+# ── Validation command (Phase V) — includes browser smoke tests ───────
+SPIRAL_VALIDATE_CMD="npm run build 2>&1 | tail -20 && npm run test:run 2>&1 | tail -40 --suite browser"
 
 # ── Test reports directory ───────────────────────────────────────────
 SPIRAL_REPORTS_DIR="test-reports"
@@ -16,6 +16,7 @@ SPIRAL_STORY_PREFIX="US"
 
 # ── Test synthesis: convert failing tests to fix-stories ─────────────
 SPIRAL_SKIP_TEST_SYNTHESIS=0
+SPIRAL_SYNTHESIZE_TESTS_FOR_NEW=1
 
 # ── Max pending stories (focused run) ────────────────────────────────
 SPIRAL_MAX_PENDING=10
@@ -30,4 +31,10 @@ SPIRAL_RESEARCH_MODEL="sonnet"
 SPIRAL_OPEN_DASHBOARD=1
 
 # ── Focus theme ──────────────────────────────────────────────────────
-SPIRAL_FOCUS="FnB AI Waiter bug fixes: fix hostel fallback text in cafe widget (UNKNOWN_FALLBACK_MESSAGES), fix raw JSON rendered in chat (chatWithToolsLoop), inject FnB tools into webchat-api, fix unicode corruption in system prompt"
+SPIRAL_FOCUS="Improve the core preordering process via AI waiter: enhance the conversational ordering flow so guests can browse menu, ask about items, and place orders naturally through the AI waiter. Focus on intent detection accuracy for order-taking, multi-item cart handling, order confirmation UX, kitchen notification flow, and integration with the FnB MCP tools. Research modern conversational commerce patterns, cart state management in chat, and order disambiguation techniques."
+
+# ── Firecrawl MCP for web research ─────────────────────────────────
+SPIRAL_FIRECRAWL_ENABLED=1
+
+# ── Parallel worker settings ─────────────────────────────────────────
+SPIRAL_PATCH_DIRS="src/"

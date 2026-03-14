@@ -1,96 +1,308 @@
 {
-  "productName": "Rainbow AI — FnB AI Waiter Enhancement",
+  "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
   "branchName": "master",
-  "overview": "End-to-end AI waiter integration: rainbow-ai makan-moments profile handles customer chat from fnb-online-ordering, acting as MCP client to query live menu data and place orders in the fnb-online-ordering system. Customers at localhost:3031/en can chat with the AI waiter, ask about the menu, and place pre-orders — all powered by rainbow-ai's makan-moments profile calling back to fnb-online-ordering's MCP server.",
+  "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
   "goals": [
-    "Add /api/fnb/chat SSE endpoint in rainbow-ai so the fnb-online-ordering proxy can connect",
-    "Add FnB MCP client tools in rainbow-ai (menu browsing, order creation, order status)",
-    "Register FnB tools for makan-moments profile only, not hostel profiles",
-    "Configure makan-moments profile to use FnB tools when answering customer questions",
-    "Fix and verify end-to-end: customer chat → rainbow-ai → MCP call → live fnb data",
-    "Enhance fnb-online-ordering chat UI with order-aware quick replies and better UX"
+    "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
+    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble — chatWithToolsLoop sanitizes LLM output",
+    "Fix webchat-api tool injection: /chat/makan-moments widget gets FnB tool-calling capability",
+    "Fix unicode corruption in system prompt (em dash + rainbow emoji garbled)",
+    "Graceful tool-failure fallback: if FNB_MCP_URL is down, AI gives a helpful answer instead of hostel fallback",
+    "Regression tests for both image bugs"
   ],
   "userStories": [
     {
-      "id": "US-602",
-      "title": "Add FnB MCP client tools for menu browsing in rainbow-ai",
+      "id": "US-801",
+      "title": "Fix hostel fallback text appearing in makan-moments AI waiter",
       "priority": "high",
-      "description": "Create src/tools/fnb-menu.ts with MCP client tools that call fnb-online-ordering's /api/mcp endpoint. These tools let rainbow-ai's makan-moments profile fetch live menu data when customers ask questions. Tools: fnb_get_menu (full menu, filterable by category), fnb_get_menu_item (single item by code), fnb_get_categories (category list), fnb_get_cafe_info (hours, address, WiFi, FAQ). The FnB MCP endpoint is at FNB_MCP_URL env var (default http://localhost:3031/api/mcp). Public tools don't need auth; admin tools need x-mcp-secret header.",
+      "description": "UNKNOWN_FALLBACK_MESSAGES.en in ai-response-generator.ts is hardcoded as 'I can help with bookings, check-in/out, amenities, and general hostel information.' When chatWithToolsLoop exhausts its 3 loops (e.g. FNB_MCP_URL is down), this hostel-specific text is returned to the makan-moments cafe widget (Image 3 bug). Fix by adding per-profile fallback support: read unknownFallback from the profile's settings.json so each profile can override the default, and set makan-moments to a cafe-appropriate fallback.",
       "acceptanceCriteria": [
-        "src/tools/fnb-menu.ts exists with 4 tool definitions and handlers",
-        "fnb_get_menu calls POST FNB_MCP_URL with {\"tool\":\"fnb_get_menu\",\"input\":{}}",
-        "fnb_get_menu_item calls with {\"tool\":\"fnb_get_menu_item\",\"input\":{\"code\":\"...\"}}}",
-        "fnb_get_categories and fnb_get_cafe_info implemented similarly",
-        "FNB_MCP_URL defaults to http://localhost:3031/api/mcp if not set",
-        "Tools handle network errors gracefully (return error message, don't throw)",
-        "TypeScript compiles without errors"
+        "getUnknownFallbackMessages() accepts an optional configStore parameter",
+        "When configStore is passed and has settings.unknownFallback.en, that value is used",
+        "data-makan/settings.json has unknownFallback.en with cafe-appropriate text (no hostel words)",
+        "data-makan/settings.json has unknownFallback.ms and unknownFallback.zh in Malay/Chinese",
+        "chatWithToolsLoop passes the profile configStore to get the fallback message",
+        "processChat() passes store to getUnknownFallbackMessages() in the catch-all fallback",
+        "npm run build passes"
       ],
       "technicalNotes": [
-        "File: src/tools/fnb-menu.ts",
-        "Export: fnbMenuTools (MCPTool[] array) and handler functions",
-        "The fnb /api/mcp endpoint accepts POST with body: {tool: string, input: object} and optionally x-mcp-secret header",
-        "Use node fetch (already available) to call the endpoint",
-        "Each tool handler should: fetch the endpoint, return the result.content or result text",
-        "See existing src/tools/guests.ts for the pattern to follow",
-        "Add FNB_MCP_URL and FNB_MCP_SECRET to .env.example"
+        "Edit src/assistant/ai-response-generator.ts: update getUnknownFallbackMessages() to accept optional configStore param. Update chatWithToolsLoop to call getUnknownFallbackMessages(profileConfigStore) for its fallback at line 142 and 183. Add optional configStore param to chatWithToolsLoop signature.",
+        "Edit src/assistant/chat-engine.ts: pass store to getUnknownFallbackMessages() in the catch-all fallback at the bottom of processChat(). Also pass store to chatWithToolsLoop.",
+        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '抱歉，我现在无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。'}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-802",
+      "title": "Fix raw JSON displayed in chat widget when LLM returns JSON format",
+      "priority": "high",
+      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop — if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
+      "acceptanceCriteria": [
+        "chatWithToolsLoop never returns a string starting with '{' to the caller",
+        "If LLM content is valid JSON with a 'response' or 'text' string field, that field value is returned",
+        "If JSON has no extractable text, profile-aware fallback is returned instead",
+        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' — chatWithToolsLoop must return 'Test reply'",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts: in chatWithToolsLoop, at line 141 where `return content || UNKNOWN_FALLBACK_MESSAGES.en`, add guard: if (content && looksLikeJson(content)) { try { const j = JSON.parse(content); const extracted = j.response || j.text || j.message || null; if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted; } catch {} return UNKNOWN_FALLBACK_MESSAGES.en; } return content || UNKNOWN_FALLBACK_MESSAGES.en",
+        "Also apply the same guard at line 182 (max loops exhausted last content): before returning UNKNOWN_FALLBACK_MESSAGES.en, check if the last message in messages has content that looks like JSON and try to extract from it."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-803",
+      "title": "Inject FnB tools into webchat-api for makan-moments profile",
+      "priority": "high",
+      "description": "webchat-api.ts (/api/chat/:profileId/message) calls processChat() WITHOUT tools for ALL profiles. This means the embedded rainbow-ai widget at /chat/makan-moments cannot use FnB tools (menu lookup, order placement). Fix: when profileId === 'makan-moments', pass toolRegistry.getToolsForProfile('makan-moments') and toolRegistry.getHandlersForProfile('makan-moments') to processChat().",
+      "acceptanceCriteria": [
+        "POST /api/chat/makan-moments/message triggers chatWithToolsLoop (tool_use intent in result)",
+        "POST /api/chat/pelangi/message still uses the non-tool path (no tools passed)",
+        "Tool injection does not break other profiles",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/routes/public/webchat-api.ts: add import { toolRegistry } from '../../tools/registry.js'. In the POST handler, after resolving profile, before calling processChat(), add: const fnbTools = profileId === 'makan-moments' ? toolRegistry.getToolsForProfile('makan-moments') : []; const fnbHandlers = profileId === 'makan-moments' ? toolRegistry.getHandlersForProfile('makan-moments') : new Map(); Then add tools: fnbTools, toolHandlers: fnbHandlers to the processChat() call."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-804",
+      "title": "Fix corrupted unicode in makan-moments system prompt (em dash + emoji)",
+      "priority": "medium",
+      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: 'â\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt sign-off is properly encoded (no 'â' or garbled bytes)",
+        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('â'))\" returns false",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: use Python to load the file with utf-8 encoding, fix any garbled sign-off in system_prompt by replacing the corrupted byte sequences with proper unicode em dash (\\u2014) and rainbow emoji (\\U0001f308), then write back with json.dump(d, f, indent=2, ensure_ascii=False). Read the file, detect and fix the mojibake."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-805",
+      "title": "chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail",
+      "priority": "medium",
+      "description": "When FNB_MCP_URL is unavailable, every tool call in chatWithToolsLoop returns an error. The LLM sees 3 rounds of error responses and finally exhausts max loops, returning an unhelpful fallback. Fix: track if ALL tool calls across loops failed. If so, make one final LLM call WITHOUT tools (just the conversation) to get at least a helpful general response, before falling back to the profile fallback text.",
+      "acceptanceCriteria": [
+        "When all tool results have isError:true, chatWithToolsLoop makes a final toolless LLM call",
+        "Final call uses the same system prompt and conversation history but no tools array",
+        "If final call also fails, returns profile-aware fallback (not hardcoded hostel text)",
+        "Test: mock all tool handlers to return {isError:true} — result should be a non-empty meaningful text, not the hostel fallback",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts chatWithToolsLoop: add a boolean allToolsFailed = false. After the loop, if all tool calls had isError:true (track with a counter), make one extra call: const { content: finalContent } = await chatWithFallback(messages.filter(m => m.role !== 'tool'), maxTokens, temp, false, undefined, undefined). Return finalContent if truthy and not JSON. The messages filtered are the original without tool results."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-806",
+      "title": "Vitest regression tests for Image 3 and Image 4 bugs",
+      "priority": "medium",
+      "description": "Write targeted tests to prevent regression of the two bugs seen in the screenshots: (1) hostel fallback text appearing in makan-moments widget, (2) raw JSON being returned from chatWithToolsLoop. Also test the webchat-api tool injection fix.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/fnb-widget-bugs.test.ts exists",
+        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' → result is 'OK' (not raw JSON)",
+        "Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel' or 'check-in' or 'bookings'",
+        "Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'",
+        "npm run test:run passes"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "Import chatWithToolsLoop from '../../assistant/ai-response-generator.js'",
+        "Import looksLikeJson from '../../assistant/ai-response-generator.js'",
+        "Test 1: vi.stubGlobal mock chatWithFallback to return {content: '{\"intent\":\"menu_query\",\"response\":\"Here is the menu\",\"confidence\":0.5}', toolCalls:[]}. Call chatWithToolsLoop(...). Expect result === 'Here is the menu'.",
+        "Test 2: mock all tool handlers to return {content:[{type:'text',text:'Error'}],isError:true}. Mock final LLM to return {content:'Sorry, our ordering system is unavailable.'}. Expect result does not contain 'hostel' or 'check-in'.",
+        "Test 3: import getUnknownFallbackMessages. Call with a mock configStore for makan-moments that has unknownFallback.en set. Expect result.en to not contain 'hostel'."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-807",
+      "title": "Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off",
+      "priority": "low",
+      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '— Makan Moments AI' (cafe-appropriate, no hostel branding).",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt instructs sign-off as cafe-appropriate name, not generic hostel Rainbow",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: in system_prompt, update the sign-off instruction to say: Sign off messages with '\\u2014 Makan Moments AI'. Use Python to load/save with ensure_ascii=False."
+      ],
+      "dependencies": [
+        "US-804"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-808",
+      "title": "Add static replies for widget quick-reply buttons (vegetarian, budget, hours, specials)",
+      "priority": "high",
+      "description": "The widget quick-reply buttons (\"Any vegetarian options?\", \"What's under RM15?\") currently trigger LLM calls, which are slow and unreliable when FNB_MCP_URL is down. Add specific intents and static knowledge replies so these common questions get instant answers from the admin-configurable responses at http://localhost:3002/#responses, with no LLM call needed.",
+      "acceptanceCriteria": [
+        "data-makan/intents.json has 4 new intents: vegetarian_query, budget_query, specials_query, and operating_hours updated with new patterns",
+        "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
+        "data-makan/routing.json maps operating_hours to action: static_reply",
+        "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
+        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
+        "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
+        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
+        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
+        "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
+        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-809",
+      "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
+      "priority": "high",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "acceptanceCriteria": [
+        "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
+        "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
+        "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
+        "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
+        "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
+        "Refreshing the page restores both the tab and the profile from the URL",
+        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/public/js/core/tabs.js: update getTabInfoFromUrl() to return {main, profileId, sub} where profileId = parts[1] if parts.length >= 2 and parts[1] is a valid profile ID (check against window.KNOWN_PROFILE_IDS or just accept any non-subtab string). Sub becomes parts[2] when profileId is present.",
+        "Define PROFILE_SPECIFIC_TABS = [\"dashboard\",\"intents\",\"understanding\",\"responses\",\"performance\",\"chat-simulator\",\"tests\",\"knowledge-base\",\"workflows\"] in tabs.js.",
+        "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
+        "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
+        "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
+        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-812",
+      "title": "WhatsApp opt-out tracking and 24-hour compliance processing enforcement",
+      "priority": "high",
+      "description": "Meta's WhatsApp Business Messaging Policy requires that opt-out requests (STOP, unsubscribe, block) are honored within 24 hours. The current system has an opt-out endpoint but no dashboard to verify compliance or track the processing timeline. Failure to comply can result in Business Account suspension.",
+      "acceptanceCriteria": [
+        "When a user sends a STOP/opt-out keyword, their phone is flagged in the database within 1 message-processing cycle",
+        "Opted-out numbers are never sent outbound WhatsApp messages (broadcast, scheduled, or escalation notification)",
+        "Admin panel shows a list of opted-out numbers with the timestamp of their opt-out request",
+        "Admin panel shows whether each opt-out was processed (messages stopped) within 24 hours",
+        "A warning banner is displayed in the admin dashboard if any opt-out took more than 24 hours to process",
+        "Opt-out status is persisted per phone number and survives server restarts"
+      ],
+      "technicalNotes": [
+        "Add opted_out_at and opted_out_processed_at columns to rainbow_conversations or a new opt_out_registry table",
+        "Extend intent pipeline: if incoming message matches opt-out intent, set opted_out_at and block future sends immediately",
+        "Add GET /api/admin/opt-outs?profileId= endpoint listing opted-out numbers with compliance status",
+        "All outbound send functions must check opt-out registry before calling Baileys sendMessage"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false
     },
     {
-      "id": "US-603",
-      "title": "Add FnB MCP client tools for order management in rainbow-ai",
+      "id": "US-815",
+      "title": "Enforce WhatsApp 24-hour session window check before sending outbound messages",
       "priority": "high",
-      "description": "Create src/tools/fnb-orders.ts with order management tools. Public tools (no auth): fnb_create_order (create a new pre-order for a customer — requires items array, customer phone, estimated arrival time), fnb_get_order_status (check order status by order ID — public, customer-facing), fnb_get_operating_hours (check if cafe is currently open). Admin tools (need FNB_MCP_SECRET): fnb_get_pending_orders (list pending orders for staff review), fnb_approve_order (approve an order), fnb_update_order_status (update status).",
+      "description": "Meta requires that free-form outbound messages can only be sent within 24 hours of the last user-initiated message. Sending outside this window fails silently or returns an error, but the current system has no pre-send session window check. This risks silent delivery failures for scheduled messages, payment reminders, and escalation notifications.",
       "acceptanceCriteria": [
-        "src/tools/fnb-orders.ts exists with tool definitions and handlers",
-        "fnb_create_order has proper input schema: items (array of {code, qty}), phone (string), estimated_arrival (ISO datetime string)",
-        "fnb_get_order_status takes orderId string, returns status + items",
-        "fnb_get_operating_hours returns whether cafe is open now and today's hours",
-        "Admin tools include x-mcp-secret header from FNB_MCP_SECRET env var",
-        "Tools return friendly error messages on network failure",
-        "TypeScript compiles without errors"
+        "All outbound WhatsApp send paths check if the 24-hour session window is active before sending",
+        "If the session is expired, the message is blocked from sending and logged with reason='session_expired'",
+        "Admin conversations list shows a 'Session Active' or 'Session Expired' status indicator per conversation",
+        "Scheduled and broadcast messages that fail the session window check are queued as pending rather than dropped silently",
+        "If a WhatsApp Message Template is configured for the profile, it is used as fallback when session is expired",
+        "Session window checks apply to all outbound paths: broadcast, scheduled, escalation notification"
       ],
       "technicalNotes": [
-        "File: src/tools/fnb-orders.ts",
-        "The fnb /api/mcp endpoint supports tools: fnb_create_order, fnb_get_order, fnb_get_operating_hours",
-        "For admin tools: include header 'x-mcp-secret': process.env.FNB_MCP_SECRET",
-        "fnb_create_order input schema must match fnb-online-ordering's MCP tool: items: [{code, qty}], phone, estimated_arrival, notes (optional)",
-        "Return the full order object including orderId so the AI can tell the customer their order ID",
-        "fnb_get_order_status: takes shortId (e.g. MM-XXXX) or full orderId"
+        "Add sessionWindowActive(phone: string): Promise<boolean> helper in src/lib/ or src/assistant/",
+        "Implementation: query rainbow_messages WHERE role='user' AND phone=? ORDER BY created_at DESC LIMIT 1, check timestamp within 24h",
+        "Wrap all Baileys sendMessage calls with a session window guard",
+        "Add session_active field to the GET /api/admin/conversations list API response"
       ],
-      "dependencies": [
-        "US-602"
-      ],
+      "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false
     },
     {
-      "id": "US-604",
-      "title": "Register FnB MCP tools for makan-moments profile in rainbow-ai tool registry",
-      "priority": "high",
-      "description": "Update src/tools/registry.ts to register fnb-menu and fnb-orders tools, but ONLY activate them for the makan-moments profile. The existing hostel tools (guests, units, problems, dashboard) should remain active for pelangi/southern profiles. Create a profile-aware tool registry or add a profileId filter so makan-moments gets FnB tools and hostel profiles get hostel tools. Also update the makan-moments data-makan/settings.json system_prompt to explicitly mention that MCP tools are available for live menu data.",
+      "id": "US-821",
+      "title": "Complete webhook event routing to registered notification handlers",
+      "priority": "medium",
+      "description": "The webhook routing code in src/routes/webhooks/index.ts has TODO comments indicating that event-type routing and handler dispatch are not implemented. Inbound webhook events from external systems are received by the server but silently dropped with no handler execution, making the webhook integration feature non-functional.",
       "acceptanceCriteria": [
-        "FnB tools are registered in the tool registry",
-        "fnb_get_menu, fnb_get_menu_item, fnb_get_categories, fnb_get_cafe_info appear in tool list for makan-moments profile",
-        "fnb_create_order, fnb_get_order_status, fnb_get_operating_hours appear for makan-moments profile",
-        "Hostel tools (list_guests, get_guest, etc.) do NOT appear for makan-moments profile",
-        "data-makan/settings.json system_prompt mentions tool availability (menu lookup, order placement)",
-        "TypeScript compiles without errors"
+        "Inbound webhook POST requests are dispatched to the correct handler function based on the event type field",
+        "A handler registry maps event type strings to async handler functions (at minimum one working handler)",
+        "Unrecognized event types return HTTP 422 with a descriptive error message and are logged",
+        "Handler errors are caught, logged, and return HTTP 500 without crashing the Express server",
+        "HMAC signature verification is enforced for all inbound webhook requests (or clearly documented as not required)",
+        "Vitest unit tests cover: correct handler dispatch, unrecognized event 422 response, and handler error 500 response"
       ],
       "technicalNotes": [
-        "Option A: Add a profileId parameter to tool registry getTools() method and return different tool sets per profile",
-        "Option B: Add a separate ToolRegistry class instance per profile (simpler)",
-        "Option C: Add a 'profiles' field to each tool definition (allowedProfiles: string[])",
-        "The chat-engine or message-router must pass the profileId when executing tools so the right tools are used",
-        "Update data-makan/settings.json: add to system_prompt 'You have access to live menu data via tools. Use fnb_get_menu to answer menu questions. Use fnb_create_order to help customers place orders.'",
-        "Check if src/assistant/chat-engine.ts has tool execution — it must pass profileId to the registry"
+        "Remove TODO comments in src/routes/webhooks/index.ts and implement a handler dispatch map",
+        "Follow existing route patterns in src/routes/admin/ for consistent error handling and response shapes",
+        "Add WEBHOOK_SECRET env var for HMAC-SHA256 signature verification if not already present",
+        "Implement at minimum a payment_confirmed handler that sends a WhatsApp confirmation message"
       ],
-      "dependencies": [
-        "US-602",
-        "US-603"
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-822",
+      "title": "Sentiment-based early escalation trigger in message processing pipeline",
+      "priority": "medium",
+      "description": "Current escalation triggers are intent-based, requiring users to explicitly request help. Frustrated or angry language is not detected, meaning the bot continues attempting to handle the situation without proactive human handoff. A lightweight sentiment check before intent classification enables early escalation before frustration peaks.",
+      "acceptanceCriteria": [
+        "Messages containing strong negative sentiment markers are detected in the pipeline before intent classification",
+        "If a user sends 3 or more messages with negative sentiment in a single session, the pipeline escalates to human",
+        "The escalation message to the user is empathetic and acknowledges frustration (configurable per profile)",
+        "Sentiment detection can be enabled or disabled per profile in admin settings",
+        "Sentiment-triggered escalation events are recorded in escalation_events table with reason='sentiment'",
+        "Sentiment detection does not add more than 50ms to the average message processing time"
       ],
+      "technicalNotes": [
+        "Use a rule-based keyword/phrase list (not a separate LLM call) to avoid latency and cost",
+        "Initial negative marker set (EN): 'useless', 'terrible', 'awful', 'angry', 'never again', repeated '!!', 'ridiculous'",
+        "Track consecutive_negative_messages counter in session context (in-memory, not persisted to DB)",
+        "Add sentiment_escalation_enabled and sentiment_threshold to profile settings.json",
+        "Optional: include sentiment as a classified field in existing intent classification LLM prompt to avoid extra round-trip"
+      ],
+      "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false
     }

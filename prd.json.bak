@@ -140,7 +140,7 @@
         "US-802"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-807",
@@ -158,7 +158,7 @@
         "US-804"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-808",
@@ -212,6 +212,624 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
+    },
+    {
+      "id": "US-810",
+      "title": "WCAG 2.1 AA keyboard accessibility for webchat widget",
+      "priority": "high",
+      "description": "The webchat widget lacks required ARIA attributes and keyboard navigation support, blocking screen reader users and violating WCAG 2.1 AA. The message container needs role='log' for screen reader announcements, the toggle button needs aria-expanded, the input needs aria-label, and focus must be trapped inside the open panel with Escape-to-close.",
+      "acceptanceCriteria": [
+        "Message container div has role='log' and aria-label='Chat conversation'",
+        "Toggle/bubble button has aria-expanded='true'/'false' reflecting panel open state",
+        "Textarea input has an explicit aria-label attribute (e.g., 'Type your message')",
+        "Tab key cycles focus within the open panel without escaping to page content behind widget",
+        "Pressing Escape closes the panel and returns focus to the toggle button",
+        "Send button has aria-label='Send message'",
+        "New AI messages are announced by screen readers via the aria-live region"
+      ],
+      "technicalNotes": [
+        "Add role='log' aria-live='polite' to the #chat-messages container in webchat.html",
+        "Add aria-expanded attribute to the .chat-widget-button toggle, updated via JS on open/close",
+        "Implement focus-trap: intercept Tab/Shift+Tab inside .chat-widget when visible, cycle focus within panel",
+        "Bind keydown event on widget container: Escape closes panel and restores focus to trigger button"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-811",
+      "title": "CSAT and resolution rate analytics with alert thresholds in admin dashboard",
+      "priority": "high",
+      "description": "The admin dashboard lacks a unified view of the three most critical chatbot KPIs: CSAT score, AI resolution rate, and human handoff rate. Industry benchmarks set alert thresholds at CSAT < 80% and resolution rate < 60%. Without these alerts, performance degradation can go undetected for weeks.",
+      "acceptanceCriteria": [
+        "Analytics dashboard shows CSAT score (from conversation_feedback table) as a percentage, updated daily",
+        "Resolution rate metric shows % of conversations closed by AI (no escalation) vs. total conversations",
+        "Human handoff rate shows % of conversations that triggered an escalation_event",
+        "Fallback rate shows % of messages that matched unknownFallback intent",
+        "Visual alert is displayed when CSAT drops below 80% or resolution rate drops below 60%",
+        "All four metrics are filterable by profile and by date range (7d / 30d / 90d)",
+        "Metrics are displayed per-profile separately, not aggregated globally only"
+      ],
+      "technicalNotes": [
+        "CSAT data source: conversation_feedback table (already exists in Drizzle schema)",
+        "Resolution rate: query escalation_events count vs rainbow_conversations count per period",
+        "Fallback rate: query intent_analytics WHERE intent_id matches unknownFallback pattern",
+        "Add GET /api/admin/analytics/kpis?profileId=&days= endpoint returning all four metrics",
+        "Add visual threshold indicators (red badge or warning banner) when metric crosses alert threshold"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-812",
+      "title": "WhatsApp opt-out tracking and 24-hour compliance processing enforcement",
+      "priority": "high",
+      "description": "Meta's WhatsApp Business Messaging Policy requires that opt-out requests (STOP, unsubscribe, block) are honored within 24 hours. The current system has an opt-out endpoint but no dashboard to verify compliance or track the processing timeline. Failure to comply can result in Business Account suspension.",
+      "acceptanceCriteria": [
+        "When a user sends a STOP/opt-out keyword, their phone is flagged in the database within 1 message-processing cycle",
+        "Opted-out numbers are never sent outbound WhatsApp messages (broadcast, scheduled, or escalation notification)",
+        "Admin panel shows a list of opted-out numbers with the timestamp of their opt-out request",
+        "Admin panel shows whether each opt-out was processed (messages stopped) within 24 hours",
+        "A warning banner is displayed in the admin dashboard if any opt-out took more than 24 hours to process",
+        "Opt-out status is persisted per phone number and survives server restarts"
+      ],
+      "technicalNotes": [
+        "Add opted_out_at and opted_out_processed_at columns to rainbow_conversations or a new opt_out_registry table",
+        "Extend intent pipeline: if incoming message matches opt-out intent, set opted_out_at and block future sends immediately",
+        "Add GET /api/admin/opt-outs?profileId= endpoint listing opted-out numbers with compliance status",
+        "All outbound send functions must check opt-out registry before calling Baileys sendMessage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-813",
+      "title": "Human handoff escalation notification includes last 5 messages of conversation",
+      "priority": "high",
+      "description": "When Rainbow AI escalates to human staff, the current notification sends a minimal alert. Staff must manually look up the conversation in the admin panel, causing delays. Best practice requires passing full conversation history in the handoff so staff can respond immediately without context-switching.",
+      "acceptanceCriteria": [
+        "Staff escalation notification includes the last 5 messages of the conversation (user and assistant turns)",
+        "Notification includes guest name (push_name), phone number, and the escalation trigger reason",
+        "Notification includes a direct deep-link to the conversation in the admin panel",
+        "If escalation is triggered by a specific intent or keyword, that trigger is identified in the notification body",
+        "Escalation notification format is consistent across all profiles (hostel and cafe)",
+        "Full conversation history remains accessible via the admin panel deep-link"
+      ],
+      "technicalNotes": [
+        "Modify the escalation notification handler in src/routes/admin/ or pipeline/ to fetch last 5 messages",
+        "Query rainbow_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 5",
+        "Admin panel deep-link format: /admin#conversations?profileId={id}&phone={phone}",
+        "Include escalation reason label (e.g., 'Keyword match: refund', 'Workflow: complaint escalation')"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-814",
+      "title": "Daily fallback rate alert notification when AI misunderstanding exceeds 20%",
+      "priority": "high",
+      "description": "When the unknownFallback intent fires for more than 20% of messages, it signals significant knowledge base or intent coverage gaps. Without automated alerts, this can persist for days undetected. A daily threshold check that notifies admins enables rapid remediation before guest experience degrades.",
+      "acceptanceCriteria": [
+        "A scheduled daily check calculates the fallback rate (unknownFallback / total intents) per profile",
+        "If fallback rate exceeds the configured threshold (default 20%) for any profile, an alert notification is sent",
+        "Alert message identifies the profile name, the fallback rate percentage, and the count of unmatched messages",
+        "Alert is NOT sent when fallback rate is below threshold (no noise for healthy profiles)",
+        "Admin can configure the alert threshold and enable/disable alerts per profile in admin settings",
+        "Alert history is logged with timestamp, profile, and rate for review in the admin panel"
+      ],
+      "technicalNotes": [
+        "Add a scheduled job using existing cron/scheduler infrastructure, default run at 8AM server time",
+        "Query intent_analytics for past 24h, group by intent_id, calculate fallback ratio",
+        "Send alert via existing Baileys WhatsApp send or staff notification channel (whichever is configured)",
+        "Add fallback_alert_enabled, fallback_alert_threshold, and fallback_alert_recipient to settings.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/chat-engine.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-815",
+      "title": "Enforce WhatsApp 24-hour session window check before sending outbound messages",
+      "priority": "high",
+      "description": "Meta requires that free-form outbound messages can only be sent within 24 hours of the last user-initiated message. Sending outside this window fails silently or returns an error, but the current system has no pre-send session window check. This risks silent delivery failures for scheduled messages, payment reminders, and escalation notifications.",
+      "acceptanceCriteria": [
+        "All outbound WhatsApp send paths check if the 24-hour session window is active before sending",
+        "If the session is expired, the message is blocked from sending and logged with reason='session_expired'",
+        "Admin conversations list shows a 'Session Active' or 'Session Expired' status indicator per conversation",
+        "Scheduled and broadcast messages that fail the session window check are queued as pending rather than dropped silently",
+        "If a WhatsApp Message Template is configured for the profile, it is used as fallback when session is expired",
+        "Session window checks apply to all outbound paths: broadcast, scheduled, escalation notification"
+      ],
+      "technicalNotes": [
+        "Add sessionWindowActive(phone: string): Promise<boolean> helper in src/lib/ or src/assistant/",
+        "Implementation: query rainbow_messages WHERE role='user' AND phone=? ORDER BY created_at DESC LIMIT 1, check timestamp within 24h",
+        "Wrap all Baileys sendMessage calls with a session window guard",
+        "Add session_active field to the GET /api/admin/conversations list API response"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-816",
+      "title": "Lazy-load webchat widget JS bundle to avoid Core Web Vitals regression",
+      "priority": "medium",
+      "description": "The current widget.js loads synchronously on embed, inflating INP and potentially delaying LCP for host pages. Industry benchmarks show chat widgets under 100KB transferred and deferred to browser idle time maintain Google's 2025 Core Web Vitals thresholds (INP < 200ms, LCP < 2.5s). Only the toggle bubble should load initially; the full panel loads on first click.",
+      "acceptanceCriteria": [
+        "Widget script is injected dynamically (not as a static <script src> tag in the host page HTML)",
+        "Widget initialization is deferred with requestIdleCallback or a 3-second setTimeout fallback",
+        "Only the toggle bubble renders on initial page load; the full chat panel JS loads on first user click",
+        "Widget JS bundle size is under 100KB transferred (gzip)",
+        "Host page LCP does not increase by more than 200ms when the widget is embedded"
+      ],
+      "technicalNotes": [
+        "Refactor widget.js to export an init() function that lazily renders the full panel on first click",
+        "The embed snippet (window.__rbw / data-* attributes) should inject only the bubble on DOMContentLoaded",
+        "Use dynamic import() or a lazy-load pattern for the heavy chat panel component",
+        "Test with Google Lighthouse or PageSpeed Insights against a real host page"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts"
+      ]
+    },
+    {
+      "id": "US-817",
+      "title": "Export individual conversation transcript as JSON or PDF from admin",
+      "priority": "medium",
+      "description": "Staff cannot export a single conversation's history for dispute resolution, training data collection, or compliance purposes. Only bulk analytics CSVs are available today. A per-conversation export in JSON or PDF format is standard in all major customer service platforms.",
+      "acceptanceCriteria": [
+        "Admin conversation detail view has an Export button offering JSON and PDF format options",
+        "JSON export includes all messages with timestamps, roles (user/assistant/staff), and intent labels",
+        "PDF export renders messages in a human-readable chat layout with a branding header",
+        "Export endpoint is protected by admin authentication and scoped to the active profileId",
+        "Export filename includes masked phone number and date range (e.g., conv_6012xxxx_2026-03-14.json)",
+        "Export is available for all conversation statuses (active, closed, escalated)"
+      ],
+      "technicalNotes": [
+        "Add GET /api/admin/conversations/:id/export?format=json|pdf endpoint",
+        "JSON: serialize rainbow_messages rows for the conversation sorted by created_at",
+        "PDF: use pdfkit (Node.js native) or HTML-to-canvas approach to render chat bubbles layout",
+        "Mask last 4 digits of phone number in exported filename for PII compliance (keep full number in file body)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-818",
+      "title": "Full-text search across conversation message content in admin panel",
+      "priority": "medium",
+      "description": "The admin conversations panel currently filters only by phone number or contact name. Staff cannot search for keywords within message bodies (e.g., find all conversations where guests mentioned 'refund' or 'broken AC'). PostgreSQL full-text search via a GIN index on rainbow_messages.content enables this efficiently at scale.",
+      "acceptanceCriteria": [
+        "Admin conversations panel has a search input that searches message content in addition to phone/name",
+        "Search returns conversations containing the search term in any message (user or assistant turn)",
+        "Results are ordered by most recent matching conversation first",
+        "Search is scoped to the currently selected profileId",
+        "Search supports partial word matching (e.g., 'refun' matches 'refund')",
+        "Search results load within 2 seconds for tables with up to 100,000 messages"
+      ],
+      "technicalNotes": [
+        "Add a GIN index on rainbow_messages.content using PostgreSQL to_tsvector for large datasets",
+        "For MVP, ILIKE '%term%' with LIMIT 50 is sufficient; add GIN index when table exceeds 50k rows",
+        "Add GET /api/admin/conversations/search?q=&profileId= endpoint",
+        "Update conversations list component to debounce search input 300ms before API call"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-819",
+      "title": "Template variable interpolation in static reply messages ({{guestName}}, etc.)",
+      "priority": "medium",
+      "description": "Static replies send fixed text strings with no personalization. Support for template variables like {{guestName}}, {{checkInDate}}, and {{profileName}} would allow staff to create personalized automated responses without LLM calls, improving quality while keeping latency near zero for common greetings and confirmations.",
+      "acceptanceCriteria": [
+        "Static reply templates can include {{variableName}} placeholders in their text content",
+        "On send, available variables (guestName, checkInDate, checkOutDate, profileName) are resolved from session context",
+        "Unresolvable variables fall back to an empty string or configurable default (e.g., 'our valued guest')",
+        "Admin editor shows a popover listing supported {{variables}} when editing a static reply text field",
+        "Variable substitution is applied before the message is sent; the raw template is stored in the config",
+        "Existing static replies without variables continue to work unchanged"
+      ],
+      "technicalNotes": [
+        "Implement an interpolate(template: string, variables: Record<string, string>) utility in src/assistant/",
+        "Variable context: profileName from settings.json; guest data from active session if tool result is available",
+        "Apply interpolation in the static_reply action handler just before message delivery",
+        "Admin UI change: add a help tooltip showing {{guestName}}, {{checkInDate}}, {{profileName}} as supported vars"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/data-makan/knowledge.json"
+      ]
+    },
+    {
+      "id": "US-820",
+      "title": "Server-Sent Events streaming for progressive AI responses in webchat widget",
+      "priority": "medium",
+      "description": "The webchat widget waits for the full AI response before displaying it, causing a blank 3-10 second wait. Industry best practice is to stream AI tokens progressively using SSE or chunked transfer, reducing perceived latency to near-instant first-token display. Both OpenRouter and NVIDIA providers support OpenAI-compatible streaming.",
+      "acceptanceCriteria": [
+        "POST /api/chat/:profileId/message returns a streaming SSE response for LLM-generated replies",
+        "The webchat.html renders tokens as they arrive, appending to the current assistant message bubble",
+        "A typing indicator (animated dots) is shown from message submission until the first token arrives",
+        "Streaming falls back gracefully to non-streaming single response if the provider does not support it",
+        "Static replies (pre-written responses) return instantly with no streaming overhead",
+        "Streaming works correctly with tool calls: tools execute server-side, then response text streams after"
+      ],
+      "technicalNotes": [
+        "Use EventSource (SSE) on client with text/event-stream content type on server",
+        "OpenRouter streaming: add stream: true to completions request, pipe response chunks as SSE events",
+        "NVIDIA NIM/Kimi K2.5 supports OpenAI-compatible streaming via the same stream: true flag",
+        "Tool calls must complete before streaming text phase begins (tool results are not streamed to client)",
+        "Add X-Accel-Buffering: no header for Nginx proxy compatibility with SSE"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-821",
+      "title": "Complete webhook event routing to registered notification handlers",
+      "priority": "medium",
+      "description": "The webhook routing code in src/routes/webhooks/index.ts has TODO comments indicating that event-type routing and handler dispatch are not implemented. Inbound webhook events from external systems are received by the server but silently dropped with no handler execution, making the webhook integration feature non-functional.",
+      "acceptanceCriteria": [
+        "Inbound webhook POST requests are dispatched to the correct handler function based on the event type field",
+        "A handler registry maps event type strings to async handler functions (at minimum one working handler)",
+        "Unrecognized event types return HTTP 422 with a descriptive error message and are logged",
+        "Handler errors are caught, logged, and return HTTP 500 without crashing the Express server",
+        "HMAC signature verification is enforced for all inbound webhook requests (or clearly documented as not required)",
+        "Vitest unit tests cover: correct handler dispatch, unrecognized event 422 response, and handler error 500 response"
+      ],
+      "technicalNotes": [
+        "Remove TODO comments in src/routes/webhooks/index.ts and implement a handler dispatch map",
+        "Follow existing route patterns in src/routes/admin/ for consistent error handling and response shapes",
+        "Add WEBHOOK_SECRET env var for HMAC-SHA256 signature verification if not already present",
+        "Implement at minimum a payment_confirmed handler that sends a WhatsApp confirmation message"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-822",
+      "title": "Sentiment-based early escalation trigger in message processing pipeline",
+      "priority": "medium",
+      "description": "Current escalation triggers are intent-based, requiring users to explicitly request help. Frustrated or angry language is not detected, meaning the bot continues attempting to handle the situation without proactive human handoff. A lightweight sentiment check before intent classification enables early escalation before frustration peaks.",
+      "acceptanceCriteria": [
+        "Messages containing strong negative sentiment markers are detected in the pipeline before intent classification",
+        "If a user sends 3 or more messages with negative sentiment in a single session, the pipeline escalates to human",
+        "The escalation message to the user is empathetic and acknowledges frustration (configurable per profile)",
+        "Sentiment detection can be enabled or disabled per profile in admin settings",
+        "Sentiment-triggered escalation events are recorded in escalation_events table with reason='sentiment'",
+        "Sentiment detection does not add more than 50ms to the average message processing time"
+      ],
+      "technicalNotes": [
+        "Use a rule-based keyword/phrase list (not a separate LLM call) to avoid latency and cost",
+        "Initial negative marker set (EN): 'useless', 'terrible', 'awful', 'angry', 'never again', repeated '!!', 'ridiculous'",
+        "Track consecutive_negative_messages counter in session context (in-memory, not persisted to DB)",
+        "Add sentiment_escalation_enabled and sentiment_threshold to profile settings.json",
+        "Optional: include sentiment as a classified field in existing intent classification LLM prompt to avoid extra round-trip"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-823",
+      "title": "Restore prior conversation history on webchat widget page reload",
+      "priority": "medium",
+      "description": "When a user reloads the page or navigates away and returns to the webchat, the conversation history disappears even though a sessionId is stored in localStorage. Re-fetching and rendering prior messages on load reduces user frustration from having to repeat their queries and provides a professional chat experience.",
+      "acceptanceCriteria": [
+        "On widget initialization, if a sessionId exists in localStorage, the last 10 messages are fetched from the server",
+        "Fetched messages are rendered in the chat UI in chronological order before the input is enabled",
+        "A subtle visual divider labeled 'Previous conversation' separates restored history from the current session",
+        "History fetch fails gracefully: if the endpoint errors, the widget opens empty without displaying an error",
+        "History restoration is limited to 10 messages to avoid overwhelming the UI",
+        "Session continuity works across page refreshes within the same browser but not across different devices"
+      ],
+      "technicalNotes": [
+        "Add GET /api/chat/:profileId/history?sessionId=xxx endpoint returning last 10 messages",
+        "Defer the history fetch to widget open event (not initial page load) to avoid unnecessary requests",
+        "Webchat sessions already use sessionId in localStorage; use this as the message lookup key",
+        "rainbow_messages stores by phone field; for webchat, sessionId is used as the 'phone' equivalent"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-824",
+      "title": "Intent coverage gap analysis: surface high-frequency unmatched patterns in admin",
+      "priority": "medium",
+      "description": "When AI cannot match an intent, the unmatched message content is not surfaced for review. Clustering unmatched messages by topic reveals systematic coverage gaps, allowing staff to add intents or KB articles for the most common unanswered questions, directly improving resolution rate.",
+      "acceptanceCriteria": [
+        "Admin analytics panel has an Intent Gaps section showing the top 10 message patterns that triggered unknownFallback",
+        "Patterns are grouped by approximate semantic similarity or keyword frequency",
+        "Each gap cluster shows: an example message, count in last 30 days, and a Create Intent shortcut button",
+        "The Create Intent shortcut pre-fills the new intent dialog with the example message as a sample utterance",
+        "Gap analysis is scoped per profile (not aggregated globally)",
+        "Data is derived from message content stored when unknownFallback is triggered"
+      ],
+      "technicalNotes": [
+        "Store raw message text in intent_analytics when intent matches unknownFallback (add message_content column if missing)",
+        "MVP clustering: count word frequency across unmatched messages, return top 10 most common terms with examples",
+        "Add GET /api/admin/analytics/intent-gaps?profileId=&days=30 endpoint",
+        "Use existing intent editor component to handle the Create Intent shortcut with pre-filled utterance"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-825",
+      "title": "Automated daily chatbot performance summary sent to admin via WhatsApp",
+      "priority": "medium",
+      "description": "Operators have no passive visibility into daily Rainbow AI performance without actively opening the admin panel. An automated daily WhatsApp summary to the admin number provides a zero-effort overview of conversation volume, resolution rate, top intents, and any active alerts.",
+      "acceptanceCriteria": [
+        "A daily report is sent to a configured admin WhatsApp number at a configurable time (default 8AM local)",
+        "Report includes: total conversations in last 24h, AI resolution rate %, human handoffs count, top 3 intents, and fallback rate",
+        "Report is per-profile or cross-profile summary based on configuration",
+        "Report is only sent if at least 1 conversation occurred in the last 24 hours",
+        "Admin can enable/disable daily reports and set the delivery time in admin settings panel",
+        "Report delivery timestamp and status are logged for review"
+      ],
+      "technicalNotes": [
+        "Add a report generation function querying intent_analytics, escalation_events, rainbow_conversations",
+        "Schedule using existing cron/scheduler infrastructure",
+        "Send via Baileys existing sendMessage function (already used for escalation notifications)",
+        "Format as plain WhatsApp text using *bold* markdown, no HTML",
+        "Add daily_report block to settings.json: enabled, recipient_phone, send_time (HH:MM)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-826",
+      "title": "Webchat session idle timeout with configurable re-engagement message",
+      "priority": "medium",
+      "description": "Webchat sessions that go idle do not close gracefully or send re-engagement messages, leaving sessions open indefinitely and inflating active session counts. Best practice is a configurable idle timeout that sends a gentle re-engagement message before marking the session as timed out.",
+      "acceptanceCriteria": [
+        "Webchat sessions idle for more than the configured timeout (default 30 minutes) receive a re-engagement message",
+        "Re-engagement message text is configurable per profile in admin settings",
+        "If the user does not respond within 10 minutes of the re-engagement message, the session is marked as timed_out",
+        "Timed-out sessions are tracked in the database and excluded from active session count metrics",
+        "Session timeout duration is configurable per profile (default 30 minutes, min 5 minutes)",
+        "Re-engagement and timeout apply to webchat sessions only, NOT WhatsApp (where Meta manages session windows)"
+      ],
+      "technicalNotes": [
+        "Track last_activity_at on webchat sessions (add column to rainbow_conversations or a webchat_sessions table)",
+        "Implement a lazy-check approach: check idle time on each incoming message rather than a polling loop",
+        "Send re-engagement via existing webchat message delivery mechanism",
+        "Add session_timeout_minutes and reengagement_message fields to webchat profile settings.json block"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/data-makan/intents.json"
+      ]
+    },
+    {
+      "id": "US-827",
+      "title": "Profile configuration cloning: duplicate an existing profile as a starting template",
+      "priority": "low",
+      "description": "Creating a new business profile requires manually recreating all routing rules, intents, static replies, KB files, and settings. A profile clone feature lets operators create a new profile from an existing one as a template, dramatically reducing setup time when adding new properties or brands.",
+      "acceptanceCriteria": [
+        "Admin profile management view has a Clone Profile action for each existing profile",
+        "Cloning copies routing.json, knowledge.json, settings.json, and intent configs from the source profile",
+        "Cloned profile receives a new unique profileId and a user-specified display name",
+        "WhatsApp auth state is NOT copied (cloned profile starts without a connected phone number)",
+        "Admin sees a confirmation dialog listing exactly what will be copied before proceeding",
+        "Clone operation completes within 5 seconds and navigates admin to the new profile"
+      ],
+      "technicalNotes": [
+        "Add POST /api/admin/profiles/:sourceId/clone endpoint with { newProfileId, displayName } body",
+        "Deep-copy the source profile's rainbow_configs rows inserting with the new profileId prefix",
+        "Copy rainbow_kb_files metadata rows with the new profileId; do not copy actual KB file content on disk",
+        "Exclude whatsapp-auth/ directory and phone-number-specific settings from the clone",
+        "Return the new profileId so the admin panel can navigate directly to the cloned profile settings"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
+    },
+    {
+      "id": "US-828",
+      "title": "Admin UI for per-profile WhatsApp frequency cap and rate limit configuration",
+      "priority": "low",
+      "description": "Frequency cap rules (limiting outbound messages per user per day) exist as API-only settings with no admin UI. Staff cannot view or modify these rules without developer access, making the feature invisible to operators and preventing appropriate rate-limit tuning for different property types.",
+      "acceptanceCriteria": [
+        "Admin Settings panel has a Rate Limits section showing current frequency cap rules per profile",
+        "Admin can set the maximum outbound messages per user per 24-hour window via a numeric input",
+        "Admin can enable or disable rate limiting per profile without any code changes",
+        "When a rate limit is hit, the admin shows a count of rate-limited users in the last 24 hours",
+        "Settings changes take effect within 1 minute without requiring a server restart",
+        "Settings are persisted to rainbow_configs (the existing config persistence layer)"
+      ],
+      "technicalNotes": [
+        "Add a rate_limits section to settings.json schema with max_messages_per_user_per_24h and enabled fields",
+        "Add admin UI component in Settings tab: numeric input for max_messages_per_user_per_day + toggle",
+        "Rate limit enforcement logic already exists in the codebase; UI connects to the same settings.json config",
+        "Add GET /api/admin/rate-limits/stats?profileId= returning count of users who hit the cap in last 24h"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
     }
   ]
 }

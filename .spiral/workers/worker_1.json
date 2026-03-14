@@ -1,117 +1,742 @@
 {
-  "productName": "Rainbow AI — FnB AI Waiter Enhancement",
+  "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
   "branchName": "master",
-  "overview": "End-to-end AI waiter integration: rainbow-ai makan-moments profile handles customer chat from fnb-online-ordering, acting as MCP client to query live menu data and place orders in the fnb-online-ordering system. Customers at localhost:3031/en can chat with the AI waiter, ask about the menu, and place pre-orders — all powered by rainbow-ai's makan-moments profile calling back to fnb-online-ordering's MCP server.",
+  "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
   "goals": [
-    "Add /api/fnb/chat SSE endpoint in rainbow-ai so the fnb-online-ordering proxy can connect",
-    "Add FnB MCP client tools in rainbow-ai (menu browsing, order creation, order status)",
-    "Register FnB tools for makan-moments profile only, not hostel profiles",
-    "Configure makan-moments profile to use FnB tools when answering customer questions",
-    "Fix and verify end-to-end: customer chat → rainbow-ai → MCP call → live fnb data",
-    "Enhance fnb-online-ordering chat UI with order-aware quick replies and better UX"
+    "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
+    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble — chatWithToolsLoop sanitizes LLM output",
+    "Fix webchat-api tool injection: /chat/makan-moments widget gets FnB tool-calling capability",
+    "Fix unicode corruption in system prompt (em dash + rainbow emoji garbled)",
+    "Graceful tool-failure fallback: if FNB_MCP_URL is down, AI gives a helpful answer instead of hostel fallback",
+    "Regression tests for both image bugs"
   ],
   "userStories": [
     {
-      "id": "US-601",
-      "title": "Add /api/fnb/chat SSE streaming endpoint in rainbow-ai",
+      "id": "US-801",
+      "title": "Fix hostel fallback text appearing in makan-moments AI waiter",
       "priority": "high",
-      "description": "The fnb-online-ordering proxy at /api/chat/rainbow calls RAINBOW_AI_URL/api/fnb/chat but this endpoint does not exist in rainbow-ai yet. Create a POST /api/fnb/chat route that: accepts { messages: [{id,role,content,parts}] } (UIMessage array from Vercel AI SDK), routes to the makan-moments profile via profileRegistry, streams SSE events in format {\"type\":\"text\",\"text\":\"...\"} terminated with [DONE], and uses the existing processChat / chat-engine. Also accept the simpler { message: string, history: [], sessionId? } format for backwards compatibility.",
+      "description": "UNKNOWN_FALLBACK_MESSAGES.en in ai-response-generator.ts is hardcoded as 'I can help with bookings, check-in/out, amenities, and general hostel information.' When chatWithToolsLoop exhausts its 3 loops (e.g. FNB_MCP_URL is down), this hostel-specific text is returned to the makan-moments cafe widget (Image 3 bug). Fix by adding per-profile fallback support: read unknownFallback from the profile's settings.json so each profile can override the default, and set makan-moments to a cafe-appropriate fallback.",
       "acceptanceCriteria": [
-        "POST http://localhost:3002/api/fnb/chat with {\"messages\":[{\"id\":\"1\",\"role\":\"user\",\"content\":\"hello\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}]}]} returns SSE stream",
-        "SSE events are in format: data: {\"type\":\"text\",\"text\":\"...\"}\\n\\n",
-        "Stream ends with data: [DONE]\\n\\n",
-        "Uses makan-moments profile (not pelangi or southern)",
-        "Also accepts legacy { message: string, history: [] } format and converts to UIMessage[]",
-        "Rate limited to 10 req/min per IP (reuse webchat limiter)",
-        "TypeScript compiles without errors"
+        "getUnknownFallbackMessages() accepts an optional configStore parameter",
+        "When configStore is passed and has settings.unknownFallback.en, that value is used",
+        "data-makan/settings.json has unknownFallback.en with cafe-appropriate text (no hostel words)",
+        "data-makan/settings.json has unknownFallback.ms and unknownFallback.zh in Malay/Chinese",
+        "chatWithToolsLoop passes the profile configStore to get the fallback message",
+        "processChat() passes store to getUnknownFallbackMessages() in the catch-all fallback",
+        "npm run build passes"
       ],
       "technicalNotes": [
-        "Add the route in src/routes/public/webchat-api.ts or a new src/routes/public/fnb-chat.ts",
-        "Mount at app.use('/api/fnb', fnbChatRoutes) in src/index.ts",
-        "Reuse profileRegistry.getProfile('makan-moments') and the existing processChat function from chat-engine.ts",
-        "SSE format must match what fnb-online-ordering/src/app/api/chat/rainbow/route.ts expects: it reads data: lines, parses JSON, looks for parsed.type === 'text' && parsed.text",
-        "For streaming: use res.setHeader('Content-Type','text/event-stream'), write chunks as they come from the LLM",
-        "If processChat does not stream natively, call it and write the full response as a single SSE event",
-        "Add FNB_CHAT_RATE_LIMIT env var (default 10) for configurable rate limit"
+        "Edit src/assistant/ai-response-generator.ts: update getUnknownFallbackMessages() to accept optional configStore param. Update chatWithToolsLoop to call getUnknownFallbackMessages(profileConfigStore) for its fallback at line 142 and 183. Add optional configStore param to chatWithToolsLoop signature.",
+        "Edit src/assistant/chat-engine.ts: pass store to getUnknownFallbackMessages() in the catch-all fallback at the bottom of processChat(). Also pass store to chatWithToolsLoop.",
+        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '抱歉，我现在无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。'}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-802",
+      "title": "Fix raw JSON displayed in chat widget when LLM returns JSON format",
+      "priority": "high",
+      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop — if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
+      "acceptanceCriteria": [
+        "chatWithToolsLoop never returns a string starting with '{' to the caller",
+        "If LLM content is valid JSON with a 'response' or 'text' string field, that field value is returned",
+        "If JSON has no extractable text, profile-aware fallback is returned instead",
+        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' — chatWithToolsLoop must return 'Test reply'",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts: in chatWithToolsLoop, at line 141 where `return content || UNKNOWN_FALLBACK_MESSAGES.en`, add guard: if (content && looksLikeJson(content)) { try { const j = JSON.parse(content); const extracted = j.response || j.text || j.message || null; if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted; } catch {} return UNKNOWN_FALLBACK_MESSAGES.en; } return content || UNKNOWN_FALLBACK_MESSAGES.en",
+        "Also apply the same guard at line 182 (max loops exhausted last content): before returning UNKNOWN_FALLBACK_MESSAGES.en, check if the last message in messages has content that looks like JSON and try to extract from it."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-803",
+      "title": "Inject FnB tools into webchat-api for makan-moments profile",
+      "priority": "high",
+      "description": "webchat-api.ts (/api/chat/:profileId/message) calls processChat() WITHOUT tools for ALL profiles. This means the embedded rainbow-ai widget at /chat/makan-moments cannot use FnB tools (menu lookup, order placement). Fix: when profileId === 'makan-moments', pass toolRegistry.getToolsForProfile('makan-moments') and toolRegistry.getHandlersForProfile('makan-moments') to processChat().",
+      "acceptanceCriteria": [
+        "POST /api/chat/makan-moments/message triggers chatWithToolsLoop (tool_use intent in result)",
+        "POST /api/chat/pelangi/message still uses the non-tool path (no tools passed)",
+        "Tool injection does not break other profiles",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/routes/public/webchat-api.ts: add import { toolRegistry } from '../../tools/registry.js'. In the POST handler, after resolving profile, before calling processChat(), add: const fnbTools = profileId === 'makan-moments' ? toolRegistry.getToolsForProfile('makan-moments') : []; const fnbHandlers = profileId === 'makan-moments' ? toolRegistry.getHandlersForProfile('makan-moments') : new Map(); Then add tools: fnbTools, toolHandlers: fnbHandlers to the processChat() call."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-804",
+      "title": "Fix corrupted unicode in makan-moments system prompt (em dash + emoji)",
+      "priority": "medium",
+      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: 'â\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt sign-off is properly encoded (no 'â' or garbled bytes)",
+        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('â'))\" returns false",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: use Python to load the file with utf-8 encoding, fix any garbled sign-off in system_prompt by replacing the corrupted byte sequences with proper unicode em dash (\\u2014) and rainbow emoji (\\U0001f308), then write back with json.dump(d, f, indent=2, ensure_ascii=False). Read the file, detect and fix the mojibake."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-805",
+      "title": "chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail",
+      "priority": "medium",
+      "description": "When FNB_MCP_URL is unavailable, every tool call in chatWithToolsLoop returns an error. The LLM sees 3 rounds of error responses and finally exhausts max loops, returning an unhelpful fallback. Fix: track if ALL tool calls across loops failed. If so, make one final LLM call WITHOUT tools (just the conversation) to get at least a helpful general response, before falling back to the profile fallback text.",
+      "acceptanceCriteria": [
+        "When all tool results have isError:true, chatWithToolsLoop makes a final toolless LLM call",
+        "Final call uses the same system prompt and conversation history but no tools array",
+        "If final call also fails, returns profile-aware fallback (not hardcoded hostel text)",
+        "Test: mock all tool handlers to return {isError:true} — result should be a non-empty meaningful text, not the hostel fallback",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts chatWithToolsLoop: add a boolean allToolsFailed = false. After the loop, if all tool calls had isError:true (track with a counter), make one extra call: const { content: finalContent } = await chatWithFallback(messages.filter(m => m.role !== 'tool'), maxTokens, temp, false, undefined, undefined). Return finalContent if truthy and not JSON. The messages filtered are the original without tool results."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-806",
+      "title": "Vitest regression tests for Image 3 and Image 4 bugs",
+      "priority": "medium",
+      "description": "Write targeted tests to prevent regression of the two bugs seen in the screenshots: (1) hostel fallback text appearing in makan-moments widget, (2) raw JSON being returned from chatWithToolsLoop. Also test the webchat-api tool injection fix.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/fnb-widget-bugs.test.ts exists",
+        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' → result is 'OK' (not raw JSON)",
+        "Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel' or 'check-in' or 'bookings'",
+        "Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'",
+        "npm run test:run passes"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "Import chatWithToolsLoop from '../../assistant/ai-response-generator.js'",
+        "Import looksLikeJson from '../../assistant/ai-response-generator.js'",
+        "Test 1: vi.stubGlobal mock chatWithFallback to return {content: '{\"intent\":\"menu_query\",\"response\":\"Here is the menu\",\"confidence\":0.5}', toolCalls:[]}. Call chatWithToolsLoop(...). Expect result === 'Here is the menu'.",
+        "Test 2: mock all tool handlers to return {content:[{type:'text',text:'Error'}],isError:true}. Mock final LLM to return {content:'Sorry, our ordering system is unavailable.'}. Expect result does not contain 'hostel' or 'check-in'.",
+        "Test 3: import getUnknownFallbackMessages. Call with a mock configStore for makan-moments that has unknownFallback.en set. Expect result.en to not contain 'hostel'."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-807",
+      "title": "Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off",
+      "priority": "low",
+      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '— Makan Moments AI' (cafe-appropriate, no hostel branding).",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt instructs sign-off as cafe-appropriate name, not generic hostel Rainbow",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: in system_prompt, update the sign-off instruction to say: Sign off messages with '\\u2014 Makan Moments AI'. Use Python to load/save with ensure_ascii=False."
+      ],
+      "dependencies": [
+        "US-804"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-808",
+      "title": "Add static replies for widget quick-reply buttons (vegetarian, budget, hours, specials)",
+      "priority": "high",
+      "description": "The widget quick-reply buttons (\"Any vegetarian options?\", \"What's under RM15?\") currently trigger LLM calls, which are slow and unreliable when FNB_MCP_URL is down. Add specific intents and static knowledge replies so these common questions get instant answers from the admin-configurable responses at http://localhost:3002/#responses, with no LLM call needed.",
+      "acceptanceCriteria": [
+        "data-makan/intents.json has 4 new intents: vegetarian_query, budget_query, specials_query, and operating_hours updated with new patterns",
+        "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
+        "data-makan/routing.json maps operating_hours to action: static_reply",
+        "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
+        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
+        "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
+        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
+        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
+        "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
+        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-809",
+      "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
+      "priority": "high",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "acceptanceCriteria": [
+        "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
+        "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
+        "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
+        "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
+        "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
+        "Refreshing the page restores both the tab and the profile from the URL",
+        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/public/js/core/tabs.js: update getTabInfoFromUrl() to return {main, profileId, sub} where profileId = parts[1] if parts.length >= 2 and parts[1] is a valid profile ID (check against window.KNOWN_PROFILE_IDS or just accept any non-subtab string). Sub becomes parts[2] when profileId is present.",
+        "Define PROFILE_SPECIFIC_TABS = [\"dashboard\",\"intents\",\"understanding\",\"responses\",\"performance\",\"chat-simulator\",\"tests\",\"knowledge-base\",\"workflows\"] in tabs.js.",
+        "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
+        "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
+        "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
+        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
-      "id": "US-605",
-      "title": "Verify /api/fnb/chat connects to makan-moments profile with FnB MCP tools end-to-end",
+      "id": "US-810",
+      "title": "WCAG 2.1 AA keyboard accessibility for webchat widget",
       "priority": "high",
-      "description": "Full integration test: start rainbow-ai dev server, call /api/fnb/chat, verify it uses makan-moments profile, verify the AI can call fnb_get_menu tool and return live menu data. Fix any wiring issues discovered. Also verify the fnb-online-ordering proxy (/api/chat/rainbow) successfully connects when RAINBOW_AI_URL=http://localhost:3002. Test message: 'What's on the menu?' should result in AI calling fnb_get_menu and returning real menu items.",
+      "description": "The webchat widget lacks required ARIA attributes and keyboard navigation support, blocking screen reader users and violating WCAG 2.1 AA. The message container needs role='log' for screen reader announcements, the toggle button needs aria-expanded, the input needs aria-label, and focus must be trapped inside the open panel with Escape-to-close.",
       "acceptanceCriteria": [
-        "POST /api/fnb/chat with 'What's on the menu?' triggers fnb_get_menu tool call in rainbow-ai logs",
-        "Response contains actual menu items from fnb-online-ordering database",
-        "No TypeScript build errors in rainbow-ai",
-        "fnb-online-ordering can build without errors (npm run build in that project)",
-        "curl test documented: curl -X POST http://localhost:3002/api/fnb/chat -H 'Content-Type: application/json' -d '{\"message\":\"what is on the menu\",\"history\":[]}' returns SSE with menu data"
+        "Message container div has role='log' and aria-label='Chat conversation'",
+        "Toggle/bubble button has aria-expanded='true'/'false' reflecting panel open state",
+        "Textarea input has an explicit aria-label attribute (e.g., 'Type your message')",
+        "Tab key cycles focus within the open panel without escaping to page content behind widget",
+        "Pressing Escape closes the panel and returns focus to the toggle button",
+        "Send button has aria-label='Send message'",
+        "New AI messages are announced by screen readers via the aria-live region"
       ],
       "technicalNotes": [
-        "This story is integration/wiring — fix any issues found when running the actual test",
-        "Common issues to check: CORS, tool execution not happening, profile not found, MCP URL wrong",
-        "Add FNB_MCP_URL=http://localhost:3031/api/mcp to .env.pelangi.local example (or .env.example)",
-        "Ensure rainbow-ai's makan-moments profile calls tools during chat (check workflow-executor.ts or chat-engine.ts for tool calling)",
-        "If tools are not being called, may need to enable tool_use mode in makan-moments AI settings"
+        "Add role='log' aria-live='polite' to the #chat-messages container in webchat.html",
+        "Add aria-expanded attribute to the .chat-widget-button toggle, updated via JS on open/close",
+        "Implement focus-trap: intercept Tab/Shift+Tab inside .chat-widget when visible, cycle focus within panel",
+        "Bind keydown event on widget container: Escape closes panel and restores focus to trigger button"
       ],
-      "dependencies": [
-        "US-601",
-        "US-604"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-606",
-      "title": "Enhance fnb-online-ordering AI waiter chat UI with order-aware quick replies",
-      "priority": "medium",
-      "description": "Update the fnb-online-ordering chat widget to be more order-aware. Update the QuickReplies component at src/components/chat/quick-replies.tsx to include FnB-specific suggestions: 'Show me the menu', 'What are today's specials?', 'Place an order', 'Check my order status', 'What time do you open?'. Also update chat-panel.tsx to: (1) show an 'Add items to tray' button when the AI mentions specific menu items in its response, (2) display a visual order confirmation step when the AI creates an order. The chat should feel like a natural ordering assistant.",
-      "acceptanceCriteria": [
-        "QuickReplies shows 'Show me the menu' and 'Place an order' as initial suggestions",
-        "After AI mentions menu items, quick replies update to context-aware suggestions",
-        "When AI creates an order (response mentions order ID MM-XXXX), a confirmation card appears in chat",
-        "Order confirmation card shows: order ID, items, total, and a 'Track my order' link",
-        "Chat placeholder text updated to 'Ask about the menu or place an order...'",
-        "No TypeScript errors in fnb-online-ordering"
-      ],
-      "technicalNotes": [
-        "File: src/components/chat/quick-replies.tsx — update initial quick reply buttons",
-        "File: src/components/chat/chat-panel.tsx — add order confirmation parsing",
-        "File: src/components/chat/chat-bubble.tsx — optionally add special rendering for order confirmations",
-        "Parse AI response for order ID pattern MM-[A-Z0-9]{4} and render a card",
-        "Use the existing tray state to pre-fill items if the AI suggests adding to order",
-        "The NEXT_PUBLIC_RAINBOW_AI_URL env var in fnb-online-ordering may need updating (currently used as link in chat header)"
-      ],
-      "dependencies": [
-        "US-605"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-607",
-      "title": "Add .env.example documentation for FnB AI waiter integration in rainbow-ai",
-      "priority": "low",
-      "description": "Update rainbow-ai's .env.example to document all environment variables needed for the FnB AI waiter integration: FNB_MCP_URL (URL of fnb-online-ordering /api/mcp endpoint), FNB_MCP_SECRET (shared secret matching FNB_MCP_SECRET in fnb-online-ordering), FNB_CHAT_RATE_LIMIT (max chat requests per minute, default 10). Also update WIDGET_SETTINGS.md (untracked file in rainbow-ai) with instructions for embedding the AI waiter in fnb-online-ordering.",
-      "acceptanceCriteria": [
-        ".env.example has FNB_MCP_URL with comment explaining its purpose",
-        ".env.example has FNB_MCP_SECRET with comment",
-        "WIDGET_SETTINGS.md documents how to connect fnb-online-ordering to rainbow-ai",
-        "README or WIDGET_SETTINGS.md has a quick-start curl test for /api/fnb/chat"
-      ],
-      "technicalNotes": [
-        "Check existing .env.example in rainbow-ai root",
-        "WIDGET_SETTINGS.md is already an untracked file — update it",
-        "Add a section: FnB AI Waiter Integration with step-by-step setup"
-      ],
-      "dependencies": [
-        "US-605"
-      ],
+      "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-811",
+      "title": "CSAT and resolution rate analytics with alert thresholds in admin dashboard",
+      "priority": "high",
+      "description": "The admin dashboard lacks a unified view of the three most critical chatbot KPIs: CSAT score, AI resolution rate, and human handoff rate. Industry benchmarks set alert thresholds at CSAT < 80% and resolution rate < 60%. Without these alerts, performance degradation can go undetected for weeks.",
+      "acceptanceCriteria": [
+        "Analytics dashboard shows CSAT score (from conversation_feedback table) as a percentage, updated daily",
+        "Resolution rate metric shows % of conversations closed by AI (no escalation) vs. total conversations",
+        "Human handoff rate shows % of conversations that triggered an escalation_event",
+        "Fallback rate shows % of messages that matched unknownFallback intent",
+        "Visual alert is displayed when CSAT drops below 80% or resolution rate drops below 60%",
+        "All four metrics are filterable by profile and by date range (7d / 30d / 90d)",
+        "Metrics are displayed per-profile separately, not aggregated globally only"
+      ],
+      "technicalNotes": [
+        "CSAT data source: conversation_feedback table (already exists in Drizzle schema)",
+        "Resolution rate: query escalation_events count vs rainbow_conversations count per period",
+        "Fallback rate: query intent_analytics WHERE intent_id matches unknownFallback pattern",
+        "Add GET /api/admin/analytics/kpis?profileId=&days= endpoint returning all four metrics",
+        "Add visual threshold indicators (red badge or warning banner) when metric crosses alert threshold"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-813",
+      "title": "Human handoff escalation notification includes last 5 messages of conversation",
+      "priority": "high",
+      "description": "When Rainbow AI escalates to human staff, the current notification sends a minimal alert. Staff must manually look up the conversation in the admin panel, causing delays. Best practice requires passing full conversation history in the handoff so staff can respond immediately without context-switching.",
+      "acceptanceCriteria": [
+        "Staff escalation notification includes the last 5 messages of the conversation (user and assistant turns)",
+        "Notification includes guest name (push_name), phone number, and the escalation trigger reason",
+        "Notification includes a direct deep-link to the conversation in the admin panel",
+        "If escalation is triggered by a specific intent or keyword, that trigger is identified in the notification body",
+        "Escalation notification format is consistent across all profiles (hostel and cafe)",
+        "Full conversation history remains accessible via the admin panel deep-link"
+      ],
+      "technicalNotes": [
+        "Modify the escalation notification handler in src/routes/admin/ or pipeline/ to fetch last 5 messages",
+        "Query rainbow_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 5",
+        "Admin panel deep-link format: /admin#conversations?profileId={id}&phone={phone}",
+        "Include escalation reason label (e.g., 'Keyword match: refund', 'Workflow: complaint escalation')"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-814",
+      "title": "Daily fallback rate alert notification when AI misunderstanding exceeds 20%",
+      "priority": "high",
+      "description": "When the unknownFallback intent fires for more than 20% of messages, it signals significant knowledge base or intent coverage gaps. Without automated alerts, this can persist for days undetected. A daily threshold check that notifies admins enables rapid remediation before guest experience degrades.",
+      "acceptanceCriteria": [
+        "A scheduled daily check calculates the fallback rate (unknownFallback / total intents) per profile",
+        "If fallback rate exceeds the configured threshold (default 20%) for any profile, an alert notification is sent",
+        "Alert message identifies the profile name, the fallback rate percentage, and the count of unmatched messages",
+        "Alert is NOT sent when fallback rate is below threshold (no noise for healthy profiles)",
+        "Admin can configure the alert threshold and enable/disable alerts per profile in admin settings",
+        "Alert history is logged with timestamp, profile, and rate for review in the admin panel"
+      ],
+      "technicalNotes": [
+        "Add a scheduled job using existing cron/scheduler infrastructure, default run at 8AM server time",
+        "Query intent_analytics for past 24h, group by intent_id, calculate fallback ratio",
+        "Send alert via existing Baileys WhatsApp send or staff notification channel (whichever is configured)",
+        "Add fallback_alert_enabled, fallback_alert_threshold, and fallback_alert_recipient to settings.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/chat-engine.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-816",
+      "title": "Lazy-load webchat widget JS bundle to avoid Core Web Vitals regression",
+      "priority": "medium",
+      "description": "The current widget.js loads synchronously on embed, inflating INP and potentially delaying LCP for host pages. Industry benchmarks show chat widgets under 100KB transferred and deferred to browser idle time maintain Google's 2025 Core Web Vitals thresholds (INP < 200ms, LCP < 2.5s). Only the toggle bubble should load initially; the full panel loads on first click.",
+      "acceptanceCriteria": [
+        "Widget script is injected dynamically (not as a static <script src> tag in the host page HTML)",
+        "Widget initialization is deferred with requestIdleCallback or a 3-second setTimeout fallback",
+        "Only the toggle bubble renders on initial page load; the full chat panel JS loads on first user click",
+        "Widget JS bundle size is under 100KB transferred (gzip)",
+        "Host page LCP does not increase by more than 200ms when the widget is embedded"
+      ],
+      "technicalNotes": [
+        "Refactor widget.js to export an init() function that lazily renders the full panel on first click",
+        "The embed snippet (window.__rbw / data-* attributes) should inject only the bubble on DOMContentLoaded",
+        "Use dynamic import() or a lazy-load pattern for the heavy chat panel component",
+        "Test with Google Lighthouse or PageSpeed Insights against a real host page"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts"
+      ]
+    },
+    {
+      "id": "US-817",
+      "title": "Export individual conversation transcript as JSON or PDF from admin",
+      "priority": "medium",
+      "description": "Staff cannot export a single conversation's history for dispute resolution, training data collection, or compliance purposes. Only bulk analytics CSVs are available today. A per-conversation export in JSON or PDF format is standard in all major customer service platforms.",
+      "acceptanceCriteria": [
+        "Admin conversation detail view has an Export button offering JSON and PDF format options",
+        "JSON export includes all messages with timestamps, roles (user/assistant/staff), and intent labels",
+        "PDF export renders messages in a human-readable chat layout with a branding header",
+        "Export endpoint is protected by admin authentication and scoped to the active profileId",
+        "Export filename includes masked phone number and date range (e.g., conv_6012xxxx_2026-03-14.json)",
+        "Export is available for all conversation statuses (active, closed, escalated)"
+      ],
+      "technicalNotes": [
+        "Add GET /api/admin/conversations/:id/export?format=json|pdf endpoint",
+        "JSON: serialize rainbow_messages rows for the conversation sorted by created_at",
+        "PDF: use pdfkit (Node.js native) or HTML-to-canvas approach to render chat bubbles layout",
+        "Mask last 4 digits of phone number in exported filename for PII compliance (keep full number in file body)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-818",
+      "title": "Full-text search across conversation message content in admin panel",
+      "priority": "medium",
+      "description": "The admin conversations panel currently filters only by phone number or contact name. Staff cannot search for keywords within message bodies (e.g., find all conversations where guests mentioned 'refund' or 'broken AC'). PostgreSQL full-text search via a GIN index on rainbow_messages.content enables this efficiently at scale.",
+      "acceptanceCriteria": [
+        "Admin conversations panel has a search input that searches message content in addition to phone/name",
+        "Search returns conversations containing the search term in any message (user or assistant turn)",
+        "Results are ordered by most recent matching conversation first",
+        "Search is scoped to the currently selected profileId",
+        "Search supports partial word matching (e.g., 'refun' matches 'refund')",
+        "Search results load within 2 seconds for tables with up to 100,000 messages"
+      ],
+      "technicalNotes": [
+        "Add a GIN index on rainbow_messages.content using PostgreSQL to_tsvector for large datasets",
+        "For MVP, ILIKE '%term%' with LIMIT 50 is sufficient; add GIN index when table exceeds 50k rows",
+        "Add GET /api/admin/conversations/search?q=&profileId= endpoint",
+        "Update conversations list component to debounce search input 300ms before API call"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-819",
+      "title": "Template variable interpolation in static reply messages ({{guestName}}, etc.)",
+      "priority": "medium",
+      "description": "Static replies send fixed text strings with no personalization. Support for template variables like {{guestName}}, {{checkInDate}}, and {{profileName}} would allow staff to create personalized automated responses without LLM calls, improving quality while keeping latency near zero for common greetings and confirmations.",
+      "acceptanceCriteria": [
+        "Static reply templates can include {{variableName}} placeholders in their text content",
+        "On send, available variables (guestName, checkInDate, checkOutDate, profileName) are resolved from session context",
+        "Unresolvable variables fall back to an empty string or configurable default (e.g., 'our valued guest')",
+        "Admin editor shows a popover listing supported {{variables}} when editing a static reply text field",
+        "Variable substitution is applied before the message is sent; the raw template is stored in the config",
+        "Existing static replies without variables continue to work unchanged"
+      ],
+      "technicalNotes": [
+        "Implement an interpolate(template: string, variables: Record<string, string>) utility in src/assistant/",
+        "Variable context: profileName from settings.json; guest data from active session if tool result is available",
+        "Apply interpolation in the static_reply action handler just before message delivery",
+        "Admin UI change: add a help tooltip showing {{guestName}}, {{checkInDate}}, {{profileName}} as supported vars"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/data-makan/knowledge.json"
+      ]
+    },
+    {
+      "id": "US-820",
+      "title": "Server-Sent Events streaming for progressive AI responses in webchat widget",
+      "priority": "medium",
+      "description": "The webchat widget waits for the full AI response before displaying it, causing a blank 3-10 second wait. Industry best practice is to stream AI tokens progressively using SSE or chunked transfer, reducing perceived latency to near-instant first-token display. Both OpenRouter and NVIDIA providers support OpenAI-compatible streaming.",
+      "acceptanceCriteria": [
+        "POST /api/chat/:profileId/message returns a streaming SSE response for LLM-generated replies",
+        "The webchat.html renders tokens as they arrive, appending to the current assistant message bubble",
+        "A typing indicator (animated dots) is shown from message submission until the first token arrives",
+        "Streaming falls back gracefully to non-streaming single response if the provider does not support it",
+        "Static replies (pre-written responses) return instantly with no streaming overhead",
+        "Streaming works correctly with tool calls: tools execute server-side, then response text streams after"
+      ],
+      "technicalNotes": [
+        "Use EventSource (SSE) on client with text/event-stream content type on server",
+        "OpenRouter streaming: add stream: true to completions request, pipe response chunks as SSE events",
+        "NVIDIA NIM/Kimi K2.5 supports OpenAI-compatible streaming via the same stream: true flag",
+        "Tool calls must complete before streaming text phase begins (tool results are not streamed to client)",
+        "Add X-Accel-Buffering: no header for Nginx proxy compatibility with SSE"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-823",
+      "title": "Restore prior conversation history on webchat widget page reload",
+      "priority": "medium",
+      "description": "When a user reloads the page or navigates away and returns to the webchat, the conversation history disappears even though a sessionId is stored in localStorage. Re-fetching and rendering prior messages on load reduces user frustration from having to repeat their queries and provides a professional chat experience.",
+      "acceptanceCriteria": [
+        "On widget initialization, if a sessionId exists in localStorage, the last 10 messages are fetched from the server",
+        "Fetched messages are rendered in the chat UI in chronological order before the input is enabled",
+        "A subtle visual divider labeled 'Previous conversation' separates restored history from the current session",
+        "History fetch fails gracefully: if the endpoint errors, the widget opens empty without displaying an error",
+        "History restoration is limited to 10 messages to avoid overwhelming the UI",
+        "Session continuity works across page refreshes within the same browser but not across different devices"
+      ],
+      "technicalNotes": [
+        "Add GET /api/chat/:profileId/history?sessionId=xxx endpoint returning last 10 messages",
+        "Defer the history fetch to widget open event (not initial page load) to avoid unnecessary requests",
+        "Webchat sessions already use sessionId in localStorage; use this as the message lookup key",
+        "rainbow_messages stores by phone field; for webchat, sessionId is used as the 'phone' equivalent"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-824",
+      "title": "Intent coverage gap analysis: surface high-frequency unmatched patterns in admin",
+      "priority": "medium",
+      "description": "When AI cannot match an intent, the unmatched message content is not surfaced for review. Clustering unmatched messages by topic reveals systematic coverage gaps, allowing staff to add intents or KB articles for the most common unanswered questions, directly improving resolution rate.",
+      "acceptanceCriteria": [
+        "Admin analytics panel has an Intent Gaps section showing the top 10 message patterns that triggered unknownFallback",
+        "Patterns are grouped by approximate semantic similarity or keyword frequency",
+        "Each gap cluster shows: an example message, count in last 30 days, and a Create Intent shortcut button",
+        "The Create Intent shortcut pre-fills the new intent dialog with the example message as a sample utterance",
+        "Gap analysis is scoped per profile (not aggregated globally)",
+        "Data is derived from message content stored when unknownFallback is triggered"
+      ],
+      "technicalNotes": [
+        "Store raw message text in intent_analytics when intent matches unknownFallback (add message_content column if missing)",
+        "MVP clustering: count word frequency across unmatched messages, return top 10 most common terms with examples",
+        "Add GET /api/admin/analytics/intent-gaps?profileId=&days=30 endpoint",
+        "Use existing intent editor component to handle the Create Intent shortcut with pre-filled utterance"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-825",
+      "title": "Automated daily chatbot performance summary sent to admin via WhatsApp",
+      "priority": "medium",
+      "description": "Operators have no passive visibility into daily Rainbow AI performance without actively opening the admin panel. An automated daily WhatsApp summary to the admin number provides a zero-effort overview of conversation volume, resolution rate, top intents, and any active alerts.",
+      "acceptanceCriteria": [
+        "A daily report is sent to a configured admin WhatsApp number at a configurable time (default 8AM local)",
+        "Report includes: total conversations in last 24h, AI resolution rate %, human handoffs count, top 3 intents, and fallback rate",
+        "Report is per-profile or cross-profile summary based on configuration",
+        "Report is only sent if at least 1 conversation occurred in the last 24 hours",
+        "Admin can enable/disable daily reports and set the delivery time in admin settings panel",
+        "Report delivery timestamp and status are logged for review"
+      ],
+      "technicalNotes": [
+        "Add a report generation function querying intent_analytics, escalation_events, rainbow_conversations",
+        "Schedule using existing cron/scheduler infrastructure",
+        "Send via Baileys existing sendMessage function (already used for escalation notifications)",
+        "Format as plain WhatsApp text using *bold* markdown, no HTML",
+        "Add daily_report block to settings.json: enabled, recipient_phone, send_time (HH:MM)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-826",
+      "title": "Webchat session idle timeout with configurable re-engagement message",
+      "priority": "medium",
+      "description": "Webchat sessions that go idle do not close gracefully or send re-engagement messages, leaving sessions open indefinitely and inflating active session counts. Best practice is a configurable idle timeout that sends a gentle re-engagement message before marking the session as timed out.",
+      "acceptanceCriteria": [
+        "Webchat sessions idle for more than the configured timeout (default 30 minutes) receive a re-engagement message",
+        "Re-engagement message text is configurable per profile in admin settings",
+        "If the user does not respond within 10 minutes of the re-engagement message, the session is marked as timed_out",
+        "Timed-out sessions are tracked in the database and excluded from active session count metrics",
+        "Session timeout duration is configurable per profile (default 30 minutes, min 5 minutes)",
+        "Re-engagement and timeout apply to webchat sessions only, NOT WhatsApp (where Meta manages session windows)"
+      ],
+      "technicalNotes": [
+        "Track last_activity_at on webchat sessions (add column to rainbow_conversations or a webchat_sessions table)",
+        "Implement a lazy-check approach: check idle time on each incoming message rather than a polling loop",
+        "Send re-engagement via existing webchat message delivery mechanism",
+        "Add session_timeout_minutes and reengagement_message fields to webchat profile settings.json block"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/data-makan/intents.json"
+      ]
+    },
+    {
+      "id": "US-827",
+      "title": "Profile configuration cloning: duplicate an existing profile as a starting template",
+      "priority": "low",
+      "description": "Creating a new business profile requires manually recreating all routing rules, intents, static replies, KB files, and settings. A profile clone feature lets operators create a new profile from an existing one as a template, dramatically reducing setup time when adding new properties or brands.",
+      "acceptanceCriteria": [
+        "Admin profile management view has a Clone Profile action for each existing profile",
+        "Cloning copies routing.json, knowledge.json, settings.json, and intent configs from the source profile",
+        "Cloned profile receives a new unique profileId and a user-specified display name",
+        "WhatsApp auth state is NOT copied (cloned profile starts without a connected phone number)",
+        "Admin sees a confirmation dialog listing exactly what will be copied before proceeding",
+        "Clone operation completes within 5 seconds and navigates admin to the new profile"
+      ],
+      "technicalNotes": [
+        "Add POST /api/admin/profiles/:sourceId/clone endpoint with { newProfileId, displayName } body",
+        "Deep-copy the source profile's rainbow_configs rows inserting with the new profileId prefix",
+        "Copy rainbow_kb_files metadata rows with the new profileId; do not copy actual KB file content on disk",
+        "Exclude whatsapp-auth/ directory and phone-number-specific settings from the clone",
+        "Return the new profileId so the admin panel can navigate directly to the cloned profile settings"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
+    },
+    {
+      "id": "US-828",
+      "title": "Admin UI for per-profile WhatsApp frequency cap and rate limit configuration",
+      "priority": "low",
+      "description": "Frequency cap rules (limiting outbound messages per user per day) exist as API-only settings with no admin UI. Staff cannot view or modify these rules without developer access, making the feature invisible to operators and preventing appropriate rate-limit tuning for different property types.",
+      "acceptanceCriteria": [
+        "Admin Settings panel has a Rate Limits section showing current frequency cap rules per profile",
+        "Admin can set the maximum outbound messages per user per 24-hour window via a numeric input",
+        "Admin can enable or disable rate limiting per profile without any code changes",
+        "When a rate limit is hit, the admin shows a count of rate-limited users in the last 24 hours",
+        "Settings changes take effect within 1 minute without requiring a server restart",
+        "Settings are persisted to rainbow_configs (the existing config persistence layer)"
+      ],
+      "technicalNotes": [
+        "Add a rate_limits section to settings.json schema with max_messages_per_user_per_24h and enabled fields",
+        "Add admin UI component in Settings tab: numeric input for max_messages_per_user_per_day + toggle",
+        "Rate limit enforcement logic already exists in the codebase; UI connects to the same settings.json config",
+        "Add GET /api/admin/rate-limits/stats?profileId= returning count of users who hit the cap in last 24h"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
     }
   ]
 }
