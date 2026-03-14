@@ -5877,3 +5877,36 @@ Complete: Webchat session idle timeout with configurable re-engagement message (
 ### Gotchas
 - The `phone` variable was declared multiple times in webchat-api.ts POST handler (different scopes). Cleaned up duplicates.
 - Settings are accessed via `profile.configStore.getSettings()` which returns an untyped object — used `as any` cast for webchat_idle access
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the profile cloning feature.
+
+**Project:** Rainbow AI (Node.js/TypeScript)
+**Objective:** Implement US-827: Clone an existing profile as a new template.
+
+**1. Files to Modify:**
+*   `src/routes/admin.ts` (or similar): To add the new API endpoint.
+*   `src/lib/profiles.ts` (or create new): For the core cloning business logic.
+*   `shared/schema.ts`: To reference the Drizzle ORM table schemas (`rainbowConfigs`, `rainbowKbFiles`).
+
+**2. Frappe DocTypes/Hooks (Project Analogs):**
+*   **DocTypes:** The relevant data structures are the Drizzle schemas `rainbowConfigs` and `rainbowKbFiles`.
+*   **Hooks:** The primary hook is the new API route handler for `POST /api/admin/profiles/:sourceId/clone`.
+
+**3. Recommended Implementation Approach:**
+*   In `src/routes/admin.ts`, define the new endpoint. Ensure it uses admin-level authentication middleware.
+*   The route handler should extract `sourceId`, `newProfileId`, and `displayName` from the request.
+*   Implement the core logic within a database transaction (`db.transaction(async (tx) => { ... })`).
+*   Inside the transaction:
+    *   Fetch all `rainbow_configs` rows where `profileId` matches the `sourceId`.
+    *   Map over the results, creating new objects with the `newProfileId` and insert them as a batch (`tx.insert(rainbowConfigs).values(...)`).
+    *   Repeat the fetch-map-insert process for the `rainbow_kb_files` table.
+*   Return the `{ newProfileId }` in a 201 response on success.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** Use a DB transaction to prevent partial clones if an error occurs midway through.
+*   **Uniqueness:** The `newProfileId` must be unique. The database will likely throw an error; catch this and return a 409 Conflict status.
+*   **Exclusions:** Explicitly ensure WhatsApp auth state, phone numbers, or other instance-specific settings are not copied, per the technical notes.
+*   **Performance:** Use Drizzle's batch insert capability for efficiency to meet the 5-second completion requirement.
+

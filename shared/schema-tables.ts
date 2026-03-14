@@ -192,6 +192,9 @@ export const escalationEvents = pgTable("escalation_events", {
   metadata: text("metadata"), // JSON string for additional context
   summary: text("summary"), // US-429: AI-generated warm handoff summary
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // US-836: SLA timer fields
+  slaBreachedAt: timestamp("sla_breached_at"),       // set when SLA window expires without human response
+  humanRespondedAt: timestamp("human_responded_at"), // set when outbound message sent after escalation
 }, (table) => ([
   index("idx_escalation_events_jid").on(table.jid),
   index("idx_escalation_events_trigger").on(table.trigger),
