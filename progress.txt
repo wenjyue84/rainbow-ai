@@ -6024,3 +6024,58 @@ Here is the technical brief for implementing the story in the correct (TypeScrip
 ### Gotchas
 - `experimentsConfigSchema` had to be moved BEFORE `settingsDataSchema` to avoid ReferenceError at runtime (ESM const temporal dead zone)
 - Experiment variant is resolved per-message at the KB loading stage, not cached, ensuring hot config changes take effect immediately
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the user story JSON, the request concerns a Node.js/TypeScript application, not a Frappe/Python one. The following technical brief is adjusted for the actual project context provided.
+
+***
+
+**Technical Brief for US-827: Profile Cloning**
+
+**1. Python Files to Modify / Tech Stack:**
+The user story and project structure point to a **Node.js/TypeScript** stack. No Python/Frappe files are involved. Likely candidates for modification are:
+*   `src/routes/admin/profiles.ts` (or similar): To define the new `POST .../:sourceId/clone` API endpoint.
+*   `src/services/ProfileService.ts` (or similar): To implement the core business logic for cloning.
+*   `src/lib/db/schema.ts`: To reference the schemas for database operations.
+
+**2. Frappe DocTypes / Key Components:**
+This project uses a database, not Frappe DocTypes. The key components are:
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Database Tables:** A main `profiles` table, `rainbow_configs` for settings, and `rainbow_kb_files` for knowledge base metadata.
+
+**3. Recommended Implementation Approach:**
+1.  Define the new API route and protect it with admin authentication middleware.
+2.  The route handler should call a new service function, e.g., `cloneProfile(sourceId, newProfileId, displayName)`.
+3.  This function must wrap all database operations in a single transaction to ensure atomicity.
+4.  Inside the transaction:
+    a. Fetch all `rainbow_configs` and `rainbow_kb_files` metadata rows for the `sourceId`.
+    b. Create the primary record for the new profile.
+    c. Use a bulk insert operation to copy the filtered config/metadata records, remapping them to the `newProfileId`.
+5.  On success, the endpoint should return the `{ newProfileId }`.
+
+**4. Edge Cases & Gotchas:**
+*   **Transactional Integrity:** The operation must be atomic. A failure at any step should roll back the entire new profile's creation.
+*   **Data Exclusion:** Be precise about which records to exclude from `rainbow_configs`. The note specifies excluding WhatsApp auth state, which may be stored in this table in addition to the `whatsapp-auth/` directory.
+*   **Error Handling:** Implement checks to ensure the `sourceId` exists (return 404 if not) and that the `newProfileId` is unique (return 409 if not).
+*   **No File I/O:** The technical notes explicitly state *not* to copy KB files on disk, only their database metadata entries.
+
+
+## Iteration N - Story: US-838 Configurable data retention policy per-profile
+
+### What was implemented
+- Added `retention` field to `settingsDataSchema` in `src/assistant/schemas.ts` with Zod validation (retention_days: 30-3650, grace_period_days: 7-365, enabled: boolean)
+- Extended `src/routes/admin/data-retention.ts` with 3 new endpoints:
+  - `GET /api/rainbow/retention/stats?profile=X` — wraps existing `getRetentionStats`, supports `?profile=` query param
+  - `GET /api/rainbow/retention/settings` — reads current retention config from configStore (defaults to enabled=true, 90/30 days)
+  - `PUT /api/rainbow/retention/settings` — validates ranges, writes via `store.setSettings()`, creates `rainbow_config_audit` entry when retention is disabled
+
+### Patterns discovered
+- `getStore(res)` from `http-utils.ts` gives profile-aware ConfigStore automatically
+- Audit log is written via direct `pool.query` INSERT into `rainbow_config_audit` (not via saveConfigToDB helper — that's for full config upserts)
+- `pool` is importable from `../../lib/db.js`
+- Audit log failures are non-fatal (caught, logged, request succeeds)
+
+### Gotchas
+- `settingsDataSchema` uses `.passthrough()` so unknown keys are preserved — adding `retention` with `.optional()` is backward-compatible with existing settings.json
+- Need to spread `...currentSettings` when building updatedSettings to preserve all other fields before calling `store.setSettings()`

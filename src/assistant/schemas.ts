@@ -158,6 +158,12 @@ export const settingsDataSchema = z.object({
   whatsappInstanceId: z.string().optional(),
   // US-837: A/B experiment framework
   experiments: experimentsConfigSchema.optional(),
+  // US-838: Configurable data retention policy
+  retention: z.object({
+    enabled: z.boolean(),
+    retention_days: z.number().int().min(30).max(3650),
+    grace_period_days: z.number().int().min(7).max(365),
+  }).optional(),
 }).passthrough();  // Allow unknown keys (response_modes, feedback, etc.)
 export type SettingsData = z.infer<typeof settingsDataSchema>;
 
