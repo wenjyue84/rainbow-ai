@@ -4272,3 +4272,31 @@ Production deployment ready. All FnB widget bugs fixed.
 ## Iteration 1 - Sat, Mar 14, 2026  9:30:12 PM
 Completed: Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off (ID: US-807) in 7m
 
+
+## Iteration [Ralph] - Story: US-806 Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- File src/assistant/__tests__/fnb-widget-bugs.test.ts already existed with complete implementation
+- 9 comprehensive tests covering all acceptance criteria:
+  1. Profile-aware fallback (getUnknownFallbackMessages) returns cafe text without hostel words
+  2. Default fallback when no custom store provided
+  3-7. looksLikeJson utility tests for JSON detection edge cases
+  8. chatWithToolsLoop JSON extraction: raw JSON "{\"intent\":...,\"response\":\"OK\"}" returns "OK" not raw JSON
+  9. chatWithToolsLoop tool failure fallback: when all tools fail, result doesn't contain hostel/check-in/bookings, uses cafe-scoped fallback
+
+### Quality checks
+✅ All 9 tests pass (Vitest)
+✅ npm run build passes (esbuild + file copy, 1 expected warning about CommonJS module variable)
+✅ All acceptance criteria met:
+  - chatWithToolsLoop never returns strings starting with '{' ✓
+  - JSON with 'response' field correctly extracted ✓
+  - Profile-aware fallback used when profileConfigStore passed ✓
+  - getUnknownFallbackMessages() with makan-moments configStore returns cafe text ✓
+
+### Patterns discovered
+- Test uses vi.mock for dependencies (ai-provider-manager, config-store, context-windows)
+- Mocked ChatWithFallback to control LLM responses in different loop iterations
+- looksLikeJson checks for strings starting with { or [{ and containing "
+- chatWithToolsLoop gracefully handles all-tool-failure by trying toolless LLM call, then falls back to profile-aware message
+
+### Status
+✅ All acceptance criteria met. Marked passes=true in prd.json.
