@@ -5628,3 +5628,61 @@ Based on the provided user story, here is a technical brief for implementing the
 ### Gotchas
 - Build uses esbuild; webchat.html is a static file copied to dist/public, not compiled
 - sessionStorage doesn't persist across page reloads/tab close; localStorage does
+## Iteration 1 - Sun, Mar 15, 2026  3:38:08 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the profile cloning feature in Frappe/Python.
+
+**To:** Claude Code Agent
+**From:** Gemini
+**Subject:** Technical Brief for US-827: Profile Configuration Cloning
+
+**1. Objective:**
+Implement a feature to clone a `LHDN Payroll Profile` DocType, duplicating it as a new template. This avoids manual reconfiguration of complex settings when creating a new profile.
+
+**2. Files to Modify:**
+*   **Primary Logic:** `lhdn_payroll_integration/api.py` (create this file if it doesn't exist). This will house the main whitelisted cloning function.
+*   **Client-Side Trigger:** `lhdn_payroll_integration/doctype/lhdn_payroll_profile/lhdn_payroll_profile.js`. Add a custom button to the form view to call the cloning API.
+
+**3. Frappe DocTypes Involved:**
+*   **Primary:** `LHDN Payroll Profile` (assumed master DocType for a profile).
+*   **Children:** Any child table DocTypes linked to the main profile that store rules, settings, or configs. These must be deep-copied.
+
+**4. Implementation Approach:**
+1.  Create a whitelisted Python function in `api.py`: `@frappe.whitelist() def clone_profile(source_profile, new_profile_name):`.
+2.  Use `frappe.get_doc('LHDN Payroll Profile', source_profile)` to load the source document object.
+3.  Create a new document using `frappe.copy_doc(source_doc)`. This handles the deep copy of child tables automatically.
+4.  Modify the new document: set its title/name field to `new_profile_name` and clear any instance-specific fields (e.g., `api_key`, `auth_token`, `is_active_flag`).
+5.  Save the new document: `new_doc.save(ignore_permissions=True)`.
+6.  Return the `name` of the new document to the client.
+
+**5. Gotchas & Edge Cases:**
+*   **Uniqueness:** Ensure `new_profile_name` does not already exist before committing.
+*   **Sensitive Data:** Double-check that no secrets, API keys, or session-specific data are copied. Explicitly `None` them out after copying.
+*   **Permissions:** The whitelisted function will run with the current user's permissions. Ensure they have rights to create and read the profile DocType.
+*   **Naming Series:** If the DocType uses a naming series, the new name will be generated automatically. The `new_profile_name` should be applied to a "display name" or "title" field instead.
+
+
+## Iteration 6 - Story: US-835 CSP connect-src whitelist for AI provider endpoints
+### What was implemented
+- Created `src/lib/csp-directives.ts` with testable CSP directive builders:
+  - `buildConnectSrc()` — merges static whitelist (`*.nvidia.com`, `api.openrouter.ai`, `pps.whatsapp.net`) with dynamic provider origins from `settings.json`
+  - `buildImgSrc()` — adds `https://pps.whatsapp.net` and `data:` for WhatsApp avatar images
+  - `extractOrigin()` — extracts scheme+host from URL, skips localhost
+  - `readProviderOrigins()` — reads unique origins from all AI provider `base_url` fields
+- Updated `src/index.ts` helmet CSP config to use `buildConnectSrc()` and `buildImgSrc()`
+- Created `src/assistant/__tests__/csp-connect-src.test.ts` with 12 tests covering:
+  - Static origins (self, nvidia, openrouter, whatsapp)
+  - Dynamic origins from settings.json (groq, nvidia, google)
+  - No unsafe-eval / unsafe-inline in directives
+  - No localhost leakage
+  - No duplicate entries
+  - img-src includes whatsapp CDN + data:
+### Patterns discovered
+- Helmet CSP directives accept string arrays directly — easy to build dynamically
+- settings.json providers contain `base_url` with path suffixes (e.g. `/v1`, `/openai/v1`), need `URL.origin` extraction
+### Gotchas
+- localhost Ollama URLs must be excluded from CSP (they don't need it, and would be wrong in production)
+- `readFileSync` is fine for settings.json read at startup (one-time cost)

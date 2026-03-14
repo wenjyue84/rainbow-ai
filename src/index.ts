@@ -29,6 +29,7 @@ import fnbChatRoutes from './routes/public/fnb-chat.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import { captureRawBody } from './lib/webhook-signature.js';
 import { safeRedirect } from './lib/safe-redirect.js';
+import { buildConnectSrc, buildImgSrc } from './lib/csp-directives.js';
 import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
@@ -206,7 +207,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Security headers (US-464)
+// Security headers (US-464 + US-835: CSP connect-src whitelist for AI providers)
 const isProd = process.env.NODE_ENV === 'production';
 app.use(helmet({
   contentSecurityPolicy: {
@@ -215,8 +216,8 @@ app.use(helmet({
       scriptSrc: ["'self'", ((_req: express.Request, res: express.Response) => `'nonce-${res.locals.cspNonce}'`) as any],
       scriptSrcAttr: ["'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'"],
+      imgSrc: buildImgSrc(),
+      connectSrc: buildConnectSrc(),
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["*"],  // allow any site to embed via iframe (widget support)
