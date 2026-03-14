@@ -15,7 +15,8 @@ import {
 import {
   transitionOrderStage, clearOrderStage,
 } from '../assistant/order-stage-store.js';
-import { fnbCreateOrder } from './fnb-orders.js';
+import { fnbCreateOrder, fnbGetOrderStatus } from './fnb-orders.js';
+import { setSessionOrderId, getSessionOrderId } from '../assistant/order-id-store.js';
 import {
   setDisambiguation, getDisambiguation, clearDisambiguation,
   formatDisambiguationList, type DisambiguationCandidate,
@@ -181,6 +182,23 @@ export const cartTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  // ─── Order Status Tool ──────────────────────────────────────────
+  {
+    name: 'order_check_status',
+    description: [
+      'Check the status of the guest\'s placed order.',
+      'Use when the guest asks "where is my order?", "how long more?", "is my food ready?", "check my order".',
+      'Automatically uses the session\'s last placed order ID. If the guest provides an order ID (e.g. "MM-A1B2"), pass it as orderId.',
+      'If no order has been placed in this session and no orderId is provided, tells the guest there is no active order.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Order ID (e.g. "MM-A1B2"). Optional — auto-detected from session if omitted.' }
+      }
     },
     allowedProfiles: ['makan-moments']
   },
@@ -478,6 +496,13 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
         orderAck = fnbText
           ? `\n\n${fnbText}`
           : '\n\nEstimated wait time: 15–20 minutes.';
+
+        // Extract and store order ID for later status checks (US-855)
+        const orderIdMatch = fnbText.match(/\b(MM-[A-Z0-9]{4,})\b/i)
+          || fnbText.match(/order\s*(?:id|#|number)?[:\s]*([A-Za-z0-9-]{4,})/i);
+        if (orderIdMatch) {
+          setSessionOrderId(sessionId, orderIdMatch[1] || orderIdMatch[0]);
+        }
       } else {
         // FnB system unavailable — still acknowledge and notify
         orderAck = '\n\nOur staff has been notified and will prepare your order shortly.';
@@ -545,6 +570,77 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       content: [{
         type: 'text',
         text: 'Your order has been cleared. Let me know if you would like to start a new order!'
+      }]
+    };
+  });
+
+  // ─── Order Status Handler (US-855) ─────────────────────────────
+
+  handlers.set('order_check_status', async (args: any) => {
+    // Resolve order ID: explicit arg > session store
+    const orderId = (args.orderId && String(args.orderId).trim())
+      || getSessionOrderId(sessionId);
+
+    if (!orderId) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is no active order for you yet. Place an order first and then you can check its status!'
+        }]
+      };
+    }
+
+    const result = await fnbGetOrderStatus({ orderId });
+
+    if (result.isError) {
+      return {
+        content: [{
+          type: 'text',
+          text: `I wasn't able to check the status of order ${orderId} right now. Please try again in a moment or ask our staff for an update.`
+        }]
+      };
+    }
+
+    // Map raw status codes to guest-friendly descriptions
+    const statusMap: Record<string, string> = {
+      'pending':    'Received — your order has been received and is waiting to be prepared.',
+      'received':   'Received — your order has been received and is waiting to be prepared.',
+      'confirmed':  'Received — your order has been confirmed and will be prepared shortly.',
+      'approved':   'Received — your order has been approved and will be prepared shortly.',
+      'preparing':  'Preparing — the kitchen is working on your order right now!',
+      'cooking':    'Preparing — the kitchen is working on your order right now!',
+      'in_progress':'Preparing — the kitchen is working on your order right now!',
+      'ready':      'Ready — your order is ready for pickup/serving!',
+      'completed':  'Served — your order has been completed. Enjoy your meal!',
+      'served':     'Served — your order has been completed. Enjoy your meal!',
+      'cancelled':  'Cancelled — this order has been cancelled.',
+    };
+
+    const rawText = result.content.map((c: any) => c.text || '').join('\n').trim();
+
+    // Try to extract and map the status
+    const statusMatch = rawText.match(/status[:\s]*["']?(\w+)["']?/i);
+    const rawStatus = statusMatch?.[1]?.toLowerCase();
+    const friendlyStatus = rawStatus ? statusMap[rawStatus] : null;
+
+    // Extract estimated wait time if present
+    const waitMatch = rawText.match(/(?:estimated?|wait|eta|time)[:\s]*(\d+[\s-]*\d*\s*(?:min(?:ute)?s?|hours?))/i);
+    const waitTime = waitMatch ? `\nEstimated wait: ${waitMatch[1]}` : '';
+
+    if (friendlyStatus) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Order ${orderId}: ${friendlyStatus}${waitTime}`
+        }]
+      };
+    }
+
+    // Fallback: return the raw FnB response if we couldn't parse it
+    return {
+      content: [{
+        type: 'text',
+        text: `Order ${orderId} status:\n${rawText}${waitTime}`
       }]
     };
   });

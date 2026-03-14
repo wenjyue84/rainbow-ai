@@ -16,6 +16,7 @@ import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
 import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
+import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
@@ -214,6 +215,7 @@ function buildMakanMomentsContext(sessionId: string) {
   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
   const pendingDisambig = getDisambiguation(sessionId);
   const tableInfo = cartGetTableInfo(sessionId);
+  const lastOrderId = getSessionOrderId(sessionId);
 
   const disambigSection = pendingDisambig
     ? [
@@ -301,6 +303,16 @@ function buildMakanMomentsContext(sessionId: string) {
     'PLACED stage: Order submitted. Cart is cleared.',
     '  • Thank the guest. Offer to help with anything else.',
     '  • If they want to order again, start fresh from BROWSING.',
+    '',
+    'ORDER STATUS ENQUIRY: When the guest asks about their order status:',
+    '  • Trigger phrases: "where is my order", "how long more", "is my food ready", "check my order", "order status".',
+    '  • Call order_check_status — it auto-retrieves the session order ID.',
+    '  • If the guest provides a specific order ID (e.g. "MM-A1B2"), pass it as the orderId argument.',
+    '  • Relay the status in plain, friendly language. Do NOT expose raw status codes.',
+    '  • If estimated wait time is shown, include it in your response.',
+    lastOrderId
+      ? `  • Last placed order ID: ${lastOrderId}`
+      : '  • No order has been placed in this session yet.',
   ].join('\n');
 
   return { allTools, allHandlers, systemPromptSuffix };

@@ -6526,3 +6526,66 @@ This task involves creating an API endpoint to duplicate a user profile, serving
 ### Gotchas
 - `available` field is optional — when FnB MCP doesn't return it, items are treated as available (no false positives)
 - The `cart_add_item` tool doesn't check availability (by design — it's for exact names from the AI). The check is in `cart_search_item` where menu items are fetched.
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story is for a **Node.js/TypeScript** application using the Drizzle ORM, not a Frappe/Python project. The implementation should be done in TypeScript.
+
+### **Technical Brief: US-827 Profile Cloning**
+
+**1. Files to Modify:**
+*   `src/routes/admin/profiles.ts`: Add the new `POST /api/admin/profiles/:sourceId/clone` endpoint definition here.
+*   `src/services/ProfileService.ts` (or similar): Create/modify a service to contain the core cloning logic that interacts with the database.
+*   `shared/schema.ts`: Reference this file to understand the structure of the tables being copied.
+
+**2. Key DocTypes/Tables & Hooks:**
+*   **Tables (Drizzle Schema):**
+    *   `rainbow_profiles`: A new entry will be created here.
+    *   `rainbow_configs`: Rows matching the source `profileId` will be read.
+    *   `rainbow_kb_files`: Metadata rows matching the source `profileId` will be read.
+*   No Frappe hooks are involved. The trigger is a new Express.js API route.
+
+**3. Recommended Implementation Approach:**
+*   Define the new route in `src/routes/admin/profiles.ts` to call a new controller/service function `cloneProfile`.
+*   The `cloneProfile` service function should wrap all database operations in a Drizzle transaction (`db.transaction(...)`) to ensure atomicity.
+*   Inside the transaction:
+    1.  Fetch all `rainbow_configs` for the `sourceId`.
+    2.  Deep-copy the results, mapping each record to the `newProfileId` and filtering out sensitive/instance-specific settings (e.g., WhatsApp credentials, phone number).
+    3.  Perform a bulk insert of the new config records.
+    4.  Repeat the select/map/bulk-insert process for the `rainbow_kb_files` metadata table.
+    5.  Create the primary profile record in the `rainbow_profiles` table.
+*   The controller should return a JSON object `{ "profileId": newProfileId }` on success.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire operation must be wrapped in a single database transaction. If any step fails, the entire clone should be rolled back.
+*   **Uniqueness:** The endpoint must validate that the requested `newProfileId` doesn't already exist before starting the transaction to prevent a 409 Conflict.
+*   **Exclusion:** Do not copy the actual KB files from the filesystem. The story only requires copying the database metadata rows. Explicitly exclude any WhatsApp authentication-related records from `rainbow_configs`.
+*   **Error Handling:** Return a `404 Not Found` if the `sourceId` does not exist.
+
+
+## Iteration 10 - Story: US-855 - Order status enquiry
+### What was implemented
+- Created `src/assistant/order-id-store.ts` — in-memory per-session store for placed order IDs with 2-hour TTL
+- Added `order_check_status` tool to `cartTools` in `src/tools/cart.ts`:
+  - Auto-retrieves session order ID if no explicit orderId provided
+  - Calls `fnb_get_order_status` via existing FnB MCP integration
+  - Maps raw kitchen status codes (pending/preparing/ready/completed/etc.) to guest-friendly descriptions (Received/Preparing/Ready/Served)
+  - Extracts and shows estimated wait time if available in MCP response
+  - Returns "no active order" message when no order placed in session
+- Modified `order_confirm_submit` handler to parse order ID (MM-XXXX pattern) from FnB MCP response and store it via `setSessionOrderId()`
+- Added ORDER_STATUS handling instructions to system prompt suffix in `webchat-api.ts`:
+  - Tells AI to use `order_check_status` tool for status enquiries
+  - Injects the session's last order ID into prompt context
+  - Includes trigger phrase examples (multilingual)
+- Added `ORDER_STATUS` intent to main `routing.json` → `llm_reply`
+- Enhanced `order_status` regex patterns in `data-makan/intents.json` with more natural language patterns: "where is my order", "how long more", "is my food ready", "bila siap", "berapa lama lagi" (Malay), "准备好了吗" (Chinese)
+
+### Patterns discovered
+- Makan-moments routing already had `order_status` intent in data-makan config — only main routing.json was missing it
+- `fnb_get_order_status` tool was already registered and available but had no session-aware wrapper
+- The tool-calling path in chat-engine bypasses intent classification entirely — system prompt + tools drive behavior
+
+### Gotchas
+- Order ID parsing from FnB MCP response uses regex (MM-XXXX pattern or "order id: X" pattern). If FnB MCP changes its response format, the regex may need updating.
+- The order-id-store has a 2-hour TTL (longer than cart's 1-hour) since guests may check status well after placing
+- Status code mapping is best-effort — unmapped statuses fall back to showing the raw FnB response
