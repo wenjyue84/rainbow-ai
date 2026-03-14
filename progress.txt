@@ -4679,3 +4679,26 @@ Completed: Enforce WhatsApp 24-hour session window check before sending outbound
 ### Gotchas
 - Typing indicator is only skipped when `validateAndPrepare` returns `continue: false` (duplicate, group, opted-out, etc.) — this naturally satisfies "NOT sent if message is silently dropped"
 - The 20s refresh interval must be cleared in `finally` not `catch` to ensure it runs on all paths including success
+## Iteration 1 - Sun, Mar 15, 2026 12:35:59 AM
+Completed: Emit WhatsApp typing indicator during AI processing delay (ID: US-829) in 6m
+
+
+## Iteration N - Story: US-832 PDPA/GDPR Data Portability Endpoint
+### What was implemented
+- Created `src/routes/admin/gdpr-data-export.ts` with `GET /api/rainbow/guests/:jid/data-export`
+- Mirrors query pattern from `gdpr-erasure.ts` but SELECTs instead of DELETEs
+- Returns all personal data: messages, conversations, conversation_state, feedback, intent_predictions, opt_out_status
+- Large dataset (>10,000 msgs) returns 202 Accepted with job_id instead of blocking
+- Logs to gdpr_audit_log with action='data_export'
+- Sets `Content-Disposition: attachment; filename=data-export-{hash16}.json` header
+- Registered in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- prd.json has unicode characters — must open with `encoding='utf-8'` in Python
+- gdpr_audit_log table has no `action` column in original erasure migration — added `ALTER TABLE ... ADD COLUMN IF NOT EXISTS action` for backward compat
+- `rainbowConversations.deletedAt` and `rainbowMessages.deletedAt` exist — used `isNull()` filter to exclude soft-deleted records
+- `optOuts.optedInAt === null` means currently opted out (re-opt-in sets this field)
+
+### Gotchas
+- `isNull` must be imported from `drizzle-orm` alongside `eq` and `and`
+- Drizzle does not have a `.count()` shorthand for raw counts — used `pool.query` directly for the threshold check
