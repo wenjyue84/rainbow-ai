@@ -6776,3 +6776,37 @@ This technical brief is based on the provided JSON and project structure, which 
 - Fallback messaging shows minimum available price when no items found
 - Results sorted by price ascending (cheapest first)
 
+## Iteration 7 - Sun, Mar 15, 2026  6:27:15 AM
+Incomplete: Admin UI for per-profile WhatsApp frequency cap and rate limit configuration (ID: US-828) — attempt 1/3
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This user story describes a feature for a TypeScript/Node.js application, not a Frappe/Python one. The technical notes, file paths (`.ts`, `.mjs`), and project structure (`vite.config.ts`, `package.json`) all point to a modern web stack.
+
+Here is a technical brief tailored to the actual project context:
+
+**Project:** Rainbow AI (Node.js/TypeScript/React)
+**Story:** US-828 - Admin UI for WhatsApp Rate Limiting
+
+**1. Files to Modify:**
+*   **Frontend Component:** A new React component, likely `src/routes/admin/RateLimitSettings.tsx`, to house the UI form.
+*   **API Route:** A new API endpoint handler, likely `src/routes/api/admin/rate-limits.ts`, to create the `GET /stats` endpoint.
+*   **Configuration Schema:** `shared/schema.ts` or a similar file where the application's configuration shapes are defined. Add the `rate_limits` section here.
+*   **Config Service:** The service responsible for loading/updating `rainbow_configs`.
+
+**2. Core Concepts Involved (Not Frappe):**
+*   **Persistence:** `rainbow_configs` table is the designated storage, acting as the equivalent of a Frappe "Settings DocType".
+*   **API:** A new REST endpoint, not a Frappe whitelisted method.
+*   **UI:** A React component, not a Frappe Desk page or web form.
+
+**3. Implementation Approach:**
+1.  Add the `rate_limits` schema (with `max_messages_per_user_per_24h` and `enabled` fields) to the main configuration type definition.
+2.  Create the React component with a numeric input and a toggle. Fetch existing settings to populate its state. On save, POST the updated values to the existing config update endpoint.
+3.  Implement the new `GET /api/admin/rate-limits/stats` endpoint. This will require querying the application's event log or database (e.g., `rate_limit_events` table) to count distinct users who were blocked in the last 24 hours for a given `profileId`.
+4.  Ensure the new API route is protected by existing admin authentication middleware.
+
+**4. Edge Cases & Gotchas:**
+*   **Config Caching:** The requirement for settings to apply within one minute implies a caching mechanism. The config update logic must include a cache-busting or TTL refresh step.
+*   **Stat Query Performance:** The query for counting rate-limited users must be efficient and indexed, especially if the event log is large.
+*   **Input Validation:** The numeric input for `max_messages` should be validated on both the client and server (e.g., must be a positive integer).
+
