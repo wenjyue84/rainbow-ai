@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { listConversations, getConversation, deleteConversation, getResponseTimeStats, togglePin, toggleFavourite, markConversationAsRead, updateConversationMode } from '../../assistant/conversation-logger.js';
+import { listConversations, searchConversations, getConversation, deleteConversation, getResponseTimeStats, togglePin, toggleFavourite, markConversationAsRead, updateConversationMode } from '../../assistant/conversation-logger.js';
 import type { ConversationLog, LoggedMessage } from '../../assistant/conversation-logger.js';
 import { whatsappManager } from '../../lib/baileys-client.js';
 import { sessionWindowActive, logSessionExpired } from '../../lib/session-window.js';
@@ -58,6 +58,18 @@ router.get('/conversations/stats/response-time', async (_req: Request, res: Resp
 });
 
 // ─── Conversation History (Real Chat) ─────────────────────────────────
+
+// US-818: Full-text search across message content (must be before /:phone)
+router.get('/conversations/search', async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (!q) {
+    ok(res, []);
+    return;
+  }
+  const profileId = (req.query.profileId as string) || res.locals.profileId as string | undefined;
+  const conversations = await searchConversations(q, profileId);
+  res.json(conversations);
+});
 
 router.get('/conversations', async (req: Request, res: Response) => {
   const profileId = res.locals.profileId as string | undefined;

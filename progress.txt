@@ -5248,3 +5248,63 @@ Implement a `POST /api/admin/profiles/:sourceId/clone` endpoint to duplicate a p
 ### Gotchas
 - The `format=pdf` returns HTML, not a binary PDF — this is intentional (print-to-PDF approach); filename is `.html`
 - Import type must be added alongside function imports from conversation-logger.js
+## Iteration 1 - Sun, Mar 15, 2026  2:36:21 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story describes a feature for a Node.js/TypeScript application, not a Frappe/Python one. The technical notes, file paths (`.ts`, `.mjs`), and API endpoint structure are specific to a custom web server environment.
+
+Here is the technical brief based on the actual project described:
+
+**Project:** Node.js / TypeScript Application
+
+**1. Files to Modify:**
+
+*   **`src/routes/admin/profiles.ts` (or similar):** A new controller needs to be created here to handle the `POST /api/admin/profiles/:sourceId/clone` endpoint.
+*   **`src/lib/profileService.ts` (or similar):** The core cloning logic should be implemented in a service layer file. This service would handle the database transactions.
+*   **`src/routes/admin/profiles.test.ts`:** New integration tests should be added to validate the cloning endpoint.
+*   **Frontend Admin Panel Component:** The UI component for profile management needs a "Clone" button and a confirmation dialog that triggers the API call.
+
+**2. Involved Entities (Analogous to DocTypes):**
+
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Database Tables:**
+    *   `rainbow_configs`: Core configuration settings. The cloning involves a deep copy of rows associated with the source profile.
+    *   `rainbow_kb_files`: Metadata for knowledge base files. These rows should be duplicated for the new profile.
+
+**3. Recommended Implementation Approach:**
+
+1.  Define the new `POST /api/admin/profiles/:sourceId/clone` route and its controller.
+2.  The controller should validate the request body (`newProfileId`, `displayName`) and ensure the `newProfileId` is unique before proceeding.
+3.  Implement a `cloneProfile(sourceId, newProfileId, displayName)` function in the profile service.
+4.  This function must use a database transaction to ensure atomicity.
+5.  Inside the transaction:
+    *   Fetch all `rainbow_configs` entries for the `sourceId`.
+    *   Perform a deep copy of the configuration data, replacing the `sourceId` with `newProfileId`.
+    *   Insert the new records into the `rainbow_configs` table.
+    *   Repeat the process for the `rainbow_kb_files` table.
+6.  The controller returns a `200 OK` response with `{ newProfileId: '...' }` on success.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Atomicity:** The entire copy operation must be wrapped in a single database transaction. If any part fails, the entire operation should be rolled back to prevent orphaned data.
+*   **Data Integrity:** Explicitly exclude any sensitive or instance-specific data, such as WhatsApp session tokens or phone numbers, as specified in the technical notes.
+*   **Error Handling:** The API must handle cases where the source profile doesn't exist or the target `newProfileId` is already in use.
+*   **Physical Files:** The story correctly states not to copy physical KB files on disk, only their database metadata. The logic must adhere to this.
+
+
+## Iteration 10 - Story: US-818 Full-text search across conversation message content
+### What was implemented
+- Added `searchConversations(query, profileId, limit)` function in `src/assistant/conversation-logger.ts`
+- Uses ILIKE `%term%` for partial word matching (MVP approach per technical notes)
+- Added `GET /api/admin/conversations/search?q=&profileId=` endpoint in `src/routes/admin/conversations.ts`
+- Search finds conversations with matching messages, returns ConversationSummary[] ordered by most recent match
+- Scoped to profileId; returns same shape as listConversations for frontend compatibility
+- Route placed before `/:phone` to avoid Express param capture
+### Patterns discovered
+- DISTINCT ON + secondary sort trick: Postgres requires DISTINCT ON ordering to match first ORDER BY, so sort in JS after
+- withFallback wrapper pattern used consistently for all DB queries in conversation-logger.ts
+### Gotchas
+- ILIKE is sufficient for MVP (<50k rows); GIN index with to_tsvector can be added later when table grows
+- Profile filter must be applied in the matching subquery (not just outer WHERE) to correctly scope results

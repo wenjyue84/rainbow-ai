@@ -316,6 +316,113 @@ export async function listConversations(profileId?: string): Promise<Conversatio
   );
 }
 
+/** Search conversations by message content (US-818) */
+export async function searchConversations(
+  query: string,
+  profileId?: string,
+  limit = 50,
+): Promise<ConversationSummary[]> {
+  if (!(await ensureDb())) return [];
+  if (!query || query.trim().length === 0) return [];
+
+  return withFallback(
+    async () => {
+      const searchTerm = `%${query.trim()}%`;
+      const profileFilter = profileId
+        ? sql`AND m.profile_id = ${profileId}`
+        : sql``;
+
+      const result = await db.execute(sql`
+        SELECT DISTINCT ON (c.phone)
+          c.phone,
+          c.push_name,
+          c.instance_id,
+          c.profile_id,
+          c.pinned,
+          c.favourite,
+          c.created_at,
+          c.last_read_at,
+          lm.content   AS last_msg_content,
+          lm.role       AS last_msg_role,
+          lm.timestamp  AS last_msg_at,
+          COALESCE(mc.total, 0)::int  AS message_count,
+          COALESCE(uc.unread, 0)::int AS unread_count,
+          COALESCE(sw.last_user_at > NOW() - INTERVAL '24 hours', false) AS session_active,
+          match_ts.latest_match
+        FROM rainbow_conversations c
+        -- Find conversations that have at least one matching message
+        INNER JOIN (
+          SELECT phone, MAX(timestamp) AS latest_match
+          FROM rainbow_messages
+          WHERE content ILIKE ${searchTerm}
+            AND deleted_at IS NULL
+            ${profileFilter}
+          GROUP BY phone
+        ) match_ts ON match_ts.phone = c.phone
+        -- Last message
+        LEFT JOIN LATERAL (
+          SELECT content, role, timestamp
+          FROM rainbow_messages
+          WHERE phone = c.phone AND deleted_at IS NULL
+          ORDER BY timestamp DESC LIMIT 1
+        ) lm ON true
+        -- Message count
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS total
+          FROM rainbow_messages
+          WHERE phone = c.phone AND deleted_at IS NULL
+        ) mc ON true
+        -- Unread count
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS unread
+          FROM rainbow_messages
+          WHERE phone = c.phone
+            AND role = 'user'
+            AND deleted_at IS NULL
+            AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)
+        ) uc ON true
+        -- Session window
+        LEFT JOIN LATERAL (
+          SELECT MAX(timestamp) AS last_user_at
+          FROM rainbow_messages
+          WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL
+        ) sw ON true
+        WHERE c.deleted_at IS NULL
+          AND c.phone NOT LIKE 'webchat-%'
+        ORDER BY c.phone, match_ts.latest_match DESC
+        LIMIT ${limit}
+      `);
+
+      // Re-sort by latest match descending (DISTINCT ON requires ORDER BY phone first)
+      const rows: any[] = (result.rows as any[]).sort(
+        (a: any, b: any) => new Date(b.latest_match).getTime() - new Date(a.latest_match).getTime()
+      );
+
+      return rows.map((r: any) => ({
+        phone: r.phone,
+        pushName: r.push_name,
+        instanceId: r.instance_id ?? undefined,
+        profileId: r.profile_id ?? undefined,
+        lastMessage: (r.last_msg_content || '').slice(0, 100),
+        lastMessageRole: r.last_msg_role as 'user' | 'assistant',
+        lastMessageAt: r.last_msg_at instanceof Date
+          ? r.last_msg_at.getTime()
+          : new Date(r.last_msg_at).getTime(),
+        messageCount: Number(r.message_count ?? 0),
+        unreadCount: Number(r.unread_count ?? 0),
+        pinned: r.pinned,
+        favourite: r.favourite,
+        createdAt: r.created_at instanceof Date
+          ? r.created_at.getTime()
+          : new Date(r.created_at).getTime(),
+        sessionActive: r.session_active === true || r.session_active === 't',
+      }));
+    },
+    async () => [],
+    '[ConvoLogger] searchConversations'
+  );
+}
+
 /** Get full conversation log for a phone number or BSUID */
 export async function getConversation(phone: string): Promise<ConversationLog | null> {
   if (!(await ensureDb())) return null;
