@@ -30,4 +30,4 @@ SPIRAL_RESEARCH_MODEL="sonnet"
 SPIRAL_OPEN_DASHBOARD=1
 
 # ── Focus theme ──────────────────────────────────────────────────────
-SPIRAL_FOCUS="FnB AI Waiter widget UX improvement: wire tool-calling loop into chat engine, add FnB intents, smooth pre-ordering flow (phone collection + order confirmation), Vitest tests for registry filtering and tool handlers"
+SPIRAL_FOCUS="FnB AI Waiter bug fixes: fix hostel fallback text in cafe widget (UNKNOWN_FALLBACK_MESSAGES), fix raw JSON rendered in chat (chatWithToolsLoop), inject FnB tools into webchat-api, fix unicode corruption in system prompt"
