@@ -3523,3 +3523,22 @@ No code changes needed. US-809 was already fully implemented in both tabs.js and
 ## Iteration 2 - Sat, Mar 14, 2026  8:26:28 PM
 Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 9m
 
+## Iteration 1 - Sat, Mar 14, 2026  8:26:57 PM
+Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 10m
+
+
+## Iteration - Story: US-805 chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail
+### What was implemented
+- Added `totalToolCalls` and `errorToolCalls` counters before the main loop in `chatWithToolsLoop`
+- Incremented counters in the tool execution section for each tool call result
+- After the loop, if all tool calls returned `isError: true`, make one final LLM call WITHOUT tools
+- The final call uses the same system prompt and conversation history but strips tool messages
+- JSON guard applied to final content (same pattern as existing guards)
+- If toolless fallback also fails, falls through to existing max-loops-exhausted handler
+### Patterns discovered
+- `messages.filter((m) => m.role !== 'tool')` strips tool result messages, leaving system/user/assistant messages
+- The `chatWithFallback` signature: (messages, maxTokens, temperature, jsonMode, undefined, tools) — pass `undefined` for tools to disable tool-calling
+- The existing JSON guard logic for looksLikeJson is reused for the final content
+### Gotchas
+- Counter increments must happen AFTER appending to messages (to ensure message order is correct)
+- The assistant messages that contain tool_calls are kept in nonToolMessages (they have role 'assistant') — this is intentional to preserve context

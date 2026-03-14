@@ -195,7 +195,9 @@ export async function chatWithToolsLoop(
   if (totalToolCalls > 0 && errorToolCalls === totalToolCalls) {
     console.warn('[AI] chatWithToolsLoop: all tool calls failed, attempting toolless fallback');
     try {
-      const nonToolMessages = messages.filter((m: any) => m.role !== 'tool');
+      const nonToolMessages = messages.filter((m: any) =>
+        m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0)
+      );
       const { content: finalContent } = await chatWithFallback(
         nonToolMessages,
         chatCfg.max_chat_tokens,
