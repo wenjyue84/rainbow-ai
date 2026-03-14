@@ -6410,3 +6410,63 @@ Here is the technical brief for the agent:
 ### Gotchas
 - Notes append with comma separator rather than overwrite — allows multiple instructions on same item
 - `rtk` command not found in this environment — use `npm`/`npx` directly
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the user story JSON and project structure, here is a technical brief for implementing the profile cloning feature. Note that the provided story corresponds to a Node.js/TypeScript project, not Frappe/Python.
+
+### **Technical Brief for US-827: Profile Cloning**
+
+**1. Files to Modify:**
+*   **`src/routes/admin/profiles.ts`** (or similar): Add a new route handler for `POST /api/admin/profiles/:sourceId/clone`. This will orchestrate the cloning process.
+*   **`src/lib/profileService.ts`** (or similar): Implement the core cloning logic here. This service will handle database interactions for fetching source data and creating the new profile records.
+*   **`shared/schema.ts`**: The implementation will rely on the Drizzle schemas defined here, specifically for `rainbow_configs` and `rainbow_kb_files`.
+
+**2. Key Entities (DocTypes):**
+*   **`rainbow_configs` table**: The primary entity. You will deep-copy rows, replacing the source `profileId` with the new one.
+*   **`rainbow_kb_files` table**: Copy metadata rows for the new profile. The actual files on disk should not be copied.
+
+**3. Implementation Approach:**
+*   The new API endpoint will accept `{ newProfileId, displayName }` in the request body.
+*   Use a single database transaction to ensure atomicity for the entire operation.
+*   In the service layer, fetch all `rainbow_configs` and `rainbow_kb_files` for the `sourceId`.
+*   Map the fetched records to new objects with the `newProfileId`.
+*   Perform a bulk insert of the new records into their respective tables using Drizzle ORM.
+*   Return the `{ newProfileId }` upon successful completion.
+
+**4. Edge Cases & Gotchas:**
+*   **Data Exclusion**: The logic must explicitly filter out any records or JSON properties related to WhatsApp auth and phone numbers during the copy.
+*   **Uniqueness**: Pre-check if `newProfileId` is unique before starting the transaction to provide a clean error.
+*   **Atomicity**: A database transaction is critical to prevent a partial clone if an error occurs midway.
+*   **Performance**: Use bulk `insert` operations to meet the 5-second completion requirement.
+
+
+
+## Iteration 8 - Story: US-853 - Table number capture
+### What was implemented
+- Added `TableInfo` interface (`tableNumber`, `orderType`) and `tableInfo` field to `CartSession` in `cart-store.ts`
+- Added `cartSetTableInfo()` and `cartGetTableInfo()` functions to cart store
+- Table info is cleared when cart is cleared (session cleanup)
+- Added `cart_set_table` MCP tool definition and handler in `cart.ts`
+  - Normalizes table patterns: "table 5", "T5", "table5" → "5"
+  - Accepts "takeaway" or "tapau" as order types
+  - Sets `orderType: 'dine-in'` automatically when table number is provided
+- Updated `order_request_confirmation` handler to include table/takeaway info in summary
+- Updated `order_confirm_submit` handler to:
+  - Use stored session table info (with fallback to args.tableNumber)
+  - Pass `tableNumber` and `orderType` fields to FnB MCP payload
+  - Include table/takeaway info in order notes for kitchen routing
+- Updated `webchat-api.ts` system prompt:
+  - Shows current table info status ("Not yet captured" or "already captured")
+  - ORDERING stage rules instruct AI to ask for table/takeaway after first item is added
+  - AI instructed not to re-ask if already captured
+- Added 10 new test cases covering table info storage, handler, normalization, and summary inclusion
+
+### Patterns discovered
+- CartSession already had `lastAccess` TTL cleanup, so `tableInfo` gets cleaned up automatically
+- System prompt context injection is the mechanism for "ask once" behavior — AI sees whether info is captured
+- FnB MCP payload already accepted arbitrary extra fields, so `tableNumber`/`orderType` pass through
+
+### Gotchas
+- Each `describe` block in the test file defines its own `newSid()` — new test blocks need their own
+- `cartClear()` deletes the entire session entry, which correctly removes `tableInfo` too

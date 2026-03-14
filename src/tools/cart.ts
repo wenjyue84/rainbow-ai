@@ -8,7 +8,9 @@
 import type { MCPTool, MCPToolResult } from '../types/mcp.js';
 import {
   cartAddItem, cartRemoveItem, cartGetItems, cartClear,
-  cartUpdateItemQty, cartSetItemNotes, cartFormatSummary, type CartItem
+  cartUpdateItemQty, cartSetItemNotes, cartFormatSummary,
+  cartSetTableInfo, cartGetTableInfo,
+  type CartItem, type TableInfo
 } from '../assistant/cart-store.js';
 import {
   transitionOrderStage, clearOrderStage,
@@ -105,6 +107,23 @@ export const cartTools: MCPTool[] = [
         notes: { type: 'string', description: 'Special instruction text (e.g. "no onion", "extra spicy", "less sugar")' }
       },
       required: ['name', 'notes']
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  {
+    name: 'cart_set_table',
+    description: [
+      'Set the table number or order type (dine-in / takeaway) for this order.',
+      'Call this after the guest provides their table number or says takeaway/tapau.',
+      'Accepts patterns: "table 5", "T5", "table5", "takeaway", "tapau", "dine-in", "dine in".',
+      'Only call this once per session — do not ask again if already set.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tableNumber: { type: 'string', description: 'Table number (e.g. "5", "T5"). Omit if takeaway.' },
+        orderType: { type: 'string', enum: ['dine-in', 'takeaway'], description: 'Order type: "dine-in" or "takeaway"' }
+      }
     },
     allowedProfiles: ['makan-moments']
   },
@@ -346,6 +365,38 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     };
   });
 
+  handlers.set('cart_set_table', async (args: any) => {
+    const info: TableInfo = {};
+
+    if (args.tableNumber) {
+      // Normalize table number: extract digits from patterns like "T5", "table 5", "table5"
+      const raw = String(args.tableNumber).trim();
+      const match = raw.match(/^(?:t(?:able)?\s*)?(\d+)$/i);
+      info.tableNumber = match ? match[1] : raw;
+      info.orderType = 'dine-in';
+    }
+
+    if (args.orderType) {
+      const ot = String(args.orderType).trim().toLowerCase();
+      if (ot === 'takeaway' || ot === 'tapau') {
+        info.orderType = 'takeaway';
+        delete info.tableNumber; // No table for takeaway
+      } else {
+        info.orderType = 'dine-in';
+      }
+    }
+
+    if (!info.tableNumber && !info.orderType) {
+      return { content: [{ type: 'text', text: 'Please provide a table number or specify takeaway/tapau.' }] };
+    }
+
+    const saved = cartSetTableInfo(sessionId, info);
+    const desc = saved.orderType === 'takeaway'
+      ? 'Takeaway order noted!'
+      : `Table ${saved.tableNumber || ''} noted!`.trim();
+    return { content: [{ type: 'text', text: desc }] };
+  });
+
   // ─── Order Stage Handlers ────────────────────────────────────────
 
   handlers.set('order_request_confirmation', async (_args: any) => {
@@ -357,10 +408,18 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     }
     transitionOrderStage(sessionId, 'CONFIRMING');
     const summary = cartFormatSummary(items);
+    const tableInfo = cartGetTableInfo(sessionId);
+    const tableLine = tableInfo
+      ? tableInfo.orderType === 'takeaway'
+        ? '\nOrder type: Takeaway'
+        : tableInfo.tableNumber
+          ? `\nTable: ${tableInfo.tableNumber}`
+          : '\nOrder type: Dine-in'
+      : '';
     return {
       content: [{
         type: 'text',
-        text: `Here is your order summary:\n\n${summary}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
+        text: `Here is your order summary:\n\n${summary}${tableLine}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
       }]
     };
   });
@@ -373,7 +432,18 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
       };
     }
     const summary = cartFormatSummary(items);
-    const tableInfo = args.tableNumber ? ` for table ${args.tableNumber}` : '';
+
+    // Resolve table info: prefer stored session state, fall back to args
+    const storedTable = cartGetTableInfo(sessionId);
+    const effectiveTableNumber = args.tableNumber || storedTable?.tableNumber;
+    const effectiveOrderType = storedTable?.orderType || (args.tableNumber ? 'dine-in' : undefined);
+
+    let tableDesc = '';
+    if (effectiveOrderType === 'takeaway') {
+      tableDesc = ' (Takeaway)';
+    } else if (effectiveTableNumber) {
+      tableDesc = ` for table ${effectiveTableNumber}`;
+    }
 
     // Build FnB MCP payload — only include items that have a menu code
     const codedItems = items
@@ -386,13 +456,20 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
 
     let orderAck = '';
 
+    // Build notes for FnB MCP with table/order type info
+    const fnbNotes: string[] = [];
+    if (effectiveTableNumber) fnbNotes.push(`Table: ${effectiveTableNumber}`);
+    if (effectiveOrderType) fnbNotes.push(`Type: ${effectiveOrderType}`);
+
     if (codedItems.length > 0) {
       // Call FnB MCP to create the order
       const fnbResult = await fnbCreateOrder({
         items: codedItems,
         phone: 'webchat-' + sessionId,
         estimated_arrival: new Date().toISOString(),
-        ...(args.tableNumber ? { notes: `Table: ${args.tableNumber}` } : {}),
+        ...(fnbNotes.length > 0 ? { notes: fnbNotes.join(', ') } : {}),
+        ...(effectiveTableNumber ? { tableNumber: effectiveTableNumber } : {}),
+        ...(effectiveOrderType ? { orderType: effectiveOrderType } : {}),
       });
 
       if (!fnbResult.isError) {
@@ -418,7 +495,7 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableInfo} has been sent to the kitchen!\n\n${summary}${orderAck}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

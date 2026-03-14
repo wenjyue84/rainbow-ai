@@ -27,6 +27,8 @@ import {
   cartUpdateItemQty,
   cartSetItemNotes,
   cartFormatSummary,
+  cartSetTableInfo,
+  cartGetTableInfo,
 } from '../cart-store.js';
 import { createCartHandlers } from '../../tools/cart.js';
 
@@ -626,6 +628,105 @@ describe('cart_set_item_notes handler (US-852)', () => {
 
     const items = cartGetItems(sid);
     expect(items[0].notes).toBe('without cucumber');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+});
+
+// ─── US-853: Table Number / Order Type Tests ─────────────────────────
+
+describe('Cart Store — Table Info (US-853)', () => {
+  const newSid = () => 'table-unit-' + Date.now() + '-' + Math.random();
+
+  it('returns undefined when no table info is set', () => {
+    expect(cartGetTableInfo('no-table-session')).toBeUndefined();
+  });
+
+  it('stores and retrieves table number', () => {
+    const sid = newSid();
+    cartSetTableInfo(sid, { tableNumber: '5', orderType: 'dine-in' });
+    const info = cartGetTableInfo(sid);
+    expect(info?.tableNumber).toBe('5');
+    expect(info?.orderType).toBe('dine-in');
+    cartClear(sid);
+  });
+
+  it('stores takeaway order type without table number', () => {
+    const sid = newSid();
+    cartSetTableInfo(sid, { orderType: 'takeaway' });
+    const info = cartGetTableInfo(sid);
+    expect(info?.orderType).toBe('takeaway');
+    expect(info?.tableNumber).toBeUndefined();
+    cartClear(sid);
+  });
+
+  it('clears table info when cart is cleared', () => {
+    const sid = newSid();
+    cartSetTableInfo(sid, { tableNumber: '3', orderType: 'dine-in' });
+    cartClear(sid);
+    expect(cartGetTableInfo(sid)).toBeUndefined();
+  });
+});
+
+describe('Cart Handler — cart_set_table (US-853)', () => {
+  const newSid = () => 'table-handler-' + Date.now() + '-' + Math.random();
+
+  it('sets table number via handler', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    const result = await handlers.get('cart_set_table')!({ tableNumber: 'T5' });
+    expect(result.content[0].text).toContain('5');
+    const info = cartGetTableInfo(sid);
+    expect(info?.tableNumber).toBe('5');
+    expect(info?.orderType).toBe('dine-in');
+    cartClear(sid);
+  });
+
+  it('sets takeaway via handler', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    const result = await handlers.get('cart_set_table')!({ orderType: 'takeaway' });
+    expect(result.content[0].text).toContain('Takeaway');
+    const info = cartGetTableInfo(sid);
+    expect(info?.orderType).toBe('takeaway');
+    cartClear(sid);
+  });
+
+  it('normalizes "table 5" pattern to just "5"', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_set_table')!({ tableNumber: 'table 5' });
+    const info = cartGetTableInfo(sid);
+    expect(info?.tableNumber).toBe('5');
+    cartClear(sid);
+  });
+
+  it('returns error when no table or order type given', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    const result = await handlers.get('cart_set_table')!({});
+    expect(result.content[0].text).toContain('provide');
+    cartClear(sid);
+  });
+
+  it('includes table info in order confirmation summary', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Nasi Lemak', qty: 1, price: 8.50 });
+    await handlers.get('cart_set_table')!({ tableNumber: '7' });
+    const result = await handlers.get('order_request_confirmation')!({});
+    expect(result.content[0].text).toContain('Table: 7');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('includes takeaway in order confirmation summary', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Roti Canai', qty: 2, price: 3.00 });
+    await handlers.get('cart_set_table')!({ orderType: 'takeaway' });
+    const result = await handlers.get('order_request_confirmation')!({});
+    expect(result.content[0].text).toContain('Takeaway');
     cartClear(sid);
     clearOrderStage(sid);
   });

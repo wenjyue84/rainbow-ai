@@ -14,7 +14,7 @@ import { sanitizeInput, validateInputSafety, processChat } from '../../assistant
 import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
-import { cartGetItems, cartFormatSummary } from '../../assistant/cart-store.js';
+import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
@@ -213,6 +213,7 @@ function buildMakanMomentsContext(sessionId: string) {
   const currentStage = getOrderStage(sessionId);
   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
   const pendingDisambig = getDisambiguation(sessionId);
+  const tableInfo = cartGetTableInfo(sessionId);
 
   const disambigSection = pendingDisambig
     ? [
@@ -224,10 +225,19 @@ function buildMakanMomentsContext(sessionId: string) {
       ].join('\n')
     : '';
 
+  const tableInfoSection = tableInfo
+    ? tableInfo.orderType === 'takeaway'
+      ? '\nTable/Order Type: Takeaway (already captured — do NOT ask again)'
+      : tableInfo.tableNumber
+        ? `\nTable: ${tableInfo.tableNumber} (already captured — do NOT ask again)`
+        : '\nOrder Type: Dine-in (already captured — do NOT ask again)'
+    : '\nTable/Order Type: Not yet captured';
+
   const systemPromptSuffix = [
     '## Current Order State',
     `Session: ${sessionId}`,
     `Order Stage: ${currentStage} — ${stageDescription}`,
+    tableInfoSection,
     '',
     '## Current Cart',
     cartSummary,
@@ -262,6 +272,12 @@ function buildMakanMomentsContext(sessionId: string) {
     '  • Use plain text only — no markdown tables, no asterisks, no headers — for WhatsApp/chat compatibility.',
     '',
     'ORDERING stage: Guest is adding items to their order.',
+    '  • TABLE NUMBER: After adding the FIRST item to the cart, if Table/Order Type is "Not yet captured",',
+    '    ask the guest: "Would you like to dine in or takeaway? If dine-in, what is your table number?"',
+    '    When they reply, call cart_set_table with tableNumber and/or orderType.',
+    '    Accepted formats: "table 5", "T5", "5", "takeaway", "tapau", "dine-in", "dine in".',
+    '    If the guest proactively mentions their table or says takeaway, call cart_set_table immediately.',
+    '    Do NOT ask again if Table/Order Type shows "already captured".',
     '  • Use cart_search_item when the guest uses a vague or partial name (e.g. "the chicken", "nasi", "iced coffee").',
     '  • Use cart_add_item only when the guest uses the exact menu item name and you are certain it matches.',
     '  • Use cart_pick_item when the guest replies with a number or name after a disambiguation list.',

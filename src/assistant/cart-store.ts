@@ -14,9 +14,15 @@ export interface CartItem {
   notes?: string;
 }
 
+export interface TableInfo {
+  tableNumber?: string;  // e.g. "5", "T5"
+  orderType?: 'dine-in' | 'takeaway';
+}
+
 interface CartSession {
   items: CartItem[];
   lastAccess: number;
+  tableInfo?: TableInfo;
 }
 
 const CART_TTL_MS = 60 * 60 * 1000; // 1 hour idle timeout
@@ -133,6 +139,20 @@ export function cartSetItemNotes(
 /** Clear all items from the cart (e.g. after checkout or timeout). */
 export function cartClear(sessionId: string): void {
   cartSessions.delete(sessionId);
+}
+
+/** Set table number and/or order type for a session. */
+export function cartSetTableInfo(sessionId: string, info: TableInfo): TableInfo {
+  const session = getOrCreate(sessionId);
+  session.tableInfo = { ...session.tableInfo, ...info };
+  return { ...session.tableInfo };
+}
+
+/** Get table info for a session. Returns undefined if not set. */
+export function cartGetTableInfo(sessionId: string): TableInfo | undefined {
+  const session = cartSessions.get(sessionId);
+  if (session) session.lastAccess = Date.now();
+  return session?.tableInfo ? { ...session.tableInfo } : undefined;
 }
 
 /** Format cart as a human-readable WhatsApp-friendly summary. */
