@@ -98,6 +98,7 @@
         //   southern      → https://pms-southern.vercel.app/
         //   makan-moments → https://fnb-online-order.vercel.app/en
         //   pms-capsule   → https://pms-capsule.vercel.app/
+        //   pms-southern  → https://pms-southern.vercel.app/
         var externalLinkHtml = p.siteUrl
           ? '<a href="' + escHtml(p.siteUrl) + '" target="_blank" rel="noopener noreferrer" '
             + 'onclick="event.stopPropagation()" '
