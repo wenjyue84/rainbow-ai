@@ -45,32 +45,47 @@
       if (chevron) chevron.style.transform = '';
     },
 
-    /** Switch to a profile by ID */
-    switchTo: function (profileId) {
+    /** US-809: Apply profile switch state without changing URL (used by tabs.js hashchange) */
+    _applyProfileSwitch: function (profileId) {
       activeProfileId = profileId;
       localStorage.setItem(STORAGE_KEY, profileId);
-      this.close();
       this.renderLabel();
       this.renderDropdown();
 
-      // 1. Clear cacheManager so stale data from previous profile is gone
+      // Clear cacheManager so stale data from previous profile is gone
       if (window.cacheManager && typeof window.cacheManager.clearAll === 'function') {
         window.cacheManager.clearAll();
       }
 
-      // 2. Reset global cached state vars to their defaults (from state.js)
+      // Reset global cached state vars to their defaults (from state.js)
       cachedRouting = {};
       cachedKnowledge = { static: [], dynamic: {} };
       cachedWorkflows = { workflows: [] };
       cachedSettings = null;
       cachedIntentNames = [];
+    },
 
-      // 3. Reload the active tab with new profile context
-      if (typeof window.loadTab === 'function') {
-        var tabInfo = typeof window.getTabInfoFromUrl === 'function'
-          ? window.getTabInfoFromUrl()
-          : { main: 'dashboard', sub: null };
-        window.loadTab(tabInfo.main, tabInfo.sub);
+    /** Switch to a profile by ID — updates URL for profile-specific tabs */
+    switchTo: function (profileId) {
+      this._applyProfileSwitch(profileId);
+      this.close();
+
+      // US-809: Update URL hash for profile-specific tabs
+      var tabInfo = typeof window.getTabInfoFromUrl === 'function'
+        ? window.getTabInfoFromUrl()
+        : { main: 'dashboard', profileId: null, sub: null };
+
+      if (window.PROFILE_SPECIFIC_TABS &&
+          window.PROFILE_SPECIFIC_TABS.indexOf(tabInfo.main) !== -1) {
+        var newHash = tabInfo.main + '/' + profileId;
+        if (tabInfo.sub) newHash += '/' + tabInfo.sub;
+        window.location.hash = newHash;
+        // hashchange will trigger loadTab
+      } else {
+        // Global tab — reload directly
+        if (typeof window.loadTab === 'function') {
+          window.loadTab(tabInfo.main, tabInfo.sub);
+        }
       }
     },
 
@@ -146,6 +161,27 @@
           // Hide switcher if only 1 profile
           var el = document.getElementById('profile-switcher');
           if (el && profiles.length <= 1) el.style.display = 'none';
+
+          // US-809: Expose known profile IDs for URL parsing in tabs.js
+          window.KNOWN_PROFILE_IDS = profiles.map(function (p) { return p.id; });
+
+          // US-809: Re-check URL for profile-scoped navigation now that IDs are known
+          if (typeof window.getTabInfoFromUrl === 'function') {
+            var urlInfo = window.getTabInfoFromUrl();
+            if (urlInfo.profileId && urlInfo.profileId !== (activeProfileId || defaultProfileId)) {
+              // URL specifies a different profile — switch to it and reload tab
+              self._applyProfileSwitch(urlInfo.profileId);
+              if (typeof window.loadTab === 'function') {
+                window.loadTab(urlInfo.main, urlInfo.sub);
+              }
+            } else if (window.PROFILE_SPECIFIC_TABS &&
+                       window.PROFILE_SPECIFIC_TABS.indexOf(urlInfo.main) !== -1 &&
+                       !urlInfo.profileId) {
+              // Profile-specific tab without profileId — redirect to include it
+              var pid = activeProfileId || defaultProfileId;
+              window.location.hash = urlInfo.main + '/' + pid + (urlInfo.sub ? '/' + urlInfo.sub : '');
+            }
+          }
         })
         .catch(function (err) {
           console.warn('[ProfileSwitcher] Failed to load profiles:', err.message);

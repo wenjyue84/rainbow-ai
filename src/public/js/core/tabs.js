@@ -9,6 +9,18 @@ const loadedTemplates = new Set();
 // Track the currently active tab for cleanup (US-160)
 let _currentTab = null;
 
+// US-809: Profile-specific tabs include profileId in URL hash
+const PROFILE_SPECIFIC_TABS = [
+  'dashboard', 'intents', 'understanding', 'responses',
+  'performance', 'chat-simulator', 'tests', 'knowledge-base', 'workflows'
+];
+window.PROFILE_SPECIFIC_TABS = PROFILE_SPECIFIC_TABS;
+
+// Default known profile IDs (updated by profile-switcher.js after API load)
+if (!window.KNOWN_PROFILE_IDS) {
+  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern'];
+}
+
 /**
  * Map old tab names to new ones for backward compatibility
  */
@@ -49,23 +61,39 @@ const tabNameMapping = {
 };
 
 /**
- * Get current tab and sub-tab from URL
- * @returns {{main: string, sub: string|null}}
+ * Get current tab, profile ID, and sub-tab from URL
+ * US-809: Profile-specific tabs use format #tab/profileId or #tab/profileId/subTab
+ * Global tabs use format #tab or #tab/subTab
+ * @returns {{main: string, profileId: string|null, sub: string|null}}
  */
 function getTabInfoFromUrl() {
   const hash = window.location.hash.slice(1); // Remove #
-  if (!hash) return { main: 'dashboard', sub: null };
+  if (!hash) return { main: 'dashboard', profileId: null, sub: null };
 
   // Handle query params if any (e.g. ?audience=developer)
   const cleanHash = hash.split('?')[0];
 
   const parts = cleanHash.split('/');
   const rawMain = parts[0];
-  const sub = parts.length > 1 ? parts[1] : null;
+  const main = tabNameMapping[rawMain] || rawMain || 'dashboard';
 
+  // For profile-specific tabs, parts[1] may be a profileId
+  if (PROFILE_SPECIFIC_TABS.includes(main) && parts.length >= 2) {
+    const knownIds = window.KNOWN_PROFILE_IDS || [];
+    if (knownIds.includes(parts[1])) {
+      return {
+        main: main,
+        profileId: parts[1],
+        sub: parts.length > 2 ? parts[2] : null
+      };
+    }
+  }
+
+  // Global tab or unrecognized profileId in parts[1]
   return {
-    main: tabNameMapping[rawMain] || rawMain || 'dashboard',
-    sub: sub
+    main: main,
+    profileId: null,
+    sub: parts.length > 1 ? parts[1] : null
   };
 }
 
@@ -153,6 +181,19 @@ function cleanupCurrentTab(previousTab, nextTab) {
 async function loadTab(tabName, subTab = null) {
   // Normalize tab name
   const effectiveTabName = tabNameMapping[tabName] || tabName;
+
+  // ── US-809: Redirect to include profileId for profile-specific tabs ──
+  if (PROFILE_SPECIFIC_TABS.includes(effectiveTabName) &&
+      window.KNOWN_PROFILE_IDS && window.KNOWN_PROFILE_IDS.length > 0) {
+    const { profileId } = getTabInfoFromUrl();
+    if (!profileId && window.profileSwitcher) {
+      const activeId = window.profileSwitcher.getActiveProfileId();
+      if (activeId) {
+        window.location.hash = effectiveTabName + '/' + activeId + (subTab ? '/' + subTab : '');
+        return; // hashchange will re-trigger loadTab
+      }
+    }
+  }
 
   // ── US-160: Clean up intervals/listeners from the previous tab ──
   cleanupCurrentTab(_currentTab, effectiveTabName);
@@ -279,6 +320,33 @@ function waitForLazyLoader() {
 }
 
 /**
+ * US-809: Handle navigation with profile-scoped URLs.
+ * - Profile-specific tabs auto-append profileId if missing
+ * - Auto-switches profile when URL contains a different profileId
+ */
+function handleNavigation() {
+  const { main, profileId, sub } = getTabInfoFromUrl();
+
+  // Auto-append profileId for profile-specific tabs if missing
+  if (PROFILE_SPECIFIC_TABS.includes(main) && !profileId) {
+    const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
+    window.location.hash = main + '/' + activeProfile + (sub ? '/' + sub : '');
+    return; // hashchange will fire again with profileId present
+  }
+
+  // Auto-switch profile if URL specifies a different one
+  if (profileId && window.profileSwitcher) {
+    const currentProfile = window.profileSwitcher.getActiveProfileId();
+    if (currentProfile !== profileId &&
+        typeof window.profileSwitcher._applyProfileSwitch === 'function') {
+      window.profileSwitcher._applyProfileSwitch(profileId);
+    }
+  }
+
+  loadTab(main, sub);
+}
+
+/**
  * Initialize tabs on page load
  */
 async function initTabs() {
@@ -295,15 +363,11 @@ async function initTabs() {
   // US-158: Wait for lazy-loader bootstrap before first loadTab
   await waitForLazyLoader();
 
-  // Initial load
-  const { main, sub } = getTabInfoFromUrl();
-  loadTab(main, sub);
+  // US-809: Initial load with profile-scoped URL handling
+  handleNavigation();
 
   // Listen for hash changes
-  window.addEventListener('hashchange', () => {
-    const { main, sub } = getTabInfoFromUrl();
-    loadTab(main, sub);
-  });
+  window.addEventListener('hashchange', handleNavigation);
 
   // Add click handlers
   document.querySelectorAll('[data-tab]').forEach(btn => {
@@ -311,13 +375,18 @@ async function initTabs() {
       e.preventDefault();
       const tabName = tabNameMapping[btn.dataset.tab] || btn.dataset.tab;
 
-      // Update URL hash
-      window.location.hash = tabName;
-      // hashchange event will trigger loadTab
+      // US-809: Include profileId for profile-specific tabs
+      if (PROFILE_SPECIFIC_TABS.includes(tabName)) {
+        const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
+        window.location.hash = tabName + '/' + activeProfile;
+      } else {
+        window.location.hash = tabName;
+      }
+      // hashchange event will trigger handleNavigation -> loadTab
     });
   });
 
-  console.log('[Tabs] Initialized with lazy-loading support');
+  console.log('[Tabs] Initialized with lazy-loading and profile-scoped URLs');
 }
 
 // Initialize on DOM ready
