@@ -4021,3 +4021,32 @@ Build: npm run build → PASS
 ## Iteration 2 - Sat, Mar 14, 2026  9:02:21 PM
 Completed: Profile-scoped admin tab URLs: every tab includes profileId in hash (ID: US-809) in 9m
 
+
+## Iteration N - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- Verified comprehensive implementation of profile-scoped admin tab URLs
+- PROFILE_SPECIFIC_TABS constant lists all profile-aware tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows
+- getTabInfoFromUrl() parses URL hash and returns {main, profileId, sub} format
+- handleNavigation() auto-appends profileId for profile-specific tabs if missing
+- handleNavigation() auto-switches profile when URL specifies a different profileId
+- profileSwitcher.switchTo() updates URL hash with new profileId for profile-specific tabs
+- Global tabs (settings, whatsapp, staff-review, help, live-chat) keep flat URLs without profileId
+
+### Patterns discovered
+- Tab name mapping supports backward compat (#intents → #intents/pelangi)
+- history.replaceState used to avoid triggering hashchange loop
+- Profile switching cascades: switchTo → clearCache → getTabInfo → updateHash → loadTab
+- All profile-specific tabs automatically include profileId in URL on navigation
+
+### Implementation Complete
+All acceptance criteria verified:
+- ✓ Navigating to #intents/makan-moments auto-switches to makan-moments profile
+- ✓ URL hash updates when profileSwitcher.switchTo() is called
+- ✓ Flat URLs auto-redirect to include profileId (#intents → #intents/pelangi)
+- ✓ Global tabs (settings, whatsapp, help, live-chat) keep flat URLs
+- ✓ Page refresh restores both tab and profile from URL
+- ✓ getTabInfoFromUrl() returns {main, profileId, sub} correctly
+
+### Syntax Check
+- ✓ src/public/js/core/tabs.js syntax valid
+- ✓ src/public/js/core/profile-switcher.js syntax valid
