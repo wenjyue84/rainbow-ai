@@ -35,7 +35,7 @@ import { findMenuItemMatches } from '../assistant/menu-matcher.js';
 export const cartTools: MCPTool[] = [
   {
     name: 'cart_add_item',
-    description: 'Add a known item to the guest\'s cart. Use this when you already know the exact item name, code, and price. For set meals or combos, use cart_search_item instead — it detects choices and guides customisation. Transitions order stage to ORDERING.',
+    description: 'Add a known item to the guest\'s cart. Use this when you already know the exact item name, code, and price. For set meals or combos, use cart_search_item instead — it detects choices and guides customisation. Transitions order stage to ORDERING. Malay triggers: "saya nak X", "boleh bagi X", "satu X", "tolong bagi X". Manglish: "can I have X lah", "I want X lah".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -51,7 +51,7 @@ export const cartTools: MCPTool[] = [
   },
   {
     name: 'cart_remove_item',
-    description: 'Remove an item from the guest\'s cart. Use this when the guest says remove, cancel, drop, or forget an item.',
+    description: 'Remove an item from the guest\'s cart. Use this when the guest says remove, cancel, drop, or forget an item. Malay: "tak nak X", "buang X", "cancel X", "tak jadi X".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -106,6 +106,7 @@ export const cartTools: MCPTool[] = [
       'If the cart has only one item, apply the instruction to that item.',
       'If there are multiple items and the instruction is ambiguous (guest did not name the item), ask which item it applies to before calling this tool.',
       'Common patterns: "no X", "extra X", "less X", "without X", "add X on the side", "X on the side".',
+      'Malay patterns: "kurang manis" (less sugar), "pedas sikit" (a little spicy), "tanpa bawang" (no onion), "tanpa ais" (no ice), "tambah sambal" (extra sambal), "kosong" (plain/no sugar no milk), "lebih pedas" (extra spicy), "suam" (warm). Translate to English before passing as notes.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -122,7 +123,7 @@ export const cartTools: MCPTool[] = [
     description: [
       'Set the table number or order type (dine-in / takeaway) for this order.',
       'Call this after the guest provides their table number or says takeaway/tapau.',
-      'Accepts patterns: "table 5", "T5", "table5", "takeaway", "tapau", "dine-in", "dine in".',
+      'Accepts patterns: "table 5", "T5", "table5", "takeaway", "tapau", "bawa balik", "bungkus", "dine-in", "dine in".',
       'Only call this once per session — do not ask again if already set.',
     ].join(' '),
     inputSchema: {
@@ -424,7 +425,7 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
 
     if (args.orderType) {
       const ot = String(args.orderType).trim().toLowerCase();
-      if (ot === 'takeaway' || ot === 'tapau') {
+      if (ot === 'takeaway' || ot === 'tapau' || ot === 'bawa balik' || ot === 'bungkus') {
         info.orderType = 'takeaway';
         delete info.tableNumber; // No table for takeaway
       } else {

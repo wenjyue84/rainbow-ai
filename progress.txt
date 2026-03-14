@@ -6989,3 +6989,61 @@ This brief is based on the provided user story and file structure, which indicat
 ### Gotchas
 - Each profile has its own dataDir (data-southern, data-makan, etc.) with separate knowledge.json and settings.json files
 - profileId is available in the `state` object passed to processAndSend — used for warning log message
+## Iteration 3 - Sun, Mar 15, 2026  7:08:12 AM
+Incomplete: Admin UI for per-profile WhatsApp frequency cap and rate limit configuration (ID: US-828) — attempt 2/3
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Intermediate Agent
+**Subject:** Technical Brief for Frappe/Python Implementation of User Story US-828
+
+This brief outlines the implementation plan for creating an admin UI for WhatsApp rate-limiting settings within the `lhdn_payroll_integration` Frappe app.
+
+**1. Python Files to Modify:**
+
+*   **New File:** `lhdn_payroll_integration/doctype/whatsapp_rate_limit_rule/whatsapp_rate_limit_rule.py` - To hold server-side logic for the new DocType.
+*   **New File:** `lhdn_payroll_integration/api.py` - To define the new whitelisted API endpoint for fetching rate-limit statistics.
+*   **Existing File (to be identified):** The Python file containing the current rate-limit enforcement logic needs to be updated to read values from the new DocType instead of its current configuration source.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **New DocType (Child):** Create a child DocType named `WhatsApp Rate Limit Rule` with the following fields:
+    *   `enabled` (Check, default: 1)
+    *   `max_messages_per_user_per_24h` (Int, default: 20)
+*   **Modified DocType (Singleton):** Modify an existing singleton settings DocType (e.g., `LHDN Payroll Settings` or a similar central configuration DocType). Add a "Table" field named `rate_limit_rules` that uses `WhatsApp Rate Limit Rule` as its source. This will serve as the primary admin UI.
+
+**3. Recommended Implementation Approach:**
+
+1.  Use `bench new-doctype "WhatsApp Rate Limit Rule"` to create the child table DocType. Mark it as a child table in its settings.
+2.  Add the `rate_limit_rules` Table field to the main settings DocType via "Customize Form".
+3.  Refactor the existing rate-limiting enforcement logic to query the new `WhatsApp Rate Limit Rule` table for its configuration.
+4.  In `api.py`, create a `@frappe.whitelist()` function `get_rate_limit_stats`. This function will query the relevant message/log DocType, counting distinct users who were blocked in the last 24 hours.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Caching:** Frappe aggressively caches DocType settings. Ensure the enforcement logic is not using stale cached values after an admin saves changes. Use `frappe.db.get_single_value` or clear the relevant cache key upon update.
+*   **Performance:** The stats-gathering query could be slow. It must be optimized to efficiently scan logs from the last 24 hours only. Consider adding a DB index on the timestamp and user fields of the logged data.
+*   **Default Values:** Ensure that if no rule is defined, the system falls back to a sensible default behavior and does not block all messages.
+
+
+## Iteration 4 - Story: US-866 Malay-language ordering
+### What was implemented
+- Enhanced `order_placement` regex patterns in `data-makan/intents.json` with Malay phrases (saya nak, boleh bagi, satu, tolong bagi, minta, tapau, bawa balik, bungkus) and Manglish (can I have, I want lah, add one more lah)
+- Added `order_placement`, `menu_query`, and `food_recommendation` intents to `data-makan/intent-keywords.json` with Malay/Manglish keywords for T2 fuzzy matching
+- Added comprehensive Malay/Manglish ordering section to system prompt in `webchat-api.ts` covering: add-to-cart, remove, quantity (satu/dua/tiga), special instructions mapping (kurang manis → less sugar, pedas sikit → a little spicy, tanpa bawang → no onion, etc.), takeaway, done ordering, and confirmation phrases
+- Updated cart tool descriptions with Malay/Manglish phrase examples
+- Extended `cart_set_table` handler to recognize "bawa balik" and "bungkus" as takeaway order types
+- Created 23 Vitest tests in `malay-ordering.test.ts` covering: intent pattern matching (5 Malay, 3 Manglish), takeaway detection (3), keyword matching (5), cart handler behavior (3 takeaway, 3 special instructions), and end-to-end Malay flow (1)
+### Patterns discovered
+- The `unknown` intent routes to `llm_reply`, so even if Malay phrases don't match specific patterns they still reach the LLM — but proper classification ensures correct routing
+- Intent keywords (T2) and intent patterns (regex) are separate classification tiers
+- The system prompt in `webchat-api.ts` is the most impactful place for Malay support since it directly instructs the LLM on phrase mapping
+- Malay quantity words (satu, dua, tiga) need to be regex-matched as order_placement, not just keywords
+### Gotchas
+- JSON import in tests requires `assert { type: 'json' }` syntax for ESM
+- The `intents.json` regex for order_placement is broad (e.g. `nak + word`) — careful not to clash with other intents like check-in ("nak check in")
