@@ -426,6 +426,11 @@ router.post('/conversations/:phone/send-media', upload.single('file'), async (re
     console.log(`[Admin] Sent ${mediaType} to ${phone}: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB)`);
     ok(res, { mediaType, fileName: file.originalname, size: file.size });
   } catch (err: any) {
+    // US-834: Return 422 for media validation errors
+    if (err?.code === 'MEDIA_VALIDATION_FAILED') {
+      res.status(422).json({ error: err.reason, ...err.toJSON() });
+      return;
+    }
     console.error('[Admin] Failed to send media:', err);
     serverError(res, err);
   }

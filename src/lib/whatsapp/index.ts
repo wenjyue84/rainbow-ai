@@ -8,6 +8,7 @@
 import path from 'path';
 import { WhatsAppManager } from './manager.js';
 import type { MessageHandler } from './types.js';
+import { validateWhatsAppMedia, MediaValidationError } from './media-validator.js';
 
 // Use process.cwd() (= RainbowAI/) — __dirname is dist/ in esbuild bundle
 const LEGACY_AUTH_DIR = process.env.WHATSAPP_AUTH_DIR || path.resolve(process.cwd(), 'whatsapp-auth');
@@ -19,6 +20,7 @@ export { WhatsAppInstance } from './instance.js';
 export { WhatsAppManager, formatPhoneNumber } from './manager.js';
 export { LidMapper } from './lid-mapper.js';
 export { ensureAvatar, getAvatarFilePath } from './avatar-cache.js';
+export { validateWhatsAppMedia, MediaValidationError } from './media-validator.js';
 
 // ─── Singleton Instance ─────────────────────────────────────────────
 
@@ -71,6 +73,8 @@ export async function sendWhatsAppMedia(
   caption?: string,
   instanceId?: string
 ): Promise<any> {
+  // US-834: Pre-send validation against WhatsApp size and format limits
+  validateWhatsAppMedia(buffer, mimetype);
   return whatsappManager.sendMedia(phone, buffer, mimetype, fileName, caption, instanceId);
 }
 

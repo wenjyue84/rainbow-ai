@@ -5776,3 +5776,17 @@ Here is the technical brief for implementing the profile cloning feature in Frap
 - Always verify existing implementation before starting new code
 ### Gotchas
 - None — clean implementation, all acceptance criteria met
+
+## Iteration 4 - Sat, Mar 15, 2026 (cont.)
+### Story: US-834 - Outbound media pre-send validation against WhatsApp size and format limits
+### What was implemented
+- New `src/lib/whatsapp/media-validator.ts` with `validateWhatsAppMedia()` and `MediaValidationError` class
+- Validation covers: MIME type check (JPEG/PNG/WebP, MP4/3GPP, AAC/MP3/OGG/AMR/Opus, PDF/DOCX/XLSX/TXT/CSV) and size limits (image 5MB, video 16MB, audio 16MB, document 100MB, sticker 100KB)
+- Integrated into `sendWhatsAppMedia()` in `src/lib/whatsapp/index.ts` — validation runs before sock.sendMessage()
+- Admin route `conversations.ts` returns HTTP 422 with structured error for `MediaValidationError`
+- 27 unit tests in `src/lib/whatsapp/__tests__/media-validator.test.ts` covering: supported types, boundary sizes, unsupported types, error structure, case insensitivity
+### Patterns discovered
+- `sendWhatsAppMedia` in `whatsapp/index.ts` is the single choke point — all callers (admin routes, response-processor) go through it
+- `baileys-client.ts` is a backward-compat re-export layer
+### Gotchas
+- Acceptance criterion says "skip validation for remote HTTPS URLs" — not applicable here since `sendWhatsAppMedia` takes a Buffer, not a URL
