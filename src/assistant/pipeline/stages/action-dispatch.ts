@@ -17,6 +17,7 @@ import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
 import { buildListMessage, listMessageToText } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
+import { fnbGetMenu } from '../../../tools/fnb-menu.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -356,6 +357,12 @@ async function handleLLMReply(
 ): Promise<void> {
   const { phone, text, convo, msg, diaryEvent } = state;
 
+  // US-863: Handle MENU_FILTER_PRICE intent specially
+  if (result.intent === 'MENU_FILTER_PRICE') {
+    await handleMenuFilterPrice(state, context);
+    return;
+  }
+
   state.response = result.response;
 
   // Track unknown intents OR low-confidence results for operator escalation
@@ -413,6 +420,71 @@ async function handleLLMReply(
     }
   } else {
     context.resetUnknown(phone);
+  }
+}
+
+/**
+ * Parse price from message text (e.g., "RM 15", "15 ringgit", "under RM 10")
+ * Returns [minPrice, maxPrice] or null if no price found
+ */
+function parsePriceFromText(text: string): [number, number] | null {
+  // Pattern: "RM X", "X ringgit", "X rm", "between X and Y", "X to Y"
+  const rmPattern = /(?:RM|rm)\s*(\d+(?:\.\d{1,2})?)/;
+  const ringgitPattern = /(\d+(?:\.\d{1,2})?)\s*(?:ringgit|rm)\b/i;
+  const rangePattern = /(?:between|from)?\s*(?:RM|rm)?\s*(\d+(?:\.\d{1,2})?)\s*(?:and|to)\s*(?:RM|rm)?\s*(\d+(?:\.\d{1,2})?)/i;
+
+  // Check for price range (e.g., "between 10 and 20")
+  const rangeMatch = text.match(rangePattern);
+  if (rangeMatch) {
+    const min = parseFloat(rangeMatch[1]);
+    const max = parseFloat(rangeMatch[2]);
+    if (!isNaN(min) && !isNaN(max)) return [min, max];
+  }
+
+  // Check for "RM X" or "X ringgit"
+  const rmMatch = text.match(rmPattern) || text.match(ringgitPattern);
+  if (rmMatch && rmMatch[1]) {
+    const price = parseFloat(rmMatch[1]);
+    if (!isNaN(price)) return [0, price]; // maxPrice = price
+  }
+
+  return null;
+}
+
+/**
+ * US-863: Handle MENU_FILTER_PRICE intent
+ * Parse price from message and call fnbGetMenu with maxPrice filter
+ */
+async function handleMenuFilterPrice(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  const { processText, convo } = state;
+
+  context.resetUnknown(state.phone);
+
+  // Parse price from the message
+  const [minPrice, maxPrice] = parsePriceFromText(processText) || [undefined, undefined];
+
+  if (maxPrice === undefined) {
+    // Couldn't parse price, fall back to LLM
+    state.response = 'I understood you\'re looking for items in a certain price range, but I couldn\'t parse the price. Could you please specify the amount in RM? For example, "What can I get for RM 15?"';
+    return;
+  }
+
+  console.log(`[Dispatch] US-863 MENU_FILTER_PRICE: maxPrice=${maxPrice}, minPrice=${minPrice}`);
+
+  // Call fnbGetMenu with price filter
+  const result = await fnbGetMenu({
+    _profileId: state.profileId,
+    max_price: maxPrice,
+    ...(minPrice ? { min_price: minPrice } : {})
+  });
+
+  if (result.isError) {
+    state.response = 'I\'m unable to check the menu right now. Please try again or ask our staff for help.';
+  } else {
+    state.response = result.content[0]?.text || 'I couldn\'t retrieve the menu. Please ask our staff for assistance.';
   }
 }
 

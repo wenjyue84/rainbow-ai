@@ -6698,3 +6698,37 @@ This user story is for a Node.js/TypeScript project, not Frappe/Python. The file
 - The default pelangi profile has empty `dbConfigPrefix`, so its config keys are bare filenames (no prefix). All other profiles use `prefix:filename` format. The clone endpoint always uses the new profileId as the prefix.
 - `rainbow_kb_files` table has a flat namespace (no profile prefix) — KB files are loaded per-profile from disk `kbDir`. The clone creates an empty kbDir; operators must populate KB content separately.
 - Using `ON CONFLICT (key) DO NOTHING` for DB inserts prevents overwriting if a partial clone is retried.
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This technical brief is based on the provided JSON and project structure, which point to a TypeScript/Node.js application, not a Frappe/Python one as mentioned in the prompt.
+
+**Project:** `rainbow-ai` (TypeScript/Node.js)
+**User Story:** US-828 - Admin UI for WhatsApp Rate Limiting
+
+### Technical Implementation Brief
+
+1.  **Files to Modify:**
+    *   `shared/schema.ts` or `shared/schema-validation.ts`: Add a `rate_limits` object to the settings schema, containing `enabled: boolean` and `max_messages_per_user_per_24h: number`.
+    *   `src/routes/admin.ts` (or similar): Create a new route `GET /api/admin/rate-limits/stats` to return the count of rate-limited users.
+    *   Locate the frontend settings component (e.g., `src/routes/Settings.tsx` or `src/components/Admin/Settings.tsx`) to add the new UI controls.
+    *   Identify the existing rate-limit enforcement service to ensure it reads from the new config structure.
+
+2.  **Key Architectural Components Involved:**
+    *   **Config Store:** `rainbow_configs` is the persistence layer.
+    *   **API:** The Express/Hono/Fastify router that handles admin API requests.
+    *   **Frontend:** The Admin/Settings UI panel, likely built in a JS framework like React or Vue.
+
+3.  **Recommended Approach:**
+    *   Begin by updating the configuration schema to formally define the new `rate_limits` settings.
+    *   Implement the backend `stats` endpoint; this may require querying a log database or a cache (like Redis) where limiting events are recorded.
+    *   In the frontend, add a new section to the settings panel. Fetch and bind the `rate_limits` config to a toggle switch and a numeric input.
+    *   On save, call the existing API that persists settings to `rainbow_configs`.
+    *   Finally, ensure the core message-sending logic correctly uses the `enabled` and `max_messages...` values from the config.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Config Hot-Reloading:** The system must reload configuration changes within one minute without a server restart. The existing mechanism should be verified.
+    *   **Performance:** The `stats` endpoint query must be efficient to avoid slowing down the admin dashboard.
+    *   **Defaults:** The enforcement code must handle cases where the `rate_limits` object is missing for a profile (likely defaulting to 'disabled').
+    *   **Security:** Ensure the admin endpoints for modifying settings and viewing stats are properly authenticated and authorized.
+

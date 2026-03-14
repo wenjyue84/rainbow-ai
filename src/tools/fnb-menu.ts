@@ -9,19 +9,20 @@ const MENU_CACHE_TTL_MS = 5 * 60 * 1000;
 interface MenuCacheEntry { text: string; expiresAt: number; }
 const menuCache = new Map<string, MenuCacheEntry>();
 
-function getMenuCacheKey(profileId: string, category?: string, dietaryTags?: string[]): string {
+function getMenuCacheKey(profileId: string, category?: string, dietaryTags?: string[], maxPrice?: number): string {
   const tagsKey = dietaryTags && dietaryTags.length > 0 ? `::tags:${[...dietaryTags].sort().join(',')}` : '';
-  return `${profileId}::${category || '__all__'}${tagsKey}`;
+  const priceKey = maxPrice ? `::maxPrice:${maxPrice}` : '';
+  return `${profileId}::${category || '__all__'}${tagsKey}${priceKey}`;
 }
 
-function getMenuCache(profileId: string, category?: string, dietaryTags?: string[]): string | undefined {
-  const entry = menuCache.get(getMenuCacheKey(profileId, category, dietaryTags));
+function getMenuCache(profileId: string, category?: string, dietaryTags?: string[], maxPrice?: number): string | undefined {
+  const entry = menuCache.get(getMenuCacheKey(profileId, category, dietaryTags, maxPrice));
   if (entry && Date.now() < entry.expiresAt) return entry.text;
   return undefined;
 }
 
-function setMenuCache(profileId: string, text: string, category?: string, dietaryTags?: string[]): void {
-  menuCache.set(getMenuCacheKey(profileId, category, dietaryTags), { text, expiresAt: Date.now() + MENU_CACHE_TTL_MS });
+function setMenuCache(profileId: string, text: string, category?: string, dietaryTags?: string[], maxPrice?: number): void {
+  menuCache.set(getMenuCacheKey(profileId, category, dietaryTags, maxPrice), { text, expiresAt: Date.now() + MENU_CACHE_TTL_MS });
 }
 
 // Re-export for convenience
@@ -30,11 +31,13 @@ export type { DisambiguationCandidate as MenuItem };
 export const fnbMenuTools: MCPTool[] = [
   {
     name: 'fnb_get_menu',
-    description: 'Get the full cafe menu. Optionally filter by category and/or dietary tags.',
+    description: 'Get the full cafe menu. Optionally filter by category, price range, and/or dietary tags.',
     inputSchema: {
       type: 'object',
       properties: {
         category: { type: 'string', description: 'Category to filter by (optional)' },
+        max_price: { type: 'number', description: 'Maximum price in RM to filter by (optional). Returns items at or below this price, sorted cheapest first.' },
+        min_price: { type: 'number', description: 'Minimum price in RM to filter by (optional).' },
         dietary_tags: {
           type: 'array',
           items: { type: 'string' },
@@ -114,19 +117,53 @@ async function callFnbMcp(tool: string, input: Record<string, any> = {}): Promis
 export async function fnbGetMenu(args: any): Promise<MCPToolResult> {
   const profileId = args._profileId || 'makan-moments';
   const category = args.category as string | undefined;
+  const maxPrice = args.max_price as number | undefined;
+  const minPrice = args.min_price as number | undefined;
   const dietaryTags = Array.isArray(args.dietary_tags) ? (args.dietary_tags as string[]) : undefined;
 
-  const cached = getMenuCache(profileId, category, dietaryTags);
+  const cached = getMenuCache(profileId, category, dietaryTags, maxPrice);
   if (cached) return { content: [{ type: 'text', text: cached }] };
 
   const input: Record<string, any> = {};
   if (category) input.category = category;
+  if (maxPrice !== undefined) input.max_price = maxPrice;
+  if (minPrice !== undefined) input.min_price = minPrice;
   if (dietaryTags && dietaryTags.length > 0) input.dietary_tags = dietaryTags;
 
-  const result = await callFnbMcp('fnb_get_menu', input);
+  let result = await callFnbMcp('fnb_get_menu', input);
+
+  // Client-side price filtering as fallback if MCP doesn't support it
+  if (!result.isError && (maxPrice !== undefined || minPrice !== undefined)) {
+    const text = result.content[0]?.text || '';
+    const items = parseMenuFromText(text);
+    const filtered = items.filter(item => {
+      if (item.price === undefined) return true;
+      if (maxPrice !== undefined && item.price > maxPrice) return false;
+      if (minPrice !== undefined && item.price < minPrice) return false;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      const allItems = parseMenuFromText(text);
+      const minAvailable = Math.min(...allItems.filter(i => i.price !== undefined).map(i => i.price!));
+      const closest = allItems.filter(i => i.price === minAvailable).slice(0, 3);
+      const closestText = closest.map(c => `${c.code ? `${c.code} ` : ''}${c.name}${c.price ? ` - RM ${c.price.toFixed(2)}` : ''}`).join('\n');
+      const response = maxPrice
+        ? `I didn't find items under RM ${maxPrice}. The cheapest items start at RM ${minAvailable.toFixed(2)}:\n\n${closestText}`
+        : `No items found in that price range. Here are our most affordable options:\n\n${closestText}`;
+      result = { content: [{ type: 'text', text: response }] };
+    } else {
+      const sortedText = filtered
+        .sort((a, b) => (a.price || Infinity) - (b.price || Infinity))
+        .map(c => `${c.code ? `${c.code} ` : ''}${c.name}${c.price ? ` - RM ${c.price.toFixed(2)}` : ''}`)
+        .join('\n');
+      result = { content: [{ type: 'text', text: `Here are items ${maxPrice ? `under RM ${maxPrice}` : minPrice ? `from RM ${minPrice}` : 'in your price range'} (sorted by price):\n\n${sortedText}` }] };
+    }
+  }
+
   if (!result.isError) {
     const text = result.content[0]?.text || '';
-    if (text) setMenuCache(profileId, text, category, dietaryTags);
+    if (text) setMenuCache(profileId, text, category, dietaryTags, maxPrice);
   }
   return result;
 }
