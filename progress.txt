@@ -4557,3 +4557,26 @@ Completed: WCAG 2.1 AA keyboard accessibility for webchat widget (ID: US-810) in
 ### Gotchas
 - All 4 queries run in parallel via Promise.all for minimal latency
 - Used `count(distinct jid)` for escalations to avoid double-counting the same conversation
+## Iteration 2 - Sat, Mar 14, 2026 11:28:59 PM
+Completed: CSAT and resolution rate analytics with alert thresholds in admin dashboard (ID: US-811) in 7m
+
+
+## Iteration 3 - US-812: WhatsApp opt-out tracking and 24-hour compliance enforcement
+
+### What was implemented
+- Added `processed_at TIMESTAMPTZ` column to `opt_outs` table via idempotent ALTER TABLE migration at module load
+- `recordOptOut()` now sets `processedAt` = same timestamp as `optedOutAt` (immediate enforcement = compliant by design)
+- `getOptOutList()` returns `processedAt`, `isCompliant`, `processingDelayMs` per record
+- `getOptOutComplianceSummary()` returns totals for warning banner: totalOptOuts, nonCompliantCount, unprocessedCount, hasComplianceWarning
+- Added `GET /api/rainbow/opt-outs/compliance` endpoint (before the paginated list route to avoid path collision)
+- Updated `GET /api/rainbow/opt-outs` to include full compliance data per record
+- `message-scheduler.ts`: Added `isOptedOut()` check for both scheduled messages AND payment reminders — opted-out phones get status='cancelled'
+
+### Patterns discovered
+- `drizzle-kit push` doesn't work in this project (CJS/ESM conflict in drizzle.config.ts) — use raw SQL ALTER TABLE at module load
+- Compliance route `/opt-outs/compliance` must be registered BEFORE `/opt-outs/:phone` to avoid Express treating 'compliance' as a phone param
+- processedAt is set equal to optedOutAt since opt-out blocks messages in the same processing cycle
+
+### Gotchas
+- `isNull` from drizzle-orm used for WHERE processed_at IS NULL query — don't use sql template for this
+- Unused `lt` import from drizzle-orm removed to keep imports clean

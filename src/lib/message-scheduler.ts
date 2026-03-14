@@ -12,6 +12,7 @@ import { isFrequencyCapError, recordFrequencyCap, trackOutboundMarketing } from 
 import { notifyAdminFrequencyCap } from './admin-notifier.js';
 import { isOutboundBlocked } from './phone-quality.js';
 import { recordWhatsappMessageCost } from './whatsapp-cost.js';
+import { isOptedOut } from '../assistant/opt-out.js';
 
 const DATA_FILE = join(process.cwd(), 'data', 'scheduled-messages.json');
 
@@ -138,6 +139,15 @@ async function checkAndSend(): Promise<void> {
 
     // Time to send
     try {
+      // US-812: Block messages to opted-out numbers (WhatsApp compliance)
+      if (isOptedOut(msg.phone)) {
+        console.warn(`[Scheduler] Skipping message ${msg.id} — phone ${msg.phone} has opted out`);
+        msg.status = 'cancelled';
+        msg.sentAt = now.toISOString();
+        changed = true;
+        continue;
+      }
+
       // US-458: Block business-initiated messages when phone quality is FLAGGED
       if (isOutboundBlocked('pelangi')) {
         console.warn(`[Scheduler] Skipping message ${msg.id} — outbound blocked (phone quality FLAGGED)`);
@@ -224,6 +234,12 @@ async function checkAndSend(): Promise<void> {
     const overdue = getOverdueReminders();
     for (const reminder of overdue) {
       if (!reminder.autoSend) continue;
+
+      // US-812: Block payment reminders to opted-out numbers
+      if (isOptedOut(reminder.phone)) {
+        console.warn(`[Scheduler] Skipping payment reminder ${reminder.id} — phone ${reminder.phone} has opted out`);
+        continue;
+      }
 
       try {
         const { sendWhatsAppMessage } = await import('./baileys-client.js');

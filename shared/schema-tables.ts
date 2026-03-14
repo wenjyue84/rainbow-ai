@@ -245,6 +245,8 @@ export const optOuts = pgTable("opt_outs", {
   phone: varchar("phone", { length: 64 }).primaryKey(),
   optedOutAt: timestamp("opted_out_at").notNull().defaultNow(),
   optedInAt: timestamp("opted_in_at"),
+  // US-812: compliance tracking — when was the opt-out enforced (messages blocked)
+  processedAt: timestamp("processed_at"),
 }, (table) => ([
   index("idx_opt_outs_opted_out_at").on(table.optedOutAt),
 ]));
