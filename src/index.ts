@@ -56,6 +56,7 @@ import {
 import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
+import { checkBreachDeadlines } from './routes/admin/breach-report.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -179,6 +180,13 @@ startFallbackAlertScheduler();
 
 // US-836: Start SLA cron for human handoff breach alerts (runs every 2 min)
 startHandoffSlaCron();
+
+// US-839: Daily PDPA breach deadline check (runs every 24h)
+setInterval(() => {
+  checkBreachDeadlines().catch(err =>
+    console.error('[PDPA] Scheduled deadline check failed:', err.message)
+  );
+}, 24 * 60 * 60 * 1000);
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

@@ -6079,3 +6079,62 @@ This project uses a database, not Frappe DocTypes. The key components are:
 ### Gotchas
 - `settingsDataSchema` uses `.passthrough()` so unknown keys are preserved — adding `retention` with `.optional()` is backward-compatible with existing settings.json
 - Need to spread `...currentSettings` when building updatedSettings to preserve all other fields before calling `store.setSettings()`
+## Iteration 3 - Sun, Mar 15, 2026  4:57:19 AM
+Incomplete: Profile configuration cloning: duplicate an existing profile as a starting template (ID: US-827) — attempt 2/3
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This user story describes a profile cloning feature for a **Node.js/TypeScript** application, not a Frappe/Python project. The implementation should be done within the existing application's framework, likely using Drizzle ORM as indicated by `drizzle.config.ts`.
+
+Here is the technical brief:
+
+**Project:** Node.js/TypeScript Web Application
+**ORM:** Drizzle
+
+**1. Python Files to Modify / DocTypes (Node.js Equivalents):**
+
+*   **`src/routes/admin/profiles.ts` (Likely):** Create a new route handler for `POST /api/admin/profiles/:sourceId/clone`. This file would contain the API endpoint definition and call the core logic.
+*   **`src/services/ProfileService.ts` (Likely):** This service would house the main `cloneProfile` function. It will handle fetching the source data, transforming it, and inserting the new records within a database transaction.
+*   **`shared/schema.ts`:** No modifications needed, but this file defines the structure for `rainbow_configs` and `rainbow_kb_files` tables which are central to the operation.
+
+**2. Recommended Implementation Approach:**
+
+1.  **API Endpoint:** Implement the `POST /api/admin/profiles/:sourceId/clone` endpoint in the admin router. Ensure it's protected by admin-level authentication middleware.
+2.  **Service Logic:** In the `ProfileService`, create a `cloneProfile` method that accepts `sourceId`, `newProfileId`, and `displayName`.
+3.  **Database Transaction:** Use a Drizzle transaction (`db.transaction(async (tx) => { ... })`) to ensure the entire cloning process is atomic.
+4.  **Data Copying:**
+    *   Inside the transaction, query all records from `rainbow_configs` where `profileId` matches `sourceId`.
+    *   Filter out any sensitive or instance-specific settings (e.g., keys related to WhatsApp phone numbers).
+    *   Use `.map()` to transform the array of results into a new array for insertion, replacing the `sourceId` with the `newProfileId`.
+    *   Perform a bulk insert of the new configuration records.
+    *   Repeat the same query-map-insert process for the `rainbow_kb_files` metadata table.
+5.  **Return Value:** On success, the endpoint should return a JSON response containing the `{ newProfileId }`.
+
+**3. Edge Cases & Gotchas:**
+
+*   **Atomicity:** The entire operation must be wrapped in a single database transaction. If copying the KB files metadata fails, the newly created profile configs must be rolled back.
+*   **ID Collision:** The backend must validate that the `newProfileId` from the request body does not already exist. If it does, return a 409 Conflict error.
+*   **Source Validation:** Handle the case where the `sourceId` does not exist by returning a 404 Not Found error.
+*   **Data Exclusion:** Be precise about which configuration keys to exclude. The technical notes explicitly forbid copying WhatsApp authentication state; a predefined exclusion list for config keys is recommended.
+*   **File System:** The story correctly states not to copy physical files. The logic should only duplicate the database metadata rows in `rainbow_kb_files`.
+
+
+## Iteration 4 - Story: US-839 PDPA data breach notification workflow
+
+### What was implemented
+- Created `src/routes/admin/breach-report.ts` with 3 endpoints:
+  - `POST /api/rainbow/security/breach-report` — creates timestamped breach record with auto-calculated 72h commissioner and 7d subject deadlines
+  - `GET /api/rainbow/security/breach-report` — lists all breach records with colour-coded deadline status (green/amber/red)
+  - `PATCH /api/rainbow/security/breach-report/:id` — updates commissioner_notified_at / subjects_notified_at (append-only via COALESCE)
+- Added `notifyAdminBreachReport()` to `src/lib/admin-notifier.ts` for WhatsApp admin alerts
+- Added `checkBreachDeadlines()` export for daily cron — checks approaching/overdue deadlines within 6h window
+- Registered daily interval in `src/index.ts` (24h) for automated deadline reminders
+- `pdpa_breach_log` table created via idempotent `CREATE TABLE IF NOT EXISTS` on module load
+
+### Patterns discovered
+- Deadline colour logic: green (on_track/completed), amber (< 24h), red (< 6h or overdue)
+- Append-only pattern: PATCH uses `COALESCE(existing, new_value)` to prevent overwriting timestamps
+- Raw `pool.query` for tables not in Drizzle schema (same pattern as gdpr_audit_log, rainbow_configs)
+
+### Gotchas
+- The `deadlineStatus()` helper is shared between the GET response formatter and the cron check to ensure consistent status reporting

@@ -62,6 +62,7 @@ import jidRateLimiterRoutes from './jid-rate-limiter.js';
 import templateQualityRoutes from './template-quality.js';
 import authRoutes from './auth.js';
 import experimentsRoutes from './experiments.js';
+import breachReportRoutes from './breach-report.js';
 
 const router = Router();
 
@@ -230,6 +231,7 @@ router.use(jidRateLimiterRoutes);
 router.use(templateQualityRoutes);
 router.use(authRoutes);
 router.use(experimentsRoutes);
+router.use(breachReportRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

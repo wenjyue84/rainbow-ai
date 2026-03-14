@@ -745,3 +745,41 @@ export async function notifyAdminSlowQuery(
     logger.error('Failed to send slow query notification', { error: err.message });
   }
 }
+
+/**
+ * Send PDPA breach report notification to system admin (US-839).
+ */
+export async function notifyAdminBreachReport(
+  description: string,
+  affectedCount: number,
+  commissionerDeadline: Date,
+  subjectDeadline: Date
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send breach report notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) {
+    logger.info('Breach report notifications disabled in settings');
+    return;
+  }
+
+  const fmtDate = (d: Date) => d.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+
+  const message = `🚨 *PDPA Data Breach Report*\n\n` +
+    `${description}\n\n` +
+    `Affected estimate: *${affectedCount}* individuals\n\n` +
+    `⏰ *Commissioner Deadline:* ${fmtDate(commissionerDeadline)} (72h)\n` +
+    `⏰ *Subject Deadline:* ${fmtDate(subjectDeadline)} (7 days)\n\n` +
+    `📋 View all: GET /api/rainbow/security/breach-report\n\n` +
+    `Time: ${fmtDate(new Date())}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent breach report notification', { affectedCount });
+  } catch (err: any) {
+    logger.error('Failed to send breach report notification', { error: err.message });
+  }
+}
