@@ -101,6 +101,47 @@ router.get('/:profileId/kb-context', async (req: Request, res: Response) => {
   }
 });
 
+const DEFAULT_WELCOME_MESSAGE =
+  "Welcome! I'm your AI assistant. How can I help you today?";
+
+/**
+ * GET /api/chat/:profileId/greeting
+ *
+ * Returns a one-time welcome greeting per session.
+ * Subsequent calls for the same sessionId return null (already greeted).
+ * Query params: sessionId (required)
+ */
+router.get('/:profileId/greeting', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const sessionId = req.query.sessionId as string;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId query parameter required' });
+    return;
+  }
+
+  const profile = profileRegistry.getProfile(profileId);
+  if (!profile) {
+    res.status(404).json({ error: `Profile "${profileId}" not found` });
+    return;
+  }
+
+  // Already greeted this session
+  if (greetingSessions.has(sessionId)) {
+    res.json({ greeting: null, sessionId });
+    return;
+  }
+
+  // Read welcomeMessage from profile settings, fall back to default
+  const settings = profile.configStore.getSettings() as any;
+  const greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
+
+  // Mark session as greeted
+  greetingSessions.set(sessionId, { sentAt: Date.now() });
+
+  res.json({ greeting, sessionId });
+});
+
 /**
  * POST /api/chat/:profileId/message
  *

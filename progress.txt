@@ -4915,3 +4915,52 @@ Implement a pre-submission order confirmation flow within the Frappe app. The us
 ### Gotchas
 - `fnb_create_order` requires `code` on each item — filter out items without codes before calling
 - `estimated_arrival` is required by FnB schema — use `new Date().toISOString()` for dine-in orders
+## Iteration 3 - Sun, Mar 15, 2026  1:56:34 AM
+Completed: Order confirmation summary: show itemised receipt before submitting to kitchen (ID: US-851) in 7m
+
+
+## Pre-analysis for US-858 (Gemini 2.5 Pro)
+Based on the user story and project structure, this appears to be a **TypeScript/Node.js** task, not Frappe/Python. The technical implementation will be in `webchat-api.ts`.
+
+Here is the technical brief for the Claude agent:
+
+### **Technical Brief: US-858 - AI Waiter Welcome Message**
+
+**Objective:** Implement a configurable, session-based welcome message for the webchat to inform users of the AI's ordering capabilities upon first interaction.
+
+**1. Primary File to Modify:**
+*   `src/routes/webchat/webchat-api.ts`: This file likely contains the session initialization and message handling logic for the webchat widget.
+
+**2. Key Frappe "Equivalents":**
+*   **API Endpoint:** The endpoint that initializes a new webchat session.
+*   **Data Structures:** The session state object, which needs a new boolean flag `sessionGreetingSent`.
+*   **Configuration:** `profiles.json` or a similar profile-specific settings file where the `welcomeMessage` string will be stored.
+
+**3. Recommended Implementation Approach:**
+1.  In `webchat-api.ts`, locate the function responsible for creating or loading a user's chat session.
+2.  At the beginning of this function, check for a `sessionGreetingSent` flag in the session state.
+3.  If the flag is not `true`, read the `welcomeMessage` from the current user's profile configuration. Provide a hardcoded default if the message is not configured.
+4.  Inject this message into the start of the chat history as an 'assistant' message.
+5.  Set `sessionGreetingSent = true` in the session state and ensure it's persisted.
+
+**4. Edge Cases & Gotchas:**
+*   **Session Persistence:** Ensure the `sessionGreetingSent` flag is correctly saved to prevent the message from appearing on every page load within the same session.
+*   **Configuration Fallback:** The logic must gracefully handle cases where `welcomeMessage` is missing from the profile settings, using a default greeting.
+*   **Race Conditions:** The check-and-set logic should be atomic for a given session to avoid sending the greeting twice.
+*   **Message Order:** The greeting must be injected before any other system prompts or user messages are processed for the new session.
+
+
+## Iteration N - Story: US-858 AI waiter welcome message
+### What was implemented
+- Added `GET /api/chat/:profileId/greeting?sessionId=xxx` endpoint in webchat-api.ts
+- Endpoint returns one-time welcome greeting per session using greetingSessions Map (already existed)
+- Reads `welcomeMessage` from profile settings.json with fallback to default generic greeting
+- makan-moments settings.json already had the welcomeMessage field (pre-existing)
+- Subsequent calls for the same sessionId return `{ greeting: null }` to prevent duplicates
+### Patterns discovered
+- greetingSessions Map with TTL cleanup was already present in webchat-api.ts but had no endpoint wired to it
+- makan-moments profile config: src/assistant/data-makan/settings.json
+- Profile settings accessed via `profile.configStore.getSettings()` cast to `any` for extended fields
+### Gotchas
+- settings.json files use UTF-8 encoding with emoji — Python needs explicit encoding='utf-8' 
+- pelangi profile doesn't have welcomeMessage so fallback kicks in correctly
