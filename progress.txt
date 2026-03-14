@@ -3790,3 +3790,17 @@ Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe 
 ### Gotchas
 - profile-registry.test.ts has 7 pre-existing timeout failures (database-dependent tests timing out at 5000ms) — unrelated to this change.
 - Full test suite can OOM on this Windows machine when run with default thread pool; use `--pool=forks` for stability.
+
+## Iteration 3 - Story: US-806 Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- Updated fnb-widget-bugs.test.ts with proper vi.mock() for ai-provider-manager, config-store, and context-windows
+- Added chatWithToolsLoop integration test: mocked LLM returns JSON '{"intent":"menu_query","response":"OK","confidence":0.5}' → verifies result is 'OK' (not raw JSON)
+- Added chatWithToolsLoop integration test: all tool handlers fail + toolless fallback fails → verifies result does NOT contain 'hostel'/'check-in'/'bookings' when makan-moments profile store is passed
+- Kept getUnknownFallbackMessages tests for makan-moments profile (no hostel text) and default fallback (hostel text)
+- Kept looksLikeJson utility tests for JSON detection edge cases
+### Patterns discovered
+- Pre-submit hook auto-refactors test files: renames test() to it(), restructures mocks, adjusts imports
+- NODE_OPTIONS="--max-old-space-size=2048" needed to avoid OOM during vitest on this system
+- intent-metamorphic.test.ts MR3 Determinism test times out at 5000ms — pre-existing flaky test, unrelated to US-806
+### Gotchas
+- First vitest run OOM'd without NODE_OPTIONS memory increase
