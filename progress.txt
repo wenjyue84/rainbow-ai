@@ -4050,3 +4050,20 @@ All acceptance criteria verified:
 ### Syntax Check
 - ✓ src/public/js/core/tabs.js syntax valid
 - ✓ src/public/js/core/profile-switcher.js syntax valid
+
+## Iteration - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- Implementation was already fully in place from prior iteration
+- tabs.js: PROFILE_SPECIFIC_TABS constant, getTabInfoFromUrl() returning {main, profileId, sub}, handleNavigation() auto-appending/switching profileId, click handlers including profileId
+- profile-switcher.js: switchTo() uses history.replaceState to update URL hash; after API init, re-checks URL and auto-switches profile if needed
+- All 9 acceptance criteria verified in code
+### Patterns discovered
+- getTabInfoFromUrl() checks parts[1] against window.KNOWN_PROFILE_IDS (populated from API) — only recognized profile IDs become profileId
+- handleNavigation() redirects #tab → #tab/profileId for profile-specific tabs (triggers hashchange loop, then loads)
+- switchTo() uses replaceState (not pushState) to avoid adding history entries on profile switch
+- window.KNOWN_PROFILE_IDS initially seeded with hardcoded fallback, then replaced after API confirms real IDs
+### Quality checks
+- npm run build: ✓ success (1.2MB bundle, 35s)
+- All acceptance criteria met: getTabInfoFromUrl ✓, auto-switch ✓, URL updates ✓, global tabs unchanged ✓
+### Gotchas
+- prd.json had passes=false but implementation was complete from an earlier iteration that failed to update the file
