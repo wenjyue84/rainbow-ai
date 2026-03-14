@@ -3017,3 +3017,22 @@ Completed: Add FnB MCP client tools for menu browsing in rainbow-ai (ID: US-602)
 - Google Gemini has a completely different tool format — skipped for now, tools only work with OpenAI-compatible and Groq providers
 ### Gotchas
 - chatWithFallback result check `result.content` would skip tool-call-only responses — changed to `result.content || result.toolCalls?.length`
+## Iteration 1 - Sat, Mar 14, 2026  6:15:02 PM
+FAILED quality gates: Add tool-calling loop to chat engine for FnB profile (ID: US-701) — attempt 1/3
+
+
+## Iteration 9 - Story: US-701 Add tool-calling loop to chat engine for FnB profile (RETRY)
+### What was implemented
+- Verified all changes from attempt 1 are correct and build passes
+- ChatOptions has tools?: MCPTool[] and toolHandlers?: Map<string, ToolHandler>
+- processChat() short-circuits to chatWithToolsLoop() when tools are provided
+- chatWithToolsLoop() in ai-response-generator.ts: converts MCPTool[] to OpenAI format, sends to LLM, handles tool_calls, executes handlers, loops max 3 times
+- chatWithFallback() in ai-provider-manager.ts accepts optional tools parameter
+- fnb-chat.ts passes toolRegistry.getToolsForProfile('makan-moments') and getHandlersForProfile('makan-moments')
+### Patterns discovered
+- Previous failure was likely a false negative — all code and build were already correct
+- Server startup takes time due to WhatsApp/DB initialization; timeout in quality gate may have been too short
+### Gotchas
+- Server startup doesn't print "listening" within 15s timeout due to Baileys init — not a build error
+## Iteration 2 - Sat, Mar 14, 2026  6:20:00 PM
+Completed: Add tool-calling loop to chat engine for FnB profile (ID: US-701) on retry 2/3
