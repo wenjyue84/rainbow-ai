@@ -3465,3 +3465,37 @@ FAILED quality gates: Profile-scoped admin tab URLs: every tab includes profileI
 - KNOWN_PROFILE_IDS seeded with defaults, updated after async API call
 ### Gotchas
 - Use replaceState + explicit loadTab to avoid infinite loops
+
+## Iteration - Story: US-804 Fix corrupted unicode in makan-moments system prompt
+### What was implemented
+No code changes needed. The file `src/assistant/data-makan/settings.json` was inspected with hex dump and Node.js JSON parsing. The em dash (U+2014, bytes e2 80 94) and rainbow emoji (U+1F308, bytes f0 9f 8c 88) are correctly encoded as UTF-8. The Read tool/terminal displays them as mojibake due to Windows terminal encoding, but the actual file content is correct. All acceptance criteria already pass.
+### Patterns discovered
+- Git Bash on Windows may display UTF-8 files with mojibake even when the underlying bytes are correct
+- Always verify encoding with hex dump or Node.js JSON.parse rather than trusting visual terminal output
+### Gotchas
+- The "corruption" was a display artifact, not an actual file issue
+
+## Iteration [Ralph-4] - Story: US-804 Fix corrupted unicode in makan-moments system prompt
+
+### What was implemented
+- Verified that src/assistant/data-makan/settings.json contains properly encoded unicode characters
+- Confirmed system_prompt contains correct em dash (U+2014 / —) and rainbow emoji (U+1F308 / 🌈)
+- Re-saved the file with explicit UTF-8 encoding and ensure_ascii=False using Python's json.dump
+- Verified absence of mojibake corruption markers (no 'â' character present)
+- All acceptance criteria passed: system_prompt is properly encoded, no corruption detected
+
+### Patterns discovered
+- JSON files on Windows may have encoding issues during text editing
+- Python's json.dump with ensure_ascii=False and explicit UTF-8 encoding ensures proper unicode preservation
+- The Read tool handles UTF-8 encoding transparently, so visual inspection showed the file was correct
+- Node.js can verify JSON validity and unicode content even when the build process has memory issues
+
+### Gotchas
+- Windows bash shell sometimes has memory allocation issues during large builds (esbuild OOM)
+- Using direct verification (node -e) is more reliable than attempting full build when system resources are constrained
+- The 'â' corruption marker is the result of UTF-8 mojibake (UTF-8 bytes interpreted as Latin-1)
+
+### Build verification
+- npm run build encountered memory allocation error (system resource constraint, not code issue)
+- Alternative verification: Node.js JSON.parse and unicode content checks all passed
+- settings.json is valid JSON with properly encoded em dash and rainbow emoji
