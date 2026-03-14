@@ -4964,3 +4964,55 @@ Here is the technical brief for the Claude agent:
 ### Gotchas
 - settings.json files use UTF-8 encoding with emoji — Python needs explicit encoding='utf-8' 
 - pelangi profile doesn't have welcomeMessage so fallback kicks in correctly
+## Iteration 4 - Sun, Mar 15, 2026  2:03:44 AM
+Completed: AI waiter welcome message: introduce ordering capability on first webchat open (ID: US-858) in 6m
+
+
+## Pre-analysis for US-859 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-859: Category-Based Menu Browsing**
+
+This brief outlines the implementation plan for the user story within a Frappe/Python environment, as requested.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/lhdn_payroll_integration/api.py`: This is the most likely location for the core business logic. A new whitelisted function, `get_menu_items`, should be created here.
+*   `lhdn_payroll_integration/hooks.py`: To declare the new API endpoint as a whitelisted guest-accessible method.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   `Menu Item` (Hypothesized): A DocType storing menu dishes. It must contain fields for `name`, `description`, `price`, and crucially, a `category` field (Link or Select type).
+    *   `Menu Category` (Hypothesized): A DocType to define the categories (`drinks`, `mains`, etc.) that the `Menu Item.category` field links to.
+*   **Hooks:**
+    *   The `api_allowed_methods` hook will need to be updated in `hooks.py` to expose the new `get_menu_items` function.
+
+**3. Recommended Implementation Approach:**
+1.  Define a new whitelisted `get_menu_items(category: str)` function in `api.py`.
+2.  Use Frappe's ORM (`frappe.db.get_list`) to query the `Menu Item` DocType.
+3.  Filter the query using the provided `category` argument on the `category` field.
+4.  The query should retrieve `name`, `description`, and `price`, with a `limit_page_length` of 8.
+5.  Return the count of total items for the category to allow the client to show a "see more" option.
+6.  Create a helper function `get_all_categories()` that the AI can call if an invalid category is requested.
+
+**4. Edge Cases & Gotchas:**
+*   **Category Normalization:** The external system calling the API must match the exact category names stored in the `Menu Category` DocType.
+*   **No Results:** The API should return an empty list gracefully if a valid category contains no items or the category does not exist.
+*   **Performance:** Ensure the `category` field in the `Menu Item` DocType is indexed in the database to handle frequent filtering.
+*   **Data Integrity:** The `category` field should be mandatory for all `Menu Item` documents.
+
+
+## Iteration N - Story: US-859 Category-based menu browsing
+### What was implemented
+- Added `menu_browse_category` intent to `src/assistant/data-makan/intents.json` with 3 regex patterns covering: "show me the drinks", "what rice do you have", "any desserts", "list the mains", Malay terms (nasi, mee), and bilingual variations
+- Added `menu_browse_category` routing entry in `src/assistant/data-makan/routing.json` (action: llm_reply)
+- Expanded BROWSING stage instructions in `src/routes/public/webchat-api.ts`:
+  - Guide LLM to call `fnb_get_menu({ category })` for category queries
+  - Numbered list format: "1. Item Name — RM X.XX\n   Brief description"
+  - Max 8 items with "...and X more" overflow hint
+  - If category not found: call `fnb_get_categories` and suggest alternatives
+  - Plain text only (no markdown tables) for WhatsApp/chat compatibility
+- Added 5-minute per-profile+category in-memory cache in `src/tools/fnb-menu.ts` (profileId::category key)
+### Patterns discovered
+- Webchat path bypasses intent classification (goes direct to tool-calling loop) so system prompt instructions are the primary driver for category browsing behaviour
+- `fnb_get_menu` already accepts optional `category` arg — no new tool needed
+- Cache key uses `_profileId` from args (falls back to 'makan-moments') to avoid cross-profile cache pollution
+### Gotchas
+- `_profileId` must be injected by the caller if multi-profile caching is needed; for now defaults to 'makan-moments' which is the only FnB profile

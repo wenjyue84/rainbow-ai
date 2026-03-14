@@ -4,6 +4,25 @@ import type { DisambiguationCandidate } from '../assistant/disambiguation-store.
 const FNB_MCP_URL = process.env.FNB_MCP_URL || 'http://localhost:3031/api/mcp';
 const FNB_MCP_SECRET = process.env.FNB_MCP_SECRET || '';
 
+// ─── Menu Response Cache (5-minute TTL per profile+category) ─────────────────
+const MENU_CACHE_TTL_MS = 5 * 60 * 1000;
+interface MenuCacheEntry { text: string; expiresAt: number; }
+const menuCache = new Map<string, MenuCacheEntry>();
+
+function getMenuCacheKey(profileId: string, category?: string): string {
+  return `${profileId}::${category || '__all__'}`;
+}
+
+function getMenuCache(profileId: string, category?: string): string | undefined {
+  const entry = menuCache.get(getMenuCacheKey(profileId, category));
+  if (entry && Date.now() < entry.expiresAt) return entry.text;
+  return undefined;
+}
+
+function setMenuCache(profileId: string, text: string, category?: string): void {
+  menuCache.set(getMenuCacheKey(profileId, category), { text, expiresAt: Date.now() + MENU_CACHE_TTL_MS });
+}
+
 // Re-export for convenience
 export type { DisambiguationCandidate as MenuItem };
 
@@ -87,9 +106,19 @@ async function callFnbMcp(tool: string, input: Record<string, any> = {}): Promis
 }
 
 export async function fnbGetMenu(args: any): Promise<MCPToolResult> {
+  const profileId = args._profileId || 'makan-moments';
+  const category = args.category as string | undefined;
+  const cached = getMenuCache(profileId, category);
+  if (cached) return { content: [{ type: 'text', text: cached }] };
+
   const input: Record<string, any> = {};
-  if (args.category) input.category = args.category;
-  return callFnbMcp('fnb_get_menu', input);
+  if (category) input.category = category;
+  const result = await callFnbMcp('fnb_get_menu', input);
+  if (!result.isError) {
+    const text = result.content[0]?.text || '';
+    if (text) setMenuCache(profileId, text, category);
+  }
+  return result;
 }
 
 export async function fnbGetMenuItem(args: any): Promise<MCPToolResult> {
