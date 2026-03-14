@@ -21,7 +21,7 @@ import { setDynamicKnowledge, deleteDynamicKnowledge, listDynamicKnowledge } fro
 import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAnalysisEnabled, isSentimentEnabledForProfile } from '../sentiment-tracker.js';
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
-import { recordConsent } from '../consent.js';
+import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
@@ -262,6 +262,8 @@ export async function validateAndPrepare(
   // ─── Consent capture (US-424) ────────────────────────────────────
   // Record first-contact consent for this JID (idempotent, non-blocking).
   // Must run after opt-out/opt-in handling (opted-out JIDs should not get a new consent record).
+  // US-843: Capture first-contact flag BEFORE recording consent (cache is updated by recordConsent)
+  const isFirstContact = !hasConsent(phone);
   recordConsent(phone, profileId).catch(() => { });
 
   // Handle non-text messages
@@ -561,7 +563,8 @@ export async function validateAndPrepare(
       convo, lang, diaryEvent, devMetadata, response: null,
       detectedLanguageConfidence,
       profileId, profileConfig, profileKB,
-      traceStart: performance.now()
+      traceStart: performance.now(),
+      isFirstContact
     }
   };
 }

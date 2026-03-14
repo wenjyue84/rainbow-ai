@@ -73,6 +73,17 @@ export async function processAndSend(
     response += disclaimer;
   }
 
+  // ─── US-843: First-contact data notice (PDPA compliance) ────────
+  if (state.isFirstContact) {
+    const knowledgeData = profileConfig.getKnowledge();
+    const noticeEntry = knowledgeData.static.find((e: any) => e.intent === 'data_notice_first_contact');
+    const notice = noticeEntry?.response?.[lang] || noticeEntry?.response?.en;
+    if (notice) {
+      response += notice;
+      console.log(`[ResponseProcessor] Data notice appended for first-contact JID ${phone}`);
+    }
+  }
+
   // ─── Sentiment-based escalation (US-822: per-profile, reason='sentiment') ──
   const sentimentSettings = profileConfig.getSettings();
   if (isSentimentEnabledForProfile(sentimentSettings)) {

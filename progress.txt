@@ -6589,3 +6589,55 @@ This user story is for a **Node.js/TypeScript** application using the Drizzle OR
 - Order ID parsing from FnB MCP response uses regex (MM-XXXX pattern or "order id: X" pattern). If FnB MCP changes its response format, the regex may need updating.
 - The order-id-store has a 2-hour TTL (longer than cart's 1-hour) since guests may check status well after placing
 - Status code mapping is best-effort — unmapped statuses fall back to showing the raw FnB response
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This technical brief adapts the provided user story, which appears to be for a Node.js/TypeScript environment, into a plan for a Frappe/Python implementation.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-827 - Profile configuration cloning
+
+---
+
+### **Technical Implementation Brief for Frappe**
+
+1.  **Files to Modify:**
+    *   `lhdn_payroll_integration/api.py`: Create a new whitelisted controller method here, e.g., `clone_profile_config`.
+    *   `lhdn_payroll_integration/hooks.py`: Expose the new `clone_profile_config` method as a whitelisted API endpoint (`api_method`).
+
+2.  **Frappe DocTypes / Hooks Involved:**
+    *   **Primary DocType:** A main "Business Profile" or "Company Profile" DocType that serves as the parent container.
+    *   **Child DocTypes:** Child table DocTypes linked to the parent profile, likely holding settings for "Routing Rules", "Intents", and "KB Files".
+    *   **API Hook:** The `api_method` in `hooks.py` will define the `POST` route (`/api/method/lhdn_payroll_integration.api.clone_profile_config`).
+
+3.  **Recommended Approach:**
+    *   Implement a new `@frappe.whitelist()` function `clone_profile_config` that accepts `source_profile` (the name of the DocType to clone) and `new_profile_name`.
+    *   Use `frappe.copy_doc(source_profile)` which is the idiomatic way to create a deep copy of a document, including its child table entries.
+    *   After the copy is created, programmatically update the new document's name/title to `new_profile_name`.
+    *   Identify and nullify any fields that should not be carried over, such as authentication tokens or specific external service linkages (e.g., WhatsApp auth state).
+    *   Save the modified new document. The function should return the name of the newly created profile document.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Permissions:** The API method must handle permissions correctly, likely running with admin rights or using `ignore_permissions=True` when saving the new document.
+    *   **Unique Naming:** Ensure the `new_profile_name` doesn't already exist. The code should gracefully handle a naming collision.
+    *   **Data Integrity:** The copy operation should be atomic. Use a `try/except` block with `frappe.db.commit()` and `frappe.db.rollback()` to prevent creating partial/corrupt profiles if an error occurs.
+    *   **File Data:** The story mentions not copying file content. `copy_doc` will only duplicate the DocType metadata (e.g., a record in the `File` DocType), not the physical file on disk, which aligns with the requirement.
+
+
+## Iteration 11 - Story: US-843 - Structured data notice on first WhatsApp interaction
+### What was implemented
+- Added `isFirstContact` flag to `PipelineState` type in `pipeline/types.ts`
+- In `input-validator.ts`: uses `hasConsent(phone)` from existing `consent.ts` module to detect first-contact BEFORE `recordConsent()` is called (cache check is synchronous, so timing is reliable)
+- Added `data_notice_first_contact` entry to `data/knowledge.json` with trilingual notice text (en/ms/zh) covering: data storage purpose, 90-day retention period, STOP opt-out instruction
+- In `response-processor.ts`: after confidence disclaimers but before translation, appends the data notice to the response if `state.isFirstContact` is true
+- Notice lookup uses profile-specific `profileConfig.getKnowledge()` so each profile can customize its notice text
+
+### Patterns discovered
+- `consent.ts` already tracks first-contact via `hasConsent()` (in-memory Set) and `recordConsent()` — ideal for first-contact detection
+- The consent module uses SHA-256 hashed JIDs for PDPA compliance (no raw PII stored)
+- Profile-specific knowledge must use `profileConfig.getKnowledge()` not the global `getStaticReply()` which only reads the default configStore
+
+### Gotchas
+- `hasConsent()` must be checked BEFORE `recordConsent()` is called — `recordConsent` adds to the in-memory cache synchronously after DB write, but the flag capture happens before the async call starts
+- If consent cache fails to load on startup, `hasConsent()` returns false for everyone — but this is acceptable since it's a one-time notice (not harmful to re-send)
+- Other profile data directories (data-southern, data-makan, data-pms-*) don't have the notice entry; operators can add it to their profile's knowledge.json as needed

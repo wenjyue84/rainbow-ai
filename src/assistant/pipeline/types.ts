@@ -50,6 +50,8 @@ export interface PipelineState {
   profileKB: KnowledgeBaseInstance;
   /** US-427: performance.now() at state creation, used for total_ms trace latency */
   traceStart: number;
+  /** US-843: True when this JID has no prior consent record (first-ever interaction) */
+  isFirstContact?: boolean;
 }
 
 export type ValidationResult =
