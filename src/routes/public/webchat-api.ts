@@ -102,6 +102,54 @@ router.get('/:profileId/kb-context', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/chat/:profileId/history
+ *
+ * Returns the last 10 messages for a webchat session.
+ * Used by the widget to restore conversation history on page reload.
+ * Query params: sessionId (required)
+ */
+router.get('/:profileId/history', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const sessionId = req.query.sessionId as string;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId query parameter required' });
+    return;
+  }
+
+  const profile = profileRegistry.getProfile(profileId);
+  if (!profile) {
+    res.status(404).json({ error: `Profile "${profileId}" not found` });
+    return;
+  }
+
+  const phone = 'webchat-' + sessionId;
+
+  try {
+    const result = await pool.query(
+      `SELECT role, content, timestamp
+       FROM rainbow_messages
+       WHERE phone = $1
+       ORDER BY timestamp DESC
+       LIMIT 10`,
+      [phone]
+    );
+
+    // Reverse to chronological order
+    const messages = result.rows.reverse().map((r: any) => ({
+      role: r.role === 'user' ? 'user' : 'assistant',
+      content: r.content,
+      timestamp: r.timestamp instanceof Date ? r.timestamp.getTime() : new Date(r.timestamp).getTime(),
+    }));
+
+    res.json({ messages, sessionId });
+  } catch (err: any) {
+    console.error(`[Webchat] Error fetching history for ${sessionId}:`, err.message);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
 const DEFAULT_WELCOME_MESSAGE =
   "Welcome! I'm your AI assistant. How can I help you today?";
 

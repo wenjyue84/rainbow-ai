@@ -227,6 +227,25 @@
       flex-shrink: 0;
     }
 
+    /* History divider */
+    .history-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 2px 0;
+      opacity: 0.7;
+    }
+
+    .history-divider::before,
+    .history-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
     /* Desktop centering */
     @media (min-width: 640px) {
       body {
@@ -300,20 +319,16 @@
       // Emoji map for profile avatars
       const avatarMap = { pelangi: '\u{1F3E8}', southern: '\u{1F3E0}', 'makan-moments': '\u{2615}' };
 
-      // Session state
+      // Session state — use localStorage for cross-reload persistence
       const SESSION_KEY = 'webchat_' + profile.id;
-      let sessionId = sessionStorage.getItem(SESSION_KEY + '_sid');
+      let sessionId = localStorage.getItem(SESSION_KEY + '_sid');
+      const isReturningSession = !!sessionId;
       if (!sessionId) {
         sessionId = 'web_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
-        sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+        localStorage.setItem(SESSION_KEY + '_sid', sessionId);
       }
 
       let history = [];
-      try {
-        const saved = sessionStorage.getItem(SESSION_KEY + '_history');
-        if (saved) history = JSON.parse(saved);
-      } catch {}
-
       let sending = false;
       let lastPollTimestamp = 0;
       let pollInterval = null;
@@ -331,17 +346,10 @@
       document.title = 'Chat - ' + profile.name;
       avatarEl.textContent = avatarMap[profile.id] || '\u{1F4AC}';
 
-      // Render saved history
-      for (const msg of history) {
-        appendMessage(msg.role === 'user' ? 'user' : 'bot', msg.content, false);
-      }
-
-      // Show greeting if no history
-      if (history.length === 0) {
-        appendMessage('bot', profile.greeting, false);
-      }
-
-      scrollToBottom();
+      // Disable input while loading history
+      inputEl.disabled = true;
+      sendBtn.disabled = true;
+      inputEl.placeholder = 'Loading...';
 
       // Auto-resize textarea
       inputEl.addEventListener('input', function() {
@@ -359,7 +367,7 @@
 
       sendBtn.addEventListener('click', sendMessage);
 
-      function appendMessage(type, text, animate) {
+      function appendMessage(type, text, animate, timestamp) {
         if (animate === undefined) animate = true;
         const div = document.createElement('div');
         div.className = 'message ' + type;
@@ -371,12 +379,20 @@
 
         const time = document.createElement('div');
         time.className = 'message-time';
-        time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const ts = timestamp ? new Date(timestamp) : new Date();
+        time.textContent = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         div.appendChild(time);
 
         if (!animate) div.style.animation = 'none';
 
         // Insert before typing indicator
+        messagesEl.insertBefore(div, typingEl);
+      }
+
+      function appendHistoryDivider() {
+        const div = document.createElement('div');
+        div.className = 'history-divider';
+        div.textContent = 'Previous conversation';
         messagesEl.insertBefore(div, typingEl);
       }
 
@@ -393,14 +409,6 @@
 
       function hideTyping() {
         typingEl.classList.remove('visible');
-      }
-
-      function saveHistory() {
-        try {
-          // Keep last 50 messages to avoid sessionStorage overflow
-          const trimmed = history.slice(-50);
-          sessionStorage.setItem(SESSION_KEY + '_history', JSON.stringify(trimmed));
-        } catch {}
       }
 
       // Create a bot message bubble for streaming (returns the bubble element to append text to)
@@ -434,7 +442,6 @@
         // Add user message
         appendMessage('user', text);
         history.push({ role: 'user', content: text });
-        saveHistory();
         scrollToBottom();
 
         showTyping();
@@ -480,7 +487,7 @@
                     // Stream complete — update sessionId if server assigned one
                     if (evt.sessionId && evt.sessionId !== sessionId) {
                       sessionId = evt.sessionId;
-                      sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+                      localStorage.setItem(SESSION_KEY + '_sid', sessionId);
                     }
                     lastPollTimestamp = Date.now();
                     continue;
@@ -503,7 +510,6 @@
             if (fullText) {
               if (!bubble) appendMessage('bot', fullText);
               history.push({ role: 'assistant', content: fullText });
-              saveHistory();
               scrollToBottom();
             }
           } else {
@@ -514,11 +520,10 @@
               hideTyping();
               if (data.sessionId && data.sessionId !== sessionId) {
                 sessionId = data.sessionId;
-                sessionStorage.setItem(SESSION_KEY + '_sid', sessionId);
+                localStorage.setItem(SESSION_KEY + '_sid', sessionId);
               }
               appendMessage('bot', data.message);
               history.push({ role: 'assistant', content: data.message });
-              saveHistory();
               scrollToBottom();
               lastPollTimestamp = Date.now();
             } else {
@@ -554,7 +559,6 @@
             if (msg.role === 'staff') {
               appendMessage('bot', msg.content);
               history.push({ role: 'assistant', content: msg.content });
-              saveHistory();
               scrollToBottom();
             }
             // Track latest timestamp
@@ -567,14 +571,47 @@
         }
       }
 
-      // Start polling every 5s
-      pollInterval = setInterval(pollForNewMessages, 5000);
+      // ─── History restoration ───────────────────────────────────
+      // Fetch last 10 messages from server if returning session, else show greeting.
+      async function initHistory() {
+        if (isReturningSession) {
+          try {
+            const url = '/api/chat/' + encodeURIComponent(profile.id) + '/history?sessionId=' + encodeURIComponent(sessionId);
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
-      // Set initial lastPollTimestamp to now so we only get future staff messages
-      lastPollTimestamp = Date.now();
+            const data = await resp.json();
+            const msgs = Array.isArray(data.messages) ? data.messages : [];
 
-      // Focus input on load
-      inputEl.focus();
+            if (msgs.length > 0) {
+              appendHistoryDivider();
+              for (const msg of msgs) {
+                appendMessage(msg.role === 'user' ? 'user' : 'bot', msg.content, false, msg.timestamp);
+                // Populate in-memory history for AI context
+                history.push({ role: msg.role, content: msg.content });
+              }
+              scrollToBottom();
+              return;
+            }
+          } catch (err) {
+            // Graceful failure — fall through to greeting
+          }
+        }
+
+        // New session or no prior messages found — show greeting
+        appendMessage('bot', profile.greeting, false);
+        scrollToBottom();
+      }
+
+      // Initialize: fetch history then enable input and start polling
+      initHistory().then(function() {
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        inputEl.placeholder = 'Type a message...';
+        inputEl.focus();
+        lastPollTimestamp = Date.now();
+        pollInterval = setInterval(pollForNewMessages, 5000);
+      });
 
       // ─── Keyboard accessibility ─────────────────────────────────────────────
       // Focus trap: cycle Tab/Shift+Tab between input and send button

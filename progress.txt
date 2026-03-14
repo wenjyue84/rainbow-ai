@@ -5574,3 +5574,57 @@ Based on the provided user story, here is a technical brief for implementing the
 *   **Permissions:** The API should be callable by an admin role. Using `ignore_permissions=True` during the insert is recommended for a backend administrative action.
 *   **UI Feedback:** The client script must show a confirmation dialog before calling the API and provide clear feedback to the user on success (redirect) or failure (error message).
 
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+**Project Context Correction:** The user story and project files indicate this is a Node.js/TypeScript project (`rainbow-ai`), not a Frappe/Python one. The following brief is tailored to the actual project context.
+
+---
+
+**Subject: Technical Brief for US-827: Profile Configuration Cloning**
+
+**1. Python Files to Modify (TypeScript/Node.js Equivalents):**
+*   `src/routes/admin/profiles.ts`: Create the new API endpoint `POST /api/admin/profiles/:sourceId/clone` here. This will handle request/response validation and call the core cloning logic.
+*   `src/lib/profiles.ts` or a new `src/services/profileService.ts`: House the main `cloneProfile` function to keep the logic separate from the route handler.
+*   `src/lib/db.ts`: The cloning function will use existing database utilities from this file to query and insert records.
+
+**2. Frappe DocTypes / Hooks Involved (Data Structures/Tables):**
+*   **`rainbow_configs` table:** This is the primary table. The implementation will need to SELECT all rows for the `sourceId`, filter out excluded keys (like WhatsApp auth/phone settings), and batch INSERT them with the `newProfileId`.
+*   **`rainbow_kb_files` table:** The operation will copy all metadata rows for the `sourceId`, updating the profile ID for the new records.
+
+**3. Recommended Implementation Approach:**
+1.  In `src/routes/admin/profiles.ts`, add the `POST .../:sourceId/clone` route.
+2.  The handler should validate the `newProfileId` and `displayName` from the request body.
+3.  Implement a `cloneProfile(...)` function in a service/library file that wraps all database operations in a single transaction.
+4.  Inside the transaction:
+    a.  Verify the `sourceId` exists and the `newProfileId` is unique.
+    b.  Deep-copy relevant `rainbow_configs` rows.
+    c.  Copy `rainbow_kb_files` metadata rows.
+5.  Return the `{ newProfileId }` in the API response for frontend navigation.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire operation must be wrapped in a database transaction to prevent creating partial/corrupt profiles if an error occurs.
+*   **Exclusion Logic:** Create a specific denylist of configuration keys (e.g., `whatsapp_auth_state`, `phone_number_id`) to prevent copying sensitive or instance-specific data.
+*   **ID Uniqueness:** The backend must explicitly check if the `newProfileId` already exists before starting the clone to avoid a primary key collision.
+*   **No File I/O:** The operation should only touch the database; it must not copy any directories or files on the disk (e.g., `.rainbow-kb/` or `whatsapp-auth/`).
+
+
+## Iteration 5 - Story: US-823 Restore prior conversation history on webchat widget page reload
+### What was implemented
+- Added `GET /api/chat/:profileId/history?sessionId=xxx` endpoint in `src/routes/public/webchat-api.ts`
+  - Returns last 10 messages for a session (chronological order)
+  - Validates profile and sessionId; fails gracefully with 500
+- Updated `src/public/webchat.html`:
+  - Changed sessionId storage from `sessionStorage` → `localStorage` for cross-reload persistence
+  - Input disabled with "Loading..." placeholder during history fetch
+  - `initHistory()` async function: fetches server history if returning session, shows greeting if new
+  - Renders "Previous conversation" divider before restored messages
+  - `appendMessage()` accepts optional `timestamp` param for correct time display
+  - In-memory `history` array populated from fetched messages for AI context
+  - Polling and input enabled after history fetch completes (success or failure)
+  - Removed sessionStorage save/restore for history (server is now authoritative)
+### Patterns discovered
+- webchat.html has inline `<script>` — changes must be made directly in the HTML file
+- `initHistory().then()` is the clean pattern for async init with cleanup/enable at end
+### Gotchas
+- Build uses esbuild; webchat.html is a static file copied to dist/public, not compiled
+- sessionStorage doesn't persist across page reloads/tab close; localStorage does
