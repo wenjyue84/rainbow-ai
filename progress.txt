@@ -3399,3 +3399,26 @@ Incomplete: Fix corrupted unicode in makan-moments system prompt (em dash + emoj
 ## Iteration 1 - Sat, Mar 14, 2026  8:22:55 PM
 Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 4m
 
+## Iteration 2 - Sat, Mar 14, 2026  8:23:13 PM
+Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 5m
+
+
+## Iteration - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- Updated getTabInfoFromUrl() in tabs.js to return {main, profileId, sub} — profileId is detected from URL parts[1] when tab is profile-specific and the value matches KNOWN_PROFILE_IDS
+- Added PROFILE_SPECIFIC_TABS constant: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows
+- Added handleNavigation() helper that auto-appends profileId to URL for profile-specific tabs if missing, and auto-switches profile when URL contains a different profileId
+- Updated initTabs() to use handleNavigation for initial load and hashchange events
+- Updated tab click handlers to include profileId in URL hash for profile-specific tabs
+- Updated profile-switcher.js switchTo() to use history.replaceState (not location.hash) to update URL without triggering hashchange loop
+- Updated profile-switcher.js init() to set window.KNOWN_PROFILE_IDS after fetching profiles from API, with re-check of URL
+
+### Patterns discovered
+- history.replaceState() does NOT trigger hashchange — critical for avoiding infinite loops when switchTo is called from handleNavigation
+- KNOWN_PROFILE_IDS is seeded with defaults in tabs.js and updated by profile-switcher.js after async API call — handles the timing gap between DOMContentLoaded and profiles fetch
+- Global tabs (settings, whatsapp, staff-review, help, live-chat) keep flat URLs; profile-specific tabs use #tab/profileId or #tab/profileId/subTab format
+- Backward compat: legacy URLs like #intents are auto-redirected to #intents/{activeProfileId}
+
+### Gotchas
+- A pre-submit hook automatically modifies edited files — it tried to add _applyProfileSwitch and other patterns. Had to work with the hook's changes and clean up afterward.
+- Setting location.hash to the same value does NOT trigger hashchange in most browsers — so using location.hash in switchTo (when called from handleNavigation where URL already has correct profileId) would cause loadTab to never be called. replaceState + explicit loadTab solves this.
