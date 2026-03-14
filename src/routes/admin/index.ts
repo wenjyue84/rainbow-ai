@@ -56,6 +56,7 @@ import whatsappCostRoutes from './whatsapp-cost.js';
 import analyticsLatencyRoutes from './analytics-latency.js';
 import analyticsKpisRoutes from './analytics-kpis.js';
 import slowQueriesRoutes from './slow-queries.js';
+import fallbackAlertRoutes from './fallback-alert.js';
 import authRoutes from './auth.js';
 
 const router = Router();
@@ -219,6 +220,7 @@ router.use(whatsappCostRoutes);
 router.use(analyticsLatencyRoutes);
 router.use(analyticsKpisRoutes);
 router.use(slowQueriesRoutes);
+router.use(fallbackAlertRoutes);
 router.use(authRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)

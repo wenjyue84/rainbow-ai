@@ -4600,3 +4600,32 @@ Completed: WhatsApp opt-out tracking and 24-hour compliance processing enforceme
 ### Gotchas
 - Empty string lines in notification arrays must be filtered (`.filter(line => line !== '')`) since triggerLine and deepLink may be empty strings
 - The fallback message used `> ${recentMsgs}` (double-wrapping the blockquotes) — corrected to just `recentMsgs`
+## Iteration 4 - Sat, Mar 14, 2026 11:49:37 PM
+Completed: Human handoff escalation notification includes last 5 messages of conversation (ID: US-813) in 9m
+
+
+## Iteration - Story: US-814 Daily fallback rate alert notification
+### What was implemented
+- Created `src/lib/fallback-alert.ts` — scheduler + core check + history query
+  - Queries `rainbow_messages` for last 24h per profile (unknown/unknown_intent intents)
+  - Sends WhatsApp alert if fallback rate > threshold AND total messages >= 5
+  - Creates `fallback_alert_logs` table via raw SQL CREATE TABLE IF NOT EXISTS
+  - Logs every check (alerted=true/false) to fallback_alert_logs
+  - Scheduler fires at 8AM server time daily (msUntilNext8AM calculation)
+- Created `src/routes/admin/fallback-alert.ts` — admin API
+  - GET /analytics/fallback-alert/history — paginated alert log (supports ?profileId=&limit=)
+  - POST /analytics/fallback-alert/check — manual trigger for immediate check
+- Updated `src/routes/admin/index.ts` — registered fallbackAlertRoutes
+- Updated `src/index.ts` — imports and starts `startFallbackAlertScheduler()` after `startQualityMetricsJob()`
+- Updated settings.json in all 3 data dirs (data/, data-makan/, data-southern/) — added `fallbackAlert.enabled/threshold/recipient`
+
+### Patterns discovered
+- `loadSettings` uses dynamic import of profileRegistry to avoid circular deps (same as quality-metrics.ts)
+- profileRegistry.listProfiles() returns ResolvedProfile[] with `.id` property
+- `getWhatsAppStatus().state === 'open'` gate before sending (same as daily-report.ts)
+- CREATE TABLE IF NOT EXISTS in ensureFallbackAlertTable() handles idempotent startup
+
+### Gotchas
+- MIN_MESSAGES_TO_ALERT = 5 prevents noisy alerts on tiny volumes (e.g., 1 unknown / 3 total = 33%)
+- Empty recipient falls back to DEFAULT_RECIPIENT constant (60127088789)
+- Scheduler uses setTimeout → setInterval pattern (not cron) for 8AM target (matches quality-metrics)

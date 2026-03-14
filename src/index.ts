@@ -53,6 +53,7 @@ import {
   setSlowQueryAlertHandler,
 } from './lib/slow-query-monitor.js';
 import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
+import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -170,6 +171,9 @@ startWhatsappCostDailyJob();
 
 // US-431: Start daily quality metrics aggregation job
 startQualityMetricsJob();
+
+// US-814: Start daily fallback rate alert scheduler (runs at 8AM)
+startFallbackAlertScheduler();
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {
