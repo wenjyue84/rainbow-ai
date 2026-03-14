@@ -5016,3 +5016,58 @@ This brief outlines the implementation plan for the user story within a Frappe/P
 - Cache key uses `_profileId` from args (falls back to 'makan-moments') to avoid cross-profile cache pollution
 ### Gotchas
 - `_profileId` must be injected by the caller if multi-profile caching is needed; for now defaults to 'makan-moments' which is the only FnB profile
+## Iteration 5 - Sun, Mar 15, 2026  2:11:09 AM
+Completed: Category-based menu browsing: guest can filter menu by category or dish type (ID: US-859) in 6m
+
+
+## Pre-analysis for US-860 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for the implementation.
+
+**Project:** `rainbow-ai` (AI Waiter for Malaysian Cafe)
+**User Story:** US-860 - Dietary Menu Filter
+
+### 1. Python/Frappe Files to Modify
+
+The user story and project context point to a TypeScript/Node.js application, not Python/Frappe. The technical notes reference an "MCP" (Micro-Component/Controller Pattern) and `routing.json`, which aligns with the `rainbow-ai` project structure.
+
+-   **`src/mcp-server-http.ts` or `src/ollama-mcp.ts`**: This is the most likely location for the `get_menu_items` function mentioned in the story. This function will need to be modified to accept and process dietary tag filters.
+-   **`src/assistant/[ASSISTANT_LOGIC].ts`**: The file responsible for handling intents from the user will need to be updated to parse dietary tags from the user's message and pass them to the `get_menu_items` call.
+-   **`shared/schema.ts`**: The database schema for menu items will need to be updated to include a field for dietary tags (e.g., a JSON or text array).
+
+### 2. Frappe DocTypes / Hooks Involved
+
+-   **DocType (Schema Equivalent):** The `menu_items` table schema will be the primary data structure affected. It needs a new `dietary_tags` column (e.g., `TEXT[]` or `JSONB` in PostgreSQL) to store an array of strings like `['halal', 'vegetarian', 'gluten-free']`.
+-   **Hooks (Intent Routing Equivalent):** The `technicalNotes` specify adding a `MENU_FILTER_DIETARY` intent to `routing.json`. This file (or its equivalent in the application's intent routing mechanism) will map dietary-related user queries to the appropriate handler function.
+
+### 3. Recommended Implementation Approach
+
+1.  **Schema Modification:** Alter the `menu_items` table in `shared/schema.ts` to add `dietary_tags: string[]`. Run a migration to apply the change.
+2.  **Data Population:** Create a script or manually update the database to add the correct dietary tags to each existing menu item.
+3.  **Update `get_menu_items`:** Modify the function to accept an optional `filters: { dietary_tags: string[] }` argument. The function's database query should use an `AND` condition to find items that contain all tags specified in the input array.
+4.  **Intent Handling:** Implement logic in the assistant/bot layer to extract tags from user input (e.g., "vegetarian and no nuts" -> `['vegetarian', 'no-nuts']`).
+5.  **Response Formatting:** When responding, ensure the bot lists the matching items. If the result is an empty array, the bot must respond that no matching items were found.
+
+### 4. Edge Cases & Gotchas
+
+-   **Multiple Filters:** The implementation must support `AND` logic for multiple tags (e.g., "vegetarian" AND "no-nuts").
+-   **No Results:** The system must gracefully handle cases where no items match the filter and inform the user clearly.
+-   **Tag Synonyms:** The intent parser should map common user phrasing to the canonical tags (e.g., "veggie" -> "vegetarian", "no pig" -> "no-pork").
+-   **Client-Side Fallback:** As noted in the story, if modifying the backend MCP is too complex initially, the first pass can fetch the full menu and perform filtering within the assistant's logic as a temporary solution.
+-   **Case Insensitivity:** All tag matching and filtering should be case-insensitive to ensure a robust user experience.
+
+
+## Iteration N - Story: US-860 Dietary filter for menu items
+### What was implemented
+- Added `menu_filter_dietary` intent to `src/assistant/data-makan/intents.json` with 7 regex patterns covering: halal, no-pork/babi, no-nuts/kacang/peanut-free, gluten-free, dairy-free, allergen-free, and "what can I eat / anything without X" phrasing
+- Changed `vegetarian_query` routing from `static_reply` to `llm_reply` so AI dynamically queries menu instead of returning a hardcoded static list
+- Added `menu_filter_dietary` routing entry (`llm_reply`) in `src/assistant/data-makan/routing.json`
+- Updated `fnb_get_menu` tool schema in `src/tools/fnb-menu.ts` to expose `dietary_tags` array param with AND-logic documentation
+- Updated `fnbGetMenu()` to pass `dietary_tags` to MCP and include tags in the 5-min cache key (sorted for stability)
+- Added dietary filtering block to BROWSING stage in `src/routes/public/webchat-api.ts`: phrase→tag mapping, multi-filter AND logic, honest no-match response, allergy safety caveat
+### Patterns discovered
+- `vegetarian_query` was hardcoded static reply — needed upgrading to llm_reply for dynamic dietary filtering
+- Cache key must sort tags to ensure cache hits regardless of tag order from LLM
+- System prompt is the primary enforcement layer for dietary no-hallucination rule
+### Gotchas
+- MCP may not support dietary_tags natively; system prompt instructs LLM to filter from returned items and not hallucinate
+- Must tell LLM explicitly: "Do NOT invent items — only list what the menu response contains"
