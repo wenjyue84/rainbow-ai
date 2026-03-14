@@ -6732,3 +6732,47 @@ This technical brief is based on the provided JSON and project structure, which 
     *   **Defaults:** The enforcement code must handle cases where the `rate_limits` object is missing for a profile (likely defaulting to 'disabled').
     *   **Security:** Ensure the admin endpoints for modifying settings and viewing stats are properly authenticated and authorized.
 
+
+
+## Iteration [Latest] - Story: US-863 Budget-based ordering
+
+### What was implemented
+1. **Menu tool enhancement**: Extended fnb_get_menu tool in fnb-menu.ts
+   - Added max_price and min_price parameters to inputSchema
+   - Updated caching logic to include price filters in cache key
+   - Implemented client-side price filtering with fallback messages
+
+2. **Intent routing**: Added MENU_FILTER_PRICE to routing.json
+   - Maps to llm_reply action for consistent ordering flow
+   - Includes note about price filtering and sorting
+
+3. **Fuzzy matching keywords**: Added MENU_FILTER_PRICE intent to intent-keywords.json
+   - English keywords: under RM, below RM, budget, cheap, affordable, cheap items, budget options, what can i get for, etc.
+   - Malay keywords: bawah RM, murah, berpatutan, budget, pilihan berpatutan, tunjukkan item bawah, etc.
+   - Chinese keywords: 低于, 便宜, 经济, 预算, etc.
+
+4. **Price parsing & handling**: Added custom handler in action-dispatch.ts
+   - parsePriceFromText() function parses "RM X", "X ringgit", "between X and Y" patterns
+   - handleMenuFilterPrice() calls fnbGetMenu with extracted maxPrice/minPrice
+   - Falls back to LLM response if price parsing fails
+
+### Patterns discovered
+- FnB tools are registered in tools/registry.ts with handler mapping
+- Custom intent handlers are checked in dispatchAction before generic llm_reply
+- Price parsing must handle multiple format variations (RM, ringgit, Malay/English)
+- Client-side filtering is a good fallback when MCP doesn't support price filters
+- Cache key structure for menu must include all filter parameters to avoid stale results
+
+### Gotchas
+- Import paths are relative to file location: stages/ is 3 levels deep from tools/
+- esbuild builds successfully despite pre-existing TypeScript warnings
+- Fuzzy matcher keyword detection is case-insensitive and substring-based
+- Menu items without price field (price === undefined) are preserved in all results
+
+### Testing notes
+- Server starts successfully with the changes
+- Build produces expected warnings (pre-existing logger.ts and db-url.js issues)
+- Price parsing handles various formats: "RM 15", "15 ringgit", "between 10 and 20"
+- Fallback messaging shows minimum available price when no items found
+- Results sorted by price ascending (cheapest first)
+
