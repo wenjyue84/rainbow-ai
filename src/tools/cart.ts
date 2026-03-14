@@ -274,11 +274,40 @@ export const cartTools: MCPTool[] = [
 
 // ─── Handler Factories ─────────────────────────────────────────────
 
+/** Options for creating per-session cart handlers */
+export interface CartHandlerOptions {
+  /** Available payment methods for the profile (US-867). Default: ['cash'] */
+  paymentMethods?: string[];
+}
+
+/**
+ * Build a brief, multilingual-ready payment guidance string from configured methods.
+ * Returns empty string if no methods configured.
+ */
+function formatPaymentGuidance(methods: string[]): string {
+  if (!methods || methods.length === 0) return '';
+
+  const labels: Record<string, string> = {
+    cash: 'cash',
+    qr: 'QR code at the counter',
+    card: 'card',
+    online: 'online payment',
+  };
+  const readable = methods.map(m => labels[m.toLowerCase()] || m);
+
+  if (readable.length === 1) {
+    return `\n\nYou can pay by ${readable[0]} when ready.`;
+  }
+  const last = readable.pop();
+  return `\n\nYou can pay by ${readable.join(', ')} or ${last} when ready.`;
+}
+
 /**
  * Create per-session cart handlers that close over the sessionId.
  * Call this once per webchat request and merge the result into the tool handlers map.
  */
-export function createCartHandlers(sessionId: string): Map<string, (args: any) => Promise<MCPToolResult>> {
+export function createCartHandlers(sessionId: string, options?: CartHandlerOptions): Map<string, (args: any) => Promise<MCPToolResult>> {
+  const paymentMethods = options?.paymentMethods ?? ['cash'];
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -546,10 +575,13 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     cartClear(sessionId);
     clearOrderStage(sessionId);
 
+    // US-867: Append payment method guidance after successful order placement
+    const paymentGuidance = formatPaymentGuidance(paymentMethods);
+
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

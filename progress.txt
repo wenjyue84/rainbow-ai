@@ -7047,3 +7047,95 @@ This brief outlines the implementation plan for creating an admin UI for WhatsAp
 ### Gotchas
 - JSON import in tests requires `assert { type: 'json' }` syntax for ESM
 - The `intents.json` regex for order_placement is broad (e.g. `nak + word`) — careful not to clash with other intents like check-in ("nak check in")
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This user story describes a feature for a TypeScript/React application, not a Frappe/Python one. The following brief is tailored to the project's actual tech stack (Node.js, TypeScript, and likely a React frontend).
+
+---
+
+### **Technical Brief for US-828: Rate Limiting Admin UI**
+
+**1. Python Files to Modify (Translated to TypeScript):**
+
+*   `src/routes/admin/settings.ts`: (Or similar) Add a new endpoint `GET /api/admin/rate-limits/stats` for fetching hit-cap statistics. Modify the existing GET/POST endpoints to handle the new `rate_limits` config object.
+*   `src/services/rate-limit-service.ts`: (Or a new file) Implement the logic to query the persistence layer (e.g., Redis, database) to count users who have hit the rate limit in the last 24 hours.
+*   `src/services/config-service.ts`: Ensure this service correctly reloads settings from the `rainbow_configs` store to meet the 1-minute refresh requirement.
+*   `shared/schema.ts`: Update the settings validation schema to include a `rate_limits` object containing `enabled: boolean` and `max_messages_per_user_per_24h: number`.
+
+**2. Frappe DocTypes/Hooks (Translated to App Concepts):**
+
+*   **Configuration Schema (`rainbow_configs`):** The primary data structure to modify. A new `rate_limits` key will be added to the JSON object stored for each profile.
+*   **API Endpoints:**
+    *   **New:** `GET /api/admin/rate-limits/stats?profileId=[id]`
+    *   **Modified:** `GET /api/admin/settings?profileId=[id]` and `POST /api/admin/settings?profileId=[id]` to read and write the new configuration.
+
+**3. Recommended Implementation Approach:**
+
+1.  **Backend:**
+    *   Update the shared schema validation for settings.
+    *   Implement the `GET .../stats` endpoint with efficient querying to prevent performance issues.
+    *   Update the existing settings POST endpoint to validate and persist the new `rate_limits` data structure.
+2.  **Frontend (React Component):**
+    *   Create a new component (`RateLimitSettings.tsx`) within the admin panel.
+    *   Fetch settings and stats from the new and existing API endpoints.
+    *   Render a toggle for enabling/disabling the feature, a numeric input for the message limit, and a display for the rate-limited user count.
+    *   On save, POST the updated settings object to the backend.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Input Validation:** The `max_messages` input must be validated as a non-negative integer.
+*   **Performance:** The stats query must be optimized to handle a large volume of rate-limiting events without slowing down the API.
+*   **Config Reload:** Verify the hot-reload mechanism for settings works as expected; otherwise, changes will require a server restart.
+*   **UI State:** The frontend should gracefully handle loading states for API calls and display clear error messages if fetching/saving fails.
+
+## Iteration 5 - Sun, Mar 15, 2026  7:31:43 AM
+Incomplete: Admin UI for per-profile WhatsApp frequency cap and rate limit configuration (ID: US-828) — attempt 2/3
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+This brief is tailored for a Node.js/TypeScript environment, as the project structure and story details point away from Frappe/Python.
+
+**Technical Brief: US-828 Admin UI for WhatsApp Rate Limiting**
+
+**1. File Modification Candidates:**
+*   **Backend Logic:** `src/server.ts` or a dedicated module under `src/routes/` for adding the new API endpoint. Look for existing settings management code to modify.
+*   **Frontend UI:** A new React/Vue component file, likely within a `src/public/admin/` or `src/routes/admin/` directory, to build the settings panel.
+*   **Database/Schema:** `shared/schema.ts` or a similar file to update the `rainbow_configs` type definition with the new rate-limiting fields.
+*   **Rate Limiter Core:** The existing rate-limiting logic file needs to be located and verified to consume the new configuration structure.
+
+**2. Key Frappe Equivalents (Entities/Hooks):**
+*   **"DocType":** The `rainbow_configs` database table, which will store the new settings. A schema migration may be needed.
+*   **"Hooks":** No direct equivalent. The logic is triggered via API calls. The key integration points are:
+    *   A new endpoint: `GET /api/admin/rate-limits/stats?profileId=`
+    *   The existing endpoint for updating settings (likely `POST /api/admin/settings`).
+
+**3. Implementation Approach:**
+1.  **Backend:** Add the `rate_limits` object to the settings schema. Create the new `stats` endpoint to query logs or a dedicated events table for users who have hit the rate limit. Modify the settings update logic to handle and persist the new configuration.
+2.  **Frontend:** Develop a new UI component in the admin panel that fetches and displays the current rate limit settings and stats. Use a numeric input and a toggle to allow admins to modify and save these values back to the server.
+
+**4. Edge Cases & Gotchas:**
+*   **Config Propagation:** The system likely uses a cache for settings. Ensure this cache is busted or refreshed within the required one-minute window after an admin saves changes.
+*   **Stats Calculation:** The query for rate-limited users must be performant and not overload the database, especially if querying a large log table.
+*   **Default State:** The rate-limiting logic must handle profiles where the new configuration is not yet set, applying a sensible default (e.g., disabled).
+*   **Permissions:** The new API endpoint must be protected and restricted to admin users only.
+
+
+## Iteration 6 - Sat, Mar 15, 2026 - Story: US-867 Payment Method Guidance
+### What was implemented
+- Added `paymentMethods` config array to `data-makan/settings.json` (default: ["cash", "qr"])
+- Modified `createCartHandlers` in `cart.ts` to accept optional `CartHandlerOptions` with `paymentMethods`
+- Added `formatPaymentGuidance()` helper that builds a brief sentence from the configured methods
+- `order_confirm_submit` handler now appends payment guidance after every successful order placement
+- Updated `buildMakanMomentsContext` in `webchat-api.ts` to read `paymentMethods` from profile settings and pass to cart handlers
+- Updated Makan `knowledge.json` payment_info static reply to be cafe-specific (was hostel content)
+- `payment_info` intent already existed in `data-makan/routing.json` — no change needed for on-demand queries
+
+### Patterns discovered
+- `createCartHandlers(sessionId)` is called in `buildMakanMomentsContext()` in webchat-api.ts — the only place where profile settings are accessible
+- Profile settings accessed via `profileRegistry.getProfile('makan-moments')?.configStore.getSettings()`
+- data-makan/knowledge.json had hostel-specific static replies that needed to be updated for cafe context
+
+### Gotchas
+- The Makan knowledge.json was a copy of Pelangi's, so payment_info had bank account details for the hostel, not the cafe
+- Default payment methods fall back to ['cash'] if not configured, per acceptance criteria

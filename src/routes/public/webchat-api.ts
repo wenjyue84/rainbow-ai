@@ -206,7 +206,13 @@ function buildMakanMomentsContext(sessionId: string) {
   const fnbTools = toolRegistry.getToolsForProfile('makan-moments');
   const fnbHandlers = toolRegistry.getHandlersForProfile('makan-moments');
   const allTools = [...fnbTools, ...cartTools];
-  const cartHandlers = createCartHandlers(sessionId);
+
+  // US-867: Read payment methods from profile settings for post-order guidance
+  const makanProfile = profileRegistry.getProfile('makan-moments');
+  const makanSettings = makanProfile?.configStore.getSettings() as any;
+  const paymentMethods: string[] | undefined = makanSettings?.paymentMethods;
+
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);
@@ -267,6 +273,12 @@ function buildMakanMomentsContext(sessionId: string) {
     '    Do NOT guess or invent items — only list what the menu response contains.',
     '    If the menu response does not indicate dietary tags, list what is returned and note that guests should confirm with staff for allergy safety.',
     '  • Item detail: When guest asks about a specific dish, call fnb_get_menu_item and include any dietary tags shown.',
+    '  • ALLERGEN DISPLAY (US-877): The fnb_get_menu_item response includes an allergen section at the bottom.',
+    '    — If allergen data is present (e.g. "Contains: peanuts, gluten"), ALWAYS show it to the guest.',
+    '    — After showing allergen info, ask: "Would you like to add this to your order?" and WAIT for confirmation.',
+    '    — Only call cart_search_item or cart_add_item AFTER the guest explicitly confirms (yes/ok/confirm/ya).',
+    '    — If the guest declines after seeing allergen info, do NOT add the item and offer alternatives.',
+    '    — If allergen data says "not available", still show: "Please inform staff of any allergies before ordering."',
     '  • Format results as a plain numbered list (no markdown tables):',
     '    "1. Item Name — RM X.XX\\n   Brief description"',
     '  • Show maximum 8 items per response. If more exist, add: "...and X more. Ask me to show more!"',
