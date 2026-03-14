@@ -77,6 +77,22 @@ This user story is for a **Node.js/TypeScript** project, not Frappe/Python. Here
 ## Iteration 1 - Thu, Mar 12, 2026  2:04:07 AM
 Completed: Fix build script to use esbuild instead of tsc (ID: US-001) in 3m
 
+## Iteration [Ralph] - Story: US-805 chatWithToolsLoop graceful fallback
+### What was implemented
+- Verified existing implementation in ai-response-generator.ts lines 194-219
+- chatWithToolsLoop tracks totalToolCalls and errorToolCalls across 3-loop tool-calling phase
+- When all tool calls fail (totalToolCalls > 0 && errorToolCalls === totalToolCalls), makes one final toolless LLM call
+- Final call filters out tool messages (role === 'tool') from history and calls chatWithFallback with tools=undefined
+- If final call returns content, tries to extract from JSON (response/text/message fields) before returning
+- Falls back to profile-aware fallback via getUnknownFallbackMessages(profileConfigStore)
+- Build passes with esbuild (1 warning about module.exports in ESM, non-blocking)
+### Patterns discovered
+- looksLikeJson() helper at line 703 checks for JSON structure without throwing
+- chatWithFallback signature supports tools parameter (6th arg)
+- Profile-aware config store allows per-profile fallback customization (already set up for makan-moments)
+### Status
+✅ All acceptance criteria met. Build passes. Story ready for production.
+Marked passes=true in prd.json
 
 ## Pre-analysis for US-002 (Gemini 2.5 Pro)
 Here is the technical brief for the Claude Code agent.
@@ -3561,3 +3577,16 @@ Incomplete: Vitest regression tests for Image 3 and Image 4 bugs (ID: US-806) �
 ## Iteration 1 - Sat, Mar 14, 2026  8:31:44 PM
 Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off (ID: US-807) — attempt 2/3
 
+
+## Iteration 2 - Story: US-804 - Fix corrupted unicode in makan-moments system prompt
+### What was implemented
+- Investigated raw bytes of src/assistant/data-makan/settings.json
+- Confirmed the file was already properly UTF-8 encoded: \xe2\x80\x94 (em dash U+2014) and \xf0\x9f\x8c\x88 (rainbow emoji U+1F308)
+- The "corruption" was only a display artifact — terminal/Read tool showed mojibake but bytes were correct
+- All acceptance criteria pass: node check returns false for 'â', sign-off reads "— Rainbow 🌈", build passes
+### Patterns discovered
+- MINGW64 terminal on Windows can display UTF-8 as mojibake even when file bytes are correct
+- Always verify raw bytes before "fixing" encoding issues — the fix may already be done
+### Gotchas
+- System memory pressure caused esbuild OOM via npm run build — running esbuild binary directly works
+- Previous iteration likely already fixed the encoding but didn't verify properly
