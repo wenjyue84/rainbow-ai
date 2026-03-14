@@ -8,7 +8,7 @@
 import type { MCPTool, MCPToolResult } from '../types/mcp.js';
 import {
   cartAddItem, cartRemoveItem, cartGetItems, cartClear,
-  cartUpdateItemQty, cartFormatSummary, type CartItem
+  cartUpdateItemQty, cartSetItemNotes, cartFormatSummary, type CartItem
 } from '../assistant/cart-store.js';
 import {
   transitionOrderStage, clearOrderStage,
@@ -85,6 +85,26 @@ export const cartTools: MCPTool[] = [
         qty: { type: 'number', description: 'New quantity. Set to 0 to remove the item.' }
       },
       required: ['name', 'qty']
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  {
+    name: 'cart_set_item_notes',
+    description: [
+      'Attach or update special instructions on an item already in the cart.',
+      'Use this when the guest says things like "no onion", "extra spicy", "less sugar", "without ice", "add sambal on the side".',
+      'The notes are appended to any existing notes on the item.',
+      'If the cart has only one item, apply the instruction to that item.',
+      'If there are multiple items and the instruction is ambiguous (guest did not name the item), ask which item it applies to before calling this tool.',
+      'Common patterns: "no X", "extra X", "less X", "without X", "add X on the side", "X on the side".',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name of the cart item to attach the note to' },
+        notes: { type: 'string', description: 'Special instruction text (e.g. "no onion", "extra spicy", "less sugar")' }
+      },
+      required: ['name', 'notes']
     },
     allowedProfiles: ['makan-moments']
   },
@@ -287,6 +307,45 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     };
   });
 
+  handlers.set('cart_set_item_notes', async (args: any) => {
+    const name: string = String(args.name || '').trim();
+    const notes: string = String(args.notes || '').trim();
+
+    if (!name || !notes) {
+      return { content: [{ type: 'text', text: 'Please specify which item and what special instruction to add.' }] };
+    }
+
+    const { found, items } = cartSetItemNotes(sessionId, name, notes);
+
+    if (!found) {
+      // If only one item in cart, suggest it
+      const currentItems = cartGetItems(sessionId);
+      if (currentItems.length === 1) {
+        const only = currentItems[0];
+        return {
+          content: [{
+            type: 'text',
+            text: `"${name}" is not in the cart. Did you mean ${only.name}? Please confirm and I'll add the note "${notes}" to it.`
+          }]
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: `"${name}" is not in your cart. Please check your order and tell me which item you'd like to add the note to.`
+        }]
+      };
+    }
+
+    const summary = cartFormatSummary(items);
+    return {
+      content: [{
+        type: 'text',
+        text: `Got it! Added "${notes}" to ${name}.\n\nCurrent cart:\n${summary}`
+      }]
+    };
+  });
+
   // ─── Order Stage Handlers ────────────────────────────────────────
 
   handlers.set('order_request_confirmation', async (_args: any) => {
@@ -319,7 +378,11 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     // Build FnB MCP payload — only include items that have a menu code
     const codedItems = items
       .filter(i => i.code)
-      .map(i => ({ code: i.code as string, qty: i.qty }));
+      .map(i => ({
+        code: i.code as string,
+        qty: i.qty,
+        ...(i.notes ? { notes: i.notes } : {})
+      }));
 
     let orderAck = '';
 

@@ -25,6 +25,8 @@ import {
   cartClear,
   cartGetItems,
   cartUpdateItemQty,
+  cartSetItemNotes,
+  cartFormatSummary,
 } from '../cart-store.js';
 import { createCartHandlers } from '../../tools/cart.js';
 
@@ -503,5 +505,128 @@ describe('cart_cancel_order handler (US-862)', () => {
 
     const result = await handlers.get('cart_cancel_order')!({});
     expect(result.content[0].text).toMatch(/new order|start/i);
+  });
+});
+
+// ─── US-852: Special Instructions Capture ────────────────────────
+
+describe('cartSetItemNotes — unit tests (US-852)', () => {
+  const newSid = () => 'notes-unit-' + Date.now() + '-' + Math.random();
+
+  it('sets notes on an existing cart item', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Nasi Lemak', qty: 1, price: 8.50 });
+    const { found, items } = cartSetItemNotes(sid, 'Nasi Lemak', 'no onion');
+    expect(found).toBe(true);
+    expect(items[0].notes).toBe('no onion');
+    cartClear(sid);
+  });
+
+  it('appends to existing notes', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Teh Tarik', qty: 1, notes: 'less sugar' });
+    const { found, items } = cartSetItemNotes(sid, 'Teh Tarik', 'extra hot');
+    expect(found).toBe(true);
+    expect(items[0].notes).toBe('less sugar, extra hot');
+    cartClear(sid);
+  });
+
+  it('is case-insensitive for item name', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Roti Canai', qty: 1 });
+    const { found } = cartSetItemNotes(sid, 'roti canai', 'extra crispy');
+    expect(found).toBe(true);
+    cartClear(sid);
+  });
+
+  it('returns found: false for non-existent item', () => {
+    const sid = newSid();
+    cartAddItem(sid, { name: 'Laksa', qty: 1 });
+    const { found } = cartSetItemNotes(sid, 'Char Kway Teow', 'no bean sprouts');
+    expect(found).toBe(false);
+    cartClear(sid);
+  });
+});
+
+describe('cartFormatSummary — notes display (US-852)', () => {
+  it('shows notes per line item in summary', () => {
+    const items = [
+      { name: 'Nasi Lemak', qty: 1, price: 8.50, notes: 'no onion' },
+      { name: 'Teh Tarik', qty: 2, price: 2.50 },
+    ];
+    const summary = cartFormatSummary(items);
+    expect(summary).toContain('[no onion]');
+    expect(summary).toContain('Nasi Lemak');
+    expect(summary).toContain('Teh Tarik');
+    // Teh Tarik has no notes — no brackets expected
+    expect(summary).not.toContain('[undefined]');
+  });
+});
+
+describe('cart_set_item_notes handler (US-852)', () => {
+  const newSid = () => 'notes-handler-' + Date.now() + '-' + Math.random();
+
+  it('attaches notes to a cart item and shows updated cart', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Nasi Lemak', qty: 1, price: 8.50 });
+
+    const result = await handlers.get('cart_set_item_notes')!({ name: 'Nasi Lemak', notes: 'extra spicy' });
+    expect(result.content[0].text).toContain('extra spicy');
+    expect(result.content[0].text).toContain('Nasi Lemak');
+    expect(result.content[0].text).toContain('Current cart');
+
+    const items = cartGetItems(sid);
+    expect(items[0].notes).toBe('extra spicy');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('appends notes when item already has notes', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Teh Tarik', qty: 1, notes: 'less sugar' });
+
+    const result = await handlers.get('cart_set_item_notes')!({ name: 'Teh Tarik', notes: 'extra hot' });
+    expect(result.content[0].text).toContain('extra hot');
+
+    const items = cartGetItems(sid);
+    expect(items[0].notes).toBe('less sugar, extra hot');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('returns not-in-cart message for unknown item', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Laksa', qty: 1 });
+
+    const result = await handlers.get('cart_set_item_notes')!({ name: 'Satay', notes: 'no peanuts' });
+    expect(result.content[0].text).toContain('not in');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('suggests the only cart item when target name does not match', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Roti Canai', qty: 1 });
+
+    const result = await handlers.get('cart_set_item_notes')!({ name: 'Nasi', notes: 'no egg' });
+    expect(result.content[0].text).toContain('Roti Canai');
+    expect(result.content[0].text).toContain('Did you mean');
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
+  it('notes are included in cart_add_item when passed directly', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Mee Goreng', qty: 1, notes: 'without cucumber' });
+
+    const items = cartGetItems(sid);
+    expect(items[0].notes).toBe('without cucumber');
+    cartClear(sid);
+    clearOrderStage(sid);
   });
 });

@@ -108,6 +108,28 @@ export function cartUpdateItemQty(
   return { found: true, removed: false, items: [...session.items] };
 }
 
+/**
+ * Set or update special instructions (notes) on a named cart item.
+ * Returns found: false if the item is not in the cart.
+ */
+export function cartSetItemNotes(
+  sessionId: string,
+  name: string,
+  notes: string
+): { found: boolean; items: CartItem[] } {
+  const session = getOrCreate(sessionId);
+  const normalizedName = name.trim().toLowerCase();
+  const item = session.items.find(i => i.name.toLowerCase() === normalizedName);
+
+  if (!item) {
+    return { found: false, items: [...session.items] };
+  }
+
+  // Append to existing notes if present, otherwise set
+  item.notes = item.notes ? `${item.notes}, ${notes}` : notes;
+  return { found: true, items: [...session.items] };
+}
+
 /** Clear all items from the cart (e.g. after checkout or timeout). */
 export function cartClear(sessionId: string): void {
   cartSessions.delete(sessionId);

@@ -6353,3 +6353,60 @@ The equivalent components in this architecture are:
 -   **Non-existent Source:** If the `sourceId` does not exist, the API should return a `404 Not Found` error.
 -   **File System:** The user story is explicit: do not copy any files on the disk (e.g., the actual KB documents), only the database metadata records.
 
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+Based on the user story and your project's file structure, the implementation should be done in **TypeScript/Node.js**, not Frappe/Python. The story describes adding a new API endpoint to an existing Node.js server.
+
+Here is the technical brief for the agent:
+
+**Project:** Rainbow AI (Node.js/TypeScript)
+**Goal:** Implement a 'Clone Profile' feature.
+
+**1. Files to Modify:**
+*   **Route Definition:** A new route will be needed. Look for a file in `src/routes/` that handles admin or profile-related endpoints, likely `src/routes/admin/profiles.ts` or a similar name.
+*   **Core Logic:** Business logic for cloning should be in a dedicated service/library file, perhaps `src/lib/profiles.ts` or `src/services/profileService.ts`.
+*   **Database Schema:** Refer to `shared/schema.ts` to understand the structure of the tables you'll be copying.
+
+**2. Key Entities Involved:**
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Database Tables (Drizzle ORM):**
+    *   `rainbow_configs`: Main table for profile settings.
+    *   `rainbow_kb_files`: Table for knowledge base file metadata.
+
+**3. Implementation Approach:**
+1.  In your routes file, add the new `POST` endpoint. It should be protected by an admin authentication middleware.
+2.  The route handler will call a new function, e.g., `cloneProfile(sourceId, newProfileId, displayName)`.
+3.  This function should use a Drizzle database transaction (`db.transaction(async (tx) => { ... })`).
+4.  Inside the transaction:
+    *   Fetch all `rainbow_configs` and `rainbow_kb_files` records for the `sourceId`.
+    *   Filter out any records not safe for cloning (e.g., keys related to WhatsApp connection/phone numbers).
+    *   Map over the fetched records, creating new objects with the `newProfileId`.
+    *   Bulk-insert the new records for both tables.
+5.  Return the new profile's ID upon success.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** Use a database transaction to ensure the clone is an all-or-nothing operation.
+*   **Error Handling:** Return a 404 if the `sourceId` doesn't exist. Return a 409 if the `newProfileId` is already in use.
+*   **Exclusions:** Be vigilant about not copying sensitive or instance-specific data. The `whatsapp-auth/` directory and phone number settings are explicitly excluded.
+*   **Data Integrity:** This is purely a database operation. Do not copy or modify any files on the disk (like the KB files themselves).
+
+
+## Iteration 7 - Story: US-852 - Special instructions capture
+### What was implemented
+- Added `cartSetItemNotes()` function to `cart-store.ts` — sets or appends notes on a named cart item (case-insensitive match)
+- Added `cart_set_item_notes` MCP tool definition and handler in `cart.ts` — AI waiter can attach special instructions to cart items
+- Tool description guides AI to handle "no X", "extra X", "less X", "without X", "add X on the side" patterns
+- If only one item in cart and name doesn't match, suggests that item to user
+- If multiple items and ambiguous, tool description instructs AI to ask which item before calling
+- Updated `order_confirm_submit` handler to pass per-item `notes` field in FnB MCP payload
+- Notes already shown in `cartFormatSummary` via `[notes]` format (existed from US-848)
+- Added 13 new test cases covering unit tests and handler tests for the notes functionality
+
+### Patterns discovered
+- `cartFormatSummary` already displayed notes in `[brackets]` format — no changes needed there
+- FnB MCP item payload only had `code` and `qty` — added optional `notes` field
+- Cart tools `cart_add_item`, `cart_search_item`, and `cart_pick_item` already accepted `notes` param from US-848
+
+### Gotchas
+- Notes append with comma separator rather than overwrite — allows multiple instructions on same item
+- `rtk` command not found in this environment — use `npm`/`npx` directly
