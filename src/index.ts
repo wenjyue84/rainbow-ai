@@ -192,7 +192,7 @@ app.use(helmet({
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      frameAncestors: ["'self'"],
+      frameAncestors: ["*"],  // allow any site to embed via iframe (widget support)
       baseUri: ["'self'"],
       formAction: ["'self'"],
       reportUri: '/csp-report',
@@ -273,6 +273,33 @@ const server = createHttpServer(app);
 
 // --- Static assets + Vite HMR ---
 let viteDevServer: any = null;
+
+// US-522: widget.js — served with CORS and short public cache for cross-origin embedding.
+// Two paths: /widget.js (canonical, used by WIDGET_SETTINGS.md) and /public/widget.js
+// (legacy alias). Both must be declared BEFORE the no-cache static middleware below.
+const _widgetJsPath = join(__dirname_main, 'public', 'widget.js');
+function _serveWidgetJs(_req: express.Request, res: express.Response) {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Cache-Control', 'public, max-age=300');
+  res.set('Content-Type', 'application/javascript');
+  res.set('Pragma', '');
+  res.set('Expires', '');
+  res.sendFile(_widgetJsPath);
+}
+app.get('/widget.js', _serveWidgetJs);
+app.get('/public/widget.js', _serveWidgetJs);
+
+// US-522 + US-523: webchat.html — CORS for cross-origin loads, CSP frame-ancestors
+// to allow the iframe to render inside fnb-online-ordering and pms-capsule (Vercel).
+// Helmet sets frameguard: false globally but we explicitly override CSP here.
+app.get('/webchat.html', (_req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://*.vercel.app https://admin.pelangicapsulehostel.com https://pelangicapsulehostel.com",
+  );
+  res.sendFile(join(__dirname_main, 'public', 'webchat.html'));
+});
 
 // Serve dashboard static files (CSS, JS, images) with no-cache headers.
 // In dev, this MUST come before Vite middleware so that <link> and <script> tags

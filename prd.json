@@ -1019,27 +1019,6 @@
       "passes": true
     },
     {
-      "id": "US-434",
-      "title": "Add WhatsApp message template approval status tracking",
-      "priority": "low",
-      "description": "WhatsApp enforces that outbound messages outside the 24-hour window must use pre-approved templates. Attempting to send a non-template message outside the session window causes a hard API error. Tracking the approval status of templates used by each profile (approved, pending, rejected) prevents runtime errors and gives operators visibility into which templates are ready for use.",
-      "acceptanceCriteria": [
-        "A message_templates table stores { template_id, profile_id, template_name, status (approved|pending|rejected), last_checked_at }",
-        "Admin API GET /api/admin/templates?profile_id= returns all templates with current status",
-        "Admin API POST /api/admin/templates/:id/check triggers a status refresh (stub if direct Meta API access is unavailable)",
-        "When the session window enforcement (session-window.ts) selects a template, it validates the template status is 'approved' before use",
-        "Attempting to send a non-approved template logs an error and falls back to a safe default template"
-      ],
-      "technicalNotes": [
-        "Template status can be manually seeded until direct Meta API integration is available",
-        "Hook into src/assistant/session-window.ts for the status check before template send",
-        "Reference: https://www.infobip.com/docs/whatsapp/compliance/template-compliance"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
       "id": "US-435",
       "title": "Implement conversation satisfaction rating via post-conversation follow-up",
       "priority": "low",
@@ -1461,27 +1440,6 @@
       "passes": false
     },
     {
-      "id": "US-455",
-      "title": "Add dynamic token budget allocation based on query complexity",
-      "priority": "low",
-      "description": "src/assistant/context-windows.ts uses fixed message count limits. Research shows dynamic allocation (more history for complex multi-turn queries, less for simple FAQ lookups) improves quality and reduces costs. The classification stage's confidence score can drive this: high-confidence T1/T2 intents get a short context, low-confidence T3/T4 get a full context.",
-      "acceptanceCriteria": [
-        "Context window size for the reply stage varies based on classified tier: T1/T2 use contextWindows.reply, T3/T4 use contextWindows.combined",
-        "The dynamic allocation decision is logged at DEBUG level per message",
-        "Existing getContextWindows() function is unchanged; allocation logic lives in the pipeline's context-building step",
-        "A/B testing flag session.dynamicContextAllocation: true/false allows toggling via settings.json",
-        "Dynamic allocation reduces token usage by >= 15% on a test corpus of T1-heavy conversations"
-      ],
-      "technicalNotes": [
-        "Tier classification result is already available in the pipeline before context building",
-        "Insert the allocation decision in src/assistant/pipeline/stages/routing.ts or context-building utility",
-        "This is an optimization, not a correctness fix â€” mark as non-blocking"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
       "id": "US-456",
       "title": "Expose admin-configurable webchat session idle timeout",
       "priority": "low",
@@ -1593,29 +1551,6 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
-    },
-    {
-      "id": "US-461",
-      "title": "Implement WhatsApp Flows endpoint with AES-GCM decryption for in-chat forms",
-      "priority": "medium",
-      "description": "WhatsApp Flows allow businesses to embed multi-screen interactive form experiences directly inside WhatsApp chat (date pickers, dropdowns, text fields) without redirecting users to a browser. Each flow request is end-to-end encrypted using RSA-OAEP for key exchange and AES-128-GCM for payload encryption. Implementing a Flows endpoint enables use cases like check-in form collection, complaint intake, and booking confirmation inside the chat window.",
-      "acceptanceCriteria": [
-        "A POST /webhook/flows endpoint decrypts incoming requests using RSA/ECB/OAEPWithSHA-256AndMGF1Padding for the AES key, then AES-128-GCM for the payload",
-        "The endpoint responds to ping health checks with {\"data\": {\"status\": \"active\"}}",
-        "The endpoint returns HTTP 421 when decryption fails (malformed or replayed request)",
-        "Encrypted responses use the received AES key with bit-inverted initialization vector",
-        "Flow completion screen sends {\"screen\": \"SUCCESS\"} with flow_token in extension_message_response",
-        "RSA key pair (2048-bit minimum) is loaded from env var FLOWS_PRIVATE_KEY; the public key is registered in WhatsApp Manager"
-      ],
-      "technicalNotes": [
-        "Use Node.js built-in crypto module: crypto.privateDecrypt with RSA_PKCS1_OAEP_PADDING + sha256, then createDecipheriv('aes-128-gcm', aesKey, iv)",
-        "The 128-bit GCM auth tag is appended to the ciphertext â€” split before passing to decipher.setAuthTag()",
-        "IV for response encryption is the request IV with all bits flipped: iv.map(b => ~b & 0xff)",
-        "Meta documentation: https://developers.facebook.com/docs/whatsapp/flows/guides/implementingyourflowendpoint/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "large",
-      "passes": false
     },
     {
       "id": "US-462",
@@ -1730,76 +1665,6 @@
       "passes": false
     },
     {
-      "id": "US-467",
-      "title": "Implement WhatsApp message template category auto-reclassification alert",
-      "priority": "medium",
-      "description": "Since April 2025, Meta automatically recategorizes approved templates from UTILITY to MARKETING without advance notice when it determines the content is promotional. This silently changes billing rates and can trigger delivery blocks if the account lacks marketing template permissions. A periodic check that compares stored vs live template categories and alerts on mismatches prevents surprise cost spikes and delivery failures.",
-      "acceptanceCriteria": [
-        "A scheduled job (daily) fetches all templates for each WABA phone number via the WhatsApp Business Management API",
-        "The job compares the API-returned category against the locally stored category in the templates table",
-        "When a mismatch is detected, an admin notification is sent with the template name, previous category, and new category",
-        "The local database record is updated to reflect the new category returned by the API",
-        "The job records the last-checked timestamp and category per template for audit purposes",
-        "A manual trigger is available via admin API endpoint POST /api/v1/templates/sync"
-      ],
-      "technicalNotes": [
-        "API endpoint: GET /{whatsapp-business-account-id}/message_templates?fields=name,status,category&access_token={token}",
-        "The allow_category_change property is no longer supported as of April 9, 2025 â€” do not include it in template creation requests",
-        "Schedule via node-cron or BullMQ repeatable job; run at 03:00 local time to avoid peak traffic",
-        "Reference: https://developers.facebook.com/docs/whatsapp/updates-to-pricing/new-template-guidelines/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-468",
-      "title": "Track WhatsApp business portfolio-level messaging limits via Management API",
-      "priority": "medium",
-      "description": "As of October 7, 2025, WhatsApp applies messaging limits at the business portfolio level rather than per phone number. Tracking limits per phone number misrepresents the true account capacity. Portfolio-level tracking via the WhatsApp Business Management API's messaging_limit_tier field gives accurate visibility into the shared conversation budget across all phone numbers in the account.",
-      "acceptanceCriteria": [
-        "Admin dashboard displays the current portfolio-level messaging tier (250/2000/10000/100000/unlimited) and 24h usage count",
-        "Messaging limit tier data is fetched from the Business Portfolio API and cached with a 6-hour TTL (matching Meta's tier re-evaluation interval)",
-        "When portfolio usage exceeds 80% of the current tier limit within a 24h window, an admin alert is triggered",
-        "The system correctly reflects that limits apply to the entire WABA, not individual phone numbers",
-        "Historical tier progression is stored for trend analysis (date, tier, reason if demoted)"
-      ],
-      "technicalNotes": [
-        "API endpoint: GET /{whatsapp-business-account-id}?fields=messaging_limit_tier,on_behalf_of_business_info",
-        "Tier re-evaluation happens every 6 hours (changed from every 24 hours as of 2025); reflect this in cache TTL",
-        "New numbers start at 2000 (raised from 1000) business-initiated conversations per 24h period",
-        "Reference: https://developers.facebook.com/docs/whatsapp/messaging-limits/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-469",
-      "title": "Add OpenTelemetry custom histograms for message pipeline stage latencies",
-      "priority": "medium",
-      "description": "While OTel span tracing captures end-to-end request latency, granular stage-level latency histograms (language detection, intent classification, LLM call, tool execution, message send) are required to identify bottlenecks under load. OTel's MetricProvider with histogram instruments captures per-stage timings with sub-millisecond overhead and exports them alongside trace data.",
-      "acceptanceCriteria": [
-        "A histogram instrument pipeline.stage.duration_ms with attribute stage_name captures timing for each pipeline stage",
-        "Stages instrumented: input_validation, language_detection, intent_classification, llm_inference, tool_execution, message_send",
-        "The histogram uses the recommended OTel boundary set: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]",
-        "Metrics are exported via the same OTLP exporter as traces (shared exporter configuration)",
-        "A Prometheus-compatible /metrics endpoint is available when OTEL_METRICS_EXPORTER=prometheus is set",
-        "Stage timing adds less than 1ms overhead per pipeline execution (timer wraps only, no blocking calls)"
-      ],
-      "technicalNotes": [
-        "Use @opentelemetry/sdk-metrics MeterProvider; create one Histogram per stage or a single histogram with a stage_name attribute",
-        "Record timing: const end = performance.now(); histogram.record(end - start, { stage_name: 'llm_inference', provider: 'kimi' })",
-        "Export to Prometheus with @opentelemetry/exporter-prometheus for local dashboarding (Grafana)",
-        "Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/"
-      ],
-      "dependencies": [
-        "Instrument LLM calls with OpenTelemetry GenAI semantic conventions"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
       "id": "US-470",
       "title": "Implement WhatsApp reply-button messages for common quick-reply scenarios",
       "priority": "medium",
@@ -1846,119 +1711,6 @@
       ],
       "estimatedComplexity": "small",
       "passes": true
-    },
-    {
-      "id": "US-472",
-      "title": "Implement Kubernetes-compatible liveness/readiness probe separation with connection drain",
-      "priority": "medium",
-      "description": "The current health endpoint returns a flat 200 OK and does not distinguish between liveness (process is alive) and readiness (process can serve traffic). When deploying to container infrastructure (AWS ECS, Kubernetes, or PM2 with Docker), this prevents clean rolling restarts: the load balancer continues routing requests to a shutting-down process. Separating the probes and implementing SIGTERM connection draining enables zero-downtime deployments.",
-      "acceptanceCriteria": [
-        "GET /health/live returns 200 if the process is running (simple alive check, no DB)",
-        "GET /health/ready returns 200 when DB is reachable AND WhatsApp is connected AND the process is not in shutdown; returns 503 otherwise",
-        "On SIGTERM, isShuttingDown flag is set, /health/ready immediately returns 503, and the server stops accepting new connections via server.close()",
-        "In-flight requests are given GRACEFUL_SHUTDOWN_MS (default 10000) to complete before process.exit(0)",
-        "PM2 ecosystem.config.cjs is updated with kill_timeout: 15000 to allow the drain period"
-      ],
-      "technicalNotes": [
-        "SIGTERM handler: process.on('SIGTERM', async () => { isShuttingDown = true; server.close(() => process.exit(0)); })",
-        "Set app.locals.isShuttingDown flag readable by /health/ready middleware without importing the server object",
-        "The current single /health route should be split into /health/live and /health/ready",
-        "Reference: https://expressjs.com/en/advanced/healthcheck-graceful-shutdown.html"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-473",
-      "title": "Version the admin REST API under /api/v1 with deprecation headers for future migrations",
-      "priority": "low",
-      "description": "All admin routes are currently mounted at flat paths with no version prefix. When breaking changes are needed â€” such as response schema changes or endpoint consolidations â€” there is no migration path for API consumers (admin panel, n8n integrations, scripts). Introducing URL-prefixed versioning under /api/v1 now enables future v2 rollouts without breaking existing integrations.",
-      "acceptanceCriteria": [
-        "All existing admin API routes respond identically at both /api/* (legacy) and /api/v1/* paths",
-        "The legacy /api/* paths return a Deprecation: true header and a Sunset date 6 months from deployment",
-        "A new route registration helper mountVersioned(app, '/api/v1', router) is used for all new routes going forward",
-        "Existing admin panel and integration tests continue to pass against the legacy paths",
-        "Build and TypeScript check pass"
-      ],
-      "technicalNotes": [
-        "Implement by adding an Express Router mounted at /api/v1 in src/index.ts that re-uses the same sub-router instances",
-        "Deprecation headers: res.set('Deprecation', 'true') and res.set('Sunset', new Date(...).toUTCString()) via middleware on the /api/* router",
-        "Do not rename existing route files; just mount the same router at two prefixes",
-        "Reference: https://www.codemzy.com/blog/nodejs-api-versioning"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-474",
-      "title": "Implement WhatsApp message reaction tracking for passive feedback signals",
-      "priority": "low",
-      "description": "Baileys surfaces message reaction events via the messages.upsert event when the reactionMessage field is present. User emoji reactions on bot replies (thumbs up/down, heart) are a low-friction feedback signal that requires no user action beyond a tap. Tracking reactions on bot messages provides a passive satisfaction metric complementing the explicit satisfaction-rating flow.",
-      "acceptanceCriteria": [
-        "The Baileys event handler detects when an incoming message contains reactionMessage targeting a message sent by the bot",
-        "The reaction emoji and the referenced bot message ID are recorded in the conversation_feedback table with reaction_type='emoji_reaction'",
-        "Positive reactions (ðŸ‘�, â�¤ï¸�, ðŸ™�, ðŸ˜Š) increment a positive_reaction_count metric per conversation",
-        "Negative reactions (ðŸ‘Ž, ðŸ˜¡) increment a negative_reaction_count and optionally trigger an escalation review flag",
-        "Admin dashboard shows reaction sentiment breakdown per time period",
-        "Processing a reaction does not trigger a bot reply unless the reaction is negative and escalation is enabled"
-      ],
-      "technicalNotes": [
-        "Detection: in the messages.upsert handler, check if msg.message?.reactionMessage exists; extract .key.id (referenced message) and .text (emoji)",
-        "Verify the referenced message key matches a known bot-sent message ID (store bot message IDs in-memory or DB with TTL)",
-        "Baileys reference: https://baileys.wiki/docs/socket/presence-receipts/",
-        "Emoji sentiment grouping: define positive/negative sets in settings.json to allow operator customization"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-475",
-      "title": "Detect and handle code-switching (mid-conversation language switches) gracefully",
-      "priority": "low",
-      "description": "Multilingual users in Southeast Asian markets (Malaysian guests at Pelangi) frequently switch between Bahasa Malaysia, English, and Chinese within a single conversation. The current pipeline detects language per message but does not compare against the stored preference to notice a deliberate switch. When a high-confidence switch is detected, the system should silently update the preference and continue without asking the user to repeat themselves.",
-      "acceptanceCriteria": [
-        "When detected language confidence >= 0.85 AND detected language differs from stored preference, the preference is updated silently",
-        "When detected language confidence is between 0.7 and 0.85 AND it differs from stored preference, the bot sends a gentle language confirmation message (configurable per profile)",
-        "Language switch events are logged with old_language, new_language, confidence, and message snippet for analytics",
-        "The LLM system prompt language instruction is updated immediately on the same message that triggered the switch",
-        "A unit test covers: same language (no update), high-confidence switch (silent update), mid-confidence switch (confirmation message)"
-      ],
-      "technicalNotes": [
-        "Implement in language-router.ts as detectLanguageSwitch(currentMsg, storedPreference) returning { switched, confidence, shouldAsk }",
-        "Confirmation message template (e.g. 'Saya nampak awak menukar ke Bahasa Malaysia. Saya akan balas dalam BM dari sekarang.') should be in knowledge.json per profile",
-        "Reference: https://www.useinvent.com/blog/how-to-build-effective-multilingual-ai-agents-2025-best-practices-guide"
-      ],
-      "dependencies": [
-        "Persist per-contact language preference and apply it to LLM system prompt"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-476",
-      "title": "Expose a /metrics Prometheus endpoint for infrastructure-level monitoring",
-      "priority": "low",
-      "description": "The system currently lacks a machine-readable metrics endpoint for external monitoring tools (Prometheus, Grafana, CloudWatch). Exposing Node.js runtime metrics (event loop lag, heap usage, active handles, GC pause times) and application metrics (messages processed, active conversations, error rates) via a standard Prometheus /metrics endpoint enables alerting without requiring changes to the monitoring stack.",
-      "acceptanceCriteria": [
-        "GET /metrics returns a Prometheus text format response with Node.js default metrics (event loop lag, heap used/total, GC, CPU)",
-        "Custom application counters are exposed: rainbow_messages_processed_total, rainbow_llm_errors_total, rainbow_active_conversations, rainbow_whatsapp_send_errors_total",
-        "The /metrics endpoint is protected by a shared secret (METRICS_SECRET env var) via Bearer token â€” not publicly accessible",
-        "Metrics are not included in the existing rate limiter (rate limiting /metrics would break Prometheus scrapers)",
-        "A Prometheus scrape config example is documented in ecosystem.config.cjs comments",
-        "The endpoint responds within 100ms with no database queries"
-      ],
-      "technicalNotes": [
-        "Use prom-client package: collectDefaultMetrics() for runtime metrics, new Counter/Gauge for custom metrics",
-        "Register custom metrics as module-level singletons in src/lib/metrics.ts and import/increment throughout the codebase",
-        "Mount at GET /metrics with Bearer auth middleware; exclude from the OTel HTTP instrumentation to avoid circular telemetry",
-        "Reference: https://github.com/siimon/prom-client"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
     },
     {
       "id": "US-477",
@@ -2088,94 +1840,6 @@
       "passes": true
     },
     {
-      "id": "US-483",
-      "title": "Subscribe to business_capability_update webhook and react to tier changes",
-      "priority": "medium",
-      "description": "The `business_capability_update` webhook fires when WhatsApp changes the WABA's messaging tier (max daily conversations per phone). Since October 2025, limits are enforced at the business portfolio level. Reacting in real time allows the system to update its per-profile send-rate governor without a manual configuration change.",
-      "acceptanceCriteria": [
-        "System subscribes to the `business_capability_update` webhook field",
-        "On receipt, the new `max_daily_conversation_per_phone` value is stored in config/DB",
-        "The per-profile rate limit manager reads the stored tier cap value on startup and on each webhook update",
-        "An admin log entry records each tier change with old and new values",
-        "A test verifies the handler parses the payload and updates the config correctly"
-      ],
-      "technicalNotes": [
-        "Payload field: `changes[0].field = 'business_capability_update'`, `value.max_daily_conversation_per_phone`",
-        "As of Q2 2026, Meta is removing the 2K and 10K tiers â€” any business completing verification moves straight to 100K",
-        "See: https://developers.facebook.com/docs/whatsapp/messaging-limits/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-484",
-      "title": "Emit OTel gen_ai agent spans with conversation_id for multi-turn tracing",
-      "priority": "medium",
-      "description": "The OTel GenAI semantic conventions v1.40.0 define `invoke_agent` span types with `gen_ai.agent.id`, `gen_ai.agent.name`, `gen_ai.conversation.id`, and `gen_ai.tool.definitions` attributes. The current instrumentation emits only per-LLM-call spans; wrapping the full pipeline execution in an `invoke_agent` span enables end-to-end tracing of multi-turn conversations.",
-      "acceptanceCriteria": [
-        "Each message pipeline execution is wrapped in a parent `invoke_agent` span named `invoke_agent Rainbow`",
-        "The span includes `gen_ai.agent.name = 'Rainbow'`, `gen_ai.conversation.id` (the conversation UUID), `gen_ai.provider.name`",
-        "Child LLM call spans are nested under the agent span",
-        "Tool execution (MCP tool calls) emits child `execute_tool` spans with `gen_ai.tool.name` and `gen_ai.tool.call.id`",
-        "`gen_ai.response.finish_reasons` and token usage attributes are set on the agent span from the aggregated LLM call",
-        "Span kind is `INTERNAL` (in-process agent, not a remote agent service)"
-      ],
-      "technicalNotes": [
-        "OTel spec: `gen_ai.operation.name = 'invoke_agent'`, span name = `invoke_agent {gen_ai.agent.name}`",
-        "Use `tracer.startActiveSpan()` at pipeline entry so all child spans are automatically nested",
-        "`gen_ai.conversation.id` should be the stable conversation UUID already stored in `rainbow_conversations`",
-        "See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-485",
-      "title": "Implement BullMQ FlowProducer for multi-stage message pipeline with child job dependencies",
-      "priority": "medium",
-      "description": "Complex message handling (e.g., transcribe audio â†’ classify intent â†’ generate LLM reply â†’ send response) currently chains steps imperatively, making error attribution and partial retry impossible. BullMQ FlowProducer's parent-child dependency model allows each stage to be a discrete job that retries independently; the parent only executes after all children complete.",
-      "acceptanceCriteria": [
-        "A `FlowProducer` instance is created and registered alongside the existing BullMQ queue",
-        "A multi-step flow is defined: `[preprocess-media, classify-intent, generate-reply]` as children of a `send-response` parent",
-        "Each child job has `failParentOnFailure: true` so a failed classification aborts the send",
-        "Child results are aggregated via `getChildrenValues()` inside the parent worker",
-        "Dead letter queue (already implemented) receives parent jobs whose children permanently fail",
-        "The flow job IDs do not contain colons (per BullMQ restriction)",
-        "A test verifies that completing all children moves the parent from `waiting-children` to `waiting`"
-      ],
-      "technicalNotes": [
-        "FlowProducer.add() accepts `{ name, data, queueName, children: [...] }` â€” parent queue can differ from child queues",
-        "Job IDs must not contain `:` as BullMQ uses them as separators for dependency tracking",
-        "See: https://docs.bullmq.io/guide/flows"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "large",
-      "passes": false
-    },
-    {
-      "id": "US-486",
-      "title": "Add WhatsApp security webhook handler for suspicious login alerts",
-      "priority": "medium",
-      "description": "The `security` webhook field fires on security-related WABA events such as suspicious login attempts. This is distinct from account_update and provides early warning of account compromise before an outright ban occurs. The event must trigger an immediate high-severity admin notification.",
-      "acceptanceCriteria": [
-        "System subscribes to the `security` webhook field",
-        "On receipt, a high-severity admin notification is dispatched immediately (not batched)",
-        "The raw webhook payload is persisted to an audit log table with timestamp and profile_id",
-        "A startup check verifies the `security` field subscription is active",
-        "Unit test covers payload parsing and notification dispatch"
-      ],
-      "technicalNotes": [
-        "This is a separate subscribable field from `account_update`; both should be subscribed",
-        "Log the raw payload verbatim in addition to structured fields since exact payload structure varies",
-        "See: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
       "id": "US-487",
       "title": "Implement LLM streaming response with SSE for admin webchat panel",
       "priority": "medium",
@@ -2220,49 +1884,6 @@
       "passes": false
     },
     {
-      "id": "US-489",
-      "title": "Implement WhatsApp portfolio pacing awareness and adaptive send-rate throttle",
-      "priority": "medium",
-      "description": "Since late 2025, Meta enforces pacing at the business portfolio level: large campaign sends are batched and paused if feedback signals turn negative. Without pacing awareness, the system may queue thousands of outbound messages that Meta holds back, causing phantom delivery failures. An adaptive send-rate governor reduces blast throughput when portfolio quality signals degrade.",
-      "acceptanceCriteria": [
-        "The outbound message scheduler monitors the `phone_number_quality_update` webhook for FLAGGED events",
-        "When the quality rating drops to YELLOW, the outbound send rate is halved automatically",
-        "When the quality rating drops to RED or FLAGGED, all non-session outbound messages (templates) are paused",
-        "Quality state is stored per phone-number profile and reflected in the admin dashboard",
-        "Paused template messages remain in the BullMQ queue (not dropped) and are resumed when quality recovers to GREEN",
-        "A test verifies the throttle logic activates and deactivates correctly on simulated quality events"
-      ],
-      "technicalNotes": [
-        "Portfolio pacing is a Meta-side mechanism; the app reduces throughput proactively to avoid compounding the issue",
-        "Quality webhook payload: `changes[0].field = 'phone_number_quality_update'`, `value.current_limit`, `value.event` (FLAGGED/UNFLAGGED)",
-        "See: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-490",
-      "title": "Capture opt-in gen_ai.client.inference.operation.details events for LLM audit",
-      "priority": "low",
-      "description": "OTel GenAI semantic conventions define the opt-in `gen_ai.client.inference.operation.details` event that captures full prompt/response payloads, system instructions, and tool definitions on the same span. This is the standardized replacement for ad-hoc LLM request logging, enabling structured audit trails in observability back-ends (Grafana, Jaeger).",
-      "acceptanceCriteria": [
-        "When `OTEL_GENAI_CAPTURE_MESSAGE_CONTENT=true` env var is set, the `gen_ai.client.inference.operation.details` event is emitted on each LLM span",
-        "The event body includes `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`, and `gen_ai.tool.definitions`",
-        "When the env var is absent or false, no message content is captured (default-off for privacy)",
-        "PII redaction middleware (if implemented) runs before the event is emitted",
-        "Unit test verifies event is emitted when opt-in and absent when not"
-      ],
-      "technicalNotes": [
-        "Use `span.addEvent('gen_ai.client.inference.operation.details', attributes)` via the OTel Logs API event bridge",
-        "Add a separate app-level flag `OTEL_GENAI_CAPTURE_MESSAGE_CONTENT` to independently control message capture",
-        "See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
       "id": "US-491",
       "title": "Add BullMQ priority aging to prevent starvation of low-priority message jobs",
       "priority": "low",
@@ -2279,47 +1900,6 @@
         "Use `Queue.getJobs(['prioritized'])` to retrieve jobs eligible for aging",
         "`job.changePriority({ priority: newValue })` is the runtime mutation API",
         "See: https://docs.bullmq.io/guide/jobs/prioritized"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-492",
-      "title": "Add OTel gen_ai.usage.cache_read.input_tokens tracking for prompt cache hits",
-      "priority": "low",
-      "description": "OTel GenAI semantic conventions v1.40.0 define `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_creation.input_tokens` attributes. Providers like Anthropic and NVIDIA return cache hit/miss counts in their response metadata. Tracking these values reveals the effectiveness of system-prompt caching and directly correlates to cost savings.",
-      "acceptanceCriteria": [
-        "When the LLM response includes cache token metadata, `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_creation.input_tokens` are set on the OTel span",
-        "A Prometheus counter `genai_cache_read_tokens_total` and `genai_cache_creation_tokens_total` are incremented per provider",
-        "The LLM cost tracker accounts for cached vs uncached token rates",
-        "Unit test verifies attribute extraction from Anthropic-format response metadata (`usage.cache_read_input_tokens`)"
-      ],
-      "technicalNotes": [
-        "Anthropic response: `usage.cache_read_input_tokens`, `usage.cache_creation_input_tokens`",
-        "OTel attribute names: `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_creation.input_tokens`",
-        "See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-493",
-      "title": "Subscribe to WhatsApp flows webhook field and add health-check ping handler",
-      "priority": "low",
-      "description": "The `flows` webhook subscription field is required to receive endpoint availability notifications for WhatsApp Flows integrations. Without this subscription, failed Flow endpoint calls are silent. Additionally, the WhatsApp Flows spec requires the endpoint responds to a `ping` action within 5 s or Meta marks the endpoint as unavailable.",
-      "acceptanceCriteria": [
-        "System subscribes to the `flows` webhook field on startup",
-        "The existing WhatsApp Flows endpoint handles `{ action: 'ping' }` by returning `{ data: { status: 'active' } }` within 2 s",
-        "Flow endpoint response time is tracked as a custom metric `flows_endpoint_response_ms`",
-        "A liveness probe in `/health/live` includes Flows endpoint self-test status",
-        "Unit test verifies the ping response format matches Meta's specification"
-      ],
-      "technicalNotes": [
-        "Flows health-check action: `{ version: '3.0', action: 'ping' }` â€” respond with `{ version: '3.0', data: { status: 'active' } }`",
-        "AES-GCM decryption is required for non-ping requests (already implemented)",
-        "See: https://developers.facebook.com/docs/whatsapp/flows/reference/flowswebhooks/"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -2470,31 +2050,6 @@
       "passes": true
     },
     {
-      "id": "US-500",
-      "title": "Instrument BullMQ queues and workers with OpenTelemetry via bullmq-otel",
-      "priority": "medium",
-      "description": "BullMQ announced native telemetry support in November 2024 via a first-party `bullmq-otel` package that implements the BullMQ telemetry interface for OpenTelemetry. Adding it to Queue and Worker instances produces producer spans (job enqueue), consumer spans (job process), and delay spans (retry backoff) â€” enabling end-to-end distributed tracing from HTTP request through queue job to completion.",
-      "acceptanceCriteria": [
-        "`bullmq-otel` is installed and configured on all Queue instances in `src/lib/` with the service name `rainbow-ai`",
-        "`bullmq-otel` is configured on all Worker instances with the same service name",
-        "Producer spans (`addBulk <queueName>`) are linked to consumer spans (`process <queueName>`) in Jaeger/Grafana Tempo traces",
-        "Retry delay spans (`delay <queueName>`) appear between failed and retried consumer spans",
-        "Job names, queue names, and attempt counts are visible in span attributes",
-        "No additional manual span creation is needed â€” all spans come from the `bullmq-otel` middleware",
-        "Integration test verifies a single job produces at minimum one producer span and one consumer span in the OTel exporter"
-      ],
-      "technicalNotes": [
-        "Install: `npm install bullmq-otel`",
-        "Configuration: pass `telemetry: new BullMQOtel('rainbow-ai')` to both Queue and Worker constructors",
-        "The telemetry interface is NOT yet supported on FlowProducer â€” instrument flows separately if needed",
-        "See: https://docs.bullmq.io/guide/telemetry/getting-started",
-        "Announcement: https://bullmq.io/news/241104/telemetry-support/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
       "id": "US-501",
       "title": "Set BullMQ global concurrency cap to prevent worker pool saturation",
       "priority": "medium",
@@ -2514,29 +2069,6 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-502",
-      "title": "Integrate WhatsApp Marketing Messages Lite (MM Lite) API for campaign broadcasts",
-      "priority": "medium",
-      "description": "Meta's MM Lite API uses ad-serving algorithms to optimize marketing message delivery, achieving up to 9% higher delivery rates and reaching up to 30% more customers versus Cloud API for the same send volume. It runs in parallel with Cloud API on the same number â€” Cloud API handles conversational messages while MM Lite handles one-way marketing broadcasts. This is distinct from existing Cloud API integration.",
-      "acceptanceCriteria": [
-        "A new `MMLiteProvider` class is added to `src/assistant/` that sends messages via the MM Lite API endpoint instead of the standard Cloud API `/messages` endpoint",
-        "The provider is only activated for messages tagged as `template_type = 'marketing'` and only when `MM_LITE_ENABLED=true` in settings",
-        "Delivery rate metrics are tracked separately for MM Lite vs Cloud API sends: `whatsapp.mmlite.delivered_count` and `whatsapp.cloudapi.delivered_count`",
-        "Fallback to Cloud API occurs automatically if MM Lite returns a non-2xx response",
-        "Regional restriction is respected: MM Lite is disabled for recipients in EEA, UK, Japan, and South Korea (configurable country blocklist)",
-        "An integration test mocks the MM Lite endpoint and verifies correct routing for marketing vs utility templates"
-      ],
-      "technicalNotes": [
-        "MM Lite API is a separate endpoint from Cloud API â€” consult: https://developers.facebook.com/docs/whatsapp/marketing-messages-lite-api/",
-        "Both Cloud API and MM Lite can operate on the same WhatsApp Business number simultaneously",
-        "EEA/UK/Japan/South Korea restriction: frequency capping and optimizations are unavailable; messages still deliver via Cloud API fallback",
-        "See: https://www.infobip.com/docs/whatsapp/mm-lite"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "large",
       "passes": false
     },
     {
@@ -2680,126 +2212,6 @@
       "passes": false
     },
     {
-      "id": "US-509",
-      "title": "Store WhatsApp template message status (APPROVED/REJECTED/PAUSED) via webhook subscription",
-      "priority": "medium",
-      "description": "The `message_template_status_update` webhook field fires when a template transitions between states: APPROVED, REJECTED, PENDING, DISABLED, PAUSED, or LIMIT_EXCEEDED. Templates may be PAUSED by Meta if they accumulate negative user feedback (blocks), and DISABLED if the business messaging limit is exceeded. Without this webhook, the system cannot detect when a scheduled template send will silently fail due to a PAUSED or DISABLED template.",
-      "acceptanceCriteria": [
-        "System subscribes to the `message_template_status_update` webhook field on startup",
-        "On receipt, the template status, reason, and timestamp are stored in a `whatsapp_templates` table keyed by `template_id`",
-        "The outbound template dispatcher checks template status before sending â€” PAUSED, DISABLED, or REJECTED templates are skipped with a structured warning log",
-        "On REJECTED or PAUSED, an admin notification is sent with the template name and rejection reason",
-        "The admin dashboard exposes a template health view showing all templates with their current status",
-        "Unit test covers all six status transitions and verifies correct storage and notification behavior"
-      ],
-      "technicalNotes": [
-        "Payload: `changes[0].field = 'message_template_status_update'`, `value.event` (APPROVED/REJECTED/PAUSED/DISABLED/PENDING/LIMIT_EXCEEDED), `value.message_template_name`, `value.message_template_id`, `value.reason`",
-        "LIMIT_EXCEEDED occurs when the WABA hits messaging limits â€” distinct from quality-based PAUSED",
-        "Template health affects delivery: sending a PAUSED template returns an error from Cloud API",
-        "See: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices",
-        "See: https://business.whatsapp.com/blog/how-to-use-webhooks-from-whatsapp-business-api"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-510",
-      "title": "Emit OTel gen_ai.evaluation.result events for automated LLM response quality scoring",
-      "priority": "low",
-      "description": "The OpenTelemetry GenAI semantic conventions define a `gen_ai.evaluation.result` event type for recording automated quality assessments of AI outputs. Attaching an evaluation score to each LLM response span enables dashboards to correlate model changes, prompt updates, or provider switches with output quality degradation â€” without manual review of conversation logs.",
-      "acceptanceCriteria": [
-        "After each LLM response, a lightweight evaluator computes at minimum a relevance score (0.0â€“1.0) using a heuristic (e.g., response length, keyword overlap, refusal detection)",
-        "The score is emitted as a `gen_ai.evaluation.result` event on the parent LLM span with `gen_ai.evaluation.name = 'relevance'` and `gen_ai.evaluation.score.value`",
-        "When the evaluator detects a likely refusal or off-topic response, `gen_ai.evaluation.score.label = 'refused'` is set",
-        "A Prometheus histogram `genai_evaluation_score` (labels: `evaluation_name`, `provider`) tracks score distribution",
-        "The evaluation pipeline is opt-in via `OTEL_GENAI_EVALUATION_ENABLED=true` (disabled by default to avoid latency overhead)",
-        "Unit test verifies a refusal phrase triggers the 'refused' label"
-      ],
-      "technicalNotes": [
-        "OTel event spec: `gen_ai.evaluation.name` (required), `gen_ai.evaluation.score.value` (float, conditionally required), `gen_ai.evaluation.score.label` (string label, conditionally required)",
-        "Emit via `span.addEvent('gen_ai.evaluation.result', { 'gen_ai.evaluation.name': 'relevance', 'gen_ai.evaluation.score.value': 0.85 })`",
-        "For a higher-quality evaluator, route to a fast/cheap LLM judge (e.g., Ollama local model) asynchronously",
-        "See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
-      "id": "US-511",
-      "title": "Use UUIDv7 for all new primary keys to improve PostgreSQL index performance",
-      "priority": "low",
-      "description": "PostgreSQL 18 (supported by Neon as of late 2025) introduced the native `gen_random_uuid_v7()` function, which generates time-ordered UUIDs. Unlike UUIDv4, UUIDv7 values are monotonically increasing, causing B-tree index insertions to append to the rightmost leaf page rather than causing random page splits. This reduces write amplification and improves SELECT performance for time-range queries on UUID-keyed tables.",
-      "acceptanceCriteria": [
-        "New Drizzle schema tables (added after this story is implemented) use `uuid('id').default(sql`gen_random_uuid_v7()`).primaryKey()` instead of `uuid('id').defaultRandom().primaryKey()`",
-        "A database migration adds `gen_random_uuid_v7()` as the default for `id` columns on any high-volume append-only tables (e.g., `rainbow_messages`, `intent_analytics`)",
-        "An index selectivity query confirms the new UUID column has monotonically increasing values in the existing rows post-migration",
-        "No existing foreign key references are broken by the migration",
-        "A comment in `shared/schema-tables.ts` explains why UUIDv7 is preferred and links to the Neon/PostgreSQL 18 release notes"
-      ],
-      "technicalNotes": [
-        "Requires PostgreSQL 18 â€” verify `SELECT version()` returns PostgreSQL 18+ on the Neon project",
-        "Neon enables PostgreSQL 18 features including `gen_random_uuid_v7()` as of the late 2025 update",
-        "For Drizzle: `sql\\`gen_random_uuid_v7()\\`` as the column default in schema definition",
-        "Existing rows with UUIDv4 IDs do NOT need to be migrated â€” only new inserts benefit",
-        "See: https://dev.to/dataformathub/neon-postgres-deep-dive-why-the-2025-updates-change-serverless-sql-5o0"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
-      "id": "US-512",
-      "title": "Add WhatsApp multi-product message support for room/unit catalog queries",
-      "priority": "low",
-      "description": "WhatsApp Business API supports multi-product interactive messages that display up to 30 catalog items grouped in up to 10 sections within a single message. For Pelangi Capsule and Southern Homestay, this enables a 'browse available rooms' or 'view packages' flow where guests can see options and add to cart without leaving WhatsApp. The API uses the standard `/messages` endpoint with `interactive.type = 'product_list'`.",
-      "acceptanceCriteria": [
-        "A `sendMultiProductMessage(profileId, recipientId, catalogId, sections)` function is implemented in `src/tools/`",
-        "The function constructs an `interactive` message payload with `type: 'product_list'`, up to 10 sections, and up to 30 total `product_retailer_id` items",
-        "A `room-availability` intent handler triggers a multi-product message when the guest asks to see available rooms",
-        "The catalog ID is configurable per profile via `app_settings` (key: `whatsapp_catalog_id`)",
-        "Inbound `order` webhook events (guest adds to cart) are routed to a new `handleCartEvent` handler",
-        "An integration test mocks the Cloud API endpoint and verifies the payload structure matches WhatsApp's schema"
-      ],
-      "technicalNotes": [
-        "API: POST `/{phone_number_id}/messages` with `{ type: 'interactive', interactive: { type: 'product_list', header, body, action: { catalog_id, sections } } }`",
-        "Each section: `{ title, product_items: [{ product_retailer_id }] }`",
-        "Max 30 products across all sections; max 10 sections per message",
-        "Requires a Facebook Commerce Catalog linked to the WABA",
-        "See: https://developer.vonage.com/en/messages/guides/whatsapp-product-messages",
-        "See: https://chakrahq.com/article/message-types-whatsapp-api-business/"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "large",
-      "passes": false
-    },
-    {
-      "id": "US-513",
-      "title": "Surface WhatsApp 100K tier auto-promotion status in the admin dashboard",
-      "priority": "low",
-      "description": "Starting Q1-Q2 2026, Meta removes the 2K and 10K messaging tier steps â€” verified businesses jump directly to 100K/day. The `business_capability_update` webhook will fire when a WABA is promoted. The admin dashboard currently shows no messaging tier information. Surfacing the current tier, effective date of last change, and promotion eligibility status helps operators plan campaign volume.",
-      "acceptanceCriteria": [
-        "The admin dashboard displays: current messaging tier limit (e.g., '100K/day'), last tier change date, and whether Business Verification is complete",
-        "Tier information is stored in `app_settings` (key: `whatsapp_messaging_tier`) and updated on each `business_capability_update` webhook event",
-        "A manual 'refresh tier status' button in the admin panel calls the Cloud API `GET /{phone_number_id}` endpoint to fetch current limits and updates the stored value",
-        "A badge in the dashboard highlights if the account is on the old 2K or 10K tier (potentially eligible for promotion during Q2 2026 rollout)",
-        "Unit test verifies the webhook handler correctly parses and stores the updated tier value"
-      ],
-      "technicalNotes": [
-        "Cloud API endpoint to fetch phone number info including messaging limits: `GET /{phone_number_id}?fields=messaging_limit_tier`",
-        "Q1 2026: select partners get automatic 100K promotion; Q2 2026: full rollout removing 2K/10K tiers",
-        "Depends on existing `business_capability_update` webhook handler being implemented",
-        "See: https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
-        "See: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/"
-      ],
-      "dependencies": [
-        "Subscribe to business_capability_update webhook and react to tier changes"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false
-    },
-    {
       "id": "US-514",
       "title": "Add TOTP-based 2FA to admin panel login",
       "priority": "critical",
@@ -2938,29 +2350,6 @@
       "passes": false
     },
     {
-      "id": "US-520",
-      "title": "Add prompt version tracking and A/B test traffic split to LLM pipeline",
-      "priority": "medium",
-      "description": "Store the prompt template version identifier alongside every AI-generated response in rainbow_messages so that quality, latency, and cost can be compared between prompt versions. This enables safe iterative prompt improvements with measurable rollout control.",
-      "acceptanceCriteria": [
-        "rainbow_messages table has a prompt_version VARCHAR column populated on every AI response row",
-        "GET /admin/metrics/prompt-performance returns per-version aggregates: avg latency, token usage, feedback score",
-        "Traffic split percentage per prompt version is configurable via settings.json without restart",
-        "At least two prompt versions can be active simultaneously with configurable traffic weights",
-        "Rollback to a previous prompt version is achievable by config change alone (no deploy)"
-      ],
-      "technicalNotes": [
-        "Version label format: {intent}-v{semver} e.g. checkin-v1.2.0, stored in settings.json alongside the template",
-        "On each LLM call log: prompt_version, model, latency_ms, input_tokens, output_tokens to rainbow_messages or a separate prompt_ab_log table",
-        "A/B split: weighted random selection at runtime using configured percentages from settings.json",
-        "Consider Langfuse for richer observability: https://langfuse.com/docs/prompt-management/features/a-b-testing",
-        "Minimal self-hosted approach: version field in DB + admin metrics endpoint (no external service required)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false
-    },
-    {
       "id": "US-521",
       "title": "Document and implement Drizzle ORM safe migration rollback procedure",
       "priority": "medium",
@@ -2981,6 +2370,154 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-522",
+      "title": "Serve widget.js with correct CORS and cache headers for cross-origin embedding",
+      "priority": "high",
+      "description": "widget.js is embedded in fnb-online-ordering (Vercel) and PMS2 (Vercel) from admin.pelangicapsulehostel.com (Lightsail). Without CORS headers, browsers block the script load. Without cache headers, every page load re-fetches the full widget script. Add Access-Control-Allow-Origin: * and Cache-Control: public, max-age=300 to the Express static file serving for widget.js and webchat.html.",
+      "acceptanceCriteria": [
+        "GET /widget.js response includes Access-Control-Allow-Origin: * header",
+        "GET /widget.js response includes Cache-Control: public, max-age=300 header",
+        "GET /widget.js response includes Content-Type: application/javascript header",
+        "GET /webchat.html response includes Access-Control-Allow-Origin: * header",
+        "Browser console shows zero CORS errors when widget.js is loaded from fnb-online-ordering or pms-capsule.vercel.app origins",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/index.ts (Express static middleware or specific route before static)",
+        "Add specific routes before express.static: app.get(\"/widget.js\", (req, res, next) => { res.setHeader(\"Access-Control-Allow-Origin\", \"*\"); res.setHeader(\"Cache-Control\", \"public, max-age=300\"); next(); })",
+        "Do NOT set Access-Control-Allow-Origin: * globally — only for public widget assets",
+        "Test: curl -H \"Origin: https://fnb-online-ordering.vercel.app\" -I https://admin.pelangicapsulehostel.com/widget.js"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-523",
+      "title": "Add Content-Security-Policy frame-ancestors to webchat.html to allow iframe embedding in PMS2 and fnb-online-ordering",
+      "priority": "high",
+      "description": "widget.js loads webchat.html inside an iframe. Without CSP frame-ancestors headers, browsers may block the iframe and the chat panel never loads. Add permissive frame-ancestors headers that explicitly allow the known embedding origins (Vercel preview/prod and Lightsail itself).",
+      "acceptanceCriteria": [
+        "GET /webchat.html response includes Content-Security-Policy header with frame-ancestors directive",
+        "frame-ancestors allows: 'self' https://*.vercel.app https://admin.pelangicapsulehostel.com https://pelangicapsulehostel.com",
+        "No conflicting X-Frame-Options: DENY or SAMEORIGIN header on /webchat.html",
+        "iframe inside widget loads correctly when embedded from fnb-online-ordering.vercel.app",
+        "iframe inside widget loads correctly when embedded from pms-capsule.vercel.app",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/index.ts — add specific route before static middleware for /webchat.html",
+        "Route: app.get('/webchat.html', (req, res, next) => { res.setHeader('Content-Security-Policy', \"frame-ancestors 'self' https://*.vercel.app https://admin.pelangicapsulehostel.com https://pelangicapsulehostel.com\"); next(); })",
+        "If helmet.js is used globally it may set X-Frame-Options: SAMEORIGIN by default — override or disable for this route",
+        "CSP frame-ancestors takes precedence over X-Frame-Options in modern browsers"
+      ],
+      "dependencies": [
+        "US-522"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-524",
+      "title": "Add GET /api/widget/config/:profileId public endpoint for external apps to fetch widget display configuration",
+      "priority": "medium",
+      "description": "fnb-online-ordering and PMS2 hardcode widget config (color, label, subtitle, whatsapp) in their source code. When Rainbow AI profile settings change, embedding apps must be updated manually. Add a public unauthenticated endpoint returning widget display config for a given profile so embedding apps can fetch it dynamically.",
+      "acceptanceCriteria": [
+        "GET /api/widget/config/:profileId returns 200 JSON: { profileId, label, subtitle, color, whatsapp, position, available: true }",
+        "Returns 404 with { available: false, error: \"Profile not found\" } if profileId does not exist",
+        "Endpoint requires no authentication",
+        "Response includes Cache-Control: public, max-age=60 and Access-Control-Allow-Origin: *",
+        "Works for profiles: pelangi, makan-moments, makan-moments-admin, pms-capsule",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "Add new file: src/routes/public/widget-config.ts",
+        "Import profileRegistry from src/assistant/profile-registry.ts to look up profiles",
+        "Return only display-safe fields: label, subtitle, color, whatsapp, position — no KB path, data dir, or internal config",
+        "Register in src/index.ts: app.use(\"/api/widget\", widgetConfigRouter) — before auth middleware"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-525",
+      "title": "Add GET /widget-health public probe endpoint for embedding apps to check Rainbow AI availability",
+      "priority": "medium",
+      "description": "If Rainbow AI (Lightsail) is down, widget.js silently fails — the chat button appears but messages return errors. Add a lightweight public health probe that fnb-online-ordering and PMS2 can call before injecting widget.js, enabling conditional widget injection.",
+      "acceptanceCriteria": [
+        "GET /widget-health returns 200 JSON: { status: \"ok\", widgetUrl: \"https://admin.pelangicapsulehostel.com/widget.js\", timestamp: \"<ISO8601>\" }",
+        "Endpoint responds in under 200ms (no DB or AI calls)",
+        "Access-Control-Allow-Origin: * header is set",
+        "No authentication required",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "Add route near top of src/index.ts before all other middleware: app.get(\"/widget-health\", (req, res) => { ... })",
+        "Response: { status: \"ok\", widgetUrl: (process.env.PUBLIC_URL || \"https://admin.pelangicapsulehostel.com\") + \"/widget.js\", timestamp: new Date().toISOString() }",
+        "Intentionally no DB ping or AI check — always fast, always returns 200 unless Node process itself is dead",
+        "fnb-online-ordering usage: fetch(\"/widget-health\").then(r => r.ok && injectWidget())"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-526",
+      "title": "Add graceful offline fallback in widget.js when Rainbow AI server is unreachable",
+      "priority": "medium",
+      "description": "When Rainbow AI is down, users click the chat button and see a blank iframe or broken UI with no explanation. Add offline detection inside widget.js: if webchat.html fails to load, show a friendly inline error message. If a WhatsApp number is configured, include a direct WhatsApp link as fallback.",
+      "acceptanceCriteria": [
+        "When user clicks chat button and webchat.html fails to load (network error, 502, 503), widget shows inline message: \"Chat is temporarily unavailable. Please try WhatsApp or contact us directly.\"",
+        "If whatsapp is configured, error message includes clickable WhatsApp link: https://wa.me/{whatsapp}",
+        "Error state auto-retries after 30 seconds in case server recovers",
+        "Widget chat button still renders when server is down (no JS exceptions bubble to host page)",
+        "Offline message is styled consistently with widget design (same font, accent color)",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "File to modify: src/public/widget.js",
+        "Detect iframe load failure: set iframe.onload handler that checks if contentDocument is accessible; catch errors via iframe onerror",
+        "Add a hidden error div inside the chat panel that replaces iframe content on failure",
+        "Retry: setTimeout(() => { iframe.src = iframeSrc; showIframe(); }, 30000)",
+        "WhatsApp link: https://wa.me/{whatsapp}?text=Hi (use the whatsapp variable already extracted from config)",
+        "Wrap all widget init in try-catch so exceptions never propagate to the host page"
+      ],
+      "dependencies": [
+        "US-522",
+        "US-523"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-527",
+      "title": "Add Widget Installations panel to admin dashboard showing active embeds and their health status",
+      "priority": "low",
+      "description": "There is no visibility in the admin panel about which web apps embed the widget, what profiles they use, or whether those embeds are reachable. Add a read-only Widget Installations section in the admin panel listing all known widget installs, showing embed snippets, and indicating whether each profile is active and healthy.",
+      "acceptanceCriteria": [
+        "Admin dashboard has a Widget Installations section listing all 4 active installs: Makan Moments (customer), Makan Moments (staff), Pelangi website, PMS2",
+        "Each installation shows: Project, Profile, color swatch, Label, Position, Status indicator",
+        "Each installation has a \"Copy Snippet\" button that copies the correct embed code to clipboard",
+        "Section calls GET /api/widget/config/:profileId for each profile to show green/red health indicator",
+        "Section is visible to authenticated admin users only",
+        "npm run build succeeds"
+      ],
+      "technicalNotes": [
+        "Add UI in src/public/templates/tabs/settings.html or a new integrations tab",
+        "Widget installations data hardcoded as JS array in admin JS — no DB table needed",
+        "Use /api/widget/config/:profileId (US-524) for live health checks per profile",
+        "Color swatch: small inline div with background color from profile config",
+        "Copy snippet: navigator.clipboard.writeText(snippetString)",
+        "Keep consistent with existing admin panel design (no new frontend framework)"
+      ],
+      "dependencies": [
+        "US-524"
+      ],
+      "estimatedComplexity": "medium",
       "passes": false
     }
   ]
