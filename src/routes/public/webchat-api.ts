@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { sanitizeInput, validateInputSafety, processChat } from '../../assistant/chat-engine.js';
+import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 
 const router = Router();
@@ -123,12 +124,17 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   }
 
   try {
+    const fnbTools = profileId === 'makan-moments' ? toolRegistry.getToolsForProfile('makan-moments') : [];
+    const fnbHandlers = profileId === 'makan-moments' ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
+
     const result = await processChat({
       message: sanitizedMessage,
       history: Array.isArray(history) ? history : [],
       sessionId: sessionId || undefined,
       configStore: profile.configStore,
       kb: profile.kb,
+      tools: fnbTools,
+      toolHandlers: fnbHandlers,
     });
 
     // Persist to DB (fire-and-forget, don't block response)
