@@ -87,9 +87,11 @@ export function toggleTier(tierId, updateHash = true) {
     btn.setAttribute('aria-label', 'Collapse section');
 
     if (updateHash) {
-      const newHash = 'understanding/' + tierId;
+      // US-809: include profileId for profile-scoped URL; use replaceState to avoid hashchange
+      var pid = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+      var newHash = pid ? ('understanding/' + pid + '/' + tierId) : ('understanding/' + tierId);
       if (window.location.hash.slice(1) !== newHash) {
-        window.location.hash = newHash;
+        history.replaceState(null, '', '#' + newHash);
       }
     }
   } else {
@@ -99,9 +101,13 @@ export function toggleTier(tierId, updateHash = true) {
     btn.setAttribute('aria-label', 'Expand section');
 
     if (updateHash) {
-      const currentHash = window.location.hash.slice(1);
-      if (currentHash === 'understanding/' + tierId) {
-        window.location.hash = 'understanding';
+      // US-809: collapse back to the base understanding/profileId URL
+      var pid2 = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+      var base = pid2 ? ('understanding/' + pid2) : 'understanding';
+      var currentHash = window.location.hash.slice(1);
+      var expandedHash = pid2 ? ('understanding/' + pid2 + '/' + tierId) : ('understanding/' + tierId);
+      if (currentHash === expandedHash || currentHash === 'understanding/' + tierId) {
+        history.replaceState(null, '', '#' + base);
       }
     }
   }

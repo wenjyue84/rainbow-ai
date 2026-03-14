@@ -10,9 +10,10 @@
  * @param {boolean} updateHash - Whether to update URL hash
  */
 export function switchResponseTab(tabName, updateHash = true) {
-  // Update hash if requested
+  // Update hash if requested (US-809: include profileId for profile-scoped URL)
   if (updateHash) {
-    const newHash = `responses/${tabName}`;
+    var profileId = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+    var newHash = profileId ? ('responses/' + profileId + '/' + tabName) : ('responses/' + tabName);
     if (window.location.hash.slice(1) !== newHash) {
       history.replaceState(null, '', '#' + newHash);
     }

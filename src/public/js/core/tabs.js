@@ -267,7 +267,7 @@ async function loadTab(tabName, subTab = null) {
         // Check if already open to avoid toggle spam
         const content = document.getElementById(subTab + '-content');
         if (content && content.classList.contains('hidden')) {
-          window.toggleTier(subTab);
+          window.toggleTier(subTab, false); // false = don't update hash (already set)
         }
         // Scroll to it
         if (content) content.scrollIntoView({ behavior: 'smooth', block: 'start' });

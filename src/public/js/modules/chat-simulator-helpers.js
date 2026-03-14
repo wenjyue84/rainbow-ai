@@ -13,9 +13,10 @@
  * @param {boolean} updateHash - Whether to update the URL hash (default: true)
  */
 export function switchSimulatorTab(tabName, updateHash = true) {
-  // Update hash if requested
+  // Update hash if requested (US-809: include profileId for profile-scoped URL)
   if (updateHash) {
-    const newHash = 'chat-simulator/' + tabName;
+    var profileId = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+    var newHash = profileId ? ('chat-simulator/' + profileId + '/' + tabName) : ('chat-simulator/' + tabName);
     if (window.location.hash.slice(1) !== newHash) {
       history.replaceState(null, '', '#' + newHash);
     }
