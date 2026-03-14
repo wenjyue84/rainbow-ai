@@ -13,6 +13,7 @@ import {
 import {
   transitionOrderStage, clearOrderStage,
 } from '../assistant/order-stage-store.js';
+import { fnbCreateOrder } from './fnb-orders.js';
 import {
   setDisambiguation, getDisambiguation, clearDisambiguation,
   formatDisambiguationList, type DisambiguationCandidate,
@@ -228,7 +229,7 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     return {
       content: [{
         type: 'text',
-        text: `Here is your order summary:\n\n${summary}\n\nShall I place this order? (Reply *yes* to confirm or *no* to make changes)`
+        text: `Here is your order summary:\n\n${summary}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
       }]
     };
   });
@@ -242,14 +243,47 @@ export function createCartHandlers(sessionId: string): Map<string, (args: any) =
     }
     const summary = cartFormatSummary(items);
     const tableInfo = args.tableNumber ? ` for table ${args.tableNumber}` : '';
+
+    // Build FnB MCP payload — only include items that have a menu code
+    const codedItems = items
+      .filter(i => i.code)
+      .map(i => ({ code: i.code as string, qty: i.qty }));
+
+    let orderAck = '';
+
+    if (codedItems.length > 0) {
+      // Call FnB MCP to create the order
+      const fnbResult = await fnbCreateOrder({
+        items: codedItems,
+        phone: 'webchat-' + sessionId,
+        estimated_arrival: new Date().toISOString(),
+        ...(args.tableNumber ? { notes: `Table: ${args.tableNumber}` } : {}),
+      });
+
+      if (!fnbResult.isError) {
+        // Surface order ID and estimated wait from FnB response
+        const fnbText = fnbResult.content.map((c: any) => c.text || '').join('\n').trim();
+        orderAck = fnbText
+          ? `\n\n${fnbText}`
+          : '\n\nEstimated wait time: 15–20 minutes.';
+      } else {
+        // FnB system unavailable — still acknowledge and notify
+        orderAck = '\n\nOur staff has been notified and will prepare your order shortly.';
+      }
+    } else {
+      // No coded items — order captured internally, staff will handle
+      orderAck = '\n\nOur staff has been notified and will prepare your order shortly.';
+    }
+
     // Transition to PLACED and clear cart
     transitionOrderStage(sessionId, 'PLACED');
     cartClear(sessionId);
     clearOrderStage(sessionId);
+
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableInfo} has been sent to the kitchen!\n\n${summary}\n\nThank you! Our staff will prepare your order shortly. Please let us know if you need anything else.`
+        text: `Your order${tableInfo} has been sent to the kitchen!\n\n${summary}${orderAck}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

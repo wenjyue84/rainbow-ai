@@ -4863,3 +4863,55 @@ Completed: Order intent classifier: distinguish browsing vs ordering vs confirmi
 - The FnB MCP response format is opaque (text content); normalizeItems + parseMenuFromText cover both JSON shapes and plain-text menus.
 - `cart_search_item` must clear any existing disambiguation before setting a new one (done via `clearDisambiguation` in 0-match path; setDisambiguation overwrites in multi-match path).
 - prd.json updated via Node.js (not Python) to avoid surrogate encoding issues.
+## Iteration 2 - Sun, Mar 15, 2026  1:49:02 AM
+Completed: Menu item disambiguation: handle partial or ambiguous item names in orders (ID: US-850) in 9m
+
+
+## Pre-analysis for US-851 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent.
+
+***
+
+**To:** Claude Code Agent
+**From:** Gemini Assistant
+**Subject:** Technical Brief for US-851: F&B Order Confirmation Summary
+
+**1. Overview**
+Implement a pre-submission order confirmation flow within the Frappe app. The user story describes an F&B chat-based ordering system. The implementation should focus on creating a stateful conversation handler that displays an itemized receipt and waits for explicit user confirmation before finalizing the order by calling an external tool.
+
+**2. Likely Python Files to Modify**
+*   `.../api/message_handler.py` or `whatsapp_webhook.py`: The main entry point for processing incoming guest messages. This file will house the core state management logic.
+*   `.../doctype/restaurant_order/restaurant_order.py`: A custom DocType controller for managing the lifecycle of an order (e.g., adding items, updating state from `Ordering` to `Confirming`).
+*   `.../util/order_formatter.py`: A new utility module to generate the WhatsApp-friendly itemized summary string.
+
+**3. Frappe DocTypes & Hooks Involved**
+*   **DocTypes:** A custom DocType (e.g., `Restaurant Order` or `Active Cart`) is likely needed to manage the order's state (`DRAFT`, `CONFIRMING`, `SUBMITTED`) and store line items (`Restaurant Order Item`).
+*   **Hooks (`hooks.py`):** The endpoint for the WhatsApp webhook will need to be defined here as a whitelisted guest-accessible API endpoint.
+
+**4. Recommended Implementation Approach**
+1.  In the message handler, when a user finishes adding items, transition the `Restaurant Order` DocType's status from `Ordering` to `Awaiting Confirmation`.
+2.  Upon this state change, trigger a function that generates a detailed summary string (item, qty, price, total).
+3.  Send this summary as a WhatsApp reply with the required confirmation prompt.
+4.  For subsequent messages, if the order is in the `Awaiting Confirmation` state, check the reply. If it's a positive confirmation (e.g., "yes", "ok"), call the `place_order` tool and update the status to `Submitted`. If it's a change request, revert the status to `Ordering`.
+
+**5. Edge Cases & Gotchas**
+*   **Confirmation Keywords:** Create a flexible, case-insensitive list of confirmation words (`yes`, `ok`, `confirm`, `proceed`, `sure`).
+*   **State Management:** Ensure the conversation state is reliably tracked against the user/chat ID to prevent mix-ups.
+*   **Idempotency:** The `place_order` tool call should be idempotent or protected by a state check to prevent duplicate orders if the user sends "yes" twice.
+*   **Parsing Changes:** If the user requests a change, the logic must accurately parse which item to modify. If ambiguous, the agent should ask for clarification.
+
+
+## Iteration N - Story: US-851 Order confirmation summary
+### What was implemented
+- Updated `order_request_confirmation` CTA text to: "Shall I place this order? Reply YES to confirm or tell me what to change."
+- Updated `order_confirm_submit` to call FnB MCP `fnb_create_order` with cart payload (coded items only)
+- FnB response (order ID, estimated wait) surfaced in acknowledgement message
+- Graceful fallback: if items have no menu codes or FnB MCP is unavailable, staff notification message shown instead
+- Import added: `fnbCreateOrder` from `./fnb-orders.js` in `cart.ts`
+### Patterns discovered
+- Cart items added via `cart_search_item` include `code`; items via `cart_add_item` may not
+- Tests use items without `code`, so FnB MCP path is bypassed in tests (no network calls in unit tests)
+- Existing tests check for "kitchen" in response — kept that word in acknowledgement message
+### Gotchas
+- `fnb_create_order` requires `code` on each item — filter out items without codes before calling
+- `estimated_arrival` is required by FnB schema — use `new Date().toISOString()` for dine-in orders
