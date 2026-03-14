@@ -3438,3 +3438,30 @@ Completed: Add static replies for widget quick-reply buttons (vegetarian, budget
 - `ðŸŒˆ` = bytes F0 9F 8C 88 (rainbow emoji in UTF-8) read as four Latin-1 chars
 ### Gotchas
 - esbuild OOM'd on first build attempt (system resource issue, not code-related) — succeeded on retry
+
+## Iteration 2 - Story: US-804 Fix corrupted unicode in makan-moments system prompt
+### What was implemented
+- Replaced all mojibake em dashes and rainbow emoji with proper unicode in data-makan/settings.json
+- Fixed 6 corrupted em dashes + 1 corrupted rainbow emoji across system_prompt and provider descriptions
+### Patterns discovered
+- Classic UTF-8 to Windows-1252 mojibake pattern
+### Gotchas
+- esbuild OOM on first build attempt (system resources) - succeeded on retry
+## Iteration 2 - Sat, Mar 14, 2026  8:24:19 PM
+FAILED quality gates: Profile-scoped admin tab URLs: every tab includes profileId in hash (ID: US-809) — attempt 2/3
+
+
+
+## Iteration - Story: US-809 Profile-scoped admin tab URLs
+### What was implemented
+- Updated getTabInfoFromUrl() to return {main, profileId, sub}
+- Added PROFILE_SPECIFIC_TABS constant and handleNavigation() helper
+- Updated initTabs() and hashchange to use handleNavigation
+- Updated tab click handlers to include profileId in URL hash
+- Updated switchTo() to use history.replaceState to avoid hashchange loops
+- Updated init() to set window.KNOWN_PROFILE_IDS after API fetch
+### Patterns discovered
+- history.replaceState does NOT trigger hashchange
+- KNOWN_PROFILE_IDS seeded with defaults, updated after async API call
+### Gotchas
+- Use replaceState + explicit loadTab to avoid infinite loops
