@@ -3514,6 +3514,20 @@ No code changes needed. The file `src/assistant/data-makan/settings.json` was in
 ### Build verification
 - npm run build encountered memory allocation error (system resource constraint, not code issue)
 - Alternative verification: Node.js JSON.parse and unicode content checks all passed
+
+## Iteration [Ralph-5] - Story: US-806 Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- Test file src/assistant/__tests__/fnb-widget-bugs.test.ts already existed from a previous iteration
+- Verified all 9 tests pass: looksLikeJson utility, JSON extraction from LLM responses, profile-aware fallback messages
+- Tests cover US-801 (hostel fallback in cafe widget) and US-802 (raw JSON returned to user)
+- Confirmed exports looksLikeJson and getUnknownFallbackMessages exist in ai-response-generator.ts
+- vitest run passes with --pool=threads (needed due to system memory pressure)
+### Patterns discovered
+- vitest --pool=threads uses less memory than default --pool=forks on Windows
+- When system is memory-constrained, a lightweight Node.js verification script can validate logic before full vitest run
+### Gotchas
+- Windows system memory exhaustion causes fork/spawn failures across all child processes (bash, node, esbuild)
+- vitest v4 doesn't support --poolOptions CLI flag (use vitest.config.ts instead)
 - settings.json is valid JSON with properly encoded em dash and rainbow emoji
 ## Iteration 1 - Sat, Mar 14, 2026  8:25:57 PM
 Completed: Fix corrupted unicode in makan-moments system prompt (em dash + emoji) (ID: US-804) in 4m
@@ -3763,3 +3777,16 @@ Completed: Profile-scoped admin tab URLs: every tab includes profileId in hash (
 ## Iteration 4 - Sat, Mar 14, 2026  8:45:26 PM
 Incomplete: Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off (ID: US-807) — attempt 1/3
 
+
+## Iteration 12 - Story: US-806 - Vitest regression tests for Image 3 and Image 4 bugs
+### What was implemented
+- Added chatWithToolsLoop integration tests to `src/assistant/__tests__/fnb-widget-bugs.test.ts`
+- Test 1 (Image 3 regression): Verifies chatWithToolsLoop extracts `response` field from raw JSON instead of returning raw JSON to user. Mocks chatWithFallback to return `{"intent":"menu_query","response":"OK","confidence":0.5}`, asserts result is `"OK"`.
+- Test 2 (Image 4 regression): Verifies all-tool-failure path with makan-moments profile returns cafe-scoped fallback (not hostel text). Mocks 3 loops of failing tool calls + failed toolless fallback, asserts result contains no hostel/check-in/bookings keywords.
+- Added vi.mock for ai-provider-manager, config-store, context-windows at file top to enable chatWithToolsLoop mocking.
+### Patterns discovered
+- Existing `chat-with-tools-loop.test.ts` (US-805) already covers graceful fallback but doesn't test the specific acceptance criteria from US-806 (JSON extraction, profile-scoped no-hostel assertion).
+- vi.mock hoisting in Vitest allows adding mocks to a file that previously had none — existing pure-function tests (looksLikeJson, getUnknownFallbackMessages) continue to work.
+### Gotchas
+- profile-registry.test.ts has 7 pre-existing timeout failures (database-dependent tests timing out at 5000ms) — unrelated to this change.
+- Full test suite can OOM on this Windows machine when run with default thread pool; use `--pool=forks` for stability.
