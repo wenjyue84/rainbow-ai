@@ -27,6 +27,7 @@ import {
 import { db } from '../../lib/db.js';
 import { templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
+import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 
 const router = Router();
 
@@ -55,14 +56,59 @@ router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response)
 // DIGIMAN API POSTs reservation lifecycle callbacks (booking created, check-in
 // confirmed, check-out completed) to this endpoint.
 router.post('/webhooks/digiman', signatureGuard, (req: Request, res: Response) => {
-  // Acknowledge receipt immediately.
+  // Acknowledge receipt immediately so DIGIMAN does not retry.
   res.status(200).json({ ok: true });
 
-  // TODO: dispatch to notification handlers (checkin-notify, checkout-notify, etc.)
-  // once DIGIMAN webhook support is enabled.
   const event = req.body as { type?: string; [key: string]: unknown };
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[webhook:digiman] received event:', event?.type ?? '(no type field)');
+  const eventType = event?.type ?? '';
+
+  console.log('[webhook:digiman] received event:', eventType || '(no type field)');
+
+  if (!eventType) return;
+
+  // Dispatch to handler registry; errors are logged but must not crash the server
+  // since we already sent 200. Unknown types are logged as warnings.
+  dispatchWebhookEvent({ ...event, type: eventType }).catch((err: unknown) => {
+    if (err instanceof UnrecognizedEventError) {
+      console.warn(`[webhook:digiman] ${err.message} — payload dropped`);
+    } else {
+      console.error('[webhook:digiman] Handler error for event:', eventType, err);
+    }
+  });
+});
+
+// ─── Generic event webhook (US-821) ─────────────────────────────────────────
+// Synchronous event routing with handler registry dispatch.
+// Callers receive a meaningful HTTP status rather than a silent 200.
+//
+//   POST /webhooks/events
+//   Body: { "type": "<event-type>", ...payload }
+//
+// Returns:
+//   200  – handler ran successfully
+//   422  – event type not registered
+//   500  – handler threw an error
+router.post('/webhooks/events', signatureGuard, async (req: Request, res: Response) => {
+  const event = req.body as { type?: string; [key: string]: unknown };
+  const eventType = event?.type;
+
+  if (!eventType) {
+    res.status(400).json({ error: 'Missing required field: type' });
+    return;
+  }
+
+  try {
+    await dispatchWebhookEvent({ ...event, type: eventType });
+    res.status(200).json({ ok: true, event: eventType });
+  } catch (err: unknown) {
+    if (err instanceof UnrecognizedEventError) {
+      console.warn(`[webhook:events] ${err.message}`);
+      res.status(422).json({ error: err.message, event: eventType });
+    } else {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[webhook:events] Handler error for event:', eventType, err);
+      res.status(500).json({ error: 'Handler error', event: eventType });
+    }
   }
 });
 

@@ -5403,3 +5403,64 @@ This technical brief is based on the provided user story JSON and the project st
 - Streaming timeout needs to be much longer than normal requests (30s+) since tokens arrive gradually
 - `axios` with `responseType: 'stream'` returns Node.js readable stream; need `for await` to iterate chunks
 - Client SSE buffer must handle partial lines across fetch chunks (split on newline, keep remainder)
+
+
+## Pre-analysis for US-827 (Gemini 2.5 Pro)
+This technical brief is based on the provided user story JSON. The story describes a feature for a Node.js/TypeScript application, not a Frappe/Python app.
+
+**Project:** Rainbow AI (Node.js/TypeScript)
+**User Story:** US-827 - Profile configuration cloning
+
+**1. Python Files to Modify / Relevant Code:**
+*   **`src/routes/admin.ts` (or similar):** A new route handler for `POST /api/admin/profiles/:sourceId/clone` needs to be created here. This will parse the request body and call the core logic.
+*   **`src/lib/profiles.service.ts` (or similar):** This new or existing service file should contain the main `cloneProfile` function. It will handle fetching source data, transforming it, and inserting it for the new profile.
+*   **`shared/schema.ts`:** May need updates if new data access patterns or specific types are required for the cloning operation.
+
+**2. Frappe DocTypes / Involved System Components:**
+*   **API Endpoint:** `POST /api/admin/profiles/:sourceId/clone`
+*   **Database Tables:** The operation centers on two tables:
+    *   `rainbow_configs`: All configuration key-value pairs for a profile.
+    *   `rainbow_kb_files`: Metadata for knowledge base files.
+
+**3. Recommended Implementation Approach:**
+1.  Implement the new `POST` endpoint in the admin API router.
+2.  Create a service function that takes `sourceId`, `newProfileId`, and `displayName`.
+3.  Inside the function, wrap the logic in a database transaction.
+4.  Query all `rainbow_configs` and `rainbow_kb_files` rows for the `sourceId`.
+5.  Filter out excluded keys (e.g., WhatsApp auth details, phone-specific settings).
+6.  Map the results to new objects, replacing the `sourceId` with the `newProfileId`.
+7.  Use a bulk-insert operation to write the new rows to both tables.
+8.  Return `{ newProfileId }` on success.
+
+**4. Edge Cases & Gotchas:**
+*   **Atomicity:** The entire copy operation must be transactional to prevent partial clones.
+*   **ID Uniqueness:** The endpoint must validate that the requested `newProfileId` does not already exist before proceeding.
+*   **Data Exclusion:** Be explicit and careful when filtering out configs that must not be cloned, especially secrets and session data.
+*   **No File I/O:** The operation is purely database-driven. Do not attempt to copy any files on disk (like KBs or WhatsApp sessions).
+
+
+
+## Iteration 13 - Story: US-821 Complete webhook event routing to registered notification handlers
+### What was implemented
+- Created `src/routes/webhooks/handlers.ts` with:
+  - `WebhookEvent` / `WebhookHandler` types
+  - `handlerRegistry` — map of event type strings to async handler functions
+  - `UnrecognizedEventError` class for clean error discrimination
+  - `dispatchWebhookEvent()` — dispatches or throws UnrecognizedEventError
+  - Handlers: `payment_confirmed` (sends WhatsApp via operator escalation), `booking_created`, `checkin_completed`, `checkout_completed`
+- Updated `src/routes/webhooks/index.ts`:
+  - Removed TODO from DIGIMAN endpoint — now dispatches to handler registry async (fire-and-forget after 200 ack)
+  - Added `POST /webhooks/events` endpoint — synchronous dispatch, returns 422 for unrecognized types, 500 for handler errors
+  - HMAC signature guard already in place via `signatureGuard` middleware
+- Created `src/routes/webhooks/__tests__/webhook-routing.test.ts` — 7 tests:
+  - dispatchWebhookEvent: correct dispatch, UnrecognizedEventError, re-throws handler errors
+  - HTTP endpoint: 200 on success, 422 on unrecognized type, 500 on handler error, 400 on missing type field
+### Patterns discovered
+- `sendToOperatorWithEscalation(messageId, message, context?)` — takes messageId not operators array
+- DIGIMAN-style endpoints ack 200 immediately (prevent retries) then dispatch async; handler errors are logged not re-raised
+- The generic `/webhooks/events` endpoint is synchronous — allows callers to get meaningful HTTP status
+- Mock `webhook-signature.js` in tests to bypass HMAC; test server uses `app.listen(0)` for random port
+### Gotchas
+- prd.json must be opened with `encoding='utf-8'` on Windows (cp1252 default fails on special chars)
+- vitest `vi.resetModules()` in afterEach needed to avoid module registry pollution between HTTP tests
+- Handler registry mutations in tests must restore original handlers in `finally` blocks
