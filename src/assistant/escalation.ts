@@ -96,6 +96,12 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   const label = reasonLabels[context.reason] || 'Unknown reason';
 
+  // US-914: Declare profileId early (needed for DB fetch + deep-link)
+  const profileId = context.profileId || 'pelangi';
+
+  // US-914: Generate a short alphanumeric case reference for the guest
+  const caseId = `ESC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+
   // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
   // US-908: pass tenantId/profileId to enforce cross-property isolation
   const dbMessages = await fetchLastDbMessages(context.phone, 5, profileId);
@@ -106,7 +112,6 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   // US-813: Build admin panel deep-link
   const adminBaseUrl = (process.env.DIGIMAN_API_URL || process.env.PELANGI_API_URL || '').replace(/\/+$/, '');
-  const profileId = context.profileId || 'pelangi';
   const deepLink = adminBaseUrl
     ? `${adminBaseUrl}/admin#conversations?profileId=${profileId}&phone=${context.phone}`
     : '';
@@ -119,6 +124,7 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   const staffMessage = [
     `*[ESCALATION — BOT PAUSED]* ${label}`,
     ``,
+    `*Case ID:* ${caseId}`,
     `*Guest:* ${context.pushName} (+${context.phone})`,
     `*Reason:* ${label}`,
     triggerLine,
@@ -146,11 +152,12 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   });
 
   // US-429: Log escalation event with summary context for warm handoff
+  // US-914: Include case ID in metadata for cross-reference
   logEscalationEvent({
     jid: context.phone,
-    profileId: 'pelangi',
+    profileId,
     trigger: context.reason,
-    metadata: context.metadata,
+    metadata: { ...context.metadata, caseId },
     summaryContext: {
       guestName: context.pushName,
       recentMessages: historyMessages.map(m => m),
@@ -161,10 +168,14 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   // US-815: Check session window before sending holding message to guest
   const guestSessionActive = await sessionWindowActive(context.phone);
 
+  // US-914: SLA window from config (default 15 min)
+  const slaDurationMinutes = (configStore.getWorkflow().escalation as any).sla_minutes ?? 15;
+  const guestHoldingMsg = `I've connected you with our team. Your case reference is *${caseId}*.\n\nExpected response: within ${slaDurationMinutes} minutes. We appreciate your patience.`;
+
   // US-410: Send holding message to guest (only if session window is active)
   if (guestSessionActive) {
     try {
-      await sendMessageFn(context.phone, "I've connected you with our team, they will respond shortly.", context.instanceId);
+      await sendMessageFn(context.phone, guestHoldingMsg, context.instanceId);
     } catch (err: any) {
       console.error('[Handoff] Failed to send holding message:', err.message);
     }
