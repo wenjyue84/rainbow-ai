@@ -8941,3 +8941,21 @@ Incomplete: Malaysia PDPA 2024 Amendment: DPO appointment and breach notificatio
 - `isWhatsAppSession()` filters by checking sessionId doesn't start with 'webchat-' or 'bsuid:'
 ### Status
 ✅ Build passes (3 warnings, no errors). Server startup OK. Marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-882 - Proactive abandoned-cart recovery message on WhatsApp session idle
+### What was implemented
+- **Already fully implemented by prior iterations** — all code, integration, and settings were in place
+- `src/assistant/cart-recovery.ts`: Complete implementation — periodic 5-min scanner, recovery message with cart summary & quick-reply options, 24h auto-clear, resume/clear handling, per-session state tracking
+- `src/assistant/cart-store.ts`: `getActiveCartSessions()` export for the scanner
+- `src/assistant/index.ts`: `initCartRecovery(sendMessage)` called on startup (line 45)
+- `src/assistant/message-router.ts`: Intercepts "Resume order" / "Clear cart" replies (lines 75-79), resets cart idle timer on any incoming message (line 82)
+- `src/assistant/data/settings.json`: `cart_recovery.enabled: true, idle_minutes: 30` configured
+- `src/assistant/__tests__/cart-recovery.test.ts` (NEW): 14 tests covering all 6 acceptance criteria
+### Patterns discovered
+- Story was fully implemented in prior spiral iterations but never marked `passes: true` in prd.json
+- `vi.advanceTimersByTimeAsync()` is needed (not `vi.advanceTimersByTime()`) when testing setInterval + async callbacks to avoid race conditions
+- `vi.runAllTimersAsync()` causes infinite loops with setInterval — advance in exact increments instead
+- WhatsApp sessions identified by exclusion: not starting with 'webchat-' or 'bsuid:'
+### Status
+✅ Build passes (3 warnings, no errors). 14/14 cart recovery tests pass. Marked passes=true.
