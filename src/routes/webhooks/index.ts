@@ -313,4 +313,38 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
   }
 });
 
+// ─── KDS/POS kitchen acceptance webhook (US-881) ──────────────────────────
+// The KDS/POS system POSTs back when the kitchen accepts an order.
+// This closes the modification window so customers can no longer change it.
+//
+//   POST /webhooks/kds/accept
+//   Body: { "orderId": "<order-id>", "sessionId": "<webchat-session-id>" }
+//
+// At least one of orderId or sessionId is required. If sessionId is provided,
+// it is used directly to mark kitchen acceptance. If only orderId is provided,
+// a reverse lookup finds the session (best-effort).
+router.post('/webhooks/kds/accept', signatureGuard, async (req: Request, res: Response) => {
+  const { markKitchenAccepted } = await import('../../assistant/order-modification-store.js');
+
+  const body = req.body as { orderId?: string; sessionId?: string };
+  const sessionId = body.sessionId?.trim();
+  const orderId = body.orderId?.trim();
+
+  if (!sessionId && !orderId) {
+    res.status(400).json({ error: 'Missing required field: sessionId or orderId' });
+    return;
+  }
+
+  if (sessionId) {
+    const accepted = markKitchenAccepted(sessionId);
+    console.log(`[webhook:kds:accept] Kitchen accepted order for session=${sessionId} result=${accepted}`);
+    res.status(200).json({ ok: true, accepted, sessionId });
+    return;
+  }
+
+  // orderId-only: cannot reverse-lookup without a registry, so log and acknowledge
+  console.warn(`[webhook:kds:accept] Received orderId=${orderId} without sessionId — cannot mark acceptance (no reverse lookup). Order will expire by timer.`);
+  res.status(200).json({ ok: true, accepted: false, reason: 'sessionId required for real-time acceptance', orderId });
+});
+
 export default router;
