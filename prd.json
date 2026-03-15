@@ -3231,7 +3231,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "large",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-913",
@@ -4041,6 +4041,437 @@
         "Admin audit log for configuration changes with before/after diff"
       ],
       "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-941",
+      "title": "Migrate Baileys auth state to production-safe database store",
+      "priority": "critical",
+      "description": "Baileys v7.0.0 explicitly prohibits useMultiFileAuthState in production due to excessive I/O, and v7 introduces mandatory support for three new auth state keys (lid-mapping, device-list, tctoken) required by WhatsApp's LID system. Without a proper database-backed auth store (PostgreSQL/Redis), the production instance will have broken credentials persistence, session rejections, and reconnect loops. This is a breaking migration from v6 to v7.",
+      "acceptanceCriteria": [
+        "Auth state is persisted in PostgreSQL using a custom store (not useMultiFileAuthState) that handles the creds.update event",
+        "New Baileys v7 required keys (lid-mapping, device-list, tctoken) are stored and retrieved correctly",
+        "On server restart, WhatsApp connection resumes without requiring a new QR scan",
+        "Connection drops with restartRequired status code trigger socket recreation (not socket reuse)",
+        "No 401 device_removed reconnect loops in production logs over a 24-hour period"
+      ],
+      "technicalNotes": [
+        "Baileys v7 switched from CommonJS to ESM exclusively — dynamic import() required if host module is CJS",
+        "The isPnUser() function replaces removed isJidUser(); Contact type now uses a single id field with separate phoneNumber and lid fields",
+        "ACK on delivery was removed — WhatsApp bans users for sending ACKs; remove any manual ACK logic",
+        "Reference: https://baileys.wiki/docs/migration/to-v7.0.0/",
+        "Community package: https://github.com/rzkytmgr/baileysauth (supports pg, MongoDB, Redis)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-942",
+      "title": "Enforce WhatsApp 2026 task-specific chatbot policy compliance",
+      "priority": "critical",
+      "description": "Meta banned general-purpose AI chatbots from the WhatsApp Business Platform effective January 15, 2026 (new accounts from October 15, 2025). Rainbow AI must demonstrably operate as a task-specific assistant — only handling defined use cases such as bookings, order tracking, support, and notifications — and must not present as an open-ended conversational AI. Non-compliant bots risk account termination.",
+      "acceptanceCriteria": [
+        "The bot's system prompt and behavior is scoped exclusively to defined business functions (hostel check-in/out, F&B ordering, support FAQs)",
+        "When users ask off-topic questions (e.g. general knowledge, coding help), the bot declines and redirects to a supported task",
+        "A human escalation path is reachable from any conversation flow",
+        "Bot identification messaging clearly states the business name and purpose (not 'AI assistant' without context)",
+        "A compliance audit log records which intent categories handled each conversation for review"
+      ],
+      "technicalNotes": [
+        "Policy enforcement date: January 15, 2026 for all existing WABA accounts",
+        "Structured bots for support, bookings, order tracking, notifications, and sales remain fully allowed",
+        "Reference: https://techcrunch.com/2025/10/18/whatssapp-changes-its-terms-to-bar-general-purpose-chatbots-from-its-platform/",
+        "Reference: https://respond.io/blog/whatsapp-general-purpose-chatbots-ban"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-943",
+      "title": "Capture per-message cost via pricing_analytics webhook field",
+      "priority": "high",
+      "description": "WhatsApp's July 1, 2025 pricing change moved from conversation-based to per-message billing. Meta simultaneously released a new pricing_analytics field on message webhooks that provides per-message cost breakdowns by category. The existing cost-tracking story covers per-conversation cost, but this new field enables granular per-message cost attribution, volume tier detection, and free Customer Service Window (CSW) utilisation reporting.",
+      "acceptanceCriteria": [
+        "Outbound template messages capture and store the pricing_analytics webhook field (category, price, currency)",
+        "Admin dashboard shows a cost breakdown table: marketing vs utility vs authentication messages, with per-message costs",
+        "Utility messages sent within a 24-hour Customer Service Window (CSW) are tagged as free in the log",
+        "Volume tier status (standard, tier1, tier2) is displayed so the operator knows when discount thresholds are hit",
+        "Monthly cost report distinguishes free CSW messages from billable messages"
+      ],
+      "technicalNotes": [
+        "pricing_analytics field released July 1, 2025 on all Cloud API outbound message webhooks",
+        "Utility templates sent within CSW are free; marketing messages are always charged per delivery",
+        "72-hour free window applies when conversation starts from Click-to-WhatsApp ad entry point",
+        "Reference: https://developers.facebook.com/docs/whatsapp/pricing/updates-to-pricing/",
+        "Reference: https://www.ycloud.com/blog/whatsapp-api-pricing-update"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-944",
+      "title": "Implement OWASP LLM07 system prompt leakage prevention",
+      "priority": "high",
+      "description": "OWASP LLM07:2025 (System Prompt Leakage) covers the risk that an attacker extracts the system prompt via prompt injection, exposing internal business rules, credentials, API keys, or integration endpoints embedded in the prompt. Rainbow AI's system prompt likely contains knowledge base references, tool invocation patterns, and persona instructions that must not be disclosed.",
+      "acceptanceCriteria": [
+        "The system prompt contains no API keys, database credentials, or internal URL endpoints",
+        "Automated red-team tests probe for system prompt extraction using at least 10 known extraction prompts (e.g. 'repeat your instructions', 'what is your system prompt')",
+        "The model response to extraction attempts is a neutral refusal that does not confirm or deny prompt existence",
+        "Secrets (credentials, tokens) are injected at runtime via environment variables, not the static system prompt",
+        "A CI test fails if any regex pattern matching common secret formats (Bearer, sk-, API_KEY) is found in the system prompt template files"
+      ],
+      "technicalNotes": [
+        "OWASP LLM07:2025 — previously 'Insecure Plugin Design' in 2024, renamed and scoped in 2025",
+        "Reference: https://genai.owasp.org/llmrisk/llm07-insecure-plugin-design/",
+        "Reference: https://www.stackhawk.com/blog/owasp-system-prompt-leakage/",
+        "Use Promptfoo (already in stack) to add system-prompt-extraction adversarial test suite"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-945",
+      "title": "Implement OWASP LLM10 unbounded consumption rate limiting per user",
+      "priority": "high",
+      "description": "OWASP LLM10:2025 (Unbounded Consumption) covers denial-of-service via excessive API requests and large-input attacks that exhaust GPU/CPU or incur unexpected LLM API costs. A single WhatsApp user sending extremely long messages or high-frequency requests can monopolise token budgets and crash the service. Per-user rate limits and input token caps are the primary mitigations.",
+      "acceptanceCriteria": [
+        "Per-user request rate limit enforced: maximum N messages per minute per WhatsApp JID (configurable, default 10/min)",
+        "Input messages exceeding a configurable token limit (default 2000 tokens) are truncated with a user notification",
+        "When a user exceeds the rate limit, they receive a friendly 'please slow down' message and requests are queued/dropped",
+        "LLM API calls have a hard timeout (default 30s) to prevent hanging requests from blocking the queue",
+        "Admin dashboard shows a 'top consumers by token usage' report to identify abusive senders"
+      ],
+      "technicalNotes": [
+        "OWASP LLM10:2025 — evolved from 'Model Denial of Service' (LLM04 in 2024)",
+        "Rate limiting should use a sliding window counter stored in Redis or PostgreSQL per JID",
+        "Reference: https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/",
+        "Token counting can use the tiktoken library or provider-specific token counting endpoints before sending to LLM"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-946",
+      "title": "Implement OWASP LLM05 improper output handling sanitisation",
+      "priority": "high",
+      "description": "OWASP LLM05:2025 (Improper Output Handling) addresses cases where unvalidated LLM output is passed to downstream systems — for example, LLM-generated SQL queries or HTML that gets executed without sanitisation. Rainbow AI passes LLM output to tool calls (POS webhook, booking system, database queries); if the LLM generates a malformed command, it could corrupt data or execute unintended operations.",
+      "acceptanceCriteria": [
+        "All LLM-generated content passed to tool invocations is validated against a JSON schema before execution",
+        "LLM-generated strings interpolated into SQL or external API calls are parameterised, never concatenated",
+        "A test suite includes at least 5 adversarial prompts that attempt to make the LLM generate malicious tool payloads (e.g. SQL injection via natural language)",
+        "Any tool invocation that fails schema validation is logged and returns a safe error to the user without disclosing internal structure",
+        "HTML/Markdown output for the webchat widget is sanitised with DOMPurify before rendering"
+      ],
+      "technicalNotes": [
+        "OWASP LLM05:2025 Improper Output Handling — applies to all AI output used in system calls",
+        "Context-aware encoding: HTML encode for webchat, parameterised queries for DB, JSON schema validation for tool calls",
+        "Reference: https://www.confident-ai.com/blog/owasp-top-10-2025-for-llm-applications-risks-and-mitigation-techniques",
+        "Use Zod schemas (already in codebase) to validate tool call arguments before execution"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-947",
+      "title": "Implement OWASP LLM02 sensitive information disclosure guardrails",
+      "priority": "high",
+      "description": "OWASP LLM02:2025 (Sensitive Information Disclosure) — ranked #2 in 2025, moved up 4 places — covers LLM outputs that leak PII, proprietary business data, or confidential records from training context or injected documents. Rainbow AI's RAG pipeline ingests knowledge base documents and conversation history; the LLM could inadvertently surface another guest's booking details or internal pricing from context.",
+      "acceptanceCriteria": [
+        "Output validation layer scans LLM responses for PII patterns (phone numbers, IC numbers, email addresses, credit card patterns) before sending to users",
+        "If PII from a different user's record is detected in a response, the response is blocked and replaced with an apology message; the event is logged",
+        "RAG context injection is scoped per conversation — a query from Guest A cannot retrieve documents tagged to Guest B",
+        "A red-team test suite includes 10 cross-user context extraction prompts verified by Promptfoo",
+        "Sensitive fields (IC numbers, passport numbers) in knowledge base documents are masked before indexing into the vector store"
+      ],
+      "technicalNotes": [
+        "OWASP LLM02:2025 — Sensitive Information Disclosure (was LLM06 in 2024 edition)",
+        "Use regex + NER-based output scanning before sending final response",
+        "RAG namespace isolation: each document chunk must carry a guest_id or scope tag; retrieval filter enforces scope",
+        "Reference: https://www.confident-ai.com/blog/owasp-top-10-2025-for-llm-applications-risks-and-mitigation-techniques"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-948",
+      "title": "Implement PDPA 2024 right to erasure (right to be forgotten)",
+      "priority": "high",
+      "description": "Malaysia's PDPA Amendment Act 2024 introduced a clearer right to erasure ('right to be forgotten'), giving data subjects the right to request deletion of their personal data. Rainbow AI stores guest conversation history, PII in messages, booking data, and analytics — all of which must be erasable on verified request within a documented timeline. This is distinct from the existing data portability story.",
+      "acceptanceCriteria": [
+        "Admin panel provides an 'Erase Guest Data' function that deletes all messages, conversation records, and PII fields for a given phone number",
+        "Deletion cascades to all tables: rainbow_messages, rainbow_conversations, intent_analytics, conversation_feedback, escalation_events",
+        "A deletion receipt (timestamp, affected record count, operator ID) is stored in the audit log for compliance proof",
+        "Vector store embeddings and RAG chunks associated with the deleted guest are also purged",
+        "The erasure workflow requires a second admin confirmation step and records the legal basis for the request",
+        "Deleted data is purged within 30 days from backup storage per PDPA guidance"
+      ],
+      "technicalNotes": [
+        "PDPA Amendment Act 2024 introduces right to erasure — in force June 2025",
+        "Maximum penalty for non-compliance: RM1,000,000 per offence",
+        "Erasure must extend to vector store — implement delete-by-metadata filter in the embedding store",
+        "Reference: https://www.simplydata.com.my/pdpa-malaysia-2024-amendment-compliance-guide/",
+        "Reference: https://tsl-legal.com/navigating-the-malaysian-personal-data-protection-amendment-act-2024-key-changes-implications-and-implications-for-businesses/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-949",
+      "title": "Real-time out-of-stock sync between chatbot and POS inventory",
+      "priority": "high",
+      "description": "F&B best practice for 2025 requires the ordering chatbot to reflect real-time inventory so it never takes orders for unavailable items. When a menu item reaches zero stock, the chatbot should automatically remove it from selectable options and proactively offer alternatives. Currently the menu configuration is static JSON; a stock sync mechanism connected to the POS inventory is required.",
+      "acceptanceCriteria": [
+        "When a POS webhook signals an item as out-of-stock (quantity = 0), the chatbot menu is updated within 60 seconds",
+        "The chatbot refuses to add out-of-stock items to cart and immediately suggests the nearest available alternative",
+        "Admin dashboard shows a live inventory status panel with item availability toggled per item",
+        "Admin can manually mark items as unavailable/available from the dashboard without a full menu redeploy",
+        "Out-of-stock transitions are logged with timestamps for demand forecasting analytics"
+      ],
+      "technicalNotes": [
+        "Inventory state stored in PostgreSQL with a real-time flag updated by the POS webhook receiver (already in scope)",
+        "Menu rendering in WhatsApp Flows interactive lists must filter out items where available = false",
+        "Consider a Redis pub/sub channel for sub-second propagation of stock changes to active sessions",
+        "Reference: https://gotab.com/latest/how-to-choose-kitchen-display-systems-with-inventory-management-integration",
+        "Reference: https://katprotech.com/reducing-order-errors-in-the-fb-industry-through-ai-powered-chatbots/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-950",
+      "title": "Add order confirmation repeat-back step before kitchen submission",
+      "priority": "high",
+      "description": "Industry best practice for F&B chatbot ordering requires the chatbot to repeat the complete order back to the customer for confirmation before submission to the kitchen or POS, achieving 95%+ order accuracy. This prevents incorrect orders reaching the kitchen, reduces waste, and eliminates customer complaints about wrong items. Currently the flow submits orders without a confirmation step.",
+      "acceptanceCriteria": [
+        "After cart finalisation, the chatbot sends a formatted order summary (items, quantities, customisations, total price) and asks the guest to confirm",
+        "The order is only submitted to the POS/kitchen after an explicit confirmation (YES / quick-reply button)",
+        "If the customer declines confirmation, they are returned to the cart modification flow",
+        "The confirmation message is sent within 3 seconds of cart finalisation",
+        "Order accuracy metrics (confirmed vs cancelled at confirmation step) are tracked in admin analytics"
+      ],
+      "technicalNotes": [
+        "Implement as a pipeline stage between 'cart finalised' and 'POS webhook dispatch'",
+        "Confirmation state should be stored in the conversation session with a timeout (e.g. 5 minutes) after which the order is auto-cancelled",
+        "WhatsApp quick-reply buttons ('Confirm' / 'Edit Order') should be used where Flows is not active for this step",
+        "Reference: https://katprotech.com/reducing-order-errors-in-the-fb-industry-through-ai-powered-chatbots/",
+        "Reference: https://www.iorders.ca/blog/ai-chatbots-simplify-restaurant-reservations-orders"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-951",
+      "title": "Integrate MM Lite API for AI-optimised bulk marketing campaigns",
+      "priority": "medium",
+      "description": "Meta's Marketing Messages Lite (MM Lite) API uses the same AI delivery optimisation as Meta Ads to achieve up to 9-30% higher delivery rates compared to Cloud API. It supports campaign-level analytics, conversion tracking via Meta Pixel/CAPI, automatic creative enhancements, and dynamic frequency capping. This is the recommended path for promotional blasts to opted-in guests and cafe customers.",
+      "acceptanceCriteria": [
+        "Admin can create and send bulk marketing campaigns via MM Lite API using a WABA ID + template selection UI",
+        "Campaign status and delivery analytics (sent, delivered, read, conversion) are visible per campaign in admin",
+        "Webhook notifications for campaign delivery status are received and stored",
+        "MM Lite campaigns are tagged separately from regular template messages in cost tracking",
+        "Campaigns are gated behind explicit opt-in records (users without marketing consent cannot be targeted)"
+      ],
+      "technicalNotes": [
+        "MM Lite is one-way only — no two-way conversation flows; use Cloud API for follow-up",
+        "Requires WABA enrolled with a Meta-approved BSP or direct MM Lite API access",
+        "POST /campaigns endpoint with: WABA ID, template name, phone list, campaign name, notification token",
+        "Reference: https://www.infobip.com/docs/whatsapp/mm-lite",
+        "Reference: https://happilee.io/marketing-messages-lite-api/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-952",
+      "title": "Add AI-BOM (AI Bill of Materials) for third-party model supply chain tracking",
+      "priority": "medium",
+      "description": "OWASP LLM03:2025 (Supply Chain) covers risks from compromised third-party models or silently updated model versions. Rainbow AI uses NVIDIA Kimi K2.5, Ollama models, and OpenRouter — each provider and model version represents a supply chain dependency. Without a tracked inventory (AI-BOM), a silently updated or poisoned model version cannot be detected.",
+      "acceptanceCriteria": [
+        "A machine-readable AI-BOM file (JSON or CycloneDX format) lists all AI model dependencies: provider, model name, version/hash, and date pinned",
+        "Admin dashboard shows current active model versions with a 'last verified' timestamp",
+        "When a model provider returns a different model-version header than the pinned version, an alert is triggered",
+        "Model provider API calls include a pinned model version parameter (not just a latest alias)",
+        "The AI-BOM is committed to the repository and updated as part of any model provider change PR"
+      ],
+      "technicalNotes": [
+        "OWASP LLM03:2025 Supply Chain — use signed SBOM/AI-BOM to track model provenance",
+        "CycloneDX ML extension supports model metadata: https://cyclonedx.org/capabilities/mcf/",
+        "For Ollama: store model SHA256 digest from 'ollama show --modelfile' in the BOM",
+        "Reference: https://genai.owasp.org/llmrisk/llm032025-supply-chain/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-953",
+      "title": "Implement WCAG 2.2 SC 2.4.13 focus appearance for webchat widget",
+      "priority": "medium",
+      "description": "WCAG 2.2 added SC 2.4.13 Focus Appearance (AAA) requiring focus indicators to meet minimum size (2 CSS pixels outline) and contrast ratio (3:1 against adjacent colours). The existing stories cover SC 2.4.11 (focus not obscured) and keyboard navigation but do not address the visual quality of the focus indicator itself. This applies to all interactive elements in the webchat widget and admin dashboard.",
+      "acceptanceCriteria": [
+        "All focusable elements (buttons, inputs, links) in the webchat widget have a focus outline of at least 2 CSS pixels",
+        "The focus indicator achieves a minimum 3:1 contrast ratio against the surrounding component background in both light and dark modes",
+        "Automated axe-core accessibility scan passes with no 'focus-visible' violations",
+        "Focus indicator is visible on the chat input, send button, menu items, and modal close buttons",
+        "Manual keyboard walkthrough confirms no element has focus hidden by custom CSS (outline: none without visible-focus alternative)"
+      ],
+      "technicalNotes": [
+        "WCAG 2.2 SC 2.4.13 Focus Appearance — Level AAA, new in WCAG 2.2",
+        "Use :focus-visible CSS pseudo-class for outline styles to avoid showing outlines on mouse click",
+        "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/",
+        "Contrast check tool: https://www.tpgi.com/color-contrast-checker/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-954",
+      "title": "Implement PDPA 2024 Section 43A self-service data portability request via WhatsApp",
+      "priority": "medium",
+      "description": "The PDPA Amendment Act 2024 Section 43A grants data subjects the right to request their personal data be transmitted in a machine-readable format. The existing portability story covers admin-triggered export; this story requires a user-facing self-service request mechanism accessible via WhatsApp or the webchat widget, with a documented transmission timeline and third-party controller handoff capability.",
+      "acceptanceCriteria": [
+        "A guest can request their data export by sending a specific WhatsApp message (e.g. 'export my data') or via the webchat widget",
+        "The system exports a JSON file containing all their conversation history, bookings, and PII fields",
+        "The export is delivered to the requester's registered email or a secure download link within the prescribed period",
+        "Export request and delivery are logged in the audit table with timestamps",
+        "The export format is machine-readable JSON to satisfy the 'interoperable format' requirement",
+        "Transmission to a third-party controller (if requested) is supported via a documented API handoff process"
+      ],
+      "technicalNotes": [
+        "PDPA 2024 Section 43A — data portability, in force June 2025",
+        "Request must be made 'through electronic means' and completed within the prescribed period",
+        "Machine-readable format requirement: JSON preferred; CSV acceptable for tabular data",
+        "Reference: https://www.simplydata.com.my/pdpa-malaysia-2024-amendment-compliance-guide/",
+        "Distinguish from existing admin export: this story is guest-initiated self-service"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-955",
+      "title": "Implement OWASP LLM09 misinformation guardrail for hostel and cafe facts",
+      "priority": "medium",
+      "description": "OWASP LLM09:2025 (Misinformation) covers LLM hallucinations that produce false but plausible operational facts such as check-in times, room availability, menu prices, or Wi-Fi passwords. Rainbow AI must ground all factual claims in its knowledge base and refuse to answer factual questions outside its verified data rather than hallucinating plausible-sounding responses.",
+      "acceptanceCriteria": [
+        "For all factual queries (prices, times, policies, availability), the LLM must cite a knowledge base source; un-grounded responses are blocked",
+        "A 'confidence + source' field is attached to every outbound response; responses below a configurable confidence threshold are escalated to a human",
+        "A nightly automated test (Promptfoo) runs 20 factual questions against the bot and validates answers match the ground truth in the knowledge base",
+        "The system prompt instructs the model to say 'I don't have that information — please call us at [number]' rather than guessing",
+        "Hallucination events (response sent without a KB source for a factual intent) are logged and surfaced in the admin dashboard as a daily count"
+      ],
+      "technicalNotes": [
+        "OWASP LLM09:2025 Misinformation — use RAG grounding (already in stack) as primary mitigation",
+        "Add a 'retrieval_used: boolean' and 'source_document: string' field to the internal response object; block send if retrieval_used = false for factual intents",
+        "Factual intent categories: pricing, availability, policy, hours, contact",
+        "Reference: https://www.confident-ai.com/blog/owasp-top-10-2025-for-llm-applications-risks-and-mitigation-techniques",
+        "Reference: https://genai.owasp.org/llm-top-10/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-956",
+      "title": "Add multimodal image input: food order via WhatsApp photo",
+      "priority": "medium",
+      "description": "WhatsApp supports image messages, and AI providers (OpenRouter, OpenAI-compatible vision models) support vision input. Guests at Makan Moments Cafe can send a photo of a menu item or promotional flyer and the AI can identify the item and add it to the cart. This reduces friction for returning customers and supports visual browsing without requiring text input.",
+      "acceptanceCriteria": [
+        "When a guest sends an image during an active ordering session, the image is forwarded to the vision-capable AI provider for analysis",
+        "If the AI identifies a menu item in the image with >80% confidence, it proposes adding that item to the cart",
+        "If the image cannot be identified (e.g. unrelated photo), the bot responds gracefully without error",
+        "Image processing latency is under 5 seconds from receipt to cart proposal",
+        "Image content moderation rejects NSFW images before passing to the LLM"
+      ],
+      "technicalNotes": [
+        "Baileys provides imageMessage in the message object; base64 encode and pass as data URI to vision model",
+        "Use a vision-capable provider: OpenRouter (claude-3.5-sonnet, gpt-4o), or Ollama (llava model)",
+        "Content moderation: use a lightweight NSFW classifier or Meta's content moderation API before vision inference",
+        "Reference: https://www.eesel.ai/blog/whatsapp-business-platform-2025-updates-for-ai-and-campaigns",
+        "Reference: https://www.bitcot.com/building-custom-whatsapp-ai-agents-using-n8n-and-openai/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-957",
+      "title": "PDPA 2024 expanded sensitive data handling for biometric and financial data",
+      "priority": "medium",
+      "description": "Malaysia's PDPA Amendment Act 2024 expanded the definition of 'sensitive personal data' to explicitly include biometric data, genetic data, persistent location tracking data, and financial transaction data. Rainbow AI may process location data (guest room allocation, delivery address) and financial transaction references (Stripe payment IDs). These categories now require explicit separate consent and stricter access controls.",
+      "acceptanceCriteria": [
+        "Location data (room number, delivery address, GPS coordinates) is classified as sensitive in the data model and requires an explicit consent flag before storage",
+        "Payment transaction references (Stripe payment intent IDs, amounts) are encrypted at rest using column-level encryption",
+        "Consent UI explicitly names biometric/location/financial data categories when requesting consent, not just generic 'personal data'",
+        "Admin access to sensitive data fields requires an elevated permission role separate from standard admin",
+        "Data retention policy for sensitive categories defaults to 6 months and is enforced by a nightly cleanup job"
+      ],
+      "technicalNotes": [
+        "PDPA 2024 expands sensitive personal data to include biometric, genetic, location, and financial data",
+        "Implement column-level encryption for sensitive fields using pgcrypto in PostgreSQL",
+        "Consent granularity: separate consent records per data category (basic PII vs sensitive vs financial)",
+        "Reference: https://www.simplydata.com.my/pdpa-malaysia-2024-amendment-compliance-guide/",
+        "Reference: https://tsl-legal.com/navigating-the-malaysian-personal-data-protection-amendment-act-2024-key-changes-implications-and-implications-for-businesses/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-958",
+      "title": "Implement vendor Data Processing Agreement (DPA) registry for PDPA compliance",
+      "priority": "medium",
+      "description": "PDPA Amendment Act 2024 introduces direct accountability for data processors (third-party vendors, SaaS providers). Organisations must have signed Data Processing Agreements with every processor that handles personal data on their behalf. Rainbow AI uses Neon, NVIDIA, OpenRouter, Stripe, and AWS — all of which process or transmit guest PII. A DPA registry tracks which vendors are covered and when agreements expire.",
+      "acceptanceCriteria": [
+        "An admin-accessible DPA registry page lists all third-party processors: vendor name, data categories processed, DPA status (signed/pending), and DPA expiry date",
+        "The system prevents adding new AI provider integrations without a corresponding DPA registry entry",
+        "Alerts fire when a DPA is within 30 days of expiry",
+        "Each DPA entry records: vendor name, registered address, data categories, processing purpose, retention period, and sub-processor list",
+        "The registry is exportable as a PDF for PDPA compliance audits"
+      ],
+      "technicalNotes": [
+        "PDPA 2024: data processors face direct accountability and can be independently fined up to RM1,000,000",
+        "Current processors requiring DPAs: Neon (database), NVIDIA (AI), OpenRouter (AI), Stripe (payments), AWS Lightsail (hosting)",
+        "Store DPA metadata in a new dpa_registry table in PostgreSQL",
+        "Reference: https://www.simplydata.com.my/pdpa-malaysia-2024-amendment-compliance-guide/",
+        "Reference: https://blog.barracuda.com/2024/12/10/malaysia-personal-data-protection-amendment-2024"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-959",
+      "title": "Implement WCAG 2.2 SC 3.3.9 accessible authentication (enhanced) for admin login",
+      "priority": "low",
+      "description": "WCAG 2.2 added SC 3.3.9 Accessible Authentication (Enhanced) at AAA level, which eliminates all cognitive function tests from authentication — no CAPTCHA of any kind, no memory-based puzzles. The existing SC 3.3.8 story covers minimum-level accessible authentication; this enhanced criterion goes further by requiring authentication achievable with zero cognitive tests, supporting copy-paste credentials and password managers unconditionally.",
+      "acceptanceCriteria": [
+        "Admin login page allows password managers to auto-fill without any field restrictions",
+        "Copy-paste is never blocked on the password input field",
+        "No CAPTCHA or image-recognition puzzle is present on the login page",
+        "If MFA is implemented, it supports at least one non-cognitive option (e.g. authenticator app TOTP, or magic link email)",
+        "Login form fields have correct autocomplete attributes (username, current-password) to support browser autofill"
+      ],
+      "technicalNotes": [
+        "WCAG 2.2 SC 3.3.9 Accessible Authentication (Enhanced) — Level AAA, new in WCAG 2.2",
+        "The existing SC 3.3.8 story (Minimum) already prohibits CAPTCHAs without alternatives; this enhanced criterion removes the alternatives clause entirely",
+        "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/",
+        "autocomplete='current-password' on password fields per HTML spec"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false
     }
   ]

@@ -9274,3 +9274,40 @@ Completed: OWASP LLM01 Prompt injection input sanitisation and output fencing (I
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 49/49 tests pass. Marked passes=true.
+## Iteration 2 - Sun, Mar 15, 2026  8:22:38 PM
+Completed: WhatsApp in-chat Webview for mobile payment page (ID: US-911) in 16m
+
+
+## Iteration N - Story: US-912 RAG hybrid retrieval with BM25 and cross-encoder reranking
+
+### What was implemented
+- `src/assistant/kb-hybrid-retriever.ts` — new KBHybridRetriever class:
+  - Text chunking: ~300 words/chunk, 15% overlap (sentence-boundary aware)
+  - BM25 in-memory index (pure JS, no external deps, k1=1.2, b=0.75)
+  - Vector cosine similarity using Xenova/all-MiniLM-L6-v2 (already installed)
+  - Reciprocal Rank Fusion (RRF, k=60) combining BM25 + vector rankings
+  - Cross-encoder reranking (Xenova/ms-marco-MiniLM-L-6-v2) on top-20 candidates
+  - Relevance threshold=0.65: returns empty string if no chunk qualifies
+  - Pre-computed chunk embeddings at startup (non-blocking background warm)
+- `src/assistant/knowledge-base-instance.ts`:
+  - Added `hybridRetriever: KBHybridRetriever` instance per profile
+  - `reloadAllKB()` and `initKBFromDB()` now rebuild hybrid index on KB reload
+  - Added `retrieveContext(query, topK=3, threshold=0.65): Promise<string>` method
+  - `buildSystemPrompt()` accepts optional `hybridContext?: string` parameter
+- `src/assistant/chat-engine.ts`:
+  - Pre-fetches hybrid context via `hybridContextPromise` at start of processChat
+  - All 3 LLM `buildSystemPrompt` call sites now pass `hybridContext`
+- `src/lib/pdpa-compliance.ts`: Fixed pre-existing build error (getDb → pool)
+
+### Patterns discovered
+- pdpa-compliance.ts was using `getDb()` which doesn't exist; db.ts exports `pool` for raw pg queries
+- `@xenova/transformers` cross-encoder uses `pipeline('text-classification', 'Xenova/ms-marco-MiniLM-L-6-v2')`
+- buildSystemPrompt is sync but now accepts optional pre-fetched hybridContext
+- Memory files (memory/) are excluded from hybrid index — they're operational context, not KB content
+
+### Gotchas
+- BM25 scoring is O(N*Q) where N=chunks and Q=query terms — acceptable for <200 chunks
+- Cross-encoder model download happens at first query (cached afterwards by @xenova/transformers)
+- Embeddings are pre-computed at startup but cross-encoder inferences are per-query (model cached)
+- If cross-encoder fails (model unavailable), fallback uses degrading RRF scores (0.8 → 0.0)
+- `buildSystemPrompt` signature changed: `(persona, topicFiles, configStore, hybridContext?)`

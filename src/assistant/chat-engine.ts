@@ -271,6 +271,11 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   let llmUsage: any;
   let editMeta: any = null;
 
+  // US-912: Pre-fetch hybrid KB context (BM25 + vector + cross-encoder reranking)
+  // Runs concurrently with downstream logic; resolves lazily via the Promise.
+  const hybridContextPromise = kb.retrieveContext(message).catch(() => undefined as string | undefined);
+  let hybridContext: string | undefined;
+
   // Emergency context detection
   const emergencyContextInHistory = conversationHistory.some(msg =>
     /\b(emergency|ambulance|URGENT|collapsed|not\s+responding|unconscious|bleeding|injured|seizure|heart\s+attack|choking)\b/i.test(msg.content)
@@ -349,7 +354,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       problemOverride = true;
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
-        const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+        hybridContext = await hybridContextPromise;
+        const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store, hybridContext);
         const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response || staticText;
         llmModel = result.model || 'unknown';
@@ -416,7 +422,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     if (!finalMessage) {
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
-        const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+        hybridContext = await hybridContextPromise;
+        const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store, hybridContext);
         const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response;
         llmModel = result.model || 'unknown';
@@ -428,7 +435,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
 
   } else if (isAIAvailable()) {
     topicFiles = kb.guessTopicFiles(message);
-    const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
+    hybridContext = await hybridContextPromise;
+    const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store, hybridContext);
     const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
     finalMessage = result.response;
     llmModel = result.model || 'unknown';

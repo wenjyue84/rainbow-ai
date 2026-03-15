@@ -11,6 +11,7 @@ import { join, resolve } from 'path';
 import type { ConfigStore } from './config-store.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
+import { KBHybridRetriever } from './kb-hybrid-retriever.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -80,6 +81,9 @@ export class KnowledgeBaseInstance {
   private kbCache: Map<string, string> = new Map();
   private kbPatternsConfig: KBPatternsConfig | null = null;
   private compiledTopicPatterns: Array<{ pattern: RegExp; files: string[] }> | null = null;
+
+  // US-912: Hybrid retriever (BM25 + vector + cross-encoder)
+  readonly hybridRetriever: KBHybridRetriever = new KBHybridRetriever();
 
   // System prompt cache
   private systemPromptCacheVersion = 0;
@@ -224,6 +228,11 @@ export class KnowledgeBaseInstance {
 
     this.invalidateSystemPromptCache();
     console.log(`[KB:${this.profileId}] Loaded ${this.kbCache.size} KB files from ${this.kbDir}`);
+
+    // US-912: Rebuild hybrid retriever index
+    this.hybridRetriever.buildIndex(this.kbCache);
+    // Pre-warm embeddings in background (non-blocking)
+    this.hybridRetriever.precomputeEmbeddings().catch(() => {});
   }
 
   watchKBDirectory(): void {
@@ -265,6 +274,9 @@ export class KnowledgeBaseInstance {
         }
         this.invalidateSystemPromptCache();
         console.log(`[KB:${this.profileId}] Loaded ${dbKB.size} KB files from DB`);
+        // US-912: Rebuild hybrid retriever index after DB load
+        this.hybridRetriever.buildIndex(this.kbCache);
+        this.hybridRetriever.precomputeEmbeddings().catch(() => {});
         return;
       }
     } catch (err: any) {
@@ -321,6 +333,20 @@ export class KnowledgeBaseInstance {
       .map(f => this.kbCache.get(f) || '')
       .filter(Boolean)
       .join('\n\n---\n\n');
+  }
+
+  /**
+   * US-912: Hybrid retrieval — returns relevant KB context chunks for a query.
+   * Uses BM25 + vector similarity + RRF + cross-encoder reranking.
+   * Returns empty string if no chunk exceeds the relevance threshold (caller
+   * should NOT inject KB context and let AI respond from training data).
+   */
+  async retrieveContext(query: string, topK = 3, threshold = 0.65): Promise<string> {
+    const result = await this.hybridRetriever.retrieve(query, topK, threshold);
+    if (result.belowThreshold || result.chunks.length === 0) {
+      return '';
+    }
+    return result.chunks.join('\n\n---\n\n');
   }
 
   // ─── System Prompt Cache ────────────────────────────────────────
@@ -464,8 +490,19 @@ ${coreContent}${memoryContent}`;
     return basePrompt;
   }
 
-  buildSystemPrompt(basePersona: string, topicFiles: string[], configStore: ConfigStore): string {
+  buildSystemPrompt(
+    basePersona: string,
+    topicFiles: string[],
+    configStore: ConfigStore,
+    hybridContext?: string
+  ): string {
     const basePrompt = this.getOrBuildBasePrompt(basePersona, configStore);
+
+    // US-912: If hybrid context is provided, use it instead of file-based topic content
+    if (hybridContext !== undefined) {
+      return `${basePrompt}${hybridContext ? `\n\n---\n\n${hybridContext}` : ''}
+</knowledge_base>`;
+    }
 
     const missingTopicFiles = topicFiles.filter(f => !this.kbCache.get(f));
     if (missingTopicFiles.length > 0) {
