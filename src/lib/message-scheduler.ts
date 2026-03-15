@@ -28,6 +28,8 @@ export interface ScheduledMessage {
   sentAt?: string;
   repeatFrequency?: 'none' | 'daily' | 'weekly' | 'monthly';
   repeatEndDate?: string;    // ISO date
+  /** US-908: tenant identifier for multi-property isolation */
+  profileId?: string;
 }
 
 interface ScheduledMessagesData {

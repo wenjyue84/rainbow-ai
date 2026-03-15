@@ -44,16 +44,29 @@ export function destroyEscalation(): void {
  * Fetch last N messages from rainbow_messages for a given phone number.
  * Returns formatted strings like "user: hello" / "assistant: hi there".
  * Falls back to empty array on DB error.
+ *
+ * US-908: tenantId parameter enforces cross-property isolation — messages from
+ * Pelangi must never appear in Southern Homestay escalation summaries.
  */
-async function fetchLastDbMessages(phone: string, limit: number): Promise<string[]> {
+async function fetchLastDbMessages(phone: string, limit: number, tenantId?: string): Promise<string[]> {
   try {
-    const result = await pool.query(
-      `SELECT role, content FROM rainbow_messages
-       WHERE phone = $1
-       ORDER BY timestamp DESC
-       LIMIT $2`,
-      [phone, limit]
-    );
+    let query: string;
+    let params: unknown[];
+    if (tenantId) {
+      query = `SELECT role, content FROM rainbow_messages
+               WHERE phone = $1
+                 AND profile_id = $2
+               ORDER BY timestamp DESC
+               LIMIT $3`;
+      params = [phone, tenantId, limit];
+    } else {
+      query = `SELECT role, content FROM rainbow_messages
+               WHERE phone = $1
+               ORDER BY timestamp DESC
+               LIMIT $2`;
+      params = [phone, limit];
+    }
+    const result = await pool.query(query, params);
     // Reverse so oldest is first (chronological order)
     return (result.rows as Array<{ role: string; content: string }>)
       .reverse()
@@ -84,7 +97,8 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   const label = reasonLabels[context.reason] || 'Unknown reason';
 
   // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
-  const dbMessages = await fetchLastDbMessages(context.phone, 5);
+  // US-908: pass tenantId/profileId to enforce cross-property isolation
+  const dbMessages = await fetchLastDbMessages(context.phone, 5, profileId);
   const historyMessages = dbMessages.length > 0
     ? dbMessages
     : context.recentMessages.slice(-5);

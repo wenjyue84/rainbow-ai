@@ -47,6 +47,11 @@ export async function ensureConfigTables(): Promise<void> {
         ADD COLUMN IF NOT EXISTS last_modified_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS stale_threshold_days INTEGER NOT NULL DEFAULT 30;
 
+      -- US-908: tenant_id for multi-property isolation
+      ALTER TABLE rainbow_kb_files
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'pelangi';
+      CREATE INDEX IF NOT EXISTS idx_rainbow_kb_files_tenant ON rainbow_kb_files(tenant_id);
+
       CREATE TABLE IF NOT EXISTS rainbow_config_audit (
         id          SERIAL PRIMARY KEY,
         config_key  TEXT NOT NULL,

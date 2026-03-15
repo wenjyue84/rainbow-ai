@@ -12,19 +12,22 @@ import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, inde
 
 export const appSettings = pgTable("app_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  key: text("key").notNull().unique(),
+  tenantId: text("tenant_id").notNull().default('pelangi'),
+  key: text("key").notNull(),
   value: text("value").notNull(),
   description: text("description"),
   updatedBy: varchar("updated_by"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ([
   index("idx_app_settings_key").on(table.key),
+  uniqueIndex("idx_app_settings_tenant_key").on(table.tenantId, table.key),
 ]));
 
 // ─── Rainbow AI ──────────────────────────────────────────────────────
 
 export const intentDetectionSettings = pgTable("intent_detection_settings", {
   id: serial("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().default('pelangi'),
   tier1Enabled: boolean("tier1_enabled").default(true).notNull(),
   tier1ContextMessages: integer("tier1_context_messages").default(0).notNull(),
   tier2Enabled: boolean("tier2_enabled").default(true).notNull(),
@@ -115,7 +118,7 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   bsuid: varchar("bsuid", { length: 128 }),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
-  profileId: text("profile_id").default('pelangi'),
+  profileId: text("profile_id").notNull().default('pelangi'),
   pinned: boolean("pinned").notNull().default(false),
   favourite: boolean("favourite").notNull().default(false),
   lastReadAt: timestamp("last_read_at"),
@@ -158,7 +161,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
   localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
   faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
-  profileId: text("profile_id").default('pelangi'),
+  profileId: text("profile_id").notNull().default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
@@ -345,6 +348,7 @@ export const adminUsers = pgTable("admin_users", {
   username: varchar("username", { length: 64 }).notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default('operator'),  // US-898: viewer | operator | super-admin
+  tenantId: text("tenant_id").notNull().default('pelangi'),  // US-908: tenant scope for RBAC isolation
   totpSecret: text("totp_secret"),          // AES-256-GCM encrypted, null if 2FA not enrolled
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   failedTotpAttempts: integer("failed_totp_attempts").notNull().default(0),

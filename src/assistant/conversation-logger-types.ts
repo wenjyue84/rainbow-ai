@@ -45,6 +45,8 @@ export interface ConversationLog {
   phone: string;
   pushName: string;
   instanceId?: string;
+  /** US-908: tenant identifier — matches profileId, enforces cross-property isolation */
+  tenantId?: string;
   messages: LoggedMessage[];
   contactDetails?: ContactDetails;
   pinned?: boolean;
@@ -59,6 +61,8 @@ export interface ConversationSummary {
   phone: string;
   pushName: string;
   instanceId?: string;
+  /** US-908: tenant identifier — matches profileId, enforces cross-property isolation */
+  tenantId?: string;
   lastMessage: string;
   lastMessageRole: 'user' | 'assistant';
   lastMessageAt: number;

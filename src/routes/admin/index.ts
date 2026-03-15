@@ -6,6 +6,7 @@ import { profileRegistry } from '../../assistant/profile-registry.js';
 import { authBruteForceStore, ADMIN_IP_ALLOWLIST } from '../../lib/auth-brute-force.js';
 import { isReady } from '../../lib/readiness.js';
 import { checkRole } from '../../lib/rbac.js';
+import { tenantContextMiddleware } from '../../lib/tenant-context.js';
 import { ADMIN_ROLES } from '../../../shared/schema.js';
 import type { AdminRole } from '../../../shared/schema.js';
 
@@ -142,6 +143,13 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// ─── Tenant Context Middleware (US-908) ──────────────────────────────
+// Injects res.locals.tenantId from the resolved profileId.
+// Must run AFTER profile resolution so profileId is already set.
+// Enforces RBAC tenant scoping: admins scoped to a tenantId cannot
+// access data from other tenants (super-admin is exempt).
+router.use(tenantContextMiddleware);
 
 // ─── Role Resolution Middleware (US-898) ─────────────────────────────
 // Client passes x-admin-role header (obtained from /auth/login response).

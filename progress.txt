@@ -8852,3 +8852,29 @@ Build passes (3 warnings, no errors). 13/13 tests pass. Story marked passes=true
 - The counter resets on successful classification (line 547) AND after Tier 3 escalation (line 543)
 ### Status
 ✅ Build passes (3 warnings, no errors). 14/14 tests pass. Marked passes=true.
+## Iteration 3 - Sun, Mar 15, 2026  7:14:52 PM
+FAILED quality gates: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) — attempt 1/3
+
+
+## Iteration 4 - Story: US-908 Enforce tenant_id isolation at database layer
+### What was implemented
+- `shared/schema-tables.ts`: Added `tenantId` to `adminUsers` (RBAC scoping), `appSettings` (tenant-scoped unique key), `intentDetectionSettings`; changed `app_settings.key` unique to composite `(tenantId, key)`; made `profileId` non-nullable in `rainbowMessages` and `rainbowConversations`
+- `src/lib/config-db.ts`: Added `ALTER TABLE rainbow_kb_files ADD COLUMN IF NOT EXISTS tenant_id` migration
+- `src/lib/session-window.ts`: Added optional `tenantId` param to `sessionWindowActive` and `batchSessionWindowStatus` — adds `AND profile_id = $n` clause when provided
+- `src/assistant/escalation.ts`: Added `tenantId` param to `fetchLastDbMessages` raw pg query, passes `profileId` from context to prevent cross-property message leakage in handoff summaries
+- `src/assistant/conversation-logger-types.ts`: Added `tenantId?: string` to `ConversationLog` and `ConversationSummary`
+- `src/lib/message-scheduler.ts`: Added `profileId?: string` to `ScheduledMessage` interface
+- `src/lib/tenant-context.ts` (NEW): Tenant isolation middleware — reads resolved `profileId`, validates against `KNOWN_TENANTS`, enforces admin RBAC scoping (403 if operator tries cross-tenant access), sets `res.locals.tenantId`
+- `src/routes/admin/index.ts`: Mounted `tenantContextMiddleware` after profile resolution middleware
+- `src/assistant/__tests__/tenant-isolation.test.ts` (NEW): 14 unit tests covering middleware, RBAC scoping, super-admin bypass, and backward compat
+### Patterns discovered
+- `profileId` is the existing tenant identifier; we layer `tenantId` as an enforced alias via middleware
+- Raw pg queries in escalation.ts and session-window.ts lacked `profile_id` filter — critical cross-property data leakage risk
+- `app_settings.key` was globally unique — changed to composite `(tenantId, key)` unique index
+- `rainbow_kb_files` is a raw pg table (not Drizzle) so its migration lives in config-db.ts
+- `super-admin` role bypasses tenant scoping; other roles are restricted to `adminTenantId`
+### Gotchas
+- `adminTenantId` must be populated in res.locals from the admin JWT/session; current auth only sets `adminRole` — future story should populate `adminTenantId` from the `adminUsers.tenantId` DB column on login
+- `rainbow_configs` table stores JSON configs globally — not yet tenant-scoped (future story)
+### Status
+✅ Build passes. 14/14 tenant-isolation tests pass. Marked passes=true.
