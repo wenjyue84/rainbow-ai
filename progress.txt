@@ -9484,3 +9484,19 @@ Completed: US-914 — Structured chatbot-to-human escalation with full conversat
 ### Status
 ✅ Build passes (3 pre-existing warnings). 36/36 tests pass (10 new + 26 existing). Server starts successfully.
 
+
+## Iteration N - Story: US-929 OWASP LLM08 Excessive Agency guardrails
+### What was implemented
+- `src/assistant/data/tool-permissions.json`: permission matrix mapping all 60+ intent classes to explicit tool whitelists; defines destructive tools and 0.85 confidence threshold
+- `src/assistant/tool-permission-guard.ts`: `checkToolPermission()`, `auditToolDispatch()`, `blockedToolResult()` — enforcement module with JSON audit logging
+- `src/assistant/ai-response-generator.ts`: `chatWithToolsLoop` updated with optional `toolCallContext?: ToolCallContext` param; permission check injected before each tool handler call
+- `src/assistant/__tests__/tool-permission-guard.test.ts`: 15 Vitest tests covering all acceptance criteria
+
+### Patterns discovered
+- The function signature is backward-compatible (`toolCallContext` is optional) — no callers needed updating
+- Blocked calls use `isError: false` so the AI loop doesn't trigger the all-errors-failed toolless fallback; the AI receives a "please respond without this tool" message and generates a graceful reply
+- `clearPermissionsCache()` export was required to reset file-based cache between tests
+
+### Gotchas
+- A linter hook reverts edits to `ai-response-generator.ts` — had to re-apply both import and body edits after each linter pass
+- esbuild build passes (3 pre-existing warnings, not errors)
