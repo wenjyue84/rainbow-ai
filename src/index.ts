@@ -61,6 +61,7 @@ import { startHandoffSlaCron } from './lib/handoff-sla.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
 import { startWabaSubscriptionMonitor, getWebhookSubscriptionState } from './lib/waba-subscription-check.js';
 import { startPacingMonitor } from './lib/pacing-monitor.js';
+import { initCartIdleRecovery } from './assistant/cart-idle-recovery.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -819,6 +820,11 @@ server.listen(PORT, '0.0.0.0', () => {
 
     // Initialize scheduled message checker (US-019)
     initScheduler();
+
+    // US-882: Initialize abandoned-cart recovery checker
+    const makanProfile = profileRegistry.getProfile('makan-moments');
+    const makanCartSettings = makanProfile?.configStore.getSettings() as any;
+    initCartIdleRecovery(makanCartSettings?.cartIdleRecoveryMinutes);
 
     // Initialize failover coordinator (primary/standby)
     const { failoverCoordinator } = await import('./lib/failover-coordinator.js');

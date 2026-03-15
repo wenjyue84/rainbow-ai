@@ -22,6 +22,8 @@ import { isModificationAllowed, getModificationRemainingSeconds } from '../../as
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
+import { handleRecoveryReply } from '../../assistant/cart-idle-recovery.js';
+import { cartResetRecovery } from '../../assistant/cart-store.js';
 
 const router = Router();
 
@@ -408,6 +410,29 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   resetWebchatSession(phone).catch(err => {
     console.error('[Webchat] Session reset error:', err.message);
   });
+
+  // US-882: Intercept cart recovery replies ("Resume order" / "Clear cart")
+  if (profileId === 'makan-moments') {
+    const recoveryResponse = handleRecoveryReply(sessionId, message);
+    if (recoveryResponse) {
+      cartResetRecovery(sessionId);
+      // Persist to DB so webchat polling picks it up
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
+      persistWebchatExchange(phone, pushName, message, recoveryResponse, 0, profileId).catch(err => {
+        console.error('[Webchat] Cart recovery persist error:', err.message);
+      });
+
+      if (req.body.stream) {
+        sendStaticSSE(res, recoveryResponse, 0, sessionId);
+      } else {
+        res.json({ message: recoveryResponse, responseTime: 0, sessionId });
+      }
+      return;
+    }
+    // Any user message resets the recovery flag (they're active again)
+    cartResetRecovery(sessionId);
+  }
 
   // Sanitize input
   const sanitizedMessage = sanitizeInput(message);
