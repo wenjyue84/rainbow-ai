@@ -822,6 +822,55 @@ export async function notifyAdminBreachReport(
 }
 
 /**
+ * Send business capability (messaging tier) change alert to system admin (US-908).
+ * Fires when a business_capability_update webhook reports a tier or phone number limit change.
+ * Throttled to at most one notification per 10 minutes.
+ */
+const CAPABILITY_UPDATE_COOLDOWN_MS = 10 * 60 * 1000;
+let lastCapabilityUpdateNotifyAt = 0;
+
+export async function notifyAdminCapabilityUpdate(
+  newTier: string,
+  maxPhoneNumbers: number | null,
+  previousTier: string | null,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send capability update notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastCapabilityUpdateNotifyAt < CAPABILITY_UPDATE_COOLDOWN_MS) {
+    logger.info('Capability update notification skipped (cooldown)');
+    return;
+  }
+  lastCapabilityUpdateNotifyAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const tierChanged = previousTier && previousTier !== newTier;
+  const emoji = tierChanged ? '📈' : 'ℹ️';
+  const message = `${emoji} *WhatsApp Business Capability Update*\n\n` +
+    `Messaging Tier: *${newTier}*` +
+    (tierChanged ? ` (was: ${previousTier})` : '') + '\n' +
+    (maxPhoneNumbers != null ? `Max Phone Numbers: *${maxPhoneNumbers}*\n` : '') +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    (tierChanged
+      ? `Your WhatsApp Business portfolio messaging tier has changed.\n` +
+        `This affects the maximum number of business-initiated conversations per day.\n\n`
+      : `Meta has confirmed your current business capabilities.\n\n`) +
+    `📊 View limits: GET /api/rainbow/analytics/messaging-limits`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent capability update notification', { newTier, maxPhoneNumbers, previousTier });
+  } catch (err: any) {
+    logger.error('Failed to send capability update notification', { error: err.message });
+  }
+}
+
+/**
  * Send WABA webhook subscription failure alert to system admin (US-892).
  * Fires when auto-resubscription to the WABA fails on startup or during the
  * 6-hourly health check.

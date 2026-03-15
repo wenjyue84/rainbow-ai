@@ -6,6 +6,7 @@
  *  - DIGIMAN API    (booking/checkin/checkout callback notifications)
  *  - Meta Cloud API (phone_number_quality_update events) — US-458
  *  - Meta Cloud API (account_update events) — US-479
+ *  - Meta Cloud API (business_capability_update events) — US-908
  *
  * All routes apply HMAC-SHA256 signature validation via validateWebhookSignature()
  * before any business logic is executed.
@@ -23,9 +24,11 @@ import {
   notifyAdminAccountViolation,
   notifyAdminAccountRestriction,
   notifyAdminTemplatePaused,
+  notifyAdminCapabilityUpdate,
 } from '../../lib/admin-notifier.js';
 import { db } from '../../lib/db.js';
-import { templateQualityEvents } from '../../../shared/schema.js';
+import { sql } from 'drizzle-orm';
+import { appSettings, templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 
@@ -309,6 +312,119 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
       if (newStatus === 'PAUSED' || newStatus === 'DISABLED') {
         notifyAdminTemplatePaused(templateName, newStatus, reason).catch(() => {});
       }
+    }
+  }
+});
+
+// ─── Meta Cloud API: business_capability_update webhook (US-908) ─────────
+// Meta POSTs business_capability_update when the portfolio messaging tier limit
+// or max phone numbers changes. Must be subscribed in the Meta App Dashboard.
+//
+// Payload shape (inside entry[].changes[]):
+//   field = 'business_capability_update'
+//   value.max_daily_conversation_per_phone = <number>  (the new tier limit)
+//   value.max_phone_numbers_per_business   = <number>
+router.post('/webhooks/meta/capability', metaSignatureGuard, async (req: Request, res: Response) => {
+  // Acknowledge receipt immediately so Meta does not retry.
+  res.status(200).json({ ok: true });
+
+  const body = req.body as {
+    entry?: Array<{
+      changes?: Array<{
+        field?: string;
+        value?: {
+          max_daily_conversation_per_phone?: number;
+          max_phone_numbers_per_business?: number;
+        };
+      }>;
+    }>;
+    [key: string]: unknown;
+  };
+
+  const entries = body.entry ?? [];
+  for (const entry of entries) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'business_capability_update') continue;
+
+      const value = change.value;
+      if (!value) continue;
+
+      const maxDaily = value.max_daily_conversation_per_phone;
+      const maxPhones = value.max_phone_numbers_per_business ?? null;
+
+      // Map max_daily_conversation_per_phone to a tier string
+      const newTier = maxDaily != null ? String(maxDaily) : 'unknown';
+
+      console.warn(
+        `[webhook:meta:capability] business_capability_update: tier=${newTier} maxPhones=${maxPhones}`
+      );
+
+      // Read current tier before updating
+      let previousTier: string | null = null;
+      try {
+        const { getCurrentTier } = await import('../admin/messaging-limits.js');
+        previousTier = await getCurrentTier();
+      } catch {
+        // Non-critical — previousTier stays null
+      }
+
+      // Update messaging tier in app_settings DB
+      if (maxDaily != null) {
+        try {
+          const tierStr = String(maxDaily);
+          const now = new Date().toISOString();
+
+          await db.insert(appSettings)
+            .values({
+              key: 'rainbow_portfolio_tier',
+              value: tierStr,
+              description: 'WhatsApp Business Portfolio messaging tier',
+              updatedBy: 'webhook:business_capability_update',
+            })
+            .onConflictDoUpdate({
+              target: [appSettings.key],
+              set: { value: tierStr, updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+            });
+
+          await db.insert(appSettings)
+            .values({
+              key: 'rainbow_portfolio_tier_updated_at',
+              value: now,
+              description: 'When the portfolio tier was last updated',
+              updatedBy: 'webhook:business_capability_update',
+            })
+            .onConflictDoUpdate({
+              target: [appSettings.key],
+              set: { value: now, updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+            });
+
+          console.log(`[webhook:meta:capability] Updated portfolio tier to '${tierStr}' in app_settings`);
+        } catch (err: any) {
+          console.error('[webhook:meta:capability] Failed to update tier in DB:', err.message);
+        }
+      }
+
+      // Store max phone numbers if provided
+      if (maxPhones != null) {
+        try {
+          await db.insert(appSettings)
+            .values({
+              key: 'rainbow_max_phone_numbers',
+              value: String(maxPhones),
+              description: 'Max phone numbers allowed per WABA portfolio',
+              updatedBy: 'webhook:business_capability_update',
+            })
+            .onConflictDoUpdate({
+              target: [appSettings.key],
+              set: { value: String(maxPhones), updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+            });
+        } catch (err: any) {
+          console.error('[webhook:meta:capability] Failed to update max phone numbers in DB:', err.message);
+        }
+      }
+
+      // Notify admin of the capability change
+      notifyAdminCapabilityUpdate(newTier, maxPhones, previousTier).catch(() => {});
     }
   }
 });
