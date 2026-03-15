@@ -8878,3 +8878,22 @@ FAILED quality gates: Malaysia PDPA 2024 Amendment: DPO appointment and breach n
 - `rainbow_configs` table stores JSON configs globally — not yet tenant-scoped (future story)
 ### Status
 ✅ Build passes. 14/14 tenant-isolation tests pass. Marked passes=true.
+## Iteration 7 - Sun, Mar 15, 2026  7:17:53 PM
+FAILED quality gates: Enforce tenant_id isolation at database layer for multi-property deployment (ID: US-908) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-881 - Order modification window after submission
+### What was implemented
+- **Already fully implemented by prior iterations** — all code, tests, and settings were in place
+- `src/assistant/order-modification-store.ts`: Full in-memory store with start, check, consume, close, kitchen acceptance, time remaining, TTL cleanup
+- `src/tools/cart.ts`: `order_modify_request` tool handler (lines 1288-1347) — checks window, re-populates cart from snapshot, transitions to ORDERING
+- `src/tools/cart.ts`: `order_confirm_submit` calls `startModificationWindow()` after order placement (line 774), includes modification notice in response (lines 784-787)
+- `src/routes/webhooks/handlers.ts`: `handleKitchenAccepted` webhook handler closes modification window on POS acceptance
+- `src/assistant/data/settings.json`: `order_modification.window_minutes: 2` (configurable)
+- `src/assistant/__tests__/kds-webhook.test.ts`: 19 tests covering KDS/POS webhook integration
+### Patterns discovered
+- Story was fully implemented in prior spiral iterations but never marked `passes: true` in prd.json
+- Dual indexing pattern: modification windows indexed by both sessionId and orderId for bidirectional lookup (webhook→session, session→window)
+- Timer + wall-clock double-check for window expiry (setTimeout + elapsed time comparison)
+### Status
+✅ Build passes (3 warnings, no errors). 19/19 KDS tests pass. Marked passes=true.
