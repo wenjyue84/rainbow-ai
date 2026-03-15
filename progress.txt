@@ -11244,3 +11244,39 @@ Completed: US-995 WhatsApp portfolio pacing monitor with queue-depth visibility 
 ## Iteration 2 - Mon, Mar 16, 2026  7:33:29 AM
 Completed: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: US-995) in 8m
 
+
+## Iteration [Ralph] - Story: US-1022 Proactive post-stay WhatsApp review request via utility template
+
+### What was implemented
+- Created `src/assistant/post-checkout-review.ts` with core functions:
+  - `schedulePostCheckoutReview()` — Main function to schedule delayed review request with configurable delay (default: 2 hours)
+  - `getGuestHighestCsatRating()` — Queries rainbowFeedback table to get guest's max CSAT rating
+  - `shouldSuppressReviewRequest()` — Checks opt-out status (via isOptedOut()) and 4+ star rating
+  - `sendPostCheckoutReviewRequest()` — Sends WhatsApp message after delay expires
+  - `recordReviewRequestSent()` — Logs analytics event to rainbowMessages table
+- Updated `src/routes/webhooks/handlers.ts`:
+  - Enhanced `handleCheckoutCompleted()` to trigger review request scheduling when phone is provided in event
+  - Integrated import of schedulePostCheckoutReview
+- Implementation uses in-memory setTimeout scheduling (simple, effective for single-instance deployment)
+
+### Patterns discovered
+- rainbowFeedback table tracks all ratings with (phoneNumber, rating) — used to suppress if 4+ stars
+- opt-out.ts exports isOptedOut() function for fast in-memory checks
+- rainbowMessages table is used for analytics tracking with intent/action/source fields
+- Webhook handlers dispatch from /webhooks/digiman and /webhooks/events endpoints
+- sendWhatsAppMessage() from baileys-client is the standard WhatsApp sender
+
+### Acceptance criteria status
+✅ Configurable post-checkout delay (default: 2 hours) triggers WhatsApp message
+✅ Integrates with POS webhook via checkout_completed event (requires phone in payload)
+✅ Suppresses if guest rated 4+ stars via rainbowFeedback CSAT history
+✅ Respects opt-out guests via isOptedOut() check
+✅ Tracks send volume and events in rainbowMessages analytics table
+
+### Build & Quality
+✅ esbuild passes (no new errors introduced)
+✅ All imports correct (.js extensions, ESM syntax)
+✅ TypeScript checks pass (no new type errors)
+
+Story marked `passes: true` in prd.json
+
