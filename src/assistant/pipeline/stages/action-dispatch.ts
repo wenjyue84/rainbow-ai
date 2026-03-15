@@ -18,7 +18,7 @@ import { resolveResponseLanguage } from './routing.js';
 import { buildListMessage, listMessageToText, buildProductCardButtons, productCardToText } from '../../formatter.js';
 import type { ProductCardItem } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
-import { fnbGetMenu, fnbGetMenuItem, fnbGetDailySpecials, fetchMenuItems } from '../../../tools/fnb-menu.js';
+import { fnbGetMenu, fnbGetMenuItem, fnbGetDailySpecials, fnbGetPopularItems, fetchMenuItems } from '../../../tools/fnb-menu.js';
 import { findMenuItemMatches } from '../../menu-matcher.js';
 import { flowRegistry } from '../../flows/index.js';
 
@@ -449,6 +449,12 @@ async function handleLLMReply(
     return;
   }
 
+  // US-870: Handle food_recommendation intent — show popular items
+  if (result.intent === 'food_recommendation') {
+    await handlePopularItems(state, context);
+    return;
+  }
+
   state.response = result.response;
 
   // Track unknown intents OR low-confidence results for operator escalation
@@ -751,6 +757,81 @@ function logLanguageResolution(
   if (responseLang !== lang && result.detectedLanguage !== 'unknown') {
     console.log(`[Dispatch] Language resolved (${context}): '${lang}' → '${responseLang}'`);
   }
+}
+
+/**
+ * US-870: Handle food_recommendation / popular items intent.
+ *
+ * Flow:
+ *   1. Call fnbGetPopularItems for top-ordered dishes (limit 5)
+ *   2. Format response with name, price, and one-line description per item
+ *   3. Fall back to featured/bestseller items if popularity data unavailable
+ *   4. Guest can pick any item directly from the recommendation list
+ */
+async function handlePopularItems(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const lang = state.convo.language || 'en';
+
+  console.log(`[Dispatch] US-870 POPULAR_ITEMS: fetching popular items for profile=${state.profileId}`);
+
+  const result = await fnbGetPopularItems({ _profileId: state.profileId, limit: 5 });
+
+  if (result.isError) {
+    const errorMessages: Record<string, string> = {
+      en: "I'm unable to check our popular items right now. Would you like to see the full menu instead? Just type \"menu\".",
+      ms: "Maaf, saya tidak dapat menyemak hidangan popular buat masa ini. Nak tengok menu penuh? Taip \"menu\".",
+      zh: "抱歉，我现在无法查看热门菜品。要看完整菜单吗？请输入\"菜单\"。"
+    };
+    state.response = errorMessages[lang] || errorMessages.en;
+    return;
+  }
+
+  const text = result.content[0]?.text || '';
+
+  if (!text || text.trim().length === 0) {
+    // No popularity data — offer full menu
+    const noDataMessages: Record<string, string> = {
+      en: "I don't have popularity data right now, but our menu is full of great choices! Would you like to see the full menu? Just type \"menu\".",
+      ms: "Saya tiada data populariti buat masa ini, tetapi menu kami penuh dengan pilihan hebat! Nak tengok menu penuh? Taip \"menu\".",
+      zh: "我暂时没有人气数据，但我们的菜单有很多好选择！要看完整菜单吗？请输入\"菜单\"。"
+    };
+    state.response = noDataMessages[lang] || noDataMessages.en;
+    return;
+  }
+
+  // Format popular items response
+  state.response = formatPopularItemsResponse(text, lang);
+}
+
+/**
+ * US-870: Format popular items into a friendly recommendation message.
+ * Each item line is expected as "CODE Name - RM X.XX" or "Name - RM X.XX".
+ */
+function formatPopularItemsResponse(itemsText: string, lang: string): string {
+  const headerMessages: Record<string, string> = {
+    en: "Here are our most popular dishes, loved by most guests!",
+    ms: "Ini hidangan paling popular kami, kegemaran ramai tetamu!",
+    zh: "这些是我们最受欢迎的菜品，深受大多数客人喜爱！"
+  };
+
+  const footerMessages: Record<string, string> = {
+    en: "\nJust tell me the name or number of any item to add it to your order!",
+    ms: "\nBeritahu saya nama atau nombor item untuk menambahnya ke pesanan anda!",
+    zh: "\n告诉我菜品名称或编号即可加入您的订单！"
+  };
+
+  const header = headerMessages[lang] || headerMessages.en;
+  const footer = footerMessages[lang] || footerMessages.en;
+
+  // Number the items for easy selection
+  const lines = itemsText.split('\n').filter(l => l.trim());
+  const numbered = lines.map((line, i) => `${i + 1}. ${line.trim()}`);
+
+  return `${header}\n\n${numbered.join('\n')}${footer}`;
 }
 
 /**

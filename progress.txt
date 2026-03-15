@@ -8282,3 +8282,22 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 - Baileys does NOT support WhatsApp Business API "Single Product Message" (catalog integration) — the product card uses interactive buttons message as a fallback
 - Button press responses come as `buttonsResponseMessage.selectedDisplayText` (human-readable) or `selectedButtonId` (structured) — state-executor intercepts the structured `add_to_cart:CODE` format
 - The `view_menu` button rewrite approach (changing `state.text` to "show me the menu") allows the normal classification pipeline to handle it without special-casing
+
+
+
+## Iteration - Story: US-870 Popular items suggestion for undecided guests
+### What was implemented
+- **Enhanced `food_recommendation` intent patterns** (`data-makan/intents.json`): Added 4 new regex patterns to capture undecided phrases in EN ("what is good", "what should I order", "I'm undecided", "can't decide"), MS ("tak tau nak makan", "susah nak pilih"), and ZH ("不知道吃什么", "推荐一下", "帮我推荐")
+- **Expanded T2 fuzzy keywords** (`data-makan/intent-keywords.json`): Added 14 new EN keywords (e.g., "help me choose", "top dishes", "most popular"), 6 MS keywords ("tolong pilihkan", "hidangan terlaris"), and 6 ZH keywords ("最受欢迎", "帮我推荐")
+- **`fnbGetPopularItems()` function** (`tools/fnb-menu.ts`): Calls `fnb_get_popular_items` MCP endpoint with configurable limit (default 5). Falls back to full menu scan, picking items tagged as featured/bestseller. If neither, returns first N items from menu
+- **`handlePopularItems()` handler** (`action-dispatch.ts`): Intercepts `food_recommendation` intent in `handleLLMReply`. Calls `fnbGetPopularItems()`, formats multilingual response (EN/MS/ZH) with numbered list, header ("most popular dishes, loved by most guests!"), and footer ("tell me the name or number to add to your order")
+- **`formatPopularItemsResponse()` helper**: Numbers items for easy guest selection, adds header and footer in detected language
+- **28 tests** covering: response formatting (EN/MS/ZH), single/multi item, empty line handling, language fallback, regex pattern matching for all undecided phrases (EN/MS/ZH), negative cases
+
+### Patterns discovered
+- The `food_recommendation` intent was already routed to `llm_reply` — adding a special handler intercept (same pattern as MENU_ITEM_DETAIL, MENU_FILTER_PRICE, MENU_SPECIALS) keeps routing config untouched
+- The `fnb_get_popular_items` MCP endpoint may not exist yet on the FnB service — the fallback to menu scan with featured/bestseller tag matching makes this resilient
+
+### Gotchas
+- The fallback logic in `fnbGetPopularItems` parses menu text for "featured"/"bestseller" keywords in item names/categories. If no tagged items found, it returns the first N items (reasonable default)
+- Guest can pick items by number or name from the recommendation list, which feeds back into existing intent classification (order_placement or MENU_ITEM_DETAIL)
