@@ -17,6 +17,7 @@ import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { isProviderOverBudget } from './llm-cost-budget.js';
 import { getContextWindows } from './context-windows.js';
+import { looksLikeJson } from './ai-response-generator.js';
 
 const STREAM_FALLBACK = "AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.";
 
@@ -252,11 +253,11 @@ export async function streamChatWithTools(
         // Provider returned text directly (no tool calls) — stream it immediately.
         // This avoids a redundant second provider round-trip when the model
         // (e.g. Gemini) can answer without invoking tools.
-        if (content) {
+        if (content && !looksLikeJson(content)) {
           sseEvent(res, { token: content });
           return content;
         }
-        // No content returned — stream a fresh LLM response (plain text, no tools)
+        // No content (or LLM returned raw JSON) — stream a fresh LLM response (plain text, no tools)
         return streamFromProviders(res, messages, chatCfg.max_chat_tokens, chatCfg.chat_temperature);
       }
       // Tools were called previously; break to stream final response
