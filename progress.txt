@@ -8834,3 +8834,21 @@ Incomplete: Malaysia PDPA 2024 Amendment: DPO appointment and breach notificatio
 - Python editing of data-retention.ts required replace-in-content approach; linter was reverting Write calls
 ### Status
 Build passes (3 warnings, no errors). 13/13 tests pass. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-880 - Tiered confidence-based fallback with progressive escalation
+### What was implemented
+- **Already implemented by prior iterations** — all code, settings, and tests were in place
+- `action-dispatch.ts` (lines 477-548): 3-tier fallback in `handleLLMReply()`:
+  - Tier 1 (unknownCount=1): `buildTier1RephraseMessage()` — friendly rephrase request (multilingual)
+  - Tier 2 (unknownCount=2): `buildFallbackSuggestionResponse()` or `buildTier2DefaultCapabilities()` — numbered capability list
+  - Tier 3 (unknownCount>=3): Human handoff message + `escalateToStaff()` + counter reset
+- `settings.json`: `tiered_fallback.tier1` messages in en/ms/zh/ta
+- `conversation.ts`: `incrementUnknown()` / `resetUnknown()` per-JID counter management
+- `tiered-fallback.test.ts`: 14 tests covering all 6 acceptance criteria
+- `escalation_events` logging with `failure_tier` metadata (1, 2, or 3) for each tier
+### Patterns discovered
+- Story was fully implemented in prior spiral iterations but never marked `passes: true` in prd.json
+- The counter resets on successful classification (line 547) AND after Tier 3 escalation (line 543)
+### Status
+✅ Build passes (3 warnings, no errors). 14/14 tests pass. Marked passes=true.

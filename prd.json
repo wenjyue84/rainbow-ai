@@ -2114,7 +2114,7 @@
         "Conversation state storage"
       ],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_prd_post_ralph.json",
@@ -3641,6 +3641,412 @@
         "src/assistant/__tests__/language-router.test.ts",
         "src/assistant/__tests__/media-downloader.test.ts"
       ]
+    },
+    {
+      "id": "US-924",
+      "title": "WCAG 2.2 SC 2.4.11: Prevent sticky UI from fully obscuring keyboard focus",
+      "priority": "high",
+      "description": "The webchat widget contains a sticky footer (quick-reply bar) and fixed header that can completely hide a focused element when users tab through the interface. SC 2.4.11 (Level AA) requires that when any UI component receives keyboard focus, it is not entirely hidden by author-created content. This is a new WCAG 2.2 requirement not addressed by the existing WCAG 2.1 keyboard accessibility story.",
+      "acceptanceCriteria": [
+        "Tabbing through all focusable elements in the webchat widget never results in a focused element being 100% obscured by the sticky quick-reply bar or header",
+        "CSS scroll-padding or equivalent technique is applied so the viewport scrolls to reveal focused elements beneath fixed UI chrome",
+        "Verified with keyboard-only navigation on at least two screen sizes (mobile 375px and desktop 1280px)",
+        "Automated axe-core or playwright accessibility scan reports zero SC 2.4.11 violations"
+      ],
+      "technicalNotes": [
+        "Sufficient technique: C43 — CSS scroll-padding on scrollable container to offset sticky header/footer height",
+        "Test tool: axe-core 4.8+ includes SC 2.4.11 rules; or manual keyboard test",
+        "Applies to: webchat widget's message list, order confirmation form, and any modal dialogs"
+      ],
+      "dependencies": [
+        "WCAG 2.1 AA keyboard accessibility for webchat widget"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-925",
+      "title": "WCAG 2.2 SC 2.5.8: Enforce 24x24 CSS pixel minimum touch target size in webchat widget",
+      "priority": "high",
+      "description": "SC 2.5.8 (Level AA, new in WCAG 2.2) requires that all pointer-activated controls are at least 24x24 CSS pixels, or that undersized targets have sufficient spacing so a 24px diameter circle does not intersect adjacent targets. The webchat widget contains several small controls (close button, reaction icons, quick-reply chips) that likely fall below this threshold on mobile devices.",
+      "acceptanceCriteria": [
+        "All interactive controls in the webchat widget (send button, close/minimize, quick-reply chips, scroll-to-bottom button) measure at least 24x24 CSS pixels via computed style inspection",
+        "Where controls are smaller than 24x24px, a 24px diameter circle centred on each control does not intersect any adjacent control",
+        "Verified on viewport widths of 320px, 375px, and 414px (common mobile screen widths)",
+        "No regression introduced to desktop layout at 1280px"
+      ],
+      "technicalNotes": [
+        "Inline text links are exempt from this criterion (SC 2.5.8 exception 3)",
+        "User-agent-rendered browser controls are also exempt",
+        "Implementation: increase padding rather than changing font size; use min-width/min-height with padding compensation",
+        "Check: react-devtools computed style or Playwright evaluate for getBoundingClientRect()"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-926",
+      "title": "WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat widget authentication",
+      "priority": "high",
+      "description": "SC 3.3.8 Accessible Authentication Minimum (Level AA, new in WCAG 2.2) prohibits authentication processes that require users to memorise or manually transcribe information unless an alternative is provided. The webchat admin login and any widget-side identity verification must permit password manager autofill, copy-paste, and must not block browser autocomplete attributes. One-time code entry must also support paste.",
+      "acceptanceCriteria": [
+        "All password and OTP input fields in the webchat widget and admin panel have autocomplete attributes set to appropriate values (e.g., current-password, one-time-code)",
+        "JavaScript does not intercept paste events on credential input fields",
+        "No CAPTCHA requiring manual character transcription is used without a non-cognitive alternative (e.g., audio CAPTCHA or bypass)",
+        "Verified that a password manager (e.g., Bitwarden) can auto-fill credentials without error",
+        "If a CAPTCHA is present, at least one alternative authentication path exists"
+      ],
+      "technicalNotes": [
+        "autocomplete='current-password' is required on login forms per WCAG sufficient technique",
+        "Do not use onpaste='return false' or similar paste-blocking JS",
+        "Object recognition CAPTCHAs (select images of X) are permitted at AA level as they are exempt",
+        "WebAuthn / passkey authentication natively satisfies SC 3.3.8"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-927",
+      "title": "WhatsApp Flows: upgrade endpoint to Data API version 4.0 two-signature auth",
+      "priority": "high",
+      "description": "Meta released WhatsApp Flows Data API v4.0 in November 2025 introducing a two-signature authentication mechanism. The second signature is an optional flow token signature that businesses can verify to confirm requests originate from WhatsApp and have not been tampered with. Upgrading to v4.0 in Flow JSON hardens the existing encrypted data-exchange endpoint against replay and forgery attacks — particularly important for the guest digital check-in flow that handles personal data.",
+      "acceptanceCriteria": [
+        "All WhatsApp Flow JSON files served by Rainbow AI have data_api_version set to '4.0'",
+        "The Flows endpoint handler verifies the platform-side HMAC signature on every incoming request",
+        "Optionally, the flow token signature is also verified when RAINBOW_FLOWS_VERIFY_TOKEN_SIG=true is set",
+        "A rejected signature returns HTTP 401 and logs a security event with flow_id and timestamp",
+        "Existing flow functionality (check-in form, reservation form) is not broken after upgrade",
+        "Unit test covers: valid signature passes, tampered body is rejected, missing signature is rejected"
+      ],
+      "technicalNotes": [
+        "Set data_api_version: '4.0' in Flow JSON — no functional behavior change, only security enhancement",
+        "Platform signature: HMAC-SHA256 of request body using app secret",
+        "Flow token signature: optional second HMAC for business-side token verification",
+        "Reference: WhatsApp Flows Changelog, November 11 2025 entry"
+      ],
+      "dependencies": [
+        "WhatsApp Flows encrypted data-exchange endpoint for guest digital check-in"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-928",
+      "title": "OWASP LLM01: Prompt injection input sanitisation and output fencing",
+      "priority": "high",
+      "description": "OWASP LLM Top 10 (2025) identifies Prompt Injection as the top security risk for LLM applications. A malicious WhatsApp or webchat user could craft messages that override the AI's system prompt, exfiltrate knowledge base content, or trigger unintended tool calls. Rainbow AI currently has no documented input sanitisation layer or output fencing between the AI response and tool execution.",
+      "acceptanceCriteria": [
+        "Inbound WhatsApp/webchat messages are scanned for known prompt injection patterns before being passed to the LLM (e.g., 'ignore previous instructions', role-play prefixes, base64-encoded instructions)",
+        "System prompt content is never reflected verbatim in AI responses — a post-processing check redacts content between <system> tags if present in output",
+        "Tool call arguments produced by the LLM are validated against a JSON schema before execution — no arbitrary SQL, shell commands, or URLs are accepted as tool inputs",
+        "Injection attempts are logged with the offending message content (redacted PII) and a security alert is emitted",
+        "Vitest unit tests cover: clean message passes, known injection pattern is flagged, tool argument schema violation is rejected"
+      ],
+      "technicalNotes": [
+        "Reference: OWASP LLM01:2025 Prompt Injection at genai.owasp.org/llm-top-10/",
+        "Pattern library: common injection strings (jailbreaks, DAN prompts, instruction override phrases)",
+        "Output fencing: post-process LLM response to strip <system>...</system> and [INST]...[/INST] blocks",
+        "Tool call validation: Zod schema parse on tool arguments before dispatch",
+        "Low false-positive risk: check patterns against message context (guest asking about rooms vs injection attempt)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-929",
+      "title": "OWASP LLM08: Excessive agency guardrails — restrict AI tool call permissions by intent",
+      "priority": "high",
+      "description": "OWASP LLM08 Excessive Agency identifies that LLMs granted broad tool access may take unintended high-impact actions. Rainbow AI's tool-call loop has access to booking, messaging, order submission, and housekeeping tools. Without intent-scoped tool permissions, a misclassified intent or adversarial prompt could trigger destructive actions. A permission matrix tying tool access to verified intent classes limits blast radius.",
+      "acceptanceCriteria": [
+        "A tool permission matrix is defined in config mapping each intent class to a whitelist of permitted tool names",
+        "The tool-call loop enforces the whitelist: any tool not in the permitted set for the active intent is rejected with a log entry",
+        "Destructive tools (cancel_booking, send_template_message, submit_order) require a minimum confidence threshold (>=0.85) before execution",
+        "If the AI attempts a disallowed tool call, the loop returns a safe fallback response rather than erroring",
+        "Vitest tests cover: allowed tool is called, disallowed tool is blocked, low-confidence destructive call is deferred to human"
+      ],
+      "technicalNotes": [
+        "Reference: OWASP LLM08:2025 Excessive Agency at genai.owasp.org/llm-top-10/",
+        "Config location: src/assistant/data/tool-permissions.json or extend routing.json",
+        "Confidence threshold enforcement: check intent.confidence before dispatching destructive tools",
+        "Audit log: record every tool dispatch with intent, tool name, confidence, and outcome"
+      ],
+      "dependencies": [
+        "Tiered confidence-based fallback with progressive escalation"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-930",
+      "title": "Malaysia PDPA: cross-border data transfer safeguards for AI provider API calls",
+      "priority": "high",
+      "description": "Malaysia PDPA Section 129 restricts transfer of personal data outside Malaysia unless the destination country provides adequate protection. Rainbow AI sends guest messages containing personal data to overseas AI providers (NVIDIA, OpenRouter, Ollama-cloud). The JPDP has confirmed cross-border transfer guidelines are being developed. Businesses must document and justify these transfers with a data transfer impact assessment.",
+      "acceptanceCriteria": [
+        "A data transfer inventory document lists all AI provider API calls that may include personal data, with provider name, country, and legal basis",
+        "System prompt and message payloads are checked against a PII scrubbing pipeline before being sent to any overseas AI provider endpoint",
+        "The privacy notice served to guests on first contact references cross-border data transfers and names the provider countries",
+        "An admin config option allows disabling overseas AI providers and falling back to a local Ollama instance to satisfy data residency requirements",
+        "Unit test: a message containing a Malaysian IC number or phone number is redacted before reaching the AI provider adapter"
+      ],
+      "technicalNotes": [
+        "Reference: Malaysia PDPA 2010 Act 709 Section 129 — Cross-border data transfer restriction",
+        "JPDP cross-border transfer workshop held August 2024 — guidelines pending",
+        "Complements existing story: Malaysia PDPA 2024 Amendment: PII masking before AI provider API calls",
+        "Additional requirement: document contractual safeguards (e.g., DPA / SCCs) with each overseas provider",
+        "Local Ollama fallback already exists in the provider chain — needs a config toggle"
+      ],
+      "dependencies": [
+        "Malaysia PDPA 2024 Amendment: PII masking before AI provider API calls"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-931",
+      "title": "WCAG 2.2 SC 2.5.7: Provide pointer alternatives to all drag operations in webchat widget",
+      "priority": "medium",
+      "description": "SC 2.5.7 (Level AA, new in WCAG 2.2) requires that any functionality achievable by dragging can also be achieved without dragging using a single pointer action. The webchat widget likely includes draggable elements (file upload drag-and-drop, possibly a resizable widget panel) that need single-click alternatives for users who cannot perform drag gestures.",
+      "acceptanceCriteria": [
+        "File/image upload via drag-and-drop also has a visible click-to-select file input alternative",
+        "If the webchat widget panel is resizable via dragging, an equivalent control (button or input) allows resizing without dragging",
+        "Any swipe-to-dismiss or drag-to-scroll custom controls have tap/click alternatives",
+        "Verified with mouse-only and touch simulation in Playwright with dragAndDrop disabled"
+      ],
+      "technicalNotes": [
+        "Sufficient technique: G219 — Ensuring an alternative is available for dragging movements",
+        "Most critical for: file/photo upload (drag-drop zone must have a fallback <input type=file>)",
+        "Dragging that is 'essential' to convey information is exempt (e.g., a signature pad)",
+        "Standard HTML <input type=file> already satisfies the requirement if the drag zone is supplemental"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-932",
+      "title": "WhatsApp Flows: Image Carousel for room and menu visual browsing",
+      "priority": "medium",
+      "description": "Flow JSON v7.1 (June 2025) introduced the Image Carousel component allowing up to 3 images per carousel, 2 carousels per screen, on a 4:3 or 16:9 aspect ratio. This enables rich visual browsing within WhatsApp Flows — showing hostel room types with photos during the check-in/booking flow, or displaying menu item images during the AI waiter ordering flow — without leaving the WhatsApp interface.",
+      "acceptanceCriteria": [
+        "The hostel booking/check-in Flow includes an Image Carousel displaying up to 3 room-type photos with alt-text",
+        "The Makan Moments ordering Flow includes an Image Carousel for featured menu items with alt-text on each image",
+        "Images are base64-encoded PNG or JPEG, each under 100KB to avoid payload bloat",
+        "alt-text is populated from the room/menu item description fields in the admin data",
+        "Flow renders correctly on WhatsApp iOS, Android, and WhatsApp Web (Web support from Dec 2025)",
+        "Fallback text is shown if images fail to load"
+      ],
+      "technicalNotes": [
+        "Component: type: 'ImageCarousel', images array max 3 items, aspect-ratio: '4:3' | '16:9'",
+        "Images require base64 encoding in Flow JSON src field — pre-encode at flow publish time",
+        "No on-click-action support — carousel is display-only; pair with downstream ChipsSelector for selection",
+        "Maximum 2 carousels per screen, 3 total per flow",
+        "WebP format requires iOS 14.6+ — use JPEG/PNG for maximum compatibility"
+      ],
+      "dependencies": [
+        "WhatsApp Flows structured form for table/room reservation"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-933",
+      "title": "LLM output validation: schema-check structured AI responses before downstream use",
+      "priority": "medium",
+      "description": "Google's 5 Pillars of LLM Reliability identifies output validation as essential for production systems. Rainbow AI's pipeline trusts LLM-generated JSON (e.g., extracted order items, intent classifications, slot values) without schema validation. Malformed or hallucinated structured outputs can cause silent data corruption, order submission errors, or POS integration failures when the downstream system receives unexpected shapes.",
+      "acceptanceCriteria": [
+        "All LLM responses expected to be structured JSON are parsed through a Zod schema before use",
+        "Schema validation failures are caught, logged with the raw response, and trigger a graceful retry or fallback response",
+        "The order extraction output (items, quantities, special instructions) is validated against the OrderSchema before cart mutation",
+        "Intent classification output is validated: intent must be a known enum value, confidence must be 0-1 float",
+        "Validation error rate is tracked as a metric in the analytics pipeline (target: < 1% of LLM calls)"
+      ],
+      "technicalNotes": [
+        "Reference: Google Cloud blog 'The Five Pillars of LLM Reliability' — Pillar 1: Output Validation",
+        "Use existing Zod schemas in src/assistant/schemas.ts as validation layer",
+        "Structured output mode (NVIDIA/OpenRouter) reduces validation failures but does not eliminate them",
+        "Add z.safeParse() wrapper around all chatWithTools responses that return structured data"
+      ],
+      "dependencies": [
+        "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-934",
+      "title": "WhatsApp Flows: health and error monitoring with automated recovery alerts",
+      "priority": "medium",
+      "description": "Meta provides a dedicated Flow Health and Monitoring capability for WhatsApp Flows. Currently Rainbow AI has no observability into flow-level errors: failed endpoint calls, user abandonment, decryption failures, or timeout events. Systematic monitoring of flow health metrics enables proactive detection of broken check-in or order flows before they impact guests at scale.",
+      "acceptanceCriteria": [
+        "A scheduled job (every 15 minutes) polls the WhatsApp Flows health API and records: flow status, error count, endpoint response time, and last failure reason",
+        "An admin dashboard panel displays per-flow health status with a traffic-light indicator (healthy / degraded / broken)",
+        "If a flow's error rate exceeds 5% over a 1-hour window, a WhatsApp alert is sent to the admin number",
+        "Flow endpoint failures (non-200 responses, decryption errors) are logged with flow_id, screen_id, and error code",
+        "Recovery procedure: if a flow is marked broken, the system falls back to a text-based alternative workflow and notifies admins"
+      ],
+      "technicalNotes": [
+        "Reference: WhatsApp Flows guides — Flow Health and Monitoring guide section",
+        "Flows health data accessible via WhatsApp Business Management API: GET /{flow-id}/health",
+        "Error codes: 4xx = client/config error; 5xx = endpoint error; specific codes in Flows error codes reference",
+        "Integrate with existing daily fallback rate alert notification infrastructure"
+      ],
+      "dependencies": [
+        "WhatsApp Flows encrypted data-exchange endpoint for guest digital check-in"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-935",
+      "title": "WhatsApp outbound template language variants for multilingual guest communication",
+      "priority": "medium",
+      "description": "WhatsApp Business introduced message translation capabilities in 2025, enabling customers to receive messages in their preferred language. For Pelangi Capsule Hostel serving international guests, proactive WhatsApp template messages (pre-arrival sequences, booking confirmations) should be sent in the guest's preferred language using pre-localised template variants, complementing the existing detectedLanguage pipeline.",
+      "acceptanceCriteria": [
+        "Guest language preference (detected from first conversation) is stored in the guest profile and used when selecting outbound template message language variants",
+        "Pre-arrival WhatsApp template messages are available in at least 3 language variants: English, Mandarin Chinese, and Malay",
+        "If no language preference is stored, the system defaults to English for outbound templates",
+        "An admin can override the language preference per-guest via the admin panel",
+        "Vitest test: guest with detectedLanguage='zh' receives the zh template variant in outbound pre-arrival message"
+      ],
+      "technicalNotes": [
+        "Template variants: create separate approved templates for each language in WhatsApp Manager (en, zh_CN, ms)",
+        "Template language code must match WhatsApp's supported BCP-47 locale codes (zh_CN, zh_TW, ms, ta)",
+        "Store guest.preferredLanguage in rainbow_conversations or app_settings table",
+        "Link to existing stories: Pre-arrival automated WhatsApp message sequence; Automatic language detection for Chinese and Tamil"
+      ],
+      "dependencies": [
+        "Pre-arrival automated WhatsApp message sequence for confirmed hostel bookings",
+        "Automatic language detection and response in Chinese and Tamil"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-936",
+      "title": "WhatsApp Flows: validate web companion rendering after Dec 2025 support launch",
+      "priority": "medium",
+      "description": "Meta announced in November 2025 that WhatsApp Flows would begin rendering on WhatsApp Web companions starting early December 2025. Previously, flows only worked on mobile. This change means guests using WhatsApp Web can now complete check-in forms, reservation flows, and order flows — but existing flows must be validated for the desktop rendering context, as layout assumptions made for mobile screens may break.",
+      "acceptanceCriteria": [
+        "All production WhatsApp Flows (check-in, reservation, feedback) are tested and render correctly on WhatsApp Web in Chrome and Firefox",
+        "No Flow screen uses mobile-only dimensions or pixel widths that break on the WhatsApp Web desktop viewport",
+        "Image Carousel components render and are navigable on WhatsApp Web",
+        "Flow completion triggers the same endpoint callback regardless of whether initiated from mobile or web companion",
+        "A test checklist is added to the Flows testing runbook covering WhatsApp Web verification steps"
+      ],
+      "technicalNotes": [
+        "Reference: WhatsApp Flows Changelog, November 11 2025 — 'Beginning in early December 2025, we will begin supporting Flows on WhatsApp Web'",
+        "Web companion support means the same Flow JSON is rendered — no separate web-specific Flow JSON needed",
+        "Primary concern: image sizing, scroll behaviour, and input component layout at wider viewports",
+        "Test environment: use WhatsApp Web at web.whatsapp.com with a test WABA phone number"
+      ],
+      "dependencies": [
+        "WhatsApp Flows encrypted data-exchange endpoint for guest digital check-in"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-937",
+      "title": "AI waiter: multi-language menu item name lookup for Chinese and Malay terms",
+      "priority": "medium",
+      "description": "Makan Moments Cafe serves a multilingual Malaysian customer base. Guests ordering in Mandarin or Malay may use localised item names that do not match the English menu item names stored in the system (e.g., '炒饭' for fried rice, 'nasi goreng' for fried rice). The AI waiter's menu item disambiguation logic only matches against English names, causing unresolved items and fallback responses for non-English orders.",
+      "acceptanceCriteria": [
+        "Each menu item record supports an optional translations object with keys for 'ms' (Malay) and 'zh' (Simplified Chinese)",
+        "The menu item disambiguation tool searches across all localised name variants, not just English",
+        "A guest ordering 'nasi goreng' resolves to the same item as 'fried rice' in the cart",
+        "A guest ordering '炒饭' resolves to the same item when zh translation is configured",
+        "Admin panel menu sync API includes a translations field in the menu item schema",
+        "Vitest test: order in Malay resolves correct item; order in Chinese resolves correct item; unrecognised term returns disambiguation prompt"
+      ],
+      "technicalNotes": [
+        "Extend menu item schema: add translations: Record<string, string> field",
+        "Disambiguation lookup: search translations values in addition to item.name",
+        "Fuzzy match: apply existing fuzzy matching (Levenshtein/trigram) across all locale variants",
+        "Complements: Menu item disambiguation story (English) and Automatic language detection story"
+      ],
+      "dependencies": [
+        "Menu item disambiguation: handle partial or ambiguous item names in orders",
+        "Automatic language detection and response in Chinese and Tamil"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-938",
+      "title": "LLM reliability: exponential backoff with jitter on AI provider timeouts",
+      "priority": "medium",
+      "description": "Google's 5 Pillars of LLM Reliability recommends exponential backoff with jitter for transient AI provider failures to avoid thundering herd. Rainbow AI's current provider failover switches to the next provider immediately on error, but does not retry the same provider with backoff for transient timeout errors. This causes unnecessary provider switches for brief network blips, increasing cost and latency variance.",
+      "acceptanceCriteria": [
+        "Provider timeout errors (HTTP 429, 503, or network timeout) trigger a retry on the same provider with exponential backoff: 1s, 2s, 4s (max 3 retries)",
+        "Each retry delay includes plus/minus 20% random jitter to avoid synchronised retries from concurrent conversations",
+        "After max retries are exhausted, failover to the next provider in the chain is triggered",
+        "HTTP 400/401/422 (permanent errors) do not trigger retry — they immediately fail over",
+        "Retry attempt count and total latency are logged per conversation for observability",
+        "Vitest test: 429 response triggers 3 retries with backoff before failing over; 401 immediately fails over"
+      ],
+      "technicalNotes": [
+        "Reference: Google Cloud blog 'The Five Pillars of LLM Reliability' — Pillar 2: Retry Logic",
+        "Implementation: src/lib/failover.ts — add retry wrapper around provider call with backoff calculator",
+        "Backoff formula: delay = Math.min(baseDelay * 2^attempt, maxDelay) * (1 + jitter * (Math.random() - 0.5) * 2)",
+        "Complements existing story: Baileys circuit breaker — apply same pattern to AI providers"
+      ],
+      "dependencies": [
+        "chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-939",
+      "title": "Stripe payment link generation: send checkout URL via WhatsApp for hostel bookings",
+      "priority": "medium",
+      "description": "Stripe Payment Links allow businesses to create shareable checkout URLs that can be sent via WhatsApp messages. For Pelangi Capsule Hostel, a guest confirming a room booking via WhatsApp AI should receive a Stripe payment link in-chat to complete deposit payment — avoiding full WhatsApp Pay integration complexity while providing a trackable, secure payment flow without leaving the conversation.",
+      "acceptanceCriteria": [
+        "When a hostel booking intent is confirmed with a room type and dates, the AI (or admin trigger) generates a Stripe Payment Link for the deposit amount via the Stripe API",
+        "The payment link is sent as a WhatsApp message with the deposit amount and expiry time",
+        "UTM parameters (utm_source=whatsapp, utm_medium=chat, utm_campaign=booking) are appended to the link for reconciliation",
+        "On successful payment, Stripe webhook notifies Rainbow AI, which sends a confirmation WhatsApp message with booking reference",
+        "Payment links expire after 24 hours; expired link detection triggers a re-send prompt",
+        "Admin dashboard shows pending vs completed payment links per conversation"
+      ],
+      "technicalNotes": [
+        "Stripe Payment Links API: POST /v1/payment_links with price, after_completion, and metadata",
+        "UTM tracking: append url_parameters to Stripe Payment Link for conversion attribution",
+        "Stripe webhook event: checkout.session.completed triggers booking confirmation in Rainbow AI",
+        "For Malaysia: Stripe supports MYR and FPX, Visa, Mastercard payment methods",
+        "Complements but is simpler than: WhatsApp in-chat Webview for mobile payment page"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-940",
+      "title": "Admin panel: WhatsApp Business profile management (hours, address, description, category)",
+      "priority": "low",
+      "description": "WhatsApp Business Management API allows businesses to read and update their Business Profile fields: description, address, email, website URL, business hours, and vertical/category. Currently there is no admin UI in Rainbow AI to manage these fields — operators must use Meta Business Suite directly. Centralising profile management in the admin panel reduces context switching and enables profile updates when property details change.",
+      "acceptanceCriteria": [
+        "Admin panel includes a 'Business Profile' settings page for each WhatsApp-enabled profile",
+        "Fields editable: business description (max 256 chars), address, email, website, business hours per day, and business category/vertical",
+        "Saving changes calls the WhatsApp Business Management API PATCH endpoint and confirms success",
+        "Current profile data is fetched from the API and pre-populated on page load",
+        "Business hours support closed days and custom hours per day of week",
+        "Changes are recorded in the existing admin audit log with before/after diff"
+      ],
+      "technicalNotes": [
+        "API: PATCH /{phone-number-id}/whatsapp_business_profile",
+        "Fields: about, address, description, email, vertical, websites[], business_hours",
+        "business_hours format: array of {day_of_week, open_time, close_time} or 'ALWAYS_OPEN' / 'CLOSED'",
+        "Link to: Admin audit log for configuration changes story (audit trail)"
+      ],
+      "dependencies": [
+        "Admin audit log for configuration changes with before/after diff"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
     }
   ]
 }
