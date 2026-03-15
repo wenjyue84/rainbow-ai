@@ -16,20 +16,22 @@ import { badRequest, serverError } from './http-utils.js';
 const router = Router();
 
 // ─── Constants ─────────────────────────────────────────────────────
+// US-890: Meta removed 250 and 2000 tiers in Q2 2026 — verified businesses get 100K/day flat
 const TIER_LIMITS: Record<string, number> = {
-  '250': 250,
-  '2000': 2_000,
   '10000': 10_000,
   '100000': 100_000,
   'unlimited': Infinity,
 };
+
+// Tiers removed in Q2 2026; requests using these must be rejected with 400
+const REMOVED_TIERS = new Set(['250', '2000']);
 
 const VALID_TIERS = Object.keys(TIER_LIMITS);
 
 const SETTING_KEY_TIER = 'rainbow_portfolio_tier';
 const SETTING_KEY_TIER_UPDATED = 'rainbow_portfolio_tier_updated_at';
 
-const DEFAULT_TIER = '250';
+const DEFAULT_TIER = '100000';
 
 // ─── In-memory cache (10s TTL) ─────────────────────────────────────
 let _cache: { data: any; expiry: number } | null = null;
@@ -95,7 +97,13 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
 router.put('/analytics/messaging-limits/tier', async (req: Request, res: Response) => {
   try {
     const { tier } = req.body;
-    if (!tier || !VALID_TIERS.includes(String(tier))) {
+    if (!tier) {
+      return badRequest(res, `Tier is required. Must be one of: ${VALID_TIERS.join(', ')}`);
+    }
+    if (REMOVED_TIERS.has(String(tier))) {
+      return badRequest(res, `Tier '${tier}' was removed in Q2 2026. Valid tiers: ${VALID_TIERS.join(', ')}`);
+    }
+    if (!VALID_TIERS.includes(String(tier))) {
       return badRequest(res, `Invalid tier. Must be one of: ${VALID_TIERS.join(', ')}`);
     }
 
@@ -144,4 +152,38 @@ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Respons
 export default router;
 
 // ─── Exported for use by notification scheduler ────────────────────
-export { TIER_LIMITS, getCurrentTier, get24hOutboundCount };
+export { TIER_LIMITS, REMOVED_TIERS, VALID_TIERS, getCurrentTier, get24hOutboundCount };
+
+// ─── Startup migration (US-890) ─────────────────────────────────────────────
+/**
+ * Auto-migrate legacy tiers '250' and '2000' to '10000' on server startup.
+ * Emits a single admin notification when migration runs.
+ */
+export async function migrateLegacyTiers(): Promise<void> {
+  try {
+    const tier = await getCurrentTier();
+    if (!REMOVED_TIERS.has(tier)) return;
+
+    const migratedTo = '10000';
+    const now = new Date().toISOString();
+
+    await db.insert(appSettings)
+      .values({ key: SETTING_KEY_TIER, value: migratedTo, description: 'WhatsApp Business Portfolio messaging tier', updatedBy: null })
+      .onConflictDoUpdate({ target: [appSettings.key], set: { value: migratedTo, updatedAt: sql`NOW()` } });
+
+    await db.insert(appSettings)
+      .values({ key: SETTING_KEY_TIER_UPDATED, value: now, description: 'When the portfolio tier was last updated', updatedBy: null })
+      .onConflictDoUpdate({ target: [appSettings.key], set: { value: now, updatedAt: sql`NOW()` } });
+
+    _cache = null;
+    console.log(`[MessagingLimits] Auto-migrated legacy tier '${tier}' → '${migratedTo}' (Q2 2026 tier removal)`);
+
+    // Fire-and-forget admin notification (non-critical)
+    try {
+      const { notifyAdminConfigError } = await import('../../lib/admin-notifier.js');
+      await notifyAdminConfigError(`📊 Messaging tier auto-migrated: '${tier}' → '${migratedTo}' (Meta removed 250/2000 tiers in Q2 2026)`);
+    } catch (_) { /* notification is non-critical */ }
+  } catch (err) {
+    console.warn('[MessagingLimits] Legacy tier migration failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+}

@@ -179,6 +179,11 @@ loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost da
 // US-495: Load today's WhatsApp message cost accumulators from DB
 loadTodayWhatsappCosts().catch(err => console.warn('[Startup] Failed to load WhatsApp cost data:', err.message));
 
+// US-890: Auto-migrate legacy messaging tiers (250, 2000) → 10000 on startup
+import('./routes/admin/messaging-limits.js')
+  .then(m => m.migrateLegacyTiers())
+  .catch(err => console.warn('[Startup] Messaging tier migration skipped:', err.message));
+
 // US-495: Start daily WhatsApp cost aggregation log
 startWhatsappCostDailyJob();
 

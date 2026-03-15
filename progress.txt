@@ -7787,3 +7787,36 @@ This technical brief is based on the provided JSON user story. Note that the sto
 
 ## Iteration 1 - Sun, Mar 15, 2026  9:23:45 AM
 Completed: Fix and test: streamChatWithTools avoids redundant second provider call (ID: US-889) in 3m
+## Iteration 2 - Sun, Mar 15, 2026  9:24:30 AM
+Completed: Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text (ID: US-889) in 4m
+
+
+## Pre-analysis for US-845 (Gemini 2.5 Pro)
+Based on the user story for **US-845**, here is a technical brief for the implementation agent.
+
+**Note:** The user story specifies a Node.js/TypeScript environment (`.ts` files), not Frappe/Python. This brief follows the provided technical notes.
+
+### Technical Brief: WhatsApp Per-Message Cost Tracking
+
+**1. Python Files to Modify (Node.js/TypeScript Equivalents):**
+*   `src/routes/admin/whatsapp-cost.ts`: Main logic file for cost calculation. Add new `per-message` calculation logic here.
+*   `src/services/whatsapp-sender.ts` (or similar): The core message sending service where the cost increment needs to be triggered upon each successful outbound message.
+*   `src/types/profile-settings.ts` (or similar): Define the new `billing.pricingModel` type.
+*   `src/routes/admin/dashboard.tsx` (or similar frontend component): Update the UI to display the new cost model data.
+*   `src/assistant/__tests__/whatsapp-cost.test.ts`: Add unit tests for the per-message pricing model.
+
+**2. Frappe DocTypes/Hooks (Node.js Equivalents):**
+*   **Configuration:** The change centers on a new setting in the profile-specific `settings.json`.
+*   **Function Hook:** The "hook" will be a call to a new cost-incrementing function from within the primary outbound message-sending method.
+
+**3. Recommended Implementation Approach:**
+1.  Extend the settings interface to include `billing: { pricingModel: 'per_conversation' | 'per_message' }`.
+2.  In `whatsapp-cost.ts`, create a new function to calculate costs based on message counts and categories (marketing/utility).
+3.  Modify the core message-sending function to determine the message category and increment a persistent counter (e.g., in a database or Redis) after each message is sent, but only if `pricingModel` is `'per_message'`.
+4.  Update the admin dashboard's data endpoint to provide both cost estimates. The frontend should visually distinguish between the active and inactive models.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure a default of `'per_conversation'` is handled gracefully for profiles without the new setting.
+*   The "proactive = marketing" rule is a heuristic. The system should be designed to accommodate more explicit message categorization in the future.
+*   Hardcoded MYR currency rates should be easily configurable, ideally within `settings.json`, to handle future price changes.
+

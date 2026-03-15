@@ -6,7 +6,7 @@
 SPIRAL_PYTHON="python"
 
 # ── Validation command (Phase V) — includes browser smoke tests ───────
-SPIRAL_VALIDATE_CMD="npm run build 2>&1 | tail -20 && npm run test:run 2>&1 | tail -40 --suite browser"
+SPIRAL_VALIDATE_CMD="npm run build 2>&1 | tail -20 && npm run test:run 2>&1 | tail -40"
 
 # ── Test reports directory ───────────────────────────────────────────
 SPIRAL_REPORTS_DIR="test-reports"
