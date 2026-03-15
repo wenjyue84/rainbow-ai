@@ -11092,3 +11092,30 @@ This brief outlines the implementation plan for the PDPA biometric consent featu
 - Entity omission confidence needed 0.75 (not 0.35) to cross the detection threshold alone
 - "No context loss" test needed clean data without prices — RM comparisons trigger false positives for legitimate multi-tier pricing scenarios
 - summarization test avoided full integration (configStore/pruneContext mocking complexity); tested through detectContextLoss directly
+## Iteration 1 - Mon, Mar 16, 2026  6:25:48 AM
+Incomplete: Malaysia PDPA 2024: biometric data classification guard for passport/IC OCR (ID: US-994) — attempt 1/3
+
+
+## Iteration 17 - Story: US-994 Malaysia PDPA 2024: biometric data classification guard for passport/IC OCR
+### What was implemented
+- `src/assistant/biometric-consent.ts`: New module implementing biometric data consent guard per PDPA Amendment Act 2024 Phase 2:
+  - `biometric_consent_records` table: jid_hash, profile_id, consent_granted, consent_method, requested_at, responded_at (UNIQUE on jid_hash+profile_id)
+  - In-memory cache with `loadBiometricConsentCache()` startup loader
+  - `requireBiometricConsent()`: Guard function — checks cache, returns allowed/blocked with consent request message
+  - `hasBiometricConsent()` / `hasPendingBiometricConsent()`: Cache lookups
+  - `grantBiometricConsent()` / `revokeBiometricConsent()`: Record/revoke with audit logging
+  - `handleBiometricConsentResponse()`: Processes YES/NO replies from guests
+  - `buildConsentRequestMessage()`: Trilingual consent request (en/ms/zh) explaining PDPA requirements
+  - `getBiometricConsentByJid()`: Admin API helper for consent record lookup
+  - All consent grant/revoke events logged to `security_event_log` for auditability
+- `src/assistant/data/settings.json`: Added `pdpa.biometric_consent.enabled` toggle
+- `src/assistant/__tests__/biometric-consent.test.ts`: 20 tests covering all acceptance criteria
+### Patterns discovered
+- Extended existing consent.ts pattern (hashJid, in-memory cache, pool.query) for biometric-specific consent
+- Consent has 3 states: none → pending (requested) → granted/declined — cache tracks boolean per JID hash
+- Trilingual messages follow same pattern as checkin-form-flow.ts (en/ms/zh with Record<string, string>)
+- Guard function designed to be called BEFORE any OCR API call — raw image bytes never touch disk/DB
+### Gotchas
+- Consent messages use `Personal Data Protection Act` not `PDPA` abbreviation — tests needed adjustment
+- Bullet point lists in WhatsApp use `•` not `-` for proper rendering
+- The guard is a contract: callers must not persist raw images — the guard documents this but cannot enforce it at runtime
