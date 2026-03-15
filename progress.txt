@@ -9040,3 +9040,24 @@ Completed: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification
 ## Iteration 7 - Sun, Mar 15, 2026  7:48:32 PM
 Completed: WhatsApp Flows structured form for table/room reservation (ID: US-909) in 9m
 
+
+## Iteration N - Story: US-927 WhatsApp Flows Data API v4.0 Two-Signature Auth
+### What was implemented
+- Updated `src/assistant/data/flows/reservation-flow.json`: data_api_version 3.0 → 4.0
+- Added `verifyFlowPlatformSignature()` and `verifyFlowTokenSignature()` to `src/lib/whatsapp/flow-crypto.ts`
+  - Platform sig: HMAC-SHA256 of raw body using META_APP_SECRET (X-Hub-Signature-256 header)
+  - Token sig: optional HMAC-SHA256 of flow_token using RAINBOW_FLOWS_TOKEN_SECRET (X-Hub-Flow-Token-Signature header)
+- Updated `src/routes/public/whatsapp-flows.ts`: signature verification before decryption
+  - Platform sig checked on every request when META_APP_SECRET is set
+  - Token sig checked when RAINBOW_FLOWS_VERIFY_TOKEN_SIG=true
+  - Rejected signatures return HTTP 401 with security event logged (reason + timestamp)
+- Created `src/routes/public/__tests__/whatsapp-flows-v4.test.ts`: 9 unit tests (all passing)
+
+### Patterns discovered
+- rawBody is available on all requests via captureRawBody middleware wired into express.json()
+- META_APP_SECRET is already used for webhook validation — same secret reused for Flows v4.0
+- Flows endpoint type must be `Request & { rawBody?: Buffer }` to access raw body
+
+### Gotchas
+- The warning about META_APP_SECRET fires at module load time (not per-request) to match webhook pattern
+- prd.json has Unicode content requiring explicit UTF-8 encoding in Python

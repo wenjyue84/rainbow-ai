@@ -114,3 +114,88 @@ export function encryptFlowResponse(
 export function isFlowCryptoConfigured(): boolean {
   return !!process.env.WA_FLOWS_PRIVATE_KEY;
 }
+
+// ─── Data API v4.0 Two-Signature Auth (US-927) ───────────────────────────────
+
+export interface FlowSignatureResult {
+  valid: boolean;
+  reason?: string;
+}
+
+/**
+ * Verify the platform-side HMAC-SHA256 signature sent by Meta on every
+ * WhatsApp Flows Data API v4.0 request.
+ *
+ * Meta sends:  X-Hub-Signature-256: sha256=<hex>
+ * Computed as: HMAC-SHA256(rawRequestBody, META_APP_SECRET)
+ *
+ * @param rawBody   Raw request body Buffer (from captureRawBody middleware)
+ * @param sigHeader Value of the X-Hub-Signature-256 header
+ * @param appSecret META_APP_SECRET env value
+ */
+export function verifyFlowPlatformSignature(
+  rawBody: Buffer,
+  sigHeader: string,
+  appSecret: string,
+): FlowSignatureResult {
+  if (!appSecret) {
+    return { valid: false, reason: 'META_APP_SECRET not configured' };
+  }
+  if (!sigHeader) {
+    return { valid: false, reason: 'Missing X-Hub-Signature-256 header' };
+  }
+
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+
+  const sigBuf = Buffer.from(sigHeader);
+  const expectedBuf = Buffer.from(expected);
+
+  if (
+    sigBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(sigBuf, expectedBuf)
+  ) {
+    return { valid: false, reason: 'Signature mismatch' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Optionally verify the flow token signature (second HMAC in v4.0).
+ *
+ * Meta sends:  X-Hub-Flow-Token-Signature: sha256=<hex>
+ * Computed as: HMAC-SHA256(flowToken, RAINBOW_FLOWS_TOKEN_SECRET)
+ *
+ * Only called when RAINBOW_FLOWS_VERIFY_TOKEN_SIG=true.
+ *
+ * @param flowToken  The plain-text flow_token from the decrypted payload
+ * @param sigHeader  Value of the X-Hub-Flow-Token-Signature header
+ * @param tokenSecret RAINBOW_FLOWS_TOKEN_SECRET env value
+ */
+export function verifyFlowTokenSignature(
+  flowToken: string,
+  sigHeader: string,
+  tokenSecret: string,
+): FlowSignatureResult {
+  if (!tokenSecret) {
+    return { valid: false, reason: 'RAINBOW_FLOWS_TOKEN_SECRET not configured' };
+  }
+  if (!sigHeader) {
+    return { valid: false, reason: 'Missing X-Hub-Flow-Token-Signature header' };
+  }
+
+  const expected =
+    'sha256=' + crypto.createHmac('sha256', tokenSecret).update(flowToken).digest('hex');
+
+  const sigBuf = Buffer.from(sigHeader);
+  const expectedBuf = Buffer.from(expected);
+
+  if (
+    sigBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(sigBuf, expectedBuf)
+  ) {
+    return { valid: false, reason: 'Flow token signature mismatch' };
+  }
+
+  return { valid: true };
+}

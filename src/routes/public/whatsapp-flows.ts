@@ -1,17 +1,24 @@
 /**
- * WhatsApp Flows Data Exchange Endpoint (US-909)
+ * WhatsApp Flows Data Exchange Endpoint (US-909, US-927)
  *
  * Handles encrypted data-exchange requests from Meta's WhatsApp Flows.
  * Supports INIT (populate dynamic dropdowns), check_availability,
  * and submit_reservation actions.
+ *
+ * US-927: Data API v4.0 two-signature auth
+ *   - Platform-side HMAC-SHA256 verified on every request (X-Hub-Signature-256)
+ *   - Optional flow token signature when RAINBOW_FLOWS_VERIFY_TOKEN_SIG=true
  *
  * Endpoints:
  *   POST /api/rainbow/flows/data-exchange  — encrypted payload handler
  *   GET  /api/rainbow/flows/health         — health-check ping
  *
  * Required env vars:
- *   WA_FLOWS_PRIVATE_KEY  — RSA private key for decryption
- *   WA_FLOWS_PASSPHRASE   — optional passphrase for the key
+ *   WA_FLOWS_PRIVATE_KEY          — RSA private key for decryption
+ *   WA_FLOWS_PASSPHRASE           — optional passphrase for the key
+ *   META_APP_SECRET               — platform HMAC verification (v4.0)
+ *   RAINBOW_FLOWS_VERIFY_TOKEN_SIG — set to 'true' to enable token sig check
+ *   RAINBOW_FLOWS_TOKEN_SECRET    — secret for flow token HMAC (if above is set)
  */
 
 import { Router } from 'express';
@@ -21,6 +28,8 @@ import {
   decryptFlowRequest,
   encryptFlowResponse,
   isFlowCryptoConfigured,
+  verifyFlowPlatformSignature,
+  verifyFlowTokenSignature,
 } from '../../lib/whatsapp/flow-crypto.js';
 import { sendWhatsAppMessage } from '../../lib/whatsapp/index.js';
 
@@ -208,13 +217,49 @@ router.get('/flows/health', (_req: Request, res: Response) => {
   });
 });
 
+// ─── Data API v4.0 signature configuration ──────────────────────────
+const META_APP_SECRET_FLOWS = process.env.META_APP_SECRET ?? '';
+const VERIFY_TOKEN_SIG = process.env.RAINBOW_FLOWS_VERIFY_TOKEN_SIG === 'true';
+const FLOWS_TOKEN_SECRET = process.env.RAINBOW_FLOWS_TOKEN_SECRET ?? '';
+
+if (!META_APP_SECRET_FLOWS) {
+  console.warn(
+    '[wa-flows] WARNING: META_APP_SECRET is not set. ' +
+    'Data API v4.0 platform signature verification is DISABLED.',
+  );
+}
+
 // ─── Data Exchange Endpoint ─────────────────────────────────────────
-router.post('/flows/data-exchange', async (req: Request, res: Response) => {
+router.post('/flows/data-exchange', async (req: Request & { rawBody?: Buffer }, res: Response) => {
   // If crypto keys aren't configured, we can't process encrypted payloads
   if (!isFlowCryptoConfigured()) {
     console.warn('[wa-flows] Data exchange called but WA_FLOWS_PRIVATE_KEY not configured');
     res.status(421).json({ error: 'Flow encryption not configured' });
     return;
+  }
+
+  // ── US-927: Data API v4.0 platform signature verification ───────────
+  if (META_APP_SECRET_FLOWS) {
+    const rawBody = req.rawBody;
+    if (!rawBody || rawBody.length === 0) {
+      console.warn('[wa-flows] REJECTED: No raw body available for signature check');
+      res.status(400).json({ error: 'Request body unavailable for signature verification' });
+      return;
+    }
+
+    const sigHeader = typeof req.headers['x-hub-signature-256'] === 'string'
+      ? req.headers['x-hub-signature-256']
+      : '';
+
+    const platformResult = verifyFlowPlatformSignature(rawBody, sigHeader, META_APP_SECRET_FLOWS);
+    if (!platformResult.valid) {
+      console.warn(
+        `[wa-flows] SECURITY: Platform signature rejected — ${platformResult.reason} ` +
+        `flow_id=flows/data-exchange timestamp=${new Date().toISOString()}`,
+      );
+      res.status(401).json({ error: 'Invalid platform signature' });
+      return;
+    }
   }
 
   try {
@@ -236,6 +281,22 @@ router.post('/flows/data-exchange', async (req: Request, res: Response) => {
     const flowToken = decryptedBody.flow_token as string | undefined;
     const screenId = decryptedBody.screen as string | undefined;
     const senderPhone = decryptedBody.flow_token_payload?.phone as string | undefined;
+
+    // ── US-927: Optional flow token signature verification ─────────────
+    if (VERIFY_TOKEN_SIG && flowToken) {
+      const tokenSigHeader = typeof req.headers['x-hub-flow-token-signature'] === 'string'
+        ? req.headers['x-hub-flow-token-signature']
+        : '';
+      const tokenResult = verifyFlowTokenSignature(flowToken, tokenSigHeader, FLOWS_TOKEN_SECRET);
+      if (!tokenResult.valid) {
+        console.warn(
+          `[wa-flows] SECURITY: Flow token signature rejected — ${tokenResult.reason} ` +
+          `flow_id=flows/data-exchange timestamp=${new Date().toISOString()}`,
+        );
+        res.status(401).json({ error: 'Invalid flow token signature' });
+        return;
+      }
+    }
 
     console.log(
       `[wa-flows] Data exchange: action=${action ?? 'INIT'} screen=${screenId ?? 'none'} token=${flowToken ?? 'none'}`,
