@@ -12,6 +12,7 @@ import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
 import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
 import { logDataFlow } from '../lib/ai-data-flow-log.js';
+import { checkContextWindowUsage } from './context-window-monitor.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -482,6 +483,8 @@ export async function chatWithFallback(
         rateLimitManager.recordSuccess(provider.id);
         // Record token usage for cost tracking (US-433)
         recordLLMUsage(provider.id, provider.model, result.usage);
+        // US-978: Log total token count and alert when approaching 80% of context window
+        checkContextWindowUsage(provider.id, provider.model, result.usage);
         // Log cross-border data flow for PDPA compliance (US-915)
         logDataFlow({
           providerId: provider.id,

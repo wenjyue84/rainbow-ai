@@ -10287,3 +10287,29 @@ FAILED quality gates: Implement PDPA 2024 right to erasure (right to be forgotte
 ## Iteration 4 - Sun, Mar 15, 2026 11:57:02 PM
 FAILED quality gates: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-948) — attempt 2/3
 
+## Iteration 1 - Sun, Mar 15, 2026 11:58:06 PM
+Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: US-949) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-978 In-session LLM context window management with sliding summarisation
+### What was implemented
+- **AC1 (max_messages cap)**: Already existed — context-windows.ts caps at configurable cw.combined (default 20)
+- **AC2 (LLM-generated summary replaces oldest messages)**: Already existed — context-pruner.ts (Phase 2) summarizes older messages beyond keepRecentTurns when token budget exceeded; pipeline/stages/summarization.ts orchestrates 3-phase reduction (DB summary → message-count → token pruning)
+- **AC3 (cheap model for summarization)**: NEW — Modified context-pruner.ts to accept configurable `summarization_providers` from settings.json conversation_management section. When configured, summarization calls are routed to specific cheap/fast provider IDs via chatWithFallback's providerIds parameter. Changed from using generic `chat()` to direct `chatWithFallback()` call with provider routing.
+- **AC4 (summaries stored in DB)**: Already existed — conversation-summary-store.ts saves/loads contextSummary from rainbow_conversations table; pipeline stage loads and prepends stored summaries on subsequent turns
+- **AC5 (token count logging + 80% alert)**: NEW — Created context-window-monitor.ts with checkContextWindowUsage() that logs prompt/completion/total tokens for every LLM call and fires a warning when prompt_tokens exceeds configurable threshold (default 80%) of model's context window. Integrated into ai-provider-manager.ts after each successful provider call. Includes static registry of model context window sizes.
+### Files changed
+- `src/assistant/context-pruner.ts` — Switched from `chat()` to `chatWithFallback()` with configurable summarization_providers; enhanced summarization prompt to preserve user commitments, ordered items, outstanding questions
+- `src/assistant/context-window-monitor.ts` — NEW: Per-LLM-call token logging + 80% context window alerting with configurable threshold and model context window registry
+- `src/assistant/ai-provider-manager.ts` — Added checkContextWindowUsage import and call after recordLLMUsage
+- `src/assistant/data/settings.json` — Added summarization_providers and context_window_alert_threshold to conversation_management
+- `src/lib/data-retention.ts` — Fixed pre-existing duplicate `profile` variable declaration (esbuild blocker)
+### Patterns discovered
+- The existing codebase already had 80% of US-978 implemented across multiple modules (context-pruner, conversation-summary-store, pipeline/stages/summarization)
+- The pipeline orchestration (Phase 0: DB summary → Phase 1: message-count → Phase 2: token pruning) is well-structured
+- chatWithFallback already accepts optional providerIds parameter, making cheap-model routing straightforward
+### Gotchas
+- prd.json was replaced by a different spiral worker's PRD — had to restore from git commit 09f5279
+- data-retention.ts had a pre-existing build error (duplicate `const profile` declaration) that blocked esbuild — fixed
+### Status
+✅ All acceptance criteria met. Build passes. Story marked passes=true.

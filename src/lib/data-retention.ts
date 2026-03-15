@@ -245,7 +245,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
     .returning({ phone: rainbowConversations.phone });
 
-  const profile = profileId ?? 'pelangi';
   const result: PurgeResult = {
     profile,
     records_deleted: {
