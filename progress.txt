@@ -10021,3 +10021,30 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 35/35 PII output guard tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-919 QR code entry point campaign tracking with deep-link intent routing
+### What was implemented
+- **AC1**: Admin CRUD endpoints for QR campaigns (`POST/GET/PATCH/DELETE /qr-campaigns`). Each campaign has name, campaign label, pre-filled message, deep-link type (table/room/campaign), deep-link value, and WhatsApp number.
+- **AC2**: Deep-link parser (`parseDeepLink()`) recognizes `ORDER:TABLE:<n>`, `ROOM:<n>`, and `CAMPAIGN:<label>` formats. On match, session context is stored per-JID with table/room/campaign details.
+- **AC3**: Webhook referral tracking already exists (US-910) — `referral_source_type='qr_code'` stored in `rainbow_conversations`. Campaign scan count incremented via `matchAndTrackQrCampaign()`.
+- **AC4**: `GET /analytics/qr-campaigns` returns scan count per QR code, total QR-attributed conversations, with day-range filter. Groups by campaign with per-campaign metrics.
+- **AC5**: `GET /qr-campaigns/:id/qr.png` generates QR code PNG using `qrcode` library with error correction level H (High), 600px width (configurable up to 2000px), wa.me deep-link URL. Suitable for 300 DPI print.
+- **AC6**: Deep-link messages are intercepted in message-router BEFORE intent classification. Context-aware responses generated directly (e.g., "Welcome! You're at Table 5. Ready to take your order.") in 4 languages (en/ms/zh/ta).
+
+### Files changed
+- `shared/schema-tables.ts` — Added `qr_campaigns` table (id, profileId, name, campaignLabel, prefilledMessage, deepLinkType, deepLinkValue, whatsappNumber, scanCount, active)
+- `src/assistant/qr-deep-link.ts` — NEW: Deep-link parser, session context store, campaign matching, response generation
+- `src/routes/admin/qr-campaigns.ts` — NEW: CRUD + PNG export + analytics endpoints
+- `src/routes/admin/index.ts` — Registered qr-campaigns routes
+- `src/assistant/message-router.ts` — Added deep-link interception before typing indicator / intent classification
+- `src/assistant/__tests__/qr-deep-link.test.ts` — NEW: 18 tests for parsing, session context, and response generation
+
+### Patterns discovered
+- `qrcode` npm package already installed in project dependencies
+- Existing referral tracking (US-910) handles qr_code source type in conversation DB
+- Linter auto-removes unused imports — need to verify changes survive linter after each edit
+- wa.me deep links use format: `https://wa.me/<number>?text=<encoded_message>`
+
+### Status
+✅ Build passes (3 pre-existing warnings). 18/18 tests pass. All 6 acceptance criteria verified. Story marked passes=true.

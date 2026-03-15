@@ -841,3 +841,28 @@ export const pushNotificationLog = pgTable("push_notification_log", {
 
 export type PushNotificationLogEntry = typeof pushNotificationLog.$inferSelect;
 export type InsertPushNotificationLog = typeof pushNotificationLog.$inferInsert;
+
+// ─── US-919: QR Code Campaign Tracking ──────────────────────────────
+
+export const qrCampaigns = pgTable("qr_campaigns", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  name: text("name").notNull(),
+  campaignLabel: text("campaign_label"),
+  prefilledMessage: text("prefilled_message").notNull(),
+  deepLinkType: varchar("deep_link_type", { length: 32 }).notNull(),
+  deepLinkValue: text("deep_link_value"),
+  whatsappNumber: text("whatsapp_number"),
+  scanCount: integer("scan_count").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_qr_campaigns_profile").on(table.profileId),
+  index("idx_qr_campaigns_label").on(table.campaignLabel),
+  index("idx_qr_campaigns_active").on(table.active),
+  index("idx_qr_campaigns_type").on(table.deepLinkType),
+]));
+
+export type QrCampaign = typeof qrCampaigns.$inferSelect;
+export type InsertQrCampaign = typeof qrCampaigns.$inferInsert;

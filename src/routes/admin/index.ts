@@ -81,6 +81,7 @@ import analyticsLlmValidationRoutes from './analytics-llm-validation.js';
 import analyticsCostRoutes from './analytics-cost.js';
 import analyticsCartRecoveryRoutes from './analytics-cart-recovery.js';
 import analyticsPushRoutes from './analytics-push.js';
+import qrCampaignsRoutes from './qr-campaigns.js';
 
 const router = Router();
 
@@ -327,6 +328,7 @@ router.use(analyticsLlmValidationRoutes);
 router.use(analyticsCostRoutes);
 router.use(analyticsCartRecoveryRoutes);
 router.use(analyticsPushRoutes);
+router.use(qrCampaignsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
