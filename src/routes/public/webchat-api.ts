@@ -18,6 +18,7 @@ import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assista
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
+import { isModificationAllowed, getModificationRemainingSeconds } from '../../assistant/order-modification-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
@@ -227,7 +228,10 @@ function buildMakanMomentsContext(sessionId: string) {
 
   // US-876 AC3: Ops phone for KDS failure alerts
   const opsAlertPhone = (makanSettings?.staff as any)?.phones?.[0] ?? (makanSettings?.staff as any)?.jay_phone ?? '60127088789';
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments', opsAlertPhone });
+  // US-881: Read order modification window from settings
+  const orderModificationWindowMinutes: number | undefined = makanSettings?.orderModificationWindowMinutes;
+
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments', opsAlertPhone, orderModificationWindowMinutes });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);
@@ -347,7 +351,8 @@ function buildMakanMomentsContext(sessionId: string) {
     '',
     'PLACED stage: Order submitted. Cart is cleared.',
     '  • Thank the guest. Offer to help with anything else.',
-    '  • If they want to order again, start fresh from BROWSING.',
+    '  • If guest says "change my order" / "modify" / "I want to change", call order_modify_request.',
+    '  • If they want to order again (new order, not modification), start fresh from BROWSING.',
     '',
     'ORDER STATUS ENQUIRY: When the guest asks about their order status:',
     '  • Trigger phrases: "where is my order", "how long more", "is my food ready", "check my order", "order status".',
@@ -358,6 +363,11 @@ function buildMakanMomentsContext(sessionId: string) {
     lastOrderId
       ? `  • Last placed order ID: ${lastOrderId}`
       : '  • No order has been placed in this session yet.',
+    '',
+    '## Order Modification Window (US-881)',
+    isModificationAllowed(sessionId)
+      ? `Modification window is OPEN — ${getModificationRemainingSeconds(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
+      : 'No active modification window.',
   ].join('\n');
 
   return { allTools, allHandlers, systemPromptSuffix };

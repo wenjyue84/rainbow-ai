@@ -8071,3 +8071,41 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 - `data_types_affected` stored as JSON string in TEXT column (parsed on read)
 - HTML export uses template literals with inline styles for print-to-PDF compatibility
 - `retention_until` is computed at breach creation time, not enforced by automated deletion
+## Iteration 1 - Sun, Mar 15, 2026  4:01:25 PM
+Completed: PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC (ID: US-907) in 7m
+
+
+
+## Iteration 5 - Story: US-881 Order modification window after submission
+
+### What was implemented
+- New module `src/assistant/order-modification-store.ts`:
+  - `saveModificationSnapshot()` — saves order items, table info, orderId, window duration after placement
+  - `isModificationAllowed()` — checks time window AND kitchen acceptance flag
+  - `getModificationSnapshot()` / `clearModificationWindow()` — retrieval and cleanup
+  - `markKitchenAccepted()` — callable from KDS/POS webhook to lock modifications
+  - `setActiveModification()` / `consumeActiveModification()` — one-shot flag for resubmission detection
+  - `getModificationRemainingSeconds()` — for UI/prompt context
+- `src/tools/cart.ts`:
+  - New tool definition `order_modify_request` — restores items to cart within modification window
+  - New `CartHandlerOptions.orderModificationWindowMinutes` (default: 2)
+  - `order_confirm_submit` now saves snapshot before clearing cart, includes "You have N minutes to make changes" in response
+  - Resubmission detection via `consumeActiveModification()` — modified orders say "Your updated order" and skip window message
+- `src/routes/public/webchat-api.ts`:
+  - Passes `orderModificationWindowMinutes` from settings to cart handlers
+  - System prompt includes modification window state (open/closed + remaining time)
+  - PLACED stage instructions include `order_modify_request` guidance
+- `src/assistant/data-makan/settings.json`:
+  - Added `orderModificationWindowMinutes: 2` setting
+- `src/assistant/__tests__/order-modification.test.ts`:
+  - 19 tests: store unit tests (save, expire, kitchen accept, deep copy), handler tests (no order, within window, expired, accepted), full flow integration (place→modify→resubmit, resubmission message, configurable window)
+
+### Patterns discovered
+- Linter auto-modifies handler code: snapshot clearing moved before item restore for safety (prevents double-restore)
+- One-shot flag pattern (`setActiveModification`/`consumeActiveModification`) cleanly separates modification tracking from snapshot lifecycle
+- `setInterval(...).unref()` on cleanup timer to not block process exit
+
+### Gotchas
+- Can't rely on snapshot presence for resubmission detection — `order_modify_request` clears snapshot before items are restored (safety measure)
+- Kitchen acceptance webhook integration is prepared (`markKitchenAccepted`) but the actual KDS webhook handler needs to call it when POS sends acceptance
+

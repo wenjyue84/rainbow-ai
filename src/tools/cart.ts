@@ -37,6 +37,12 @@ import {
   dispatchToKds, buildKdsPayload,
   type KdsWebhookConfig,
 } from '../lib/kds-webhook.js';
+import {
+  saveModificationSnapshot, isModificationAllowed,
+  getModificationSnapshot, clearModificationWindow,
+  getModificationRemainingSeconds,
+  setActiveModification, consumeActiveModification,
+} from '../assistant/order-modification-store.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -200,6 +206,21 @@ export const cartTools: MCPTool[] = [
     },
     allowedProfiles: ['makan-moments']
   },
+  // ─── Order Modification Tool (US-881) ────────────────────────────
+  {
+    name: 'order_modify_request',
+    description: [
+      'Request to modify a recently placed order within the modification window.',
+      'Use when the guest says "change my order", "I want to modify", "actually change the X", "wait I need to change something".',
+      'If the modification window is still open, the original items are restored to the cart for editing.',
+      'If the window has expired or the kitchen has already accepted, the guest is told politely.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
   // ─── Order Status Tool ──────────────────────────────────────────
   {
     name: 'order_check_status',
@@ -313,6 +334,8 @@ export interface CartHandlerOptions {
   customerJid?: string;
   /** Ops staff phone for KDS failure alerts (US-876 AC3). Falls back to system default. */
   opsAlertPhone?: string;
+  /** Order modification window in minutes (US-881). Default: 2 */
+  orderModificationWindowMinutes?: number;
 }
 
 /**
@@ -383,6 +406,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const profileId = options?.profileId ?? 'makan-moments';
   const customerJid = options?.customerJid ?? `webchat-${sessionId}`;
   const opsAlertPhone = options?.opsAlertPhone;
+  const modificationWindowMs = (options?.orderModificationWindowMinutes ?? 2) * 60 * 1000;
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -609,6 +633,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
     const summary = cartFormatSummary(items);
 
+    // US-881: Check if this is a resubmission after modification
+    const isModifiedOrder = consumeActiveModification(sessionId);
+
     // Resolve table info: prefer stored session state, fall back to args
     const storedTable = cartGetTableInfo(sessionId);
     const effectiveTableNumber = args.tableNumber || storedTable?.tableNumber;
@@ -702,6 +729,14 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       }
     }
 
+    // US-881: Save snapshot for modification window BEFORE clearing cart
+    const modWindowMinutes = Math.round(modificationWindowMs / 60000);
+    const placedOrderId = getSessionOrderId(sessionId);
+    saveModificationSnapshot(sessionId, items, modificationWindowMs, {
+      tableInfo: { tableNumber: effectiveTableNumber, orderType: effectiveOrderType },
+      orderId: placedOrderId,
+    });
+
     // Transition to PLACED and clear cart
     transitionOrderStage(sessionId, 'PLACED');
     cartClear(sessionId);
@@ -713,10 +748,17 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     // US-868: Include kitchen wait time in acknowledgement
     const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
 
+    // US-881: Inform about modification window
+    // US-881: Modification window note (only for new orders, not resubmissions)
+    const modWindowNote = isModifiedOrder
+      ? ''
+      : `\n\nYou have ${modWindowMinutes} minute${modWindowMinutes !== 1 ? 's' : ''} to make changes. Just say "change my order" if needed.`;
+    const orderLabel = isModifiedOrder ? 'Your updated order' : 'Your order';
+
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kdsNote}${kitchenWarning}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
+        text: `${orderLabel}${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kdsNote}${kitchenWarning}${paymentGuidance}${modWindowNote}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });
@@ -767,6 +809,67 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       content: [{
         type: 'text',
         text: 'Your order has been cleared. Let me know if you would like to start a new order!'
+      }]
+    };
+  });
+
+  // ─── Order Modification Handler (US-881) ───────────────────────
+
+  handlers.set('order_modify_request', async (_args: any) => {
+    const snapshot = getModificationSnapshot(sessionId);
+
+    // No recent order to modify
+    if (!snapshot) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is no recent order to modify. If you would like to place a new order, just let me know!'
+        }]
+      };
+    }
+
+    // Kitchen already accepted — too late
+    if (snapshot.kitchenAccepted) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Sorry, the kitchen has already accepted your order and it cannot be modified. Please speak to our staff directly if you need changes.'
+        }]
+      };
+    }
+
+    // Window expired
+    if (!isModificationAllowed(sessionId)) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Sorry, the modification window has expired. Your order is already being prepared. Please speak to our staff directly if you need changes.'
+        }]
+      };
+    }
+
+    // Within window — restore items to cart for editing
+    // Calculate remaining time before clearing snapshot
+    const remainingSec = Math.ceil(
+      Math.max(0, snapshot.windowMs - (Date.now() - snapshot.confirmedAt)) / 1000
+    );
+    // Clear snapshot first to prevent double-restore if user says "change order" again
+    clearModificationWindow(sessionId);
+    // Mark session as actively being modified so order_confirm_submit knows it's a resubmission
+    setActiveModification(sessionId);
+    for (const item of snapshot.items) {
+      cartAddItem(sessionId, { ...item });
+    }
+    if (snapshot.tableInfo) {
+      cartSetTableInfo(sessionId, snapshot.tableInfo);
+    }
+    transitionOrderStage(sessionId, 'ORDERING');
+    const summary = cartFormatSummary(cartGetItems(sessionId));
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Your order has been reopened for changes. You have about ${remainingSec} seconds remaining.\n\nCurrent items:\n${summary}\n\nFeel free to add, remove, or change items. When you're done, I'll resubmit your updated order.`
       }]
     };
   });
