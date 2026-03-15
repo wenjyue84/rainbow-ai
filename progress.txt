@@ -10565,3 +10565,59 @@ Story: US-1015 — Structured LLM output schema enforcement with Zod validation 
 - Provider IDs need to be passed through to allow T4 provider selection in classification
 ### Status
 ✅ Build passes (3 pre-existing warnings). 13/13 new tests pass + 14/14 existing LLM validation tests pass. All 5 acceptance criteria verified. Story marked passes=true.
+
+
+## Pre-analysis for US-965 (Gemini 2.5 Pro)
+Based on the user story, the request to apply it to a Frappe/Python app appears incorrect. The story's details, file paths (`.ts`, `vite.config.ts`), and technical notes point to a TypeScript/Node.js environment.
+
+Here is a technical brief for a developer working on this TypeScript project:
+
+**Project:** Rainbow AI Hostel Assistant (TypeScript/Node.js)
+**Story:** US-965: Implement OWASP LLM04 RAG Integrity Validation
+
+**1. Core Files to Modify:**
+*   `shared/schema-tables.ts`: To add `hash` and `centroid_distance` columns to the `rainbow_kb_files` table and to define the new `rainbow_config_audit` table schema.
+*   `src/lib/kb-ingest.ts` (or similar): This is the central file for the ingestion pipeline where most logic will be added.
+*   `scripts/nightly-kb-audit.ts`: A new script for the scheduled embedding audit.
+*   `drizzle.config.ts` and generated migrations: To apply schema changes.
+
+**2. Involved Entities & Hooks:**
+*   **Tables (not DocTypes):** `rainbow_kb_files`, `rainbow_config_audit`.
+*   **Process Hooks:** The changes will hook directly into the existing KB file ingestion pipeline logic. A new cron job or scheduled task is needed for the nightly audit.
+
+**3. Implementation Approach:**
+1.  **Schema:** Update the Drizzle schema in `shared/schema-tables.ts` and generate a migration.
+2.  **Ingestion Pipeline:**
+    *   On ingest, compute the file's SHA-256 hash. Verify against the stored hash in `rainbow_kb_files` to detect unauthorized content changes.
+    *   Implement strict source validation, allowing only files from configured local paths or S3 prefixes.
+    *   After embedding, log the action (add/update/delete), operator ID, and hash to `rainbow_config_audit`.
+3.  **Anomaly Detection:**
+    *   During ingest, calculate and store the embedding's cosine distance from its topic centroid.
+    *   The `nightly-kb-audit.ts` script will compare current distances against a baseline, flagging significant deviations as anomalies.
+
+**4. Edge Cases & Gotchas:**
+*   An "operator approval" workflow for hash mismatches needs to be defined; initially, just block and alert.
+*   The process for creating and cryptographically signing the "baseline snapshot" for embeddings must be established.
+*   Centroid calculation logic needs to be robust, especially for new or evolving topics.
+*   Defence-in-depth: Ensure output sanitization is also in place as a final layer of protection.
+
+
+
+## Iteration 6 - Sun, Mar 16, 2026  2:51 AM
+Story: US-965 — Implement OWASP LLM04 RAG knowledge base integrity validation pipeline
+### What was implemented
+- **AC1 (SHA-256 hashing)**: `computeContentHash()` in `kb-integrity.ts` computes SHA-256 hex digests. `saveKBFileWithHash()` in `config-db.ts` stores the hash in `rainbow_kb_files.sha256_hash`. Re-ingestion is rejected (file marked `approved=FALSE`) when content hash changes without explicit operator approval via `approveKBFile()`.
+- **AC2 (Source validation)**: `validateSource()` checks file paths against allowlisted local directories and S3 prefixes. `initAllowedSources()` configures the allowlist at startup. Rejects documents from unverified sources.
+- **AC3 (Nightly embedding audit)**: `kb-embedding-audit.ts` implements `createBaseline()` to snapshot per-file embedding centroids with SHA-256 signature, and `runNightlyAudit()` to compare current embeddings against baseline and alert operator on anomalies.
+- **AC4 (Embedding anomaly detection)**: `detectAnomalies()` computes cosine distance of each file's centroid from the global centroid and flags files exceeding configurable threshold (default: 2 standard deviations from mean).
+- **AC5 (Audit logging)**: `auditKBEvent()` in `config-db.ts` writes all KB ingest events (add, update, delete, hash_changed, source_rejected, approved, embedding_anomaly) to `rainbow_config_audit` with operator identity and file hash.
+### Root cause of previous failures
+Previous 2 attempts created `kb-integrity.ts` and `kb-embedding-audit.ts` that imported functions (`saveKBFileWithHash`, `approveKBFile`, `auditKBEvent`, `getUnapprovedKBFiles`) from `config-db.ts` — but those functions were never added to `config-db.ts`. The schema columns (`sha256_hash`, `source`, `approved`, `last_ingested_at`, `ingested_by`) were also missing from the `ensureConfigTables()` DDL.
+### Files changed
+- `src/lib/config-db.ts` — Added US-965 schema columns to `rainbow_kb_files` table DDL; added `saveKBFileWithHash()`, `approveKBFile()`, `auditKBEvent()`, `getUnapprovedKBFiles()` functions
+### Patterns discovered
+- When previous iterations create files that import non-existent functions, the fix is to add the missing functions rather than rewrite everything
+- The `config-db.ts` pattern uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for idempotent schema evolution
+- All DB functions follow fail-open pattern (return safe defaults when DATABASE_URL not set)
+### Status
+✅ Build passes (3 pre-existing warnings). 15/15 tests pass. Server starts. All 5 acceptance criteria verified.

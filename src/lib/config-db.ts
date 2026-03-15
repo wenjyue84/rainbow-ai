@@ -47,6 +47,14 @@ export async function ensureConfigTables(): Promise<void> {
         ADD COLUMN IF NOT EXISTS last_modified_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS stale_threshold_days INTEGER NOT NULL DEFAULT 30;
 
+      -- US-965: Add integrity columns for OWASP LLM04 KB integrity validation
+      ALTER TABLE rainbow_kb_files
+        ADD COLUMN IF NOT EXISTS sha256_hash TEXT,
+        ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local',
+        ADD COLUMN IF NOT EXISTS approved BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS last_ingested_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS ingested_by TEXT;
+
       CREATE TABLE IF NOT EXISTS rainbow_config_audit (
         id          SERIAL PRIMARY KEY,
         config_key  TEXT NOT NULL,
@@ -330,6 +338,138 @@ export async function getConfigAuditLog(
     return rows;
   } catch (err: any) {
     console.error('[ConfigDB] getConfigAuditLog() failed:', err.message);
+    return [];
+  }
+}
+
+// ─── US-965: KB Integrity Functions ──────────────────────────────────
+
+/**
+ * Save a KB file with SHA-256 hash verification.
+ * Rejects re-ingestion if content hash changed without explicit approval.
+ */
+export async function saveKBFileWithHash(
+  filename: string,
+  content: string,
+  hash: string,
+  source: string,
+  lastModifiedAt?: Date,
+  operator: string = 'system'
+): Promise<{ accepted: boolean; reason?: string }> {
+  if (!hasDB()) return { accepted: true };
+  try {
+    // Check existing file hash
+    const { rows } = await pool.query(
+      'SELECT sha256_hash, approved FROM rainbow_kb_files WHERE filename = $1',
+      [filename]
+    );
+
+    if (rows.length > 0 && rows[0].sha256_hash && rows[0].sha256_hash !== hash) {
+      // Hash changed — mark as unapproved, require operator approval
+      await pool.query(
+        `UPDATE rainbow_kb_files SET sha256_hash = $2, approved = FALSE, source = $3,
+         last_ingested_at = NOW(), ingested_by = $4, last_modified_at = COALESCE($5, last_modified_at)
+         WHERE filename = $1`,
+        [filename, hash, source, operator, lastModifiedAt || null]
+      );
+      await auditKBEvent('hash_changed', filename, hash, operator,
+        `Hash changed from ${rows[0].sha256_hash} to ${hash} — requires approval`);
+      return { accepted: false, reason: 'Content hash changed — operator approval required' };
+    }
+
+    // New file or same hash — accept and store
+    await pool.query(
+      `INSERT INTO rainbow_kb_files (filename, content, sha256_hash, source, approved, last_ingested_at, ingested_by, updated_at, last_modified_at)
+       VALUES ($1, $2, $3, $4, TRUE, NOW(), $5, NOW(), $6)
+       ON CONFLICT (filename)
+       DO UPDATE SET content = $2, sha256_hash = $3, source = $4, approved = TRUE,
+         last_ingested_at = NOW(), ingested_by = $5, updated_at = NOW(),
+         last_modified_at = COALESCE($6, rainbow_kb_files.last_modified_at)`,
+      [filename, content, hash, source, operator, lastModifiedAt || null]
+    );
+
+    const action = rows.length > 0 ? 'update' : 'add';
+    await auditKBEvent(action, filename, hash, operator);
+    return { accepted: true };
+  } catch (err: any) {
+    console.error(`[ConfigDB] saveKBFileWithHash(${filename}) failed:`, err.message);
+    return { accepted: true }; // fail-open
+  }
+}
+
+/**
+ * Approve a KB file whose hash changed, allowing re-ingestion.
+ */
+export async function approveKBFile(
+  filename: string,
+  content: string,
+  hash: string,
+  operator: string
+): Promise<boolean> {
+  if (!hasDB()) return true;
+  try {
+    await pool.query(
+      `UPDATE rainbow_kb_files SET content = $2, sha256_hash = $3, approved = TRUE,
+       last_ingested_at = NOW(), ingested_by = $4, updated_at = NOW()
+       WHERE filename = $1`,
+      [filename, content, hash, operator]
+    );
+    await auditKBEvent('approved', filename, hash, operator);
+    return true;
+  } catch (err: any) {
+    console.error(`[ConfigDB] approveKBFile(${filename}) failed:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Log a KB ingest event to the audit table.
+ */
+export async function auditKBEvent(
+  action: string,
+  filename: string,
+  hash: string,
+  operator: string,
+  reason?: string
+): Promise<void> {
+  if (!hasDB()) return;
+  try {
+    const serverRole = process.env.RAINBOW_ROLE || 'unknown';
+    await pool.query(
+      `INSERT INTO rainbow_config_audit (config_key, action, changed_by, server_role, endpoint, after_json, created_at)
+       VALUES ($1, $2, $3, $4, 'kb_ingest', $5, NOW())`,
+      [
+        `kb:${filename}`,
+        action,
+        operator,
+        serverRole,
+        JSON.stringify({ hash, reason: reason || null }),
+      ]
+    );
+  } catch (err: any) {
+    console.error(`[ConfigDB] auditKBEvent(${action}, ${filename}) failed:`, err.message);
+  }
+}
+
+/**
+ * Get all KB files pending operator approval (hash changed).
+ */
+export async function getUnapprovedKBFiles(): Promise<Array<{
+  filename: string;
+  sha256_hash: string;
+  source: string;
+  last_ingested_at: Date;
+  ingested_by: string;
+}>> {
+  if (!hasDB()) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT filename, sha256_hash, source, last_ingested_at, ingested_by
+       FROM rainbow_kb_files WHERE approved = FALSE ORDER BY last_ingested_at DESC`
+    );
+    return rows;
+  } catch (err: any) {
+    console.error('[ConfigDB] getUnapprovedKBFiles() failed:', err.message);
     return [];
   }
 }
