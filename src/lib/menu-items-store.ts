@@ -21,6 +21,8 @@ export interface MenuItem {
   dietary_flags: string[];
   available: boolean;
   display_order: number;
+  /** Localised name variants keyed by ISO 639-1 code (e.g. ms, zh) */
+  translations: Record<string, string>;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +60,7 @@ export async function ensureMenuItemsTable(): Promise<void> {
         dietary_flags TEXT NOT NULL DEFAULT '[]',
         available     BOOLEAN NOT NULL DEFAULT TRUE,
         display_order INTEGER NOT NULL DEFAULT 0,
+        translations  TEXT NOT NULL DEFAULT '{}',
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -65,6 +68,10 @@ export async function ensureMenuItemsTable(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(profile, category);
       CREATE INDEX IF NOT EXISTS idx_menu_items_available ON menu_items(profile, available);
     `);
+    // Add translations column if it doesn't exist (migration for existing tables)
+    await pool.query(`
+      ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS translations TEXT NOT NULL DEFAULT '{}';
+    `).catch(() => { /* column may already exist */ });
   } catch (err: any) {
     console.error('[MenuItemsStore] Failed to ensure table:', err.message);
   }
@@ -75,10 +82,10 @@ export async function ensureMenuItemsTable(): Promise<void> {
 export async function loadMenuItemsFromDB(): Promise<void> {
   if (!hasDB()) return;
   try {
-    const { rows } = await pool.query<MenuItem & { allergens: string; dietary_flags: string }>(
+    const { rows } = await pool.query<MenuItem & { allergens: string; dietary_flags: string; translations: string }>(
       `SELECT id, profile, name, description, price::float AS price, category,
               allergens, dietary_flags, available, display_order,
-              created_at::text, updated_at::text
+              translations, created_at::text, updated_at::text
        FROM menu_items ORDER BY profile, display_order, name`
     );
     // Clear and repopulate
@@ -89,6 +96,7 @@ export async function loadMenuItemsFromDB(): Promise<void> {
         price: Number(row.price),
         allergens: parseJsonArray(row.allergens),
         dietary_flags: parseJsonArray(row.dietary_flags),
+        translations: parseJsonObject(row.translations as any),
       };
       getProfileStore(item.profile).set(item.id, item);
     }
@@ -106,6 +114,16 @@ function parseJsonArray(raw: string | string[]): string[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function parseJsonObject(raw: string | Record<string, string>): Record<string, string> {
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw as string);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
 }
 
@@ -142,11 +160,11 @@ export async function createMenuItem(data: MenuItemCreate): Promise<MenuItem> {
 
   if (hasDB()) {
     const { rows } = await pool.query<any>(
-      `INSERT INTO menu_items (profile, name, description, price, category, allergens, dietary_flags, available, display_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO menu_items (profile, name, description, price, category, allergens, dietary_flags, available, display_order, translations)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, profile, name, description, price::float, category,
                  allergens, dietary_flags, available, display_order,
-                 created_at::text, updated_at::text`,
+                 translations, created_at::text, updated_at::text`,
       [
         data.profile,
         data.name,
@@ -157,6 +175,7 @@ export async function createMenuItem(data: MenuItemCreate): Promise<MenuItem> {
         JSON.stringify(data.dietary_flags ?? []),
         data.available ?? true,
         data.display_order ?? 0,
+        JSON.stringify(data.translations ?? {}),
       ]
     );
     const row = rows[0];
@@ -165,6 +184,7 @@ export async function createMenuItem(data: MenuItemCreate): Promise<MenuItem> {
       price: Number(row.price),
       allergens: parseJsonArray(row.allergens),
       dietary_flags: parseJsonArray(row.dietary_flags),
+      translations: parseJsonObject(row.translations),
     };
   } else {
     // No DB — generate a local ID and store in memory only
@@ -176,6 +196,7 @@ export async function createMenuItem(data: MenuItemCreate): Promise<MenuItem> {
       dietary_flags: data.dietary_flags ?? [],
       available: data.available ?? true,
       display_order: data.display_order ?? 0,
+      translations: data.translations ?? {},
       description: data.description,
       ...data,
     };
@@ -214,6 +235,7 @@ export async function updateMenuItem(
     if (patch.dietary_flags !== undefined) { fields.push(`dietary_flags = $${idx++}`); values.push(JSON.stringify(patch.dietary_flags)); }
     if (patch.available !== undefined) { fields.push(`available = $${idx++}`); values.push(patch.available); }
     if (patch.display_order !== undefined) { fields.push(`display_order = $${idx++}`); values.push(patch.display_order); }
+    if (patch.translations !== undefined) { fields.push(`translations = $${idx++}`); values.push(JSON.stringify(patch.translations)); }
 
     if (fields.length === 0) return updated; // Nothing to update
 
@@ -225,13 +247,14 @@ export async function updateMenuItem(
        WHERE id = $${idx} AND profile = $${idx + 1}
        RETURNING id, profile, name, description, price::float, category,
                  allergens, dietary_flags, available, display_order,
-                 created_at::text, updated_at::text`,
+                 translations, created_at::text, updated_at::text`,
       values
     );
     if (rows.length === 0) return null;
     const row = rows[0];
     updated.allergens = parseJsonArray(row.allergens);
     updated.dietary_flags = parseJsonArray(row.dietary_flags);
+    updated.translations = parseJsonObject(row.translations);
     updated.price = Number(row.price);
     updated.updated_at = row.updated_at;
   }

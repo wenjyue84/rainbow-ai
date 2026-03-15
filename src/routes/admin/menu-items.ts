@@ -113,6 +113,10 @@ router.post('/menu-items', async (req: Request, res: Response) => {
     return;
   }
 
+  const translations = (typeof body.translations === 'object' && body.translations !== null && !Array.isArray(body.translations))
+    ? body.translations as Record<string, string>
+    : {};
+
   const data: MenuItemCreate = {
     profile: (body.profile as string) || 'makan-moments',
     name: body.name.trim(),
@@ -123,6 +127,7 @@ router.post('/menu-items', async (req: Request, res: Response) => {
     dietary_flags: Array.isArray(body.dietary_flags) ? body.dietary_flags : [],
     available: body.available !== false,
     display_order: typeof body.display_order === 'number' ? body.display_order : 0,
+    translations,
   };
 
   try {
@@ -166,6 +171,14 @@ router.patch('/menu-items/:id', async (req: Request, res: Response) => {
   if (patch.dietary_flags !== undefined && !Array.isArray(patch.dietary_flags)) {
     res.status(400).json({ error: 'dietary_flags must be an array' });
     return;
+  }
+  if ((patch as any).translations !== undefined) {
+    const t = (patch as any).translations;
+    if (typeof t !== 'object' || t === null || Array.isArray(t)) {
+      res.status(400).json({ error: 'translations must be an object (e.g. {"ms": "Nasi Goreng", "zh": "炒饭"})' });
+      return;
+    }
+    (patch as any).translations = t;
   }
 
   try {

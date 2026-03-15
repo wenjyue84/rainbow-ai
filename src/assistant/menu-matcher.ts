@@ -37,7 +37,31 @@ interface ScoredCandidate {
 }
 
 /**
+ * Score a single candidate name against the query.
+ * Returns a numeric score (lower = better match):
+ *   0   — exact match
+ *   1   — name starts with query
+ *   2   — name contains query as substring
+ *   3+  — Levenshtein distance between query and shortest word in name
+ */
+function scoreName(q: string, name: string): number {
+  const n = name.toLowerCase();
+  if (n === q) return 0;
+  if (n.startsWith(q)) return 1;
+  if (n.includes(q)) return 2;
+
+  const words = n.split(/\s+/);
+  const minWordDist = Math.min(...words.map(w => levenshtein(q, w)));
+  const fullDist = levenshtein(q, n);
+  const normFullDist = fullDist - Math.abs(n.length - q.length);
+  return Math.min(minWordDist, normFullDist) + 3;
+}
+
+/**
  * Find menu items that match a guest's query.
+ *
+ * Searches the English name AND all translation variants (ms, zh, etc.).
+ * The best (lowest) score across all name variants is used for ranking.
  *
  * Scoring (lower = better match):
  *   0   — exact name match
@@ -59,29 +83,21 @@ export function findMenuItemMatches(
   const scored: ScoredCandidate[] = [];
 
   for (const item of items) {
-    const name = item.name.toLowerCase();
-    let score: number;
+    // Score the English name
+    let bestScore = scoreName(q, item.name);
 
-    if (name === q) {
-      score = 0; // exact match
-    } else if (name.startsWith(q)) {
-      score = 1; // prefix match
-    } else if (name.includes(q)) {
-      score = 2; // substring match
-    } else {
-      // Check each word in the item name against the query
-      const words = name.split(/\s+/);
-      const minWordDist = Math.min(...words.map(w => levenshtein(q, w)));
-
-      // Also check full-name Levenshtein (normalised by length ratio)
-      const fullDist = levenshtein(q, name);
-      const normFullDist = fullDist - Math.abs(name.length - q.length);
-
-      score = Math.min(minWordDist, normFullDist) + 3;
+    // Also score each translation variant and keep the best
+    if (item.translations) {
+      for (const localisedName of Object.values(item.translations)) {
+        if (localisedName) {
+          const tScore = scoreName(q, localisedName);
+          if (tScore < bestScore) bestScore = tScore;
+        }
+      }
     }
 
-    if (score <= threshold) {
-      scored.push({ item, score });
+    if (bestScore <= threshold) {
+      scored.push({ item, score: bestScore });
     }
   }
 

@@ -303,6 +303,15 @@ function normalizeChoices(raw: any[]): import('../assistant/disambiguation-store
   return choices.length > 0 ? choices : undefined;
 }
 
+function normalizeTranslations(raw: any): Record<string, string> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (typeof val === 'string' && val.trim()) result[key] = val.trim();
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function normalizeItems(raw: any[]): DisambiguationCandidate[] {
   return raw
     .filter(r => r && (r.name || r.item_name || r.title))
@@ -316,6 +325,7 @@ function normalizeItems(raw: any[]): DisambiguationCandidate[] {
       category: r.category || r.item_group || r.group || undefined,
       available: typeof r.available === 'boolean' ? r.available : undefined,
       choices: normalizeChoices(r.choices || r.components || r.customizations),
+      translations: normalizeTranslations(r.translations),
     }));
 }
 

@@ -21,6 +21,8 @@ export interface DisambiguationCandidate {
   available?: boolean;
   /** Set meal / combo choice groups (if present, item requires customisation) */
   choices?: SetMealChoice[];
+  /** Localised name variants keyed by ISO 639-1 code (e.g. ms, zh) */
+  translations?: Record<string, string>;
 }
 
 export interface DisambiguationState {

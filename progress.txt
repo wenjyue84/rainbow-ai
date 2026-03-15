@@ -11186,3 +11186,29 @@ This user story describes a feature for a Node.js/TypeScript application, not a 
 ## Iteration 4 - Mon, Mar 16, 2026  7:07:30 AM
 Incomplete: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: US-995) — attempt 2/3
 
+
+## Iteration 5 - Story: US-937 AI waiter: multi-language menu item name lookup for Chinese and Malay terms
+### What was implemented
+- Extended `DisambiguationCandidate` interface with optional `translations?: Record<string, string>` field
+- Extended `MenuItem` interface in `menu-items-store.ts` with `translations` field (persisted as JSON TEXT in Postgres)
+- Added `translations` column to `menu_items` table schema + migration for existing tables (`ALTER TABLE ADD COLUMN IF NOT EXISTS`)
+- Updated `createMenuItem()` and `updateMenuItem()` CRUD to read/write translations (DB + in-memory)
+- Extracted `scoreName()` helper from `findMenuItemMatches()` in `menu-matcher.ts`
+- Updated `findMenuItemMatches()` to search across all translation variants — best (lowest) score wins
+- Updated `normalizeItems()` in `fnb-menu.ts` to pass translations through from MCP responses
+- Updated admin API (`menu-items.ts`) POST to accept translations in request body, PATCH to validate translations object
+- Created 15 Vitest tests in `multilingual-menu.test.ts` covering all acceptance criteria:
+  - Malay term resolution (nasi goreng, nasi ayam, kopi ais, mi goreng)
+  - Chinese term resolution (炒饭, 鸡饭, 冰咖啡, 炒面, 椰浆饭)
+  - English still works, items without translations still work
+  - Unrecognised term returns empty results
+  - translations field is optional on DisambiguationCandidate
+### Patterns discovered
+- `scoreName()` refactor keeps single-responsibility: one function scores a name, the outer function iterates variants
+- Chinese characters work naturally with Levenshtein (each char is one unit) — exact match wins with score 0
+- `parseJsonObject()` helper mirrors existing `parseJsonArray()` pattern for JSON column parsing
+- DB migration uses `ALTER TABLE ADD COLUMN IF NOT EXISTS` to be idempotent on existing installations
+### Gotchas
+- The `translations` column defaults to `'{}'` (empty JSON object string) not `NULL` to avoid null-check complexity
+- `MenuItemUpdate` type (Partial<...>) automatically includes translations since MenuItem has it
+- Existing test suite (20 tests in menu-disambig.test.ts) passes unchanged — no regressions
