@@ -10420,3 +10420,24 @@ Completed: Detect and handle portfolio pacing pause signals for batch sends (ID:
 - `queryWhatsappCostSummary` byTemplateType split: utility rows with cswFree > 0 produce two lines (utility + utility_csw_free)
 ### Status
 ✅ Build passes (3 pre-existing warnings). 54/54 tests pass. All 7 acceptance criteria verified. Story marked passes=true.
+## Iteration 2 - Mon, Mar 16, 2026  1:39:14 AM
+Completed: Implement per-message cost model with free CSW utility window tracking (ID: US-963) in 11m
+
+
+## Iteration 3 - Story: US-935 WhatsApp outbound template language variants for multilingual guest communication
+### What was implemented
+- **AC1 (Language preference used for templates)**: Modified `sendScheduledMessage()` in `booking-sequence.ts` to call `getPreferredLanguage(jid)` before template rendering — passes guest language to `getTemplateContent()`
+- **AC2 (3 language variants)**: Already existed — TEMPLATES object has en, ms, zh for all 3 templates (booking_confirmation, booking_directions, booking_ready)
+- **AC3 (Default to English)**: `getPreferredLanguage()` returns null when no preference stored; fallback `|| 'en'` ensures English default. `getTemplateContent()` also falls back to `t['en']` for unsupported languages
+- **AC4 (Admin override)**: Added PUT `/conversations/:phone/language` endpoint that sets language + `languageLocked: true` in one call. DELETE endpoint unlocks. Existing PATCH endpoint already supported `language` and `languageLocked` fields
+- **AC5 (Vitest test)**: 21 tests covering all 5 ACs — zh guest gets Chinese templates for all 3 sequence steps
+### Files changed
+- `src/lib/booking-sequence.ts` — Added `getPreferredLanguage` import; `sendScheduledMessage()` now looks up guest lang before template rendering; exported `_processScheduledMessages` for testing
+- `src/routes/admin/conversations-contacts.ts` — Added PUT/DELETE `/conversations/:phone/language` endpoints for admin language override with validation
+- `src/assistant/__tests__/template-language-variants.test.ts` — NEW: 21 tests covering all 5 ACs
+### Patterns discovered
+- Most infrastructure (language detection, preference storage, template variants) already existed from US-462 and US-884
+- The only gap was the send-time language lookup: `sendScheduledMessage()` hardcoded English by not passing lang param
+- `languageLocked` flag in contactDetailsJson prevents auto-detection from overriding admin-set preferences
+### Status
+✅ Build passes (3 pre-existing warnings). 21/21 template language variant tests pass. 22/22 existing booking-sequence tests still pass. All 5 acceptance criteria verified. Story marked passes=true.

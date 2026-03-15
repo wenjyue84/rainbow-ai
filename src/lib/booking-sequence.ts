@@ -14,6 +14,7 @@ import { pool } from './db.js';
 import { sessionWindowActive, logSessionExpired } from './session-window.js';
 import { isOptedOut } from '../assistant/opt-out.js';
 import { recordWhatsappMessageCost } from './whatsapp-cost.js';
+import { getPreferredLanguage } from '../assistant/language-preference.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -334,7 +335,9 @@ async function sendScheduledMessage(row: ScheduledRow): Promise<void> {
   }
 
   try {
-    const content = getTemplateContent(row.template_key, vars);
+    // US-935: Look up guest language preference; default to English
+    const guestLang = (await getPreferredLanguage(row.jid)) || 'en';
+    const content = getTemplateContent(row.template_key, vars, guestLang);
     const { sendWhatsAppMessage } = await import('./baileys-client.js');
     await sendWhatsAppMessage(row.jid, content);
 
@@ -397,4 +400,4 @@ export function stopBookingSequenceProcessor(): void {
 
 // ─── Exports for testing ────────────────────────────────────────────
 
-export { interpolate as _interpolate, getTemplateContent as _getTemplateContent, TEMPLATES as _TEMPLATES };
+export { interpolate as _interpolate, getTemplateContent as _getTemplateContent, TEMPLATES as _TEMPLATES, processScheduledMessages as _processScheduledMessages };

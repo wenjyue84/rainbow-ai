@@ -70,6 +70,42 @@ router.patch('/conversations/:phone/contact', async (req: Request, res: Response
   }
 });
 
+// ─── US-935: Admin language override ─────────────────────────────────
+
+const SUPPORTED_TEMPLATE_LANGS = ['en', 'ms', 'zh'] as const;
+
+router.put('/conversations/:phone/language', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone as string);
+    const { language } = req.body;
+
+    if (!language || !SUPPORTED_TEMPLATE_LANGS.includes(language)) {
+      badRequest(res, `language must be one of: ${SUPPORTED_TEMPLATE_LANGS.join(', ')}`);
+      return;
+    }
+
+    const updated = await updateContactDetails(phone, {
+      language,
+      languageLocked: true,
+    });
+    res.json({ language: updated.language, languageLocked: updated.languageLocked });
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
+
+router.delete('/conversations/:phone/language', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone as string);
+    const updated = await updateContactDetails(phone, {
+      languageLocked: false,
+    });
+    res.json({ language: updated.language, languageLocked: false });
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
+
 // ─── US-091: Guest context file endpoints ────────────────────────────
 
 router.get('/conversations/:phone/context', async (req: Request, res: Response) => {
