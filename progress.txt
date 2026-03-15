@@ -8923,3 +8923,21 @@ Incomplete: Enforce tenant_id isolation at database layer for multi-property dep
 ### Gotchas
 - System prompt was the critical missing piece — without it, the AI wouldn't know to call `order_modify_request` even though all backend logic was in place.
 - `getModificationTimeRemaining` returns seconds (not ms) — matches user-facing display.
+## Iteration 4 - Sun, Mar 15, 2026  7:24:25 PM
+Incomplete: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-882 - Proactive abandoned-cart recovery message on WhatsApp session idle
+### What was implemented
+- **Already fully implemented by prior spiral iterations** — all code, settings, and integration were in place
+- `src/assistant/cart-recovery.ts`: Full abandoned cart recovery system — periodic scanner (every 5 min), recovery message with cart summary, "Resume order"/"Clear cart" quick-reply handling, 24h auto-clear
+- `src/assistant/cart-store.ts`: `getActiveCartSessions()` and `cartFormatSummary()` helper functions for cart-recovery
+- `src/assistant/index.ts`: Calls `initCartRecovery(sendMessage)` on init, `destroyCartRecovery()` on shutdown
+- `src/assistant/message-router.ts`: Intercepts cart recovery replies (lines 74-79), resets idle timer on any incoming message (line 82)
+- `src/assistant/data/settings.json`: `cart_recovery.enabled: true`, `cart_recovery.idle_minutes: 30`
+### Patterns discovered
+- Same pattern as US-881 — story was fully implemented in prior spiral iterations but never marked `passes: true` in prd.json
+- Recovery state is in-memory (Map) — not persisted to DB. Server restart clears recovery tracking (acceptable for WhatsApp sessions with 24h window)
+- `isWhatsAppSession()` filters by checking sessionId doesn't start with 'webchat-' or 'bsuid:'
+### Status
+✅ Build passes (3 warnings, no errors). Server startup OK. Marked passes=true.
