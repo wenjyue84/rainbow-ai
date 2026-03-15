@@ -10655,3 +10655,57 @@ This brief outlines the implementation of OWASP LLM06 principles within the Frap
 *   **Permissions:** Ensure API endpoints strictly enforce permissions, as users may have access to multiple companies. The query must be scoped to only one company at a time.
 *   **Raw Embeddings:** Do not expose the raw embedding vectors in any API response to mitigate embedding inversion attacks.
 
+
+## Pre-analysis for US-966 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the user story in a Frappe/Python context.
+
+***
+
+**Objective:** Implement OWASP LLM06 for multi-tenant vector store security, ensuring strict data partitioning between properties.
+
+**1. Python Files for Modification:**
+
+*   `[custom_app]/api.py`: The primary entry point. Will be modified to enforce authentication and retrieve a `property_id` from the user's session or request to pass down to the query logic.
+*   `[custom_app]/utils/vector_search.py` (or similar existing module): This file, handling `pgvector` interactions, must be updated to filter all queries by `property_id`. The embedding generation function here must also be modified to tag new vectors with a `property_id`.
+*   `[custom_app]/hooks.py`: Add a `scheduler_events` entry to run a quarterly audit script.
+*   `[custom_app]/tasks/audit.py` (New File): A new script to verify vector namespace integrity.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType `Property` (Assumed):** A DocType that defines the tenants (e.g., Pelangi, Southern) and serves as the source for `property_id`.
+*   **New DocType `Vector Query Log`:** Create to meet the 90-day audit trail requirement. Fields: `User`, `Property`, `Query Text`, `Retrieved IDs`, `Similarity Scores`.
+*   **Hook `scheduler_events`:** In `hooks.py`, define a quarterly cron job to trigger the audit script.
+
+**3. Recommended Implementation Approach:**
+
+1.  Modify the core vector query function to require a `property_id` argument. This will be used in a `WHERE` clause on the vector table's metadata to enforce partitioning.
+2.  In the `api.py` wrapper, fetch the user's assigned `property_id` and deny requests trying to access another property's data (return 403).
+3.  After a successful query, create a new `Vector Query Log` document.
+4.  Implement the quarterly audit script to query the vector store and assert that no documents are returned when searching with a mismatched `property_id`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Indexing:** The metadata column used for `property_id` in the `pgvector` table must be indexed to prevent severe performance degradation on queries.
+*   **Data Backfilling:** A migration script will be required to tag all existing embeddings in the database with the correct `property_id`.
+*   **Embedding API:** Ensure raw embedding vectors are never exposed in any API responses to mitigate inversion attacks.
+
+
+## Iteration [Ralph] - Story: US-979 - Enforce WhatsApp marketing opt-in audit trail for all contact records
+### What was implemented
+- **AC1 (Schema columns)**: Added `opt_in_method TEXT`, `opt_in_at TIMESTAMPTZ`, `opt_in_channel TEXT` to `rainbow_conversations` table in `shared/schema-tables.ts`. Runtime migration via `ensureOptInColumns()` uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- **AC2 (Inbound opt-in auto-record)**: `upsertConversation()` now sets `optInMethod='inbound'`, `optInAt=now`, `optInChannel='whatsapp'` on INSERT (not on conflict update — preserves original consent record).
+- **AC3 (Double opt-in update)**: `recordDoubleOptIn(phone, profileId)` in `src/lib/opt-in-audit.ts` updates `opt_in_method='double_optin'` and `opt_in_at=now`.
+- **AC4 (Broadcast guard)**: `checkOptInBeforeMarketingSend(phone, profileId)` in `src/lib/opt-in-audit.ts` queries `opt_in_at`, returns `{allowed: false, reason}` for contacts with NULL opt_in_at. Logged at WARN level for audit trail. Fail-open on DB error.
+- **AC5 (CSV export)**: `GET /opt-in-audit/export` endpoint returns CSV with JID, profile_id, opt_in_method, opt_in_at, opt_in_channel. Filter by `?profile=` query param.
+### Files changed
+- `shared/schema-tables.ts` — Added 3 opt-in columns to rainbowConversations
+- `src/assistant/conversation-db.ts` — Added `ensureOptInColumns()` migration; upsertConversation sets inbound opt-in on INSERT
+- `src/lib/opt-in-audit.ts` — NEW: checkOptInBeforeMarketingSend, recordDoubleOptIn, exportOptInAuditRecords
+- `src/routes/admin/opt-in-audit.ts` — NEW: GET /opt-in-audit/check/:phone, POST /opt-in-audit/double-optin, GET /opt-in-audit/export
+- `src/routes/admin/index.ts` — Registered optInAuditRoutes
+### Patterns discovered
+- onConflictDoUpdate must NOT include opt_in fields — preserves first-contact consent record
+- `ensureOptInColumns()` must be a hoisted function declaration (not arrow fn) since it's called from ensureDb which is defined before it
+- Runtime migration pattern: fire-and-forget pool.query with .catch() warn — same as opt-out.ts processedAt migration
+### Status
+✅ Build passes (3 pre-existing warnings). Server starts. Pre-existing test failures unchanged. All 5 acceptance criteria implemented.

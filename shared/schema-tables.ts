@@ -131,6 +131,10 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   referralHeadline: text("referral_headline"),                // Ad headline
   referralBody: text("referral_body"),                        // Ad body text
   referralJson: text("referral_json"),                        // Full referral object as JSON
+  // US-979: WhatsApp marketing opt-in audit trail
+  optInMethod: text("opt_in_method"),                         // 'inbound' | 'double_optin' | 'web_form' | 'ctwa_ad' | 'qr_code' | 'in_person'
+  optInAt: timestamp("opt_in_at"),                            // Timestamp of confirmed opt-in
+  optInChannel: text("opt_in_channel"),                       // Channel where opt-in occurred
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),

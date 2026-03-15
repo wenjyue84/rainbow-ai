@@ -6,7 +6,7 @@
  */
 
 import { eq, sql } from 'drizzle-orm';
-import { db, dbReady } from '../lib/db.js';
+import { db, dbReady, pool } from '../lib/db.js';
 import { rainbowConversations, rainbowMessages } from '../../shared/schema-tables.js';
 import type { LoggedMessage, ConversationSummary } from './conversation-logger-types.js';
 import type { ReferralData } from './types.js';
@@ -20,10 +20,27 @@ export async function ensureDb(): Promise<boolean> {
   try {
     const ready = await dbReady;
     dbAvailable = !!ready;
+    if (dbAvailable) ensureOptInColumns();
   } catch {
     dbAvailable = false;
   }
   return dbAvailable;
+}
+
+// ─── US-979: Opt-in audit columns migration ─────────────────────────
+
+let _optInMigrationDone = false;
+export function ensureOptInColumns(): void {
+  if (_optInMigrationDone || !pool) return;
+  _optInMigrationDone = true;
+  pool.query(`
+    ALTER TABLE rainbow_conversations
+    ADD COLUMN IF NOT EXISTS opt_in_method TEXT,
+    ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS opt_in_channel TEXT
+  `).catch((err: Error) => {
+    console.warn('[ConvoDB] US-979 migration warn:', err.message);
+  });
 }
 
 // ─── US-477: BSUID helpers ──────────────────────────────────────────
@@ -134,6 +151,10 @@ export async function upsertConversation(
       status: 'active',
       createdAt: now,
       updatedAt: now,
+      // US-979: Record inbound opt-in on first contact (only set on INSERT, not on conflict)
+      optInMethod: 'inbound',
+      optInAt: now,
+      optInChannel: 'whatsapp',
       ...referralInsertFields,
     })
     .onConflictDoUpdate({
@@ -151,6 +172,7 @@ export async function upsertConversation(
         ...(referralData?.headline ? { referralHeadline: referralData.headline } : {}),
         ...(referralData?.body ? { referralBody: referralData.body } : {}),
         ...(referralData ? { referralJson: JSON.stringify(referralData) } : {}),
+        // US-979: Do NOT overwrite opt_in_method/opt_in_at on conflict — preserve original consent record
         updatedAt: now,
       },
     });
