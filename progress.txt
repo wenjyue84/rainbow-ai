@@ -7732,3 +7732,58 @@ Based on the user story, the request is for a **TypeScript/Vitest** test, not Fr
 - The `toolCalls: []` (empty array) is treated the same as no tool calls — the `!toolCalls || toolCalls.length === 0` check handles both.
 ### Gotchas
 - Initial test had incorrect assertion that `res.setHeader` would be called for Content-Type in the happy path — it's only set by `setupSSEHeaders` which is in `streamFromProviders`, not the direct-content path.
+## Iteration 1 - Sun, Mar 15, 2026  9:19:11 AM
+Completed: Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message (ID: US-888) in 4m
+
+
+## Pre-analysis for US-889 (Gemini 2.5 Pro)
+This technical brief is based on the provided JSON user story. Note that the story describes a TypeScript/Vitest task, not a Frappe/Python one as mentioned in the prompt.
+
+**Project:** TypeScript/Node.js application
+**Testing Framework:** Vitest
+
+**Technical Brief for US-889**
+
+*   **Primary Files:**
+    *   Test implementation: `src/assistant/__tests__/ai-waiter-connectivity.test.ts`
+    *   Code under test (contains the fix): `src/assistant/chat-stream.ts`
+
+*   **Key Functions & Modules:**
+    *   `streamChatWithTools()`: The main function being tested.
+    *   `chatWithFallback()`: The core dependency to be mocked and monitored.
+    *   `streamFromProviders()`: The function that should *not* be executed in this scenario.
+    *   `sseEvent()`: The event emitter for streaming the response.
+
+*   **Implementation Approach:**
+    1.  Add a new test case in `ai-waiter-connectivity.test.ts`.
+    2.  Use `vi.spyOn` to mock `chatWithFallback` to return `{ content: '...', toolCalls: undefined }`.
+    3.  Create another spy on `streamFromProviders` to track its calls.
+    4.  Invoke `streamChatWithTools` and await its completion.
+    5.  Assert that the `chatWithFallback` spy was called exactly once.
+    6.  Assert that the `streamFromProviders` spy was never called.
+
+*   **Gotchas to Watch For:**
+    *   Ensure proper mock setup and teardown (`vi.restoreAllMocks()`) to avoid test pollution.
+    *   The spy on `streamFromProviders` may require accessing an internal, un-exported function, which can be tricky.
+
+
+## Iteration N - Story: US-889 - No redundant second provider call when content is returned
+### What was implemented
+- Added Test 4 to `src/assistant/__tests__/ai-waiter-connectivity.test.ts`
+- Mocks `chatWithFallback` returning `{ content: '...', toolCalls: undefined }`
+- Asserts `chatWithFallback` called exactly once (no second round-trip)
+- Asserts content streamed as SSE token via `res.write`
+- Asserts `getProviders` NOT called (proxy for `streamFromProviders` not being invoked)
+- Imported `getProviders` from mock to enable the spy assertion
+
+### Patterns discovered
+- `getProviders()` is the first call in `streamFromProviders` — spying on it is a reliable proxy for detecting whether `streamFromProviders` ran
+- `toolCalls: undefined` is treated identically to `toolCalls: []` by the `!toolCalls || toolCalls.length === 0` guard
+- All 4 tests pass in 12ms total
+
+### Gotchas
+- Need to import the mocked function (`getProviders`) explicitly even if it's already mocked at module level
+- `vi.mocked()` wrapper needed to get proper TypeScript types for the mock
+
+## Iteration 1 - Sun, Mar 15, 2026  9:23:45 AM
+Completed: Fix and test: streamChatWithTools avoids redundant second provider call (ID: US-889) in 3m

@@ -47,10 +47,11 @@ vi.mock('../llm-cost-budget.js', () => ({
 }));
 
 import { streamChatWithTools } from '../chat-stream.js';
-import { chatWithFallback } from '../ai-provider-manager.js';
+import { chatWithFallback, getProviders } from '../ai-provider-manager.js';
 import type { MCPTool, MCPToolResult, ToolHandler } from '../../types/mcp.js';
 
 const mockedChatWithFallback = vi.mocked(chatWithFallback);
+const mockedGetProviders = vi.mocked(getProviders);
 
 const STREAM_FALLBACK = "AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.";
 
@@ -228,5 +229,40 @@ describe('AI waiter connectivity regression (US-888)', () => {
     const allText = tokens.join('');
     expect(allText).not.toMatch(/^Error:/);
     expect(allText).not.toMatch(/throw/i);
+  });
+
+  // ── Test 4 (US-889): No redundant second provider call when content is returned ──
+
+  test('US-889: chatWithFallback returns text with toolCalls undefined → exactly one call, no streamFromProviders', async () => {
+    mockedChatWithFallback.mockResolvedValueOnce({
+      content: 'Here are our menu items: Nasi Lemak, Teh Tarik, Roti Canai.',
+      toolCalls: undefined,
+      provider: { name: 'test-provider', model: 'test-model' },
+      usage: { total_tokens: 15 },
+    });
+
+    const res = makeMockRes();
+    const toolHandlers = new Map<string, ToolHandler>();
+
+    const result = await streamChatWithTools(
+      res as any,
+      'You are a Makan Moments assistant.',
+      [],
+      'What do you have on the menu?',
+      testTools,
+      toolHandlers
+    );
+
+    // chatWithFallback called exactly once — no redundant second round-trip
+    expect(mockedChatWithFallback).toHaveBeenCalledTimes(1);
+
+    // Content returned and streamed as SSE token
+    expect(result).toBe('Here are our menu items: Nasi Lemak, Teh Tarik, Roti Canai.');
+    expect(res.write).toHaveBeenCalled();
+    const tokens = extractTokens(res._written);
+    expect(tokens).toContain('Here are our menu items: Nasi Lemak, Teh Tarik, Roti Canai.');
+
+    // streamFromProviders NOT called — getProviders is its first call site
+    expect(mockedGetProviders).not.toHaveBeenCalled();
   });
 });
