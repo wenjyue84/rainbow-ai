@@ -99,6 +99,7 @@ vi.mock('../sentiment-tracker.js', () => ({
   analyzeSentiment: vi.fn(() => 'neutral'),
   trackSentiment: vi.fn(),
   isSentimentAnalysisEnabled: vi.fn(() => false),
+  isSentimentEnabledForProfile: vi.fn(() => false),
   shouldEscalateOnSentiment: vi.fn(() => ({ shouldEscalate: false })),
   markSentimentEscalation: vi.fn(),
   resetSentimentTracking: vi.fn(),
