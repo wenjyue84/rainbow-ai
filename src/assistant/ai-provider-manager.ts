@@ -10,7 +10,7 @@ import { configStore } from './config-store.js';
 import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
-import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
+import { isProviderOverBudget, recordLLMUsage, type LLMCallContext } from './llm-cost-budget.js';
 import { maskPiiForProvider } from './pii-redactor.js';
 import { logDataFlow, resolveProcessingCountry } from '../lib/pdpa-compliance.js';
 
@@ -434,21 +434,23 @@ export async function providerChat(
 // ─── Fallback Chain ──────────────────────────────────────────────────
 
 /** Try all providers in priority order, return first success.
- *  US-945 AC4: Global hard timeout (default 30s) prevents the entire fallback chain from blocking indefinitely. */
+ *  US-945 AC4: Global hard timeout (default 30s) prevents the entire fallback chain from blocking indefinitely.
+ *  US-918: Optional callContext for per-call cost tracking with conversation_id. */
 export async function chatWithFallback(
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
   temperature: number,
   jsonMode: boolean = false,
   providerIds?: string[],
-  tools?: any[]
+  tools?: any[],
+  callContext?: LLMCallContext
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   // US-945 AC4: Enforce global hard timeout across the entire fallback chain
   const settings = configStore.getSettings() as any;
   const llmHardTimeoutMs = settings?.rateLimiting?.llmHardTimeoutMs ?? 30_000;
 
   return withTimeout(
-    _chatWithFallbackInner(messages, maxTokens, temperature, jsonMode, providerIds, tools),
+    _chatWithFallbackInner(messages, maxTokens, temperature, jsonMode, providerIds, tools, callContext),
     llmHardTimeoutMs,
     'LLM-global',
     Date.now()
@@ -471,7 +473,8 @@ async function _chatWithFallbackInner(
   temperature: number,
   jsonMode: boolean = false,
   providerIds?: string[],
-  tools?: any[]
+  tools?: any[],
+  callContext?: LLMCallContext
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   let providers = getProviders();
 
@@ -536,8 +539,11 @@ async function _chatWithFallbackInner(
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
-        // Record token usage for cost tracking (US-433)
-        recordLLMUsage(provider.id, provider.model, result.usage);
+        // Record token usage for cost tracking (US-433, US-918)
+        recordLLMUsage(provider.id, provider.model, result.usage, 'pelangi', {
+          ...callContext,
+          providerType: provider.type,
+        });
         console.log(`[AI] ✅ Success using: ${provider.name} (${provider.id})`);
         return { content: result.content, provider, usage: result.usage, toolCalls: result.toolCalls };
       }

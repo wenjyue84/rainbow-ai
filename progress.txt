@@ -9778,3 +9778,30 @@ Incomplete: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat wi
 - Only 4 total hardcoded Graph API URLs in the codebase (3 files)
 ### Gotchas
 - The `.spiral-workers/` directories contain copies of source files — those are not part of the main build
+## Iteration 1 - Sun, Mar 15, 2026  9:58:28 PM
+Incomplete: Support BSUID as primary contact identifier in webhook handling (ID: US-960) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-918 AI provider token consumption and cost tracking per conversation
+### What was implemented
+- **AC1**: Every AI provider API call now logs provider, model, input_tokens, output_tokens, estimated_cost_usd, conversation_id, tenant_id, timestamp. Implemented via `insertUsageLog()` in llm-cost-budget.ts writing to new `llm_usage_log` Drizzle table + structured console.log JSON. Called from `recordLLMUsage()` which is invoked after every successful `chatWithFallback()` call.
+- **AC2**: Created comprehensive `GET /analytics/cost-analytics` admin endpoint with: daily/weekly/monthly spend by provider, spend by tenant (profileId), average cost per conversation, timeline sparkline data, and monthly budget status. Supports `period` (daily/weekly/monthly), `days`, and `profileId` query params.
+- **AC3**: Monthly budget alert configured via `costBudget.monthlyBudgetAlertUsd` (default $50) in settings.json. `checkMonthlyBudgetThreshold()` runs alongside the existing 30-minute budget check interval. Fires admin notification when monthly spend crosses threshold (once per calendar month). Manual check available via `POST /analytics/cost-analytics/budget-check`.
+- **AC4**: Created `GET /analytics/cost-analytics/csv` endpoint that exports cost data as CSV with columns: date, provider, tenant_id, prompt_tokens, completion_tokens, estimated_cost_usd, request_count, budget_cap_usd, budget_breached. Supports `days` and `profileId` filters.
+- **AC5**: Updated `token_prices` in settings.json — all Ollama models now priced at $0: `gpt-oss:20b-cloud`, `deepseek-v3.2:cloud`, `qwen3-next:80b-cloud`, `gemini-3-flash-preview:cloud` (already was $0). Ensures Ollama calls are tracked for token volume with $0 cost.
+- **AC6**: Created `GET /analytics/cost-analytics/provider-comparison` endpoint showing cost-per-resolved-conversation across providers. Joins `llm_cost_daily` (costs) with `conversation_traces` (unique conversations per provider) to compute per-provider cost efficiency including avg response time.
+
+### Files changed
+- `src/assistant/data/settings.json` — Added Ollama $0 pricing entries, monthlyBudgetAlertUsd ($50), monthlyBudgetAlertEmail config
+- `src/routes/admin/analytics-cost.ts` — NEW: comprehensive cost analytics endpoint (dashboard, CSV export, provider comparison, budget check)
+- `src/routes/admin/index.ts` — Registered analytics-cost routes + added to semi-stable cache paths
+- `shared/schema-tables.ts` — llm_usage_log table already existed from prior iteration
+- `src/assistant/llm-cost-budget.ts` — checkMonthlyBudgetThreshold, insertUsageLog, queryProviderComparison already existed from prior iteration
+
+### Patterns discovered
+- Previous spiral iteration had already added most US-918 infrastructure to llm-cost-budget.ts (per-call logging, monthly budget check) and schema-tables.ts (llm_usage_log table), but the admin dashboard routes were missing
+- The `analytics-cost.ts` route uses `llm_cost_daily` for aggregated cost queries (efficient) and `conversation_traces` for per-provider conversation counts (join pattern)
+- CSV export uses raw SQL to avoid ORM overhead for large exports
+
+### Status
+✅ Build passes (3 pre-existing warnings). Test suite: 85 passing (no regression). Story marked passes=true.

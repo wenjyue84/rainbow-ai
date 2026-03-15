@@ -725,3 +725,27 @@ export const whatsappPricingEvents = pgTable("whatsapp_pricing_events", {
 
 export type WhatsappPricingEvent = typeof whatsappPricingEvents.$inferSelect;
 export type InsertWhatsappPricingEvent = typeof whatsappPricingEvents.$inferInsert;
+
+// ─── LLM Usage Log (US-918) ──────────────────────────────────────────
+// Per-call granular log of every AI provider API call.
+// Enables cost-per-conversation reporting, CSV export, and provider comparison.
+
+export const llmUsageLog = pgTable("llm_usage_log", {
+  id: serial("id").primaryKey(),
+  provider: text("provider").notNull(),              // provider id (e.g. "nvidia-kimi")
+  model: text("model").notNull(),                    // model name (e.g. "moonshotai/kimi-k2.5")
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
+  conversationId: text("conversation_id"),           // phone/JID (nullable for utility calls)
+  tenantId: text("tenant_id").notNull().default('pelangi'), // profile_id
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_llm_usage_log_provider").on(table.provider),
+  index("idx_llm_usage_log_tenant").on(table.tenantId),
+  index("idx_llm_usage_log_timestamp").on(table.timestamp),
+  index("idx_llm_usage_log_conversation").on(table.conversationId),
+]));
+
+export type LlmUsageLog = typeof llmUsageLog.$inferSelect;
+export type InsertLlmUsageLog = typeof llmUsageLog.$inferInsert;
