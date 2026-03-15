@@ -19,7 +19,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
-import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
+import { getWhatsAppStatus, whatsappManager, sendWhatsAppMessage } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
 import { pool, getPoolMetrics, initDb } from './lib/db.js';
 import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
@@ -821,10 +821,13 @@ server.listen(PORT, '0.0.0.0', () => {
     // Initialize scheduled message checker (US-019)
     initScheduler();
 
-    // US-882: Initialize abandoned-cart recovery checker
+    // US-882: Initialize abandoned-cart recovery checker with WhatsApp support
     const makanProfile = profileRegistry.getProfile('makan-moments');
     const makanCartSettings = makanProfile?.configStore.getSettings() as any;
-    initCartIdleRecovery(makanCartSettings?.cartIdleRecoveryMinutes);
+    initCartIdleRecovery(
+      makanCartSettings?.cartIdleRecoveryMinutes,
+      sendWhatsAppMessage,
+    );
 
     // Initialize failover coordinator (primary/standby)
     const { failoverCoordinator } = await import('./lib/failover-coordinator.js');

@@ -10,6 +10,7 @@
  * - Recovery message includes cart summary + quick-reply options
  * - If recovery is ignored for 24 hours, the cart is auto-cleared
  * - Idle period is configurable via settings.json
+ * - WhatsApp sessions must comply with 24-hour session window
  */
 
 import { pool } from '../lib/db.js';
@@ -23,9 +24,22 @@ import { clearOrderStage } from './order-stage-store.js';
 const DEFAULT_IDLE_MINUTES = 30;
 const CHECK_INTERVAL_MS = 2 * 60 * 1000; // check every 2 minutes
 const RECOVERY_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const WHATSAPP_24H_WINDOW_MS = 24 * 60 * 60 * 1000; // WhatsApp session window
 
 let checkTimer: ReturnType<typeof setInterval> | null = null;
 let configuredIdleMinutes: number = DEFAULT_IDLE_MINUTES;
+
+/** Stored WhatsApp send function — set during init to avoid circular deps */
+let whatsappSendFn: ((phone: string, text: string) => Promise<any>) | null = null;
+
+/**
+ * Detect whether a sessionId represents a WhatsApp session (phone number)
+ * vs a webchat session (UUID).
+ * WhatsApp session IDs are numeric phone strings (e.g. "60127088789").
+ */
+export function isWhatsAppSession(sessionId: string): boolean {
+  return /^\d{8,15}$/.test(sessionId);
+}
 
 /**
  * Build the recovery message text from cart contents.
@@ -71,6 +85,7 @@ async function insertWebchatRecoveryMessage(phone: string, message: string): Pro
 
 /**
  * Scan all active cart sessions and send recovery messages for idle ones.
+ * Supports both webchat (DB insert) and WhatsApp (outbound message) sessions.
  */
 export async function checkIdleCarts(): Promise<number> {
   const activeSessions = cartGetActiveSessions();
@@ -97,13 +112,29 @@ export async function checkIdleCarts(): Promise<number> {
 
     // Build and send recovery message
     const message = buildRecoveryMessage(session.items);
-    const phone = 'webchat-' + sessionId;
+    const isWA = isWhatsAppSession(sessionId);
 
     try {
-      await insertWebchatRecoveryMessage(phone, message);
+      if (isWA) {
+        // WhatsApp: comply with 24-hour session window
+        if (idleDuration >= WHATSAPP_24H_WINDOW_MS) {
+          console.log(`[CartRecovery] Skipping WhatsApp session ${sessionId} — outside 24h window`);
+          continue;
+        }
+        if (!whatsappSendFn) {
+          console.warn(`[CartRecovery] No WhatsApp send function configured — skipping ${sessionId}`);
+          continue;
+        }
+        await whatsappSendFn(sessionId, message);
+      } else {
+        // Webchat: insert into polling DB
+        const phone = 'webchat-' + sessionId;
+        await insertWebchatRecoveryMessage(phone, message);
+      }
+
       cartMarkRecoverySent(sessionId);
       sentCount++;
-      console.log(`[CartRecovery] Sent recovery message for session ${sessionId} (idle ${Math.round(idleDuration / 60000)}m, ${session.items.length} items)`);
+      console.log(`[CartRecovery] Sent ${isWA ? 'WhatsApp' : 'webchat'} recovery for session ${sessionId} (idle ${Math.round(idleDuration / 60000)}m, ${session.items.length} items)`);
     } catch (err: any) {
       console.error(`[CartRecovery] Failed to send recovery for ${sessionId}:`, err.message);
     }
@@ -133,13 +164,19 @@ export function handleRecoveryReply(sessionId: string, text: string): string | n
 
 /**
  * Initialize the cart idle recovery checker.
+ * @param idleMinutes — idle threshold before sending recovery (default: 30)
+ * @param sendWhatsApp — optional WhatsApp send function for WhatsApp sessions
  */
-export function initCartIdleRecovery(idleMinutes?: number): void {
+export function initCartIdleRecovery(
+  idleMinutes?: number,
+  sendWhatsApp?: (phone: string, text: string) => Promise<any>,
+): void {
   if (checkTimer) {
     clearInterval(checkTimer);
   }
 
   configuredIdleMinutes = idleMinutes ?? DEFAULT_IDLE_MINUTES;
+  whatsappSendFn = sendWhatsApp ?? null;
 
   // Initial check
   checkIdleCarts().catch(err => {
@@ -158,7 +195,7 @@ export function initCartIdleRecovery(idleMinutes?: number): void {
     checkTimer.unref();
   }
 
-  console.log(`[CartRecovery] Initialized — checking every ${CHECK_INTERVAL_MS / 1000}s, idle threshold: ${configuredIdleMinutes}m`);
+  console.log(`[CartRecovery] Initialized — checking every ${CHECK_INTERVAL_MS / 1000}s, idle threshold: ${configuredIdleMinutes}m, WhatsApp: ${sendWhatsApp ? 'enabled' : 'disabled'}`);
 }
 
 /**

@@ -25,11 +25,30 @@ import {
 } from '../feedback.js';
 import { trackIntentPrediction, markIntentCorrection, markIntentCorrect } from '../intent-tracker.js';
 import { trackFeedback, trackEmergency, trackWorkflowStarted } from '../../lib/activity-tracker.js';
+import { handleRecoveryReply, isWhatsAppSession } from '../cart-idle-recovery.js';
+import { cartIsRecoverySent, cartResetRecovery } from '../cart-store.js';
 
 export async function handleActiveStates(
   state: PipelineState, ctx: RouterContext
 ): Promise<StateResult> {
   const { requestId, phone, processText, convo, lang, text, msg, profileConfig, profileId } = state;
+
+  // ─── US-882: WHATSAPP CART RECOVERY REPLY ──────────────────────
+  // If this WhatsApp user has a pending cart recovery, check if their
+  // reply is "Resume order" or "Clear cart" and handle it immediately.
+  if (isWhatsAppSession(phone) && cartIsRecoverySent(phone)) {
+    const recoveryResponse = handleRecoveryReply(phone, text);
+    if (recoveryResponse) {
+      cartResetRecovery(phone);
+      addMessage(phone, 'assistant', recoveryResponse, profileId);
+      logMessage(phone, msg.pushName, 'assistant', recoveryResponse, {
+        action: 'cart_recovery_reply', instanceId: msg.instanceId, profileId,
+        ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+      }).catch(() => { });
+      await ctx.sendMessage(phone, recoveryResponse, msg.instanceId);
+      return { handled: true };
+    }
+  }
 
   // ─── FEEDBACK DETECTION ─────────────────────────────────────────
   if (isAwaitingFeedback(phone)) {

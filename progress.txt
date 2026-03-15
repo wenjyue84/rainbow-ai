@@ -8210,3 +8210,29 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 ### Gotchas
 - Must NOT set aria-live on typing indicator div itself — it's inside the messages container which already has aria-live, causing double announcements
 - The `animate` parameter distinguishes history restoration (false) from live messages (true) — only live bot messages should trigger parent postMessage
+
+
+## Iteration - Story: US-882 Proactive abandoned-cart recovery message on WhatsApp session idle
+### What was implemented
+- Extended `cart-idle-recovery.ts` with WhatsApp outbound support:
+  - Added `isWhatsAppSession(sessionId)` to detect phone-number sessions vs webchat UUIDs
+  - `checkIdleCarts()` now routes WhatsApp sessions through a configurable send function
+  - WhatsApp 24-hour session window compliance: skips sessions idle > 24h
+  - `initCartIdleRecovery()` accepts optional `sendWhatsApp` callback to avoid circular deps
+- Added WhatsApp pipeline integration in `state-executor.ts`:
+  - Early interception of "Resume order" / "Clear cart" replies from WhatsApp users
+  - Checks `cartIsRecoverySent(phone)` and `isWhatsAppSession(phone)` before delegating to `handleRecoveryReply`
+  - Logs recovery replies and sends response via WhatsApp
+- Updated `index.ts` to pass `sendWhatsAppMessage` to `initCartIdleRecovery`
+- 21 tests covering: message building, reply parsing, session detection, webchat recovery, WhatsApp recovery (with/without send function), duplicate prevention, cart flags
+
+### Patterns discovered
+- Cart sessions use sessionId as key — phone numbers for WhatsApp, UUIDs for webchat
+- `isWhatsAppSession` uses regex `/^\d{8,15}$/` to detect phone-number sessions
+- WhatsApp send function passed as callback during init to avoid circular dependency between cart-idle-recovery and whatsapp modules
+- The `checkIdleCarts` scanner handles both session types in a single loop
+
+### Gotchas
+- Without a WhatsApp send function configured, WhatsApp sessions silently skip (with warning log)
+- 24h window check uses `idleDuration >= WHATSAPP_24H_WINDOW_MS` — since idle is measured from lastAccess, sessions older than 24h are outside WhatsApp's session window
+- Cart tools currently only used from webchat-api.ts — WhatsApp carts require future integration of cart tools into the WhatsApp pipeline

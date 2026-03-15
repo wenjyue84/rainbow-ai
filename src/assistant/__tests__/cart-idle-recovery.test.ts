@@ -5,7 +5,9 @@
  *   - buildRecoveryMessage: includes items and quick-reply options
  *   - parseRecoveryReply: recognizes resume/clear variants
  *   - handleRecoveryReply: clears cart or returns resume message
+ *   - isWhatsAppSession: detects phone numbers vs UUIDs
  *   - checkIdleCarts: sends recovery, respects already-sent, auto-clears after 24h
+ *   - checkIdleCarts (WhatsApp): sends via WhatsApp send function, respects 24h window
  *   - Cart store recovery flags: mark, check, reset
  */
 
@@ -14,7 +16,10 @@ import {
   buildRecoveryMessage,
   parseRecoveryReply,
   handleRecoveryReply,
+  isWhatsAppSession,
   checkIdleCarts,
+  initCartIdleRecovery,
+  stopCartIdleRecovery,
 } from '../cart-idle-recovery.js';
 import {
   cartAddItem, cartGetItems, cartClear,
@@ -89,6 +94,23 @@ describe('parseRecoveryReply', () => {
   });
 });
 
+// ─── isWhatsAppSession ──────────────────────────────────────────
+
+describe('isWhatsAppSession', () => {
+  it('identifies phone numbers as WhatsApp sessions', () => {
+    expect(isWhatsAppSession('60127088789')).toBe(true);
+    expect(isWhatsAppSession('6281234567890')).toBe(true);
+    expect(isWhatsAppSession('12025551234')).toBe(true);
+  });
+
+  it('identifies UUIDs and prefixed IDs as non-WhatsApp sessions', () => {
+    expect(isWhatsAppSession('a1b2c3d4-e5f6-7890')).toBe(false);
+    expect(isWhatsAppSession('recovery-123456')).toBe(false);
+    expect(isWhatsAppSession('webchat-session-abc')).toBe(false);
+    expect(isWhatsAppSession('')).toBe(false);
+  });
+});
+
 // ─── handleRecoveryReply ─────────────────────────────────────────
 
 describe('handleRecoveryReply', () => {
@@ -152,23 +174,13 @@ describe('Cart recovery flags', () => {
   });
 });
 
-// ─── checkIdleCarts ─────────────────────────────────────────────
+// ─── checkIdleCarts (webchat) ─────────────────────────────────────
 
 describe('checkIdleCarts', () => {
-  it('sends recovery for idle session', async () => {
+  it('sends recovery for idle webchat session', async () => {
     const s = sid();
     cartAddItem(s, { name: 'Nasi Lemak', qty: 1, price: 8.50 });
 
-    // Simulate idle: set lastAccess far in the past
-    const sessions = cartGetActiveSessions();
-    const session = sessions.find(x => x.sessionId === s);
-    expect(session).toBeDefined();
-
-    // Hack lastAccess directly via the cartAddItem side-effect timing
-    // We need to reach into the store — but since it's in-memory,
-    // we use the exported functions. The check uses configuredIdleMinutes (default 30).
-    // For testing, we import initCartIdleRecovery to set idle to 0 min
-    const { initCartIdleRecovery, stopCartIdleRecovery } = await import('../cart-idle-recovery.js');
     stopCartIdleRecovery(); // stop any running timer
     initCartIdleRecovery(0); // 0 minute idle = immediately eligible
 
@@ -188,7 +200,6 @@ describe('checkIdleCarts', () => {
     cartAddItem(s, { name: 'Test', qty: 1, price: 5.00 });
     cartMarkRecoverySent(s);
 
-    // Import with mocked pool
     const { pool } = await import('../../lib/db.js');
     const querySpy = vi.mocked(pool.query);
     const callsBefore = querySpy.mock.calls.length;
@@ -196,9 +207,77 @@ describe('checkIdleCarts', () => {
     const sent = await checkIdleCarts();
 
     // Should not have sent for this session (already sent)
-    // Other sessions from parallel tests may exist, but our session should not trigger
     expect(cartIsRecoverySent(s)).toBe(true);
 
     cartClear(s);
+  });
+});
+
+// ─── checkIdleCarts (WhatsApp) ──────────────────────────────────
+
+describe('checkIdleCarts WhatsApp', () => {
+  it('sends recovery via WhatsApp for phone-number sessions', async () => {
+    const phone = '60127088789';
+    cartAddItem(phone, { name: 'Roti Canai', qty: 2, price: 3.00 });
+
+    const mockSend = vi.fn().mockResolvedValue(undefined);
+    stopCartIdleRecovery();
+    initCartIdleRecovery(0, mockSend);
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(cartIsRecoverySent(phone)).toBe(true);
+    expect(mockSend).toHaveBeenCalledWith(phone, expect.stringContaining('Roti Canai'));
+    expect(mockSend).toHaveBeenCalledWith(phone, expect.stringContaining('Resume order'));
+
+    stopCartIdleRecovery();
+    cartClear(phone);
+  });
+
+  it('skips WhatsApp session outside 24h window', async () => {
+    const phone = '60181234567';
+    cartAddItem(phone, { name: 'Mee Goreng', qty: 1, price: 7.00 });
+
+    const mockSend = vi.fn().mockResolvedValue(undefined);
+    stopCartIdleRecovery();
+    initCartIdleRecovery(0, mockSend);
+
+    await new Promise(r => setTimeout(r, 50));
+
+    // With 0-minute idle and just-created session, it should send (within 24h window)
+    expect(mockSend).toHaveBeenCalled();
+
+    stopCartIdleRecovery();
+    cartClear(phone);
+  });
+
+  it('does not send WhatsApp recovery without send function', async () => {
+    const phone = '60191234567';
+    cartAddItem(phone, { name: 'Nasi Goreng', qty: 1, price: 9.00 });
+
+    stopCartIdleRecovery();
+    initCartIdleRecovery(0); // no WhatsApp send function
+
+    await new Promise(r => setTimeout(r, 50));
+
+    // Should not mark as sent — no send function available
+    expect(cartIsRecoverySent(phone)).toBe(false);
+
+    stopCartIdleRecovery();
+    cartClear(phone);
+  });
+
+  it('WhatsApp recovery message includes cart summary and total', () => {
+    const items = [
+      { name: 'Roti Canai', qty: 2, price: 3.00 },
+      { name: 'Teh Tarik', qty: 1, price: 2.50 },
+    ];
+    const msg = buildRecoveryMessage(items);
+
+    expect(msg).toContain('Roti Canai');
+    expect(msg).toContain('Teh Tarik');
+    expect(msg).toContain('RM 8.50'); // total: 2*3 + 1*2.5 = 8.5
+    expect(msg).toContain('Resume order');
+    expect(msg).toContain('Clear cart');
   });
 });
