@@ -43,6 +43,7 @@ import {
   getModificationRemainingSeconds,
   setActiveModification, consumeActiveModification,
 } from '../assistant/order-modification-store.js';
+import { saveOrderHistory } from '../assistant/order-history-store.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -736,6 +737,16 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       tableInfo: { tableNumber: effectiveTableNumber, orderType: effectiveOrderType },
       orderId: placedOrderId,
     });
+
+    // US-897: Persist order items for returning-customer reorder (fire-and-forget)
+    saveOrderHistory({
+      sessionId,
+      phone: customerJid,
+      profileId,
+      items,
+      tableInfo: storedTable ?? (effectiveTableNumber ? { tableNumber: effectiveTableNumber, orderType: effectiveOrderType } : undefined),
+      orderId: placedOrderId,
+    }).catch(() => {});
 
     // Transition to PLACED and clear cart
     transitionOrderStage(sessionId, 'PLACED');

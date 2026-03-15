@@ -8585,3 +8585,26 @@ Completed: Portfolio-level messaging limit consolidation: inherit highest tier a
 ## Iteration 3 - Sun, Mar 15, 2026  6:11:29 PM
 Incomplete: Prompt injection input sanitisation layer in message processing pipeline (ID: US-927) — attempt 2/3
 
+## Iteration 4 - Sun, Mar 15, 2026  6:11:59 PM
+Completed: Portfolio-level messaging limit consolidation: inherit highest tier across all numbers (ID: US-910) in 8m
+
+## Iteration 2 - Sun, Mar 15, 2026  6:12:00 PM
+Completed: Portfolio-level messaging limit consolidation: inherit highest tier across all numbers (ID: US-910) in 6m
+
+
+## Iteration [Ralph] - Story: US-897 AI waiter returning-customer order history
+### What was implemented
+- **New file: `src/assistant/order-history-store.ts`**: Persists completed webchat order items to `webchat_order_history` table (raw pg, auto-created on startup). Provides `saveOrderHistory()` and `getLastOrder()` functions.
+- **`src/tools/cart.ts`**: Added `saveOrderHistory` import and fire-and-forget call in `order_confirm_submit` handler after order is placed, before cart is cleared.
+- **`src/routes/public/webchat-api.ts`**: 
+  - Modified `GET /:profileId/greeting` to check for returning customer's last order (makan-moments only). Returns `lastOrder` field with available items, omitted out-of-stock items, and a "Welcome back! Order your usual again?" greeting.
+  - Added `POST /:profileId/reorder` endpoint that populates the session cart with items from the last completed order, checking menu availability and omitting out-of-stock items.
+- **Admin toggle**: Feature checks `settings.repeatOrderEnabled` (defaults to `true`/enabled). Can be disabled via admin settings.
+- **Tests**: 5 Vitest tests in `src/assistant/__tests__/order-history.test.ts` covering first-time empty lookup, returning-session correct cart, save persistence, and DB error graceful handling.
+### Patterns discovered
+- The DB pool mock must have a default `.mockResolvedValue()` because the module runs startup migration queries at import time (CREATE TABLE IF NOT EXISTS)
+- Cart items are in-memory and cleared after checkout — persistent order history requires a separate DB table
+- The `fetchMenuItems()` returns `DisambiguationCandidate[]` with `code` and `available` fields, suitable for availability checking
+### Gotchas
+- The `saveOrderHistory` function signature was enriched by linter to take an object param with phone, tableInfo, totalAmount — the cart.ts call needed to match
+- The linter also added order stage transition (ORDERING) to the reorder endpoint for consistency with cart population

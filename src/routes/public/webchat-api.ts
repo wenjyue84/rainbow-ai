@@ -23,7 +23,9 @@ import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamCha
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
 import { handleRecoveryReply } from '../../assistant/cart-idle-recovery.js';
-import { cartResetRecovery } from '../../assistant/cart-store.js';
+import { cartResetRecovery, cartAddItem } from '../../assistant/cart-store.js';
+import { getLastOrder } from '../../assistant/order-history-store.js';
+import { fetchMenuItems } from '../../tools/fnb-menu.js';
 
 const router = Router();
 
@@ -195,12 +197,143 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
 
   // Read welcomeMessage from profile settings, fall back to default
   const settings = profile.configStore.getSettings() as any;
-  const greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
+  let greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
+
+  // US-897: Check for returning customer's last order (makan-moments only, opt-in)
+  let lastOrder: any = null;
+  const repeatOrderEnabled = settings.repeatOrderEnabled !== false; // default on
+  if (profileId === 'makan-moments' && repeatOrderEnabled) {
+    try {
+      const order = await getLastOrder(sessionId, profileId);
+      if (order && order.items.length > 0) {
+        // Filter out-of-stock items by checking current menu availability
+        let availableCodes: Set<string> | null = null;
+        try {
+          const menuItems = await fetchMenuItems();
+          availableCodes = new Set(
+            menuItems
+              .filter(m => m.code && m.available !== false)
+              .map(m => m.code!.toLowerCase())
+          );
+        } catch { /* menu fetch failed — skip availability check */ }
+
+        const availableItems = availableCodes
+          ? order.items.filter(i => !i.code || availableCodes!.has(i.code.toLowerCase()))
+          : order.items;
+        const omittedItems = availableCodes
+          ? order.items.filter(i => i.code && !availableCodes!.has(i.code.toLowerCase()))
+          : [];
+
+        if (availableItems.length > 0) {
+          const itemList = availableItems
+            .map(i => `${i.qty}x ${i.name}`)
+            .join(', ');
+          const omittedNote = omittedItems.length > 0
+            ? ` (Note: ${omittedItems.map(i => i.name).join(', ')} ${omittedItems.length === 1 ? 'is' : 'are'} currently unavailable)`
+            : '';
+
+          greeting = `Welcome back! Last time you ordered: ${itemList}.${omittedNote} Would you like to order the same again?`;
+          lastOrder = {
+            items: availableItems,
+            omittedItems: omittedItems.length > 0 ? omittedItems : undefined,
+            orderId: order.orderId,
+            placedAt: order.placedAt,
+          };
+        }
+      }
+    } catch {
+      // Non-blocking — fall back to default greeting
+    }
+  }
 
   // Mark session as greeted
   greetingSessions.set(sessionId, { sentAt: Date.now() });
 
-  res.json({ greeting, sessionId });
+  res.json({ greeting, sessionId, lastOrder });
+});
+
+/**
+ * POST /api/chat/:profileId/reorder (US-897)
+ *
+ * Populates the session cart with items from the customer's last completed order.
+ * Checks menu availability and omits out-of-stock items.
+ * Body: { sessionId } (required)
+ */
+router.post('/:profileId/reorder', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionId } = req.body;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId (string) required' });
+    return;
+  }
+
+  if (profileId !== 'makan-moments') {
+    res.status(400).json({ error: 'Reorder is only available for makan-moments profile' });
+    return;
+  }
+
+  const profile = profileRegistry.getProfile(profileId);
+  if (!profile) {
+    res.status(404).json({ error: `Profile "${profileId}" not found` });
+    return;
+  }
+
+  // Check if feature is enabled
+  const settings = profile.configStore.getSettings() as any;
+  if (settings.repeatOrderEnabled === false) {
+    res.status(403).json({ error: 'Repeat order feature is disabled' });
+    return;
+  }
+
+  try {
+    const order = await getLastOrder(sessionId, profileId);
+    if (!order || order.items.length === 0) {
+      res.json({ success: false, message: 'No previous order found for this session', items: [] });
+      return;
+    }
+
+    // Check current menu availability
+    let availableCodes: Set<string> | null = null;
+    try {
+      const menuItems = await fetchMenuItems();
+      availableCodes = new Set(
+        menuItems
+          .filter(m => m.code && m.available !== false)
+          .map(m => m.code!.toLowerCase())
+      );
+    } catch { /* menu fetch failed — add all items */ }
+
+    const availableItems = availableCodes
+      ? order.items.filter(i => !i.code || availableCodes!.has(i.code.toLowerCase()))
+      : order.items;
+    const omittedItems = availableCodes
+      ? order.items.filter(i => i.code && !availableCodes!.has(i.code.toLowerCase()))
+      : [];
+
+    // Populate the cart with available items and transition to ORDERING stage
+    for (const item of availableItems) {
+      cartAddItem(sessionId, { name: item.name, code: item.code, qty: item.qty, price: item.price });
+    }
+    if (availableItems.length > 0) {
+      const { transitionOrderStage } = await import('../../assistant/order-stage-store.js');
+      transitionOrderStage(sessionId, 'ORDERING');
+    }
+
+    const omittedNote = omittedItems.length > 0
+      ? `Some items are no longer available: ${omittedItems.map(i => i.name).join(', ')}.`
+      : undefined;
+
+    res.json({
+      success: true,
+      items: availableItems,
+      omittedItems: omittedItems.length > 0 ? omittedItems : undefined,
+      omittedNote,
+    });
+  } catch (err: any) {
+    console.error('[Webchat] Reorder error:', err.message);
+    res.status(500).json({ error: 'Failed to process reorder' });
+  }
 });
 
 // ─── Makan-Moments Context Builder ─────────────────────────────────────
