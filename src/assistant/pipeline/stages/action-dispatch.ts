@@ -413,11 +413,14 @@ async function handleStartFlow(
  *
  * Uses the LLM-generated response directly.
  * If confidence is very low (<0.4), increments unknown counter and
- * may escalate if threshold is reached.
+ * applies tiered progressive escalation.
  *
- * US-428: Consecutive fallback escalation — after N consecutive T4 LLM-fallback
- * unknowns (configurable via settings.json consecutive_fallback_threshold),
- * automatically trigger human handoff and log to escalation_events table.
+ * US-880: 3-tier confidence-based fallback with progressive escalation:
+ *   Tier 1 (1st failure): Ask user to rephrase in a friendly tone
+ *   Tier 2 (2nd failure): Present quick-reply list of 4-5 core capabilities
+ *   Tier 3 (3rd failure): Human handoff message + staff notification
+ * Counter resets on successful intent classification.
+ * All fallback events logged in intent_analytics with failure_tier (1, 2, or 3).
  */
 async function handleLLMReply(
   state: PipelineState,
@@ -445,21 +448,23 @@ async function handleLLMReply(
   if (isUnknownIntent || result.confidence < 0.4) {
     const unknownCount = context.incrementUnknown(phone);
 
-    // US-428: Check consecutive fallback threshold (settings.json, per-profile)
+    // US-880: 3-tier confidence-based fallback with progressive escalation
     const settings = context.getSettings();
-    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 1;
+    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 2;
     const shouldEscalateConsecutive = unknownCount > fallbackThreshold;
+    const lang = convo.language || 'en';
 
     if (shouldEscalateConsecutive) {
-      // ─── Stage 2: Escalation (US-428 + US-445) ──────────────────────
+      // ─── Tier 3: Human handoff (US-880) ─────────────────────────────
       diaryEvent.escalated = true;
 
-      // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
+      // Log escalation event to DB (fire-and-forget)
       context.logEscalationEvent({
         jid: phone,
         profileId: state.profileId,
         trigger: 'consecutive_fallback',
         count: unknownCount,
+        metadata: { failure_tier: 3 },
         summaryContext: {
           guestName: msg.pushName,
           recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
@@ -467,8 +472,14 @@ async function handleLLMReply(
         },
       });
 
+      // Log failure_tier to intent_analytics
+      const conversationId = `${phone}-${Date.now()}`;
+      context.trackIntentPrediction(
+        conversationId, phone, text, 'unknown', result.confidence,
+        'failure_tier_3', result.model
+      ).catch(() => {});
+
       // Send customer-facing message about operator handoff
-      const lang = convo.language || 'en';
       const handoffMessages: Record<string, string> = {
         en: "I'm connecting you with our team for better assistance. A staff member will reply to you shortly.",
         ms: "Saya menghubungkan anda dengan pasukan kami untuk bantuan yang lebih baik. Staf akan membalas anda tidak lama lagi.",
@@ -480,18 +491,43 @@ async function handleLLMReply(
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
         profileId: state.profileId,
-        triggerDetail: `Consecutive fallback (${unknownCount}x unmatched)`,
+        triggerDetail: `Consecutive fallback tier 3 (${unknownCount}x unmatched)`,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch] Stage 2 escalation (US-445): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
-    } else if (unknownCount === 1) {
-      // ─── Stage 1: Suggestion response (US-445) ──────────────────────
-      const lang = convo.language || 'en';
+      console.log(`[Dispatch] Tier 3 handoff (US-880): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
+    } else if (unknownCount === 2) {
+      // ─── Tier 2: Suggestion list (US-880) ───────────────────────────
       const suggestionResponse = buildFallbackSuggestionResponse(settings, lang);
       if (suggestionResponse) {
         state.response = suggestionResponse;
-        console.log(`[Dispatch] Stage 1 suggestion (US-445): showing ${(settings.fallback?.suggestions || []).length} options`);
       }
+
+      // Log failure_tier to intent_analytics
+      const conversationId = `${phone}-${Date.now()}`;
+      context.trackIntentPrediction(
+        conversationId, phone, text, 'unknown', result.confidence,
+        'failure_tier_2', result.model
+      ).catch(() => {});
+
+      console.log(`[Dispatch] Tier 2 suggestions (US-880): showing ${(settings.fallback?.suggestions || []).length} options`);
+    } else if (unknownCount === 1) {
+      // ─── Tier 1: Rephrase request (US-880) ──────────────────────────
+      const rephraseMessages: Record<string, string> = {
+        en: "I'm sorry, I didn't quite understand that. Could you please rephrase your question?",
+        ms: "Maaf, saya kurang faham. Bolehkah anda ulangi soalan anda dengan cara lain?",
+        zh: "抱歉，我没太明白您的意思。您能换个方式再说一遍吗？",
+        ta: "மன்னிக்கவும், எனக்கு புரியவில்லை. தயவுசெய்து உங்கள் கேள்வியை வேறு விதமாக கேளுங்கள்.",
+      };
+      state.response = rephraseMessages[lang] || rephraseMessages.en;
+
+      // Log failure_tier to intent_analytics
+      const conversationId = `${phone}-${Date.now()}`;
+      context.trackIntentPrediction(
+        conversationId, phone, text, 'unknown', result.confidence,
+        'failure_tier_1', result.model
+      ).catch(() => {});
+
+      console.log(`[Dispatch] Tier 1 rephrase (US-880): asking user to rephrase`);
     }
   } else {
     context.resetUnknown(phone);

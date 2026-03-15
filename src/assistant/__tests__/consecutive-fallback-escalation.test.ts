@@ -1,9 +1,13 @@
 /**
- * US-428: Consecutive fallback escalation test
+ * US-880: Consecutive fallback escalation test (3-tier progressive)
  *
  * Verifies that after N consecutive unknown-intent messages (configurable
  * via consecutive_fallback_threshold), the pipeline triggers human handoff
- * and logs an escalation event.
+ * and logs an escalation event with failure_tier metadata.
+ *
+ * Tier 1: rephrase request
+ * Tier 2: suggestion list
+ * Tier 3: human handoff (threshold exceeded)
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { dispatchAction } from '../pipeline/stages/action-dispatch.js';
@@ -116,24 +120,22 @@ function unknownRouting(): RoutingResult {
   };
 }
 
-describe('US-428: Consecutive fallback escalation', () => {
-  test('escalation NOT triggered on 1st and 2nd consecutive unknown', async () => {
+describe('US-880: Consecutive fallback escalation (3-tier)', () => {
+  test('Tier 1 and 2 do NOT trigger escalation', async () => {
     const context = createMockContext();
-    const state1 = createMockState();
-    const state2 = createMockState();
 
-    // 1st unknown — no escalation
-    await dispatchAction(state1, unknownResult(), unknownRouting(), context);
+    // 1st unknown — Tier 1 rephrase, no escalation
+    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
     expect(context.escalateToStaff).not.toHaveBeenCalled();
     expect(context.logEscalationEvent).not.toHaveBeenCalled();
 
-    // 2nd unknown — still no escalation (threshold is 2, need > 2)
-    await dispatchAction(state2, unknownResult(), unknownRouting(), context);
+    // 2nd unknown — Tier 2 suggestions, still no escalation
+    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
     expect(context.escalateToStaff).not.toHaveBeenCalled();
     expect(context.logEscalationEvent).not.toHaveBeenCalled();
   });
 
-  test('escalation IS triggered on 3rd consecutive unknown (threshold=2)', async () => {
+  test('Tier 3 IS triggered on 3rd consecutive unknown (threshold=2)', async () => {
     const context = createMockContext();
 
     // Send 3 consecutive unknowns
@@ -151,6 +153,7 @@ describe('US-428: Consecutive fallback escalation', () => {
         profileId: 'pelangi',
         trigger: 'consecutive_fallback',
         count: 3,
+        metadata: { failure_tier: 3 },
         summaryContext: expect.objectContaining({
           guestName: 'Test',
           escalationReason: expect.stringContaining('consecutive fallback'),
@@ -162,7 +165,7 @@ describe('US-428: Consecutive fallback escalation', () => {
   test('counter resets when a known intent succeeds', async () => {
     const context = createMockContext();
 
-    // 2 unknowns
+    // 2 unknowns (Tier 1 + Tier 2)
     for (let i = 0; i < 2; i++) {
       await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
     }
@@ -187,7 +190,7 @@ describe('US-428: Consecutive fallback escalation', () => {
     expect(context.escalateToStaff).not.toHaveBeenCalled();
   });
 
-  test('escalation event contains correct trigger type', async () => {
+  test('escalation event contains correct trigger type and failure_tier', async () => {
     const context = createMockContext();
 
     for (let i = 0; i < 3; i++) {
@@ -196,9 +199,10 @@ describe('US-428: Consecutive fallback escalation', () => {
 
     const logCall = (context.logEscalationEvent as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(logCall.trigger).toBe('consecutive_fallback');
+    expect(logCall.metadata).toEqual({ failure_tier: 3 });
   });
 
-  test('response is handoff message when escalation triggers', async () => {
+  test('response is handoff message when Tier 3 triggers', async () => {
     const context = createMockContext();
     let lastState: PipelineState | null = null;
 
@@ -223,8 +227,33 @@ describe('US-428: Consecutive fallback escalation', () => {
     }
     expect(context.escalateToStaff).not.toHaveBeenCalled();
 
-    // 5th unknown triggers escalation
+    // 5th unknown triggers Tier 3 escalation
     await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
     expect(context.escalateToStaff).toHaveBeenCalledTimes(1);
+  });
+
+  test('failure_tier tracked via trackIntentPrediction for all tiers', async () => {
+    const context = createMockContext();
+
+    // Tier 1
+    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
+    expect(context.trackIntentPrediction).toHaveBeenLastCalledWith(
+      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
+      'failure_tier_1', 'test-model'
+    );
+
+    // Tier 2
+    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
+    expect(context.trackIntentPrediction).toHaveBeenLastCalledWith(
+      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
+      'failure_tier_2', 'test-model'
+    );
+
+    // Tier 3
+    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
+    expect(context.trackIntentPrediction).toHaveBeenLastCalledWith(
+      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
+      'failure_tier_3', 'test-model'
+    );
   });
 });

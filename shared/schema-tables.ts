@@ -156,6 +156,8 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   staffName: text("staff_name"),
   transcribed: boolean("transcribed"),  // US-438: true if voice note was transcribed
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
+  baileysMessageId: text("baileys_message_id"), // US-893: Baileys message key.id (for media update)
+  localMediaUrl: text("local_media_url"),       // US-893: locally-stored media path after download
   profileId: text("profile_id").default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
