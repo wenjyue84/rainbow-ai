@@ -105,11 +105,14 @@ router.get('/status', async (_req: Request, res: Response) => {
   });
 });
 
-// ─── Config Audit Log ────────────────────────────────────────────────
+// ─── Config Audit Log (US-847: enhanced with filtering & diff) ───────
 
 router.get('/config-audit', async (req: Request, res: Response) => {
-  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-  const rows = await getConfigAuditLog(limit);
+  const limit = Math.min(parseInt(req.query.limit as string) || 100, 200);
+  const changedBy = req.query.changed_by as string | undefined;
+  const fromDate = req.query.from as string | undefined;
+  const toDate = req.query.to as string | undefined;
+  const rows = await getConfigAuditLog({ limit, changedBy, fromDate, toDate });
   ok(res, rows);
 });
 

@@ -8236,3 +8236,27 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 - Without a WhatsApp send function configured, WhatsApp sessions silently skip (with warning log)
 - 24h window check uses `idleDuration >= WHATSAPP_24H_WINDOW_MS` — since idle is measured from lastAccess, sessions older than 24h are outside WhatsApp's session window
 - Cart tools currently only used from webchat-api.ts — WhatsApp carts require future integration of cart tools into the WhatsApp pipeline
+
+
+
+## Iteration - Story: US-847 Admin audit log for configuration changes with before/after diff
+### What was implemented
+- Schema change: Added `before_data JSONB` and `after_data JSONB` columns to `rainbow_config_audit` table via `ALTER TABLE ADD COLUMN IF NOT EXISTS`
+- Updated `saveConfigToDB()` to fetch current data before upsert, then store both old and new JSON in audit record
+- Enhanced `getConfigAuditLog()` with filtering interface: `changedBy`, `fromDate`, `toDate` params
+- Added `purgeOldAuditLogs()` function for 365-day retention cleanup
+- Updated `GET /api/rainbow/metrics/config-audit` endpoint with query params: `changed_by`, `from`, `to`
+- Added "Audit Log" sub-tab to Settings page in admin dashboard
+- Audit log UI shows: timestamp, config key, action badge (create/update/delete), changed_by, version transition, and expandable diff view
+- JSON diff renderer computes key-level changes: added keys (green), removed keys (red), modified keys (amber with before/after)
+- Audit tab fetches data independently (bypasses settings cache guard) since it uses its own API endpoint
+
+### Patterns discovered
+- Settings sub-tabs follow a render function pattern: `renderXTab(container)` that injects HTML into `#settings-tab-content`
+- The `switchSettingsTab()` function has a guard checking for settings data in cache — tabs with independent data sources must be rendered before that guard
+- The `before_data`/`after_data` columns are nullable, allowing backward compatibility with existing direct INSERT statements in menu-items.ts and data-retention.ts
+
+### Gotchas
+- The `saveConfigToDB()` already reads current version in a transaction — extending it to also read `.data` adds no extra query (reused the same SELECT)
+- menu-items.ts and data-retention.ts write directly to `rainbow_config_audit` without before/after — they'll have NULL for those columns which is fine
+- The `api()` helper in the frontend prepends `/api/rainbow` to all paths, so audit endpoint is called as `/metrics/config-audit`
