@@ -170,6 +170,8 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
   localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
   faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
+  hallucinationAction: text("hallucination_action"), // US-913: action taken (block/body/header/none, null = not checked)
+  hallucinationSeverity: integer("hallucination_severity"), // US-913: contradiction count (null = not checked)
   profileId: text("profile_id").notNull().default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([

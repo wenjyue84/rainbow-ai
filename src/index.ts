@@ -28,6 +28,7 @@ import webchatApiRoutes from './routes/public/webchat-api.js';
 import fnbChatRoutes from './routes/public/fnb-chat.js';
 import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
 import whatsappFlowsRoutes from './routes/public/whatsapp-flows.js';
+import paymentRoutes from './routes/public/payment.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import { captureRawBody } from './lib/webhook-signature.js';
 import { safeRedirect } from './lib/safe-redirect.js';
@@ -664,6 +665,9 @@ app.use('/api/rainbow', gdprPortabilityRoutes);
 
 // WhatsApp Flows data-exchange and health endpoints (US-909)
 app.use('/api/rainbow', whatsappFlowsRoutes);
+
+// US-911: WhatsApp in-chat webview payment page (public, token-verified)
+app.use('/api/rainbow', paymentRoutes);
 
 // Webchat page — serves branded chat UI per profile
 app.get('/chat/:profileId', (req, res) => {

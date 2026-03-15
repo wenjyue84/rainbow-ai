@@ -9082,3 +9082,42 @@ Completed: US-927 — WhatsApp Flows: upgrade endpoint to Data API version 4.0 t
 
 ### Gotchas
 - prd.json is UTF-8 encoded — must open with `encoding='utf-8'` in Python
+## Iteration 10 - Sun, Mar 15, 2026  7:58:15 PM
+Completed: Click-to-WhatsApp ad referral attribution tracking (ID: US-910) in 14m
+
+
+## Iteration 11 - Story: US-911 — WhatsApp in-chat Webview for mobile payment page
+### What was implemented
+- Added `payment_sessions` table to Drizzle schema (shared/schema-tables.ts)
+  - Tracks session lifecycle: pending → paid/failed/expired
+  - Stores order summary JSON, amount, payment method, gateway reference, token hash
+- Created HMAC-SHA256 signed token system (src/lib/payment-token.ts)
+  - Uses PAYMENT_TOKEN_SECRET or RAINBOW_ADMIN_KEY
+  - Constant-time signature comparison to prevent timing attacks
+  - Token hash stored in DB for revocation checks
+- Created mobile-optimized payment page (src/public/payment.html)
+  - 360px viewport optimized, renders within 3s on 4G
+  - DuitNow QR, FPX, Touch 'n Go eWallet payment methods
+  - Real-time status polling with graceful fallback screens
+  - Session data injected server-side (no client-side API call needed)
+- Created payment route endpoints (src/routes/public/payment.ts)
+  - GET /api/rainbow/pay/:token — validates token, serves payment webview
+  - POST /api/rainbow/payment/initiate — starts payment with gateway
+  - POST /api/rainbow/payment/callback — gateway webhook handler
+  - GET /api/rainbow/payment/status/:id — status polling for frontend
+  - Sends WhatsApp confirmation on successful payment
+- Created WhatsApp CTA button sender (src/lib/whatsapp/payment-message.ts)
+  - sendPaymentLink() creates session + sends interactive URL button
+  - Graceful degradation: falls back to plain text URL if interactive fails
+- Registered payment routes in src/index.ts
+
+### Patterns discovered
+- Baileys extendedTextMessage with matchedText/canonicalUrl for URL preview CTA buttons
+- Public routes use rate limiting but no admin auth (token-based verification instead)
+- readFileSync for HTML template caching follows pattern from whatsapp-flows.ts
+
+### Gotchas
+- No JWT library in project — used built-in crypto HMAC-SHA256 to avoid adding dependency
+- Payment gateway integration is stubbed (HitPay/Curlec) — returns gateway ref placeholder
+  - Production: uncomment redirectUrl/qrCodeUrl in /payment/initiate response
+- WhatsApp webview requires WABA with 1000+ BIC/day — CTA URL opens external browser below threshold
