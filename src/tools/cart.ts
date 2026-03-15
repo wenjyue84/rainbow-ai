@@ -52,6 +52,7 @@ import {
   type SstConfig, calculateSst, generateInvoiceNumber,
   formatSstReceipt, formatSstConfirmationSummary, storeReceipt,
 } from '../assistant/sst-receipt.js';
+import { isItemAvailable } from '../assistant/inventory-sync.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -482,6 +483,25 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       price: typeof args.price === 'number' ? args.price : undefined,
       notes: args.notes || undefined
     };
+
+    // US-949: Check real-time inventory before adding to cart
+    const stockCheck = isItemAvailable('makan-moments', item.code, item.name);
+    if (!stockCheck.available) {
+      const itemLabel = stockCheck.itemName || item.name;
+      let alternativesText = '\n\nWould you like me to show you the full menu so you can pick something else?';
+      if (stockCheck.alternatives && stockCheck.alternatives.length > 0) {
+        const altList = stockCheck.alternatives
+          .map((a, i) => `${i + 1}. ${a.name} - RM ${a.price.toFixed(2)}`)
+          .join('\n');
+        alternativesText = `\n\nHere are some similar items you might enjoy:\n${altList}\n\nWould you like any of these instead?`;
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: `Sorry, ${itemLabel} is currently out of stock.${alternativesText}`
+        }]
+      };
+    }
 
     // US-877: Check allergen data before adding to cart
     if (item.code) {

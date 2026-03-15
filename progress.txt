@@ -10261,3 +10261,26 @@ Completed: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-
 ## Iteration 27 - Sun, Mar 15, 2026 11:48:15 PM
 FAILED quality gates: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-948) — attempt 1/3
 
+
+## Iteration [Ralph] - Story: US-949 Real-time out-of-stock sync between chatbot and POS inventory
+### What was implemented
+- **AC1**: POS webhook endpoint `POST /pos/stock-update` accepts batch stock updates with `itemCode`, `itemName`, `quantity`. When quantity=0, item is marked unavailable in menu-items-store within the same request (sub-60s).
+- **AC2**: `isItemAvailable()` check added to `cart_add_item` handler in cart.ts. Out-of-stock items are refused with a friendly message and nearest available alternatives from the same category.
+- **AC3**: Admin dashboard endpoint `GET /inventory/status` returns live inventory status panel with available/unavailable counts per item, filterable by category and profile.
+- **AC4**: `PATCH /inventory/:itemId` allows admin to manually toggle item availability without menu redeploy. Uses `toggleItemAvailability()` which updates in-memory store immediately.
+- **AC5**: All availability transitions logged to `inventory_transitions` table with timestamp, source (pos_webhook/admin_dashboard), changed_by, previous/new state, and quantity for demand forecasting analytics. Queryable via `GET /inventory/transitions`.
+
+### Files changed
+- `src/assistant/inventory-sync.ts` — NEW: Core inventory sync module with `processStockUpdate`, `toggleItemAvailability`, `getInventoryStatus`, `isItemAvailable`, `getInventoryTransitions`, transition logging, and `inventory_transitions` table creation
+- `src/routes/admin/pos-inventory.ts` — NEW: POS webhook + admin inventory API endpoints (4 routes)
+- `src/routes/admin/index.ts` — Import and register posInventoryRoutes
+- `src/tools/cart.ts` — Import `isItemAvailable`, add out-of-stock check before allergen check in `cart_add_item`
+- `src/assistant/__tests__/inventory-sync.test.ts` — NEW: 17 tests covering all 5 ACs
+
+### Patterns discovered
+- Menu items store uses shared mutable Map — mock tests must reset state in beforeEach to avoid cross-test contamination
+- Existing US-854 out-of-stock handling in `cart_search_item` covers the disambiguation path; US-949 adds coverage for direct `cart_add_item` path
+- `findMenuItemByCodeOrName` searches by ID, normalized name, then partial match — flexible enough for POS systems with varying item identifiers
+
+### Status
+✅ Build passes (3 pre-existing warnings). 17/17 inventory sync tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
