@@ -10808,3 +10808,59 @@ Since this is a TypeScript project, the equivalent files are:
 - Cross-namespace chunks are actively filtered out, not just flagged
 ### Status
 Build passes (3 pre-existing warnings). All 19 tests pass. Story complete.
+
+## Pre-analysis for US-968 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js project, not Frappe/Python. Based on the user story and file structure, here is the technical brief:
+
+### Technical Brief: US-968 PDPA Compliance
+
+**1. Python Files to Modify (Node.js/TypeScript Equivalents):**
+*   `shared/schema-tables.ts`: To add an `encrypted` flag or type for PII fields (guest names, phone, booking data).
+*   `src/lib/db.ts` (or equivalent): To wrap database query functions, transparently handling encryption/decryption of PII fields using a new crypto utility module.
+*   `src/routes/middleware/rbac.ts` (new file): To create a Role-Based Access Control middleware for gating access to PII.
+*   `src/routes/*.ts`: Apply the new RBAC middleware to all routes that handle guest or booking data.
+*   `src/jobs/retention.ts` (new file): To house the logic for the automated data retention/anonymization cron job.
+*   `scripts/migrations/encrypt-existing-pii.ts` (new file): A one-time script to migrate and encrypt existing PII in the database.
+
+**2. Frappe DocTypes & Hooks (Equivalent Concepts):**
+*   **DocTypes:** The schemas defined in `shared/schema-tables.ts` for `guests`, `bookings`, and `users`/`roles` are the primary "DocTypes" involved.
+*   **Hooks:** A new RBAC middleware will function as a "hook" on the Express/Fastify routes to check permissions before the controller logic is executed. A scheduled job (e.g., using `node-cron`) will serve as a "cron hook" for data retention.
+
+**3. Recommended Implementation Approach:**
+*   **Encryption:** Use Node.js's built-in `crypto` library to implement AES-256-GCM encryption. Store the encryption key securely as an environment variable (`ENCRYPTION_KEY`). The database utility will check the schema for encrypted fields and automatically encrypt/decrypt them on write/read.
+*   **RBAC:** The middleware will check a user's role against a predefined list of roles authorized for PII access. If unauthorized, it will either return a `403 Forbidden` error or strip PII fields from the response.
+*   **Data Retention:** A nightly cron job will query for guest records where `checkout_date` is older than 2 years and either delete them or update PII fields to an anonymized value (e.g., 'DELETED').
+*   **Documentation:** Create `docs/DPA.md` and `docs/Data_Processing_Inventory.md`.
+
+**4. Edge Cases & Gotchas:**
+*   **Key Management:** The `ENCRYPTION_KEY` is critical. If lost, all encrypted data is lost. It must not be committed to git.
+*   **Data Migration:** The migration script for existing data must be robust, idempotent, and tested on a staging environment first to prevent data loss.
+*   **Performance:** On-the-fly encryption/decryption adds overhead. This may impact performance on routes with large data sets.
+*   **Search/Indexing:** Encrypted fields cannot be directly searched or indexed by the database. Any search functionality on PII fields will require a different approach (e.g., searching on a separate, hashed, or partially-unencrypted field if absolutely necessary and compliant).
+
+
+## Iteration 13 - Story: US-968 PDPA Security Principle
+### What was implemented
+- `src/lib/pii-encryption.ts` — AES-256-GCM PII field encryption/decryption service
+  - `encryptPii()` / `decryptPii()` for individual values
+  - `encryptPiiFields()` / `decryptPiiFields()` for batch record operations
+  - `isPiiEncryptionEnabled()` — checks PII_ENCRYPTION_KEY env var
+  - Dev-mode passthrough when key not configured
+- `src/routes/admin/pdpa-security.ts` — PDPA Security Principle API (4 endpoints):
+  - `GET /pdpa/security/dpa` — Data Processing Agreement document
+  - `GET /pdpa/security/inventory` — Data processing inventory (5 data categories)
+  - `POST /pdpa/security/annual-review` — Record annual review in security_event_log
+  - `GET /pdpa/security/status` — Overall PDPA Security Principle compliance status
+- Registered `pdpaSecurityRoutes` in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- PII encryption follows same AES-256-GCM pattern as `src/lib/totp-service.ts`
+- Encrypted blob format: `v1:<iv_hex>:<ciphertext_hex>:<tag_hex>` — v1 prefix enables algorithm migration
+- Annual review logs to `security_event_log` via `logSecurityEvent()` (existing US-915 infrastructure)
+- RBAC enforced with `checkRole(['operator', 'super-admin'])` pattern from `src/lib/rbac.ts`
+
+### Gotchas
+- Pre-existing TypeScript errors in many files (chat-engine, escalation, pipeline-context etc.) — not from this story
+- Server startup test with dist/index.js fails with pre-existing ERR_AMBIGUOUS_MODULE_SYNTAX (db-url.js CJS/ESM issue)
+- esbuild build passes cleanly — 3 pre-existing warnings only
+- prd.json requires encoding='utf-8' when reading/writing in Python on Windows
