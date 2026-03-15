@@ -9965,3 +9965,33 @@ FAILED quality gates: Support BSUID as primary contact identifier in webhook han
 ## Iteration 2 - Sun, Mar 15, 2026 10:43:32 PM
 Incomplete: Support BSUID as primary contact identifier in webhook handling (ID: US-960) — attempt 2/3
 
+
+## Iteration [Ralph] - Story: US-916 PWA push notifications for webchat re-engagement on order completion
+### What was implemented
+- **AC1**: Service worker (`src/public/sw-push.js`) registered on webchat widget load. Handles Push API `push` and `notificationclick` events. Uses `skipWaiting()` + `clients.claim()` for immediate activation.
+- **AC2**: Notification permission prompt appears only AFTER user has completed their first chat interaction (tracks `userMessageCount`). Not shown on cold page load. Uses `PUSH_PROMPTED_KEY` localStorage to show only once.
+- **AC3**: Settings panel accessible via gear icon in webchat header. Users can toggle notifications on/off and set frequency (15/30/60/120 min). Settings persisted via `/api/chat/:profileId/push/settings` endpoint.
+- **AC4**: `POST /api/chat/:profileId/push/send` endpoint for sending order-ready notifications. Accepts sessionId + payload. Server-side `sendPushNotification()` uses web-push library with VAPID authentication. Delivery is immediate upon call.
+- **AC5**: Notification includes CTA button ("Open Chat") that opens the webchat at `/chat/:profileId` via `notificationclick` handler. Focuses existing tab if open.
+- **AC6**: iOS PWA detection shows "Add to Home Screen" hint for iOS Safari users (required for push on iOS 16.4+). Detects standalone mode via `display-mode: standalone` media query.
+- **AC7**: Delivery rate tracked in `push_notification_log` table. Admin analytics via `GET /analytics/push` returns totalSubscriptions, activeSubscriptions, totalSent, totalDelivered, deliveryRate, and byType breakdown.
+
+### Files changed
+- `shared/schema-tables.ts` — Added `push_subscriptions` and `push_notification_log` Drizzle table definitions
+- `src/public/sw-push.js` — NEW: Service worker for push notifications (push event, notificationclick, install, activate)
+- `src/assistant/push-notifications.ts` — NEW: Server-side push notification module (VAPID config, subscription CRUD, send/broadcast, analytics)
+- `src/routes/public/webchat-api.ts` — Added 5 push notification API endpoints (vapid-key, subscribe, unsubscribe, settings, send)
+- `src/public/webchat.html` — Added push prompt UI, notification settings panel, gear button, service worker registration, subscribeToPush(), iOS PWA hint
+- `src/routes/admin/analytics-push.ts` — NEW: Admin push analytics endpoint + broadcast endpoint
+- `src/routes/admin/index.ts` — Registered analytics-push routes
+- `src/assistant/__tests__/push-notifications.test.ts` — NEW: 9 tests covering VAPID config, subscription shape, payload types, file existence, widget integration, frequency validation
+
+### Patterns discovered
+- `web-push` npm package already in package.json (^3.6.7)
+- Webchat widget uses IIFE pattern with `initChat()` inner function
+- Service worker registration is passive (doesn't prompt for permission) — permission prompt is separate
+- Push subscription uses VAPID applicationServerKey from server-provided public key
+- iOS PWA push requires Add to Home Screen — detected via `navigator.standalone` / display-mode media query
+
+### Status
+✅ Build passes (3 pre-existing warnings). 9/9 push notification tests pass. Server starts. All 7 acceptance criteria verified. Story marked passes=true.
