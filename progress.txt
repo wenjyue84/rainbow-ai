@@ -9225,3 +9225,52 @@ Completed: WhatsApp in-chat Webview for mobile payment page (ID: US-911) in 4m
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 35/35 tests pass. Marked passes=true.
+## Iteration 13 - Sun, Mar 15, 2026  8:20:27 PM
+Incomplete: RAG hybrid retrieval with BM25 and cross-encoder reranking for knowledge base (ID: US-912) — attempt 1/3
+
+
+## Iteration 14 - Sun, Mar 15, 2026  8:21:00 PM
+Completed: OWASP LLM01 Prompt injection input sanitisation and output fencing (ID: US-928)
+
+### What was implemented
+- **Enhanced `src/assistant/pipeline/prompt-injection-guard.ts`** (US-928):
+  - Added OWASP LLM01 regex pattern library (7 categories: instruction_override, role_hijack, prompt_extraction, delimiter_injection, encoded_injection, multi_turn_manipulation, jailbreak_attempt)
+  - Added `detectSystemPromptLeakage()` output fencing — strips <system>, [INST], <<SYS>>, <|im_start|> blocks from AI responses
+  - Added `validateToolArgs()` — validates tool call arguments against inputSchema (type checking, required properties, dangerous value detection for SQL injection, shell injection, path traversal)
+  - Updated `PromptInjectionResult` interface to include `layer` field ('substring' | 'regex' | null)
+
+- **Created `src/lib/prompt-injection-log.ts`**:
+  - Fire-and-forget DB logging via `logPromptInjection()` (truncates message to 500 chars)
+  - `getInjectionAttemptStats()` for admin dashboard (total, last24h, topPatterns)
+
+- **Added `prompt_injection_log` table** to `shared/schema-tables.ts`:
+  - Fields: id, jid, profile_id, raw_message, matched_pattern, layer, action, created_at
+  - Indexes on jid, profile_id, created_at
+
+- **Integrated output fencing** in `src/assistant/pipeline/response-processor.ts`:
+  - Calls `detectSystemPromptLeakage()` after JSON safety check, before confidence thresholds
+  - Logs leakage attempts via `logPromptInjection()` with layer='output_fence'
+  - Strips leaked content; falls back to generic response if cleaning empties the text
+
+- **Integrated tool argument validation** in `src/assistant/ai-response-generator.ts`:
+  - `chatWithToolsLoop()` validates tool args against `inputSchema` before executing handler
+  - Invalid args → tool call error returned to LLM loop (no handler execution)
+
+- **Integrated security logging** in `src/assistant/pipeline/input-validator.ts`:
+  - Calls `logPromptInjection()` with jid, profileId, matched pattern, and layer on every blocked injection
+
+- **Updated tests** in `src/assistant/__tests__/prompt-injection-guard.test.ts`:
+  - 49 tests total covering: substring detection, OWASP regex patterns, output fencing, tool argument validation
+  - Tests cover: clean message passes, injection patterns flagged, delimiter injection, system prompt leakage, SQL/shell/path-traversal in tool args, type checking, required field validation
+
+### Patterns discovered
+- Substring patterns fire before regex patterns (Layer 1a before 1b) — tests must account for which layer catches each phrase
+- Global regex objects need `lastIndex` reset when used for both test() and replace()
+- Tool inputSchema already exists on MCPTool interface — validation just needed to be wired in
+
+### Gotchas
+- progress.txt can't have `.rej` files from prior failed attempts — those are from rejected git patches
+- `profileConfig.getProfileId()` doesn't exist — use the `profileId` variable already in scope in input-validator.ts
+
+### Status
+✅ Build passes (3 pre-existing warnings). 49/49 tests pass. Marked passes=true.

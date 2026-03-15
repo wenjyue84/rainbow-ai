@@ -15,6 +15,7 @@ import type { SupportedLanguage } from './language-router.js';
 import { z } from 'zod';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
+import { validateToolArgs } from './pipeline/prompt-injection-guard.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -189,6 +190,23 @@ export async function chatWithToolsLoop(
         parsedArgs = typeof fnArgs === 'string' ? JSON.parse(fnArgs) : fnArgs || {};
       } catch {
         parsedArgs = {};
+      }
+
+      // US-928: Validate tool arguments against input schema before execution
+      const toolDef = tools.find(t => t.name === fnName);
+      if (toolDef?.inputSchema) {
+        const validation = validateToolArgs(parsedArgs, toolDef.inputSchema);
+        if (!validation.valid) {
+          console.warn(`[AI] Tool argument validation failed for ${fnName}: ${validation.errors.join(', ')}`);
+          const result: MCPToolResult = {
+            content: [{ type: 'text', text: `Tool argument validation failed: ${validation.errors.join(', ')}` }],
+            isError: true
+          };
+          messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.content) });
+          totalToolCalls++;
+          errorToolCalls++;
+          continue;
+        }
       }
 
       const handler = toolHandlers.get(fnName);

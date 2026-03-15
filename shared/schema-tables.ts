@@ -615,3 +615,23 @@ export const paymentSessions = pgTable("payment_sessions", {
 
 export type PaymentSession = typeof paymentSessions.$inferSelect;
 export type InsertPaymentSession = typeof paymentSessions.$inferInsert;
+
+// ─── US-928: Prompt Injection Security Log ──────────────────────────
+
+export const promptInjectionLog = pgTable("prompt_injection_log", {
+  id: serial("id").primaryKey(),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  rawMessage: text("raw_message").notNull(),                       // Truncated + PII-redacted user message
+  matchedPattern: text("matched_pattern").notNull(),               // Pattern or regex that triggered detection
+  layer: varchar("layer", { length: 16 }).notNull(),               // 'substring' | 'regex' | 'output_fence'
+  action: varchar("action", { length: 16 }).notNull(),             // 'blocked' | 'logged'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_injection_log_jid").on(table.jid),
+  index("idx_injection_log_profile").on(table.profileId),
+  index("idx_injection_log_created").on(table.createdAt),
+]));
+
+export type PromptInjectionLogEntry = typeof promptInjectionLog.$inferSelect;
+export type InsertPromptInjectionLog = typeof promptInjectionLog.$inferInsert;

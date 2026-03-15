@@ -23,6 +23,7 @@ import { trackMessageReceived, trackRateLimited } from '../../lib/activity-track
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
+import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
@@ -438,7 +439,16 @@ export async function validateAndPrepare(
     const customPatterns = injectionSettings?.patterns?.length > 0 ? injectionSettings.patterns : undefined;
     const injectionResult = detectPromptInjection(text, customPatterns);
     if (injectionResult.blocked) {
-      console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
+      console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}", layer: ${injectionResult.layer})`);
+      // US-928: Log injection attempt with security alert
+      logPromptInjection({
+        jid: phone,
+        profileId,
+        rawMessage: text.slice(0, 500),
+        matchedPattern: injectionResult.matchedPattern || 'unknown',
+        layer: injectionResult.layer || 'substring',
+        action: 'blocked',
+      });
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };

@@ -31,6 +31,8 @@ import {
   detectHallucinations, getHallucinationBlockMessage, getHallucinationDisclaimer,
   type HallucinationResult
 } from '../hallucination-detector.js';
+import { detectSystemPromptLeakage } from './prompt-injection-guard.js';
+import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -49,6 +51,30 @@ export async function processAndSend(
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
   response = ensureResponseText(response, lang);
+
+  // ─── US-928: Output fencing — strip system prompt leakage ─────
+  const fenceResult = detectSystemPromptLeakage(response);
+  if (fenceResult.leaked) {
+    console.warn(
+      `[OutputFence] System prompt leakage detected for ${phone}: ${fenceResult.matchedPatterns.join(', ')}`
+    );
+    logPromptInjection({
+      jid: phone,
+      profileId,
+      rawMessage: response.slice(0, 500),
+      matchedPattern: fenceResult.matchedPatterns.join('; '),
+      layer: 'output_fence',
+      action: 'logged',
+    });
+    // Use cleaned response (with system blocks stripped)
+    // If cleaning left it empty, fall back to generic response
+    if (fenceResult.cleaned.trim()) {
+      response = fenceResult.cleaned;
+    } else {
+      const fallbacks = getUnknownFallbackMessages();
+      response = fallbacks[lang] || fallbacks.en;
+    }
+  }
 
   // ─── Confidence thresholds + disclaimers ───────────────────────
   const llmSettings = getLLMSettings();
