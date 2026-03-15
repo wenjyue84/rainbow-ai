@@ -9121,3 +9121,23 @@ Completed: Click-to-WhatsApp ad referral attribution tracking (ID: US-910) in 14
 - Payment gateway integration is stubbed (HitPay/Curlec) — returns gateway ref placeholder
   - Production: uncomment redirectUrl/qrCodeUrl in /payment/initiate response
 - WhatsApp webview requires WABA with 1000+ BIC/day — CTA URL opens external browser below threshold
+
+## Iteration N - Story: US-911 WhatsApp in-chat Webview for mobile payment page
+### What was implemented
+- `src/lib/payment-token.ts` — HMAC-SHA256 signed token create/verify/hash (already existed)
+- `src/routes/public/payment.ts` — Express routes: GET /api/rainbow/pay/:token (serves payment HTML with injected session), POST /api/rainbow/payment/initiate, POST /api/rainbow/payment/callback, GET /api/rainbow/payment/status/:id (already existed)
+- `src/lib/whatsapp/payment-message.ts` — sendPaymentLink() utility to create session + send WhatsApp CTA button (already existed)
+- `src/public/payment.html` — Mobile-optimised payment page (DuitNow QR, FPX, TNG) (already existed, was untracked)
+- `src/assistant/__tests__/payment-token.test.ts` — 11 unit tests for token creation, verification, tamper detection, expiry, and hash consistency (NEW)
+- Payment routes were already imported and registered in src/index.ts (line 31 + line 670)
+
+### Patterns discovered
+- Payment session uses DB table `payment_sessions` with Drizzle ORM
+- Token format: base64url(JSON).base64url(HMAC-SHA256)
+- Webview graceful degradation: tries interactive CTA button, falls back to plain text URL
+- Rate limits: 20/min page loads, 5/min initiation attempts per IP
+
+### Gotchas
+- prd.json uses non-ASCII characters (UTF-8 emoji) — must open with encoding='utf-8' in Python
+- Build uses esbuild not tsc; `dist/index.js` startup fails with fake DB URL (expected)
+- `src/public/payment.html` was untracked — needed to be committed
