@@ -248,6 +248,7 @@ vi.mock('../conversation.js', () => {
     updateLastIntent: vi.fn(),
     checkRepeatIntent: vi.fn(() => ({ isRepeat: false, count: 0 })),
     updateSlots: vi.fn(),
+    updateActiveFlow: vi.fn(),
   };
 });
 

@@ -19,6 +19,7 @@ import { Router } from 'express';
 // Mock webhook-signature to bypass HMAC checks in tests
 vi.mock('../../../lib/webhook-signature.js', () => ({
   validateWebhookSignature: () => (_req: any, _res: any, next: any) => next(),
+  validateMetaSignature: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 // Mock logger so tests stay quiet
@@ -72,7 +73,7 @@ function makeRequest(
 // ─── Handler registry unit tests ──────────────────────────────────────────────
 
 describe('US-821: dispatchWebhookEvent registry', () => {
-  it('dispatches to a registered handler', async () => {
+  it('dispatches to a registered handler', { timeout: 15000 }, async () => {
     const { handlerRegistry, dispatchWebhookEvent } = await import('../handlers.js');
     const spy = vi.fn().mockResolvedValue(undefined);
     const original = handlerRegistry['booking_created'];

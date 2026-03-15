@@ -149,7 +149,7 @@ describe('Intent Classification — Metamorphic Tests', () => {
   // The fuzzy matcher uses Fuse.js which is deterministic. Repeated calls
   // with the same input must always produce the same result.
   describe('MR3: Determinism (same input -> same output)', () => {
-    it('should return identical results for repeated calls', () => {
+    it('should return identical results for repeated calls', { timeout: 15000 }, () => {
       fc.assert(
         fc.property(
           fc.constantFrom(

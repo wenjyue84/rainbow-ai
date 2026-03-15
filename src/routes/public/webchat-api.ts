@@ -26,6 +26,8 @@ import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js'
 import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
+import { getVapidPublicKey, saveSubscription, removeSubscription, updateFrequency, sendPushNotification } from '../../assistant/push-notifications.js';
+import type { PushSubscriptionData } from '../../assistant/push-notifications.js';
 
 const router = Router();
 

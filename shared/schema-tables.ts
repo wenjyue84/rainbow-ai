@@ -793,3 +793,51 @@ export const whatsappTemplates = pgTable("whatsapp_templates", {
 
 export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
 export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
+
+// ─── US-916: Push Notification Subscriptions ─────────────────────────
+// Stores Web Push API subscriptions for webchat re-engagement notifications.
+// Each row is a PushSubscription object tied to a webchat session.
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  sessionId: varchar("session_id", { length: 128 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),        // PushSubscription keys.p256dh
+  auth: text("auth").notNull(),            // PushSubscription keys.auth
+  enabled: boolean("enabled").notNull().default(true),
+  maxFrequencyMinutes: integer("max_frequency_minutes").notNull().default(30), // min interval between notifications
+  lastNotifiedAt: timestamp("last_notified_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_push_subs_session_profile").on(table.sessionId, table.profileId),
+  index("idx_push_subs_profile").on(table.profileId),
+  index("idx_push_subs_enabled").on(table.enabled),
+]));
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
+
+// ─── US-916: Push Notification Delivery Log ──────────────────────────
+// Tracks each push notification sent for analytics and delivery rate monitoring.
+
+export const pushNotificationLog = pgTable("push_notification_log", {
+  id: serial("id").primaryKey(),
+  sessionId: varchar("session_id", { length: 128 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  notificationType: varchar("notification_type", { length: 32 }).notNull(), // order_ready | promotion | incomplete_order
+  payload: text("payload"),              // JSON stringified notification payload
+  delivered: boolean("delivered").notNull().default(false),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_push_log_session").on(table.sessionId),
+  index("idx_push_log_profile").on(table.profileId),
+  index("idx_push_log_type").on(table.notificationType),
+  index("idx_push_log_created").on(table.createdAt),
+  index("idx_push_log_delivered").on(table.delivered),
+]));
+
+export type PushNotificationLogEntry = typeof pushNotificationLog.$inferSelect;
+export type InsertPushNotificationLog = typeof pushNotificationLog.$inferInsert;
