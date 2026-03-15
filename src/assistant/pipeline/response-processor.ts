@@ -26,6 +26,8 @@ import { addApproval } from '../approval-queue.js';
 import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
+import { detectSystemPromptLeakage } from './prompt-injection-guard.js';
+import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -44,6 +46,21 @@ export async function processAndSend(
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
   response = ensureResponseText(response, lang);
+
+  // ─── US-927: System prompt leakage detection (output validation) ──
+  const systemPrompt = (profileConfig.getSettings() as any).system_prompt;
+  if (systemPrompt && detectSystemPromptLeakage(response, systemPrompt)) {
+    console.warn(`[ResponseProcessor][US-927] System prompt leakage detected for ${phone} — replacing with fallback`);
+    logPromptInjection({
+      jid: phone,
+      profileId,
+      rawMessage: text,
+      matchedPattern: 'output:system_prompt_leakage',
+      action: 'sanitised',
+    });
+    const fallbacks = getUnknownFallbackMessages(profileConfig);
+    response = fallbacks[lang] || fallbacks.en;
+  }
 
   // ─── Confidence thresholds + disclaimers ───────────────────────
   const llmSettings = getLLMSettings();

@@ -23,6 +23,7 @@ import { trackMessageReceived, trackRateLimited } from '../../lib/activity-track
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
+import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { scheduleMediaDownload } from '../../lib/media-downloader.js';
@@ -441,6 +442,14 @@ export async function validateAndPrepare(
     const injectionResult = detectPromptInjection(text, customPatterns);
     if (injectionResult.blocked) {
       console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
+      // US-927: Persist injection attempt to DB for analytics
+      logPromptInjection({
+        jid: phone,
+        profileId: profileId,
+        rawMessage: text,
+        matchedPattern: injectionResult.matchedPattern!,
+        action: 'blocked',
+      });
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };

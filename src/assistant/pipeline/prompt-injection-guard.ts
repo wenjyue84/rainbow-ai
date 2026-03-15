@@ -1,8 +1,9 @@
 /**
- * Prompt Injection Detection (US-422)
+ * Prompt Injection Detection (US-422, US-927)
  *
- * Lightweight regex/substring guard that detects common prompt injection
- * patterns and blocks them before they reach the LLM.
+ * Multi-layer guard against prompt injection attacks (OWASP LLM01:2025).
+ * Layer 1: Input sanitisation — regex/substring patterns detect adversarial prompts
+ * Layer 2: Output validation — detect system prompt leakage in LLM responses
  */
 
 export interface PromptInjectionResult {
@@ -10,7 +11,7 @@ export interface PromptInjectionResult {
   matchedPattern: string | null;
 }
 
-/** Default patterns — can be overridden via settings.json promptInjection.patterns */
+/** Default substring patterns — can be overridden via settings.json promptInjection.patterns */
 const DEFAULT_PATTERNS: string[] = [
   'ignore previous instructions',
   'ignore all previous',
@@ -46,11 +47,32 @@ const DEFAULT_PATTERNS: string[] = [
 ];
 
 /**
+ * Regex patterns for OWASP LLM01 taxonomy — catch adversarial prompt structures
+ * that simple substring matching misses.
+ */
+const REGEX_PATTERNS: Array<{ regex: RegExp; label: string }> = [
+  // Instruction override attempts
+  { regex: /\b(?:ignore|disregard|forget|override|bypass)\b.{0,30}\b(?:instructions?|prompt|rules?|guidelines?|constraints?)\b/i, label: 'instruction_override' },
+  // Role hijacking
+  { regex: /\b(?:you\s+are\s+now|act\s+as\s+(?:a|an|if)|pretend\s+(?:to\s+be|you\s+are)|simulate\s+being|roleplay\s+as)\b/i, label: 'role_hijack' },
+  // System prompt extraction
+  { regex: /\b(?:reveal|show|print|output|display|repeat|echo|dump|leak|disclose)\b.{0,20}\b(?:system\s*prompt|instructions?|persona|configuration)\b/i, label: 'prompt_extraction' },
+  // Delimiter injection (trying to insert system-level markers)
+  { regex: /(?:^|\n)\s*(?:###?\s*(?:system|instruction|admin)|<\/?(?:system|admin|instructions?)>|\[(?:system|admin)\])/im, label: 'delimiter_injection' },
+  // Encoded/obfuscated injection (base64 decode request, unicode tricks)
+  { regex: /\b(?:base64|atob|decode|eval)\s*\(/i, label: 'encoded_injection' },
+  // Multi-turn manipulation ("in our previous conversation you agreed...")
+  { regex: /\b(?:in\s+(?:our|the)\s+previous|you\s+(?:already|previously)\s+agreed|as\s+we\s+discussed)\b.{0,30}\b(?:you\s+(?:can|will|should|must|are\s+allowed))\b/i, label: 'multi_turn_manipulation' },
+  // Jailbreak / unrestricted mode
+  { regex: /\b(?:jailbreak|DAN\s*mode|developer\s*mode|unrestricted\s*mode|god\s*mode|sudo\s*mode)\b/i, label: 'jailbreak_attempt' },
+];
+
+/**
  * Check if a message contains prompt injection patterns.
- * Uses case-insensitive substring matching against a configurable pattern list.
+ * Uses both substring and regex matching against OWASP LLM01 taxonomy.
  *
  * @param text - The user's message text
- * @param customPatterns - Optional patterns from settings.json (overrides defaults if provided)
+ * @param customPatterns - Optional patterns from settings.json (overrides default substrings if provided)
  * @returns Detection result with matched pattern (if any)
  */
 export function detectPromptInjection(
@@ -60,11 +82,58 @@ export function detectPromptInjection(
   const patterns = customPatterns && customPatterns.length > 0 ? customPatterns : DEFAULT_PATTERNS;
   const lower = text.toLowerCase();
 
+  // Layer 1a: Substring matching
   for (const pattern of patterns) {
     if (lower.includes(pattern.toLowerCase())) {
       return { blocked: true, matchedPattern: pattern };
     }
   }
 
+  // Layer 1b: Regex matching (OWASP LLM01 taxonomy) — only when using default patterns
+  if (!customPatterns || customPatterns.length === 0) {
+    for (const { regex, label } of REGEX_PATTERNS) {
+      if (regex.test(text)) {
+        return { blocked: true, matchedPattern: `regex:${label}` };
+      }
+    }
+  }
+
   return { blocked: false, matchedPattern: null };
+}
+
+/**
+ * Layer 2: Output validation — detect if LLM response leaks system prompt content.
+ * Checks if the response contains significant fragments of the system prompt.
+ *
+ * @param response - The LLM response text
+ * @param systemPrompt - The system prompt that should never be disclosed
+ * @returns true if the response appears to leak the system prompt
+ */
+export function detectSystemPromptLeakage(
+  response: string,
+  systemPrompt: string
+): boolean {
+  if (!response || !systemPrompt) return false;
+
+  const responseLower = response.toLowerCase();
+  const promptLower = systemPrompt.toLowerCase();
+
+  // Check if a significant chunk of the system prompt appears in the response
+  // Use sliding window: if any 80-char substring of the prompt appears in response, flag it
+  const windowSize = 80;
+  if (promptLower.length >= windowSize) {
+    for (let i = 0; i <= promptLower.length - windowSize; i += 20) {
+      const chunk = promptLower.slice(i, i + windowSize);
+      if (responseLower.includes(chunk)) {
+        return true;
+      }
+    }
+  }
+
+  // Also check for telltale "my instructions are" / "my system prompt is" patterns
+  if (/\b(?:my\s+(?:system\s+)?(?:prompt|instructions?)\s+(?:is|are|says?|tells?))\b/i.test(response)) {
+    return true;
+  }
+
+  return false;
 }

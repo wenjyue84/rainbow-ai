@@ -8487,3 +8487,23 @@ Incomplete: Prompt injection input sanitisation layer in message processing pipe
 - The business-capability.test.ts test doesn't explicitly mock webhook-raw-events because the import is lazy and fire-and-forget
 ### Status
 ✅ All 5 acceptance criteria met. Build passes. 8/8 tests pass. Story marked passes=true.
+
+## Iteration 6 - Sun, Mar 15, 2026 - Story: US-927 Prompt injection input sanitisation layer in message processing pipeline
+### What was implemented
+- **Enhanced `prompt-injection-guard.ts`**: Added 7 OWASP LLM01 regex patterns (instruction_override, role_hijack, prompt_extraction, delimiter_injection, encoded_injection, multi_turn_manipulation, jailbreak_attempt) on top of existing substring matching
+- **Output validation**: Added `detectSystemPromptLeakage()` function — sliding-window check (80-char chunks) to detect if LLM response contains system prompt fragments, plus "my instructions are" self-disclosure pattern detection
+- **DB logging**: Added `prompt_injection_log` table (id, jid, profile_id, raw_message, matched_pattern, action, created_at) with indexes on created_at and jid
+- **Logging module** (`src/lib/prompt-injection-log.ts`): Fire-and-forget `logPromptInjection()` + `getInjectionAttemptStats()` for admin dashboard (count, daily trend, recent 20 attempts)
+- **Pipeline wiring**: Input validator now calls `logPromptInjection()` when blocking injection. Response processor calls `detectSystemPromptLeakage()` and replaces leaked responses with profile fallback
+- **Admin API**: `GET /injection-attempts` endpoint returning totalCount, dailyTrend (configurable days, default 7), and recentAttempts
+- **46 Vitest tests**: 12 injection phrase tests, case insensitivity, 20 safe messages (hostel + cafe), custom patterns, 5 OWASP regex tests, 6 system prompt leakage tests
+
+### Patterns discovered
+- Regex patterns complement substring matching — substrings catch exact phrases while regex catches structural patterns (delimiters, encoding attempts)
+- System prompt leakage detection uses 80-char sliding window with 20-char stride — balances detection sensitivity vs false positives
+- Fire-and-forget DB logging pattern (same as escalation events) prevents injection logging from blocking the message response
+
+### Gotchas
+- Regex patterns only run when using default patterns (not custom), to avoid double-matching when users configure their own patterns
+- The "act as" substring pattern is very broad — could match legitimate messages like "act as soon as possible". Kept for backwards compatibility but OWASP regex provides more targeted detection
+- System prompt leakage check requires prompt >= 80 chars to use sliding window; short prompts rely solely on self-disclosure pattern matching

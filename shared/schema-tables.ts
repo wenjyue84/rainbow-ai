@@ -468,3 +468,20 @@ export const webhookRawEvents = pgTable("webhook_raw_events", {
 
 export type WebhookRawEvent = typeof webhookRawEvents.$inferSelect;
 export type InsertWebhookRawEvent = typeof webhookRawEvents.$inferInsert;
+
+// ─── Prompt Injection Log (US-927) ──────────────────────────────────
+export const promptInjectionLog = pgTable("prompt_injection_log", {
+  id: serial("id").primaryKey(),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: varchar("profile_id", { length: 64 }).notNull().default('pelangi'),
+  rawMessage: text("raw_message").notNull(),
+  matchedPattern: varchar("matched_pattern", { length: 255 }).notNull(),
+  action: varchar("action", { length: 32 }).notNull().default('blocked'), // 'blocked' | 'sanitised' | 'escalated'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_prompt_injection_log_created_at").on(table.createdAt),
+  index("idx_prompt_injection_log_jid").on(table.jid),
+]));
+
+export type PromptInjectionLogEntry = typeof promptInjectionLog.$inferSelect;
+export type InsertPromptInjectionLogEntry = typeof promptInjectionLog.$inferInsert;

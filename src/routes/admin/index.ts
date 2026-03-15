@@ -66,6 +66,7 @@ import breachReportRoutes from './breach-report.js';
 import menuAllergensRoutes from './menu-allergens.js';
 import menuItemsRoutes from './menu-items.js';
 import rateLimitSettingsRoutes from './rate-limit-settings.js';
+import injectionAttemptsRoutes from './injection-attempts.js';
 
 const router = Router();
 
@@ -238,6 +239,7 @@ router.use(breachReportRoutes);
 router.use(menuAllergensRoutes);
 router.use(menuItemsRoutes);
 router.use(rateLimitSettingsRoutes);
+router.use(injectionAttemptsRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
