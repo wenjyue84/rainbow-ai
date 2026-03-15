@@ -27,6 +27,19 @@ import {
 import { findMenuItemMatches } from '../../menu-matcher.js';
 import { detectStarRating, getFollowUpMessage, handleFeedbackRating, isFeedbackMessage } from '../../order-feedback-handler.js';
 
+// ─── US-914: High-stakes keyword escalation ──────────────────────────────────
+// These keywords always trigger human handoff regardless of intent classification,
+// unless the conversation is already in manual mode or already routing to escalate.
+// 'cancel' and 'complaint' are handled by intent routing; 'legal'/'urgent'/'refund'
+// are the critical gap-fillers for messages that slip through classification.
+const HIGH_STAKE_KEYWORDS_REGEX = /\b(legal|sue|lawyer|court|urgent|emergency|refund)\b/i;
+
+/** Returns the matched keyword if a high-stakes word is found in the text, else null. */
+export function detectHighStakeKeyword(text: string): string | null {
+  const match = HIGH_STAKE_KEYWORDS_REGEX.exec(text);
+  return match ? match[1].toLowerCase() : null;
+}
+
 /**
  * Stage 6: Action Dispatch
  *
@@ -46,6 +59,36 @@ export async function dispatchAction(
 ): Promise<void> {
   const { phone, text, processText, convo, lang, msg, diaryEvent, devMetadata } = state;
   const { routedAction, responseLang, messageType, repeatCheck } = routing;
+
+  // US-914: High-stakes keyword pre-check — escalate before normal routing
+  // Only triggers when not already routing to escalate and not in manual mode
+  if (routedAction !== 'escalate' && convo.slots?.responseMode !== 'manual') {
+    const matchedKeyword = detectHighStakeKeyword(text);
+    if (matchedKeyword) {
+      diaryEvent.escalated = true;
+      context.logEscalationEvent({
+        jid: phone,
+        profileId: state.profileId,
+        trigger: 'high_stake_keyword',
+        metadata: { keyword: matchedKeyword },
+        summaryContext: {
+          guestName: msg.pushName,
+          recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
+          escalationReason: `High-stakes keyword detected: "${matchedKeyword}"`,
+        },
+      });
+      await context.escalateToStaff({
+        phone, pushName: msg.pushName, reason: 'complaint',
+        recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
+        originalMessage: text, instanceId: msg.instanceId,
+        profileId: state.profileId,
+        triggerDetail: `High-stakes keyword: "${matchedKeyword}"`,
+      });
+      state.response = result.response || context.getTemplate('escalated', lang);
+      console.log(`[Dispatch][US-914] High-stake keyword escalation for ${phone}: "${matchedKeyword}"`);
+      return;
+    }
+  }
 
   switch (routedAction) {
     case 'static_reply':

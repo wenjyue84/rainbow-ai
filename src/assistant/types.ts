@@ -10,6 +10,19 @@ export interface MediaMetadata {
   fileName?: string;
 }
 
+// US-910: Click-to-WhatsApp ad referral attribution data
+export interface ReferralData {
+  sourceType: string;       // ad | post | qr_code
+  ctwaClid?: string;        // Click ID for Meta Conversions API matching
+  sourceId?: string;        // Campaign/ad ID
+  sourceUrl?: string;       // Source URL of the ad/post
+  headline?: string;        // Ad headline text
+  body?: string;            // Ad body text
+  mediaType?: string;       // image | video
+  thumbnailUrl?: string;    // Ad thumbnail URL
+  imageUrl?: string;        // Ad image URL
+}
+
 export interface IncomingMessage {
   from: string;        // Phone number (no @s.whatsapp.net) or BSUID if phone hidden
   text: string;
@@ -23,6 +36,7 @@ export interface IncomingMessage {
   transcribed?: boolean; // True if text was transcribed from voice note (US-438)
   bsuid?: string;      // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
   mediaMetadata?: MediaMetadata; // US-448: Media file metadata for images, videos, documents
+  referral?: ReferralData; // US-910: Click-to-WhatsApp ad referral attribution
 }
 
 // ─── Intent Classification ──────────────────────────────────────────

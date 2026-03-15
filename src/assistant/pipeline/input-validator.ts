@@ -537,6 +537,7 @@ export async function validateAndPrepare(
     ...(loggedMessageType ? { messageType: loggedMessageType } : {}),
     ...(msg.transcribed ? { transcribed: true } : {}),
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+    ...(msg.referral ? { referral: msg.referral } : {}),
   }).catch(() => { });
   const lang = convo.language;
 

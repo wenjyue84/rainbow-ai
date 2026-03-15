@@ -127,11 +127,20 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   contactDetailsJson: text("contact_details_json"),
   contextSummary: text("context_summary"),                    // US-447: LLM-generated context summary
   contextSummaryAt: timestamp("context_summary_at"),          // US-447: when the summary was generated
+  // US-910: Click-to-WhatsApp ad referral attribution
+  referralSourceType: text("referral_source_type"),           // ad | post | qr_code
+  referralCtwaClid: text("referral_ctwa_clid"),               // Click ID for Meta Conversions API matching
+  referralSourceId: text("referral_source_id"),               // Campaign/ad ID
+  referralHeadline: text("referral_headline"),                // Ad headline text
+  referralBody: text("referral_body"),                        // Ad body text
+  referralMediaType: text("referral_media_type"),             // image | video
+  referralSourceUrl: text("referral_source_url"),             // Source URL of the ad/post
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
   uniqueIndex("idx_rainbow_conversations_bsuid").on(table.bsuid),
+  index("idx_rainbow_conversations_referral_source_type").on(table.referralSourceType),
 ]));
 
 export const rainbowMessages = pgTable("rainbow_messages", {

@@ -108,10 +108,13 @@ export async function logMessage(
       return;
     }
 
+    // US-910: Extract referral from meta if present
+    const referral = meta?.referral as { sourceType: string; ctwaClid?: string; sourceId?: string; sourceUrl?: string; headline?: string; body?: string; mediaType?: string } | undefined;
+
     // Wrap upsert + insert + cap-delete in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      // Upsert conversation (with profileId and bsuid so it's correctly scoped)
-      await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid);
+      // Upsert conversation (with profileId, bsuid, and referral so it's correctly scoped)
+      await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid, referral);
 
       // Insert message
       await tx.insert(rainbowMessages).values({

@@ -105,10 +105,33 @@ export async function upsertConversation(
   instanceId?: string,
   txOrDb: Pick<typeof db, 'insert' | 'select' | 'update' | 'delete'> = db,
   profileId?: string,
-  bsuid?: string
+  bsuid?: string,
+  referral?: { sourceType: string; ctwaClid?: string; sourceId?: string; sourceUrl?: string; headline?: string; body?: string; mediaType?: string }
 ): Promise<void> {
   const key = conversationKey(phone, bsuid);
   const now = new Date();
+
+  // US-910: Build referral fields for INSERT (first message of ad-initiated conversation)
+  const referralInsert = referral ? {
+    referralSourceType: referral.sourceType,
+    referralCtwaClid: referral.ctwaClid ?? null,
+    referralSourceId: referral.sourceId ?? null,
+    referralHeadline: referral.headline ?? null,
+    referralBody: referral.body ?? null,
+    referralMediaType: referral.mediaType ?? null,
+    referralSourceUrl: referral.sourceUrl ?? null,
+  } : {};
+
+  // US-910: Only set referral on conflict if referral is present (don't overwrite existing)
+  const referralUpdate = referral ? {
+    referralSourceType: referral.sourceType,
+    referralCtwaClid: referral.ctwaClid ?? null,
+    referralSourceId: referral.sourceId ?? null,
+    referralHeadline: referral.headline ?? null,
+    referralBody: referral.body ?? null,
+    referralMediaType: referral.mediaType ?? null,
+    referralSourceUrl: referral.sourceUrl ?? null,
+  } : {};
 
   await txOrDb
     .insert(rainbowConversations)
@@ -121,6 +144,7 @@ export async function upsertConversation(
       status: 'active',
       createdAt: now,
       updatedAt: now,
+      ...referralInsert,
     })
     .onConflictDoUpdate({
       target: rainbowConversations.phone,
@@ -130,6 +154,7 @@ export async function upsertConversation(
         ...(bsuid ? { bsuid } : {}),
         ...(instanceId ? { instanceId } : {}),
         ...(profileId ? { profileId } : {}),
+        ...referralUpdate,
         updatedAt: now,
       },
     });

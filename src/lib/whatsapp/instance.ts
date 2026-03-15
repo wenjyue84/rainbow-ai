@@ -1,6 +1,6 @@
 import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion, type AnyMessageContent } from '@whiskeysockets/baileys';
 import fs from 'fs';
-import type { IncomingMessage, MessageType, MediaMetadata } from '../../assistant/types.js';
+import type { IncomingMessage, MessageType, MediaMetadata, ReferralData } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
 import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifier.js';
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';
@@ -29,6 +29,48 @@ const BSUID_PATTERN = /^[A-Z]{2}\.[A-Za-z0-9]{1,125}$/;
  */
 export function isBsuid(value: string): boolean {
   return BSUID_PATTERN.test(value);
+}
+
+/**
+ * US-910: Extract Click-to-WhatsApp ad referral data from a Baileys message.
+ * Referral info appears in contextInfo.externalAdReply on the first inbound
+ * message of an ad-initiated conversation.
+ */
+function extractReferral(msg: any): ReferralData | undefined {
+  const m = msg.message;
+  if (!m) return undefined;
+
+  // Check all possible contextInfo locations for externalAdReply
+  const contextInfo =
+    m.extendedTextMessage?.contextInfo ||
+    m.conversation?.contextInfo ||
+    m.imageMessage?.contextInfo ||
+    m.videoMessage?.contextInfo ||
+    m.documentMessage?.contextInfo;
+
+  const adReply = contextInfo?.externalAdReply;
+  if (!adReply) return undefined;
+
+  // Map Baileys sourceType enum to string
+  // Baileys: UNKNOWN=0, CTWA=1, QUICK_REPLY_AD=2, etc.
+  let sourceType = 'ad';
+  if (adReply.sourceType != null) {
+    if (adReply.sourceType === 'CTWA' || adReply.sourceType === 1) sourceType = 'ad';
+    else if (typeof adReply.sourceType === 'string') sourceType = adReply.sourceType.toLowerCase();
+  }
+
+  const referral: ReferralData = {
+    sourceType,
+    ...(adReply.sourceId ? { sourceId: String(adReply.sourceId) } : {}),
+    ...(adReply.sourceUrl ? { sourceUrl: String(adReply.sourceUrl) } : {}),
+    ...(adReply.title ? { headline: String(adReply.title) } : {}),
+    ...(adReply.body ? { body: String(adReply.body) } : {}),
+    ...(adReply.mediaType != null ? { mediaType: adReply.mediaType === 1 ? 'image' : adReply.mediaType === 2 ? 'video' : String(adReply.mediaType) } : {}),
+    ...(adReply.thumbnailUrl ? { thumbnailUrl: String(adReply.thumbnailUrl) } : {}),
+  };
+
+  console.log(`[Baileys:referral] Ad referral detected: sourceType=${sourceType}, sourceId=${adReply.sourceId || 'N/A'}`);
+  return referral;
 }
 
 /**
@@ -464,6 +506,9 @@ export class WhatsAppInstance {
       // where CC is a two-letter country code and BSUID is alphanumeric (up to 128 chars).
       const bsuid = extractBsuid(msg, from);
 
+      // US-910: Extract Click-to-WhatsApp ad referral data (only on first message of ad sessions)
+      const referral = extractReferral(msg);
+
       // US-448: Pass rawMessage for all media types (not just audio) so pipeline can download
       const isMediaType = ['image', 'audio', 'video', 'document'].includes(messageType);
 
@@ -479,6 +524,7 @@ export class WhatsAppInstance {
         rawMessage: isMediaType ? msg : undefined,
         ...(mediaMetadata ? { mediaMetadata } : {}),
         ...(bsuid ? { bsuid } : {}),
+        ...(referral ? { referral } : {}),
       };
 
       if (!isGroup) ensureAvatar(from).catch(() => {}); // fire-and-forget
