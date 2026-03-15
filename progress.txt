@@ -8351,3 +8351,20 @@ Completed: Handle BSUID in inbound webhooks and route conversations by BSUID (ID
 ### Gotchas
 - No sentiment column in rainbow_messages table — sentiment analysis is ephemeral per-session
 - Had to export ensureAuditTable from gdpr-data-export.ts for reuse in the public route
+
+
+## Iteration 3 - Sun, Mar 15, 2026 - Story: US-894 PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP
+### What was implemented
+- **Already complete from prior SPIRAL iterations**: All 6 acceptance criteria were already implemented:
+  - `src/routes/admin/gdpr-data-export.ts`: JSON+CSV export with BOM, RFC 4180 compliance, formula-injection sanitization, audit logging
+  - `src/routes/public/data-portability.ts`: Self-service OTP-verified endpoint (POST /request + POST /verify), rate limiting, timing-safe OTP comparison
+  - `src/assistant/__tests__/data-portability-csv.test.ts`: 20 Vitest tests covering CSV parsing, 100% field coverage, formula injection, edge cases
+- **Verification only**: All 20 tests pass, build succeeds, server starts cleanly
+
+### Patterns discovered
+- SPIRAL workers (worker-1, worker-2) had a draft test with incorrect expectations (assumed sanitizeCsvField wraps all fields in double-quotes). The main codebase test was correct.
+- The `sanitizeCsvField` prepends a single quote `'` (not tab) to neutralize formula-injection characters (=, +, -, @, \t, \r)
+- `escapeCsvField` is the RFC 4180 quoting layer (wraps in double-quotes only when field contains commas, quotes, or newlines)
+
+### Gotchas
+- The story was already fully implemented but not marked as `passes: true` — verification-only iteration
