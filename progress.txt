@@ -7887,3 +7887,48 @@ Incomplete: WABA webhook subscription health check on server startup (ID: US-892
 ### Gotchas
 - `language-resolution.test.ts` had a STALE replicated function that didn't include 'ta' — now imports the real function
 - All 7 test failures in full suite are pre-existing (webhook-routing mock issues), not related to this story
+## Iteration 3 - Sun, Mar 15, 2026  3:22:20 PM
+Incomplete: WABA webhook subscription health check on server startup (ID: US-892) — attempt 2/3
+
+
+## Iteration 3 - Story: US-876 POS webhook receiver: push confirmed orders to kitchen display system
+
+### What was implemented
+- Created `src/lib/kds-webhook.ts` — KDS/POS webhook dispatcher with:
+  - `buildKdsPayload()` — builds order payload with hashed JID (PDPA), items, table/pickup, timestamp
+  - `dispatchToKds()` — POSTs to configurable webhook URL with auth header and 10s timeout
+  - In-memory retry queue with exponential backoff (max 3 attempts, configurable)
+  - `hashJid()` — SHA-256 first 12 hex chars for privacy-compliant customer identification
+  - POS response parsing: accepted/rejected status relayed back to caller
+- Extended `CartHandlerOptions` in `src/tools/cart.ts` with `kdsWebhook`, `profileId`, `customerJid`
+- Hooked KDS dispatch into `order_confirm_submit` handler — after FnB order creation and order ID extraction:
+  - Builds KDS payload from cart items, table info, and session context
+  - Dispatches non-blocking — order still succeeds even if KDS is down
+  - POS rejection note appended to customer response if POS rejects
+- Added `kdsWebhook` config to `src/assistant/data-makan/settings.json` (disabled by default)
+- Updated `src/routes/public/webchat-api.ts` to read and pass KDS config from profile settings
+- Added 16-test file: `src/assistant/__tests__/kds-webhook.test.ts` covering:
+  - JID hashing (consistency, uniqueness, format)
+  - Payload building (dine-in, takeaway, walk-in)
+  - Dispatch disabled scenarios (enabled=false, empty URL)
+  - Successful POST with accepted response
+  - Auth header transmission
+  - POS rejected response relay
+  - HTTP failure with retry queue
+  - Network error handling
+  - Non-JSON 2xx treated as accepted
+  - Payload schema compliance (all acceptance criteria fields)
+- Build: esbuild passes (3 pre-existing warnings, 0 errors)
+- Tests: 16/16 pass, config-integration test passes
+
+### Patterns discovered
+- Cart handlers receive options via `CartHandlerOptions` interface — new features add optional fields
+- `webchat-api.ts` `buildMakanMomentsContext()` reads profile settings and passes to `createCartHandlers()`
+- Order ID extraction uses regex on FnB MCP response text — `getSessionOrderId()` available after extraction
+- KDS dispatch is best placed AFTER FnB order creation (order ID needed) and BEFORE stage transition to PLACED
+
+### Gotchas
+- KDS dispatch must be non-blocking — order placement should succeed even if KDS webhook fails
+- JID must be hashed for PDPA compliance — never send raw phone numbers to external POS systems
+- The `kdsWebhook` config defaults to disabled — zero impact on existing deployments
+- Retry queue is in-memory only — server restart loses pending retries (acceptable for MVP, DB fallback noted in story)

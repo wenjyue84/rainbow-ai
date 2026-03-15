@@ -33,6 +33,10 @@ import { getAllergenEntry, formatAllergenWarning } from '../lib/allergen-store.j
 import {
   setPendingAllergenItem, getPendingAllergenItem, clearPendingAllergenItem,
 } from '../lib/allergen-pending-store.js';
+import {
+  dispatchToKds, buildKdsPayload,
+  type KdsWebhookConfig,
+} from '../lib/kds-webhook.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -301,6 +305,12 @@ export interface CartHandlerOptions {
     queueWarningThreshold?: number;
     waitTimeWarningMinutes?: number;
   };
+  /** KDS/POS webhook config (US-876). When enabled, order payloads are POSTed to the configured URL. */
+  kdsWebhook?: KdsWebhookConfig;
+  /** Profile ID for KDS payload context */
+  profileId?: string;
+  /** Customer JID (phone) for KDS payload hashing */
+  customerJid?: string;
 }
 
 /**
@@ -367,6 +377,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const paymentMethods = options?.paymentMethods ?? ['cash'];
   const queueThreshold = options?.kitchenQueue?.queueWarningThreshold ?? 5;
   const waitThreshold = options?.kitchenQueue?.waitTimeWarningMinutes ?? 20;
+  const kdsConfig = options?.kdsWebhook;
+  const profileId = options?.profileId ?? 'makan-moments';
+  const customerJid = options?.customerJid ?? `webchat-${sessionId}`;
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -654,6 +667,29 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       orderAck = '\n\nOur staff has been notified and will prepare your order shortly.';
     }
 
+    // US-876: Dispatch to KDS/POS webhook (non-blocking)
+    let kdsNote = '';
+    if (kdsConfig?.enabled && kdsConfig.webhookUrl) {
+      const extractedOrderId = getSessionOrderId(sessionId) ?? `ORD-${Date.now()}`;
+      const kdsPayload = buildKdsPayload({
+        orderId: extractedOrderId,
+        items: items.map(i => ({ name: i.name, qty: i.qty, code: i.code, notes: i.notes })),
+        tableNumber: effectiveTableNumber,
+        orderType: effectiveOrderType,
+        customerJid,
+        profileId,
+      });
+
+      try {
+        const kdsResult = await dispatchToKds(kdsPayload, kdsConfig);
+        if (kdsResult.status === 'rejected') {
+          kdsNote = `\n\n⚠️ Kitchen update: ${kdsResult.message || 'Order was not accepted by the POS system. Our staff will follow up.'}`;
+        }
+      } catch {
+        // KDS dispatch is non-blocking — order was already placed
+      }
+    }
+
     // Transition to PLACED and clear cart
     transitionOrderStage(sessionId, 'PLACED');
     cartClear(sessionId);
@@ -668,7 +704,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kitchenWarning}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kdsNote}${kitchenWarning}${paymentGuidance}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

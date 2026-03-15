@@ -215,7 +215,10 @@ function buildMakanMomentsContext(sessionId: string) {
   // US-868: Read kitchen queue thresholds from settings
   const kitchenQueue = makanSettings?.kitchenQueue as { queueWarningThreshold?: number; waitTimeWarningMinutes?: number } | undefined;
 
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue });
+  // US-876: Read KDS/POS webhook config from settings
+  const kdsWebhook = makanSettings?.kdsWebhook as { enabled: boolean; webhookUrl: string; authToken?: string; maxRetries?: number; baseDelayMs?: number } | undefined;
+
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments' });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);
