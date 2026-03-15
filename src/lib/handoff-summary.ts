@@ -14,8 +14,9 @@ import { eq } from 'drizzle-orm';
 // Ensure summary column exists (idempotent migration)
 pool.query(`ALTER TABLE escalation_events ADD COLUMN IF NOT EXISTS summary TEXT`).catch(() => {});
 
+// US-914: Summary must be ≤150 words (AC2 requirement)
 const SUMMARY_SYSTEM_PROMPT = `You are a concise conversation summarizer for a hostel customer service team.
-Given a conversation between a guest and an AI assistant, write a 3-5 sentence summary for the human agent who will take over.
+Given a conversation between a guest and an AI assistant, write a summary for the human agent who will take over.
 
 Include:
 - What the guest wants or their issue
@@ -23,7 +24,11 @@ Include:
 - The reason for escalation
 - Any promises or information already provided by the bot
 
-Be factual and brief. Do not include greetings or filler. Write in English.`;
+Rules:
+- Maximum 150 words — do not exceed this limit
+- Be factual and brief
+- Do not include greetings or filler
+- Write in English`;
 
 export interface HandoffSummaryInput {
   escalationEventId: number;

@@ -517,13 +517,20 @@ async function handleLLMReply(
 
   state.response = result.response;
 
-  // ─── US-880: Tiered confidence-based fallback with progressive escalation ──
-  // Track unknown intents OR low-confidence results for operator escalation
+  // ─── US-880/US-914: Tiered confidence-based fallback with progressive escalation ──
+  // Track unknown intents OR low-confidence results for operator escalation.
+  // US-914: consecutive_fallback_threshold from settings controls when Tier 3 fires.
+  //   threshold=1 → rephrase on 1st fail, escalate on 2nd (AC1b: 2 consecutive)
+  //   threshold=2 → rephrase, capability list, escalate on 3rd
   const isUnknownIntent = result.intent === 'unknown' || result.intent === 'unknown_intent';
   if (isUnknownIntent || result.confidence < 0.4) {
     const unknownCount = context.incrementUnknown(phone);
     const settings = context.getSettings();
     const lang = convo.language || 'en';
+
+    // US-914: Read threshold from settings; escalate when count exceeds threshold
+    const fallbackThreshold = (settings as any).consecutive_fallback_threshold ?? 2;
+    const escalateAt = fallbackThreshold + 1;
 
     if (unknownCount === 1) {
       // ─── Tier 1: Ask to rephrase (first failure) ─────────────────
@@ -537,8 +544,8 @@ async function handleLLMReply(
       });
       console.log(`[Dispatch][US-880] Tier 1 rephrase for ${phone}`);
 
-    } else if (unknownCount === 2) {
-      // ─── Tier 2: Show capability quick-reply list (second failure) ─
+    } else if (unknownCount < escalateAt) {
+      // ─── Tier 2: Show capability quick-reply list (intermediate failure) ─
       const capabilityResponse = buildFallbackSuggestionResponse(settings, lang);
       state.response = capabilityResponse || buildTier2DefaultCapabilities(lang);
       context.logEscalationEvent({
@@ -551,7 +558,8 @@ async function handleLLMReply(
       console.log(`[Dispatch][US-880] Tier 2 capability list for ${phone}`);
 
     } else {
-      // ─── Tier 3: Human handoff (third+ consecutive failure) ───────
+      // ─── Tier 3: Human handoff (consecutive failures >= escalateAt) ───────
+      // US-914: With threshold=1, fires on 2nd consecutive failure (AC1b)
       diaryEvent.escalated = true;
 
       // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
@@ -560,11 +568,11 @@ async function handleLLMReply(
         profileId: state.profileId,
         trigger: 'tiered_fallback',
         count: unknownCount,
-        metadata: { failure_tier: 3 },
+        metadata: { failure_tier: 3, threshold: fallbackThreshold },
         summaryContext: {
           guestName: msg.pushName,
           recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
-          escalationReason: 'Bot unable to understand after 3 consecutive attempts',
+          escalationReason: `Bot unable to understand after ${unknownCount} consecutive attempts`,
         },
       });
 
@@ -581,10 +589,10 @@ async function handleLLMReply(
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
         profileId: state.profileId,
-        triggerDetail: `Tiered fallback Tier 3 (${unknownCount}x unmatched)`,
+        triggerDetail: `Tiered fallback Tier 3 (${unknownCount}x unmatched, threshold=${fallbackThreshold})`,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch][US-880] Tier 3 escalation for ${phone}: ${unknownCount} consecutive unknowns`);
+      console.log(`[Dispatch][US-880] Tier 3 escalation for ${phone}: ${unknownCount} consecutive unknowns (threshold=${fallbackThreshold})`);
     }
   } else {
     context.resetUnknown(phone);

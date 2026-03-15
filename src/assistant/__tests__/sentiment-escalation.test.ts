@@ -1,5 +1,5 @@
 /**
- * US-822: Sentiment-based early escalation trigger tests
+ * US-822 / US-914: Sentiment-based early escalation trigger tests
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -8,6 +8,8 @@ import {
   shouldEscalateOnSentimentForProfile,
   isSentimentEnabledForProfile,
 } from '../sentiment-tracker.js';
+import { detectHighStakeKeyword } from '../pipeline/stages/action-dispatch.js';
+import { resetSentimentTracking, getSentimentStats } from '../sentiment-tracker.js';
 
 // Use unique phone per test to avoid cross-test state pollution
 let phoneCounter = 0;
@@ -125,6 +127,103 @@ describe('US-822: Sentiment-based escalation', () => {
 
     it('defaults to enabled when field omitted', () => {
       expect(isSentimentEnabledForProfile({ sentiment_analysis: {} })).toBe(true);
+    });
+  });
+});
+
+// ─── US-914: Structured chatbot-to-human escalation ────────────────────────
+
+describe('US-914: Structured chatbot-to-human escalation', () => {
+
+  describe('AC1(c): Sentiment escalation at threshold=2 (production default)', () => {
+    const prodSettings = {
+      sentiment_analysis: {
+        enabled: true,
+        consecutive_threshold: 2,
+        cooldown_minutes: 0,
+      },
+    };
+
+    it('does not escalate on first negative message', () => {
+      const phone = uniquePhone();
+      trackSentiment(phone, 'bad service', 'negative');
+      const result = shouldEscalateOnSentimentForProfile(phone, prodSettings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(1);
+    });
+
+    it('escalates on 2nd consecutive negative (AC1c: threshold=2)', () => {
+      const phone = uniquePhone();
+      trackSentiment(phone, 'terrible service', 'negative');
+      trackSentiment(phone, 'still bad', 'negative');
+      const result = shouldEscalateOnSentimentForProfile(phone, prodSettings);
+      expect(result.shouldEscalate).toBe(true);
+      expect(result.reason).toBe('sentiment');
+      expect(result.consecutiveCount).toBe(2);
+    });
+
+    it('does not escalate if negative streak is broken', () => {
+      const phone = uniquePhone();
+      trackSentiment(phone, 'terrible', 'negative');
+      trackSentiment(phone, 'thank you', 'positive'); // breaks streak
+      trackSentiment(phone, 'this is bad', 'negative');
+      const result = shouldEscalateOnSentimentForProfile(phone, prodSettings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(1);
+    });
+  });
+
+  describe('AC1(d): High-stakes keyword detection', () => {
+    it('detects "refund" keyword', () => {
+      expect(detectHighStakeKeyword('I want a refund')).toBe('refund');
+    });
+
+    it('detects "legal" keyword', () => {
+      expect(detectHighStakeKeyword('I will take legal action')).toBe('legal');
+    });
+
+    it('detects "urgent" keyword', () => {
+      expect(detectHighStakeKeyword('this is urgent please help')).toBe('urgent');
+    });
+
+    it('detects "sue" keyword', () => {
+      expect(detectHighStakeKeyword('I will sue you')).toBe('sue');
+    });
+
+    it('returns null for non-high-stakes messages', () => {
+      expect(detectHighStakeKeyword('what time is check-in')).toBeNull();
+      expect(detectHighStakeKeyword('I want to book a room')).toBeNull();
+      expect(detectHighStakeKeyword('thank you')).toBeNull();
+    });
+
+    it('is case-insensitive', () => {
+      expect(detectHighStakeKeyword('URGENT HELP NEEDED')).toBe('urgent');
+      expect(detectHighStakeKeyword('REFUND please')).toBe('refund');
+    });
+  });
+
+  describe('AC1(a): Human request detection via sentiment keywords', () => {
+    it('detects "complaint" keyword as negative sentiment', () => {
+      expect(analyzeSentiment('I have a complaint')).toBe('negative');
+    });
+
+    it('detects "cancel" keyword as negative sentiment', () => {
+      expect(analyzeSentiment('I want to cancel')).toBe('negative');
+    });
+
+    it('detects "manager" keyword as negative sentiment', () => {
+      expect(analyzeSentiment('speak to manager please')).toBe('negative');
+    });
+  });
+
+  describe('AC6: Sentiment state reset after escalation', () => {
+    it('resetSentimentTracking clears consecutive counter', () => {
+      const phone = uniquePhone();
+      trackSentiment(phone, 'bad', 'negative');
+      trackSentiment(phone, 'terrible', 'negative');
+      resetSentimentTracking(phone);
+      const stats = getSentimentStats(phone);
+      expect(stats?.consecutiveNegative).toBe(0);
     });
   });
 });
