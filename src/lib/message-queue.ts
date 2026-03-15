@@ -27,6 +27,7 @@ export interface QueueHealthMetrics {
   delayed: number;
   workerConcurrency: number;
   deadLetterCount: number;
+  dedupHits: number;           // US-1008: total duplicate messages dropped
 }
 
 type MessageHandler = (msg: IncomingMessage) => Promise<void>;
@@ -43,8 +44,8 @@ const DLQ_NAME = 'rainbow-messages-dlq';
 const MAX_RETRY_ATTEMPTS = 3;
 const DEFAULT_CONCURRENCY = 3;
 const REDIS_CONNECT_TIMEOUT_MS = 3000;
-const DEDUP_KEY_PREFIX = 'rainbow:dedup:';
-const DEFAULT_DEDUP_TTL_SECONDS = 86400; // 24 hours
+const DEDUP_KEY_PREFIX = 'whatsapp:msg:';       // US-1008: Redis key format
+const DEFAULT_DEDUP_TTL_SECONDS = 14400;        // US-1008: 4-hour TTL to bound memory
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -57,6 +58,9 @@ let isConnected = false;
 let directHandler: MessageHandler | null = null;
 let dlqCount = 0;
 let dedupTtlSeconds = DEFAULT_DEDUP_TTL_SECONDS;
+
+// US-1008: Dedup hit counter — tracks how many duplicate messages were dropped
+let dedupHitCount = 0;
 
 // In-memory dedup fallback when Redis is unavailable (US-991)
 const memoryDedup = new Map<string, number>();
@@ -267,10 +271,11 @@ export async function initMessageQueue(
  * Returns within 200ms in queue mode.
  */
 export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
-  // US-991: Idempotency guard — skip duplicate message IDs
+  // US-1008: Idempotency guard — check whatsapp:msg:{message_id} key before processing
   if (msg.messageId && await isDuplicateMessage(msg.messageId)) {
-    console.log(`[MessageQueue] Dedup: skipping duplicate messageId=${msg.messageId}`);
-    return; // ACK but don't enqueue
+    dedupHitCount++;
+    console.log(`[MessageQueue] Dedup: skipping duplicate messageId=${msg.messageId} totalHits=${dedupHitCount}`);
+    return; // ACK with 200 but don't enqueue — no duplicate AI call
   }
 
   // US-895: Persist raw payload before any processing
@@ -352,6 +357,17 @@ export function setDedupTtl(ttlSeconds: number): void {
   }
 }
 
+/**
+ * US-1008: Get dedup statistics for monitoring / admin dashboard.
+ */
+export function getDedupStats(): { dedupHits: number; ttlSeconds: number; memoryDedupSize: number } {
+  return {
+    dedupHits: dedupHitCount,
+    ttlSeconds: dedupTtlSeconds,
+    memoryDedupSize: memoryDedup.size,
+  };
+}
+
 // ─── Health Metrics ──────────────────────────────────────────────
 
 /**
@@ -369,6 +385,7 @@ export async function getQueueHealth(): Promise<QueueHealthMetrics> {
       delayed: 0,
       workerConcurrency: 0,
       deadLetterCount: 0,
+      dedupHits: dedupHitCount,
     };
   }
 
@@ -391,6 +408,7 @@ export async function getQueueHealth(): Promise<QueueHealthMetrics> {
       delayed,
       workerConcurrency: worker?.opts?.concurrency ?? DEFAULT_CONCURRENCY,
       deadLetterCount: dlqCount,
+      dedupHits: dedupHitCount,
     };
   } catch (err: any) {
     console.error(`[MessageQueue] Health check failed: ${err.message}`);
@@ -404,6 +422,7 @@ export async function getQueueHealth(): Promise<QueueHealthMetrics> {
       delayed: 0,
       workerConcurrency: 0,
       deadLetterCount: dlqCount,
+      dedupHits: dedupHitCount,
     };
   }
 }
@@ -563,6 +582,8 @@ export async function closeQueue(): Promise<void> {
 export const _testExports = {
   get memoryDedup() { return memoryDedup; },
   get dedupTtlSeconds() { return dedupTtlSeconds; },
+  get dedupHitCount() { return dedupHitCount; },
+  resetDedupHitCount() { dedupHitCount = 0; },
   isDuplicateMessage,
   setDedupTtl,
 };

@@ -11312,3 +11312,37 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 - Cloud API credentials (META_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID) are not in .env.example for existing code — added them
 - Startup error (db-url.js ERR_AMBIGUOUS_MODULE_SYNTAX) is pre-existing and not caused by this change
 - MM Lite requires WABA opt-in in WhatsApp Manager before routing traffic — the enabled flag serves as the guard
+## Iteration 4 - Mon, Mar 16, 2026  7:52:10 AM
+Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 2/3
+
+
+
+## Iteration [Ralph] - Story: US-1008 - Webhook message deduplication via Redis idempotency key store
+
+### What was implemented
+- Extended existing US-991 dedup in `src/lib/message-queue.ts` to satisfy US-1008 acceptance criteria:
+  - Changed Redis key prefix from `rainbow:dedup:` to `whatsapp:msg:` (AC1)
+  - Changed default TTL from 24h (86400s) to 4h (14400s) to bound Redis memory (AC3)
+  - Added `dedupHitCount` counter that increments on every duplicate drop (AC4)
+  - Dedup log now includes `totalHits=N` metric in every skip log line (AC4)
+  - Added `getDedupStats()` export returning `{dedupHits, ttlSeconds, memoryDedupSize}` for admin dashboard
+  - Added `dedupHits` field to `QueueHealthMetrics` interface (exposed via `/health` endpoint)
+  - Added `resetDedupHitCount()` and `dedupHitCount` getter to test exports
+
+### Tests updated
+- Rewrote `src/assistant/__tests__/message-dedup.test.ts` — 13 tests covering all 5 ACs:
+  - AC1: First delivery processed (new message returns false)
+  - AC2: Duplicate acknowledged but skipped; no duplicate AI call
+  - AC3: 4-hour TTL; expiry causes re-processing; TTL configurable
+  - AC4: Hit count incremented; totalHits logged; getDedupStats() returns metrics
+  - AC5: TTL expiry causes re-processing (aged entry treated as new)
+
+### Patterns discovered
+- Existing US-991 implementation was 90% of US-1008 — only needed key prefix, TTL, and metric changes
+- In-memory fallback map has same TTL semantics as Redis SETNX (both expire entries)
+- `getDedupStats()` can be consumed by admin dashboard or Prometheus-compatible scraper
+
+### Build & Quality
+✅ esbuild passes (no new errors)
+✅ 13/13 tests pass
+✅ Server startup succeeds
