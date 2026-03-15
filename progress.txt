@@ -8897,3 +8897,29 @@ FAILED quality gates: Enforce tenant_id isolation at database layer for multi-pr
 - Timer + wall-clock double-check for window expiry (setTimeout + elapsed time comparison)
 ### Status
 ✅ Build passes (3 warnings, no errors). 19/19 KDS tests pass. Marked passes=true.
+## Iteration 1 - Sun, Mar 15, 2026  7:21:02 PM
+Incomplete: Enforce tenant_id isolation at database layer for multi-property deployment (ID: US-908) — attempt 2/3
+
+
+## Iteration - Story: US-881 Order Modification Window
+### What was implemented
+- Added system prompt instructions for PLACED stage to guide AI to call `order_modify_request` when customer says "change order" / "modify" / "tukar order" / "ubah order"
+- Added modification window status section to system prompt context (OPEN with remaining seconds, or "No active modification window")
+- Imported `isModificationAllowed` and `getModificationTimeRemaining` from `order-modification-store.ts` into `webchat-api.ts`
+- Added comprehensive unit tests for `order-modification-store.ts` (5 tests) and `order_modify_request` handler (4 tests)
+- Cleaned up 3 `.rej` patch rejection files related to US-881
+
+### What already existed (90% pre-built)
+- `src/assistant/order-modification-store.ts` — Full in-memory store with timers, start/check/consume/close/markKitchenAccepted
+- `src/tools/cart.ts` — `order_modify_request` tool definition and handler, modification window start on order placement
+- `src/routes/webhooks/handlers.ts` — `kitchen_accepted` webhook handler
+- `src/assistant/data/settings.json` — `order_modification.window_minutes: 2` config
+
+### Patterns discovered
+- After order placement, `clearOrderStage(sessionId)` resets stage to BROWSING immediately. So BROWSING → ORDERING transition is valid for modification flow.
+- The order ID in test env is `ORD-<timestamp>` (not `MM-XXXX`), so tests requiring `markKitchenAccepted` must use the modification store API directly.
+- `.rej` files accumulate from spiral worker patches; they can be cleaned up per-story.
+
+### Gotchas
+- System prompt was the critical missing piece — without it, the AI wouldn't know to call `order_modify_request` even though all backend logic was in place.
+- `getModificationTimeRemaining` returns seconds (not ms) — matches user-facing display.

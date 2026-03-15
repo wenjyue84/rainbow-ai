@@ -18,6 +18,7 @@ import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assista
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
+import { isModificationAllowed, getModificationTimeRemaining } from '../../assistant/order-modification-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
@@ -395,7 +396,8 @@ function buildMakanMomentsContext(sessionId: string) {
     '',
     'PLACED stage: Order submitted. Cart is cleared.',
     '  • Thank the guest. Offer to help with anything else.',
-    '  • If they want to order again, start fresh from BROWSING.',
+    '  • If guest says "change my order" / "modify" / "I want to change" / "tukar order" / "ubah order", call order_modify_request.',
+    '  • If they want to order again (new order, not modification), start fresh from BROWSING.',
     '',
     'REORDER (US-897): When the guest says "reorder", "same as last time", "order lagi",',
     '  "sama macam semalam", "yes" (in response to the returning-customer welcome-back prompt):',
@@ -412,6 +414,11 @@ function buildMakanMomentsContext(sessionId: string) {
     lastOrderId
       ? `  • Last placed order ID: ${lastOrderId}`
       : '  • No order has been placed in this session yet.',
+    '',
+    '## Order Modification Window (US-881)',
+    isModificationAllowed(sessionId).allowed
+      ? `Modification window is OPEN — ${getModificationTimeRemaining(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
+      : 'No active modification window.',
   ].join('\n');
 
   return { allTools, allHandlers, systemPromptSuffix };
