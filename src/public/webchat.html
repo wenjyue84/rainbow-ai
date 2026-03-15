@@ -474,6 +474,125 @@
         flex-direction: column;
       }
     }
+
+    /* US-916: Push notification prompt */
+    .push-prompt {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin: 8px 0;
+      align-self: flex-start;
+      max-width: 85%;
+      animation: fadeIn 0.3s ease-out;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .push-prompt.visible { display: block; }
+
+    .push-prompt p {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .push-prompt-btns {
+      display: flex;
+      gap: 8px;
+    }
+
+    .push-prompt-btns button {
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: background 0.15s;
+      min-height: 24px;
+    }
+
+    .push-prompt-btns button:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .push-allow {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary) !important;
+    }
+
+    .push-allow:hover { opacity: 0.9; }
+    .push-dismiss { background: var(--bg); color: var(--text-muted); }
+    .push-dismiss:hover { background: var(--border); }
+
+    /* US-916: Notification settings panel */
+    .notif-settings {
+      display: none;
+      position: absolute;
+      top: 60px;
+      right: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      z-index: 5;
+      width: 240px;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    .notif-settings.visible { display: block; }
+
+    .notif-settings h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .notif-settings label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+
+    .notif-settings select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      margin-top: 4px;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .notif-gear {
+      position: absolute;
+      top: 18px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.7);
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px;
+      line-height: 1;
+    }
+
+    .notif-gear:hover { color: white; }
+    .notif-gear:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+
   </style>
 </head>
 <body>
@@ -496,12 +615,28 @@
       <p><a href="#" id="retryConsent">Review consent options</a></p>
     </div>
 
-    <div class="header" id="chatHeader">
+    <div class="header" id="chatHeader" style="position:relative;">
       <div class="header-avatar" id="avatar"></div>
       <div class="header-info">
         <h1 id="profileName">AI Assistant</h1>
         <p id="headerStatus">Online</p>
       </div>
+      <!-- US-916: Notification settings gear -->
+      <button class="notif-gear" id="notifGearBtn" aria-label="Notification settings" title="Notification settings" style="display:none;">&#9881;</button>
+    </div>
+
+    <!-- US-916: Notification settings panel -->
+    <div class="notif-settings" id="notifSettings" role="dialog" aria-label="Notification settings">
+      <h3>Notifications</h3>
+      <label><input type="checkbox" id="notifEnabled" checked> Enable push notifications</label>
+      <label>Frequency:
+        <select id="notifFrequency">
+          <option value="15">Every 15 min</option>
+          <option value="30" selected>Every 30 min</option>
+          <option value="60">Every hour</option>
+          <option value="120">Every 2 hours</option>
+        </select>
+      </label>
     </div>
 
     <!-- US-846: Offline hours banner -->
@@ -1053,6 +1188,188 @@
           window.parent.postMessage({ type: 'rainbow-close' }, '*');
         }
       });
+
+      // ─── US-916: Push Notification Support ──────────────────────────────
+      var PUSH_PROMPTED_KEY = 'rb_push_prompted_' + profile.id;
+      var PUSH_ENABLED_KEY = 'rb_push_enabled_' + profile.id;
+      var userMessageCount = 0;
+      var pushSubscriptionActive = false;
+
+      // Register service worker on load (does not prompt for permission)
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        navigator.serviceWorker.register('/public/sw-push.js').catch(function(err) {
+          console.warn('[Push] SW registration failed:', err.message);
+        });
+      }
+
+      // Show notification settings gear if already subscribed
+      var notifGearBtn = document.getElementById('notifGearBtn');
+      var notifSettingsPanel = document.getElementById('notifSettings');
+      var notifEnabledCheckbox = document.getElementById('notifEnabled');
+      var notifFrequencySelect = document.getElementById('notifFrequency');
+
+      if (localStorage.getItem(PUSH_ENABLED_KEY) === '1') {
+        pushSubscriptionActive = true;
+        if (notifGearBtn) notifGearBtn.style.display = 'block';
+      }
+
+      // Toggle settings panel
+      if (notifGearBtn) {
+        notifGearBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          notifSettingsPanel.classList.toggle('visible');
+        });
+      }
+
+      // Close settings on outside click
+      document.addEventListener('click', function() {
+        if (notifSettingsPanel) notifSettingsPanel.classList.remove('visible');
+      });
+      if (notifSettingsPanel) {
+        notifSettingsPanel.addEventListener('click', function(e) { e.stopPropagation(); });
+      }
+
+      // Settings change handlers
+      if (notifEnabledCheckbox) {
+        notifEnabledCheckbox.addEventListener('change', function() {
+          var enabled = notifEnabledCheckbox.checked;
+          if (!enabled) {
+            fetch('/api/chat/' + encodeURIComponent(profile.id) + '/push/unsubscribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId: sessionId }),
+            }).catch(function() {});
+            localStorage.setItem(PUSH_ENABLED_KEY, '0');
+            pushSubscriptionActive = false;
+          } else {
+            subscribeToPush();
+          }
+        });
+      }
+
+      if (notifFrequencySelect) {
+        notifFrequencySelect.addEventListener('change', function() {
+          fetch('/api/chat/' + encodeURIComponent(profile.id) + '/push/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: sessionId,
+              maxFrequencyMinutes: parseInt(notifFrequencySelect.value, 10),
+            }),
+          }).catch(function() {});
+        });
+      }
+
+      // Prompt for notifications after first chat interaction (not on cold load)
+      var origSendMessage = sendMessage;
+      sendMessage = async function() {
+        await origSendMessage();
+        userMessageCount++;
+        // Show prompt after first message, only once
+        if (userMessageCount === 1 && !localStorage.getItem(PUSH_PROMPTED_KEY) && !pushSubscriptionActive) {
+          if ('serviceWorker' in navigator && 'PushManager' in window && Notification.permission !== 'denied') {
+            setTimeout(showPushPrompt, 1500); // Delay to not disrupt first response
+          }
+        }
+      };
+
+      function showPushPrompt() {
+        var prompt = document.createElement('div');
+        prompt.className = 'push-prompt visible';
+        prompt.setAttribute('role', 'alert');
+        prompt.innerHTML =
+          '<p>Stay updated! Enable notifications to know when your order is ready or for special offers.</p>' +
+          '<div class="push-prompt-btns">' +
+          '<button class="push-dismiss" type="button">Not now</button>' +
+          '<button class="push-allow" type="button">Enable</button>' +
+          '</div>';
+
+        messagesEl.insertBefore(prompt, typingEl);
+        scrollToBottom();
+
+        prompt.querySelector('.push-dismiss').addEventListener('click', function() {
+          prompt.remove();
+          localStorage.setItem(PUSH_PROMPTED_KEY, '1');
+        });
+
+        prompt.querySelector('.push-allow').addEventListener('click', function() {
+          prompt.remove();
+          localStorage.setItem(PUSH_PROMPTED_KEY, '1');
+          subscribeToPush();
+        });
+      }
+
+      async function subscribeToPush() {
+        try {
+          // Get VAPID public key from server
+          var keyResp = await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/push/vapid-key');
+          if (!keyResp.ok) return;
+          var keyData = await keyResp.json();
+          if (!keyData.publicKey) return;
+
+          var reg = await navigator.serviceWorker.ready;
+          var subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+          });
+
+          var subJson = subscription.toJSON();
+
+          // Send subscription to server
+          await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: sessionId,
+              subscription: {
+                endpoint: subJson.endpoint,
+                keys: subJson.keys,
+              },
+            }),
+          });
+
+          localStorage.setItem(PUSH_ENABLED_KEY, '1');
+          pushSubscriptionActive = true;
+          if (notifGearBtn) notifGearBtn.style.display = 'block';
+          if (notifEnabledCheckbox) notifEnabledCheckbox.checked = true;
+        } catch (err) {
+          console.warn('[Push] Subscription failed:', err);
+        }
+      }
+
+      // Convert VAPID key to Uint8Array for pushManager.subscribe
+      function urlBase64ToUint8Array(base64String) {
+        var padding = '='.repeat((4 - base64String.length % 4) % 4);
+        var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        var rawData = atob(base64);
+        var outputArray = new Uint8Array(rawData.length);
+        for (var i = 0; i < rawData.length; i++) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      }
+
+      // iOS PWA detection: show install hint if on iOS Safari (not in standalone mode)
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      if (isIOS && !isStandalone && 'PushManager' in window === false) {
+        // iOS Safari without Add to Home Screen — push not available
+        // Show a subtle hint after first interaction
+        var origSendForIOS = sendMessage;
+        var iosHintShown = false;
+        sendMessage = async function() {
+          await origSendForIOS();
+          if (!iosHintShown && userMessageCount >= 1) {
+            iosHintShown = true;
+            if (!localStorage.getItem(PUSH_PROMPTED_KEY)) {
+              setTimeout(function() {
+                appendMessage('bot', 'Tip: Add this page to your Home Screen (Share > Add to Home Screen) to receive push notifications for order updates!', true);
+                localStorage.setItem(PUSH_PROMPTED_KEY, '1');
+              }, 2000);
+            }
+          }
+        };
+      }
 
       } // end initChat()
     })();

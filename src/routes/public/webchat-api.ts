@@ -684,6 +684,135 @@ router.post('/:profileId/consent-log', async (req: Request, res: Response) => {
   }
 });
 
+// ─── US-916: Push Notification Endpoints ─────────────────────────────
+
+/**
+ * GET /api/chat/:profileId/push/vapid-key
+ * Returns the VAPID public key for client-side push subscription.
+ */
+router.get('/:profileId/push/vapid-key', (_req: Request, res: Response) => {
+  const publicKey = getVapidPublicKey();
+  if (!publicKey) {
+    res.status(503).json({ error: 'Push notifications not configured (VAPID keys missing)' });
+    return;
+  }
+  res.json({ publicKey });
+});
+
+/**
+ * POST /api/chat/:profileId/push/subscribe
+ * Subscribe a webchat session to push notifications.
+ * Body: { sessionId, subscription: { endpoint, keys: { p256dh, auth } } }
+ */
+router.post('/:profileId/push/subscribe', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionId, subscription } = req.body;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId (string) required' });
+    return;
+  }
+
+  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+    res.status(400).json({ error: 'Valid push subscription object required (endpoint, keys.p256dh, keys.auth)' });
+    return;
+  }
+
+  try {
+    await saveSubscription(sessionId, profileId, subscription as PushSubscriptionData);
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[Push] Subscribe error:', err.message);
+    res.status(500).json({ error: 'Failed to save subscription' });
+  }
+});
+
+/**
+ * POST /api/chat/:profileId/push/unsubscribe
+ * Disable push notifications for a webchat session.
+ * Body: { sessionId }
+ */
+router.post('/:profileId/push/unsubscribe', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionId } = req.body;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId (string) required' });
+    return;
+  }
+
+  try {
+    await removeSubscription(sessionId, profileId);
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[Push] Unsubscribe error:', err.message);
+    res.status(500).json({ error: 'Failed to remove subscription' });
+  }
+});
+
+/**
+ * POST /api/chat/:profileId/push/settings
+ * Update push notification settings (frequency, enabled).
+ * Body: { sessionId, maxFrequencyMinutes?, enabled? }
+ */
+router.post('/:profileId/push/settings', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionId, maxFrequencyMinutes, enabled } = req.body;
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId (string) required' });
+    return;
+  }
+
+  try {
+    if (enabled === false) {
+      await removeSubscription(sessionId, profileId);
+    } else if (typeof maxFrequencyMinutes === 'number' && maxFrequencyMinutes > 0) {
+      await updateFrequency(sessionId, profileId, maxFrequencyMinutes);
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[Push] Settings error:', err.message);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+/**
+ * POST /api/chat/:profileId/push/send (admin use — for order-ready notifications)
+ * Sends a push notification to a specific session.
+ * Body: { sessionId, title, body, type, url? }
+ */
+router.post('/:profileId/push/send', async (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
+  const { sessionId, title, body: msgBody, type, url } = req.body;
+
+  if (!sessionId || !title || !msgBody || !type) {
+    res.status(400).json({ error: 'sessionId, title, body, type required' });
+    return;
+  }
+
+  const validTypes = ['order_ready', 'promotion', 'incomplete_order'];
+  if (!validTypes.includes(type)) {
+    res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
+    return;
+  }
+
+  try {
+    const sent = await sendPushNotification(sessionId, profileId, {
+      title,
+      body: msgBody,
+      type,
+      url: url || `/chat/${profileId}`,
+      profileId,
+      sessionId,
+    });
+    res.json({ ok: true, delivered: sent });
+  } catch (err: any) {
+    console.error('[Push] Send error:', err.message);
+    res.status(500).json({ error: 'Failed to send notification' });
+  }
+});
+
 /**
  * Persist user message + AI response to rainbow_messages/rainbow_conversations.
  */
