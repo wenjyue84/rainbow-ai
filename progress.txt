@@ -9832,3 +9832,30 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). Server starts cleanly. Story marked passes=true.
+## Iteration 2 - Sun, Mar 15, 2026 10:14:47 PM
+Completed: Support BSUID as primary contact identifier in webhook handling (ID: US-960) in 15m
+
+
+## Iteration [Ralph] - Story: US-918 AI provider token consumption and cost tracking per conversation
+### What was implemented
+- **AC1**: Every AI provider API call now logs a structured JSON record with: provider, model, input_tokens, output_tokens, estimated_cost_usd, conversation_id, tenant_id, timestamp. Per-call records are also persisted to new `llm_usage_log` DB table for historical analysis.
+- **AC2**: Admin dashboard endpoints enhanced: `GET /analytics/llm-cost/monthly?month=YYYY-MM` returns monthly spend by provider, spend by tenant, average cost per conversation. Existing daily/weekly endpoints already existed from US-433.
+- **AC3**: Monthly budget alert ($50 USD default) checks in the 30-minute interval alongside daily budget check. Configurable via `costBudget.monthlyBudgetAlertUsd` in settings.json. Triggers admin notification when monthly spend exceeds threshold.
+- **AC4**: `GET /analytics/llm-cost/export?format=csv&month=YYYY-MM` returns CSV download of per-call usage data. Also supports `format=json`, `days=N`, and `tenant_id` filter.
+- **AC5**: Ollama (local) calls are explicitly logged with $0.00 cost — `providerType: 'ollama'` forces cost to 0 in `recordLLMUsage`. Tokens are still tracked for volume monitoring.
+- **AC6**: `GET /analytics/llm-cost/provider-comparison?days=30` returns cost-per-resolved-conversation across providers (total cost, total calls, unique conversations, costPerConversation).
+
+### Files changed
+- `shared/schema-tables.ts` — NEW table: `llmUsageLog` (per-call granular log)
+- `src/assistant/llm-cost-budget.ts` — Enhanced `recordLLMUsage` with per-call logging, optional `LLMCallContext`, Ollama $0 cost, monthly budget alert, provider comparison query, CSV export query
+- `src/assistant/ai-provider-manager.ts` — Pass `LLMCallContext` (including `providerType`) through `chatWithFallback` → `recordLLMUsage`
+- `src/routes/admin/llm-cost.ts` — 3 new endpoints: `/analytics/llm-cost/monthly`, `/analytics/llm-cost/export`, `/analytics/llm-cost/provider-comparison`
+- `src/assistant/__tests__/llm-cost-tracking.test.ts` — NEW: 10 tests covering AC1, AC3, AC5, AC6
+
+### Patterns discovered
+- `chatWithFallback` accepts optional trailing parameters — adding `callContext?: LLMCallContext` as last param is backward-compatible
+- Provider type is available at the `_chatWithFallbackInner` level where `recordLLMUsage` is called, so no need for AsyncLocalStorage
+- Existing `llm_cost_daily` table provides daily aggregates; new `llm_usage_log` provides per-call granularity — both are useful for different views
+
+### Status
+✅ Build passes (3 pre-existing warnings). Server starts. 10/10 new tests + 10/10 existing budget tests pass. Story marked passes=true.

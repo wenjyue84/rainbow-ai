@@ -12,30 +12,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 
-const { mockNotifyBudget } = vi.hoisted(() => ({
-  mockNotifyBudget: vi.fn().mockResolvedValue(undefined),
-}));
+const { mockNotifyBudget, mockDbInsert, mockDbSelect } = vi.hoisted(() => {
+  const mockInsertValues = vi.fn().mockReturnValue({
+    onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+  });
+  return {
+    mockNotifyBudget: vi.fn().mockResolvedValue(undefined),
+    mockDbInsert: vi.fn().mockReturnValue({ values: mockInsertValues }),
+    mockDbSelect: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          groupBy: vi.fn().mockReturnValue({
+            orderBy: vi.fn().mockResolvedValue([]),
+          }),
+          orderBy: vi.fn().mockResolvedValue([]),
+        }),
+        orderBy: vi.fn().mockResolvedValue([]),
+      }),
+    }),
+  };
+});
 
 vi.mock('../../lib/admin-notifier.js', () => ({
   notifyAdminLLMBudgetAlert: mockNotifyBudget,
 }));
-
-const mockDbInsert = vi.fn().mockReturnValue({
-  values: vi.fn().mockReturnValue({
-    onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
-  }),
-});
-const mockDbSelect = vi.fn().mockReturnValue({
-  from: vi.fn().mockReturnValue({
-    where: vi.fn().mockReturnValue({
-      groupBy: vi.fn().mockReturnValue({
-        orderBy: vi.fn().mockResolvedValue([]),
-      }),
-      orderBy: vi.fn().mockResolvedValue([]),
-    }),
-    orderBy: vi.fn().mockResolvedValue([]),
-  }),
-});
 
 vi.mock('../../lib/db.js', () => ({
   db: {
