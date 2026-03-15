@@ -8686,3 +8686,26 @@ Build passes. 11/11 tests pass. Story marked passes=true.
 - Category capping: `Array.from(categoryMap.entries()).slice(0, MENU_LIST_MAX_SECTIONS)` limits sections
 ### Status
 Build passes. 22/22 tests pass (menu-list-browse + interactive-messages). Story marked passes=true.
+## Iteration 4 - Sun, Mar 15, 2026  6:34:21 PM
+FAILED quality gates: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: US-890) — attempt 1/3
+
+## Iteration 5 - Sun, Mar 15, 2026  6:34:24 PM
+FAILED quality gates: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: US-890) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-874 Automatic language detection in Chinese and Tamil
+### What was implemented
+- **`src/assistant/__tests__/language-router.test.ts`**: Added Tamil Detection describe block (4 tests: simple Tamil, sentences, mixed Tamil-English, high confidence Tamil script). Added `getLanguageName('ta')` assertion. Added Tamil texts to performance test and real-world test suite.
+- **`src/assistant/__tests__/us874-language-detection.test.ts`**: New dedicated US-874 test file covering all 6 acceptance criteria:
+  - AC1: Chinese and Tamil script detection (6 tests)
+  - AC3: Per-JID preference persistence for Chinese and Tamil
+  - AC4: Language override (Tamil→Chinese, Chinese→Tamil, locked cannot be overridden)
+  - AC5: System prompt language injection (language names verified)
+  - AC6: <200ms latency for 100 mixed-language detections
+### Patterns discovered
+- The language detection infrastructure (language-router.ts, language-preference.ts, input-validator.ts pipeline integration, ai-response-generator.ts LLM prompt injection) was already fully implemented from prior spiral work
+- Tamil Unicode block U+0B80-U+0BFF provides 0.95 confidence via pattern fast-path
+- The .rej files showed spiral worker's patch context didn't match — manually applied the Tamil tests
+- `language-resolution.test.ts` has an inline helper limited to en/ms/zh (no 'ta') — left as-is and put Tamil tests in dedicated US-874 file instead
+### Status
+Build passes (3 warnings, no errors). 62/62 language tests pass. Story marked passes=true.
