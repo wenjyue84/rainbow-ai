@@ -17,6 +17,8 @@ import { ok, badRequest, serverError } from './http-utils.js';
 import {
   queryWhatsappCostSummary,
   queryWhatsappDailyCosts,
+  getPricingModel,
+  estimateConversationCost,
 } from '../../lib/whatsapp-cost.js';
 
 const router = Router();
@@ -35,11 +37,41 @@ router.get('/analytics/whatsapp-cost', async (req: Request, res: Response) => {
     const profileId = req.query.profile_id as string | undefined;
     const days = Math.min(parseInt(req.query.days as string) || 7, 90);
 
-    const summary = await queryWhatsappCostSummary({ profileId, days });
+    const [summary, activePricingModel] = await Promise.all([
+      queryWhatsappCostSummary({ profileId, days }),
+      getPricingModel(profileId),
+    ]);
+
+    // Compute per-conversation comparison from the per-message data.
+    // Each unique (templateType, countryCode) combination within a day represents
+    // one conversation window for the legacy model.
+    const dailyRows = await queryWhatsappDailyCosts({ profileId, days });
+    const perConversationEstimateUsd = dailyRows.reduce((sum, row) => {
+      const rate = estimateConversationCost(
+        row.templateType as any,
+        row.countryCode,
+        false // conservative: assume outside CSW for comparison
+      );
+      // One conversation per unique (date, type, country) row
+      return sum + rate;
+    }, 0);
 
     ok(res, {
       ...summary,
       queryDays: days,
+      activePricingModel,
+      modelComparison: {
+        perMessage: {
+          model: 'per_message',
+          estimatedCostUsd: summary.totalEstimatedCostUsd,
+          isActive: activePricingModel === 'per_message',
+        },
+        perConversation: {
+          model: 'per_conversation',
+          estimatedCostUsd: Number(perConversationEstimateUsd.toFixed(4)),
+          isActive: activePricingModel === 'per_conversation',
+        },
+      },
     });
   } catch (err: any) {
     console.error('[WACost] Summary query failed:', err.message);

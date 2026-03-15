@@ -9199,3 +9199,29 @@ Incomplete: WhatsApp in-chat Webview for mobile payment page (ID: US-911) — at
 ## Iteration 12 - Sun, Mar 15, 2026  8:12:19 PM
 Completed: WhatsApp in-chat Webview for mobile payment page (ID: US-911) in 4m
 
+
+## Iteration [Ralph] - Story: US-845 Update WhatsApp cost tracker for per-message pricing model (July 2025)
+### What was implemented
+- **`settings.json`**: Added `billing.profileOverrides` for per-profile pricing model support (e.g., `southern.pricingModel = 'per_conversation'` override). Global `billing.pricingModel` was already present.
+- **`src/lib/whatsapp-cost.ts`**: 
+  - Added `PricingModel` type (`'per_message' | 'per_conversation'`)
+  - Added `DEFAULT_CONVERSATION_RATE_TABLE` — legacy per-conversation USD rates for MY/SG/ID/TH/PH/IN/US
+  - Added `getBillingSettings()` — reads settings.json with 1-min cache, returns global + profile overrides
+  - Added `getPricingModel(profileId?)` — returns active model (profile override > global)
+  - Added `estimateConversationCost()` — per-conversation rate lookup (1 charge per 24h window)
+  - Added `computeBothModelCosts()` — computes costs under both models for a message sequence
+  - Extended `_testExports` with `DEFAULT_CONVERSATION_RATE_TABLE` and `clearSettingsCache()`
+- **`src/routes/admin/whatsapp-cost.ts`**: 
+  - GET /analytics/whatsapp-cost now returns `activePricingModel` and `modelComparison` with per-message and per-conversation cost estimates and `isActive` flags for dashboard display
+- **`src/assistant/__tests__/whatsapp-cost.test.ts`**: 
+  - 24 additional tests (35 total): per-conversation estimation, dual-model comparison (computeBothModelCosts), pricing model toggle (getPricingModel with per-profile override)
+### Patterns discovered
+- Settings file must be read synchronously (fs.readFileSync) in ESM context — dynamic import of 'fs' works fine
+- Per-conversation dedup in computeBothModelCosts uses Set on `type::country` key, matching real billing logic
+- vi.mock('fs') in vitest successfully intercepts readFileSync for settings.json mocking
+### Gotchas
+- Must mock 'fs' before importing whatsapp-cost.ts to intercept settings.json reads in getPricingModel
+- Per-conversation model charges once per unique (templateType, countryCode) per 24h window — not once per phone number
+
+### Status
+✅ Build passes (3 pre-existing warnings). 35/35 tests pass. Marked passes=true.

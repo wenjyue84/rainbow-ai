@@ -1,11 +1,16 @@
 /**
- * whatsapp-cost.ts — WhatsApp per-message cost tracking (US-495)
+ * whatsapp-cost.ts — WhatsApp cost tracking (US-495, US-845)
  *
- * Tracks outbound message costs under the Meta July 2025 pricing model:
- * - Per-message pricing (not conversation-based)
- * - Template types: marketing, utility, authentication, service
- * - Utility templates within Customer Service Window (CSW) are FREE
- * - Cost varies by template_type + recipient country
+ * Supports two pricing models (US-845):
+ *   - 'per_message'     : Meta July 2025+ per-message pricing (default)
+ *   - 'per_conversation': Legacy 24h conversation-window pricing
+ *
+ * Active model is controlled via settings.json `billing.pricingModel`
+ * with per-profile overrides in `billing.profileOverrides`.
+ *
+ * Template types: marketing, utility, authentication, service
+ * Utility templates within Customer Service Window (CSW) are FREE (per-message model).
+ * Cost varies by template_type + recipient country.
  *
  * Architecture mirrors llm-cost-budget.ts: in-memory accumulator + async DB flush.
  */
@@ -17,6 +22,7 @@ import { sql, eq, and } from 'drizzle-orm';
 // ─── Types ──────────────────────────────────────────────────────────
 
 export type TemplateType = 'marketing' | 'utility' | 'authentication' | 'service';
+export type PricingModel = 'per_message' | 'per_conversation';
 
 export interface WhatsappMessageCostInput {
   phone: string;
@@ -33,7 +39,9 @@ interface CostAccumulator {
   estimatedCostUsd: number;
 }
 
-// ─── Default Rate Table (USD per message, July 2025) ────────────────
+// ─── Default Rate Tables ─────────────────────────────────────────────
+
+// Per-message rates (USD, July 2025)
 // Source: https://developers.facebook.com/docs/whatsapp/pricing/
 // Only includes countries relevant to this deployment. Stored in app_settings
 // as JSON under key 'whatsapp_cost_rate_table' for admin configurability.
@@ -73,6 +81,93 @@ const DEFAULT_RATE_TABLE: Record<string, Record<string, number>> = {
     _default: 0.0000, // Service (session) messages are free
   },
 };
+
+// Per-conversation rates (USD, legacy pre-July 2025 model)
+// One charge per 24h conversation window, regardless of message count.
+const DEFAULT_CONVERSATION_RATE_TABLE: Record<string, Record<string, number>> = {
+  marketing: {
+    MY: 0.0732,
+    SG: 0.0858,
+    ID: 0.0411,
+    TH: 0.0631,
+    PH: 0.0559,
+    IN: 0.0158,
+    US: 0.0250,
+    _default: 0.0600,
+  },
+  utility: {
+    MY: 0.0200,
+    SG: 0.0318,
+    ID: 0.0150,
+    TH: 0.0150,
+    PH: 0.0150,
+    IN: 0.0042,
+    US: 0.0080,
+    _default: 0.0200,
+  },
+  authentication: {
+    MY: 0.0315,
+    SG: 0.0453,
+    ID: 0.0240,
+    TH: 0.0240,
+    PH: 0.0240,
+    IN: 0.0042,
+    US: 0.0135,
+    _default: 0.0300,
+  },
+  service: {
+    _default: 0.0000,
+  },
+};
+
+// ─── Pricing Model Helpers ───────────────────────────────────────────
+
+/**
+ * Read the active pricing model from settings.json (cached read).
+ * Supports per-profile overrides via billing.profileOverrides.
+ */
+let _settingsCache: any = null;
+let _settingsCacheExpiry = 0;
+const SETTINGS_CACHE_TTL = 60_000; // 1 min
+
+async function getBillingSettings(): Promise<{ pricingModel: PricingModel; profileOverrides: Record<string, { pricingModel: PricingModel }> }> {
+  const now = Date.now();
+  if (_settingsCache && now < _settingsCacheExpiry) return _settingsCache;
+
+  try {
+    const { createRequire } = await import('module');
+    const { fileURLToPath } = await import('url');
+    const { dirname, join } = await import('path');
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const settingsPath = join(__dirname, '../assistant/data/settings.json');
+    const fs = await import('fs');
+    const raw = fs.readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(raw);
+    const billing = settings.billing ?? {};
+    _settingsCache = {
+      pricingModel: (billing.pricingModel ?? 'per_message') as PricingModel,
+      profileOverrides: billing.profileOverrides ?? {},
+    };
+  } catch {
+    _settingsCache = { pricingModel: 'per_message', profileOverrides: {} };
+  }
+
+  _settingsCacheExpiry = now + SETTINGS_CACHE_TTL;
+  return _settingsCache;
+}
+
+/**
+ * Get the active pricing model for a given profileId.
+ * Per-profile override takes precedence over global setting.
+ */
+export async function getPricingModel(profileId?: string): Promise<PricingModel> {
+  const billing = await getBillingSettings();
+  if (profileId && billing.profileOverrides[profileId]?.pricingModel) {
+    return billing.profileOverrides[profileId].pricingModel;
+  }
+  return billing.pricingModel;
+}
 
 // ─── In-memory Accumulator ──────────────────────────────────────────
 
@@ -169,6 +264,52 @@ export async function estimateMessageCost(
   const typeRates = rateTable[templateType] || rateTable['marketing'] || {};
   const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
   return rate;
+}
+
+/**
+ * Estimate the cost of a single conversation (legacy per-conversation model).
+ * Returns 0 for service messages. Utility within CSW is free.
+ */
+export function estimateConversationCost(
+  templateType: TemplateType,
+  countryCode: string,
+  withinCSW: boolean
+): number {
+  if (templateType === 'service') return 0;
+  if (templateType === 'utility' && withinCSW) return 0;
+  const typeRates = DEFAULT_CONVERSATION_RATE_TABLE[templateType] ?? DEFAULT_CONVERSATION_RATE_TABLE['marketing'];
+  return typeRates[countryCode] ?? typeRates['_default'] ?? 0.06;
+}
+
+/**
+ * Compute cost estimates under both pricing models for a given message sequence.
+ * Used by admin dashboard to display model comparison.
+ *
+ * @param messages - Array of messages with templateType, countryCode, withinCSW
+ * @returns { perMessageTotal, perConversationTotal }
+ */
+export async function computeBothModelCosts(
+  messages: Array<{ templateType: TemplateType; countryCode: string; withinCSW: boolean }>
+): Promise<{ perMessageTotal: number; perConversationTotal: number }> {
+  let perMessageTotal = 0;
+  let perConversationTotal = 0;
+
+  // Track conversation windows (per phone+type key) for per-conversation dedup
+  const conversationCharged = new Set<string>();
+
+  for (const msg of messages) {
+    const msgCost = await estimateMessageCost(msg.templateType, msg.countryCode, msg.withinCSW);
+    perMessageTotal += msgCost;
+
+    // Per-conversation: charge once per unique type+country per 24h window
+    const convKey = `${msg.templateType}::${msg.countryCode}`;
+    if (!conversationCharged.has(convKey)) {
+      conversationCharged.add(convKey);
+      perConversationTotal += estimateConversationCost(msg.templateType, msg.countryCode, msg.withinCSW);
+    }
+  }
+
+  return { perMessageTotal, perConversationTotal };
 }
 
 // ─── Public API: Record Outbound Message Cost ───────────────────────
@@ -424,6 +565,8 @@ export function startWhatsappCostDailyJob(): void {
 
 export const _testExports = {
   DEFAULT_RATE_TABLE,
+  DEFAULT_CONVERSATION_RATE_TABLE,
   accumulators,
   todayUTC,
+  clearSettingsCache: () => { _settingsCache = null; _settingsCacheExpiry = 0; },
 };

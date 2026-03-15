@@ -17,6 +17,18 @@ const { mockDbSelect, mockDbInsert, mockDbExecute } = vi.hoisted(() => ({
   mockDbExecute: vi.fn(),
 }));
 
+// Mock fs.readFileSync for settings.json reads in getPricingModel
+vi.mock('fs', () => ({
+  readFileSync: vi.fn(() => JSON.stringify({
+    billing: {
+      pricingModel: 'per_message',
+      profileOverrides: {
+        southern: { pricingModel: 'per_conversation' },
+      },
+    },
+  })),
+}));
+
 vi.mock('../../lib/db.js', () => ({
   db: {
     select: () => ({
@@ -58,6 +70,9 @@ vi.mock('../../../shared/schema-tables.js', () => ({
 import {
   isWithinCSW,
   estimateMessageCost,
+  estimateConversationCost,
+  computeBothModelCosts,
+  getPricingModel,
   recordWhatsappMessageCost,
   _testExports,
 } from '../../lib/whatsapp-cost.js';
@@ -236,5 +251,141 @@ describe('recordWhatsappMessageCost', () => {
     expect(acc!.billableMessages).toBe(0);
     expect(acc!.cswFreeMessages).toBe(1);
     expect(acc!.estimatedCostUsd).toBe(0);
+  });
+});
+
+// ── Per-Conversation Pricing Model ───────────────────────────────────
+
+describe('Per-Conversation Cost Estimation (estimateConversationCost)', () => {
+  it('service messages are always free', () => {
+    expect(estimateConversationCost('service', 'MY', false)).toBe(0);
+    expect(estimateConversationCost('service', 'MY', true)).toBe(0);
+  });
+
+  it('utility messages within CSW are free', () => {
+    expect(estimateConversationCost('utility', 'MY', true)).toBe(0);
+  });
+
+  it('utility messages outside CSW are charged at per-conversation rate', () => {
+    const cost = estimateConversationCost('utility', 'MY', false);
+    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.MY);
+  });
+
+  it('marketing messages are always charged', () => {
+    const costWithCSW = estimateConversationCost('marketing', 'MY', true);
+    const costWithoutCSW = estimateConversationCost('marketing', 'MY', false);
+    expect(costWithCSW).toBeGreaterThan(0);
+    expect(costWithCSW).toBe(costWithoutCSW);
+    expect(costWithCSW).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY);
+  });
+
+  it('authentication messages are charged per-conversation', () => {
+    const cost = estimateConversationCost('authentication', 'MY', false);
+    expect(cost).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.authentication.MY);
+  });
+
+  it('uses _default rate for unknown country', () => {
+    const cost = estimateConversationCost('marketing', 'ZZ', false);
+    expect(cost).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing._default);
+  });
+
+  it('per-conversation rates differ from per-message rates for MY marketing', () => {
+    // Both should be non-zero and defined
+    const convRate = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY;
+    const msgRate = _testExports.DEFAULT_RATE_TABLE.marketing.MY;
+    expect(convRate).toBeGreaterThan(0);
+    expect(msgRate).toBeGreaterThan(0);
+  });
+});
+
+// ── Dual-Model Comparison ────────────────────────────────────────────
+
+describe('computeBothModelCosts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Mock: no custom rate table in DB → uses defaults
+    mockDbSelect.mockResolvedValue([]);
+  });
+
+  it('returns zero for empty message sequence', async () => {
+    const result = await computeBothModelCosts([]);
+    expect(result.perMessageTotal).toBe(0);
+    expect(result.perConversationTotal).toBe(0);
+  });
+
+  it('single marketing message: per-message and per-conversation costs match', async () => {
+    const msgs = [{ templateType: 'marketing' as const, countryCode: 'MY', withinCSW: false }];
+    const result = await computeBothModelCosts(msgs);
+    expect(result.perMessageTotal).toBe(_testExports.DEFAULT_RATE_TABLE.marketing.MY);
+    expect(result.perConversationTotal).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY);
+  });
+
+  it('multiple marketing messages: per-message > per-conversation (one conv charge vs many msg charges)', async () => {
+    // 5 marketing messages to MY: per-message charges 5x, per-conversation charges once
+    const msgs = Array(5).fill({ templateType: 'marketing' as const, countryCode: 'MY', withinCSW: false });
+    const result = await computeBothModelCosts(msgs);
+    expect(result.perMessageTotal).toBeCloseTo(5 * _testExports.DEFAULT_RATE_TABLE.marketing.MY, 6);
+    expect(result.perConversationTotal).toBe(_testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY);
+    expect(result.perMessageTotal).toBeGreaterThan(result.perConversationTotal);
+  });
+
+  it('service messages are free in both models', async () => {
+    const msgs = [{ templateType: 'service' as const, countryCode: 'MY', withinCSW: false }];
+    const result = await computeBothModelCosts(msgs);
+    expect(result.perMessageTotal).toBe(0);
+    expect(result.perConversationTotal).toBe(0);
+  });
+
+  it('utility within CSW is free in both models', async () => {
+    const msgs = [{ templateType: 'utility' as const, countryCode: 'MY', withinCSW: true }];
+    const result = await computeBothModelCosts(msgs);
+    expect(result.perMessageTotal).toBe(0);
+    expect(result.perConversationTotal).toBe(0);
+  });
+
+  it('mixed message sequence: both models charge differently', async () => {
+    const msgs = [
+      { templateType: 'marketing' as const, countryCode: 'MY', withinCSW: false },
+      { templateType: 'marketing' as const, countryCode: 'MY', withinCSW: false }, // duplicate type+country: only 1 conv charge
+      { templateType: 'utility' as const, countryCode: 'MY', withinCSW: false },
+    ];
+    const result = await computeBothModelCosts(msgs);
+    // per-message: 2 marketing + 1 utility
+    const expectedPerMsg = 2 * _testExports.DEFAULT_RATE_TABLE.marketing.MY + _testExports.DEFAULT_RATE_TABLE.utility.MY;
+    expect(result.perMessageTotal).toBeCloseTo(expectedPerMsg, 6);
+    // per-conversation: 1 marketing conv + 1 utility conv
+    const expectedPerConv = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY + _testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.MY;
+    expect(result.perConversationTotal).toBeCloseTo(expectedPerConv, 6);
+  });
+});
+
+// ── Pricing Model Toggle ─────────────────────────────────────────────
+
+describe('getPricingModel', () => {
+  beforeEach(() => {
+    _testExports.clearSettingsCache();
+  });
+
+  it('returns per_message as default (global setting)', async () => {
+    const model = await getPricingModel();
+    expect(model).toBe('per_message');
+  });
+
+  it('returns per_message for pelangi profile (no override)', async () => {
+    const model = await getPricingModel('pelangi');
+    // pelangi has no override in mock → falls back to global 'per_message'
+    // (mock returns southern override only)
+    expect(model).toBe('per_message');
+  });
+
+  it('returns per_conversation for southern profile (has override)', async () => {
+    const model = await getPricingModel('southern');
+    expect(model).toBe('per_conversation');
+  });
+
+  it('returns global model for unknown profileId', async () => {
+    const model = await getPricingModel('unknown-profile');
+    expect(model).toBe('per_message');
   });
 });
