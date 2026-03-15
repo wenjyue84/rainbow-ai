@@ -18,6 +18,7 @@ import {
   isKdsEnabled,
   getKdsOpsPhone,
   sendToKds,
+  setKdsConfig,
   type KdsOrderPayload,
 } from '../../lib/kds-webhook.js';
 
@@ -237,6 +238,66 @@ describe('US-876: KDS Webhook', () => {
       const result = await sendToKds(testPayload, '+60111');
       // First call will throw due to non-ok status, queuing for retry
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('US-1014: setKdsConfig (admin-configurable URL/token)', () => {
+    const testPayload: KdsOrderPayload = {
+      orderId: 'MM-CFG',
+      items: [{ name: 'Config Test', qty: 1 }],
+      tableOrPickup: 'Table 3',
+      customerJidHash: 'abcdef1234567890',
+      timestamp: new Date().toISOString(),
+      profileId: 'makan-moments',
+    };
+
+    afterEach(() => {
+      // Reset settings config after each test
+      setKdsConfig({ webhookUrl: '', webhookAuthToken: '' });
+    });
+
+    it('uses settings URL when env var is not set', async () => {
+      setKdsConfig({ webhookUrl: 'http://settings-kds:8080/orders' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ status: 'accepted' }), { status: 200 })
+      );
+
+      const result = await sendToKds(testPayload, '+60111');
+      expect(result.success).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://settings-kds:8080/orders');
+    });
+
+    it('env var URL takes precedence over settings URL', async () => {
+      process.env.KDS_WEBHOOK_URL = 'http://env-kds:9090/orders';
+      setKdsConfig({ webhookUrl: 'http://settings-kds:8080/orders' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ status: 'accepted' }), { status: 200 })
+      );
+
+      await sendToKds(testPayload, '+60111');
+      const [url] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://env-kds:9090/orders');
+    });
+
+    it('uses settings auth token when env var is not set', async () => {
+      setKdsConfig({ webhookUrl: 'http://settings-kds:8080/orders', webhookAuthToken: 'settings-token' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ status: 'accepted' }), { status: 200 })
+      );
+
+      await sendToKds(testPayload, '+60111');
+      const [, opts] = fetchSpy.mock.calls[0];
+      const headers = opts?.headers as Record<string, string>;
+      expect(headers['Authorization']).toBe('Bearer settings-token');
+    });
+
+    it('skips when neither env var nor settings URL is configured', async () => {
+      setKdsConfig({ webhookUrl: '' });
+      const result = await sendToKds(testPayload, '+60111');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not configured');
     });
   });
 

@@ -1,5 +1,5 @@
 /**
- * Admin API: WhatsApp Template Validator (US-906)
+ * Admin API: WhatsApp Template Validator (US-906) + Utility Template Linter Config (US-1013)
  *
  * POST /wa-templates/validate
  *   — Validates a template body for common rejection triggers.
@@ -9,12 +9,18 @@
  * PUT  /wa-templates/:name
  *   — Stores/updates a WA message template definition.
  *   — Runs server-side validation and logs validation_warnings field.
+ *
+ * GET  /wa-templates/linter-config
+ *   — Returns current linter keyword config (US-1013).
+ *
+ * PUT  /wa-templates/linter-config
+ *   — Updates linter keyword list; persists to settings (US-1013).
  */
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { validateTemplate, DEFAULT_PROMO_KEYWORDS } from '../../lib/template-validator.js';
-import { badRequest, ok } from './http-utils.js';
+import { badRequest, ok, getStore } from './http-utils.js';
 import { createModuleLogger } from '../../lib/logger.js';
 
 const router = Router();
@@ -122,6 +128,55 @@ router.get('/wa-templates', (req: Request, res: Response) => {
     : [];
 
   ok(res, { templates });
+});
+
+// ─── GET /wa-templates/linter-config (US-1013) ───────────────────────────────
+
+router.get('/wa-templates/linter-config', (req: Request, res: Response) => {
+  const settings = getStore(res).getSettings() as any;
+  const linterConfig = settings.templateLinter || {};
+  const keywords: string[] = Array.isArray(linterConfig.marketingKeywords)
+    ? linterConfig.marketingKeywords
+    : DEFAULT_PROMO_KEYWORDS;
+  const enabled: boolean = linterConfig.enabled !== false;
+
+  ok(res, { enabled, marketingKeywords: keywords });
+});
+
+// ─── PUT /wa-templates/linter-config (US-1013) ───────────────────────────────
+
+router.put('/wa-templates/linter-config', (req: Request, res: Response) => {
+  const { enabled, marketingKeywords } = req.body as {
+    enabled?: boolean;
+    marketingKeywords?: string[] | null;
+  };
+
+  // null means "reset to defaults" — treat same as undefined (omit from update)
+  const kws = marketingKeywords === null ? undefined : marketingKeywords;
+  if (kws !== undefined && !Array.isArray(kws)) {
+    badRequest(res, 'marketingKeywords must be an array of strings');
+    return;
+  }
+  if (kws !== undefined && kws.some((k: unknown) => typeof k !== 'string')) {
+    badRequest(res, 'All marketingKeywords must be strings');
+    return;
+  }
+
+  const store = getStore(res);
+  const settings = store.getSettings() as any;
+  const existing = settings.templateLinter || {};
+
+  const updated = {
+    ...existing,
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(kws !== undefined ? { marketingKeywords: kws } : {}),
+  };
+  settings.templateLinter = updated;
+  store.setSettings(settings);
+
+  log.info('Template linter config updated', { enabled: updated.enabled, keywordCount: (updated.marketingKeywords || []).length });
+
+  ok(res, { enabled: updated.enabled !== false, marketingKeywords: updated.marketingKeywords || DEFAULT_PROMO_KEYWORDS });
 });
 
 export default router;

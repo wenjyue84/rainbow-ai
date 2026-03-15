@@ -111,6 +111,9 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'messaging-limits') {
     import('/public/js/modules/messaging-limits.js').then(m => m.renderMessagingLimitsTab(container));
   }
+  else if (tabId === 'template-linter') {
+    import('/public/js/modules/template-linter-settings.js').then(m => m.renderTemplateLinterTab(container));
+  }
 }
 window.switchSettingsTab = switchSettingsTab;
 

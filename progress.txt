@@ -11119,3 +11119,70 @@ Incomplete: Malaysia PDPA 2024: biometric data classification guard for passport
 - Consent messages use `Personal Data Protection Act` not `PDPA` abbreviation — tests needed adjustment
 - Bullet point lists in WhatsApp use `•` not `-` for proper rendering
 - The guard is a contract: callers must not persist raw images — the guard documents this but cannot enforce it at runtime
+## Iteration 2 - Mon, Mar 16, 2026  6:34:53 AM
+Completed: Malaysia PDPA 2024: biometric data classification guard for passport/IC OCR (ID: US-994) in 8m
+
+
+## Iteration N - Story: US-1013 Utility template real-time linter
+### What was implemented
+- Added `templateLinter` section to `src/assistant/data/settings.json` with 30 default marketing keywords
+- Extended `src/routes/admin/wa-templates.ts` with GET/PUT `/wa-templates/linter-config` endpoints for reading/updating keyword list
+- Created `src/public/templates/tabs/wa-template-authoring.html` — admin tab for template authoring with:
+  - Template name, category (utility/marketing/authentication), body textarea
+  - Pure client-side real-time linting on every keypress (debounced 200ms)
+  - Warning banner (amber) when marketing keywords found in utility template
+  - Confirmation dialog before submit if marketing phrases detected (US-1013 AC #2)
+  - Green status indicator when clean, amber when issues found
+- Created `src/public/js/modules/template-linter-settings.js` — Settings sub-tab renderer for managing keyword list
+- Added "Template Linter" sub-tab button to `src/public/templates/tabs/settings.html`
+- Added "Templates" nav item to `src/public/rainbow-admin.html` sidebar
+- Added tab section `#tab-wa-template-authoring` to `rainbow-admin.html`
+- Added `template-linter` case to `switchSettingsTab()` in `settings.js`
+### Patterns discovered
+- Template HTML files auto-loaded by tabs.js via `data-template` attribute -> GET `/api/rainbow/templates/{name}`
+- Settings sub-tabs use `switchSettingsTab(tabId)` → dynamic JS module import pattern
+- Inline `<script>` in tab HTML runs when injected; use `setTimeout(fn, 0)` for deferred init
+- `getStore(res)` from http-utils gives profile-aware ConfigStore; `setSettings()` persists to JSON
+### Gotchas
+- The linter config PUT endpoint accepts `null` for `marketingKeywords` but the server currently doesn't fall back to DEFAULT_PROMO_KEYWORDS on null — it stores null. The front-end reset uses `null` but should send the actual defaults. Fixed: reset button was changed to trigger a fresh fetch which loads defaults.
+## Iteration 3 - Mon, Mar 16, 2026  6:47:38 AM
+Incomplete: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: US-995) — attempt 1/3
+
+
+## Pre-analysis for US-995 (Gemini 2.5 Pro)
+This user story describes a feature for a Node.js/TypeScript application, not a Frappe/Python one. The analysis is based on the provided file structure for the "Rainbow" project.
+
+**Project:** Rainbow (Node.js/TypeScript)
+**User Story:** US-995: WhatsApp portfolio pacing monitor
+
+**Technical Brief for Implementation:**
+
+1.  **Files to Modify:**
+    *   `src/lib/metaPacingService.ts` (New): To encapsulate the logic for polling Meta's Graph API endpoint (`/message_qrdls` or analytics).
+    *   `src/workers/pacingMonitor.ts` (New): A background worker using `setInterval` to call `metaPacingService` every 5 minutes.
+    *   `shared/schema.ts`: To add a new `pacing_log` table schema for Drizzle ORM to log pacing events.
+    *   `src/routes/pacing.ts` (New): To create a backend API endpoint (e.g., `/api/pacing/status`) that the frontend can poll.
+    *   `[Frontend-Path]/PacingStatusPanel.tsx` (New): A new React/frontend component for the admin dashboard.
+    *   `[Frontend-Path]/BroadcastComposer.tsx` (Existing): The existing UI component for sending broadcasts needs modification to display a warning.
+
+2.  **Frappe DocTypes/Hooks (Conceptual Equivalents):**
+    *   **"DocType"**: The `pacing_log` schema definition in `shared/schema.ts` will serve as the data model, equivalent to a DocType.
+    *   **"Hook"**: The scheduled task functionality will be implemented as a long-running process in the `pacingMonitor.ts` worker, not a Frappe hook.
+
+3.  **Implementation Approach:**
+    *   Create a service (`metaPacingService`) to handle Graph API requests and authentication.
+    *   Implement a worker (`pacingMonitor`) to call this service on a 5-minute interval, storing the latest pacing status in a shared cache (e.g., Redis) or the database.
+    *   When pacing is detected, the worker should use the Drizzle ORM to write an entry to the new `pacing_log` table.
+    *   Expose the cached status via a new REST endpoint in `src/routes/pacing.ts`.
+    *   Build a frontend panel that polls this endpoint to display queue depth and pacing status.
+    *   Conditionally render a warning in the broadcast UI based on the same endpoint's data.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Graceful Degradation:** The API polling service must handle errors gracefully (e.g., missing API scopes, network issues) and return a "status unavailable" state to the frontend.
+    *   **Stale Data:** The API endpoint should include a `lastPolled` timestamp. The frontend should indicate if the data is stale (e.g., older than 10 minutes) in case the background worker fails.
+    *   **Authentication:** Ensure the Graph API token is securely retrieved and has the required `whatsapp_business_management` permissions.
+    *   **UI State:** Use a centralized state management solution (like React Context or Zustand) to share the pacing status between the dashboard panel and the broadcast warning to avoid redundant API calls.
+
+## Iteration 4 - Mon, Mar 16, 2026  7:07:30 AM
+Incomplete: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: US-995) — attempt 2/3
+

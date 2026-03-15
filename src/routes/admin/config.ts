@@ -638,4 +638,52 @@ router.post('/rate-limit/reset-all', (_req: Request, res: Response) => {
   ok(res, { status: 'all rate limits reset' });
 });
 
+// ─── KDS Configuration (US-1014) ──────────────────────────────────────
+
+/**
+ * GET /api/rainbow/settings/kds
+ * Returns current KDS (Kitchen Display System) configuration.
+ * Redacts auth token for security.
+ */
+router.get('/settings/kds', (_req: Request, res: Response) => {
+  const settings = getStore(res).getSettings() as any;
+  const kds = settings.kds || { enabled: false, webhookUrl: '', webhookAuthToken: '', opsNotifyPhone: '', maxRetries: 3, baseDelayMs: 1000 };
+  ok(res, {
+    enabled: kds.enabled ?? false,
+    webhookUrl: kds.webhookUrl || '',
+    webhookAuthToken: kds.webhookAuthToken ? '••••••••' : '',
+    opsNotifyPhone: kds.opsNotifyPhone || '',
+    maxRetries: kds.maxRetries ?? 3,
+    baseDelayMs: kds.baseDelayMs ?? 1000,
+    envOverrides: {
+      webhookUrl: !!process.env.KDS_WEBHOOK_URL,
+      webhookAuthToken: !!process.env.KDS_WEBHOOK_AUTH_TOKEN,
+    },
+  });
+});
+
+/**
+ * PATCH /api/rainbow/settings/kds
+ * Update KDS configuration fields. Deep-merged into settings.kds.
+ */
+router.patch('/settings/kds', (req: Request, res: Response) => {
+  const allowed = ['enabled', 'webhookUrl', 'webhookAuthToken', 'opsNotifyPhone', 'maxRetries', 'baseDelayMs'];
+  const update: Record<string, any> = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) update[key] = req.body[key];
+  }
+  if (Object.keys(update).length === 0) {
+    badRequest(res, 'No valid KDS fields provided. Allowed: ' + allowed.join(', '));
+    return;
+  }
+
+  const store = getStore(res);
+  const settings = store.getSettings() as any;
+  const before = JSON.parse(JSON.stringify(settings.kds || {}));
+  settings.kds = { ...(settings.kds || {}), ...update };
+  store.setSettings(settings);
+  auditConfigChange(getAdminUser(req), 'PATCH /api/rainbow/settings/kds', before, settings.kds);
+  ok(res, { kds: { ...settings.kds, webhookAuthToken: settings.kds.webhookAuthToken ? '••••••••' : '' } });
+});
+
 export default router;

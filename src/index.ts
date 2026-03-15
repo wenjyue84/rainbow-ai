@@ -894,11 +894,21 @@ server.listen(PORT, '0.0.0.0', () => {
       notifyAdminFailoverDeactivated().catch(() => { });
     });
 
+    // US-1014: Sync KDS config from settings on startup
+    const { setKdsConfig } = await import('./lib/kds-webhook.js');
+    const kdsSettings = (configStore.getSettings() as any).kds;
+    if (kdsSettings) {
+      setKdsConfig({ webhookUrl: kdsSettings.webhookUrl, webhookAuthToken: kdsSettings.webhookAuthToken });
+    }
+
     // Update coordinator when settings are hot-reloaded
     configStore.on('reload', (domain: string) => {
       if (['settings', 'all'].includes(domain)) {
         const updated = configStore.getSettings().failover;
         if (updated) failoverCoordinator.updateSettings(updated);
+        // US-1014: Sync KDS config on settings change
+        const kds = (configStore.getSettings() as any).kds;
+        if (kds) setKdsConfig({ webhookUrl: kds.webhookUrl, webhookAuthToken: kds.webhookAuthToken });
       }
     });
 

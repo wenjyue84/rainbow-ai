@@ -42,6 +42,7 @@ import {
 import { saveOrderHistory } from '../assistant/order-history-store.js';
 import {
   markConfirmationShown, markCorrected, recordOrderSubmitted, clearAccuracyTracking,
+  recordKdsSent,
 } from '../assistant/order-accuracy-tracker.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
@@ -735,7 +736,10 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
             profileId: kdsProfileId,
           });
           sendToKds(kdsPayload, kdsOpsPhone).then((kdsResult: KdsWebhookResult) => {
-            if (kdsResult.posStatus === 'rejected' && kdsResult.posMessage) {
+            if (kdsResult.success) {
+              // US-1014: Record 'sent to kitchen' timeline event
+              recordKdsSent(sessionId, kdsProfileId, extractedOrderId).catch(() => {});
+            } else if (kdsResult.posStatus === 'rejected' && kdsResult.posMessage) {
               // POS rejected — log for admin visibility (customer already notified of order sent)
               console.warn(`[KDS] Order ${extractedOrderId} rejected by POS: ${kdsResult.posMessage}`);
             }

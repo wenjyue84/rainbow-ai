@@ -108,6 +108,7 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
         .select({
           totalConfirmed: sql<number>`count(*) filter (where event_type = 'order_confirmed')::int`,
           totalCorrected: sql<number>`count(*) filter (where event_type = 'order_corrected')::int`,
+          totalSentToKitchen: sql<number>`count(*) filter (where event_type = 'sent_to_kitchen')::int`,
         })
         .from(orderAccuracyEvents)
         .where(and(
@@ -233,6 +234,7 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           totalConfirmedOrders: orderAccuracy.totalConfirmed,
           correctedOrders: orderAccuracy.totalCorrected,
           accurateOrders,
+          sentToKitchen: orderAccuracy.totalSentToKitchen,
           threshold: ALERT_THRESHOLDS.orderAccuracy,
           alert: orderAccuracyRate !== null && orderAccuracyRate < ALERT_THRESHOLDS.orderAccuracy,
         },
@@ -253,7 +255,7 @@ function emptyKpis() {
     handoffRate: { rate: null, totalEscalations: 0, uniqueConversationsEscalated: 0 },
     fallbackRate: { rate: null, totalUserMessages: 0, unknownMessages: 0 },
     faithfulness: { lowFaithfulnessRate: null, avgScore: null, totalChecked: 0, lowFaithfulnessCount: 0 },
-    orderAccuracyRate: { rate: null, totalConfirmedOrders: 0, correctedOrders: 0, accurateOrders: 0, threshold: 90, alert: false },
+    orderAccuracyRate: { rate: null, totalConfirmedOrders: 0, correctedOrders: 0, accurateOrders: 0, sentToKitchen: 0, threshold: 90, alert: false },
   };
 }
 

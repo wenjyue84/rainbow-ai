@@ -80,6 +80,24 @@ export async function recordOrderSubmitted(sessionId: string, profileId: string)
   sessions.delete(sessionId);
 }
 
+/**
+ * US-1014: Record 'sent_to_kitchen' event when KDS push succeeds.
+ * Fire-and-forget — errors are logged but don't block order flow.
+ */
+export async function recordKdsSent(sessionId: string, profileId: string, orderId: string): Promise<void> {
+  const isConnected = await dbReady;
+  if (!isConnected) return;
+  try {
+    await db.insert(orderAccuracyEvents).values({
+      sessionId,
+      profileId,
+      eventType: 'sent_to_kitchen',
+    });
+  } catch (err: any) {
+    console.error('[OrderAccuracy] Failed to record sent_to_kitchen:', err.message);
+  }
+}
+
 /** Reset tracking state for a session (e.g., on cart cancel). */
 export function clearAccuracyTracking(sessionId: string): void {
   sessions.delete(sessionId);

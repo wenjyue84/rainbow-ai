@@ -1,8 +1,11 @@
 /**
- * kds-webhook.ts — POS/KDS webhook integration (US-876)
+ * kds-webhook.ts — POS/KDS webhook integration (US-876, US-1014)
  *
  * Sends confirmed orders to an external Kitchen Display System via HTTP POST.
  * Supports retry with exponential backoff and persistent fallback queue.
+ *
+ * US-1014: Admin-configurable endpoint URL and auth token per profile.
+ * Config priority: env vars > settings.json > disabled.
  */
 
 import { createHash } from 'crypto';
@@ -11,12 +14,32 @@ import { sendWhatsAppMessage, getWhatsAppStatus } from './baileys-client.js';
 
 const logger = createModuleLogger('kds-webhook');
 
-// ─── Configuration (env vars, overridable without redeploy) ─────────
+// ─── Configuration (env vars override settings, settings override defaults) ──
 
 const KDS_WEBHOOK_URL = () => process.env.KDS_WEBHOOK_URL || '';
 const KDS_WEBHOOK_AUTH_TOKEN = () => process.env.KDS_WEBHOOK_AUTH_TOKEN || '';
 const KDS_MAX_RETRIES = 3;
 const KDS_BASE_DELAY_MS = 1000; // 1s, 2s, 4s exponential backoff
+
+/** Runtime config overrides from settings.json (set via setKdsConfig) */
+let settingsUrl = '';
+let settingsAuthToken = '';
+
+/** Update KDS config from admin settings (called when settings load/change) */
+export function setKdsConfig(config: { webhookUrl?: string; webhookAuthToken?: string }): void {
+  settingsUrl = config.webhookUrl || '';
+  settingsAuthToken = config.webhookAuthToken || '';
+}
+
+/** Resolve effective KDS URL: env var takes precedence over settings */
+function resolveUrl(): string {
+  return KDS_WEBHOOK_URL() || settingsUrl;
+}
+
+/** Resolve effective KDS auth token: env var takes precedence over settings */
+function resolveAuthToken(): string {
+  return KDS_WEBHOOK_AUTH_TOKEN() || settingsAuthToken;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -61,10 +84,10 @@ export async function sendToKds(
   payload: KdsOrderPayload,
   opsPhone: string
 ): Promise<KdsWebhookResult> {
-  const url = KDS_WEBHOOK_URL();
+  const url = resolveUrl();
   if (!url) {
-    logger.debug('KDS_WEBHOOK_URL not configured, skipping webhook');
-    return { success: false, error: 'KDS_WEBHOOK_URL not configured' };
+    logger.debug('KDS webhook URL not configured, skipping');
+    return { success: false, error: 'KDS webhook URL not configured' };
   }
 
   try {
@@ -80,7 +103,7 @@ export async function sendToKds(
 
 async function postToKds(url: string, payload: KdsOrderPayload): Promise<KdsWebhookResult> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const authToken = KDS_WEBHOOK_AUTH_TOKEN();
+  const authToken = resolveAuthToken();
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
@@ -153,7 +176,7 @@ async function processRetryQueue() {
   }
 
   for (const entry of ready) {
-    const url = KDS_WEBHOOK_URL();
+    const url = resolveUrl();
     if (!url) continue;
 
     try {
