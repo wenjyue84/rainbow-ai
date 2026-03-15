@@ -8109,3 +8109,24 @@ Completed: PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC (
 - Can't rely on snapshot presence for resubmission detection — `order_modify_request` clears snapshot before items are restored (safety measure)
 - Kitchen acceptance webhook integration is prepared (`markKitchenAccepted`) but the actual KDS webhook handler needs to call it when POS sends acceptance
 
+## Iteration 5 - Sun, Mar 15, 2026  4:10:34 PM
+Completed: PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC (ID: US-907) in 12m
+
+
+## Iteration - Story: US-881 Order modification window after submission
+### What was implemented
+- Fixed order_modify_request handler: now clears snapshot after restoring items to prevent double-restore bug (qty doubling on consecutive "change order" calls)
+- Added setActiveModification/consumeActiveModification flags so order_confirm_submit detects resubmissions and uses "Your updated order" label
+- Added KDS kitchen acceptance webhook endpoint (POST /webhooks/kds/accept) that calls markKitchenAccepted to close the modification window
+- Added 13 new tests covering: modification store unit tests (snapshot save/retrieve, window expiry, kitchen acceptance, remaining seconds, clear, active modification flag) and handler integration tests (restore within window, reject no order, reject expired, reject kitchen accepted, prevent double-restore, resubmission label)
+
+### Patterns discovered
+- order-modification-store.ts was already created with full snapshot/timer/kitchen-acceptance logic
+- cart.ts already had the tool definition and handler wired up with most logic
+- webchat-api.ts already reads orderModificationWindowMinutes from makan settings and passes to createCartHandlers
+- The state machine workaround (clearOrderStage after PLACED) means BROWSING → ORDERING transition is used for modification restore
+
+### Gotchas
+- The modification snapshot must be cleared BEFORE restoring items, otherwise a second "change order" would add items again (qty doubling)
+- Remaining time calculation must happen before clearing the snapshot, since getModificationRemainingSeconds needs the snapshot
+- The 0-minute window test needs a small delay (10ms) to ensure the window actually expires
