@@ -13,6 +13,7 @@ import { eq, and } from 'drizzle-orm';
 import { whatsappTemplates } from '../../shared/schema.js';
 import { notifyAdminTemplatePaused } from './admin-notifier.js';
 import { createModuleLogger } from './logger.js';
+import { metaGraphUrl } from './meta-graph-api.js';
 
 const logger = createModuleLogger('template-rejection-monitor');
 
@@ -70,7 +71,7 @@ export async function fetchMetaTemplates(
 ): Promise<MetaTemplate[]> {
   const templates: MetaTemplate[] = [];
   let url: string | null =
-    `https://graph.facebook.com/v21.0/${wabaId}/message_templates?fields=name,status,rejected_reason&limit=100`;
+    metaGraphUrl(`${wabaId}/message_templates?fields=name,status,rejected_reason&limit=100`);
 
   while (url) {
     const response = await fetch(url, {

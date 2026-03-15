@@ -10,6 +10,7 @@
  */
 
 import { loadAdminNotificationSettings } from './admin-notification-settings.js';
+import { metaGraphUrl } from './meta-graph-api.js';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ export async function fetchSubscriptionStatus(
   wabaId: string,
   accessToken: string,
 ): Promise<boolean> {
-  const url = `https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps?access_token=${accessToken}`;
+  const url = metaGraphUrl(`${wabaId}/subscribed_apps?access_token=${accessToken}`);
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -188,7 +189,7 @@ export async function resubscribeApp(
   wabaId: string,
   accessToken: string,
 ): Promise<boolean> {
-  const url = `https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`;
+  const url = metaGraphUrl(`${wabaId}/subscribed_apps`);
 
   const res = await fetch(url, {
     method: 'POST',

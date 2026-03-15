@@ -69,6 +69,7 @@ import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.
 import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
 import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
 import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
+import { validateGraphApiVersion } from './lib/meta-graph-api.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -113,6 +114,9 @@ initDb();
 
 // Meta CA certificate check (US-478) — warn if cert is missing before 2026-04-01 deadline
 checkMetaCACert();
+
+// Meta Graph API version validation (US-961) — warn if version is below minimum
+validateGraphApiVersion();
 
 // Ensure DB config tables exist (no-op when DATABASE_URL not set)
 try {

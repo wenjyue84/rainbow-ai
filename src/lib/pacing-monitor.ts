@@ -14,6 +14,7 @@ import { db, dbReady } from './db.js';
 import { appSettings } from '../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { loadAdminNotificationSettings } from './admin-notification-settings.js';
+import { metaGraphUrl } from './meta-graph-api.js';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ export async function fetchMetaQualitySignals(
   phoneNumberId: string,
   accessToken: string
 ): Promise<MetaQualityResponse> {
-  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=quality_rating,messaging_limit_tier,health_status&access_token=${accessToken}`;
+  const url = metaGraphUrl(`${phoneNumberId}?fields=quality_rating,messaging_limit_tier,health_status&access_token=${accessToken}`);
 
   const res = await fetch(url);
   if (!res.ok) {

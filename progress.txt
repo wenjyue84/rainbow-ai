@@ -9759,3 +9759,22 @@ Incomplete: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat wi
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 25/25 new tests pass. 14/14 existing LLM validation tests pass. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-961 Migrate Graph API calls to v21.0+
+### What was implemented
+- Created `src/lib/meta-graph-api.ts` — centralized Meta Graph API version config
+  - `META_GRAPH_API_VERSION` constant (configurable via env var)
+  - `metaGraphUrl()` helper to build Graph API URLs
+  - `validateGraphApiVersion()` startup check (warns if below v21.0)
+- Updated 3 files to use centralized config instead of hardcoded `v21.0`:
+  - `src/lib/pacing-monitor.ts` (1 URL)
+  - `src/lib/template-rejection-monitor.ts` (1 URL)
+  - `src/lib/waba-webhook-health.ts` (2 URLs)
+- Added `META_GRAPH_API_VERSION` env var to `.env.example`
+- Added `validateGraphApiVersion()` call at startup in `src/index.ts`
+### Patterns discovered
+- All existing Graph API calls were already on v21.0 — no deprecated versions found
+- Only 4 total hardcoded Graph API URLs in the codebase (3 files)
+### Gotchas
+- The `.spiral-workers/` directories contain copies of source files — those are not part of the main build
