@@ -11033,3 +11033,62 @@ The equivalent in this TS project are configuration objects and data schemas:
 - Completely unrelated hallucinations (luxury spa, rooftop pool not in KB) produce Jaccard ~0.05-0.1 → correctly blocked
 - Sentences that happen to share words with KB (check-in/check-out) score ~0.5+ even with wrong values → groundedness passes, hallucination detector catches the specific wrong value
 - Threshold=0 disables the groundedness gate (escape hatch in config)
+
+## Pre-analysis for US-994 (Gemini 2.5 Pro)
+Here is a technical brief for implementing story US-994 in a Frappe/Python environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Preparatory Agent
+**Subject:** Technical Brief for US-994: Biometric Data Consent Guard
+
+This brief outlines the implementation plan for the PDPA biometric consent feature in the `lhdn_payroll_integration` app.
+
+**1. Python Files & DocTypes to Modify:**
+
+*   **Create New DocType:** `Biometric Consent Log`.
+    *   Fields: `employee` (Link: Employee), `consent_granted` (Checkbox), `consent_timestamp` (Datetime). This DocType will be the auditable record of consent.
+*   **Modify DocType `Employee`:** The OCR logic is likely triggered here.
+*   **Modify Python Controller `employee.py`:** This is the most probable location for the core OCR processing logic that needs to be updated.
+*   **Modify `hooks.py`:** Potentially needed to add a `doc_events` hook for the `Employee` doctype (e.g., `before_save`) to trigger the consent check if not already in `employee.py`.
+
+**2. Recommended Implementation Approach:**
+
+1.  In the Python function that handles the ID image upload/processing for an employee, insert a consent check *before* any API calls.
+2.  The check should query the `Biometric Consent Log` for a valid entry corresponding to the `employee`.
+3.  If consent is missing, halt the OCR process and use `frappe.throw()` or `frappe.msgprint()` to notify the user that explicit consent is required. Do not proceed.
+4.  If consent is present, proceed with the API call. The image must be handled in-memory and passed directly to the Gemini API. **Do not** save the raw image file to the database or server filesystem.
+5.  Only the structured text returned from the OCR process should be saved to the relevant fields in the `Employee` document.
+
+**3. Edge Cases & Gotchas:**
+
+*   **File Handling:** Frappe's default behavior is to save uploaded files. The logic must intercept the file stream *before* it's written to disk. This may require a custom endpoint or careful handling of the `before_save` event.
+*   **User Experience:** The process of *obtaining* consent is not fully defined. A simple approach is a custom button on the `Employee` form ("Record Manual Consent") that a privileged user can click to create the log entry.
+*   **Consent Revocation:** The story doesn't cover revoking consent. While not required now, be aware that this is a future consideration.
+*   **Error States:** If the OCR API call fails *after* consent is confirmed, ensure the user is clearly notified of the processing failure.
+
+
+## Iteration 16 - Story: US-1012 Multi-turn LLM Context Loss Detection and Recovery
+### What was implemented
+- `src/assistant/context-loss-detector.ts`: New module with 3 heuristic signals:
+  1. **Re-asking**: regex patterns detect if bot asks for info user already gave (name, date, count, room type, contact)
+  2. **Contradiction**: compares RM prices in response vs assistant history (>20% diff = contradiction)
+  3. **Entity omission**: detects if user-mentioned booking refs (regex `[A-Z]{2,4}[0-9]{4,8}`) are absent from response
+- Confidence: each signal = 0.75; min 1.0. Threshold = 0.7 so any single signal triggers detection.
+- `buildRegroundingMessage()`: extracts name/date/count/room-type/booking-refs from history → compact summary string
+- `logContextRecoveryEvent()`: logs `context_recovery` intent to `intent_predictions` table (fire-and-forget)
+- `src/assistant/pipeline/stages/summarization.ts`: Phase 3 added after token pruning:
+  - Checks last assistant message for context loss (requires >= 3 messages in context)
+  - Injects re-grounding message before the last user message if detected
+  - `contextRecoveryInjected` flag added to `SummarizationResult`
+- `src/assistant/__tests__/context-loss-detector.test.ts`: 15 tests covering all signals + edge cases
+### Patterns discovered
+- Regex-based patterns catch re-asking reliably; `REASKING_QUESTION_PATTERNS` array is easy to extend
+- Price contradiction is sensitive to false positives (rooms at different tiers) — kept tight bounds (>20% & <1000%)
+- Entity omission is most valuable for booking refs (specific format); generalising to all entities causes noise
+- The re-grounding message is injected BEFORE the last user message so it acts as context preamble
+### Gotchas
+- Entity omission confidence needed 0.75 (not 0.35) to cross the detection threshold alone
+- "No context loss" test needed clean data without prices — RM comparisons trigger false positives for legitimate multi-tier pricing scenarios
+- summarization test avoided full integration (configStore/pruneContext mocking complexity); tested through detectContextLoss directly

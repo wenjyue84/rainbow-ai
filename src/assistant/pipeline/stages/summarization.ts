@@ -17,6 +17,10 @@ import type { IPipelineContext } from '../pipeline-context.js';
 import type { PipelineState } from '../types.js';
 import { pruneContext } from '../../context-pruner.js';
 import { loadContextSummary, saveContextSummary, logSummarizationTokens } from '../../conversation-summary-store.js';
+import {
+  detectContextLoss, logContextRecoveryEvent,
+  CONTEXT_LOSS_CONFIDENCE_THRESHOLD,
+} from '../../context-loss-detector.js';
 
 export interface SummarizationResult {
   contextMessages: ChatMessage[];
@@ -26,6 +30,8 @@ export interface SummarizationResult {
   tokensPruned?: boolean;
   originalTokens?: number;
   prunedTokens?: number;
+  /** US-1012: Whether a context-loss re-grounding message was injected */
+  contextRecoveryInjected?: boolean;
 }
 
 /**
@@ -112,13 +118,59 @@ export async function applySummarization(
     );
   }
 
+  // Phase 3: US-1012 Context Loss Detection + Re-grounding
+  // Check the most recent assistant message for context-loss signals.
+  // If detected, inject a re-grounding message so the next LLM call re-anchors
+  // to established session facts (name, dates, booking refs, etc.).
+  let contextMessages = pruningResult.messages;
+  let contextRecoveryInjected = false;
+
+  const lastAssistantMsg = [...pruningResult.messages].reverse().find(m => m.role === 'assistant');
+  if (lastAssistantMsg && pruningResult.messages.length >= 3) {
+    try {
+      const lossResult = detectContextLoss(lastAssistantMsg.content, pruningResult.messages);
+
+      if (lossResult.detected && lossResult.regroundingMessage) {
+        console.log(
+          `[Summarization][US-1012] Context loss detected (confidence: ${lossResult.confidence.toFixed(2)}, ` +
+          `signals: ${lossResult.signals.map(s => s.type).join(', ')}). Injecting re-grounding message.`
+        );
+
+        const regroundingMsg: ChatMessage = {
+          role: 'assistant' as const,
+          content: lossResult.regroundingMessage,
+          timestamp: Math.floor(Date.now() / 1000),
+        };
+        // Inject re-grounding message before the last user message
+        const lastUserIdx = [...contextMessages].reverse().findIndex(m => m.role === 'user');
+        if (lastUserIdx >= 0) {
+          const insertAt = contextMessages.length - lastUserIdx - 1;
+          contextMessages = [
+            ...contextMessages.slice(0, insertAt),
+            regroundingMsg,
+            ...contextMessages.slice(insertAt),
+          ];
+        } else {
+          contextMessages = [...contextMessages, regroundingMsg];
+        }
+        contextRecoveryInjected = true;
+
+        // Log to intent_analytics (fire-and-forget)
+        logContextRecoveryEvent(phone, `${phone}-${Date.now()}`, lossResult).catch(() => {});
+      }
+    } catch (err: any) {
+      console.error(`[Summarization][US-1012] Context loss detection failed: ${err.message}`);
+    }
+  }
+
   return {
-    contextMessages: pruningResult.messages,
+    contextMessages,
     wasSummarized: summarizationResult.wasSummarized || pruningResult.wasPruned,
     originalCount: summarizationResult.originalCount,
     reducedCount: pruningResult.prunedCount,
     tokensPruned: pruningResult.wasPruned,
     originalTokens: pruningResult.originalTokens,
     prunedTokens: pruningResult.prunedTokens,
+    contextRecoveryInjected,
   };
 }
