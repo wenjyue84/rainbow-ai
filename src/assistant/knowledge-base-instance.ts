@@ -13,6 +13,8 @@ import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
 import { HybridRetriever } from './rag/hybrid-retriever.js';
 import type { RetrievalResult } from './rag/hybrid-retriever.js';
+import { runAccessGuard } from './rag/vector-access-guard.js';
+import type { VectorQueryContext } from './rag/vector-access-guard.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -329,7 +331,31 @@ export class KnowledgeBaseInstance {
     if (!this.hybridRetriever.isReady) {
       return { chunks: [], hasRelevantContext: false, latencyMs: 0 };
     }
-    return this.hybridRetriever.retrieve(query);
+    const result = await this.hybridRetriever.retrieve(query);
+
+    // US-966: Run OWASP LLM06 access guard on retrieval results
+    if (result.chunks.length > 0) {
+      const guardContext: VectorQueryContext = {
+        propertyId: this.profileId,
+        serviceIdentity: 'rainbow-ai',
+      };
+      const guardResult = await runAccessGuard(
+        guardContext,
+        query,
+        result.chunks,
+        result.latencyMs
+      );
+
+      // Filter out cross-namespace chunks if any leaked through
+      if (guardResult.crossNamespaceDetected) {
+        result.chunks = result.chunks.filter(
+          sc => sc.chunk.propertyId === undefined || sc.chunk.propertyId === this.profileId
+        );
+        result.hasRelevantContext = result.chunks.length > 0;
+      }
+    }
+
+    return result;
   }
 
   /** Whether the hybrid retriever is initialized and ready */

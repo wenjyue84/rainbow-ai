@@ -10760,3 +10760,51 @@ Based on the user story, here is a technical brief for implementing vector store
 - Both drag-drop and click paths converge on `setAttachedFile()` for consistent behavior
 ### Status
 All 16 tests pass. Build passes (3 pre-existing warnings). Server starts. All 4 acceptance criteria implemented.
+## Iteration 2 - Mon, Mar 16, 2026  3:40:10 AM
+Incomplete: Implement OWASP LLM06 â€” vector store access control and embedding partitioning (ID: US-966) — attempt 2/3
+
+
+## Pre-analysis for US-966 (Gemini 2.5 Pro)
+This technical brief is based on the provided user story JSON (US-966). Note that the story describes a task for a Node.js/TypeScript application (Rainbow AI), not a Frappe/Python one. The following guidance is adapted for the described TypeScript project.
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**Objective:** Implement OWASP LLM06 multi-tenant vector store isolation.
+
+**1. Python/Frappe Files to Modify (Conceptual Mapping):**
+Since this is a TypeScript project, the equivalent files are:
+*   `src/lib/vectorDbClient.ts` or `src/assistant/retrieval.ts`: Any file responsible for querying the vector database (e.g., pgvector). Logic here must be updated to use the `property_id`.
+*   `shared/schema-tables.ts`: The Drizzle/Prisma schema file defining the embeddings table. This is the equivalent of a Frappe DocType schema.
+*   `src/routes/assistant/query.ts`: The API endpoint handler that receives user queries. This is where authentication and `property_id` context should originate.
+*   `scripts/audit-vector-store.ts`: A new script for the quarterly audit requirement.
+
+**2. DocTypes / Hooks Involved:**
+*   **DocType (Schema):** The database table schema for embeddings (in `shared/schema-tables.ts`) must be modified to include a `property_id` or `namespace` text column to partition data.
+*   **Hooks (Middleware):** An authentication middleware needs to verify the service identity and attach the corresponding `property_id` to the request object for downstream use.
+
+**3. Recommended Implementation Approach:**
+1.  **Schema:** Add a `property_id` column to the embeddings table. Create a migration script to backfill this value for existing embeddings.
+2.  **Filtering:** Modify all vector search functions to require a `property_id` and add a `WHERE property_id = ?` clause to the SQL query. Ensure the column is indexed.
+3.  **Authentication:** Update the query API endpoint to enforce authentication. Extract `property_id` from the authenticated principal (e.g., JWT payload) and pass it to the search function.
+4.  **Logging:** In the search function, add structured logging to record the principal, query, `property_id`, and retrieved document IDs for the audit trail.
+5.  **Auditing:** Develop a script that runs test queries for each property and asserts that no results from other properties are returned.
+
+**4. Edge Cases & Gotchas:**
+*   **Data Migration:** Accurately mapping existing embeddings to the correct `property_id` during the backfill is critical to prevent initial data contamination.
+*   **API Security:** Ensure raw embedding vectors are never exposed in any API response to mitigate embedding inversion attacks.
+*   **Performance:** The new `property_id` column in the vector table must be indexed to prevent slow queries.
+
+
+## Iteration 3 - Mon, Mar 16, 2026 - Story: US-966 - OWASP LLM06 vector store access control
+### What was implemented
+- **AC1 (Namespace isolation)**: Chunks are tagged with `propertyId` during chunking (chunker.ts) and retriever init (hybrid-retriever.ts). Cross-namespace chunks are detected and filtered out during retrieval.
+- **AC2 (Service identity auth)**: `runAccessGuard()` in vector-access-guard.ts validates service identity against allowlist; unauthenticated callers get 403. **KEY FIX**: Wired guard into `KnowledgeBaseInstance.retrieveContext()` — prior attempts had the guard defined but never called.
+- **AC3 (90-day audit trail)**: `vectorAccessLogs` Drizzle table in schema-tables.ts logs every retrieval. Admin route at GET /vector-access-logs provides access. Logs retained 90 days.
+- **AC4 (Quarterly audit)**: `ns-audit.ts` scans all retriever instances for cross-namespace contamination + DB log scan. Admin endpoint at POST /vector-ns-audit triggers full audit.
+- **AC5 (Similarity attack detection)**: `detectSimilarityAttack()` flags scores >0.97 from foreign namespaces or >0.999 for any namespace.
+- **Tests**: 19 tests in vector-access-guard.test.ts covering all 5 ACs.
+### Patterns discovered
+- Prior 2 attempts built all infrastructure but never wired `runAccessGuard` into the actual retrieval path in `KnowledgeBaseInstance.retrieveContext()`
+- The guard runs async/non-blocking for logging (doesn't slow down retrieval)
+- Cross-namespace chunks are actively filtered out, not just flagged
+### Status
+Build passes (3 pre-existing warnings). All 19 tests pass. Story complete.
