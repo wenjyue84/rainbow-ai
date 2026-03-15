@@ -8304,3 +8304,23 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 ## Iteration 1 - Sun, Mar 15, 2026  5:12:55 PM
 Incomplete: Handle BSUID in inbound webhooks and route conversations by BSUID (ID: US-926) — attempt 1/3
 
+
+## Iteration 2 - Sun, Mar 15, 2026 - Story: US-926 Handle BSUID in inbound webhooks and route conversations by BSUID
+### What was implemented
+- **AC1-AC4 were already implemented** from prior work (US-477): extractBsuid in instance.ts, conversationKey/upsertConversation in conversation-db.ts, resolveBsuidToPhone in bsuid-resolver.ts, mergeBsuidConversation for linking existing conversations
+- **AC5: Integration test** (`bsuid-routing.test.ts`): Added 16 new tests (28 total) covering:
+  - extractBsuid from Baileys message shapes: msg.lid (v7+), msg.key.participant (group/forwarded), resolvedFrom (BSUID-only user), priority ordering
+  - resolveBsuidToPhone: passthrough for normal phones/JIDs, null for empty prefix, graceful DB failure for unknown BSUID
+  - Full BSUID-only inbound flow simulation: BSUID extraction → conversationKey → outbound resolution
+  - Dual-identifier (phone+BSUID): phone wins as primary key, BSUID linked
+  - Conversation continuity: pre-existing phone conversation gets BSUID linked, BSUID-only conversation merges when phone becomes available
+  - Outbound edge case: bsuid-prefixed DB key resolves to null when no phone mapping exists
+
+### Patterns discovered
+- BSUID support was already substantial from US-477 — schema (bsuid column), extraction, conversation keying, outbound resolution, and merge logic all existed
+- The pipeline passes `msg.bsuid` throughout all 4 phases (input-validator, state-executor, intent-classifier, response-processor) via spread operator `...(msg.bsuid ? { bsuid: msg.bsuid } : {})`
+- For BSUID-only users, outbound delivery uses the raw @lid JID (msg.from), NOT the bsuid-prefixed DB key
+
+### Gotchas
+- The in-memory conversation state (conversation.ts) uses raw `msg.from` as key, while DB operations use `conversationKey()` which normalizes to `bsuid:XX.YYY` — this asymmetry is intentional (in-memory is ephemeral)
+- resolveBsuidToPhone only triggers for `bsuid:`-prefixed phone strings (admin-initiated outbound), not for raw BSUID JIDs (which pass through unchanged)
