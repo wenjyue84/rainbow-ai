@@ -8133,3 +8133,28 @@ Completed: PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC (
 ## Iteration 2 - Sun, Mar 15, 2026  4:14:01 PM
 Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP (ID: US-894) — attempt 2/3
 
+
+## Iteration - Story: US-908 Subscribe and handle business_capability_update webhook for tier changes
+### What was implemented
+- New route `POST /webhooks/meta/capability` in `src/routes/webhooks/index.ts`:
+  - Parses Meta `business_capability_update` payload (entry[].changes[] structure)
+  - Upserts `rainbow_portfolio_tier` in app_settings with new tier value from `max_daily_conversation_per_phone`
+  - Upserts `rainbow_portfolio_tier_updated_at` timestamp
+  - Upserts `rainbow_max_phone_numbers` if `max_phone_numbers_per_business` is provided
+  - Reads previous tier via `getCurrentTier()` before updating, so notification can show old→new
+  - Calls `notifyAdminCapabilityUpdate()` for admin alert
+- New `notifyAdminCapabilityUpdate()` in `src/lib/admin-notifier.ts`:
+  - Throttled to one notification per 10 minutes
+  - Shows old tier → new tier when tier changed
+  - Shows max phone numbers if included in payload
+- New test file `src/routes/webhooks/__tests__/business-capability.test.ts`:
+  - 4 tests: valid payload updates DB + stores max phones, admin notification dispatched, empty payload handled, non-matching field ignored
+
+### Patterns discovered
+- Meta Cloud API webhook payloads use consistent `entry[].changes[].field/value` structure across all webhook fields
+- Existing `getCurrentTier()` from messaging-limits.ts is reusable for reading previous tier
+- `updatedBy` field on app_settings allows distinguishing manual admin updates vs webhook-driven updates
+
+### Gotchas
+- Must import `sql` from drizzle-orm for the `onConflictDoUpdate` set clause with `NOW()`
+- The async DB operations run after `res.status(200).json()` (fire-and-forget pattern) — test needs `setTimeout` to wait for async completion
