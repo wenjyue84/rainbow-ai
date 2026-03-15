@@ -5,6 +5,7 @@
  * Fire-and-forget logging — errors are caught and logged, never thrown.
  */
 import { db } from './db.js';
+import { desc, eq, gte } from 'drizzle-orm';
 import { complianceAuditLog } from '../../shared/schema-tables.js';
 
 /** Intent categories for compliance classification */
@@ -35,6 +36,59 @@ export interface ComplianceAuditInput {
   routedAction?: string;
   confidence?: number;
   userMessage?: string;
+}
+
+export interface ComplianceAuditQuery {
+  profileId?: string;
+  intentCategory?: 'in_scope' | 'off_topic' | 'escalation';
+  since?: Date;
+  limit?: number;
+}
+
+export interface ComplianceSummary {
+  total: number;
+  in_scope: number;
+  off_topic: number;
+  escalation: number;
+  offTopicRate: number;
+}
+
+/**
+ * Query the compliance audit log for admin review.
+ */
+export async function queryComplianceAuditLog(opts: ComplianceAuditQuery = {}) {
+  const limit = Math.min(opts.limit ?? 100, 500);
+  const query = db
+    .select()
+    .from(complianceAuditLog)
+    .orderBy(desc(complianceAuditLog.createdAt))
+    .limit(limit);
+
+  const rows = await query;
+  return rows.filter(r => {
+    if (opts.profileId && r.profileId !== opts.profileId) return false;
+    if (opts.intentCategory && r.intentCategory !== opts.intentCategory) return false;
+    if (opts.since && new Date(r.createdAt) < opts.since) return false;
+    return true;
+  });
+}
+
+/**
+ * Get aggregate compliance stats for a profileId over a time window.
+ */
+export async function getComplianceSummary(profileId?: string, since?: Date): Promise<ComplianceSummary> {
+  const rows = await queryComplianceAuditLog({ profileId, since, limit: 500 });
+  const total = rows.length;
+  const counts = { in_scope: 0, off_topic: 0, escalation: 0 };
+  for (const r of rows) {
+    const cat = r.intentCategory as 'in_scope' | 'off_topic' | 'escalation';
+    if (cat in counts) counts[cat]++;
+  }
+  return {
+    total,
+    ...counts,
+    offTopicRate: total > 0 ? +(counts.off_topic / total).toFixed(4) : 0,
+  };
 }
 
 /**

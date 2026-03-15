@@ -75,6 +75,7 @@ import serviceRequestsRoutes from './service-requests.js';
 import bookingSequenceRoutes from './booking-sequence.js';
 import waTemplatesRoutes from './wa-templates.js';
 import hallucinationReportRoutes from './hallucination-report.js';
+import chatbotComplianceRoutes from './chatbot-compliance.js';
 
 const router = Router();
 
@@ -312,6 +313,7 @@ router.use(serviceRequestsRoutes);
 router.use(bookingSequenceRoutes);
 router.use(waTemplatesRoutes);
 router.use(hallucinationReportRoutes);
+router.use(chatbotComplianceRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
