@@ -9733,3 +9733,29 @@ Incomplete: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat wi
 
 ### Status
 ✅ Build passes. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-933 LLM output validation: schema-check structured AI responses
+### What was implemented
+- **AC1**: All structured LLM responses already parsed through Zod schemas (`safeParseLLMResponse`). Verified coverage: `classifyIntent` (classifyResultSchema), `classifyOnly` (classifyResultSchema), `classifyAndRespond` (aiResponseSchema via `generateWithValidation`), `generateReplyOnly` (replyOnlyResultSchema). All paths now instrumented with validation metrics.
+- **AC2**: Validation failures already caught and trigger retry (`generateWithValidation` self-healing) or fallback (partial recovery in `parseClassifyResult`/`parseAIResponse`). Added metrics tracking (`recordValidationEvent`) to all recovery paths so recovered-but-failed events are tracked.
+- **AC3**: Created `orderItemExtractionSchema` in schemas.ts — validates name (required, non-empty), qty (positive integer, default 1), code (optional string), price (non-negative optional), notes (optional). Added Zod validation in `cart_add_item` handler — rejects items with missing/invalid names, logs validation failures, records metrics.
+- **AC4**: Created `validateKnownIntent()` function for strict category enum validation (with case-insensitive recovery). Added to `classifyIntent` — validates LLM-returned category against `VALID_CATEGORIES` and corrects unknown categories. Confidence 0-1 already enforced by classifyResultSchema's `z.number().min(0).max(1)`.
+- **AC5**: Created `src/assistant/llm-validation-metrics.ts` — in-memory rolling window (500 events) + per-context monotonic counters tracking totalCalls, schemaPass, schemaFail, recovered. `safeParseLLMResponse` automatically records success/failure. Admin endpoint `GET /analytics/llm-validation` returns overall error rate, per-context breakdown, recent failures, and target compliance check (target: 1%).
+
+### Files changed
+- `src/assistant/llm-validation-metrics.ts` — NEW: validation event tracker (recordValidationEvent, getValidationMetrics, resetValidationMetrics)
+- `src/assistant/schemas.ts` — Added orderItemExtractionSchema, validateKnownIntent(), hooked recordValidationEvent into safeParseLLMResponse
+- `src/assistant/ai-classification.ts` — Added validateKnownIntent check in classifyIntent, recovery metrics in classifyOnly
+- `src/assistant/ai-response-generator.ts` — Added recovery metrics in classifyAndRespond and generateReplyOnly
+- `src/tools/cart.ts` — Added Zod validation for cart_add_item args via orderItemExtractionSchema
+- `src/routes/admin/analytics-llm-validation.ts` — NEW: GET /analytics/llm-validation endpoint
+- `src/routes/admin/index.ts` — Registered new route + added to semi-stable cache paths
+- `src/assistant/__tests__/llm-validation-metrics.test.ts` — NEW: 25 tests covering all 5 acceptance criteria
+
+### Patterns discovered
+- `safeParseLLMResponse` is the central validation choke point — all LLM JSON parsing flows through it
+- Cart tool validation is separate from LLM response validation — tools use JSON Schema (US-928) for structural validation, but the actual cart_add_item handler had no Zod schema enforcement before mutation
+- Recovery paths (partial parsing after Zod failure) existed throughout but were not tracked as "recovered" events — now they are
+
+### Status
+✅ Build passes (3 pre-existing warnings). 25/25 new tests pass. 14/14 existing LLM validation tests pass. Story marked passes=true.
