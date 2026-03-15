@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { WhatsAppInstance } from './instance.js';
 import type { WhatsAppInstanceStatus, InstanceConfig, InstancesFile, MessageHandler } from './types.js';
 import { notifyAdminUnlink } from '../admin-notifier.js';
+import { isBsuidKey, resolveBsuidToJid } from '../bsuid-resolver.js';
 
 // Use process.cwd() (= RainbowAI/) — __dirname is dist/ in esbuild bundle
 const DATA_DIR = process.env.WHATSAPP_DATA_DIR || path.resolve(process.cwd(), 'whatsapp-data');
@@ -230,11 +231,16 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendMessage(phone: string, text: string, instanceId?: string): Promise<any> {
-    // If it's already a full JID (@s.whatsapp.net, @lid, @g.us), use as-is
-    // Otherwise format as @s.whatsapp.net
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-960: Resolve BSUID-keyed identifiers to deliverable JIDs
+    let jid: string;
+    if (isBsuidKey(phone)) {
+      jid = await resolveBsuidToJid(phone);
+    } else if (phone.includes('@')) {
+      // Already a full JID (@s.whatsapp.net, @lid, @g.us), use as-is
+      jid = phone;
+    } else {
+      jid = `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    }
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
@@ -252,9 +258,15 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendInteractiveMessage(phone: string, content: Record<string, any>, instanceId?: string): Promise<any> {
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-960: Resolve BSUID-keyed identifiers to deliverable JIDs
+    let jid: string;
+    if (isBsuidKey(phone)) {
+      jid = await resolveBsuidToJid(phone);
+    } else if (phone.includes('@')) {
+      jid = phone;
+    } else {
+      jid = `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    }
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);

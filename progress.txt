@@ -9805,3 +9805,30 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). Test suite: 85 passing (no regression). Story marked passes=true.
+## Iteration 22 - Sun, Mar 15, 2026 10:08:13 PM
+Incomplete: Support BSUID as primary contact identifier in webhook handling (ID: US-960) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-960 Support BSUID as primary contact identifier in webhook handling
+### What was implemented
+- **AC1**: Enhanced `extractBsuid()` in `instance.ts` to check `ExternalUserId` field (the new WhatsApp username rollout identifier from June 2026). Added `stripBsuidPrefix()` to handle `whatsapp:CC.BSUID` format from Cloud API alongside Baileys' raw `CC.BSUID` format. ExternalUserId is checked first (highest priority), followed by msg.lid, msg.key.participant, and the from JID itself.
+- **AC2**: Already implemented in US-477 — `conversationKey()` in conversation-db.ts falls back gracefully from phone to BSUID-prefixed key when `from` is not a phone number (fewer than 7 digits).
+- **AC3**: Added BSUID-aware outbound messaging in `WhatsAppManager.sendMessage()` and `sendInteractiveMessage()`. When a BSUID-keyed phone is detected (via `isBsuidKey()`), `resolveBsuidToJid()` looks up the phone number from the conversations table within the 30-day window, falling back to direct BSUID delivery if no phone mapping exists.
+- **AC4**: Already implemented in US-477 — `mergeBsuidConversation()` in conversation-db.ts migrates messages from BSUID-only records to phone-keyed records when both identifiers are seen together.
+- **AC5**: Added `bsuidLinkedAt` timestamp column to `rainbowConversations` schema. Updated `upsertConversation()` to set this timestamp when both phone and BSUID are present on the same message. Added `lookupPhoneByBsuidWithWindow()` that checks the 30-day window before returning a phone mapping. Expired mappings are logged but not deleted (for audit trail).
+- **AC6**: Created `ensurePhoneForAuthTemplate()` in `bsuid-resolver.ts` — validates that a phone number (not BSUID) is available before sending authentication templates. Returns null if only BSUID is known, preventing auth template delivery to BSUID-only contacts.
+
+### Files changed
+- `src/lib/whatsapp/instance.ts` — Enhanced `extractBsuid()` with ExternalUserId support and `stripBsuidPrefix()` helper
+- `shared/schema-tables.ts` — Added `bsuidLinkedAt` timestamp column to `rainbowConversations`
+- `src/assistant/conversation-db.ts` — Updated `upsertConversation()` for bsuidLinkedAt tracking; added `lookupPhoneByBsuidWithWindow()` helper
+- `src/lib/bsuid-resolver.ts` — NEW: BSUID resolution utilities (`isBsuidKey`, `resolveBsuidToJid`, `ensurePhoneForAuthTemplate`)
+- `src/lib/whatsapp/manager.ts` — Updated `sendMessage()` and `sendInteractiveMessage()` to resolve BSUID keys before delivery
+
+### Patterns discovered
+- Existing US-477 BSUID support covers ~60% of US-960 requirements — conversation keying, merge logic, and DB schema were already in place
+- The WhatsApp Manager is the single outbound gateway — all sendMessage calls route through it, making it the ideal BSUID resolution point
+- Baileys uses @lid JIDs internally for LID-mapped contacts, separate from BSUIDs — the LidMapper handles @lid resolution while BSUID resolver handles the higher-level identity resolution
+
+### Status
+✅ Build passes (3 pre-existing warnings). Server starts cleanly. Story marked passes=true.

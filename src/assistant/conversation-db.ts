@@ -133,11 +133,16 @@ export async function upsertConversation(
     referralSourceUrl: referral.sourceUrl ?? null,
   } : {};
 
+  // US-960: Track when both phone and BSUID are seen together (30-day window)
+  const hasBothIdentifiers = bsuid && !key.startsWith(BSUID_KEY_PREFIX);
+  const bsuidLinkedAt = hasBothIdentifiers ? now : undefined;
+
   await txOrDb
     .insert(rainbowConversations)
     .values({
       phone: key,
       bsuid: bsuid ?? null,
+      bsuidLinkedAt: bsuidLinkedAt ?? null,
       pushName,
       instanceId: instanceId ?? null,
       profileId: profileId ?? null,
@@ -152,6 +157,7 @@ export async function upsertConversation(
         pushName,
         status: 'active',  // US-444: ensure re-activated after idle timeout
         ...(bsuid ? { bsuid } : {}),
+        ...(bsuidLinkedAt ? { bsuidLinkedAt } : {}),
         ...(instanceId ? { instanceId } : {}),
         ...(profileId ? { profileId } : {}),
         ...referralUpdate,
@@ -178,6 +184,39 @@ export async function lookupPhoneByBsuid(bsuid: string): Promise<string | null> 
       .where(eq(rainbowConversations.bsuid, bsuid))
       .limit(1);
     return rows.length > 0 ? rows[0].phone : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * US-960: Check if a BSUID↔phone mapping is still within the 30-day coexistence window.
+ * Returns the phone key if the mapping is fresh, null otherwise.
+ */
+export async function lookupPhoneByBsuidWithWindow(bsuid: string, windowDays = 30): Promise<string | null> {
+  try {
+    const rows = await db
+      .select({
+        phone: rainbowConversations.phone,
+        bsuidLinkedAt: rainbowConversations.bsuidLinkedAt,
+      })
+      .from(rainbowConversations)
+      .where(eq(rainbowConversations.bsuid, bsuid))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+
+    const { phone, bsuidLinkedAt } = rows[0];
+
+    // If no link timestamp, still return the phone (best-effort backward compat)
+    if (!bsuidLinkedAt) return phone;
+
+    // Check 30-day window
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    if (Date.now() - bsuidLinkedAt.getTime() <= windowMs) return phone;
+
+    console.log(`[ConvoDB] BSUID mapping expired: ${bsuid} → ${phone} (linked ${bsuidLinkedAt.toISOString()})`);
+    return null;
   } catch {
     return null;
   }

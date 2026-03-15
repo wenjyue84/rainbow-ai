@@ -116,6 +116,7 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
 export const rainbowConversations = pgTable("rainbow_conversations", {
   phone: varchar("phone", { length: 64 }).primaryKey(),
   bsuid: varchar("bsuid", { length: 128 }),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
+  bsuidLinkedAt: timestamp("bsuid_linked_at"),  // US-960: When phone+BSUID were last seen together (30-day window)
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
   profileId: text("profile_id").notNull().default('pelangi'),

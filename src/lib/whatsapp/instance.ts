@@ -74,24 +74,41 @@ function extractReferral(msg: any): ReferralData | undefined {
 }
 
 /**
+ * US-960: Strip the "whatsapp:" prefix from a BSUID identifier.
+ * Cloud API returns `whatsapp:CC.BSUID`; Baileys may surface just `CC.BSUID`.
+ */
+function stripBsuidPrefix(value: string): string {
+  return value.startsWith('whatsapp:') ? value.slice(9) : value;
+}
+
+/**
  * Extract BSUID from a Baileys message if present.
- * Checks: msg.lid field, msg.key.participant, and the resolved `from` JID itself.
+ * US-960: Also checks ExternalUserId field and strips "whatsapp:" prefix.
+ * Checks: ExternalUserId, msg.lid, msg.key.participant, and the resolved `from` JID.
  */
 function extractBsuid(msg: any, resolvedFrom: string): string | undefined {
-  // 1. Check explicit lid field on the message (Baileys v7+)
+  // US-960: 1. Check ExternalUserId field (WhatsApp username rollout, June 2026+)
+  const externalUserId = msg.externalUserId ?? msg.ExternalUserId
+    ?? msg.message?.externalUserId ?? msg.message?.ExternalUserId;
+  if (externalUserId && typeof externalUserId === 'string') {
+    const raw = stripBsuidPrefix(externalUserId).replace(/@.*$/, '');
+    if (isBsuid(raw)) return raw;
+  }
+
+  // 2. Check explicit lid field on the message (Baileys v7+)
   if (msg.lid && typeof msg.lid === 'string') {
-    const raw = msg.lid.replace(/@.*$/, ''); // strip @lid or @s.whatsapp.net suffix
+    const raw = stripBsuidPrefix(msg.lid).replace(/@.*$/, '');
     if (isBsuid(raw)) return raw;
   }
 
-  // 2. Check msg.key.participant (group messages or forwarded identity)
+  // 3. Check msg.key.participant (group messages or forwarded identity)
   if (msg.key?.participant && typeof msg.key.participant === 'string') {
-    const raw = msg.key.participant.replace(/@.*$/, '');
+    const raw = stripBsuidPrefix(msg.key.participant).replace(/@.*$/, '');
     if (isBsuid(raw)) return raw;
   }
 
-  // 3. Check if the resolved `from` JID itself is a BSUID (phone hidden)
-  const fromStripped = resolvedFrom.replace(/@.*$/, '');
+  // 4. Check if the resolved `from` JID itself is a BSUID (phone hidden)
+  const fromStripped = stripBsuidPrefix(resolvedFrom).replace(/@.*$/, '');
   if (isBsuid(fromStripped)) return fromStripped;
 
   return undefined;
