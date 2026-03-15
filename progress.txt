@@ -8982,3 +8982,26 @@ Incomplete: Malaysia PDPA 2024 Amendment: DPO appointment and breach notificatio
 
 ### Gotchas
 - pdpa-dpo.ts references rainbowConversations.id and .stage which don't exist in schema — will error at runtime but esbuild doesn't typecheck.
+## Iteration 6 - Sun, Mar 15, 2026  7:38:40 PM
+Completed: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) in 9m
+
+
+## Iteration [Ralph] - Story: US-909 WhatsApp Flows structured form for table/room reservation
+### What was implemented
+- Created Flow JSON screen definition at `src/assistant/data/flows/reservation-flow.json` with CalendarPicker (check-in/out dates), Dropdown (room type), TextInput (guest count), TextArea (special requests), and a confirmation screen
+- Implemented RSA-OAEP + AES-128-GCM crypto module at `src/lib/whatsapp/flow-crypto.ts` for decrypting Meta's encrypted data-exchange payloads and encrypting responses (with flipped IV per Meta spec)
+- Created public endpoints at `src/routes/public/whatsapp-flows.ts`:
+  - `GET /api/rainbow/flows/health` — health-check ping returning `{data: {status: 'active'}}`
+  - `POST /api/rainbow/flows/data-exchange` — handles INIT (dynamic room options), check_availability, and submit_reservation actions
+- Server-side validation: past dates, checkout before checkin, max 30 nights, guest count 1-12
+- Generates booking references (RB-YYYYMMDD-XXXX) and sends WhatsApp confirmation message on submission
+- Created flow trigger helper at `src/lib/whatsapp/flow-trigger.ts` for sending interactive Flow messages via Baileys
+- Registered routes in `src/index.ts`
+### Patterns discovered
+- WhatsApp Flows use encrypted data exchange — response IV must be bitwise-flipped from request IV
+- Baileys supports nativeFlowMessage for sending Flow interactive messages
+- Flow JSON uses data_api_version 3.0 with CalendarPicker (requires v6.1+)
+### Gotchas
+- WA_FLOWS_PRIVATE_KEY env var needed for production — endpoint returns 421 if not configured
+- WA_FLOWS_ID env var needed to trigger flows
+- GCM auth tag (16 bytes) is appended to ciphertext, must be split before decryption
