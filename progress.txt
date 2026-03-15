@@ -10441,3 +10441,59 @@ Completed: Implement per-message cost model with free CSW utility window trackin
 - `languageLocked` flag in contactDetailsJson prevents auto-detection from overriding admin-set preferences
 ### Status
 ✅ Build passes (3 pre-existing warnings). 21/21 template language variant tests pass. 22/22 existing booking-sequence tests still pass. All 5 acceptance criteria verified. Story marked passes=true.
+## Iteration 3 - Mon, Mar 16, 2026  1:53:24 AM
+Incomplete: Implement OWASP LLM04 â€” RAG knowledge base integrity validation pipeline (ID: US-965) — attempt 1/3
+
+
+## Pre-analysis for US-965 (Gemini 2.5 Pro)
+This user story appears to describe a security pipeline for a TypeScript-based AI application, not a Frappe/Python app. The file list (`.ts` files) and concepts (RAG, embeddings) are not typical for a payroll integration.
+
+However, transposing these requirements into a Frappe/Python context for an app like `lhdn_payroll_integration` would look like this:
+
+**Technical Brief: US-965 Frappe Implementation**
+
+1.  **Python Files to Modify:**
+    *   `.../api/kb_ingest.py` (new): A whitelisted API endpoint to handle markdown file ingestion.
+    *   `.../doctype/kb_document/kb_document.py`: Controller logic to trigger hashing and embedding on save.
+    *   `.../tasks/audit.py` (new): Contains the logic for the nightly embedding anomaly detection audit.
+    *   `.../hooks.py`: To register the `daily` scheduler event that runs the audit task.
+
+2.  **Frappe DocTypes & Hooks:**
+    *   **DocTypes (New):**
+        *   `KB Document`: Stores content, SHA-256 hash, and vector embedding.
+        *   `KB File Source`: Stores original file path and hash to detect content changes.
+        *   `KB Ingest Audit`: Logs all create, update, and delete events with user identity.
+    *   **Hooks:**
+        *   `scheduler_events`: Define a `"daily"` event to trigger the `tasks.audit.run_embedding_audit` method.
+
+3.  **Implementation Approach:**
+    *   The `kb_ingest` API will be the sole entry point for adding/updating documents. It will validate the source path against an allowlist in `site_config.json`.
+    *   On document save (`on_update`), the `KB Document` controller will calculate the SHA-256 hash and compare it with the stored hash in `KB File Source`. If it mismatches, the save is rejected pending an "override" flag from an admin.
+    *   Use `frappe.enqueue` to offload embedding generation (using `sentence-transformers`) to a background worker.
+    *   The nightly audit task will fetch all embeddings, recalculate cluster centroids, flag documents with significant cosine similarity drift, and create a `ToDo` for the system administrator.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Dependencies:** `numpy`, `scikit-learn`, and `sentence-transformers` must be added to `requirements.txt`, which can complicate bench updates.
+    *   **Performance:** Embedding generation is slow. Ensure it's always a background job and consider batching.
+    *   **Baseline State:** The initial "baseline" for embeddings must be established and stored securely, perhaps as a signed fixture or a private file asset.
+
+
+
+## Iteration [Ralph] - Story: US-991 Inbound webhook idempotency guard using message-ID deduplication
+### What was implemented
+- **AC1 (Dedup within 24h)**: Added `isDuplicateMessage()` using Redis SETNX (`SET key 1 NX EX ttl`) — atomic check-and-set with configurable TTL (default 24h). Second delivery of same messageId is ACK'd but not enqueued
+- **AC2 (Dedup key is messages[].id)**: Uses `msg.messageId` field from `IncomingMessage` as the dedup key, prefixed with `rainbow:dedup:` in Redis
+- **AC3 (Configurable TTL)**: `dedup_ttl_seconds` field added to `message_queue` section of `settings.json` (default 86400 = 24h). Loaded in `src/assistant/index.ts` via `setDedupTtl()`
+- **AC4 (Vitest test)**: 11 tests covering all 5 ACs — two identical payloads assert only one passes through, second triggers dedup log
+- **AC5 (Dedup logged)**: `console.log('[MessageQueue] Dedup: skipping duplicate messageId=...')` emitted for every skipped duplicate
+### Files changed
+- `src/lib/message-queue.ts` — Added ioredis import, `isDuplicateMessage()` with Redis SETNX + in-memory fallback, `setDedupTtl()`, `_testExports`, in-memory dedup Map with TTL expiry and size limit (2000 entries). Updated `enqueueMessage()` with dedup guard at top, `closeQueue()` to clean up Redis client and memory dedup
+- `src/assistant/index.ts` — Import `setDedupTtl`, wire up `dedup_ttl_seconds` from settings before `initMessageQueue`
+- `src/assistant/data/settings.json` — Added `dedup_ttl_seconds: 86400` to `message_queue` section with updated description
+- `src/assistant/__tests__/message-dedup.test.ts` — NEW: 11 tests covering all 5 acceptance criteria
+### Patterns discovered
+- BullMQ already uses ioredis under the hood but doesn't expose its Redis client for SETNX — a separate ioredis client is needed for the dedup guard
+- In-memory fallback is essential since Redis may be unavailable (existing pattern from US-405)
+- The existing Baileys-level dedup in instance.ts covers 60s double-fires; this new guard covers 24h webhook retries across restarts
+### Status
+✅ Build passes (3 pre-existing warnings). 11/11 dedup tests pass. All 5 acceptance criteria verified. Story marked passes=true.

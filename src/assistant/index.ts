@@ -10,7 +10,7 @@ import { initBooking } from './booking.js';
 import { initEscalation, destroyEscalation } from './escalation.js';
 import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
-import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler } from '../lib/message-queue.js';
+import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler, setDedupTtl } from '../lib/message-queue.js';
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
@@ -48,6 +48,10 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   // Worker concurrency from settings, default 3
   const settings = configStore.getSettings() as any;
   const queueConcurrency = settings?.message_queue?.worker_concurrency ?? 3;
+  const dedupTtl = settings?.message_queue?.dedup_ttl_seconds;
+  if (dedupTtl && typeof dedupTtl === 'number') {
+    setDedupTtl(dedupTtl);
+  }
   const queueEnabled = await initMessageQueue(handleIncomingMessage, queueConcurrency);
 
   // Register DLQ depth alert handler (US-413)

@@ -10,6 +10,7 @@
  * US-405
  */
 import { Queue, Worker, QueueEvents, type Job } from 'bullmq';
+import Redis from 'ioredis';
 import net from 'net';
 import type { IncomingMessage } from '../assistant/types.js';
 import { persistRawEvent, markRawEventProcessed } from './webhook-raw-events.js';
@@ -42,6 +43,8 @@ const DLQ_NAME = 'rainbow-messages-dlq';
 const MAX_RETRY_ATTEMPTS = 3;
 const DEFAULT_CONCURRENCY = 3;
 const REDIS_CONNECT_TIMEOUT_MS = 3000;
+const DEDUP_KEY_PREFIX = 'rainbow:dedup:';
+const DEFAULT_DEDUP_TTL_SECONDS = 86400; // 24 hours
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -49,9 +52,15 @@ let queue: Queue | null = null;
 let dlq: Queue | null = null;
 let worker: Worker | null = null;
 let queueEvents: QueueEvents | null = null;
+let redisClient: Redis | null = null;
 let isConnected = false;
 let directHandler: MessageHandler | null = null;
 let dlqCount = 0;
+let dedupTtlSeconds = DEFAULT_DEDUP_TTL_SECONDS;
+
+// In-memory dedup fallback when Redis is unavailable (US-991)
+const memoryDedup = new Map<string, number>();
+const MEMORY_DEDUP_MAX = 2000;
 
 // ─── Redis connection config ─────────────────────────────────────
 
@@ -136,6 +145,17 @@ export async function initMessageQueue(
   };
 
   try {
+    // Create a dedicated ioredis client for dedup SETNX (US-991)
+    redisClient = new Redis({
+      host: redisConfig.host,
+      port: redisConfig.port,
+      password: redisConfig.password,
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+    });
+    await redisClient.connect();
+
     // Create main queue
     queue = new Queue(QUEUE_NAME, {
       connection: connectionOpts,
@@ -247,6 +267,12 @@ export async function initMessageQueue(
  * Returns within 200ms in queue mode.
  */
 export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
+  // US-991: Idempotency guard — skip duplicate message IDs
+  if (msg.messageId && await isDuplicateMessage(msg.messageId)) {
+    console.log(`[MessageQueue] Dedup: skipping duplicate messageId=${msg.messageId}`);
+    return; // ACK but don't enqueue
+  }
+
   // US-895: Persist raw payload before any processing
   const rawEventId = await persistRawEvent(msg, msg.instanceId ?? 'pelangi');
 
@@ -270,6 +296,59 @@ export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
     if (rawEventId) {
       markRawEventProcessed(rawEventId).catch(() => {});
     }
+  }
+}
+
+/**
+ * US-991: Check if a message ID has already been seen using Redis SETNX.
+ * Falls back to in-memory Map if Redis is unavailable.
+ * Returns true if the message is a duplicate, false if it's new.
+ */
+async function isDuplicateMessage(messageId: string): Promise<boolean> {
+  const key = `${DEDUP_KEY_PREFIX}${messageId}`;
+
+  // Try Redis SETNX first
+  if (redisClient) {
+    try {
+      // SET key 1 NX EX ttl — atomic check-and-set with TTL
+      const result = await redisClient.set(key, '1', 'EX', dedupTtlSeconds, 'NX');
+      // result is 'OK' if key was set (new message), null if key already exists (duplicate)
+      return result === null;
+    } catch {
+      // Redis error — fall through to in-memory
+    }
+  }
+
+  // In-memory fallback
+  const now = Date.now();
+  if (memoryDedup.has(messageId)) {
+    const seenAt = memoryDedup.get(messageId)!;
+    if (now - seenAt < dedupTtlSeconds * 1000) {
+      return true; // duplicate
+    }
+    // Entry expired, treat as new
+  }
+
+  memoryDedup.set(messageId, now);
+
+  // Evict expired entries if map is getting large
+  if (memoryDedup.size > MEMORY_DEDUP_MAX) {
+    for (const [id, ts] of memoryDedup) {
+      if (now - ts > dedupTtlSeconds * 1000) {
+        memoryDedup.delete(id);
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * US-991: Set the dedup TTL (in seconds). Called from settings loader.
+ */
+export function setDedupTtl(ttlSeconds: number): void {
+  if (ttlSeconds > 0) {
+    dedupTtlSeconds = ttlSeconds;
   }
 }
 
@@ -468,8 +547,22 @@ export async function closeQueue(): Promise<void> {
       await queue.close();
       queue = null;
     }
+    if (redisClient) {
+      await redisClient.quit().catch(() => {});
+      redisClient = null;
+    }
   } catch (err: any) {
     console.error(`[MessageQueue] Shutdown error: ${err.message}`);
   }
   isConnected = false;
+  memoryDedup.clear();
 }
+
+// ─── Test Exports (US-991) ──────────────────────────────────────
+
+export const _testExports = {
+  get memoryDedup() { return memoryDedup; },
+  get dedupTtlSeconds() { return dedupTtlSeconds; },
+  isDuplicateMessage,
+  setDedupTtl,
+};
