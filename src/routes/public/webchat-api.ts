@@ -280,7 +280,16 @@ function buildMakanMomentsContext(sessionId: string) {
   const orderModWindowMinutes = makanSettings?.order_modification?.window_minutes ?? 2;
   const modificationWindowMs = orderModWindowMinutes * 60 * 1000;
 
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs });
+  // US-967: Read SST config from settings
+  const sstSettings = makanSettings?.sst;
+  const sst = sstSettings?.enabled ? {
+    enabled: true,
+    rate: sstSettings.rate ?? 0.06,
+    registrationNo: sstSettings.registration_no ?? '',
+    vendorName: sstSettings.vendor_name ?? 'Makan Moments Cafe',
+  } : undefined;
+
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs, sst });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);

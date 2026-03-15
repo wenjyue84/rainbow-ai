@@ -48,6 +48,10 @@ import { markCartCompleted } from '../assistant/cart-recovery.js';
 import { orderItemExtractionSchema } from '../assistant/schemas.js';
 import { recordValidationEvent } from '../assistant/llm-validation-metrics.js';
 import { saveSessionData } from '../assistant/session-data-store.js';
+import {
+  type SstConfig, calculateSst, generateInvoiceNumber,
+  formatSstReceipt, formatSstConfirmationSummary, storeReceipt,
+} from '../assistant/sst-receipt.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -375,6 +379,8 @@ export interface CartHandlerOptions {
   };
   /** US-881: Order modification window in milliseconds. Default: 120000 (2 min) */
   modificationWindowMs?: number;
+  /** US-967: SST (Service Tax) config for receipt generation */
+  sst?: SstConfig;
 }
 
 /**
@@ -447,6 +453,8 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const kdsProfileId = options?.kds?.profileId ?? 'makan-moments';
   // US-881: Order modification window (default 2 minutes)
   const modificationWindowMs = options?.modificationWindowMs ?? 2 * 60 * 1000;
+  // US-967: SST config
+  const sstConfig: SstConfig = options?.sst ?? { enabled: false, rate: 0, registrationNo: '', vendorName: '' };
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -731,10 +739,13 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     // US-868: Check kitchen queue status (non-blocking)
     const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
 
+    // US-967: SST breakdown in confirmation summary
+    const sstSummary = formatSstConfirmationSummary(sstConfig, items);
+
     return {
       content: [{
         type: 'text',
-        text: `Here is your order summary:\n\n${summary}${tableLine}${kitchenWarning}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
+        text: `Here is your order summary:\n\n${summary}${sstSummary}${tableLine}${kitchenWarning}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
       }]
     };
   });
@@ -881,10 +892,31 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       ? `\n\nYou have ${modWindowMinutes} minute${modWindowMinutes !== 1 ? 's' : ''} to request changes. Just say "change order" if you need to modify anything.`
       : '';
 
+    // US-967: SST-compliant receipt with invoice number
+    let sstReceiptText = '';
+    if (sstConfig.enabled) {
+      const invoiceNumber = await generateInvoiceNumber(kdsProfileId);
+      const { subtotal, sstAmount, grandTotal } = calculateSst(snapshotItems, sstConfig.rate);
+      sstReceiptText = formatSstReceipt(sstConfig, snapshotItems, invoiceNumber);
+
+      // Store receipt for 7-year customs retention (fire-and-forget)
+      storeReceipt({
+        invoiceNumber,
+        vendorName: sstConfig.vendorName,
+        sstRegistrationNo: sstConfig.registrationNo || null,
+        subtotal, sstRate: sstConfig.rate, sstAmount, grandTotal,
+        items: snapshotItems,
+        tableNumber: effectiveTableNumber,
+        orderType: effectiveOrderType,
+      }, sessionId, placedOrderId, kdsProfileId).catch(err => {
+        console.error('[SST-Receipt] Store failed:', err.message);
+      });
+    }
+
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kitchenWarning}${paymentGuidance}${modNotice}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${sstReceiptText}${orderAck}${kitchenWarning}${paymentGuidance}${modNotice}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });

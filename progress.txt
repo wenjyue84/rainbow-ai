@@ -10201,3 +10201,30 @@ Implementation was already complete from a previous iteration but was not marked
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 32/32 tests pass (24 new + 8 existing updated). Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-967 - Display SST-compliant receipt with tax line item in WhatsApp order confirmation
+### What was implemented
+- **AC1**: Order confirmation WhatsApp message displays `SST (6%): RM X.XX` line item when SST is enabled in settings. `formatSstConfirmationSummary()` in pre-order summary, `formatSstReceipt()` in post-order receipt.
+- **AC2**: SST registration number (format: `W12-1234-12345678`) displayed on receipt via `SST Reg:` line. Omitted when registration number is empty.
+- **AC3**: Subtotal (pre-SST), SST amount, and Grand Total shown as distinct values on separate lines in both confirmation and receipt.
+- **AC4**: When SST is disabled (settings `sst.enabled: false`), no SST lines are shown — existing total display is used unchanged.
+- **AC5**: Sequential invoice number `INV-YYYYMMDD-NNNN` included in every receipt. Counter resets daily, queries DB for last invoice of the day on startup. Generated via `generateInvoiceNumber()`.
+- **AC6**: Receipts stored in `order_receipts` table with all required fields (invoice number, vendor name, SST reg, subtotal, SST amount, grand total, items JSON, table, order type, timestamp). Indexed by invoice number (unique), profile, order, created date, and session.
+
+### Files changed
+- `shared/schema-tables.ts` — Added `order_receipts` table with indexes for 7-year customs retention
+- `src/assistant/sst-receipt.ts` — NEW: SST calculation (`calculateSst`), invoice number generation (`generateInvoiceNumber`), receipt formatting (`formatSstReceipt`, `formatSstConfirmationSummary`), DB storage (`storeReceipt`)
+- `src/assistant/data/settings.json` — Added `sst` config block (enabled, rate, registration_no, vendor_name)
+- `src/tools/cart.ts` — Added `sst` to `CartHandlerOptions`. Updated `order_request_confirmation` to show SST breakdown in confirmation. Updated `order_confirm_submit` to generate invoice, format receipt, and store in DB.
+- `src/routes/public/webchat-api.ts` — Read SST config from makan-moments settings and pass to `createCartHandlers`
+- `src/assistant/__tests__/sst-receipt.test.ts` — NEW: 19 tests covering all 6 ACs: SST line display, registration number, distinct totals, disabled flag, invoice format, edge cases
+
+### Patterns discovered
+- SST calculation uses `Math.round(x * 100) / 100` for 2-decimal rounding to avoid floating-point issues
+- Invoice counter uses hybrid approach: in-memory counter for performance, DB query on date change for crash recovery
+- Fire-and-forget pattern for DB storage consistent with other compliance features (compliance_audit_log, order_history)
+- Settings SST config uses `enabled: false` by default — operator enables when SST-registered
+
+### Status
+✅ Build passes (3 pre-existing warnings). 19/19 SST receipt tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.

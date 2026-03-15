@@ -866,3 +866,34 @@ export const qrCampaigns = pgTable("qr_campaigns", {
 
 export type QrCampaign = typeof qrCampaigns.$inferSelect;
 export type InsertQrCampaign = typeof qrCampaigns.$inferInsert;
+
+// ─── US-967: Order Receipts (SST-compliant, 7-year retention) ─────────
+// Stores SST-compliant receipts with sequential invoice numbers for
+// Royal Malaysian Customs record-keeping requirements.
+
+export const orderReceipts = pgTable("order_receipts", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: varchar("invoice_number", { length: 32 }).notNull(),
+  profileId: text("profile_id").notNull().default('makan-moments'),
+  sessionId: text("session_id").notNull(),
+  orderId: text("order_id").notNull(),
+  vendorName: text("vendor_name").notNull(),
+  sstRegistrationNo: text("sst_registration_no"),
+  subtotal: real("subtotal").notNull(),
+  sstRate: real("sst_rate").notNull().default(0),
+  sstAmount: real("sst_amount").notNull().default(0),
+  grandTotal: real("grand_total").notNull(),
+  items: text("items").notNull(),
+  tableNumber: text("table_number"),
+  orderType: text("order_type"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_order_receipts_invoice").on(table.invoiceNumber),
+  index("idx_order_receipts_profile").on(table.profileId),
+  index("idx_order_receipts_order").on(table.orderId),
+  index("idx_order_receipts_created").on(table.createdAt),
+  index("idx_order_receipts_session").on(table.sessionId),
+]));
+
+export type OrderReceipt = typeof orderReceipts.$inferSelect;
+export type InsertOrderReceipt = typeof orderReceipts.$inferInsert;
