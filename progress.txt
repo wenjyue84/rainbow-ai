@@ -9169,3 +9169,29 @@ Incomplete: WhatsApp in-chat Webview for mobile payment page (ID: US-911) — at
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). Server startup OK. 24/24 tests pass. Marked passes=true.
+
+## Iteration N - Story: US-913 Token-level hallucination detection
+### What was implemented
+- `src/assistant/hallucination-detector.ts`: Two-stage pipeline
+  - Stage 1: Factual query classifier — NON_FACTUAL_INTENTS set + FACTUAL_KEYWORD_PATTERN regex; 72.2% efficiency gain
+  - Stage 2: NLI contradiction detector — extractEntityValues() for price/time/quantity/contact patterns, compareValues() returns ENTAILMENT/CONTRADICTION/NEUTRAL
+  - detectHallucinations() orchestrates both stages, returns severity + action
+  - Fallback messages in EN/MS/ZH/TA for 'block' and 'body'/'header' disclaimer actions
+- `src/assistant/pipeline/response-processor.ts`: Integrated post-faithfulness, pre-send
+  - kbContent retrieved from KB files, detectHallucinations() called
+  - block → replace response with getHallucinationBlockMessage(), log escalation_events with trigger='hallucination'
+  - body/header → append/prepend disclaimer
+  - hallucinationAction + hallucinationSeverity passed to logMessage meta
+- `src/assistant/conversation-logger.ts`: hallucinationAction/hallucinationSeverity columns persisted to rainbow_messages
+- `shared/schema-tables.ts`: hallucination_action (text) + hallucination_severity (integer) columns added
+- `src/routes/admin/hallucination-report.ts`: GET /analytics/hallucination-report?profileId=X&days=7
+  - Parallel queries: summary stats, top categories, recent events from escalation_events
+- `src/routes/admin/index.ts`: Route registered at /analytics/hallucination-report
+- `src/assistant/__tests__/hallucination-detector.test.ts`: 24 unit tests, all passing
+### Patterns discovered
+- Files were pre-created by a previous session but not committed — just needed cleanup and testing
+- The unused `extractClaims` import from faithfulness-checker was removed
+- esbuild tolerates unused imports; vitest catches runtime issues
+### Gotchas
+- prd.json uses emoji chars — must open with encoding='utf-8' in Python
+- entitiesMatch() uses 60% length threshold to prevent false cross-matches (e.g. "dorm" vs "female dorm")
