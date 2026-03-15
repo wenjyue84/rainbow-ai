@@ -12,6 +12,7 @@ import type { ConfigStore } from './config-store.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
 import { KBHybridRetriever } from './kb-hybrid-retriever.js';
+import { maskKBSensitiveFields } from './pii-output-guard.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -178,10 +179,11 @@ export class KnowledgeBaseInstance {
       const normalizedName = filename.replace(/\\/g, '/');
       const filePath = join(this.kbDir, filename);
       if (existsSync(filePath)) {
-        const content = readFileSync(filePath, 'utf-8');
+        const rawContent = readFileSync(filePath, 'utf-8');
         const mtime = statSync(filePath).mtime;
-        this.kbCache.set(normalizedName, content);
-        saveKBFileToDB(normalizedName, content, mtime).catch(() => {});
+        // US-947: Mask sensitive fields before caching
+        this.kbCache.set(normalizedName, maskKBSensitiveFields(rawContent));
+        saveKBFileToDB(normalizedName, rawContent, mtime).catch(() => {});
         console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
         this.invalidateSystemPromptCache();
       }
@@ -189,10 +191,11 @@ export class KnowledgeBaseInstance {
     }
     const filePath = join(this.kbDir, filename);
     if (existsSync(filePath)) {
-      const content = readFileSync(filePath, 'utf-8');
+      const rawContent = readFileSync(filePath, 'utf-8');
       const mtime = statSync(filePath).mtime;
-      this.kbCache.set(filename, content);
-      saveKBFileToDB(filename, content, mtime).catch(() => {});
+      // US-947: Mask sensitive fields before caching
+      this.kbCache.set(filename, maskKBSensitiveFields(rawContent));
+      saveKBFileToDB(filename, rawContent, mtime).catch(() => {});
       console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
       const CORE_FILES = this.getCoreFiles();
       if (CORE_FILES.includes(filename) || filename === DURABLE_MEMORY_FILE) {
@@ -209,10 +212,12 @@ export class KnowledgeBaseInstance {
     const files = readdirSync(this.kbDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
       const filePath = join(this.kbDir, file);
-      const content = readFileSync(filePath, 'utf-8');
+      const rawContent = readFileSync(filePath, 'utf-8');
       const mtime = statSync(filePath).mtime;
+      // US-947: Mask IC/passport numbers before caching for LLM context
+      const content = maskKBSensitiveFields(rawContent);
       this.kbCache.set(file, content);
-      saveKBFileToDB(file, content, mtime).catch(() => {});
+      saveKBFileToDB(file, rawContent, mtime).catch(() => {});
     }
 
     if (existsSync(this.memoryDir)) {
@@ -270,7 +275,8 @@ export class KnowledgeBaseInstance {
       const dbKB = await loadAllKBFromDB();
       if (dbKB && dbKB.size > 0) {
         for (const [filename, content] of dbKB) {
-          this.kbCache.set(filename, content);
+          // US-947: Mask sensitive fields before caching
+          this.kbCache.set(filename, maskKBSensitiveFields(content));
         }
         this.invalidateSystemPromptCache();
         console.log(`[KB:${this.profileId}] Loaded ${dbKB.size} KB files from DB`);

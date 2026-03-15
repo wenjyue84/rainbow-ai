@@ -37,6 +37,7 @@ import {
   trackConfidence, shouldEscalateOnConfidence, markConfidenceEscalation,
   isConfidenceEscalationEnabled
 } from '../confidence-tracker.js';
+import { scanOutputForPii, getPiiBlockMessage } from '../pii-output-guard.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -78,6 +79,32 @@ export async function processAndSend(
       const fallbacks = getUnknownFallbackMessages();
       response = fallbacks[lang] || fallbacks.en;
     }
+  }
+
+  // ─── US-947: OWASP LLM02 — PII disclosure guard ─────────────────
+  const piiScan = scanOutputForPii(response, phone);
+  if (piiScan.hasForeignPii) {
+    console.warn(
+      `[PiiOutputGuard] Foreign PII detected in response for ${phone}: ` +
+      `${piiScan.types.join(', ')} (${piiScan.matches.length} match(es))`
+    );
+    // Block the response and replace with apology
+    response = getPiiBlockMessage(lang);
+    diaryEvent.escalated = true;
+
+    // Log escalation event
+    const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+    logEscalationEvent({
+      jid: phone,
+      profileId,
+      trigger: 'pii_disclosure_blocked',
+      count: piiScan.matches.length,
+      metadata: {
+        piiTypes: piiScan.types,
+        matchCount: piiScan.matches.length,
+        owasp: 'LLM02',
+      },
+    });
   }
 
   // ─── Confidence thresholds + disclaimers ───────────────────────

@@ -9995,3 +9995,29 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 9/9 push notification tests pass. Server starts. All 7 acceptance criteria verified. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-947 - Implement OWASP LLM02 sensitive information disclosure guardrails
+### What was implemented
+- **AC1**: Created `src/assistant/pii-output-guard.ts` — output PII scanner that checks LLM responses for phone numbers, IC numbers, email addresses, credit card patterns (Luhn-validated), and passport numbers before sending to users
+- **AC2**: Integrated into `response-processor.ts` pipeline (after system prompt leakage detection). If foreign PII detected, response is blocked with multilingual apology message (EN/MS/ZH) and event logged to `escalation_events` table with trigger='pii_disclosure_blocked'
+- **AC3**: RAG context is inherently per-profile (hostel KB, not per-guest data). Conversation history is scoped per phone number via `addMessage()` / `getConversation()`. No cross-user document retrieval is possible by design.
+- **AC4**: Created `evals/us947-pii-disclosure-redteam.yaml` — Promptfoo eval config with 10 cross-user context extraction prompts (direct lookup, IC extraction, email harvesting, credit card extraction, passport extraction, summary-based, social engineering, data export, impersonation, previous guest). Also 10 red-team tests in the Vitest test suite.
+- **AC5**: Added `maskKBSensitiveFields()` to mask IC numbers (keeps birth date, masks state/serial) and passport numbers (masks all digits) in KB content. Applied at all KB ingestion points: `reloadAllKB()`, `reloadKBFile()`, `initKBFromDB()` in `knowledge-base-instance.ts`. Raw content saved to DB; masked content used for LLM context and vector indexing.
+
+### Files changed
+- `src/assistant/pii-output-guard.ts` — NEW: Output PII scanner with `scanOutputForPii()`, `getPiiBlockMessage()`, `maskKBSensitiveFields()`
+- `src/assistant/pipeline/response-processor.ts` — Added PII output guard check after system prompt leakage detection
+- `src/assistant/knowledge-base-instance.ts` — Applied `maskKBSensitiveFields()` at all KB ingestion points
+- `src/assistant/__tests__/pii-output-guard.test.ts` — NEW: 35 tests (15 scanner, 4 block messages, 8 KB masking, 10 red-team cross-user)
+- `evals/us947-pii-disclosure-redteam.yaml` — NEW: Promptfoo eval with 10 adversarial prompts
+
+### Patterns discovered
+- Owner's phone number is whitelisted via flexible matching (with/without country code, spaces, dashes)
+- IC validation uses month/day range check to avoid false positives on random 12-digit numbers
+- Credit card validation uses Luhn algorithm (same as pii-redactor.ts)
+- KB masking preserves birth date portion of IC (first 6 digits) for operational use, masks state code and serial
+- Raw KB content is still saved to DB for admin viewing; only the LLM context cache is masked
+
+### Status
+✅ Build passes (3 pre-existing warnings). 35/35 PII output guard tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
