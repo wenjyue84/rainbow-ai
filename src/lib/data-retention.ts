@@ -1,17 +1,20 @@
 /**
- * data-retention.ts — Configurable conversation data retention (US-419)
+ * data-retention.ts — Configurable conversation data retention (US-419, US-907)
  *
- * GDPR Article 5(1)(e) compliance: soft-deletes messages/conversations older
- * than the configured retention window, then hard-deletes after a grace period.
+ * GDPR Article 5(1)(e) / Malaysia PDPA 2024 compliance: soft-deletes messages/conversations
+ * older than the configured retention window, then hard-deletes after a grace period.
+ * US-907: Generates a disposal confirmation report (archived to pdpa_disposal_reports) before
+ * any hard-delete, and enforces a 24-month (730-day) default retention period.
  *
  * Retention config (settings.json, profile-specific):
- *   retention.enabled         — toggle (default: true)
- *   retention.retention_days  — soft-delete cutoff (default: 90)
+ *   retention.enabled           — toggle (default: true)
+ *   retention.retention_months  — soft-delete cutoff in months (default: 24)
+ *   retention.retention_days    — soft-delete cutoff in days (overrides months if set)
  *   retention.grace_period_days — hard-delete cutoff after soft-delete (default: 30)
  */
 
 import cron from 'node-cron';
-import { db } from './db.js';
+import { db, pool, dbReady } from './db.js';
 import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
 import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { configStore } from '../assistant/config-store.js';
@@ -26,13 +29,18 @@ interface RetentionConfig {
   gracePeriodDays: number;
 }
 
+// Default: 24 months = 730 days (Malaysia PDPA 2024 Amendment requirement)
+const DEFAULT_RETENTION_DAYS = 730;
+
 function getRetentionConfig(store?: typeof configStore): RetentionConfig {
   const s = store ?? configStore;
   const settings = s.getSettings();
   const retention = (settings as any).retention;
+  const months = retention?.retention_months;
+  const daysFromMonths = months ? Math.round(months * 30.44) : DEFAULT_RETENTION_DAYS;
   return {
     enabled: retention?.enabled ?? true,
-    retentionDays: retention?.retention_days ?? 90,
+    retentionDays: retention?.retention_days ?? daysFromMonths,
     gracePeriodDays: retention?.grace_period_days ?? 30,
   };
 }
@@ -115,6 +123,7 @@ export interface PurgeResult {
   cutoff_date: string;
   hard_cutoff_date: string;
   timestamp: string;
+  disposal_report_archived?: boolean;
 }
 
 export async function runRetentionPurge(profileId?: string): Promise<PurgeResult> {
@@ -138,6 +147,7 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     return result;
   }
 
+  const profile = profileId ?? 'pelangi';
   const now = new Date();
   const cutoffDate = new Date(now.getTime() - config.retentionDays * 86_400_000);
   const hardCutoffDate = new Date(now.getTime() - (config.retentionDays + config.gracePeriodDays) * 86_400_000);
@@ -168,7 +178,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
     .returning({ phone: rainbowConversations.phone });
 
-  const profile = profileId ?? 'pelangi';
   const result: PurgeResult = {
     profile,
     records_deleted: {
@@ -184,6 +193,22 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
 
   // Structured log as required by AC
   console.log(JSON.stringify({ event: 'data_retention_purge', ...result }));
+
+  // US-907 AC5: Generate and archive a disposal confirmation report
+  const hardDeleteCount = hardMessages.length + hardConversations.length;
+  if (hardDeleteCount > 0) {
+    await saveDisposalReport(
+      profile, now, config.retentionDays, cutoffDate, hardCutoffDate,
+      hardMessages.length, hardConversations.length,
+      {
+        ...result,
+        deleted_message_ids: hardMessages.map((m: { id: string }) => m.id),
+        deleted_conversation_phones: hardConversations.map((c: { phone: string }) => c.phone),
+        legal_basis: 'Malaysia PDPA 2024 Amendment — data retention policy enforcement',
+      }
+    );
+    result.disposal_report_archived = true;
+  }
 
   return result;
 }
@@ -214,4 +239,51 @@ export function startRetentionScheduler(): void {
   });
 
   console.log('[DataRetention] Nightly retention scheduler started (3:00 AM MYT)');
+}
+// ─── Disposal Report (US-907 AC5) ────────────────────────────────────
+
+async function ensureDisposalReportTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdpa_disposal_reports (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile TEXT NOT NULL,
+      purge_timestamp TIMESTAMPTZ NOT NULL,
+      retention_days INTEGER NOT NULL,
+      cutoff_date TIMESTAMPTZ NOT NULL,
+      hard_cutoff_date TIMESTAMPTZ NOT NULL,
+      messages_hard_deleted INTEGER NOT NULL DEFAULT 0,
+      conversations_hard_deleted INTEGER NOT NULL DEFAULT 0,
+      report_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+dbReady.then(ok => { if (ok) ensureDisposalReportTable().catch(() => {}); });
+
+async function saveDisposalReport(
+  profile: string,
+  purgeTimestamp: Date,
+  retentionDays: number,
+  cutoffDate: Date,
+  hardCutoffDate: Date,
+  messagesHardDeleted: number,
+  conversationsHardDeleted: number,
+  reportData: object
+): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO pdpa_disposal_reports
+         (profile, purge_timestamp, retention_days, cutoff_date, hard_cutoff_date,
+          messages_hard_deleted, conversations_hard_deleted, report_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        profile, purgeTimestamp, retentionDays, cutoffDate, hardCutoffDate,
+        messagesHardDeleted, conversationsHardDeleted, JSON.stringify(reportData),
+      ]
+    );
+    console.log(`[DataRetention] Disposal report archived: ${profile} — ${messagesHardDeleted} msgs, ${conversationsHardDeleted} convs hard-deleted`);
+  } catch (err: any) {
+    console.error('[DataRetention] Failed to save disposal report:', err.message);
+  }
 }

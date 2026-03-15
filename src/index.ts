@@ -61,7 +61,7 @@ import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { computeAvailability } from './assistant/business-hours.js';
 import type { BusinessHoursConfig } from './assistant/business-hours.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
-import { checkBreachDeadlines } from './routes/admin/breach-report.js';
+import { checkBreachDeadlines, runBreachDetectionScan } from './routes/admin/breach-report.js';
 import { migrateObsoleteTiers } from './routes/admin/messaging-limits.js';
 import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
 import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
@@ -221,6 +221,13 @@ setInterval(() => {
     console.error('[PDPA] Scheduled deadline check failed:', err.message)
   );
 }, 24 * 60 * 60 * 1000);
+
+// US-907: Automated breach detection scan (runs every 15 min)
+setInterval(() => {
+  runBreachDetectionScan().catch(err =>
+    console.error('[PDPA] Breach detection scan failed:', err.message)
+  );
+}, 15 * 60 * 1000);
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

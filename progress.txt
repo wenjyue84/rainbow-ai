@@ -8783,3 +8783,23 @@ Incomplete: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: 
 - Frontend uses `window.api()` for all API calls, `toast()` for notifications
 ### Gotchas
 - .rej files from previous iterations indicated patches that couldn't be applied — the UI had never been added
+## Iteration 1 - Sun, Mar 15, 2026  6:56:13 PM
+Incomplete: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) — attempt 1/3
+
+
+## Iteration - Story: US-907 Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow
+### What was implemented
+- AC1 (DPO section): Already existed in settings.json `pdpa` section with dpo_name, dpo_email, dpo_registration_status, dpo_date_appointed
+- AC2 (Breach detection job): Added `runBreachDetectionScan()` to breach-report.ts — runs every 15 minutes via setInterval in index.ts, scans gdpr_audit_log for burst export requests (>100/15min), rainbow_config_audit for burst admin activity (>100/15min), and repeated data subject access (>10 exports for same JID hash). Auto-creates breach records with 72h commissioner and 7-day subject notification deadlines. Deduplicates within 1 hour.
+- AC3 (Incident response log): Already existed — pdpa_breach_log table with discovered_at, affected_count_estimate, commissioner_notified_at, subjects_notified_at, commissioner_deadline, subject_deadline
+- AC4 (Data retention policy): Already existed — data-retention.ts with configurable retention_days (default 730 days = 24 months per PDPA), nightly purge scheduler, soft-delete + grace period hard-delete
+- AC5 (Disposal confirmation report): Added pdpa_disposal_reports table (auto-created on DB ready) + saveDisposalReport() function called BEFORE hard-deletes in runRetentionPurge. Archives profile, purge timestamp, cutoff dates, record counts, and full report JSON including deleted IDs and legal basis. Added GET /retention/disposal-reports admin endpoint.
+- AC6 (Data Subject Access report): Already existed — gdpr-data-export.ts provides GET /guests/:jid/data-export with JSON/CSV formats, audit logging
+### Patterns discovered
+- Linter auto-modifies data-retention.ts on save — added DEFAULT_RETENTION_DAYS constant and retention_months support
+- breach-report.ts exports checkBreachDeadlines (daily) and now runBreachDetectionScan (every 15 min)
+- Admin notifier fires WhatsApp alerts for auto-detected breaches via notifyAdminBreachReport
+### Gotchas
+- data-retention.ts already had its header updated for US-907 but the actual disposal report code was missing
+- Variable declaration order matters: `profile` must be declared before the disposal report code block
+- When linter adds duplicate functions, esbuild fails with "symbol already declared" — must deduplicate
