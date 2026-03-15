@@ -7451,3 +7451,68 @@ Here is the technical brief based on the provided JSON for the `rainbow-ai` (Nod
 3. Fallback message on transcription failure ✅
 4. Transcription logged in rainbow_messages with transcribed flag ✅
 5. Works for both Pelangi and Makan Moments profiles ✅ (profile-aware configuration)
+## Iteration 5 - Sun, Mar 15, 2026  8:19:53 AM
+Incomplete: Webhook HMAC signature validation for incoming Meta Cloud API events (ID: US-844) — attempt 1/3
+
+
+## Pre-analysis for US-844 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-844 - Webhook HMAC Signature Validation
+
+**Technical Brief for Claude**
+
+This user story describes a webhook validation task but provides technical notes for a Node.js/TypeScript stack. This brief translates the requirements for the Frappe/Python context.
+
+**1. Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: This is the most likely location for the webhook endpoint logic. Look for a function decorated with `@frappe.whitelist(allow_guest=True)`.
+*   `lhdn_payroll_integration/hooks.py`: Check for the `api_endpoint` hook to confirm the function handling the `POST /webhooks/meta` route.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Whitelist Decorator:** The core mechanism will be the `@frappe.whitelist(allow_guest=True)` decorator on the webhook handler function.
+*   **DocTypes:** The webhook likely updates a custom DocType. Investigate DocTypes such as `WhatsApp Message` or `Webhook Log` for storing incoming data.
+*   **Site Config:** The `META_APP_SECRET` should be stored in `site_config.json` and accessed via `frappe.conf`.
+
+**3. Implementation Approach:**
+1.  In the webhook handler function in `api.py`, retrieve the raw request payload using `frappe.request.data`.
+2.  Fetch the signature from the `X-Hub-Signature-256` header via `frappe.request.headers`. Remember to parse the `sha256=` prefix.
+3.  Use Python's `hmac` and `hashlib` libraries to compute the expected signature: `hmac.new(app_secret.encode(), frappe.request.data, hashlib.sha256).hexdigest()`.
+4.  Use `hmac.compare_digest()` for a constant-time comparison against the received signature.
+5.  If validation fails, use `frappe.log_error` to log the failure and source IP (`frappe.request.remote_addr`), then `frappe.throw` with an HTTP 403 status code.
+
+**4. Edge Cases & Gotchas:**
+*   **Missing Secret:** If `frappe.conf.get('meta_app_secret')` is missing, log a warning and bypass validation as required.
+*   **Raw Body Integrity:** Ensure `frappe.request.data` is the unmodified raw body. Frappe can auto-parse JSON, which would break the signature. If it is parsed, you may need to access the raw data from the underlying Werkzeug request object.
+*   **Unit Testing:** Use the Frappe test runner to create a test case that mocks HTTP requests with valid, invalid, and missing `X-Hub-Signature-256` headers.
+
+
+## Iteration N - Story: US-879 Menu sync via admin API
+### What was implemented
+- `src/lib/menu-items-store.ts`: In-memory Map store (profile -> id -> MenuItem) + DB-backed CRUD
+  - `ensureMenuItemsTable()`: Creates menu_items table (idempotent)
+  - `loadMenuItemsFromDB()`: Populates in-memory store at startup
+  - `createMenuItem()`: INSERT to DB + update in-memory Map
+  - `updateMenuItem()`: Dynamic UPDATE to DB + immediate in-memory Map update (no restart)
+  - `getMenuItems()`: Returns available items by default; accepts includeUnavailable flag
+- `src/routes/admin/menu-items.ts`: Admin API routes
+  - GET /api/rainbow/menu-items?profile=... (with optional category, include_unavailable filters)
+  - GET /api/rainbow/menu-items/:id
+  - POST /api/rainbow/menu-items (create)
+  - PATCH /api/rainbow/menu-items/:id (update, including available boolean)
+  - Audit logging to rainbow_config_audit table
+- `src/lib/config-db.ts`: Added menu_items CREATE TABLE to ensureConfigTables()
+- `src/routes/admin/index.ts`: Registered menuItemsRoutes
+- `src/index.ts`: Added loadMenuItemsFromDB() call at startup
+
+### Patterns discovered
+- allergen-store.ts (file-based) was the pattern for simple stores
+- config-db.ts (DB-backed) was the pattern for DB-persisted stores
+- Admin audit log reuses rainbow_config_audit table with config_key = "menu_item:<id>"
+- Dynamic UPDATE uses indexed parameter building ($1, $2, ...) for partial patch
+- allergens/dietary_flags stored as TEXT (JSON array string) not JSONB for compatibility
+
+### Gotchas
+- prd.json has unicode chars — must use `node` not `python3` on Windows (encoding issue)
+- DB table creation is idempotent (CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS)
+- Menu items store is profile-scoped (not global) — makan-moments is default profile

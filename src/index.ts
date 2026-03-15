@@ -42,6 +42,7 @@ import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
 import { initAllergenStore } from './lib/allergen-store.js';
+import { loadMenuItemsFromDB } from './lib/menu-items-store.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { loadQualityStateFromDb } from './lib/phone-quality.js';
@@ -142,6 +143,11 @@ initUnitCache();
 
 // US-877: Initialize allergen store from file
 initAllergenStore();
+
+// US-879: Load menu items from DB into in-memory store
+loadMenuItemsFromDB().catch(err => {
+  console.warn('[Startup] Menu items load failed (store will be empty):', err?.message);
+});
 
 // CRITICAL: Initialize configStore BEFORE mounting admin routes
 // This is the global singleton for the default profile (backward compat).

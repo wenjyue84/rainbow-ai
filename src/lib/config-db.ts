@@ -70,8 +70,27 @@ export async function ensureConfigTables(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_template_quality_events_name ON template_quality_events(template_name);
       CREATE INDEX IF NOT EXISTS idx_template_quality_events_created ON template_quality_events(created_at);
+
+      -- US-879: Menu items table for live price/availability updates via admin API
+      CREATE TABLE IF NOT EXISTS menu_items (
+        id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        profile       TEXT NOT NULL,
+        name          TEXT NOT NULL,
+        description   TEXT,
+        price         NUMERIC(10,2) NOT NULL DEFAULT 0,
+        category      TEXT NOT NULL DEFAULT 'General',
+        allergens     TEXT NOT NULL DEFAULT '[]',
+        dietary_flags TEXT NOT NULL DEFAULT '[]',
+        available     BOOLEAN NOT NULL DEFAULT TRUE,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_menu_items_profile ON menu_items(profile);
+      CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(profile, category);
+      CREATE INDEX IF NOT EXISTS idx_menu_items_available ON menu_items(profile, available);
     `);
-    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events)');
+    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events, menu_items)');
   } catch (err: any) {
     console.error('[ConfigDB] Failed to create tables:', err.message);
   }
