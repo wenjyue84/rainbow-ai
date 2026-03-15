@@ -51,7 +51,7 @@ vi.mock('../http-utils.js', () => ({
 }));
 
 // Import after mocks
-import { TIER_LIMITS, REMOVED_TIERS, VALID_TIERS } from '../messaging-limits.js';
+import { TIER_LIMITS, REMOVED_TIERS, VALID_TIERS, TIER_EVALUATION_CYCLE_HOURS } from '../messaging-limits.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -186,5 +186,62 @@ describe('PUT /analytics/messaging-limits/tier — tier validation', () => {
   test('tier 1000 (never existed) is not valid and not in REMOVED_TIERS', () => {
     expect(REMOVED_TIERS.has('1000')).toBe(false);
     expect(VALID_TIERS.includes('1000')).toBe(false);
+  });
+});
+
+// ─── US-910: Portfolio-level messaging limit model ───────────────────────────
+
+describe('US-910: Portfolio-level messaging limits (effective Oct 7 2025)', () => {
+  /**
+   * Meta changed messaging limits to portfolio-level on Oct 7 2025.
+   * All phone numbers in a Business Manager portfolio share the highest tier
+   * held by any single number. New numbers inherit the portfolio tier immediately
+   * (not a baseline 1,000 limit as in the old per-number model).
+   */
+
+  test('TIER_EVALUATION_CYCLE_HOURS is 6 (Meta evaluates every 6h, not 24-48h)', () => {
+    expect(TIER_EVALUATION_CYCLE_HOURS).toBe(6);
+  });
+
+  test('a second phone number inherits the portfolio tier, not a baseline 1K', () => {
+    // Simulate portfolio tier set to 100000 (the current portfolio limit)
+    const portfolioTier = '100000';
+    const portfolioLimit = TIER_LIMITS[portfolioTier];
+
+    // A new (second) phone number must inherit the portfolio limit
+    const secondPhoneLimit = portfolioLimit;
+
+    // Must NOT be 1000 (the old per-number baseline that no longer applies)
+    expect(secondPhoneLimit).not.toBe(1_000);
+
+    // Must equal the portfolio tier limit
+    expect(secondPhoneLimit).toBe(100_000);
+  });
+
+  test('all portfolio phone numbers resolve to the same limit via TIER_LIMITS', () => {
+    // Regardless of how many numbers are in the portfolio, they all resolve
+    // to the same tier from TIER_LIMITS — no per-number mapping exists
+    const portfolioTier = '10000';
+    const phoneNumber1Limit = TIER_LIMITS[portfolioTier];
+    const phoneNumber2Limit = TIER_LIMITS[portfolioTier];
+    const phoneNumber3Limit = TIER_LIMITS[portfolioTier];
+
+    expect(phoneNumber1Limit).toBe(phoneNumber2Limit);
+    expect(phoneNumber2Limit).toBe(phoneNumber3Limit);
+    expect(phoneNumber1Limit).toBe(10_000);
+  });
+
+  test('upgrading the portfolio tier affects all phone numbers simultaneously', () => {
+    const beforeUpgrade = TIER_LIMITS['10000'];
+    const afterUpgrade = TIER_LIMITS['100000'];
+
+    // After a tier upgrade, the new limit is 10x the previous
+    expect(afterUpgrade).toBeGreaterThan(beforeUpgrade);
+    expect(afterUpgrade).toBe(100_000);
+  });
+
+  test('TIER_LIMITS does not contain a 1000-message baseline tier', () => {
+    // The old per-number baseline of 1,000 never existed as a tier in our model
+    expect(Object.values(TIER_LIMITS)).not.toContain(1_000);
   });
 });

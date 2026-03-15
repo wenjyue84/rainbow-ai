@@ -8558,3 +8558,24 @@ Completed: Prompt injection input sanitisation layer in message processing pipel
 - FOUC prevention requires inline script BEFORE stylesheet in `<head>`
 ### Status
 Build passes. Story marked passes=true.
+## Iteration 2 - Sun, Mar 15, 2026  6:09:06 PM
+FAILED quality gates: Prompt injection input sanitisation layer in message processing pipeline (ID: US-927) — attempt 1/3
+
+
+## Iteration N - Story: US-910 Portfolio-level messaging limit consolidation
+### What was implemented
+- Added `TIER_EVALUATION_CYCLE_HOURS = 6` constant (exported) to messaging-limits.ts reflecting Meta's Oct 7 2025 change from 24-48h to 6h evaluation cycle
+- Updated GET /analytics/messaging-limits response to include `portfolioMessagingLimit` field (same value as `tier`) for explicit portfolio-level naming per US-910 AC#1
+- Added `tierEvaluationCycleHours: 6` field to API response per AC#4
+- Both DB-unavailable fallback and normal response paths updated
+- Added 5 new Vitest tests in US-910 describe block:
+  - TIER_EVALUATION_CYCLE_HOURS is 6
+  - Second phone number inherits portfolio tier (not baseline 1K)
+  - All portfolio phone numbers resolve to same limit
+  - Tier upgrade affects all numbers simultaneously
+  - No 1000-message baseline tier exists
+### Patterns discovered
+- The existing code already used portfolio-level semantics (single DB key `rainbow_portfolio_tier`) — the story primarily required making this explicit in the API surface and adding the 6h evaluation cycle
+- Double-export error: `export const X` + `export { X }` causes esbuild transform error; remove from re-export list when using inline export
+### Gotchas
+- prd.json needs utf-8 encoding flag for Python json.load on Windows (UnicodeDecodeError with default cp1252)

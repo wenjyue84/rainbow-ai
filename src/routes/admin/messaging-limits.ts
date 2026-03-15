@@ -1,9 +1,15 @@
 /**
- * Messaging Limits Admin API (US-446)
+ * Messaging Limits Admin API (US-446, US-910)
  *
  * Tracks WhatsApp Business Portfolio messaging tier and 24-hour outbound count.
  *
- * GET  /analytics/messaging-limits      — tier, used24h, limit, percentUsed
+ * As of October 7, 2025 (Meta change), messaging limits are portfolio-level:
+ * all numbers in a Business Manager portfolio share the highest tier held by
+ * any single number. New numbers immediately inherit the portfolio tier.
+ * Meta evaluates tier upgrades every 6 hours based on quality metrics and
+ * unique recipient counts (upgrade requires 50%+ limit usage within 7 days).
+ *
+ * GET  /analytics/messaging-limits      — portfolioMessagingLimit, used24h, limit, percentUsed
  * PUT  /analytics/messaging-limits/tier  — manually set the portfolio tier
  */
 import { Router } from 'express';
@@ -33,6 +39,13 @@ const SETTING_KEY_TIER = 'rainbow_portfolio_tier';
 const SETTING_KEY_TIER_UPDATED = 'rainbow_portfolio_tier_updated_at';
 
 const DEFAULT_TIER = '100000';
+
+/**
+ * US-910: Meta evaluates tier upgrades every 6 hours (effective Oct 7 2025).
+ * Previously documented as 24-48h; the updated cycle is 6h.
+ * Upgrade requires using ≥50% of current limit within a 7-day rolling window.
+ */
+export const TIER_EVALUATION_CYCLE_HOURS = 6;
 
 // ─── In-memory cache (10s TTL) ─────────────────────────────────────
 let _cache: { data: any; expiry: number } | null = null;
@@ -67,10 +80,12 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
       return res.json({
         success: true,
         data: {
+          portfolioMessagingLimit: DEFAULT_TIER,
           tier: DEFAULT_TIER,
           used24h: 0,
           limit: TIER_LIMITS[DEFAULT_TIER],
           percentUsed: 0,
+          tierEvaluationCycleHours: TIER_EVALUATION_CYCLE_HOURS,
           pacingPaused: pacingState.pacingPaused,
           pacingQualityRating: pacingState.qualityRating,
           pacingStatus: pacingState.status,
@@ -97,10 +112,14 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
 
     const pacingState = getPacingState();
     const data = {
+      // US-910: portfolio-level field (all numbers in the portfolio inherit this tier)
+      portfolioMessagingLimit: tier,
       tier,
       used24h,
       limit: limit === Infinity ? 'unlimited' : limit,
       percentUsed,
+      // US-910: Meta evaluates tier upgrades on a 6-hour cycle (effective Oct 7 2025)
+      tierEvaluationCycleHours: TIER_EVALUATION_CYCLE_HOURS,
       pacingPaused: pacingState.pacingPaused,
       pacingQualityRating: pacingState.qualityRating,
       pacingStatus: pacingState.status,
@@ -174,7 +193,8 @@ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Respons
 
 export default router;
 
-// ─── Exported for use by notification scheduler ────────────────────
+// ─── Exported for use by notification scheduler and tests ──────────
+// Note: TIER_EVALUATION_CYCLE_HOURS is exported inline (export const above)
 export { TIER_LIMITS, REMOVED_TIERS, VALID_TIERS, getCurrentTier, get24hOutboundCount };
 
 // ─── Startup migration (US-890) ─────────────────────────────────────────────
