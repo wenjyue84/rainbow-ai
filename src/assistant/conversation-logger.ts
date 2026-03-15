@@ -245,6 +245,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         SELECT
           c.phone,
           c.push_name,
+          c.bsuid,
           c.instance_id,
           c.profile_id,
           c.pinned,
@@ -300,6 +301,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         instanceId: r.instance_id ?? undefined,
         profileId: r.profile_id ?? undefined,
         tenantId: r.profile_id ?? undefined,  // US-908: tenant_id = profileId
+        ...(r.bsuid ? { bsuid: r.bsuid } : {}), // US-990: BSUID
         lastMessage: (r.last_msg_content || '').slice(0, 100),
         lastMessageRole: r.last_msg_role as 'user' | 'assistant',
         lastMessageAt: r.last_msg_at instanceof Date
@@ -342,6 +344,7 @@ export async function searchConversations(
         SELECT DISTINCT ON (c.phone)
           c.phone,
           c.push_name,
+          c.bsuid,
           c.instance_id,
           c.profile_id,
           c.pinned,
@@ -410,6 +413,7 @@ export async function searchConversations(
         instanceId: r.instance_id ?? undefined,
         profileId: r.profile_id ?? undefined,
         tenantId: r.profile_id ?? undefined,  // US-908: tenant_id = profileId
+        ...(r.bsuid ? { bsuid: r.bsuid } : {}), // US-990: BSUID
         lastMessage: (r.last_msg_content || '').slice(0, 100),
         lastMessageRole: r.last_msg_role as 'user' | 'assistant',
         lastMessageAt: r.last_msg_at instanceof Date
@@ -491,6 +495,7 @@ export async function getConversation(phone: string, tenantId?: string): Promise
         pushName: convo.pushName,
         instanceId: convo.instanceId ?? undefined,
         tenantId: convo.profileId ?? undefined,  // US-908: expose tenant_id
+        ...(convo.bsuid ? { bsuid: convo.bsuid } : {}), // US-990: BSUID
         ...(referral ? { referral } : {}),         // US-910: CTWA referral attribution
         messages,
         contactDetails,

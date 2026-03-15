@@ -29,6 +29,7 @@ import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
 import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
+import { conversationKey } from '../conversation-db.js';
 import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
 
 // Start per-JID rate limiter cleanup (default 60s window)
@@ -212,6 +213,10 @@ export async function validateAndPrepare(
   if (msg.isGroup) return { continue: false, reason: 'group' };
 
   const phone = msg.from;
+
+  // US-990: Normalize to canonical key so BSUID and phone JID map to the same
+  // rate-limit / session window without duplicating buckets during transition.
+  const rateKey = conversationKey(phone, msg.bsuid);
 
   // Resolve profile from instanceId
   const profile = profileRegistry.isInitialized()
@@ -407,10 +412,10 @@ export async function validateAndPrepare(
     if (rlEnabled) {
       const windowMs = rlSettings?.perUserWindowMs ?? 60_000;
       const maxMessages = rlSettings?.perUserMaxMessages ?? 10;
-      const jidResult = checkJidRate(phone, windowMs, maxMessages);
+      const jidResult = checkJidRate(rateKey, windowMs, maxMessages);
 
       if (!jidResult.allowed) {
-        trackRateLimited(phone);
+        trackRateLimited(rateKey);
         if (jidResult.shouldSendReply) {
           await ctx.sendMessage(phone, 'Too many messages \u2014 please wait a moment before sending more.', msg.instanceId);
         }
@@ -421,9 +426,9 @@ export async function validateAndPrepare(
   }
 
   // Rate limit check (US-411: profile-specific limits)
-  const rateResult = checkRate(phone, profileConfig);
+  const rateResult = checkRate(rateKey, profileConfig);
   if (!rateResult.allowed) {
-    trackRateLimited(phone);
+    trackRateLimited(rateKey);
     const lang = detectLanguage(text);
     const response = getTemplate('rate_limited', lang);
     if (rateResult.reason === 'per-minute limit exceeded') {

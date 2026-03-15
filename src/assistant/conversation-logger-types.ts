@@ -57,6 +57,7 @@ export interface ConversationLog {
   pushName: string;
   instanceId?: string;
   tenantId?: string;       // US-908: tenant_id for multi-property isolation (maps to profileId)
+  bsuid?: string;          // US-990: WhatsApp Business-Scoped User ID
   referral?: ReferralAttribution; // US-910: Click-to-WhatsApp ad referral attribution
   messages: LoggedMessage[];
   contactDetails?: ContactDetails;
@@ -73,6 +74,7 @@ export interface ConversationSummary {
   pushName: string;
   instanceId?: string;
   tenantId?: string;       // US-908: tenant_id for multi-property isolation
+  bsuid?: string;          // US-990: WhatsApp Business-Scoped User ID
   lastMessage: string;
   lastMessageRole: 'user' | 'assistant';
   lastMessageAt: number;

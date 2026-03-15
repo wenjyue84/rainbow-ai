@@ -10313,3 +10313,18 @@ Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: U
 - data-retention.ts had a pre-existing build error (duplicate `const profile` declaration) that blocked esbuild — fixed
 ### Status
 ✅ All acceptance criteria met. Build passes. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-990 Migrate contact keys to BSUID ahead of WhatsApp June 2026 deadline
+### What was implemented
+- Added `bsuid` field to `ConversationSummary` and `ConversationLog` types
+- Added `c.bsuid` to `listConversations()` and `searchConversations()` SQL queries so admin UI displays BSUID next to phone
+- Included `bsuid` in `getConversation()` return payload
+- Normalised JID rate limiter and outbound rate limiter keys via `conversationKey(phone, msg.bsuid)` in input-validator pipeline so BSUID and phone-based senders share the same rate window
+- Wrote 8 Vitest regression tests for BSUID contact resolution when phone is absent
+### Patterns discovered
+- US-477 had already done most of the groundwork: `conversationKey()`, `extractBsuid()`, `lookupPhoneByBsuid()`, BSUID column in schema, and merge logic
+- The gap was: rate limiters used raw JID as key (not normalised), admin queries didn't SELECT bsuid, types didn't expose bsuid
+- `phone = msg.from` flows through the pipeline unchanged; the new `rateKey = conversationKey(phone, msg.bsuid)` is used only for rate limiting to avoid a broader refactor
+### Gotchas
+- The outbound rate limiter (`rate-limiter.ts`) normalises with `phone.replace(/\D/g, '')` which would produce an empty string for BSUID-only keys — using `conversationKey()` upstream fixes this
+- `isStaffPhone()` still uses raw `phone` which is correct — staff phones are always E.164
