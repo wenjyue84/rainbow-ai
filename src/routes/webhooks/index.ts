@@ -29,6 +29,7 @@ import { templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 import { applyPosStockUpdate } from '../../lib/menu-items-store.js';
+import { isPacingHold, recordPacingHeld, PACING_PAUSE_ERROR_CODE } from '../../lib/campaign-pacing.js';
 
 const router = Router();
 
@@ -357,6 +358,98 @@ router.post('/webhooks/pos/inventory', signatureGuard, async (req: Request, res:
   } catch (err: any) {
     console.error('[webhook:pos:inventory] Error applying stock update:', err.message);
     res.status(500).json({ error: 'Internal error applying stock update' });
+  }
+});
+
+// ─── Meta Cloud API: message status webhook (US-962) ──────────────────────
+//
+// POST /webhooks/meta/messages
+//
+// Handles Meta Cloud API message status updates. Specifically distinguishes
+// pacing holds (error 131049) from hard delivery failures and routes them
+// to the campaign pacing tracker for operator review.
+//
+// Payload structure (inside entry[].changes[]):
+//   field = 'messages'
+//   value.statuses[].status  = 'sent' | 'delivered' | 'read' | 'failed'
+//   value.statuses[].errors[].code  = e.g. 131049
+//   value.statuses[].conversation.id = batch/campaign ID (if available)
+//   value.statuses[].recipient_id = phone number
+//
+// Note: error 131049 signals portfolio pacing pause (frequency-cap saturation).
+// These are NOT permanent failures — messages are held and can be re-sent.
+
+router.post('/webhooks/meta/messages', metaSignatureGuard, (req: Request, res: Response) => {
+  // Acknowledge receipt immediately so Meta does not retry.
+  res.status(200).json({ ok: true });
+
+  const body = req.body as {
+    entry?: Array<{
+      id?: string;
+      changes?: Array<{
+        field?: string;
+        value?: {
+          messaging_product?: string;
+          metadata?: { phone_number_id?: string };
+          statuses?: Array<{
+            id?: string;
+            status?: string;
+            timestamp?: string;
+            recipient_id?: string;
+            conversation?: { id?: string; origin?: { type?: string } };
+            errors?: Array<{ code?: number; title?: string; message?: string }>;
+          }>;
+        };
+      }>;
+    }>;
+    [key: string]: unknown;
+  };
+
+  const entries = body.entry ?? [];
+  for (const entry of entries) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'messages') continue;
+
+      const value = change.value;
+      if (!value) continue;
+
+      const instanceId = value.metadata?.phone_number_id ?? 'default';
+
+      for (const statusEvent of value.statuses ?? []) {
+        if (statusEvent.status !== 'failed') continue;
+
+        const phone = statusEvent.recipient_id ?? 'unknown';
+        const errors = statusEvent.errors ?? [];
+
+        for (const err of errors) {
+          const errorCode = Number(err.code ?? 0);
+
+          if (isPacingHold(errorCode)) {
+            // Error 131049: portfolio pacing pause — messages held, not permanently failed
+            const batchId = statusEvent.conversation?.id ?? `meta-${Date.now()}`;
+
+            console.warn(
+              `[webhook:meta:messages] Pacing hold detected: phone=${phone} batchId=${batchId} error=${errorCode}`
+            );
+
+            recordPacingHeld({
+              batchId,
+              phone,
+              profileId: 'pelangi',
+              instanceId,
+            }).catch((e: any) => {
+              console.error('[webhook:meta:messages] Failed to record pacing hold:', e.message);
+            });
+
+          } else {
+            // Hard delivery failure — log for visibility
+            console.warn(
+              `[webhook:meta:messages] Hard delivery failure: phone=${phone} error=${errorCode} title=${err.title ?? 'unknown'}`
+            );
+          }
+        }
+      }
+    }
   }
 });
 

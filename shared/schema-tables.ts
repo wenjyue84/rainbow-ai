@@ -616,3 +616,34 @@ export const stickerIntents = pgTable("sticker_intents", {
 
 export type StickerIntent = typeof stickerIntents.$inferSelect;
 export type InsertStickerIntent = typeof stickerIntents.$inferInsert;
+
+// ─── Campaign Pacing Events (US-962) ─────────────────────────────────────────
+// Tracks Meta portfolio pacing pause events per campaign batch.
+// When error 131049 is returned with a batch context, the message is held
+// (not permanently failed) and queued here for operator review/re-send.
+
+export const campaignPacingEvents = pgTable("campaign_pacing_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  batchId: text("batch_id").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  templateName: text("template_name"),
+  messageContent: text("message_content"),
+  errorCode: integer("error_code").notNull().default(131049),
+  // 'held' = pacing pause hold; 'hard_failure' = permanent delivery failure
+  failureType: varchar("failure_type", { length: 16 }).notNull().default('held'),
+  // operator review state: 'pending' | 'resent' | 'cancelled'
+  reviewStatus: varchar("review_status", { length: 16 }).notNull().default('pending'),
+  heldAt: timestamp("held_at").notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: text("reviewed_by"),
+  instanceId: text("instance_id").notNull().default('default'),
+}, (table) => ([
+  index("idx_cpe_batch_id").on(table.batchId),
+  index("idx_cpe_profile_held_at").on(table.profileId, table.heldAt),
+  index("idx_cpe_review_status").on(table.reviewStatus),
+  index("idx_cpe_phone").on(table.phone),
+]));
+
+export type CampaignPacingEvent = typeof campaignPacingEvents.$inferSelect;
+export type InsertCampaignPacingEvent = typeof campaignPacingEvents.$inferInsert;

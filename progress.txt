@@ -10376,3 +10376,23 @@ Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: U
 - The cart system (cart.ts) already had robust out-of-stock handling for both cart_search_item and cart_confirm paths
 ### Status
 ✅ Build passes (3 pre-existing warnings). 15/15 inventory sync tests pass. All 5 acceptance criteria verified. Story marked passes=true.
+
+## Iteration N - Story: US-962 (Detect and handle portfolio pacing pause signals)
+### What was implemented
+- `shared/schema-tables.ts`: Added `campaignPacingEvents` Drizzle table with batch_id, phone, review_status, failure_type columns
+- `src/lib/campaign-pacing.ts`: Core pacing batch tracker — `isPacingHold(errorCode)`, `recordPacingHeld()`, `getBatchPacingStats()`, `getPacingHealthSummary()`, `updateHeldMessageStatus()`, admin alert at >5% threshold
+- `src/lib/config-db.ts`: Added `campaign_pacing_events` DDL to ensureConfigTables()
+- `src/routes/admin/campaign-pacing.ts`: Admin API — GET /analytics/pacing/health, GET /analytics/pacing/held-messages, POST .../resend, POST .../cancel
+- `src/routes/admin/index.ts`: Registered campaign-pacing routes
+- `src/routes/webhooks/index.ts`: Added POST /webhooks/meta/messages handler that distinguishes error 131049 (pacing hold) from hard delivery failures
+
+### Patterns discovered
+- Pre-existing `pacing-monitor.ts` (US-891) polls Meta's quality API. US-962 is complementary — it handles the _inbound webhook_ delivery status events.
+- Error 131049 in a delivery status webhook means "held by portfolio pacing" not "permanently failed"
+- The batch ID is sourced from `statuses[].conversation.id` in Meta's Cloud API webhook payload
+- Alert threshold is 5% held — computed per batch. Falls back to absolute count (>=5) if sent count unavailable.
+
+### Gotchas
+- PACING_PAUSE_ERROR_CODE = 131049. Hard failures (131021, 131026, etc.) must NOT be queued as pacing holds.
+- `campaign_pacing_events` uses raw SQL DDL in config-db.ts (not Drizzle migration) for consistency with existing pattern.
+- Build uses esbuild (not tsc) — pre-existing type errors do not block build.

@@ -104,8 +104,29 @@ export async function ensureConfigTables(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_menu_items_profile ON menu_items(profile);
       CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(profile, category);
       CREATE INDEX IF NOT EXISTS idx_menu_items_available ON menu_items(profile, available);
+
+      -- US-962: Campaign pacing batch events (portfolio pacing pause tracking)
+      CREATE TABLE IF NOT EXISTS campaign_pacing_events (
+        id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        batch_id        TEXT NOT NULL,
+        profile_id      TEXT NOT NULL DEFAULT 'pelangi',
+        phone           VARCHAR(32) NOT NULL,
+        template_name   TEXT,
+        message_content TEXT,
+        error_code      INTEGER NOT NULL DEFAULT 131049,
+        failure_type    VARCHAR(16) NOT NULL DEFAULT 'held',
+        review_status   VARCHAR(16) NOT NULL DEFAULT 'pending',
+        held_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        reviewed_at     TIMESTAMPTZ,
+        reviewed_by     TEXT,
+        instance_id     TEXT NOT NULL DEFAULT 'default'
+      );
+      CREATE INDEX IF NOT EXISTS idx_cpe_batch_id ON campaign_pacing_events(batch_id);
+      CREATE INDEX IF NOT EXISTS idx_cpe_profile_held_at ON campaign_pacing_events(profile_id, held_at);
+      CREATE INDEX IF NOT EXISTS idx_cpe_review_status ON campaign_pacing_events(review_status);
+      CREATE INDEX IF NOT EXISTS idx_cpe_phone ON campaign_pacing_events(phone);
     `);
-    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events, menu_items)');
+    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events, menu_items, campaign_pacing_events)');
   } catch (err: any) {
     console.error('[ConfigDB] Failed to create tables:', err.message);
   }

@@ -80,6 +80,7 @@ import complianceRoutes from './compliance.js';
 import festiveStickersRoutes from './festive-stickers.js';
 import manglishRoutes from './manglish.js';
 import inventoryRoutes from './inventory.js';
+import campaignPacingRoutes from './campaign-pacing.js';
 
 const router = Router();
 
@@ -324,6 +325,7 @@ router.use(complianceRoutes);
 router.use(festiveStickersRoutes);
 router.use(manglishRoutes);
 router.use(inventoryRoutes);
+router.use(campaignPacingRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
