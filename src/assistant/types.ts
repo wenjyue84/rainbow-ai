@@ -238,5 +238,5 @@ export interface AIClientConfig {
 // ─── Knowledge Base ─────────────────────────────────────────────────
 export interface KnowledgeEntry {
   intent: IntentCategory;
-  response: Record<'en' | 'ms' | 'zh', string>;
+  response: Partial<Record<'en' | 'ms' | 'zh' | 'ta', string>> & { en: string };
 }

@@ -70,7 +70,7 @@ function isDuplicate(msgId: string | undefined): boolean {
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Prevent raw LLM JSON from being sent to the guest. */
-export function ensureResponseText(response: string, lang: 'en' | 'ms' | 'zh'): string {
+export function ensureResponseText(response: string, lang: 'en' | 'ms' | 'zh' | 'ta'): string {
   const t = response.trim();
   if (!t || !t.startsWith('{') || !t.includes('"')) return response;
   try {

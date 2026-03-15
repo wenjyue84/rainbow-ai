@@ -4,7 +4,7 @@ import type { ChatMessage } from './types.js';
 export interface KeywordIntent {
   intent: string;
   keywords: string[];
-  language?: 'en' | 'ms' | 'zh';
+  language?: 'en' | 'ms' | 'zh' | 'ta';
 }
 
 export interface FuzzyMatchResult {
@@ -53,7 +53,7 @@ export class FuzzyIntentMatcher {
    * Used when Fuse.js fails (query much longer than keyword items).
    * Only matches keywords with 4+ words AND 18+ chars to avoid false positives.
    */
-  private substringMatch(text: string, languageFilter?: 'en' | 'ms' | 'zh'): FuzzyMatchResult | null {
+  private substringMatch(text: string, languageFilter?: 'en' | 'ms' | 'zh' | 'ta'): FuzzyMatchResult | null {
     const normalized = text.toLowerCase().trim();
     let bestMatch: { intent: string; keyword: string; length: number } | null = null;
 
@@ -87,7 +87,7 @@ export class FuzzyIntentMatcher {
    * @param languageFilter Optional language filter for better accuracy
    * @returns Best matching intent with confidence score
    */
-  match(text: string, languageFilter?: 'en' | 'ms' | 'zh'): FuzzyMatchResult | null {
+  match(text: string, languageFilter?: 'en' | 'ms' | 'zh' | 'ta'): FuzzyMatchResult | null {
     const normalized = text.toLowerCase().trim();
     const results = this.fuse.search(normalized);
 
@@ -160,7 +160,7 @@ export class FuzzyIntentMatcher {
     text: string,
     contextMessages: ChatMessage[] = [],
     lastIntent: string | null = null,
-    languageFilter?: 'en' | 'ms' | 'zh'
+    languageFilter?: 'en' | 'ms' | 'zh' | 'ta'
   ): FuzzyMatchResult | null {
     const normalized = text.toLowerCase().trim();
 

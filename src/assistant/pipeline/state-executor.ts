@@ -60,7 +60,7 @@ export async function handleActiveStates(
 
       clearAwaitingFeedback(phone);
 
-      const thankYouMessages = {
+      const thankYouMessages: Record<string, string> = {
         en: feedbackRating === 1
           ? 'Thank you for your feedback! 😊'
           : 'Thank you for your feedback. I\'ll work on improving! 😊',
@@ -69,7 +69,10 @@ export async function handleActiveStates(
           : 'Terima kasih atas maklum balas anda. Saya akan cuba memperbaiki! 😊',
         zh: feedbackRating === 1
           ? '谢谢您的反馈！😊'
-          : '谢谢您的反馈。我会努力改进！😊'
+          : '谢谢您的反馈。我会努力改进！😊',
+        ta: feedbackRating === 1
+          ? 'உங்கள் கருத்துக்கு நன்றி! 😊'
+          : 'உங்கள் கருத்துக்கு நன்றி. மேம்படுத்த முயற்சிப்பேன்! 😊',
       };
       const thankYou = thankYouMessages[lang] || thankYouMessages.en;
       await ctx.sendMessage(phone, thankYou, msg.instanceId);

@@ -1,7 +1,7 @@
 import type { IntentCategory, KnowledgeEntry, CallAPIFn } from './types.js';
 import { configStore } from './config-store.js';
 
-type Language = 'en' | 'ms' | 'zh';
+type Language = 'en' | 'ms' | 'zh' | 'ta';
 
 // ─── In-memory caches (synced from config-store) ────────────────────
 let faq: KnowledgeEntry[] = [];

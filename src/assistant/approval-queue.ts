@@ -9,7 +9,7 @@ export interface PendingApproval {
   suggestedResponse: string;
   intent: string;
   confidence: number;
-  language: 'en' | 'ms' | 'zh';
+  language: 'en' | 'ms' | 'zh' | 'ta';
   createdAt: number;
   expiresAt: number;
   metadata: {

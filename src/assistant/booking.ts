@@ -4,7 +4,7 @@ import { formatPriceBreakdown, formatDate, getTemplate } from './formatter.js';
 import { isAIAvailable, chat } from './ai-client.js';
 import { bookingExtractionSchema, safeParseLLMResponse } from './schemas.js';
 
-export type Language = 'en' | 'ms' | 'zh';
+export type Language = 'en' | 'ms' | 'zh' | 'ta';
 
 let callAPIFn: CallAPIFn | null = null;
 
@@ -177,7 +177,7 @@ function buildConfirmMessage(
   withRainbowSign: boolean
 ): string {
   const sign = withRainbowSign ? ' \u2014 Rainbow \u{1F308}' : '';
-  const msgs: Record<Language, string> = {
+  const msgs: Record<string, string> = {
     en: `*Booking Summary*\n\n\u{1F4C5} ${formatDate(checkIn, lang)} \u2192 ${formatDate(checkOut, lang)}\n\u{1F465} ${guests} guest${guests > 1 ? 's' : ''}\n\n${priceText}\n\nReply *yes* to confirm or *cancel* to cancel.${sign}`,
     ms: `*Ringkasan Tempahan*\n\n\u{1F4C5} ${formatDate(checkIn, lang)} \u2192 ${formatDate(checkOut, lang)}\n\u{1F465} ${guests} tetamu\n\n${priceText}\n\nBalas *ya* untuk sahkan atau *batal* untuk membatalkan.${sign}`,
     zh: `*\u9884\u8BA2\u6458\u8981*\n\n\u{1F4C5} ${formatDate(checkIn, lang)} \u2192 ${formatDate(checkOut, lang)}\n\u{1F465} ${guests}\u4F4D\u5BA2\u4EBA\n\n${priceText}\n\n\u56DE\u590D *\u662F* \u786E\u8BA4\u6216 *\u53D6\u6D88* \u53D6\u6D88\u3002${sign}`
@@ -342,7 +342,7 @@ async function handleDatesStage(
   const ciDate = new Date(checkIn);
   const coDate = new Date(checkOut);
   if (coDate <= ciDate) {
-    const msgs: Record<Language, string> = {
+    const msgs: Record<string, string> = {
       en: 'Check-out date must be after check-in date. Please try again.',
       ms: 'Tarikh daftar keluar mesti selepas tarikh daftar masuk. Sila cuba lagi.',
       zh: '\u9000\u623F\u65E5\u671F\u5FC5\u987B\u5728\u5165\u4F4F\u65E5\u671F\u4E4B\u540E\u3002\u8BF7\u91CD\u8BD5\u3002'
@@ -391,7 +391,7 @@ function handleGuestCountStage(
   const guestCount = parseGuestCount(input);
 
   if (!guestCount) {
-    const msgs: Record<Language, string> = {
+    const msgs: Record<string, string> = {
       en: 'Please enter the number of guests (1-20).',
       ms: 'Sila masukkan bilangan tetamu (1-20).',
       zh: '\u8BF7\u8F93\u5165\u5BA2\u4EBA\u4EBA\u6570\uFF081-20\u4EBA\uFF09\u3002'
@@ -421,7 +421,7 @@ async function handleConfirmStage(
   const isConfirm = /\b(yes|ya|confirm|ok|sure|\u662F|\u786E\u8BA4|\u597D)\b/i.test(input);
 
   if (!isConfirm) {
-    const msgs: Record<Language, string> = {
+    const msgs: Record<string, string> = {
       en: 'Please reply *yes* to confirm your booking or *cancel* to cancel.',
       ms: 'Sila balas *ya* untuk sahkan atau *batal* untuk membatalkan.',
       zh: '\u8BF7\u56DE\u590D *\u662F* \u786E\u8BA4\u9884\u8BA2\u6216 *\u53D6\u6D88* \u53D6\u6D88\u3002'
@@ -440,7 +440,7 @@ async function handleConfirmStage(
       });
     } catch (err: any) {
       console.error('[Booking] API error:', err.message);
-      const msgs: Record<Language, string> = {
+      const msgs: Record<string, string> = {
         en: 'Sorry, there was an error creating your booking. Please contact Maya at +60 17-670 1102.',
         ms: 'Maaf, ada masalah membuat tempahan anda. Sila hubungi Maya di +60 17-670 1102.',
         zh: '\u62B1\u6B49\uFF0C\u521B\u5EFA\u9884\u8BA2\u65F6\u51FA\u9519\u3002\u8BF7\u8054\u7CFBMaya +60 17-670 1102\u3002'

@@ -18,7 +18,7 @@ import { rateLimitManager } from './rate-limit-manager.js';
 import { isProviderOverBudget } from './llm-cost-budget.js';
 import { getContextWindows } from './context-windows.js';
 
-const STREAM_FALLBACK = "I'm sorry, I'm having trouble responding right now. Please try again in a moment.";
+const STREAM_FALLBACK = "AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.";
 
 // ─── SSE Helpers ──────────────────────────────────────────────────────
 
@@ -249,7 +249,14 @@ export async function streamChatWithTools(
 
     if (!toolCalls || toolCalls.length === 0) {
       if (!toolsWereCalled) {
-        // No tools called at all — stream a fresh LLM response (plain text, no tools)
+        // Provider returned text directly (no tool calls) — stream it immediately.
+        // This avoids a redundant second provider round-trip when the model
+        // (e.g. Gemini) can answer without invoking tools.
+        if (content) {
+          sseEvent(res, { token: content });
+          return content;
+        }
+        // No content returned — stream a fresh LLM response (plain text, no tools)
         return streamFromProviders(res, messages, chatCfg.max_chat_tokens, chatCfg.chat_temperature);
       }
       // Tools were called previously; break to stream final response

@@ -229,6 +229,6 @@ export function buildFeedbackData(
 }
 
 // ─── Get Feedback Prompt Message ────────────────────────────────────
-export function getFeedbackPrompt(language: 'en' | 'ms' | 'zh'): string {
+export function getFeedbackPrompt(language: 'en' | 'ms' | 'zh' | 'ta'): string {
   return feedbackConfig.prompts[language] || feedbackConfig.prompts.en;
 }

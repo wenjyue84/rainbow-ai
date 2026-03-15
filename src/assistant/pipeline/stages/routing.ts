@@ -12,7 +12,7 @@ import type { ClassificationResult } from './tier-classification.js';
 
 export interface RoutingResult {
   routedAction: string;
-  responseLang: 'en' | 'ms' | 'zh';
+  responseLang: 'en' | 'ms' | 'zh' | 'ta';
   messageType: string;
   repeatCheck: { isRepeat: boolean; count: number };
 }
@@ -23,14 +23,14 @@ export interface RoutingResult {
  */
 export function resolveResponseLanguage(
   tierResultLang: string | undefined,
-  conversationLang: 'en' | 'ms' | 'zh',
+  conversationLang: 'en' | 'ms' | 'zh' | 'ta',
   confidence: number
-): 'en' | 'ms' | 'zh' {
+): 'en' | 'ms' | 'zh' | 'ta' {
   if (tierResultLang &&
     tierResultLang !== 'unknown' &&
     confidence >= 0.7 &&
-    (tierResultLang === 'en' || tierResultLang === 'ms' || tierResultLang === 'zh')) {
-    return tierResultLang as 'en' | 'ms' | 'zh';
+    (tierResultLang === 'en' || tierResultLang === 'ms' || tierResultLang === 'zh' || tierResultLang === 'ta')) {
+    return tierResultLang as 'en' | 'ms' | 'zh' | 'ta';
   }
   return conversationLang;
 }
@@ -117,8 +117,9 @@ export async function resolveRouting(
     const updatedConvo = context.getOrCreate(phone, msg.pushName);
     if (updatedConvo && (result.detectedLanguage === 'en' ||
       result.detectedLanguage === 'ms' ||
-      result.detectedLanguage === 'zh')) {
-      updatedConvo.language = result.detectedLanguage as 'en' | 'ms' | 'zh';
+      result.detectedLanguage === 'zh' ||
+      result.detectedLanguage === 'ta')) {
+      updatedConvo.language = result.detectedLanguage as 'en' | 'ms' | 'zh' | 'ta';
       console.log(`[Routing] Updated conversation language: ${lang} → ${result.detectedLanguage}`);
     }
   }

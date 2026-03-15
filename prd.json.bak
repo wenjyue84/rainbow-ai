@@ -1,0 +1,2261 @@
+{
+  "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
+  "branchName": "master",
+  "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
+  "goals": [
+    "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
+    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble — chatWithToolsLoop sanitizes LLM output",
+    "Fix webchat-api tool injection: /chat/makan-moments widget gets FnB tool-calling capability",
+    "Fix unicode corruption in system prompt (em dash + rainbow emoji garbled)",
+    "Graceful tool-failure fallback: if FNB_MCP_URL is down, AI gives a helpful answer instead of hostel fallback",
+    "Regression tests for both image bugs"
+  ],
+  "userStories": [
+    {
+      "id": "US-801",
+      "title": "Fix hostel fallback text appearing in makan-moments AI waiter",
+      "priority": "high",
+      "description": "UNKNOWN_FALLBACK_MESSAGES.en in ai-response-generator.ts is hardcoded as 'I can help with bookings, check-in/out, amenities, and general hostel information.' When chatWithToolsLoop exhausts its 3 loops (e.g. FNB_MCP_URL is down), this hostel-specific text is returned to the makan-moments cafe widget (Image 3 bug). Fix by adding per-profile fallback support: read unknownFallback from the profile's settings.json so each profile can override the default, and set makan-moments to a cafe-appropriate fallback.",
+      "acceptanceCriteria": [
+        "getUnknownFallbackMessages() accepts an optional configStore parameter",
+        "When configStore is passed and has settings.unknownFallback.en, that value is used",
+        "data-makan/settings.json has unknownFallback.en with cafe-appropriate text (no hostel words)",
+        "data-makan/settings.json has unknownFallback.ms and unknownFallback.zh in Malay/Chinese",
+        "chatWithToolsLoop passes the profile configStore to get the fallback message",
+        "processChat() passes store to getUnknownFallbackMessages() in the catch-all fallback",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts: update getUnknownFallbackMessages() to accept optional configStore param. Update chatWithToolsLoop to call getUnknownFallbackMessages(profileConfigStore) for its fallback at line 142 and 183. Add optional configStore param to chatWithToolsLoop signature.",
+        "Edit src/assistant/chat-engine.ts: pass store to getUnknownFallbackMessages() in the catch-all fallback at the bottom of processChat(). Also pass store to chatWithToolsLoop.",
+        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '抱歉，我现在无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。'}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-802",
+      "title": "Fix raw JSON displayed in chat widget when LLM returns JSON format",
+      "priority": "high",
+      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop — if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
+      "acceptanceCriteria": [
+        "chatWithToolsLoop never returns a string starting with '{' to the caller",
+        "If LLM content is valid JSON with a 'response' or 'text' string field, that field value is returned",
+        "If JSON has no extractable text, profile-aware fallback is returned instead",
+        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' — chatWithToolsLoop must return 'Test reply'",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts: in chatWithToolsLoop, at line 141 where `return content || UNKNOWN_FALLBACK_MESSAGES.en`, add guard: if (content && looksLikeJson(content)) { try { const j = JSON.parse(content); const extracted = j.response || j.text || j.message || null; if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) return extracted; } catch {} return UNKNOWN_FALLBACK_MESSAGES.en; } return content || UNKNOWN_FALLBACK_MESSAGES.en",
+        "Also apply the same guard at line 182 (max loops exhausted last content): before returning UNKNOWN_FALLBACK_MESSAGES.en, check if the last message in messages has content that looks like JSON and try to extract from it."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-803",
+      "title": "Inject FnB tools into webchat-api for makan-moments profile",
+      "priority": "high",
+      "description": "webchat-api.ts (/api/chat/:profileId/message) calls processChat() WITHOUT tools for ALL profiles. This means the embedded rainbow-ai widget at /chat/makan-moments cannot use FnB tools (menu lookup, order placement). Fix: when profileId === 'makan-moments', pass toolRegistry.getToolsForProfile('makan-moments') and toolRegistry.getHandlersForProfile('makan-moments') to processChat().",
+      "acceptanceCriteria": [
+        "POST /api/chat/makan-moments/message triggers chatWithToolsLoop (tool_use intent in result)",
+        "POST /api/chat/pelangi/message still uses the non-tool path (no tools passed)",
+        "Tool injection does not break other profiles",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/routes/public/webchat-api.ts: add import { toolRegistry } from '../../tools/registry.js'. In the POST handler, after resolving profile, before calling processChat(), add: const fnbTools = profileId === 'makan-moments' ? toolRegistry.getToolsForProfile('makan-moments') : []; const fnbHandlers = profileId === 'makan-moments' ? toolRegistry.getHandlersForProfile('makan-moments') : new Map(); Then add tools: fnbTools, toolHandlers: fnbHandlers to the processChat() call."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-804",
+      "title": "Fix corrupted unicode in makan-moments system prompt (em dash + emoji)",
+      "priority": "medium",
+      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: 'â\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt sign-off is properly encoded (no 'â' or garbled bytes)",
+        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('â'))\" returns false",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: use Python to load the file with utf-8 encoding, fix any garbled sign-off in system_prompt by replacing the corrupted byte sequences with proper unicode em dash (\\u2014) and rainbow emoji (\\U0001f308), then write back with json.dump(d, f, indent=2, ensure_ascii=False). Read the file, detect and fix the mojibake."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-805",
+      "title": "chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail",
+      "priority": "medium",
+      "description": "When FNB_MCP_URL is unavailable, every tool call in chatWithToolsLoop returns an error. The LLM sees 3 rounds of error responses and finally exhausts max loops, returning an unhelpful fallback. Fix: track if ALL tool calls across loops failed. If so, make one final LLM call WITHOUT tools (just the conversation) to get at least a helpful general response, before falling back to the profile fallback text.",
+      "acceptanceCriteria": [
+        "When all tool results have isError:true, chatWithToolsLoop makes a final toolless LLM call",
+        "Final call uses the same system prompt and conversation history but no tools array",
+        "If final call also fails, returns profile-aware fallback (not hardcoded hostel text)",
+        "Test: mock all tool handlers to return {isError:true} — result should be a non-empty meaningful text, not the hostel fallback",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/ai-response-generator.ts chatWithToolsLoop: add a boolean allToolsFailed = false. After the loop, if all tool calls had isError:true (track with a counter), make one extra call: const { content: finalContent } = await chatWithFallback(messages.filter(m => m.role !== 'tool'), maxTokens, temp, false, undefined, undefined). Return finalContent if truthy and not JSON. The messages filtered are the original without tool results."
+      ],
+      "dependencies": [
+        "US-801"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-806",
+      "title": "Vitest regression tests for Image 3 and Image 4 bugs",
+      "priority": "medium",
+      "description": "Write targeted tests to prevent regression of the two bugs seen in the screenshots: (1) hostel fallback text appearing in makan-moments widget, (2) raw JSON being returned from chatWithToolsLoop. Also test the webchat-api tool injection fix.",
+      "acceptanceCriteria": [
+        "File src/assistant/__tests__/fnb-widget-bugs.test.ts exists",
+        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' → result is 'OK' (not raw JSON)",
+        "Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel' or 'check-in' or 'bookings'",
+        "Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'",
+        "npm run test:run passes"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "Import chatWithToolsLoop from '../../assistant/ai-response-generator.js'",
+        "Import looksLikeJson from '../../assistant/ai-response-generator.js'",
+        "Test 1: vi.stubGlobal mock chatWithFallback to return {content: '{\"intent\":\"menu_query\",\"response\":\"Here is the menu\",\"confidence\":0.5}', toolCalls:[]}. Call chatWithToolsLoop(...). Expect result === 'Here is the menu'.",
+        "Test 2: mock all tool handlers to return {content:[{type:'text',text:'Error'}],isError:true}. Mock final LLM to return {content:'Sorry, our ordering system is unavailable.'}. Expect result does not contain 'hostel' or 'check-in'.",
+        "Test 3: import getUnknownFallbackMessages. Call with a mock configStore for makan-moments that has unknownFallback.en set. Expect result.en to not contain 'hostel'."
+      ],
+      "dependencies": [
+        "US-801",
+        "US-802"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-807",
+      "title": "Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off",
+      "priority": "low",
+      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '— Makan Moments AI' (cafe-appropriate, no hostel branding).",
+      "acceptanceCriteria": [
+        "data-makan/settings.json system_prompt instructs sign-off as cafe-appropriate name, not generic hostel Rainbow",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/settings.json: in system_prompt, update the sign-off instruction to say: Sign off messages with '\\u2014 Makan Moments AI'. Use Python to load/save with ensure_ascii=False."
+      ],
+      "dependencies": [
+        "US-804"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-808",
+      "title": "Add static replies for widget quick-reply buttons (vegetarian, budget, hours, specials)",
+      "priority": "high",
+      "description": "The widget quick-reply buttons (\"Any vegetarian options?\", \"What's under RM15?\") currently trigger LLM calls, which are slow and unreliable when FNB_MCP_URL is down. Add specific intents and static knowledge replies so these common questions get instant answers from the admin-configurable responses at http://localhost:3002/#responses, with no LLM call needed.",
+      "acceptanceCriteria": [
+        "data-makan/intents.json has 4 new intents: vegetarian_query, budget_query, specials_query, and operating_hours updated with new patterns",
+        "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
+        "data-makan/routing.json maps operating_hours to action: static_reply",
+        "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
+        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
+        "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
+        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
+        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
+        "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
+        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-809",
+      "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
+      "priority": "high",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "acceptanceCriteria": [
+        "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
+        "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
+        "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
+        "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
+        "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
+        "Refreshing the page restores both the tab and the profile from the URL",
+        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
+        "npm run build passes"
+      ],
+      "technicalNotes": [
+        "Edit src/public/js/core/tabs.js: update getTabInfoFromUrl() to return {main, profileId, sub} where profileId = parts[1] if parts.length >= 2 and parts[1] is a valid profile ID (check against window.KNOWN_PROFILE_IDS or just accept any non-subtab string). Sub becomes parts[2] when profileId is present.",
+        "Define PROFILE_SPECIFIC_TABS = [\"dashboard\",\"intents\",\"understanding\",\"responses\",\"performance\",\"chat-simulator\",\"tests\",\"knowledge-base\",\"workflows\"] in tabs.js.",
+        "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
+        "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
+        "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
+        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-810",
+      "title": "WCAG 2.1 AA keyboard accessibility for webchat widget",
+      "priority": "high",
+      "description": "The webchat widget lacks required ARIA attributes and keyboard navigation support, blocking screen reader users and violating WCAG 2.1 AA. The message container needs role='log' for screen reader announcements, the toggle button needs aria-expanded, the input needs aria-label, and focus must be trapped inside the open panel with Escape-to-close.",
+      "acceptanceCriteria": [
+        "Message container div has role='log' and aria-label='Chat conversation'",
+        "Toggle/bubble button has aria-expanded='true'/'false' reflecting panel open state",
+        "Textarea input has an explicit aria-label attribute (e.g., 'Type your message')",
+        "Tab key cycles focus within the open panel without escaping to page content behind widget",
+        "Pressing Escape closes the panel and returns focus to the toggle button",
+        "Send button has aria-label='Send message'",
+        "New AI messages are announced by screen readers via the aria-live region"
+      ],
+      "technicalNotes": [
+        "Add role='log' aria-live='polite' to the #chat-messages container in webchat.html",
+        "Add aria-expanded attribute to the .chat-widget-button toggle, updated via JS on open/close",
+        "Implement focus-trap: intercept Tab/Shift+Tab inside .chat-widget when visible, cycle focus within panel",
+        "Bind keydown event on widget container: Escape closes panel and restores focus to trigger button"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-811",
+      "title": "CSAT and resolution rate analytics with alert thresholds in admin dashboard",
+      "priority": "high",
+      "description": "The admin dashboard lacks a unified view of the three most critical chatbot KPIs: CSAT score, AI resolution rate, and human handoff rate. Industry benchmarks set alert thresholds at CSAT < 80% and resolution rate < 60%. Without these alerts, performance degradation can go undetected for weeks.",
+      "acceptanceCriteria": [
+        "Analytics dashboard shows CSAT score (from conversation_feedback table) as a percentage, updated daily",
+        "Resolution rate metric shows % of conversations closed by AI (no escalation) vs. total conversations",
+        "Human handoff rate shows % of conversations that triggered an escalation_event",
+        "Fallback rate shows % of messages that matched unknownFallback intent",
+        "Visual alert is displayed when CSAT drops below 80% or resolution rate drops below 60%",
+        "All four metrics are filterable by profile and by date range (7d / 30d / 90d)",
+        "Metrics are displayed per-profile separately, not aggregated globally only"
+      ],
+      "technicalNotes": [
+        "CSAT data source: conversation_feedback table (already exists in Drizzle schema)",
+        "Resolution rate: query escalation_events count vs rainbow_conversations count per period",
+        "Fallback rate: query intent_analytics WHERE intent_id matches unknownFallback pattern",
+        "Add GET /api/admin/analytics/kpis?profileId=&days= endpoint returning all four metrics",
+        "Add visual threshold indicators (red badge or warning banner) when metric crosses alert threshold"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-812",
+      "title": "WhatsApp opt-out tracking and 24-hour compliance processing enforcement",
+      "priority": "high",
+      "description": "Meta's WhatsApp Business Messaging Policy requires that opt-out requests (STOP, unsubscribe, block) are honored within 24 hours. The current system has an opt-out endpoint but no dashboard to verify compliance or track the processing timeline. Failure to comply can result in Business Account suspension.",
+      "acceptanceCriteria": [
+        "When a user sends a STOP/opt-out keyword, their phone is flagged in the database within 1 message-processing cycle",
+        "Opted-out numbers are never sent outbound WhatsApp messages (broadcast, scheduled, or escalation notification)",
+        "Admin panel shows a list of opted-out numbers with the timestamp of their opt-out request",
+        "Admin panel shows whether each opt-out was processed (messages stopped) within 24 hours",
+        "A warning banner is displayed in the admin dashboard if any opt-out took more than 24 hours to process",
+        "Opt-out status is persisted per phone number and survives server restarts"
+      ],
+      "technicalNotes": [
+        "Add opted_out_at and opted_out_processed_at columns to rainbow_conversations or a new opt_out_registry table",
+        "Extend intent pipeline: if incoming message matches opt-out intent, set opted_out_at and block future sends immediately",
+        "Add GET /api/admin/opt-outs?profileId= endpoint listing opted-out numbers with compliance status",
+        "All outbound send functions must check opt-out registry before calling Baileys sendMessage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-813",
+      "title": "Human handoff escalation notification includes last 5 messages of conversation",
+      "priority": "high",
+      "description": "When Rainbow AI escalates to human staff, the current notification sends a minimal alert. Staff must manually look up the conversation in the admin panel, causing delays. Best practice requires passing full conversation history in the handoff so staff can respond immediately without context-switching.",
+      "acceptanceCriteria": [
+        "Staff escalation notification includes the last 5 messages of the conversation (user and assistant turns)",
+        "Notification includes guest name (push_name), phone number, and the escalation trigger reason",
+        "Notification includes a direct deep-link to the conversation in the admin panel",
+        "If escalation is triggered by a specific intent or keyword, that trigger is identified in the notification body",
+        "Escalation notification format is consistent across all profiles (hostel and cafe)",
+        "Full conversation history remains accessible via the admin panel deep-link"
+      ],
+      "technicalNotes": [
+        "Modify the escalation notification handler in src/routes/admin/ or pipeline/ to fetch last 5 messages",
+        "Query rainbow_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 5",
+        "Admin panel deep-link format: /admin#conversations?profileId={id}&phone={phone}",
+        "Include escalation reason label (e.g., 'Keyword match: refund', 'Workflow: complaint escalation')"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-814",
+      "title": "Daily fallback rate alert notification when AI misunderstanding exceeds 20%",
+      "priority": "high",
+      "description": "When the unknownFallback intent fires for more than 20% of messages, it signals significant knowledge base or intent coverage gaps. Without automated alerts, this can persist for days undetected. A daily threshold check that notifies admins enables rapid remediation before guest experience degrades.",
+      "acceptanceCriteria": [
+        "A scheduled daily check calculates the fallback rate (unknownFallback / total intents) per profile",
+        "If fallback rate exceeds the configured threshold (default 20%) for any profile, an alert notification is sent",
+        "Alert message identifies the profile name, the fallback rate percentage, and the count of unmatched messages",
+        "Alert is NOT sent when fallback rate is below threshold (no noise for healthy profiles)",
+        "Admin can configure the alert threshold and enable/disable alerts per profile in admin settings",
+        "Alert history is logged with timestamp, profile, and rate for review in the admin panel"
+      ],
+      "technicalNotes": [
+        "Add a scheduled job using existing cron/scheduler infrastructure, default run at 8AM server time",
+        "Query intent_analytics for past 24h, group by intent_id, calculate fallback ratio",
+        "Send alert via existing Baileys WhatsApp send or staff notification channel (whichever is configured)",
+        "Add fallback_alert_enabled, fallback_alert_threshold, and fallback_alert_recipient to settings.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/chat-engine.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-815",
+      "title": "Enforce WhatsApp 24-hour session window check before sending outbound messages",
+      "priority": "high",
+      "description": "Meta requires that free-form outbound messages can only be sent within 24 hours of the last user-initiated message. Sending outside this window fails silently or returns an error, but the current system has no pre-send session window check. This risks silent delivery failures for scheduled messages, payment reminders, and escalation notifications.",
+      "acceptanceCriteria": [
+        "All outbound WhatsApp send paths check if the 24-hour session window is active before sending",
+        "If the session is expired, the message is blocked from sending and logged with reason='session_expired'",
+        "Admin conversations list shows a 'Session Active' or 'Session Expired' status indicator per conversation",
+        "Scheduled and broadcast messages that fail the session window check are queued as pending rather than dropped silently",
+        "If a WhatsApp Message Template is configured for the profile, it is used as fallback when session is expired",
+        "Session window checks apply to all outbound paths: broadcast, scheduled, escalation notification"
+      ],
+      "technicalNotes": [
+        "Add sessionWindowActive(phone: string): Promise<boolean> helper in src/lib/ or src/assistant/",
+        "Implementation: query rainbow_messages WHERE role='user' AND phone=? ORDER BY created_at DESC LIMIT 1, check timestamp within 24h",
+        "Wrap all Baileys sendMessage calls with a session window guard",
+        "Add session_active field to the GET /api/admin/conversations list API response"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-816",
+      "title": "Lazy-load webchat widget JS bundle to avoid Core Web Vitals regression",
+      "priority": "medium",
+      "description": "The current widget.js loads synchronously on embed, inflating INP and potentially delaying LCP for host pages. Industry benchmarks show chat widgets under 100KB transferred and deferred to browser idle time maintain Google's 2025 Core Web Vitals thresholds (INP < 200ms, LCP < 2.5s). Only the toggle bubble should load initially; the full panel loads on first click.",
+      "acceptanceCriteria": [
+        "Widget script is injected dynamically (not as a static <script src> tag in the host page HTML)",
+        "Widget initialization is deferred with requestIdleCallback or a 3-second setTimeout fallback",
+        "Only the toggle bubble renders on initial page load; the full chat panel JS loads on first user click",
+        "Widget JS bundle size is under 100KB transferred (gzip)",
+        "Host page LCP does not increase by more than 200ms when the widget is embedded"
+      ],
+      "technicalNotes": [
+        "Refactor widget.js to export an init() function that lazily renders the full panel on first click",
+        "The embed snippet (window.__rbw / data-* attributes) should inject only the bubble on DOMContentLoaded",
+        "Use dynamic import() or a lazy-load pattern for the heavy chat panel component",
+        "Test with Google Lighthouse or PageSpeed Insights against a real host page"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts"
+      ]
+    },
+    {
+      "id": "US-817",
+      "title": "Export individual conversation transcript as JSON or PDF from admin",
+      "priority": "medium",
+      "description": "Staff cannot export a single conversation's history for dispute resolution, training data collection, or compliance purposes. Only bulk analytics CSVs are available today. A per-conversation export in JSON or PDF format is standard in all major customer service platforms.",
+      "acceptanceCriteria": [
+        "Admin conversation detail view has an Export button offering JSON and PDF format options",
+        "JSON export includes all messages with timestamps, roles (user/assistant/staff), and intent labels",
+        "PDF export renders messages in a human-readable chat layout with a branding header",
+        "Export endpoint is protected by admin authentication and scoped to the active profileId",
+        "Export filename includes masked phone number and date range (e.g., conv_6012xxxx_2026-03-14.json)",
+        "Export is available for all conversation statuses (active, closed, escalated)"
+      ],
+      "technicalNotes": [
+        "Add GET /api/admin/conversations/:id/export?format=json|pdf endpoint",
+        "JSON: serialize rainbow_messages rows for the conversation sorted by created_at",
+        "PDF: use pdfkit (Node.js native) or HTML-to-canvas approach to render chat bubbles layout",
+        "Mask last 4 digits of phone number in exported filename for PII compliance (keep full number in file body)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts",
+        "src/assistant/data-makan/settings.json"
+      ]
+    },
+    {
+      "id": "US-818",
+      "title": "Full-text search across conversation message content in admin panel",
+      "priority": "medium",
+      "description": "The admin conversations panel currently filters only by phone number or contact name. Staff cannot search for keywords within message bodies (e.g., find all conversations where guests mentioned 'refund' or 'broken AC'). PostgreSQL full-text search via a GIN index on rainbow_messages.content enables this efficiently at scale.",
+      "acceptanceCriteria": [
+        "Admin conversations panel has a search input that searches message content in addition to phone/name",
+        "Search returns conversations containing the search term in any message (user or assistant turn)",
+        "Results are ordered by most recent matching conversation first",
+        "Search is scoped to the currently selected profileId",
+        "Search supports partial word matching (e.g., 'refun' matches 'refund')",
+        "Search results load within 2 seconds for tables with up to 100,000 messages"
+      ],
+      "technicalNotes": [
+        "Add a GIN index on rainbow_messages.content using PostgreSQL to_tsvector for large datasets",
+        "For MVP, ILIKE '%term%' with LIMIT 50 is sufficient; add GIN index when table exceeds 50k rows",
+        "Add GET /api/admin/conversations/search?q=&profileId= endpoint",
+        "Update conversations list component to debounce search input 300ms before API call"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-819",
+      "title": "Template variable interpolation in static reply messages ({{guestName}}, etc.)",
+      "priority": "medium",
+      "description": "Static replies send fixed text strings with no personalization. Support for template variables like {{guestName}}, {{checkInDate}}, and {{profileName}} would allow staff to create personalized automated responses without LLM calls, improving quality while keeping latency near zero for common greetings and confirmations.",
+      "acceptanceCriteria": [
+        "Static reply templates can include {{variableName}} placeholders in their text content",
+        "On send, available variables (guestName, checkInDate, checkOutDate, profileName) are resolved from session context",
+        "Unresolvable variables fall back to an empty string or configurable default (e.g., 'our valued guest')",
+        "Admin editor shows a popover listing supported {{variables}} when editing a static reply text field",
+        "Variable substitution is applied before the message is sent; the raw template is stored in the config",
+        "Existing static replies without variables continue to work unchanged"
+      ],
+      "technicalNotes": [
+        "Implement an interpolate(template: string, variables: Record<string, string>) utility in src/assistant/",
+        "Variable context: profileName from settings.json; guest data from active session if tool result is available",
+        "Apply interpolation in the static_reply action handler just before message delivery",
+        "Admin UI change: add a help tooltip showing {{guestName}}, {{checkInDate}}, {{profileName}} as supported vars"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/data-makan/knowledge.json"
+      ]
+    },
+    {
+      "id": "US-820",
+      "title": "Server-Sent Events streaming for progressive AI responses in webchat widget",
+      "priority": "medium",
+      "description": "The webchat widget waits for the full AI response before displaying it, causing a blank 3-10 second wait. Industry best practice is to stream AI tokens progressively using SSE or chunked transfer, reducing perceived latency to near-instant first-token display. Both OpenRouter and NVIDIA providers support OpenAI-compatible streaming.",
+      "acceptanceCriteria": [
+        "POST /api/chat/:profileId/message returns a streaming SSE response for LLM-generated replies",
+        "The webchat.html renders tokens as they arrive, appending to the current assistant message bubble",
+        "A typing indicator (animated dots) is shown from message submission until the first token arrives",
+        "Streaming falls back gracefully to non-streaming single response if the provider does not support it",
+        "Static replies (pre-written responses) return instantly with no streaming overhead",
+        "Streaming works correctly with tool calls: tools execute server-side, then response text streams after"
+      ],
+      "technicalNotes": [
+        "Use EventSource (SSE) on client with text/event-stream content type on server",
+        "OpenRouter streaming: add stream: true to completions request, pipe response chunks as SSE events",
+        "NVIDIA NIM/Kimi K2.5 supports OpenAI-compatible streaming via the same stream: true flag",
+        "Tool calls must complete before streaming text phase begins (tool results are not streamed to client)",
+        "Add X-Accel-Buffering: no header for Nginx proxy compatibility with SSE"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-821",
+      "title": "Complete webhook event routing to registered notification handlers",
+      "priority": "medium",
+      "description": "The webhook routing code in src/routes/webhooks/index.ts has TODO comments indicating that event-type routing and handler dispatch are not implemented. Inbound webhook events from external systems are received by the server but silently dropped with no handler execution, making the webhook integration feature non-functional.",
+      "acceptanceCriteria": [
+        "Inbound webhook POST requests are dispatched to the correct handler function based on the event type field",
+        "A handler registry maps event type strings to async handler functions (at minimum one working handler)",
+        "Unrecognized event types return HTTP 422 with a descriptive error message and are logged",
+        "Handler errors are caught, logged, and return HTTP 500 without crashing the Express server",
+        "HMAC signature verification is enforced for all inbound webhook requests (or clearly documented as not required)",
+        "Vitest unit tests cover: correct handler dispatch, unrecognized event 422 response, and handler error 500 response"
+      ],
+      "technicalNotes": [
+        "Remove TODO comments in src/routes/webhooks/index.ts and implement a handler dispatch map",
+        "Follow existing route patterns in src/routes/admin/ for consistent error handling and response shapes",
+        "Add WEBHOOK_SECRET env var for HMAC-SHA256 signature verification if not already present",
+        "Implement at minimum a payment_confirmed handler that sends a WhatsApp confirmation message"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-822",
+      "title": "Sentiment-based early escalation trigger in message processing pipeline",
+      "priority": "medium",
+      "description": "Current escalation triggers are intent-based, requiring users to explicitly request help. Frustrated or angry language is not detected, meaning the bot continues attempting to handle the situation without proactive human handoff. A lightweight sentiment check before intent classification enables early escalation before frustration peaks.",
+      "acceptanceCriteria": [
+        "Messages containing strong negative sentiment markers are detected in the pipeline before intent classification",
+        "If a user sends 3 or more messages with negative sentiment in a single session, the pipeline escalates to human",
+        "The escalation message to the user is empathetic and acknowledges frustration (configurable per profile)",
+        "Sentiment detection can be enabled or disabled per profile in admin settings",
+        "Sentiment-triggered escalation events are recorded in escalation_events table with reason='sentiment'",
+        "Sentiment detection does not add more than 50ms to the average message processing time"
+      ],
+      "technicalNotes": [
+        "Use a rule-based keyword/phrase list (not a separate LLM call) to avoid latency and cost",
+        "Initial negative marker set (EN): 'useless', 'terrible', 'awful', 'angry', 'never again', repeated '!!', 'ridiculous'",
+        "Track consecutive_negative_messages counter in session context (in-memory, not persisted to DB)",
+        "Add sentiment_escalation_enabled and sentiment_threshold to profile settings.json",
+        "Optional: include sentiment as a classified field in existing intent classification LLM prompt to avoid extra round-trip"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-823",
+      "title": "Restore prior conversation history on webchat widget page reload",
+      "priority": "medium",
+      "description": "When a user reloads the page or navigates away and returns to the webchat, the conversation history disappears even though a sessionId is stored in localStorage. Re-fetching and rendering prior messages on load reduces user frustration from having to repeat their queries and provides a professional chat experience.",
+      "acceptanceCriteria": [
+        "On widget initialization, if a sessionId exists in localStorage, the last 10 messages are fetched from the server",
+        "Fetched messages are rendered in the chat UI in chronological order before the input is enabled",
+        "A subtle visual divider labeled 'Previous conversation' separates restored history from the current session",
+        "History fetch fails gracefully: if the endpoint errors, the widget opens empty without displaying an error",
+        "History restoration is limited to 10 messages to avoid overwhelming the UI",
+        "Session continuity works across page refreshes within the same browser but not across different devices"
+      ],
+      "technicalNotes": [
+        "Add GET /api/chat/:profileId/history?sessionId=xxx endpoint returning last 10 messages",
+        "Defer the history fetch to widget open event (not initial page load) to avoid unnecessary requests",
+        "Webchat sessions already use sessionId in localStorage; use this as the message lookup key",
+        "rainbow_messages stores by phone field; for webchat, sessionId is used as the 'phone' equivalent"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/ai-response-generator.ts"
+      ]
+    },
+    {
+      "id": "US-824",
+      "title": "Intent coverage gap analysis: surface high-frequency unmatched patterns in admin",
+      "priority": "medium",
+      "description": "When AI cannot match an intent, the unmatched message content is not surfaced for review. Clustering unmatched messages by topic reveals systematic coverage gaps, allowing staff to add intents or KB articles for the most common unanswered questions, directly improving resolution rate.",
+      "acceptanceCriteria": [
+        "Admin analytics panel has an Intent Gaps section showing the top 10 message patterns that triggered unknownFallback",
+        "Patterns are grouped by approximate semantic similarity or keyword frequency",
+        "Each gap cluster shows: an example message, count in last 30 days, and a Create Intent shortcut button",
+        "The Create Intent shortcut pre-fills the new intent dialog with the example message as a sample utterance",
+        "Gap analysis is scoped per profile (not aggregated globally)",
+        "Data is derived from message content stored when unknownFallback is triggered"
+      ],
+      "technicalNotes": [
+        "Store raw message text in intent_analytics when intent matches unknownFallback (add message_content column if missing)",
+        "MVP clustering: count word frequency across unmatched messages, return top 10 most common terms with examples",
+        "Add GET /api/admin/analytics/intent-gaps?profileId=&days=30 endpoint",
+        "Use existing intent editor component to handle the Create Intent shortcut with pre-filled utterance"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-825",
+      "title": "Automated daily chatbot performance summary sent to admin via WhatsApp",
+      "priority": "medium",
+      "description": "Operators have no passive visibility into daily Rainbow AI performance without actively opening the admin panel. An automated daily WhatsApp summary to the admin number provides a zero-effort overview of conversation volume, resolution rate, top intents, and any active alerts.",
+      "acceptanceCriteria": [
+        "A daily report is sent to a configured admin WhatsApp number at a configurable time (default 8AM local)",
+        "Report includes: total conversations in last 24h, AI resolution rate %, human handoffs count, top 3 intents, and fallback rate",
+        "Report is per-profile or cross-profile summary based on configuration",
+        "Report is only sent if at least 1 conversation occurred in the last 24 hours",
+        "Admin can enable/disable daily reports and set the delivery time in admin settings panel",
+        "Report delivery timestamp and status are logged for review"
+      ],
+      "technicalNotes": [
+        "Add a report generation function querying intent_analytics, escalation_events, rainbow_conversations",
+        "Schedule using existing cron/scheduler infrastructure",
+        "Send via Baileys existing sendMessage function (already used for escalation notifications)",
+        "Format as plain WhatsApp text using *bold* markdown, no HTML",
+        "Add daily_report block to settings.json: enabled, recipient_phone, send_time (HH:MM)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/public/js/core/profile-switcher.js"
+      ]
+    },
+    {
+      "id": "US-826",
+      "title": "Webchat session idle timeout with configurable re-engagement message",
+      "priority": "medium",
+      "description": "Webchat sessions that go idle do not close gracefully or send re-engagement messages, leaving sessions open indefinitely and inflating active session counts. Best practice is a configurable idle timeout that sends a gentle re-engagement message before marking the session as timed out.",
+      "acceptanceCriteria": [
+        "Webchat sessions idle for more than the configured timeout (default 30 minutes) receive a re-engagement message",
+        "Re-engagement message text is configurable per profile in admin settings",
+        "If the user does not respond within 10 minutes of the re-engagement message, the session is marked as timed_out",
+        "Timed-out sessions are tracked in the database and excluded from active session count metrics",
+        "Session timeout duration is configurable per profile (default 30 minutes, min 5 minutes)",
+        "Re-engagement and timeout apply to webchat sessions only, NOT WhatsApp (where Meta manages session windows)"
+      ],
+      "technicalNotes": [
+        "Track last_activity_at on webchat sessions (add column to rainbow_conversations or a webchat_sessions table)",
+        "Implement a lazy-check approach: check idle time on each incoming message rather than a polling loop",
+        "Send re-engagement via existing webchat message delivery mechanism",
+        "Add session_timeout_minutes and reengagement_message fields to webchat profile settings.json block"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/data-makan/intents.json"
+      ]
+    },
+    {
+      "id": "US-827",
+      "title": "Profile configuration cloning: duplicate an existing profile as a starting template",
+      "priority": "low",
+      "description": "Creating a new business profile requires manually recreating all routing rules, intents, static replies, KB files, and settings. A profile clone feature lets operators create a new profile from an existing one as a template, dramatically reducing setup time when adding new properties or brands.",
+      "acceptanceCriteria": [
+        "Admin profile management view has a Clone Profile action for each existing profile",
+        "Cloning copies routing.json, knowledge.json, settings.json, and intent configs from the source profile",
+        "Cloned profile receives a new unique profileId and a user-specified display name",
+        "WhatsApp auth state is NOT copied (cloned profile starts without a connected phone number)",
+        "Admin sees a confirmation dialog listing exactly what will be copied before proceeding",
+        "Clone operation completes within 5 seconds and navigates admin to the new profile"
+      ],
+      "technicalNotes": [
+        "Add POST /api/admin/profiles/:sourceId/clone endpoint with { newProfileId, displayName } body",
+        "Deep-copy the source profile's rainbow_configs rows inserting with the new profileId prefix",
+        "Copy rainbow_kb_files metadata rows with the new profileId; do not copy actual KB file content on disk",
+        "Exclude whatsapp-auth/ directory and phone-number-specific settings from the clone",
+        "Return the new profileId so the admin panel can navigate directly to the cloned profile settings"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
+    },
+    {
+      "id": "US-828",
+      "title": "Admin UI for per-profile WhatsApp frequency cap and rate limit configuration",
+      "priority": "low",
+      "description": "Frequency cap rules (limiting outbound messages per user per day) exist as API-only settings with no admin UI. Staff cannot view or modify these rules without developer access, making the feature invisible to operators and preventing appropriate rate-limit tuning for different property types.",
+      "acceptanceCriteria": [
+        "Admin Settings panel has a Rate Limits section showing current frequency cap rules per profile",
+        "Admin can set the maximum outbound messages per user per 24-hour window via a numeric input",
+        "Admin can enable or disable rate limiting per profile without any code changes",
+        "When a rate limit is hit, the admin shows a count of rate-limited users in the last 24 hours",
+        "Settings changes take effect within 1 minute without requiring a server restart",
+        "Settings are persisted to rainbow_configs (the existing config persistence layer)"
+      ],
+      "technicalNotes": [
+        "Add a rate_limits section to settings.json schema with max_messages_per_user_per_24h and enabled fields",
+        "Add admin UI component in Settings tab: numeric input for max_messages_per_user_per_day + toggle",
+        "Rate limit enforcement logic already exists in the codebase; UI connects to the same settings.json config",
+        "Add GET /api/admin/rate-limits/stats?profileId= returning count of users who hit the cap in last 24h"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "spiral-watchdog.sh",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts"
+      ]
+    },
+    {
+      "id": "US-829",
+      "title": "Emit WhatsApp typing indicator during AI processing delay",
+      "priority": "high",
+      "description": "When Rainbow AI receives a WhatsApp message and begins processing, send a typing indicator (chat presence 'composing') to the sender immediately, then clear it when the reply is sent. Without this, users see dead silence for 2-6 seconds between sending and receiving a reply, causing perceived unresponsiveness and drop-offs.",
+      "acceptanceCriteria": [
+        "On every incoming WhatsApp message, `sendWhatsAppTypingIndicator` is called with `composing` state before pipeline processing begins",
+        "Typing indicator is cleared (paused state sent) immediately when the bot reply is dispatched",
+        "If processing takes over 20 seconds the indicator is re-sent to prevent WhatsApp's 25-second auto-dismiss",
+        "Typing indicator is NOT sent if the message is silently dropped (duplicate, system message, or ignored group message)",
+        "Behaviour is configurable per-profile via settings.json `features.typingIndicator: true|false`"
+      ],
+      "technicalNotes": [
+        "`sendWhatsAppTypingIndicator` already exists in `src/lib/whatsapp/index.ts` — integrate into `src/assistant/message-router.ts` before pipeline dispatch",
+        "Baileys API: `sock.sendPresenceUpdate('composing', jid)` and `sock.sendPresenceUpdate('paused', jid)`",
+        "Gate behind `delay > 500ms` check to avoid unnecessary presence updates for instant cached replies"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-830",
+      "title": "Baileys circuit breaker: long cooldown after consecutive reconnect failures",
+      "priority": "high",
+      "description": "The current reconnect logic (3 attempts, max 60s delay) is insufficient to prevent WhatsApp account bans caused by rapid connect/disconnect cycling. When the supervisor and Baileys instance both retry simultaneously, hundreds of failed handshakes can trigger abuse detection. A circuit breaker must open after N consecutive failures and enforce a 30-minute cooldown.",
+      "acceptanceCriteria": [
+        "After 5 consecutive connection failures (configurable), the circuit opens and no further reconnection is attempted for 30 minutes",
+        "A WARNING-level log is emitted: `[Baileys:id] Circuit breaker OPEN — 5 consecutive failures. Cooling down for 30 min.`",
+        "An admin WhatsApp notification is sent when the circuit opens",
+        "After the 30-minute cooldown the circuit enters HALF-OPEN, attempts one reconnection, and either closes (success) or reopens with another 30-min cooldown",
+        "Circuit state (open/closed/half-open, last-open timestamp, failure count) is exposed on `GET /api/rainbow/status` per instance"
+      ],
+      "technicalNotes": [
+        "Implement inside `src/lib/whatsapp/instance.ts` `handleDisconnect()` — replace current 3-attempt counter with a circuit-breaker state machine",
+        "Separate from `baileys-supervisor.ts` which handles supervisor-level crashes — this is instance-level connection cycling",
+        "Use `Date.now()` timestamps rather than a library; no external dependency needed"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-831",
+      "title": "Monitor WhatsApp message template quality and alert on pause/disable",
+      "priority": "high",
+      "description": "When Meta automatically pauses a template due to low quality rating (spam reports, low read rate), the bot silently fails to deliver proactive messages. A webhook listener and admin alert must detect template pauses before they escalate to permanent disable.",
+      "acceptanceCriteria": [
+        "Incoming `message_template_status_update` webhook events are parsed and persisted to a `template_quality_events` DB table with fields: template_name, old_status, new_status, reason, timestamp",
+        "When a template status changes to PAUSED or DISABLED, an admin WhatsApp notification is sent within 60 seconds including template name, new status, and pause duration",
+        "Admin dashboard shows current status and quality rating for each registered template",
+        "A daily summary of template quality ratings is included in the existing daily performance report",
+        "Webhook handler returns HTTP 200 within 5 seconds to avoid Meta retry storms"
+      ],
+      "technicalNotes": [
+        "Meta sends `message_template_status_update` to the registered webhook — add handler to `src/routes/webhooks/index.ts`",
+        "This is a Meta Cloud API webhook, not a Baileys event — requires Meta webhook subscription to include `message_template_status_update` field",
+        "Distinct from existing phone number quality tracking in `src/lib/phone-quality.ts`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-832",
+      "title": "PDPA/GDPR data portability endpoint: export all personal data by JID",
+      "priority": "high",
+      "description": "Malaysia's amended PDPA (effective June 2025) grants data subjects the right to request their personal data in a portable, machine-readable format. The existing GDPR erasure endpoint handles deletion, but there is no corresponding data export endpoint. Businesses processing data from over 20,000 contacts are now legally obligated to fulfil portability requests.",
+      "acceptanceCriteria": [
+        "New endpoint `GET /api/rainbow/guests/:jid/data-export` returns all personal data for the JID as structured JSON",
+        "Export includes: all messages (content, timestamps, direction), conversation metadata, intent predictions, feedback records, opt-out status, and conversation state",
+        "Response includes a `generated_at` ISO timestamp and `retention_policy` summary",
+        "Request is logged to `gdpr_audit_log` table with `action: 'data_export'`",
+        "Endpoint requires admin authentication (same auth as erasure endpoint)",
+        "Response time under 5 seconds for up to 10,000 messages; returns 202 with a job ID for larger datasets"
+      ],
+      "technicalNotes": [
+        "Mirror the query pattern from `src/routes/admin/gdpr-erasure.ts` but SELECT instead of DELETE",
+        "Canonicalize the JID using `canonicalPhoneKey()` before querying — same as erasure endpoint",
+        "Use `Content-Disposition: attachment; filename=data-export-{hash}.json` header for download"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-833",
+      "title": "Per-JID inbound message rate limiter to prevent bot abuse",
+      "priority": "high",
+      "description": "A single WhatsApp number can flood the bot with hundreds of messages per minute, exhausting AI provider quotas and degrading service for all users. The existing rate limiter operates at a profile level, not per individual user JID. A sliding-window per-JID limiter should throttle abusive senders with a polite rejection message.",
+      "acceptanceCriteria": [
+        "Each unique sender JID is limited to 10 messages per 60-second sliding window (configurable per profile in settings.json)",
+        "When the limit is exceeded, the bot sends one brief reply: 'Too many messages — please wait a moment before sending more.' and drops subsequent messages until the window resets",
+        "The throttle reply is sent at most once per window (not once per dropped message)",
+        "Rate limit counters are in-memory (not Redis-dependent) with TTL-based cleanup to avoid memory leaks",
+        "Admin dashboard shows current throttled JID count and throttle events in the last 24 hours"
+      ],
+      "technicalNotes": [
+        "Implement as middleware in `src/assistant/message-router.ts` before pipeline dispatch",
+        "Use a `Map<string, {count: number, windowStart: number}>` with periodic cleanup (every 5 minutes)",
+        "Default limits: 10 msg/60s; configurable `rateLimiting.perUserWindowMs` and `perUserMaxMessages` in settings.json",
+        "Distinct from `src/lib/frequency-cap.ts` (outbound cap) — this is inbound abuse prevention"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-834",
+      "title": "Outbound media pre-send validation against WhatsApp size and format limits",
+      "priority": "medium",
+      "description": "When staff or automated workflows send media via `sendWhatsAppMedia`, there is no pre-send validation. Sending an oversized video (>16MB) or unsupported MIME type silently fails at the WhatsApp level with no actionable error surfaced to the admin.",
+      "acceptanceCriteria": [
+        "Before sending, validate MIME type against WhatsApp-supported list: JPEG/PNG (images ≤5MB), MP4 (video ≤16MB, H.264+AAC only), AAC/MP3/OGG/AMR (audio ≤16MB), PDF/DOCX/XLSX (documents ≤100MB)",
+        "If validation fails, `sendWhatsAppMedia` throws a structured error with fields: `code: 'MEDIA_VALIDATION_FAILED'`, `reason`, `actualSizeMb`, `limitMb`",
+        "Admin API routes that call `sendWhatsAppMedia` return HTTP 422 with the validation error details",
+        "A unit test covers each unsupported type and the boundary size condition for images and videos",
+        "Validation is skipped when the media URL is a remote HTTPS URL (size cannot be pre-checked without fetching)"
+      ],
+      "technicalNotes": [
+        "`sendWhatsAppMedia` is in `src/lib/whatsapp/index.ts` — add a `validateMedia(buffer, mimeType)` helper called before `sock.sendMessage()`",
+        "WhatsApp size limits: image 5MB, video 16MB, audio 16MB, document 100MB, sticker 100KB",
+        "Add `src/lib/whatsapp/media-validator.ts` as a new file with exported `validateWhatsAppMedia()` function"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-835",
+      "title": "CSP connect-src whitelist for AI provider endpoints used by admin dashboard",
+      "priority": "medium",
+      "description": "The current Helmet CSP sets `connect-src: ['self']`, which blocks the admin dashboard from making direct API calls to external services (e.g. health-checking AI provider endpoints, loading avatar URLs from WhatsApp CDN). Browser console errors accumulate silently and certain admin features fail without clear diagnostics.",
+      "acceptanceCriteria": [
+        "`connect-src` directive is extended to include: `https://*.nvidia.com`, `https://api.openrouter.ai`, `https://pps.whatsapp.net` (avatar CDN), and any additional AI provider base URLs read from `settings.json`",
+        "The CSP report endpoint at `/csp-report` continues to capture violations and logs them at WARN level",
+        "A Vitest test verifies that the CSP header string contains the required connect-src values in production mode",
+        "No `unsafe-eval` or `unsafe-inline` directives are introduced",
+        "`img-src` is extended to include `https://pps.whatsapp.net data:` to allow WhatsApp avatar images in the dashboard"
+      ],
+      "technicalNotes": [
+        "Edit the `helmet()` call in `src/index.ts` — add to `connectSrc` array",
+        "AI provider base URLs can be derived from `src/assistant/data/settings.json` `providers[].baseUrl` at startup",
+        "Use `Content-Security-Policy-Report-Only` in development mode to catch violations without blocking"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-836",
+      "title": "Human handoff SLA timer with breach alert to admin",
+      "priority": "medium",
+      "description": "When a conversation is escalated to human handoff, there is no mechanism to alert admin if no human responds within an SLA window. Customers left waiting after escalation have significantly higher churn rates than those who never reached a bot.",
+      "acceptanceCriteria": [
+        "When an escalation event is created, a timer starts with configurable SLA duration (default: 15 minutes, configurable per profile as `handoff.slaDurationMinutes`)",
+        "If no outbound message is sent on the escalated conversation within the SLA window, an admin WhatsApp alert fires: 'SLA breach: [phone] has been waiting X minutes since escalation at [time]'",
+        "The alert includes the last user message for context",
+        "If a human replies before the SLA expires, the timer is cancelled and no alert is sent",
+        "SLA timer state is persisted to DB so it survives server restarts",
+        "Admin dashboard shows open handoffs with elapsed time and SLA status (green/amber/red)"
+      ],
+      "technicalNotes": [
+        "Integrate with `src/assistant/escalation.ts` — on escalation creation, insert a pending SLA record",
+        "Use a cron job (every 2 minutes) to check for breached SLAs rather than Node.js `setTimeout` (which doesn't survive restarts)",
+        "`escalation_events` table already exists — add `sla_breached_at` and `human_responded_at` columns via Drizzle migration",
+        "Detect human response by checking if an outbound message for that phone was sent after the escalation timestamp"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-837",
+      "title": "System prompt A/B experiment framework for intent response quality",
+      "priority": "medium",
+      "description": "The AI system prompt is a single static configuration with no mechanism to test variants. Minor wording changes can produce 5-15% improvements in task completion rate, but there is currently no way to measure that. An experiment framework allows operators to define two prompt variants, split live traffic, and measure resolution rate and fallback rate per variant.",
+      "acceptanceCriteria": [
+        "A new config section `experiments[].id, variants[].weight, variants[].systemPromptOverride` in settings.json is parsed and validated via Zod schema",
+        "Traffic is split by deterministic hash of the sender JID modulo total weight, ensuring the same user always gets the same variant within an experiment",
+        "Per-variant metrics (message count, fallback rate, CSAT score) are tracked in a new `experiment_metrics` DB table",
+        "Admin API `GET /api/rainbow/experiments/:id/results` returns variant comparison with confidence intervals",
+        "Experiments can be activated and deactivated without server restart via admin dashboard",
+        "When no experiment is active, system falls back to the default system prompt with zero overhead"
+      ],
+      "technicalNotes": [
+        "Add experiment resolution at the prompt-assembly step in the AI provider manager",
+        "Use `crypto.createHash('md5').update(phone + experimentId).digest('hex')` for deterministic assignment",
+        "Schema: `experiment_metrics(experiment_id, variant_id, phone_hash, message_count, fallback_count, csat_sum, window_date)`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": true
+    },
+    {
+      "id": "US-838",
+      "title": "Configurable data retention policy per-profile with admin UI controls",
+      "priority": "medium",
+      "description": "Data retention is currently hardcoded globally. Malaysia's PDPA Retention Principle requires retention periods to be set only as long as necessary for the stated purpose, and different profiles (hostel, cafe) have different legal and operational needs.",
+      "acceptanceCriteria": [
+        "Admin UI settings tab shows current retention configuration per profile: `retention_days`, `grace_period_days`, `enabled` toggle",
+        "Operators can edit and save retention settings via the existing settings API without requiring a server restart",
+        "Preview pane shows count of records that would be soft-deleted and hard-deleted if purge ran now",
+        "Settings are validated: `retention_days` must be 30-3650, `grace_period_days` must be 7-365",
+        "When retention is disabled for a profile, an audit log entry is created recording who disabled it and when"
+      ],
+      "technicalNotes": [
+        "`src/lib/data-retention.ts` already reads from `configStore` per profile — the backend logic is complete",
+        "Missing piece: admin UI tab + API endpoint to write `settings.retention.*` values back via `configStore.updateSettings()`",
+        "Expose `GET /api/rainbow/retention/stats?profile=X` (wrapping `getRetentionStats`) for the preview feature"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-839",
+      "title": "PDPA data breach notification workflow with 72-hour commissioner deadline",
+      "priority": "medium",
+      "description": "Malaysia's amended PDPA (Phase 3, June 2025) mandates that data controllers notify the Personal Data Protection Commissioner within 72 hours of discovering a qualifying breach, and notify affected data subjects within 7 days. Rainbow AI stores WhatsApp message history and guest personal data, requiring a documented breach response workflow.",
+      "acceptanceCriteria": [
+        "A new admin endpoint `POST /api/rainbow/security/breach-report` accepts a breach description and creates a timestamped breach record in a `pdpa_breach_log` table",
+        "On creation, the system automatically calculates and stores the 72-hour commissioner notification deadline and 7-day subject notification deadline",
+        "Admin WhatsApp notification is sent to the system admin with breach details and both deadlines",
+        "Admin dashboard shows open breach records with countdown timers to each deadline, colour-coded (green/amber/red)",
+        "Breach log is append-only; contains: reported_by, description, affected_count_estimate, commissioner_notified_at (nullable), subjects_notified_at (nullable)",
+        "A daily cron job checks for overdue notifications and sends a reminder alert if deadlines are approaching within 6 hours"
+      ],
+      "technicalNotes": [
+        "Lightweight workflow management — no external PDPC API integration required (notification is done manually by admin, system tracks deadlines)",
+        "Create `src/routes/admin/breach-report.ts` following the same pattern as `src/routes/admin/gdpr-erasure.ts`",
+        "Use existing `admin-notifier.ts` for the WhatsApp alert"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-840",
+      "title": "WhatsApp media message acknowledgement in AI conversation flow",
+      "priority": "medium",
+      "description": "Guests frequently send images (booking confirmations, screenshots, receipts) and voice notes to the hostel WhatsApp. Rainbow AI currently only processes text messages and silently ignores media. Acknowledging media receipt with a context-aware response prevents users from thinking their message was lost.",
+      "acceptanceCriteria": [
+        "Incoming image messages trigger a configurable static reply from the `media_received` static reply key",
+        "Incoming audio/voice messages trigger a separate static reply from the `audio_received` key",
+        "Incoming document messages trigger a `document_received` reply",
+        "Media messages are logged to `rainbow_messages` with `messageType: 'image'|'audio'|'document'` and `mediaUrl` (if available)",
+        "The feature is configurable per-profile: `features.mediaRepliesEnabled: true|false` in settings.json",
+        "Media replies do not count against conversation fallback rate metrics"
+      ],
+      "technicalNotes": [
+        "Add media type detection in `src/assistant/pipeline/input-validator.ts` based on `IncomingMessage.messageType`",
+        "The `messageType` field already exists on `IncomingMessage` in `src/assistant/types.ts`",
+        "Route media messages to a dedicated `media-handler` stage that short-circuits the full NLP pipeline"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-841",
+      "title": "Webchat widget consent banner with timestamped opt-in log",
+      "priority": "medium",
+      "description": "The webchat widget collects and processes personal data (chat content) without presenting a data processing consent notice. GDPR and Malaysia's PDPA both require explicit informed consent before initiating data collection. Industry audits find 47% of chatbots lack this, representing a compliance vulnerability.",
+      "acceptanceCriteria": [
+        "On first widget load, a consent banner is shown before the chat interface with [Accept] and [Decline] options",
+        "If the user declines, the chat interface is not rendered and a privacy policy link is shown",
+        "If the user accepts, the acceptance is stored in `localStorage` with timestamp and not shown again for 365 days",
+        "The consent timestamp and a truncated session ID are sent to `POST /api/webchat/consent-log` and persisted to DB",
+        "The consent banner is keyboard-accessible and meets WCAG 2.1 AA",
+        "Consent text content is configurable per profile via admin settings"
+      ],
+      "technicalNotes": [
+        "Add consent check at the top of `src/public/js/modules/chat-send.js` before any message is sent",
+        "Consent log table: `webchat_consent_log(session_id_hash, accepted_at, profile_id, user_agent_hash)`",
+        "Use `localStorage.setItem('rb_consent', JSON.stringify({accepted: true, ts: Date.now()}))` for persistence"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-842",
+      "title": "Baileys DB auth state health check and corruption recovery at startup",
+      "priority": "medium",
+      "description": "Baileys session credentials stored in PostgreSQL can become corrupted during a crash mid-transaction. The next reconnection attempt will silently fail with a malformed session error, requiring manual DB intervention. An automatic health check at startup should detect and clear corrupted auth state before attempting connection.",
+      "acceptanceCriteria": [
+        "At server startup, before calling `makeWASocket`, a `validateAuthState(instanceId)` check queries DB auth rows and verifies JSON parseability of credential fields",
+        "If validation fails (unparseable JSON, missing required creds fields), corrupted rows are deleted and the QR pairing flow is re-initiated",
+        "An admin WhatsApp notification is sent: '[instanceId] auth state was corrupted and cleared — please re-scan QR code'",
+        "Validation results are logged at INFO level: `[DbAuth:pelangi] Auth state healthy: creds OK, 42 signal keys`",
+        "A new admin endpoint `GET /api/rainbow/instances/:id/auth-health` returns auth state validity without triggering recovery"
+      ],
+      "technicalNotes": [
+        "Add `validateAuthState(instanceId: string)` to `src/lib/whatsapp/db-auth-state.ts`",
+        "Check: `SELECT key, value FROM wa_auth_state WHERE instance_id = $1` — attempt `JSON.parse(value)` for each row",
+        "Required credential fields for a valid Baileys session: `noiseKey`, `signedIdentityKey`, `registrationId`, `advSecretKey`",
+        "Call validation from `WhatsAppInstance.start()` before `useDbAuthState()` in `src/lib/whatsapp/instance.ts`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-843",
+      "title": "Structured data notice sent to user on first WhatsApp interaction",
+      "priority": "low",
+      "description": "When a guest initiates their first WhatsApp conversation with the bot, they receive no notification that their messages will be stored and processed. PDPA's Notice and Choice Principle requires data subjects to be informed of collection purposes at or before collection.",
+      "acceptanceCriteria": [
+        "On the very first message from a new JID (no prior `rainbow_conversations` record), a data notice follows the normal welcome response",
+        "Notice text is configurable in `knowledge.json` under key `data_notice_first_contact`",
+        "The notice is sent only once per JID — subsequent conversations do not include it",
+        "If the JID has previously opted out (exists in `opt_outs` table), the notice is not sent"
+      ],
+      "technicalNotes": [
+        "Check for first-contact in `src/assistant/message-router.ts` using `conversationDb.getOrCreateConversation()` return value — if `created: true`, it is a first contact",
+        "Inject the notice as a suffix to the reply before `sendWhatsAppMessage` is called",
+        "Reuse existing STOP keyword opt-out handling — do not duplicate opt-out logic"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-844",
+      "title": "Webhook HMAC signature validation for incoming Meta Cloud API events",
+      "priority": "low",
+      "description": "Meta's WhatsApp Cloud API signs incoming webhook payloads with HMAC-SHA256 using the app secret. Without signature validation, the webhook endpoint accepts any HTTP POST, allowing malicious actors to inject fake template status updates, quality rating changes, or delivery receipts. The raw body capture is already in place.",
+      "acceptanceCriteria": [
+        "All requests to `POST /webhooks/meta` are rejected with HTTP 403 if the `X-Hub-Signature-256` header is absent or invalid",
+        "Validation computes `hmac-sha256(APP_SECRET, rawBody)` and compares with the header value using constant-time comparison",
+        "When validation fails, the rejection is logged at WARN level with the source IP",
+        "If `META_APP_SECRET` environment variable is not set, validation is skipped with a startup WARNING log",
+        "A unit test covers: valid signature passes, tampered body fails, missing header fails"
+      ],
+      "technicalNotes": [
+        "`req.rawBody` is already captured in `src/index.ts` via `captureRawBody` middleware",
+        "Add `validateMetaSignature(req)` middleware to `src/routes/webhooks/index.ts`",
+        "Use `crypto.timingSafeEqual()` for constant-time comparison to prevent timing attacks",
+        "Header format: `X-Hub-Signature-256: sha256=<hex-digest>`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-845",
+      "title": "Update WhatsApp cost tracker for per-message pricing model (July 2025)",
+      "priority": "low",
+      "description": "Meta is transitioning WhatsApp Business from per-conversation to per-message pricing effective July 1, 2025. The existing cost tracking module was built for the conversation-based model. Without updating it, cost estimates in the admin dashboard will be inaccurate by up to 10x for profiles that send many short proactive messages.",
+      "acceptanceCriteria": [
+        "A settings toggle `billing.pricingModel: 'per_conversation' | 'per_message'` is added to settings.json with per-profile support",
+        "When `per_message` is active, each outbound message increments a per-message cost counter using configurable per-category rates (marketing, utility, authentication)",
+        "The admin dashboard cost chart displays estimated costs under both models with a visual indicator of which model is active",
+        "Unit tests cover cost calculation for both pricing models using sample message sequences"
+      ],
+      "technicalNotes": [
+        "Locate existing cost tracking in `src/routes/admin/whatsapp-cost.ts` and `src/assistant/__tests__/whatsapp-cost.test.ts`",
+        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message — use MYR rates for Malaysia",
+        "The message category (marketing/utility) must be determined at send time — proactive messages are typically marketing, reactive replies are utility"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-846",
+      "title": "Webchat widget offline hours banner with configurable business hours",
+      "priority": "low",
+      "description": "The webchat widget is always-open with no indication of business operating hours. When staff are unavailable (late night, public holidays), users send messages expecting prompt responses and become frustrated when none arrives. An unavailability banner set by configurable business hours improves user expectations.",
+      "acceptanceCriteria": [
+        "Business hours are configurable per-profile in admin settings: `businessHours.timezone`, `businessHours.schedule` (array of day/open/close)",
+        "When current time is outside business hours, the webchat widget header shows a banner: 'We're currently offline. Leave a message and we'll reply during business hours.'",
+        "The input field remains functional (messages can still be sent and will be answered by AI or queued for human review)",
+        "Business hours configuration is exposed via `GET /api/webchat/config/:profile` for client-side rendering",
+        "Public holiday override can be configured as a list of dates in settings"
+      ],
+      "technicalNotes": [
+        "Business hours logic should be evaluated server-side in `src/routes/public/webchat-api.ts` and included in the initial widget config payload",
+        "Use the `luxon` library (or native `Intl.DateTimeFormat`) for timezone-aware time comparison",
+        "The widget config endpoint should return `isAvailable: boolean, nextOpenTime: string | null`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-847",
+      "title": "Admin audit log for configuration changes with before/after diff",
+      "priority": "low",
+      "description": "Any admin can modify AI system prompts, routing rules, and intent configurations with no record of who changed what and when. When the bot starts behaving unexpectedly after a config change, operators cannot determine root cause. PDPA's Data Integrity Principle also requires that processing decisions be accountable.",
+      "acceptanceCriteria": [
+        "Every write operation through the config API (`PUT /api/rainbow/config/*`, settings updates) inserts a record into `rainbow_config_audit` with: admin_user, endpoint, before (JSON), after (JSON), timestamp",
+        "Admin dashboard shows an audit log tab with the last 100 config change events, filterable by date range and admin user",
+        "Each audit entry shows a human-readable diff (changed keys highlighted)",
+        "Audit records are retained for 365 days (not subject to standard conversation retention policy)",
+        "Verify `rainbow_config_audit` table is being populated by ALL config write paths, not just current partial coverage"
+      ],
+      "technicalNotes": [
+        "`rainbow_config_audit` table already exists — audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
+        "Add an `auditConfigChange(adminUser, endpoint, before, after)` helper and call it from all config mutation routes",
+        "The before-value must be captured BEFORE the write — common bug to avoid"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-848",
+      "title": "Conversational cart: AI waiter maintains running order across multiple messages",
+      "priority": "high",
+      "description": "Currently the AI waiter treats each message independently. Implement an in-conversation cart state so guests can say I want the nasi lemak then add a teh tarik then actually remove the nasi lemak and the AI tracks the evolving order. Cart state persists for the webchat session and clears on checkout or timeout.",
+      "acceptanceCriteria": [
+        "AI waiter accumulates line items across multiple turns in the same session",
+        "Guest can add items: add X, I also want Y",
+        "Guest can remove items: remove X, cancel the Y",
+        "Guest can view cart: what have I ordered so far returns a formatted summary",
+        "Cart is cleared after order confirmation or session timeout",
+        "Cart state stored in session with no persistence needed across page reloads"
+      ],
+      "technicalNotes": [
+        "Add cartItems: CartItem[] to webchat session state in webchat-api.ts",
+        "CartItem: { name: string, qty: number, price?: number, notes?: string }",
+        "Inject current cart into system prompt context so AI always knows what is in cart",
+        "Handle synonyms: remove, cancel, drop, forget all trigger item removal"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-849",
+      "title": "Order intent classifier: distinguish browsing vs ordering vs confirming",
+      "priority": "high",
+      "description": "The AI waiter needs to reliably tell the difference between: (1) a guest asking about the menu (browsing), (2) a guest expressing intent to order such as I want or can I get, and (3) a guest confirming a finalized order such as yes place the order. Misclassifying these leads to premature order submission or missed orders. Implement a dedicated order-stage intent layer.",
+      "acceptanceCriteria": [
+        "BROWSING intent: menu questions, item queries, price checks with no cart mutation",
+        "ORDERING intent: item requests captured and added to cart, no submission yet",
+        "CONFIRM intent: order submitted to kitchen only after explicit guest confirmation",
+        "AI asks for confirmation before submitting: shows full order summary and Shall I place this order",
+        "Declining confirmation returns guest to ORDERING stage",
+        "Vitest unit tests for each intent transition"
+      ],
+      "technicalNotes": [
+        "Add ORDER_BROWSE, ORDER_ITEM_ADD, ORDER_CONFIRM, ORDER_DECLINE intents to routing.json",
+        "Order stage state machine: BROWSING to ORDERING to CONFIRMING to PLACED",
+        "Store current order stage in session alongside cart state"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-850",
+      "title": "Menu item disambiguation: handle partial or ambiguous item names in orders",
+      "priority": "high",
+      "description": "When a guest says I want the chicken and there are multiple chicken dishes such as Chicken Rice, Chicken Chop, Fried Chicken, the AI waiter must ask a clarifying question rather than guessing. Implement fuzzy menu item matching with disambiguation flow.",
+      "acceptanceCriteria": [
+        "Single match: item added to cart directly with AI confirmation including name and price",
+        "Multiple matches: AI lists matching options numbered 1-N and asks guest to choose",
+        "No match: AI apologises and offers to show the full menu or nearest category",
+        "Guest can reply with a number or name to select from disambiguation list",
+        "Disambiguation state persisted across turns until resolved or abandoned"
+      ],
+      "technicalNotes": [
+        "Fetch menu items from FnB MCP tool get_menu_items",
+        "Fuzzy match using simple substring plus Levenshtein distance with no external lib needed",
+        "Store pending disambiguation in session state: { pendingItem: string, candidates: MenuItem[] }"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-851",
+      "title": "Order confirmation summary: show itemised receipt before submitting to kitchen",
+      "priority": "high",
+      "description": "Before an order is submitted, the AI waiter must display a clear itemised summary showing each item, quantity, unit price, and total. Guest must explicitly confirm before the order is sent to kitchen. This prevents wrong orders and builds guest trust.",
+      "acceptanceCriteria": [
+        "Confirmation message shows: item name, qty, unit price, subtotal per line, grand total",
+        "Message ends with a clear CTA: Shall I place this order? Reply YES to confirm or tell me what to change.",
+        "Order only submitted after guest replies YES or confirm or ok or sure (case-insensitive)",
+        "If guest requests changes, cart returns to ORDERING stage and changes are applied",
+        "Confirmed orders trigger FnB MCP place_order tool call",
+        "Guest receives acknowledgement: Your order has been placed with estimated wait time"
+      ],
+      "technicalNotes": [
+        "Format summary as WhatsApp-friendly text with line breaks and no markdown tables",
+        "Call FnB MCP place_order with full cart payload on confirmation",
+        "place_order response should include order ID and estimated wait surfaced to guest"
+      ],
+      "dependencies": [
+        "US-849"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-852",
+      "title": "Special instructions capture: attach guest notes to individual order items",
+      "priority": "medium",
+      "description": "Guests should be able to say no onion, extra spicy, less sugar and have those notes attached to the relevant cart item. The AI waiter should detect instruction phrases and prompt if ambiguous which item the instruction applies to.",
+      "acceptanceCriteria": [
+        "Instruction phrases attached to most recently added item by default",
+        "If multiple items in cart and instruction is ambiguous, AI asks which item it applies to",
+        "Notes shown in order confirmation summary per line item",
+        "Notes passed to FnB MCP place_order in item.notes field",
+        "Common instruction variants handled: no X, extra X, less X, without X, add X on the side"
+      ],
+      "technicalNotes": [
+        "CartItem.notes string field for special instructions",
+        "Detect instruction intent with keyword patterns before full LLM classification"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-853",
+      "title": "Table number capture: AI waiter asks for table or pickup preference during ordering",
+      "priority": "medium",
+      "description": "After a guest adds their first item, the AI waiter should ask once for table number or whether it is a takeaway. This is required for kitchen routing and should not be asked again if already provided in the same session.",
+      "acceptanceCriteria": [
+        "AI asks for table number after first item is added to cart one time only per session",
+        "Accepts: table number such as table 5 or T5, takeaway or tapau, dine-in without number",
+        "Table info stored in session and included in order confirmation summary",
+        "Passed to FnB MCP place_order as tableNumber or orderType field",
+        "If guest volunteers table number proactively, AI does not ask again"
+      ],
+      "technicalNotes": [
+        "Add tableNumber and orderType fields to session state",
+        "Detect table number patterns with regex for table N, tN, takeaway, tapau"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-854",
+      "title": "Out-of-stock graceful handling: AI waiter suggests alternatives when item unavailable",
+      "priority": "medium",
+      "description": "When a guest orders an item that is currently out of stock as returned by FnB MCP, the AI waiter should inform them clearly and suggest the closest alternatives from the same category rather than simply refusing.",
+      "acceptanceCriteria": [
+        "Out-of-stock detection: FnB MCP returns unavailable status for item",
+        "AI responds with sorry message and suggests 2-3 alternatives from same category",
+        "Alternatives fetched from same menu category as unavailable item",
+        "Guest can accept an alternative to be added to cart or decline and browse further",
+        "If no alternatives exist, AI apologises and offers to show full menu"
+      ],
+      "technicalNotes": [
+        "Handle FnB MCP get_menu_items response where item.available is false",
+        "Fetch category siblings via get_menu_items with category filter and available true",
+        "Limit to 2-3 alternatives to avoid overwhelming the guest"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-855",
+      "title": "Order status enquiry: guest can ask where their order is after placing it",
+      "priority": "medium",
+      "description": "After an order is placed, guests should be able to ask where is my order, how long more, is my food ready and get a live status update from the kitchen via FnB MCP.",
+      "acceptanceCriteria": [
+        "ORDER_STATUS intent detected from natural language queries about order progress",
+        "AI calls FnB MCP get_order_status with the session order ID",
+        "Status stages communicated in plain language: Received, Preparing, Ready, Served",
+        "If no order placed in session, AI says there is no active order for you yet",
+        "Estimated wait time shown if available from MCP response"
+      ],
+      "technicalNotes": [
+        "Store placed orderId in session state after successful place_order MCP call",
+        "Add ORDER_STATUS intent to routing.json with handler in fnb-waiter pipeline",
+        "Map kitchen status codes to guest-friendly strings"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-856",
+      "title": "Repeat order shortcut: AI waiter offers to repeat last order for returning guests",
+      "priority": "low",
+      "description": "If a returning guest has a previous order on record, the AI waiter should proactively offer to repeat it at the start of the conversation. This reduces friction for regulars and makes the experience feel personalised.",
+      "acceptanceCriteria": [
+        "On session start, check FnB MCP for last order by guest JID or phone",
+        "If found within last 30 days, AI offers to repeat previous order",
+        "Guest reply YES loads previous order into cart as starting point",
+        "Guest reply NO proceeds to normal browsing flow",
+        "If no prior order found, normal welcome message shown"
+      ],
+      "technicalNotes": [
+        "Call FnB MCP get_order_history with jid and limit 1 on webchat session init",
+        "Trigger only for webchat widget not WhatsApp to avoid unsolicited messages",
+        "Last order check is best-effort and fails silently if MCP unavailable"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-857",
+      "title": "Upsell suggestions: AI waiter recommends add-ons after main item is ordered",
+      "priority": "low",
+      "description": "After a guest adds a main item to the cart, the AI waiter should make one natural upsell suggestion such as a drink pairing or add-on based on the item category. Should feel conversational and never pushy and suggested once per session max.",
+      "acceptanceCriteria": [
+        "Triggered once after first main item added to cart",
+        "Suggestion fetched from FnB MCP get_upsell_suggestions or category-based fallback",
+        "AI message is brief: Great choice! Would you also like a suggestion to go with that?",
+        "Guest can accept to add to cart, decline, or ignore with no follow-up if declined",
+        "Upsell only triggered once per session regardless of how many items are added"
+      ],
+      "technicalNotes": [
+        "Add upsellOffered boolean to session state to prevent repeat triggering",
+        "If MCP has no upsell endpoint, use category-based hardcoded map: rice to drink, cake to coffee",
+        "Keep suggestion message to one sentence max"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-858",
+      "title": "AI waiter welcome message: introduce ordering capability on first webchat open",
+      "priority": "high",
+      "description": "When a guest opens the webchat widget for the first time in a session, the AI waiter should send a warm greeting that explains what it can do: browse the menu, take an order, check order status. This sets expectations and reduces friction. Currently the widget shows a blank chat or a generic greeting that does not mention ordering.",
+      "acceptanceCriteria": [
+        "On session open, AI sends a greeting within 1 second before any guest message",
+        "Greeting includes: welcome line, brief explanation of ordering capability, and a prompt to start",
+        "Example: Welcome to Makan Moments! I am your AI waiter. You can browse our menu, place an order, or ask me anything about our food. What would you like today?",
+        "Greeting shown only once per session, not on every page reload if history is restored",
+        "Greeting is configurable per profile via settings.json welcomeMessage field"
+      ],
+      "technicalNotes": [
+        "Inject greeting as an assistant message on webchat session init in webchat-api.ts",
+        "Read welcomeMessage from profile settings.json with fallback to default",
+        "Set sessionGreetingSent: boolean in session state to prevent duplicate greetings",
+        "Greeting injected before any system prompt processing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-859",
+      "title": "Category-based menu browsing: guest can filter menu by category or dish type",
+      "priority": "high",
+      "description": "Guests should be able to ask for a specific category of food and get a clean formatted list, not the entire menu. Queries like show me the drinks, what rice dishes do you have, or any desserts should return only items from that category with names, descriptions and prices.",
+      "acceptanceCriteria": [
+        "Category queries detected: show me X, what X do you have, any X, list the X where X is a category name",
+        "FnB MCP get_menu_items called with category filter",
+        "Response formatted as a numbered list: name, brief description, price",
+        "Maximum 8 items shown per category with see more option if more exist",
+        "If category not found, AI suggests available categories",
+        "Works for: drinks, mains, rice, noodles, desserts, snacks, set meals, sides"
+      ],
+      "technicalNotes": [
+        "Add MENU_BROWSE_CATEGORY intent to routing.json",
+        "Extract category from guest message using keyword mapping before LLM call",
+        "Format response as clean text list without markdown tables for WhatsApp compatibility",
+        "Cache menu response for 5 minutes per profile to avoid repeated MCP calls"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-860",
+      "title": "Dietary filter: guest can ask for vegetarian, halal, or allergen-free menu items",
+      "priority": "high",
+      "description": "Malaysian cafe guests frequently ask about dietary requirements. The AI waiter should be able to filter the menu by dietary tags such as vegetarian, vegan, halal, no pork, no nuts, gluten-free and return only matching items. This is critical for inclusivity and safety.",
+      "acceptanceCriteria": [
+        "Dietary queries detected: what is vegetarian, halal options, anything without peanuts, no pork please",
+        "FnB MCP get_menu_items called with dietary tag filter",
+        "Response lists matching items with their dietary tags shown",
+        "If no items match, AI says so honestly and does not hallucinate options",
+        "Multiple filters supported: vegetarian AND no nuts returns items matching both",
+        "Dietary tags also shown in item detail when guest asks about a specific dish"
+      ],
+      "technicalNotes": [
+        "Add MENU_FILTER_DIETARY intent to routing.json",
+        "Map common phrases to tags: vegetarian, vegan, halal, no-pork, no-nuts, gluten-free",
+        "Pass tags array to get_menu_items MCP call",
+        "If MCP does not support tag filter, filter client-side from full menu response"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-861",
+      "title": "Cart quantity update: guest can change quantity of an item already in cart",
+      "priority": "high",
+      "description": "Currently guests can only add or remove items. They should also be able to say make it 2 nasi lemak or change the teh tarik to 3 without removing and re-adding. Quantity updates must reflect immediately in the cart summary.",
+      "acceptanceCriteria": [
+        "Quantity update phrases detected: make it X, change to X, I want X of those, update quantity to X",
+        "Named item quantity updated in cart: change my nasi lemak to 2 updates nasi lemak qty to 2",
+        "If item not in cart, AI says the item is not in your order yet and offers to add it",
+        "Zero quantity treated as removal: make it 0 or change to 0 removes the item",
+        "Updated cart summary shown after each quantity change",
+        "Vitest test for qty update, zero-qty removal, and not-in-cart edge case"
+      ],
+      "technicalNotes": [
+        "Add updateCartItemQty function alongside existing addToCart and removeFromCart",
+        "Parse quantity from message: /\\b(\\d+)\\b/ after detecting update intent",
+        "Update CartItem.qty in session state",
+        "Inject updated cart context into next system prompt"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-862",
+      "title": "Order cancellation: guest can cancel entire order before kitchen submission",
+      "priority": "high",
+      "description": "Before an order is confirmed and sent to the kitchen, a guest should be able to cancel everything and start over. Cancel my order, forget it, I changed my mind should clear the cart and return to a ready state without any awkwardness.",
+      "acceptanceCriteria": [
+        "Cancellation intent detected: cancel my order, forget it, start over, clear my cart, nevermind",
+        "AI confirms the cancellation: Your order has been cleared. Let me know if you would like to start a new order.",
+        "Cart and order stage reset to empty BROWSING state",
+        "If cart is already empty, AI says there is nothing to cancel",
+        "If order already submitted to kitchen, AI says the order is in the kitchen and offers to contact staff instead",
+        "No confirmation prompt required for cancellation: act immediately"
+      ],
+      "technicalNotes": [
+        "Add ORDER_CANCEL intent to routing.json",
+        "Clear cartItems and reset orderStage to BROWSING in session state",
+        "Check orderId in session: if order already placed, route to human handoff instead of clearing"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-863",
+      "title": "Budget-based ordering: guest can ask what they can get for a certain amount",
+      "priority": "medium",
+      "description": "Guests sometimes have a budget constraint: what can I get for RM 15 or show me dishes under RM 10. The AI waiter should filter the menu by price range and present affordable options, helping guests make decisions faster.",
+      "acceptanceCriteria": [
+        "Price query detected: under RM X, below X ringgit, what can I get for X, cheap options",
+        "FnB MCP get_menu_items called with maxPrice filter",
+        "Response lists items at or below the stated price sorted cheapest first",
+        "If no items in range, AI states the minimum price and suggests closest options",
+        "Price range also supported: between RM 10 and RM 20"
+      ],
+      "technicalNotes": [
+        "Add MENU_FILTER_PRICE intent to routing.json",
+        "Parse price from message: /RM\\s*(\\d+(\\.\\d+)?)/ or /\\b(\\d+(\\.\\d+)?)\\s*ringgit/i",
+        "Pass maxPrice to get_menu_items MCP or filter client-side",
+        "Sort results by price ascending"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-864",
+      "title": "Daily specials and promotions: AI waiter surfaces time-sensitive menu items",
+      "priority": "medium",
+      "description": "Guests frequently ask what are today's specials or any promotions. The AI waiter should be able to retrieve and present daily specials, limited items, and active promotions from the FnB MCP so guests do not miss deals.",
+      "acceptanceCriteria": [
+        "Specials query detected: today's special, what's new, any promotions, any deals, limited items",
+        "FnB MCP get_daily_specials or get_promotions called",
+        "Response highlights special items with their original price and special price if discounted",
+        "If no specials today, AI says so and optionally shows popular items instead",
+        "Specials shown with urgency indicator if limited quantity: Only 5 left today"
+      ],
+      "technicalNotes": [
+        "Add MENU_SPECIALS intent to routing.json",
+        "Call get_daily_specials MCP tool; fall back to get_menu_items with isSpecial filter if endpoint not available",
+        "Cache specials response for 30 minutes per profile",
+        "Expire cache at midnight to ensure fresh daily specials each day"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-865",
+      "title": "Set meal and combo handling: AI waiter guides guest through set meal customisation",
+      "priority": "medium",
+      "description": "Many cafe menus include set meals with choices such as Set A: main plus drink. When a guest orders a set meal, the AI waiter should prompt for each required choice in sequence rather than assuming defaults or failing silently.",
+      "acceptanceCriteria": [
+        "Set meal detected when ordered item has choices or components array in MCP response",
+        "AI prompts for each unfilled choice in sequence: For your Set A, which drink would you like? Options: 1. Teh Tarik 2. Milo 3. Sirap",
+        "Guest selects by number or name, selection stored in CartItem.components",
+        "All choices must be filled before item is added to cart",
+        "If guest skips or says any, a default is chosen and AI confirms it",
+        "Completed set meal shown in cart summary with chosen components listed"
+      ],
+      "technicalNotes": [
+        "Extend CartItem to include components: { name: string, choice: string }[]",
+        "Add pendingSetMeal: { itemId, remainingChoices } to session state",
+        "Check for set meal in progress before processing other intents",
+        "Set meal completion adds the full item to cart and clears pendingSetMeal"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-866",
+      "title": "Malay-language ordering: AI waiter correctly handles Malay and Manglish order phrases",
+      "priority": "medium",
+      "description": "Malaysian guests naturally mix Malay and English when ordering. Phrases like saya nak nasi lemak, boleh tambah teh tarik, tapau untuk bawa balik, and kurang manis must be understood and processed correctly by the AI waiter without requiring English.",
+      "acceptanceCriteria": [
+        "Malay add-to-cart phrases work: saya nak X, boleh bagi X, nak order X, satu X",
+        "Malay remove phrases work: cancel X, tak nak X, buang X",
+        "Malay special instructions work: kurang manis (less sugar), pedas sikit (a little spicy), tanpa bawang (no onion)",
+        "Malay takeaway phrase works: tapau, bawa balik detected as takeaway order type",
+        "Manglish works: can I have, I want lah, add one more lah",
+        "Vitest tests with at least 5 Malay phrase scenarios"
+      ],
+      "technicalNotes": [
+        "Extend intent keyword list in intent-keywords.json with Malay variants",
+        "Add Malay instruction mappings: kurang manis to less sugar, pedas to spicy, tanpa to without",
+        "AI system prompt instructs LLM to respond in the same language the guest uses",
+        "No separate language model needed: extend existing keyword matching with Malay terms"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-867",
+      "title": "Payment method guidance: AI waiter explains how to pay after order is confirmed",
+      "priority": "medium",
+      "description": "After an order is confirmed and submitted to the kitchen, guests are often left wondering how to pay. The AI waiter should proactively inform guests of the available payment methods immediately after order submission without waiting to be asked.",
+      "acceptanceCriteria": [
+        "Payment info shown automatically after every successful order placement",
+        "Message includes available payment methods configured per profile: cash, QR code, card",
+        "Example: Your order is placed! You can pay by cash or scan our QR code at the counter when ready.",
+        "Payment methods configurable in profile settings.json under paymentMethods array",
+        "If guest asks how to pay before ordering, same info is returned on demand",
+        "Payment message is brief: one to two sentences max"
+      ],
+      "technicalNotes": [
+        "Append payment info message after place_order success response in US-851 confirmation flow",
+        "Read paymentMethods from profile settings.json: [cash, qr, card, online]",
+        "Add PAYMENT_INFO intent to routing.json for on-demand queries",
+        "Default payment methods if not configured: cash only"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-868",
+      "title": "Kitchen queue awareness: inform guest of estimated wait when orders are backed up",
+      "priority": "medium",
+      "description": "During peak hours when the kitchen has many pending orders, the AI waiter should proactively mention the estimated wait time before the guest confirms their order. This manages expectations and reduces complaints about slow service.",
+      "acceptanceCriteria": [
+        "Before showing order confirmation summary, check FnB MCP get_kitchen_status",
+        "If queue has more than 5 pending orders or estimated wait is over 20 minutes, AI warns guest",
+        "Warning shown in order confirmation: Note: Kitchen is currently busy. Estimated wait is about 25 minutes.",
+        "Guest can still proceed or cancel after seeing the wait time",
+        "If kitchen status unavailable, skip warning silently without error",
+        "Wait time shown in order acknowledgement message as well"
+      ],
+      "technicalNotes": [
+        "Call FnB MCP get_kitchen_status before rendering order confirmation in US-851 flow",
+        "Thresholds configurable: queueWarningThreshold and waitTimeWarningMinutes in settings.json",
+        "Non-blocking: if MCP call fails or times out after 2 seconds, proceed without warning",
+        "Kitchen status cached for 2 minutes to avoid hammering MCP on every order"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-869",
+      "title": "Post-order feedback: AI waiter requests a quick star rating after order is served",
+      "priority": "low",
+      "description": "After an order is marked as served by the kitchen, the AI waiter should send a follow-up message asking for a simple 1 to 5 star rating. This captures real-time guest satisfaction and surfaces issues before guests leave a bad review elsewhere.",
+      "acceptanceCriteria": [
+        "Feedback request sent when FnB MCP order status changes to SERVED",
+        "Message is brief: Hope you enjoyed your meal! Rate your experience: 1 to 5 stars",
+        "Guest can reply with a number 1 to 5 or skip entirely with no follow-up",
+        "Rating stored via FnB MCP submit_feedback or in rainbow_messages table",
+        "Low ratings of 1 or 2 trigger an empathetic follow-up: Sorry to hear that. Let us know how we can improve.",
+        "High ratings of 4 or 5 get a thank you: Thank you for the kind words! See you again soon.",
+        "Feedback only requested once per order"
+      ],
+      "technicalNotes": [
+        "Listen for order status webhook event ORDER_SERVED from FnB MCP",
+        "Check feedbackRequested: boolean in session state before sending",
+        "Store rating and orderId in rainbow_messages or new order_feedback table",
+        "Low rating alert optionally notifiable to admin via existing admin-notifier.ts"
+      ],
+      "dependencies": [
+        "US-855"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-870",
+      "title": "Popular items suggestion: AI waiter proactively recommends top-ordered dishes when guest is undecided",
+      "priority": "low",
+      "description": "When a guest seems undecided (asking what is good, what do you recommend, what is popular), the AI waiter should surface the top 3 to 5 most ordered items from the FnB MCP rather than giving a generic response. Data-driven recommendations feel personalised and help guests decide faster.",
+      "acceptanceCriteria": [
+        "Undecided intent detected: what is good, what do you recommend, what is popular, what should I order",
+        "FnB MCP get_popular_items called with optional limit of 5",
+        "Response highlights top items with a short appeal: Our most popular dish is Nasi Lemak Special at RM 9.50, loved by most guests!",
+        "Each recommendation includes name, price, and one-line description",
+        "If popularity data unavailable, fall back to items tagged as featured or bestseller",
+        "Guest can pick any item directly from the recommendation list"
+      ],
+      "technicalNotes": [
+        "Add MENU_RECOMMEND intent to routing.json",
+        "Call get_popular_items MCP tool; fall back to get_menu_items with isFeatured filter",
+        "Limit to 3 to 5 items to keep response scannable",
+        "Response includes a natural call to action: Want me to add any of these to your order?"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-871",
+      "title": "WhatsApp Flows: in-chat check-in form for hostel guests",
+      "priority": "high",
+      "description": "Allow guests to complete a structured check-in form (name, IC/passport number, arrival time, room preferences) directly inside WhatsApp using a WhatsApp Flow, eliminating the need for a separate web link or paper form. This reduces front-desk workload and improves the arrival experience for digital-first guests. WhatsApp Flows support multi-screen forms with dropdowns, text inputs, and confirmation screens without leaving the chat.",
+      "acceptanceCriteria": [
+        "A WhatsApp Flow is triggered when a guest sends a check-in intent message (e.g. 'checking in today')",
+        "Flow collects: full name, IC/passport number, expected arrival time, bed/room preference, and emergency contact",
+        "On completion, a booking confirmation summary is sent in-chat and stored in the Rainbow AI database",
+        "Flow is linked to the correct profile (Pelangi) and does not appear for Makan Moments sessions",
+        "If the Flow cannot be triggered (e.g. Baileys does not support interactive flows), fallback to structured text prompts occurs gracefully"
+      ],
+      "technicalNotes": [
+        "WhatsApp Flows are only available via the Cloud API, not Baileys; assess whether to proxy through a Cloud API gateway or implement text-based equivalent for Baileys",
+        "Flow JSON spec: https://developers.facebook.com/docs/whatsapp/flows/",
+        "Store collected data in rainbow_conversations or a dedicated guest_checkin table",
+        "Flows support: text inputs, dropdowns, radio buttons, checkboxes, date pickers, and multi-screen navigation"
+      ],
+      "dependencies": [
+        "WhatsApp Cloud API access or Flows-compatible gateway"
+      ],
+      "estimatedComplexity": "large",
+      "passes": true
+    },
+    {
+      "id": "US-872",
+      "title": "WhatsApp interactive list message for menu category browsing",
+      "priority": "high",
+      "description": "Replace plain-text menu listings in the Makan Moments chatbot with WhatsApp interactive List Messages, presenting up to 10 sections (e.g. Mains, Drinks, Desserts) with up to 10 items each. This uses the WhatsApp Cloud API interactive message type and produces a native, tappable UI rather than a wall of text. Users tap a row to select an item, reducing mis-typed orders.",
+      "acceptanceCriteria": [
+        "When user sends 'menu' or triggers category browsing intent, a WhatsApp list message is sent with at least 3 sections matching the actual menu categories",
+        "Selecting an item from the list triggers the add-to-cart flow",
+        "Fallback to text-based menu is served if the channel does not support interactive messages (e.g. webchat widget)",
+        "List messages are only served on the makan-moments profile, not the hostel profile"
+      ],
+      "technicalNotes": [
+        "WhatsApp Cloud API interactive list message type: 'list' with up to 10 rows per section",
+        "Requires Cloud API — verify Baileys supports sending interactive list messages (it does via message patching)",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/",
+        "Row IDs map to menu item SKUs for deterministic cart operations"
+      ],
+      "dependencies": [
+        "Conversational cart (already implemented)",
+        "Menu data source/API"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-873",
+      "title": "Voice message transcription and intent processing via Whisper",
+      "priority": "high",
+      "description": "Allow guests and cafe customers to send WhatsApp voice messages that are automatically transcribed using Groq Whisper and fed into the intent classification pipeline as text. Many Malaysian users, particularly older guests or those placing complex orders, prefer voice over typing. Without this, voice messages currently go unhandled, producing confusion or silence.",
+      "acceptanceCriteria": [
+        "When a voice message (audio/ogg or audio/mp4) is received, the system downloads the audio, transcribes it via Whisper API, and processes the transcript as a regular text message",
+        "Transcription latency is under 5 seconds for messages up to 30 seconds long",
+        "If transcription fails, the bot sends a fallback message asking the user to type their request",
+        "Transcribed text is logged alongside the original audio reference in rainbow_messages",
+        "Works for both Pelangi and Makan Moments profiles"
+      ],
+      "technicalNotes": [
+        "Baileys provides audio messages as buffers; pass to Whisper API endpoint",
+        "Use Groq Whisper for lower latency and cost vs. OpenAI directly",
+        "n8n workflow template reference: https://n8n.io/workflows/6077-transcribe-whatsapp-audio-messages-with-whisper-ai-via-groq/",
+        "Store transcription in message metadata field, not as message content, to preserve audit trail"
+      ],
+      "dependencies": [
+        "Groq API key in env"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-874",
+      "title": "Automatic language detection and response in Chinese (Mandarin) and Tamil",
+      "priority": "high",
+      "description": "Detect when an incoming message is written in Mandarin Chinese or Tamil and respond in the same language, without requiring the user to explicitly switch language. Malaysia's multicultural population (Chinese ~23%, Tamil ~7%) commonly messages in their mother tongue. Failing to respond in-language creates a significant exclusion barrier and reduces order conversion for Makan Moments.",
+      "acceptanceCriteria": [
+        "The system detects the primary language of each incoming message using a language detection library or LLM metadata",
+        "Responses are generated in the detected language (Malay, English, Chinese Simplified, Tamil)",
+        "Language preference is stored per-JID so subsequent messages default to the detected language",
+        "User can override language at any time by messaging in a different language",
+        "System prompt and knowledge base queries are adapted to the target language at runtime",
+        "Language detection adds no more than 200ms to pipeline latency"
+      ],
+      "technicalNotes": [
+        "Use franc-min (lightweight language detection) or LLM-native language detection from model response metadata",
+        "Store detected language in conversation metadata in rainbow_conversations",
+        "System prompt injection: append 'Respond in {language}' to the system prompt based on detected language",
+        "Reference: https://gallabox.com/blog/multilingual-whatsapp-chatbot",
+        "For Tamil, verify that the LLM provider (NVIDIA Kimi K2.5 / OpenRouter) supports Tamil output quality"
+      ],
+      "dependencies": [
+        "Per-JID conversation state storage (already exists)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-875",
+      "title": "In-chat room amenity and housekeeping request handling",
+      "priority": "high",
+      "description": "Allow Pelangi Capsule guests to request housekeeping services (extra towels, pillow, room cleaning) and report maintenance issues (broken AC, faulty socket) via WhatsApp, with the request routed to the correct staff queue and confirmed to the guest with an estimated response time. This automates the most common in-stay service requests without requiring phone calls or walking to reception.",
+      "acceptanceCriteria": [
+        "Intents for common requests are classified: 'extra towel', 'room cleaning', 'maintenance issue', 'extra pillow', 'wifi password'",
+        "Classified requests are logged in a service_requests table with guest JID, room number, request type, timestamp, and status",
+        "A WhatsApp notification is sent to the staff operations number with request details",
+        "Guest receives confirmation message with estimated wait time (configurable per request type)",
+        "Staff can mark a request as fulfilled via admin API, triggering a completion message to the guest",
+        "Request intents are scoped to Pelangi profile only"
+      ],
+      "technicalNotes": [
+        "New DB table: service_requests (id, jid, profile, room_number, request_type, details, status, created_at, resolved_at)",
+        "Staff notification uses existing outbound WhatsApp send mechanism",
+        "Admin API endpoint: PATCH /api/service-requests/:id/resolve",
+        "Estimated wait times stored in settings.json per request_type key",
+        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
+      ],
+      "dependencies": [
+        "Table/room number capture (already implemented)",
+        "Outbound WhatsApp send"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-876",
+      "title": "POS webhook receiver: push confirmed orders to kitchen display system",
+      "priority": "high",
+      "description": "After the customer confirms their order in the Makan Moments chatbot, transmit the order to a configurable POS/KDS webhook endpoint so kitchen staff see the ticket in real time without manual re-entry. This closes the gap between chatbot order intake and kitchen workflow, eliminating the current manual relay step that introduces errors and delays.",
+      "acceptanceCriteria": [
+        "On order confirmation, the system POSTs an order payload to a configurable KDS_WEBHOOK_URL environment variable",
+        "Payload contains: order ID, items (name, qty, special instructions), table/pickup identifier, customer JID (hashed), timestamp",
+        "If the webhook call fails, the order is queued for retry (max 3 attempts with exponential backoff) and an alert is sent to the ops WhatsApp number",
+        "Webhook URL, auth header, and retry settings are configurable without redeploy",
+        "Order status response from POS (accepted/rejected) is relayed back to the customer in chat",
+        "Integration can be disabled per-profile via settings.json if POS is not connected"
+      ],
+      "technicalNotes": [
+        "Outbound HTTP POST using existing fetch pattern in src/tools/",
+        "KDS_WEBHOOK_URL and KDS_WEBHOOK_AUTH_TOKEN as env vars",
+        "Retry queue: in-memory with persistent fallback to DB table order_webhook_queue",
+        "Reference: https://n8n.io/workflows/3942-ai-powered-restaurant-order-chatbot-with-gpt-4o-for-pos-integration/",
+        "Order payload schema should follow a documented OpenAPI spec in src/assistant/schemas.ts"
+      ],
+      "dependencies": [
+        "Order confirmation summary (already implemented)",
+        "Conversational cart (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-877",
+      "title": "Allergen and dietary warning display on item selection",
+      "priority": "high",
+      "description": "When a customer selects a menu item, proactively display allergen and dietary information (e.g. 'Contains: peanuts, gluten. Suitable for: halal.') before adding to cart. Customers with allergies currently have no way to get allergen information from the chatbot without asking explicitly, creating a food safety and liability gap.",
+      "acceptanceCriteria": [
+        "Each menu item in the data source has an optional allergens array and dietary_flags array (e.g. ['halal', 'gluten-free'])",
+        "When an item is selected (before cart add), the bot displays a formatted allergen notice if the item has any allergen data",
+        "Customer must confirm (reply 'yes' or tap a confirm button) before the item is added to cart",
+        "If no allergen data exists for an item, a standard 'please inform staff of any allergies' message is shown instead",
+        "Allergen data is editable via admin API without redeploy"
+      ],
+      "technicalNotes": [
+        "Extend menu item schema in src/assistant/schemas.ts with allergens: string[] and dietary_flags: string[]",
+        "Allergen display uses a pre-formatted template in knowledge.json",
+        "Admin API: PATCH /api/menu-items/:id with allergen and dietary_flags fields",
+        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/"
+      ],
+      "dependencies": [
+        "Menu item data schema with allergen fields"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-878",
+      "title": "PDPA 2024 amendment: include DPO contact email in first-contact data notice",
+      "priority": "high",
+      "description": "Update the structured data notice sent to users on first WhatsApp interaction to include the mandatory Data Protection Officer (DPO) contact email, as required by Malaysia's Personal Data Protection (Amendment) Act 2024 effective 1 June 2025. The amendment requires organizations processing personal data to publish a designated DPO contact on public channels, which includes the WhatsApp chatbot's first-contact notice.",
+      "acceptanceCriteria": [
+        "The first-contact data notice message includes the DPO email address in a clearly labelled field (e.g. 'Data Protection Officer: dpo@example.com')",
+        "DPO email is configurable per-profile in settings.json (Pelangi and Southern Homestay may have different DPOs)",
+        "If DPO email is not configured, the data notice falls back to a general contact email with a warning logged",
+        "The data notice template in knowledge.json is updated to include a {dpo_email} interpolation variable",
+        "Existing conversations that have already received a data notice are NOT re-sent (idempotency check by JID)"
+      ],
+      "technicalNotes": [
+        "Malaysia PDPA Amendment Act 2024, effective 1 June 2025: DPO appointment mandatory for large-scale processing",
+        "DPO must be reachable via published contact: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
+        "Template variable interpolation (already implemented) can be used for {dpo_email}",
+        "Existing structured data notice story covers sending mechanism — this story only adds the DPO field"
+      ],
+      "dependencies": [
+        "Structured data notice (already implemented)",
+        "Template variable interpolation (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-879",
+      "title": "Menu sync via admin API: live price and availability updates without redeploy",
+      "priority": "high",
+      "description": "Provide an admin API endpoint to update menu item prices, availability, and descriptions in real time, syncing changes to the in-memory menu state used by the AI ordering pipeline without requiring a server restart or file edit. Cafe menus change frequently (daily specials, sold-out items, price adjustments), and the current file-based menu data requires SSH or a redeploy to update.",
+      "acceptanceCriteria": [
+        "POST /api/admin/menu-items creates a new menu item with name, description, price, category, allergens, dietary_flags, and available fields",
+        "PATCH /api/admin/menu-items/:id updates any menu item field including available (boolean)",
+        "Changes are written to the DB and immediately reflected in the AI pipeline's in-memory menu state (no restart needed)",
+        "When available is set to false, the item is excluded from menu browsing responses and triggers the existing out-of-stock graceful handling",
+        "All menu changes are logged in the admin audit log with before/after diff",
+        "Admin API endpoints require DIGIMAN_API_TOKEN auth"
+      ],
+      "technicalNotes": [
+        "New DB table: menu_items (id, profile, name, description, price, category, allergens jsonb, dietary_flags jsonb, available, display_order, created_at, updated_at)",
+        "Cache invalidation: on PATCH, update in-memory Map directly (no restart needed)",
+        "Menu data currently in src/assistant/data/ JSON files — migrate to DB-backed store with in-memory cache",
+        "Reference: https://hostie.ai/resources/how-to-set-up-ai-texting-takeout-orders-toast-pos-2025"
+      ],
+      "dependencies": [
+        "Out-of-stock graceful handling (already implemented)",
+        "Admin audit log (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-880",
+      "title": "Tiered confidence-based fallback with progressive escalation",
+      "priority": "medium",
+      "description": "Implement a three-tier fallback sequence when the AI cannot confidently classify a message: (1) ask user to rephrase, (2) offer a structured quick-reply menu of main functions, (3) escalate to human agent on third consecutive failure. This reduces user frustration from dead-end silence while keeping human escalation as a last resort.",
+      "acceptanceCriteria": [
+        "A per-JID failure counter is maintained in conversation state, reset on successful intent classification",
+        "On first failure: bot asks user to rephrase in a friendly tone",
+        "On second consecutive failure: bot presents a quick-reply list of 4-5 core capabilities",
+        "On third consecutive failure: bot sends a human handoff message and notifies staff",
+        "Failure counter resets after any successful intent classification",
+        "All fallback events are logged in intent_analytics with failure_tier (1, 2, or 3)"
+      ],
+      "technicalNotes": [
+        "Store failure_count in conversation metadata in rainbow_conversations",
+        "Quick-reply options are profile-specific (hostel vs. cafe) and configurable in settings.json",
+        "Third-tier escalation reuses the existing human handoff escalation flow",
+        "Reference: https://articles.chatnexus.io/knowledge-base/handling-chatbot-failures-gracefully-when-ai-doesn/"
+      ],
+      "dependencies": [
+        "Human handoff escalation (already implemented)",
+        "Conversation state storage"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-881",
+      "title": "Order modification window after submission: allow item changes before kitchen acceptance",
+      "priority": "medium",
+      "description": "Allow customers to change their order after confirming but before the kitchen has accepted it at the POS/KDS. In a chatbot-first ordering flow, customers frequently realize mistakes immediately after confirming. Without a modification window, every correction requires a cancellation and full re-order, degrading experience and creating kitchen confusion. The window is time-bounded (configurable, default 2 minutes).",
+      "acceptanceCriteria": [
+        "After order confirmation, the bot informs the customer they have N minutes to make changes (configurable via settings.json)",
+        "Within the window, the customer can say 'change order' to re-open the cart with current items pre-populated",
+        "Once the window expires (or kitchen accepts via POS webhook), modification requests are rejected with a polite explanation",
+        "A modified order re-sends the updated POS webhook payload and updates the order record in the DB",
+        "If no POS integration is active, the modification window still applies against a timer-based lock"
+      ],
+      "technicalNotes": [
+        "Order lock state stored in conversation metadata: order_id, confirmed_at, kitchen_accepted (bool)",
+        "Timer implemented as a setTimeout cleared on kitchen acceptance webhook callback",
+        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/",
+        "Cart re-opening reuses the existing conversational cart add/remove flow"
+      ],
+      "dependencies": [
+        "POS webhook receiver (this iteration)",
+        "Conversational cart (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-882",
+      "title": "Proactive abandoned-cart recovery message on WhatsApp session idle",
+      "priority": "medium",
+      "description": "When a customer has items in their cart and the WhatsApp conversation goes idle for a configurable period (default: 30 minutes) without confirming the order, send a proactive WhatsApp message reminding them of their cart and offering to resume or clear it. This is distinct from the existing webchat idle timeout story. WhatsApp abandoned-cart reminders achieve ~98% open rates and can recover up to 25% of abandoned carts.",
+      "acceptanceCriteria": [
+        "When a WhatsApp conversation has an active non-empty cart and no activity for the configured idle period, a single recovery message is sent",
+        "Recovery message includes the cart summary (items and total) and quick-reply options: 'Resume order' and 'Clear cart'",
+        "Only one recovery message is sent per cart session (no spam loops)",
+        "If user replies 'Resume order', the conversation resumes from the cart confirmation step",
+        "If user replies 'Clear cart' or the recovery message is ignored for 24 hours, the cart is cleared",
+        "Recovery idle period is configurable per-profile in settings.json"
+      ],
+      "technicalNotes": [
+        "Implement a cart_idle_timer per-JID, stored in conversation state with setTimeout or a cron-based checker",
+        "Use the existing outbound WhatsApp send mechanism for the proactive message",
+        "Comply with WhatsApp 24-hour session window: recovery message must be sent within 24h of the last user message",
+        "Reference: https://gallabox.com/blog/whatsapp-abandoned-cart-recovery",
+        "Track recovery_message_sent boolean in cart state to prevent duplicate messages"
+      ],
+      "dependencies": [
+        "Conversational cart (already implemented)",
+        "WhatsApp 24-hour session window check (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-883",
+      "title": "ARIA live region announcements for new webchat widget messages",
+      "priority": "medium",
+      "description": "Add ARIA live regions to the webchat widget so that new messages from the bot are automatically announced by screen readers (NVDA, JAWS, VoiceOver) without the user having to navigate to them. The existing keyboard accessibility story covers tab/keyboard navigation but does not address dynamic content announcement — a separate WCAG 2.1 SC 4.1.3 (Status Messages) requirement.",
+      "acceptanceCriteria": [
+        "The message list container has aria-live='polite' and aria-relevant='additions' set",
+        "Each new bot message added to the DOM is announced by screen readers without focus being moved away from the input field",
+        "The chat widget's unread message count badge uses an aria-label that updates dynamically",
+        "Typing indicator (if shown) uses aria-live='polite' with a short announcement (e.g. 'Assistant is typing...')",
+        "Focus is not stolen from the input field when new messages arrive",
+        "Tested and passing with NVDA + Firefox and VoiceOver + Safari"
+      ],
+      "technicalNotes": [
+        "Apply aria-live='polite' to the messages container div, NOT to each individual message",
+        "Avoid aria-live='assertive' which interrupts current screen reader output",
+        "Reference: https://www.sprinklr.com/help/articles/accessibility/live-chat-accessibility/65eecea5748e35549d8ef0e2",
+        "WCAG 2.1 SC 4.1.3 Status Messages: https://www.levelaccess.com/blog/wcag-2-1-exploring-new-success-criteria/",
+        "Do NOT set aria-live on the entire widget container — scope it to the messages list only"
+      ],
+      "dependencies": [
+        "WCAG 2.1 AA keyboard accessibility story (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-884",
+      "title": "Pre-arrival automated WhatsApp message sequence for confirmed hostel bookings",
+      "priority": "medium",
+      "description": "Send a timed sequence of pre-arrival WhatsApp messages to guests after a booking is confirmed: (1) booking confirmation with key details immediately, (2) directions and check-in instructions 24 hours before arrival, (3) a 'we're ready for you' message 1 hour before check-in time. Hotels using this pattern report a 40% reduction in service queries.",
+      "acceptanceCriteria": [
+        "A booking record (guest JID, arrival date/time, room type) can be submitted via POST /api/bookings",
+        "Three scheduled messages are queued: confirmation (immediate), directions (T-24h), ready message (T-1h)",
+        "Each message content is a configurable template in knowledge.json with variable interpolation (guest name, check-in time, room type)",
+        "If the arrival is within 24 hours of booking, the T-24h message is skipped to avoid duplicate sends",
+        "All scheduled messages respect the WhatsApp 24-hour session window; if expired, use a pre-approved utility template",
+        "Scheduled messages can be cancelled if the booking is cancelled before send time"
+      ],
+      "technicalNotes": [
+        "Use a DB-backed scheduler: scheduled_messages table (id, jid, profile, send_at, template_key, variables jsonb, status, booking_id)",
+        "Template variable interpolation (already implemented) covers message personalization",
+        "Utility template pre-approval required for T-24h and T-1h messages if session window may expire",
+        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
+      ],
+      "dependencies": [
+        "WhatsApp 24-hour session window check (already implemented)",
+        "Template variable interpolation (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-885",
+      "title": "WhatsApp product catalog single-item card for item detail showcase",
+      "priority": "medium",
+      "description": "Send a WhatsApp Single Product Message when a user asks about a specific menu item, displaying the item image, name, description, and price as a native WhatsApp card. This leverages the WhatsApp Business catalog integration to show rich product information without a web redirect. Improves conversion by reducing friction from image-less text descriptions.",
+      "acceptanceCriteria": [
+        "When a user asks about a specific item by name (e.g. 'tell me more about the nasi lemak'), the bot responds with a Single Product Message card",
+        "Card displays: item image, name, price, and short description",
+        "User can tap 'Add to cart' directly from the card",
+        "Catalog is kept in sync with the active menu data source",
+        "If catalog is not configured, fallback to a text description with an image attachment occurs"
+      ],
+      "technicalNotes": [
+        "Requires WhatsApp Business catalog setup in Meta Business Manager",
+        "Single Product Message API type: interactive with type 'product'",
+        "Catalog syncs via Meta Commerce API or manual upload",
+        "Reference: https://developers.cm.com/messaging/docs/whatsapp-catalogue-product-messages"
+      ],
+      "dependencies": [
+        "WhatsApp catalog configured in Meta Business Manager",
+        "Menu data source"
+      ],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-886",
+      "title": "WhatsApp message reaction emoji as lightweight CSAT signal",
+      "priority": "low",
+      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals — mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
+      "acceptanceCriteria": [
+        "Incoming webhook events of type 'reaction' are parsed and not silently discarded",
+        "Thumbs-up reaction on a bot message increments the positive CSAT counter for that conversation session",
+        "Thumbs-down reaction triggers a follow-up message asking the user what went wrong (optional short text reply)",
+        "Reaction data is stored in conversation_feedback table with message_id, emoji, and timestamp",
+        "Reaction handling is profile-agnostic (works for both Pelangi and Makan Moments)"
+      ],
+      "technicalNotes": [
+        "Baileys emits reaction events in the messages.upsert event as a message with a reaction key",
+        "WhatsApp Cloud API reaction webhook: messages[].type == 'reaction', with reaction.message_id and reaction.emoji fields",
+        "Map emoji to sentiment: thumbs-up/heart = positive, thumbs-down = negative, others = neutral/ignored",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/"
+      ],
+      "dependencies": [
+        "CSAT and resolution rate analytics (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-887",
+      "title": "WhatsApp Business Calling API: click-to-call escalation button",
+      "priority": "low",
+      "description": "When a conversation is escalated to a human agent, send an interactive WhatsApp message with a call button allowing the guest to initiate a voice call to Pelangi reception directly within WhatsApp. The WhatsApp Business Calling API (launched July 2025) supports user-initiated inbound calls triggered by a button in an interactive message template.",
+      "acceptanceCriteria": [
+        "On human escalation trigger, the bot sends an interactive message with a 'Call Reception' button alongside the existing text handoff message",
+        "Tapping the button initiates a WhatsApp voice call to the configured business phone number",
+        "The calling feature is only active during configured business hours (falls back to text-only message outside hours)",
+        "Call button is only sent on the Pelangi profile (hostel context), not Makan Moments",
+        "Feature can be toggled on/off in settings.json without a redeploy"
+      ],
+      "technicalNotes": [
+        "WhatsApp Business Calling API launched July 1, 2025; requires Cloud API access, not available via Baileys alone",
+        "Interactive call template with click-to-call: https://developers.facebook.com/docs/whatsapp/cloud-api/calling/",
+        "Business hours check reuses existing offline hours logic",
+        "Requires explicit user opt-in if business wants to initiate outbound calls (inbound via button is user-initiated)"
+      ],
+      "dependencies": [
+        "WhatsApp Cloud API access",
+        "Human handoff escalation (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-888",
+      "title": "Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message",
+      "priority": "high",
+      "description": "Add a Vitest integration test that catches the 'AI service temporarily unavailable' failure mode. The test mocks chatWithFallback to return a valid AI response and asserts the /api/chat/makan-moments/message endpoint streams a non-error reply. Also test the all-providers-fail path asserts the correct STREAM_FALLBACK message is sent as a streamed SSE token rather than a hard crash.",
+      "acceptanceCriteria": [
+        "Test file: src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } — assert streamChatWithTools streams that content as an SSE token",
+        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail — assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
+        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text — assert the tool handlers are invoked and the final text is streamed",
+        "All 3 tests pass in npm run test:run",
+        "No test imports the real AI providers or makes real HTTP calls"
+      ],
+      "technicalNotes": [
+        "Import streamChatWithTools from src/assistant/chat-stream.ts",
+        "Mock chatWithFallback from ai-provider-manager.ts using vi.mock",
+        "Mock the Express Response object with vi.fn() for res.write, res.setHeader, res.end, res.flushHeaders",
+        "The STREAM_FALLBACK constant is: 'AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.'",
+        "streamChatWithTools now streams content directly when chatWithFallback returns text with no toolCalls (no second provider call)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-889",
+      "title": "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text",
+      "priority": "high",
+      "description": "Write a Vitest test that verifies the fix to streamChatWithTools: when chatWithFallback returns text content with no tool calls (e.g. Gemini responds directly), the text is streamed immediately and NO second provider call is made. This prevents the 'double round-trip' that caused AI waiter failures when the second call hit a rate-limited provider.",
+      "acceptanceCriteria": [
+        "Test in src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Mock chatWithFallback to return { content: 'Here are our menu items...', toolCalls: undefined }",
+        "Assert that sseEvent is called with { token: 'Here are our menu items...' }",
+        "Assert that chatWithFallback is called exactly ONCE (not twice)",
+        "Assert that streamFromProviders is NOT called when content is available",
+        "Test passes in npm run test:run"
+      ],
+      "technicalNotes": [
+        "The fix is in src/assistant/chat-stream.ts lines 250-260: if content is truthy when toolCalls is empty, sseEvent(res, { token: content }) and return immediately",
+        "Use vi.spyOn to count how many times chatWithFallback is called",
+        "Confirm streamFromProviders is not called by spying on the internal function"
+      ],
+      "dependencies": [
+        "US-888"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    }
+  ]
+}
