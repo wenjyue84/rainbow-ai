@@ -164,8 +164,36 @@ export const settingsDataSchema = z.object({
     retention_days: z.number().int().min(30).max(3650),
     grace_period_days: z.number().int().min(7).max(365),
   }).optional(),
+  // US-876: KDS/POS webhook config
+  kdsWebhook: z.object({
+    enabled: z.boolean(),
+    webhookUrl: z.string(),
+    authToken: z.string().optional(),
+    maxRetries: z.number().int().min(1).max(10).optional(),
+    baseDelayMs: z.number().int().min(500).max(30000).optional(),
+    description: z.string().optional(),
+  }).optional(),
 }).passthrough();  // Allow unknown keys (response_modes, feedback, etc.)
 export type SettingsData = z.infer<typeof settingsDataSchema>;
+
+// ─── KDS Order Payload (US-876) ────────────────────────────────────
+
+export const kdsOrderItemSchema = z.object({
+  name: z.string(),
+  qty: z.number().int().positive(),
+  code: z.string().optional(),
+  specialInstructions: z.string().optional(),
+});
+
+export const kdsOrderPayloadSchema = z.object({
+  orderId: z.string(),
+  items: z.array(kdsOrderItemSchema).min(1),
+  tableOrPickup: z.string(),
+  customerJidHash: z.string().regex(/^[0-9a-f]{12}$/),
+  timestamp: z.string().datetime(),
+  profileId: z.string(),
+});
+export type KdsOrderPayloadSchema = z.infer<typeof kdsOrderPayloadSchema>;
 
 // ─── Routing ────────────────────────────────────────────────────────
 

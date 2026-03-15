@@ -311,6 +311,8 @@ export interface CartHandlerOptions {
   profileId?: string;
   /** Customer JID (phone) for KDS payload hashing */
   customerJid?: string;
+  /** Ops staff phone for KDS failure alerts (US-876 AC3). Falls back to system default. */
+  opsAlertPhone?: string;
 }
 
 /**
@@ -380,6 +382,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const kdsConfig = options?.kdsWebhook;
   const profileId = options?.profileId ?? 'makan-moments';
   const customerJid = options?.customerJid ?? `webchat-${sessionId}`;
+  const opsAlertPhone = options?.opsAlertPhone;
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -680,8 +683,17 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
         profileId,
       });
 
+      // US-876 AC3: Alert ops WhatsApp on webhook failure
+      const kdsAlertFn = opsAlertPhone
+        ? (msg: string) => {
+            import('../lib/baileys-client.js')
+              .then(({ sendWhatsAppMessage }) => sendWhatsAppMessage(opsAlertPhone, msg))
+              .catch(() => { /* fire-and-forget */ });
+          }
+        : undefined;
+
       try {
-        const kdsResult = await dispatchToKds(kdsPayload, kdsConfig);
+        const kdsResult = await dispatchToKds(kdsPayload, kdsConfig, kdsAlertFn);
         if (kdsResult.status === 'rejected') {
           kdsNote = `\n\n⚠️ Kitchen update: ${kdsResult.message || 'Order was not accepted by the POS system. Our staff will follow up.'}`;
         }

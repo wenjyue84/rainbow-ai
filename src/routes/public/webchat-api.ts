@@ -215,10 +215,19 @@ function buildMakanMomentsContext(sessionId: string) {
   // US-868: Read kitchen queue thresholds from settings
   const kitchenQueue = makanSettings?.kitchenQueue as { queueWarningThreshold?: number; waitTimeWarningMinutes?: number } | undefined;
 
-  // US-876: Read KDS/POS webhook config from settings
-  const kdsWebhook = makanSettings?.kdsWebhook as { enabled: boolean; webhookUrl: string; authToken?: string; maxRetries?: number; baseDelayMs?: number } | undefined;
+  // US-876: Read KDS/POS webhook config from settings, with env var overrides
+  const kdsFromSettings = makanSettings?.kdsWebhook as { enabled: boolean; webhookUrl: string; authToken?: string; maxRetries?: number; baseDelayMs?: number } | undefined;
+  const kdsWebhook = {
+    enabled: kdsFromSettings?.enabled ?? !!process.env.KDS_WEBHOOK_URL,
+    webhookUrl: process.env.KDS_WEBHOOK_URL || kdsFromSettings?.webhookUrl || '',
+    authToken: process.env.KDS_WEBHOOK_AUTH_TOKEN || kdsFromSettings?.authToken,
+    maxRetries: kdsFromSettings?.maxRetries,
+    baseDelayMs: kdsFromSettings?.baseDelayMs,
+  };
 
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments' });
+  // US-876 AC3: Ops phone for KDS failure alerts
+  const opsAlertPhone = (makanSettings?.staff as any)?.phones?.[0] ?? (makanSettings?.staff as any)?.jay_phone ?? '60127088789';
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments', opsAlertPhone });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);

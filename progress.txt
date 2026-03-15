@@ -7932,3 +7932,33 @@ Incomplete: WABA webhook subscription health check on server startup (ID: US-892
 - JID must be hashed for PDPA compliance — never send raw phone numbers to external POS systems
 - The `kdsWebhook` config defaults to disabled — zero impact on existing deployments
 - Retry queue is in-memory only — server restart loses pending retries (acceptable for MVP, DB fallback noted in story)
+
+
+
+## Iteration 4 - Story: US-876 POS webhook receiver: push confirmed orders to kitchen display system
+
+### What was implemented
+The core KDS webhook module (`src/lib/kds-webhook.ts`) and cart integration already existed from a prior iteration. This iteration completed the remaining acceptance criteria gaps:
+
+1. **AC3 — Ops WhatsApp alert on failure**: Added `opsAlertPhone` to `CartHandlerOptions` and constructed alertFn in `order_confirm_submit` handler that sends WhatsApp alert via dynamic import of `baileys-client.js`. Passed as third arg to `dispatchToKds()`. Phone sourced from `staff.phones[0]` in settings.json, falling back to `60127088789`.
+
+2. **Zod schema for KDS payload**: Added `kdsOrderPayloadSchema` and `kdsOrderItemSchema` to `src/assistant/schemas.ts`. Also added `kdsWebhook` optional field to `settingsDataSchema` for validation.
+
+3. **Env var override**: `KDS_WEBHOOK_URL` and `KDS_WEBHOOK_AUTH_TOKEN` env vars now override settings.json values in `webchat-api.ts`. Setting `KDS_WEBHOOK_URL` auto-enables KDS even if `settings.json` has `enabled: false`.
+
+4. **Fixed pre-existing test failure**: Added `flow` and `menu_browse` to `validActions` in `config-integration.integration.test.ts`.
+
+### Files changed
+- `src/tools/cart.ts` — Added `opsAlertPhone` to options, constructed alertFn, passed to dispatchToKds
+- `src/routes/public/webchat-api.ts` — Added env var overrides for KDS config, extracted ops phone from settings
+- `src/assistant/schemas.ts` — Added kdsWebhook to settings schema, added standalone KDS payload schema
+- `src/assistant/__tests__/config-integration.integration.test.ts` — Fixed validActions list
+
+### Patterns discovered
+- Dynamic import pattern (`import('../lib/baileys-client.js').then(...)`) is safe for fire-and-forget alerts in cart tools
+- `staff.phones[0]` is the standard ops alert target across the codebase (handoff-sla, fallback-alert)
+- Env var overrides should use `process.env.X || settingsValue` pattern (env takes precedence)
+
+### Gotchas
+- `config-integration.integration.test.ts` validActions list was stale — previous US-872 iteration claimed to fix it but the fix was not persisted
+- `kdsWebhook` settings field uses `description` as inline documentation — Zod schema marks it optional
