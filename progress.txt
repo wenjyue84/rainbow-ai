@@ -8668,3 +8668,21 @@ Build passes. 5 tests pass. Story marked passes=true.
 - MENU_LIST_MAX_SECTIONS=3, MENU_LIST_MAX_ITEMS_PER_SECTION=3 keeps total rows at 9 (under 10 Baileys limit)
 ### Status
 Build passes. 11/11 tests pass. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-872 WhatsApp interactive list message for menu category browsing
+### What was implemented
+- **Already complete** — spiral workers had fully implemented this story:
+  - `handleMenuBrowseInteractive()` in `src/assistant/pipeline/stages/action-dispatch.ts` (lines 792-870)
+  - ORDER_BROWSE and `menu_browse_category` intents route to handler for `makan-moments` profile only (lines 449-454)
+  - Text fallback when `msg.instanceId` is absent (webchat) or `interactiveMessages.enabled` is false
+  - `buildListMessage()` called with up to 3 sections × 3 items (stays under Baileys 10-row limit)
+  - Row IDs follow `add to cart: ITEMNAME` format for ORDER_ITEM_ADD routing
+  - `interactiveMessages.enabled: true` in settings.json
+  - 11 dedicated tests in `src/assistant/__tests__/menu-list-browse.test.ts` (all pass)
+  - 11 tests in `src/assistant/__tests__/interactive-messages.test.ts` (all pass)
+### Patterns discovered
+- Interactive payload stored in `state.interactivePayload` and dispatched in `response-processor.ts`
+- Profile guard: `state.profileId === 'makan-moments'` ensures hostel profiles never get menu list
+- Category capping: `Array.from(categoryMap.entries()).slice(0, MENU_LIST_MAX_SECTIONS)` limits sections
+### Status
+Build passes. 22/22 tests pass (menu-list-browse + interactive-messages). Story marked passes=true.
