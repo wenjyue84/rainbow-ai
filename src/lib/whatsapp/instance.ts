@@ -283,6 +283,19 @@ export class WhatsAppInstance {
     });
   }
 
+  /** US-941: Tear down the old socket cleanly before recreating — prevents event listener leaks */
+  private destroySocket(): void {
+    if (this.sock) {
+      this.sock.ev.removeAllListeners('connection.update');
+      this.sock.ev.removeAllListeners('messages.upsert');
+      this.sock.ev.removeAllListeners('messages.update');
+      this.sock.ev.removeAllListeners('creds.update');
+      this.sock.ev.removeAllListeners('contacts.upsert');
+      this.sock.end(undefined);
+      this.sock = null;
+    }
+  }
+
   private handleDisconnect(lastDisconnect: any, notifyUnlinkedFn: (id: string, label: string) => Promise<void>): void {
     const statusCode = lastDisconnect?.error?.output?.statusCode;
 
@@ -290,65 +303,10 @@ export class WhatsAppInstance {
     this.lastDisconnectCode = statusCode ?? null;
     this.lastDisconnectAt = new Date().toISOString();
 
-    if (statusCode !== DisconnectReason.loggedOut) {
-      // US-830: Circuit breaker — track consecutive failures
-      this.circuitBreaker.consecutiveFailures++;
-      this.reconnectAttempts++;
-
-      // US-830: Check if circuit breaker should OPEN
-      if (this.circuitBreaker.consecutiveFailures >= this.circuitBreaker.maxFailures) {
-        this.circuitBreaker.state = 'open';
-        this.circuitBreaker.lastOpenedAt = Date.now();
-
-        const reason = `Circuit breaker OPEN — ${this.circuitBreaker.consecutiveFailures} consecutive failures. Cooling down for ${this.circuitBreaker.cooldownMs / 60000} min.`;
-        console.warn(`[Baileys:${this.id}] ${reason}`);
-        trackWhatsAppDisconnected(this.id, reason);
-
-        // Admin notification
-        notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
-          console.error(`[Baileys:${this.id}] Failed to notify admin of circuit breaker:`, err.message);
-        });
-
-        // Schedule HALF-OPEN transition after cooldown
-        if (this.cooldownTimeout) clearTimeout(this.cooldownTimeout);
-        this.cooldownTimeout = setTimeout(() => {
-          this.cooldownTimeout = null;
-          this.circuitBreaker.state = 'half-open';
-          console.log(`[Baileys:${this.id}] Circuit breaker HALF-OPEN — attempting single reconnection`);
-          this.reconnectAttempts = 0; // reset for the half-open attempt
-          this.start(notifyUnlinkedFn);
-        }, this.circuitBreaker.cooldownMs);
-
-        this.reconnectTimeout = null;
-        return;
-      }
-
-      // Circuit is closed or half-open — allow reconnect with backoff
-      if (this.reconnectAttempts > WhatsAppInstance.MAX_RECONNECT_ATTEMPTS) {
-        const reason = `code ${statusCode}, stopped after ${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS} attempts`;
-        console.warn(`[Baileys:${this.id}] ${reason}. Please visit dashboard to restart.`);
-        notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
-          console.error(`[Baileys:${this.id}] Failed to notify admin of disconnection:`, err.message);
-        });
-        this.reconnectTimeout = null;
-        return;
-      }
-
-      // 408 = request timeout — use longer delay to avoid rapid retry spam
-      const is408 = statusCode === 408;
-      const baseDelay = this.reconnectTimeout ? 5000 : (is408 ? 30000 : 2000);
-      const delay = Math.min(baseDelay * this.reconnectAttempts, 60000);
-
-      console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
-      trackWhatsAppDisconnected(this.id, `code ${statusCode}, reconnecting (${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})`);
-
-      if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = setTimeout(() => {
-        this.reconnectTimeout = null;
-        this.start(notifyUnlinkedFn);
-      }, delay);
-    } else {
-      console.error(`[Baileys:${this.id}] Logged out from WhatsApp (user unlinked). Remove auth dir and re-pair.`);
+    // US-941: 401 loggedOut / device_removed — stop immediately, no reconnect loop
+    if (statusCode === DisconnectReason.loggedOut) {
+      console.error(`[Baileys:${this.id}] Logged out from WhatsApp (device removed / user unlinked). No reconnect.`);
+      this.destroySocket();
       trackWhatsAppUnlinked(this.id);
 
       // Mark as unlinked from WhatsApp side
@@ -360,7 +318,79 @@ export class WhatsAppInstance {
         this.notifyUnlinked(notifyUnlinkedFn);
         this.unlinkNotificationSent = true;
       }
+      return;
     }
+
+    // US-941: restartRequired (515) — destroy old socket, immediately recreate fresh
+    if (statusCode === DisconnectReason.restartRequired) {
+      console.log(`[Baileys:${this.id}] restartRequired (515) — recreating socket from fresh DB auth state`);
+      this.destroySocket();
+      this.state = 'close';
+      this.qr = null;
+      // Don't count as failure — this is a normal WhatsApp protocol event
+      this.start(notifyUnlinkedFn);
+      return;
+    }
+
+    // All other disconnect codes — reconnect with backoff + circuit breaker
+    // US-830: Circuit breaker — track consecutive failures
+    this.circuitBreaker.consecutiveFailures++;
+    this.reconnectAttempts++;
+
+    // US-830: Check if circuit breaker should OPEN
+    if (this.circuitBreaker.consecutiveFailures >= this.circuitBreaker.maxFailures) {
+      this.circuitBreaker.state = 'open';
+      this.circuitBreaker.lastOpenedAt = Date.now();
+
+      const reason = `Circuit breaker OPEN — ${this.circuitBreaker.consecutiveFailures} consecutive failures. Cooling down for ${this.circuitBreaker.cooldownMs / 60000} min.`;
+      console.warn(`[Baileys:${this.id}] ${reason}`);
+      trackWhatsAppDisconnected(this.id, reason);
+
+      // Admin notification
+      notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
+        console.error(`[Baileys:${this.id}] Failed to notify admin of circuit breaker:`, err.message);
+      });
+
+      // Schedule HALF-OPEN transition after cooldown
+      if (this.cooldownTimeout) clearTimeout(this.cooldownTimeout);
+      this.cooldownTimeout = setTimeout(() => {
+        this.cooldownTimeout = null;
+        this.circuitBreaker.state = 'half-open';
+        console.log(`[Baileys:${this.id}] Circuit breaker HALF-OPEN — attempting single reconnection`);
+        this.reconnectAttempts = 0; // reset for the half-open attempt
+        this.destroySocket();
+        this.start(notifyUnlinkedFn);
+      }, this.circuitBreaker.cooldownMs);
+
+      this.reconnectTimeout = null;
+      return;
+    }
+
+    // Circuit is closed or half-open — allow reconnect with backoff
+    if (this.reconnectAttempts > WhatsAppInstance.MAX_RECONNECT_ATTEMPTS) {
+      const reason = `code ${statusCode}, stopped after ${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS} attempts`;
+      console.warn(`[Baileys:${this.id}] ${reason}. Please visit dashboard to restart.`);
+      notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
+        console.error(`[Baileys:${this.id}] Failed to notify admin of disconnection:`, err.message);
+      });
+      this.reconnectTimeout = null;
+      return;
+    }
+
+    // 408 = request timeout — use longer delay to avoid rapid retry spam
+    const is408 = statusCode === 408;
+    const baseDelay = this.reconnectTimeout ? 5000 : (is408 ? 30000 : 2000);
+    const delay = Math.min(baseDelay * this.reconnectAttempts, 60000);
+
+    console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
+    trackWhatsAppDisconnected(this.id, `code ${statusCode}, reconnecting (${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})`);
+
+    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.destroySocket();
+      this.start(notifyUnlinkedFn);
+    }, delay);
   }
 
   private handleConnected(): void {
@@ -553,15 +583,7 @@ export class WhatsAppInstance {
     this.circuitBreaker.consecutiveFailures = 0;
     this.reconnectAttempts = 0;
 
-    // Stop existing socket cleanly before restarting
-    if (this.sock) {
-      this.sock.ev.removeAllListeners('connection.update');
-      this.sock.ev.removeAllListeners('messages.upsert');
-      this.sock.ev.removeAllListeners('messages.update');
-      this.sock.ev.removeAllListeners('creds.update');
-      this.sock.end(undefined);
-      this.sock = null;
-    }
+    this.destroySocket();
     this.state = 'close';
     this.qr = null;
 
@@ -579,16 +601,7 @@ export class WhatsAppInstance {
       this.cooldownTimeout = null;
     }
     this.reconnectAttempts = 0;
-
-    if (this.sock) {
-      this.sock.ev.removeAllListeners('connection.update');
-      this.sock.ev.removeAllListeners('messages.upsert');
-      this.sock.ev.removeAllListeners('messages.update');
-      this.sock.ev.removeAllListeners('creds.update');
-      this.sock.end(undefined);
-      this.sock = null;
-    }
-
+    this.destroySocket();
     this.state = 'close';
     this.qr = null;
   }

@@ -74,13 +74,20 @@ const OWASP_REGEX_PATTERNS: Array<{ pattern: RegExp; category: string }> = [
   { pattern: /roleplay\s+as\s+/i, category: 'role_hijack' },
 
   // Prompt extraction
-  { pattern: /reveal\s+(your|the)\s+(system\s+)?(prompt|instructions|rules|guidelines)/i, category: 'prompt_extraction' },
+  { pattern: /reveal\s+(your|the)\s+(system\s+|hidden\s+|secret\s+)?(prompt|instructions|rules|guidelines)/i, category: 'prompt_extraction' },
   { pattern: /show\s+(me\s+)?(your|the)\s+(system\s+)?(prompt|instructions|rules|initial)/i, category: 'prompt_extraction' },
-  { pattern: /what\s+(are|is)\s+your\s+(system\s+)?(prompt|instructions|rules|guidelines)/i, category: 'prompt_extraction' },
+  { pattern: /what\s+(are|is|were)\s+your\s+(system\s+)?(prompt|instructions|rules|guidelines)/i, category: 'prompt_extraction' },
   { pattern: /print\s+(your|the)\s+(system\s+)?(prompt|instructions|configuration)/i, category: 'prompt_extraction' },
   { pattern: /output\s+(your|the)\s+(system\s+)?(prompt|instructions|configuration)/i, category: 'prompt_extraction' },
   { pattern: /repeat\s+(your|the)\s+(system\s+)?(prompt|instructions|initial\s+message)/i, category: 'prompt_extraction' },
   { pattern: /display\s+(your|the)\s+(system|hidden|secret)\s+(prompt|instructions|message)/i, category: 'prompt_extraction' },
+  // Indirect extraction (social engineering)
+  { pattern: /what\s+(rules|instructions)\s+(do\s+)?you\s+follow/i, category: 'prompt_extraction' },
+  { pattern: /what\s+were\s+you\s+told\s+(at|in)\s+(the\s+)?(beginning|start)/i, category: 'prompt_extraction' },
+  { pattern: /repeat\s+(the\s+)?(text|content|everything)\s+(above|before)/i, category: 'prompt_extraction' },
+  // Malay extraction probes
+  { pattern: /\b(apakah|apa)\s+(arahan|prompt)\s+(sistem|anda)/i, category: 'prompt_extraction' },
+  { pattern: /tunjukkan\s+(arahan|prompt|sistem)\s*(anda)?/i, category: 'prompt_extraction' },
 
   // Delimiter injection (attempts to inject system-level markers)
   { pattern: /<\|?(system|im_start|im_end|endoftext|s|\/s)\|?>/i, category: 'delimiter_injection' },
