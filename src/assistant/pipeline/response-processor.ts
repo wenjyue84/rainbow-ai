@@ -27,6 +27,10 @@ import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
 import { checkFaithfulness, FAITHFULNESS_THRESHOLD, getFaithfulnessFallback } from '../faithfulness-checker.js';
+import {
+  detectHallucinations, getHallucinationBlockMessage, getHallucinationDisclaimer,
+  type HallucinationResult
+} from '../hallucination-detector.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -95,6 +99,66 @@ export async function processAndSend(
       }
     } catch (err: any) {
       console.warn(`[Faithfulness] Check failed for ${phone}:`, err.message);
+    }
+  }
+
+  // ─── US-913: Hallucination detection (post-faithfulness, pre-send) ──────
+  let hallucinationAction: string | undefined;
+  let hallucinationSeverity: number | undefined;
+  if (devMetadata.kbFiles.length > 0 && response && diaryEvent.action !== 'static_reply') {
+    try {
+      const kbContent = state.profileKB.getFilesContent(devMetadata.kbFiles);
+      if (kbContent.length > 50) {
+        const haluResult = detectHallucinations(
+          response, kbContent, diaryEvent.intent, text
+        );
+
+        if (!haluResult.skipped) {
+          hallucinationSeverity = haluResult.severity;
+          hallucinationAction = haluResult.action;
+
+          if (haluResult.severity > 0) {
+            console.log(
+              `[Hallucination] Severity ${haluResult.severity} for ${phone} — ` +
+              `${haluResult.contradictions.length} contradiction(s): ` +
+              haluResult.contradictions.map(c => `${c.responseClaim} vs KB: ${c.kbValue}`).join('; ') +
+              ` (${haluResult.latencyMs}ms)`
+            );
+          }
+
+          if (haluResult.action === 'block') {
+            console.warn(
+              `[Hallucination] BLOCKING response for ${phone} — severity ${haluResult.severity} >= threshold`
+            );
+            response = getHallucinationBlockMessage(lang);
+            diaryEvent.escalated = true;
+
+            // Log escalation event
+            const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+            logEscalationEvent({
+              jid: phone,
+              profileId,
+              trigger: 'hallucination',
+              count: haluResult.severity,
+              metadata: {
+                contradictions: haluResult.contradictions.map(c => ({
+                  claim: c.responseClaim,
+                  kbValue: c.kbValue,
+                  type: c.claimType,
+                })),
+                topCategory: haluResult.topCategory,
+                latencyMs: haluResult.latencyMs,
+              },
+            });
+          } else if (haluResult.action === 'body') {
+            response += getHallucinationDisclaimer(lang);
+          } else if (haluResult.action === 'header') {
+            response = getHallucinationDisclaimer(lang).trim() + '\n\n' + response;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Hallucination] Detection failed for ${phone}:`, err.message);
     }
   }
 
@@ -192,6 +256,8 @@ export async function processAndSend(
     usage: devMetadata.usage,
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
     ...(faithfulnessScore !== undefined ? { faithfulnessScore } : {}),
+    ...(hallucinationAction !== undefined ? { hallucinationAction } : {}),
+    ...(hallucinationSeverity !== undefined ? { hallucinationSeverity } : {}),
   };
 
   if (mode === 'manual') {

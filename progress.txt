@@ -9141,3 +9141,31 @@ Completed: Click-to-WhatsApp ad referral attribution tracking (ID: US-910) in 14
 - prd.json uses non-ASCII characters (UTF-8 emoji) — must open with encoding='utf-8' in Python
 - Build uses esbuild not tsc; `dist/index.js` startup fails with fake DB URL (expected)
 - `src/public/payment.html` was untracked — needed to be committed
+## Iteration 1 - Sun, Mar 15, 2026  8:06:03 PM
+FAILED quality gates: WhatsApp in-chat Webview for mobile payment page (ID: US-911) — attempt 1/3
+
+## Iteration 11 - Sun, Mar 15, 2026  8:07:03 PM
+Incomplete: WhatsApp in-chat Webview for mobile payment page (ID: US-911) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-913 Token-level hallucination detection with graceful response degradation
+### What was implemented
+- **Stage 1: Fast binary classifier** (`isFactualQuery()`) in `src/assistant/hallucination-detector.ts` — determines if a query requires factual verification based on intent and keyword patterns. Non-factual intents (greeting, farewell, thanks, small_talk, creative, opinion) bypass detection. Factual keyword override ensures queries about prices, times, availability always get checked.
+- **Stage 2: NLI-style contradiction detector** (`detectHallucinations()`) — extracts entity-value pairs from both response and KB content (prices with context, times with context, quantities, contact info), then compares matching entities using strict name matching to assign ENTAILMENT/CONTRADICTION/NEUTRAL labels. Strict entity matching prevents false cross-matches (e.g., "Mixed Dorm RM35" won't contradict "Female Dorm RM40").
+- **Integration into pipeline** (`src/assistant/pipeline/response-processor.ts`) — runs after US-899 faithfulness check. On severity >= 3: blocks response (replaces with safe fallback) or appends/prepends disclaimer based on config. Logs escalation events with trigger='hallucination' including contradiction details.
+- **Schema columns** added to `rainbow_messages`: `hallucination_action` (text) and `hallucination_severity` (integer) for audit trail
+- **Logger updated** (`src/assistant/conversation-logger.ts`) to persist hallucination metadata per message
+- **Admin report endpoint** (`src/routes/admin/hallucination-report.ts`): GET /analytics/hallucination-report with checked/skipped counts, detection rate, action breakdown, top flagged categories, and recent events
+- **24 unit tests** all passing (Stage 1 classifier, contradiction detection, correct response entailment, latency < 200ms, fallback messages)
+### Patterns discovered
+- Entity-value extraction needs strict matching to prevent false positive cross-matches between similar but distinct entities (e.g., "Mixed Dorm" vs "Female Dorm")
+- HaluGate's 72.2% efficiency gain is achievable by bypassing non-factual intents (greeting/farewell/thanks/small_talk)
+- Performance.now() provides sub-ms timing for latency tracking without external dependencies
+- Contradiction detection without LLM calls achieves < 5ms typical latency (well under 200ms P99 target)
+### Gotchas
+- prd.json was truncated (corrupted by prior iteration) — had to restore from git HEAD before updating
+- Need to run `npm run db:push` after deployment to apply 2 new columns (hallucination_action, hallucination_severity)
+- The detector works best for structured factual claims (prices, times, quantities); free-text policy contradictions need future enhancement
+
+### Status
+✅ Build passes (3 pre-existing warnings). Server startup OK. 24/24 tests pass. Marked passes=true.

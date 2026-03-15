@@ -144,6 +144,8 @@ export async function logMessage(
         totalTokens: meta?.usage?.total_tokens ?? null,
         transcribed: meta?.transcribed === true ? true : null,
         faithfulnessScore: meta?.faithfulnessScore ?? null,
+        hallucinationAction: meta?.hallucinationAction ?? null,
+        hallucinationSeverity: meta?.hallucinationSeverity ?? null,
       });
 
       // Cap at 500 messages per conversation
