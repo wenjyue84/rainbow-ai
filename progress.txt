@@ -9859,3 +9859,27 @@ Completed: Support BSUID as primary contact identifier in webhook handling (ID: 
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). Server starts. 10/10 new tests + 10/10 existing budget tests pass. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-960 Support BSUID as primary contact identifier in webhook handling
+### What was implemented
+- **AC1**: Webhook handler extracts BSUID from `ExternalUserId` field (+ `msg.lid`, `msg.key.participant`) with `whatsapp:` prefix stripping. Implemented in `extractBsuid()` in instance.ts.
+- **AC2**: `conversationKey()` in conversation-db.ts returns `bsuid:CC.VALUE` prefixed key for BSUID-only users; `getConversation()` falls back to BSUID lookup when phone lookup fails.
+- **AC3**: `sendMessage()` and `sendInteractiveMessage()` in manager.ts resolve BSUID-keyed identifiers via `resolveBsuidToJid()` from bsuid-resolver.ts before delivery.
+- **AC4**: `mergeBsuidConversation()` migrates messages from BSUID-only records to phone-keyed records when both identifiers become available.
+- **AC5**: `bsuidLinkedAt` timestamp column tracks when phone+BSUID were last seen together. `lookupPhoneByBsuidWithWindow()` enforces 30-day expiry on the mapping.
+- **AC6**: `ensurePhoneForAuthTemplate()` in bsuid-resolver.ts guards auth templates — returns phone number or null if only BSUID is known.
+
+### Files changed
+- `src/lib/whatsapp/instance.ts` — ExternalUserId extraction, whatsapp: prefix stripping
+- `src/lib/whatsapp/manager.ts` — BSUID resolution in sendMessage/sendInteractiveMessage
+- `src/assistant/conversation-db.ts` — bsuidLinkedAt tracking, lookupPhoneByBsuidWithWindow
+- `shared/schema-tables.ts` — bsuidLinkedAt column on rainbow_conversations
+- `src/lib/bsuid-resolver.ts` — NEW: isBsuidKey, resolveBsuidToJid, ensurePhoneForAuthTemplate
+
+### Patterns discovered
+- Previous iterations (US-477, US-926) had built most BSUID infrastructure (schema, extraction, conversation keying, merge logic)
+- US-960 added the 30-day window tracking (bsuidLinkedAt), ExternalUserId extraction, outbound BSUID resolution, and auth template guard
+- Build produces 3 pre-existing warnings (not related to BSUID changes)
+
+### Status
+✅ Build passes. 12/12 BSUID tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
