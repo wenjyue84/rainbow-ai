@@ -9311,3 +9311,52 @@ Completed: WhatsApp in-chat Webview for mobile payment page (ID: US-911) in 16m
 - Embeddings are pre-computed at startup but cross-encoder inferences are per-query (model cached)
 - If cross-encoder fails (model unavailable), fallback uses degrading RRF scores (0.8 → 0.0)
 - `buildSystemPrompt` signature changed: `(persona, topicFiles, configStore, hybridContext?)`
+## Iteration 14 - Sun, Mar 15, 2026  8:32:00 PM
+Completed: RAG hybrid retrieval with BM25 and cross-encoder reranking for knowledge base (ID: US-912) in 11m
+
+
+## Iteration 3 - Sun, Mar 15, 2026  8:33:00 PM
+Completed: Malaysia PDPA 2024 Amendment: PII masking before AI provider API calls (ID: US-915)
+
+### What was implemented
+- **Enhanced `src/assistant/pii-redactor.ts`** (US-915):
+  - Added Malaysian phone number patterns: +60XXXXXXXXX, 60XXXXXXXXX (country code), 01X-XXXXXXX, 01XXXXXXXXX (local)
+  - Patterns ordered BEFORE BANK_ACCOUNT to prevent 10-16 digit catch-all from matching phones first
+  - Added `maskPiiForProvider()` function: masks PII in message arrays before AI provider calls, supports guest name replacement
+
+- **Created `src/lib/pdpa-compliance.ts`**:
+  - `resolveProcessingCountry()`: maps provider base_url to processing country (US for NVIDIA/OpenRouter, MY for Ollama/localhost)
+  - `logDataFlow()`: fire-and-forget DB logging of AI provider data flows (provider, data categories, country, timestamp)
+  - `getTiaStatuses()`: returns Transfer Impact Assessment status for each provider (completed/pending/not_required)
+  - `logAdminDataAccess()`: logs admin access to personal data (username, action, IP, timestamp)
+  - `getDataFlowStats()`: aggregated data flow statistics for compliance dashboard
+
+- **Added DB tables** to `shared/schema-tables.ts`:
+  - `ai_data_flow_log`: records every AI call with provider, data categories sent, processing country
+  - `admin_audit_log`: captures admin access to personal data with username, action, IP, timestamp
+
+- **Integrated PII masking** in `src/assistant/ai-provider-manager.ts`:
+  - `chatWithFallback()` now calls `maskPiiForProvider()` on all messages before `providerChat()`
+  - Logs data flow entry for every provider call (fire-and-forget)
+  - This is the SINGLE gateway for all AI calls — ensures 100% coverage
+
+- **Added admin compliance routes** to `src/routes/admin/pdpa-dpo.ts`:
+  - GET `/pdpa/compliance`: Transfer Impact Assessment status for all providers, data flow stats, PDPA info
+  - GET `/pdpa/audit-log`: paginated admin data access audit trail
+
+- **Created tests** `src/assistant/__tests__/pdpa-pii-masking.test.ts`:
+  - 26 tests covering: phone number formats (7 tests), maskPiiForProvider (9 tests), country resolution (5 tests), TIA statuses (5 tests)
+  - All 26 tests pass; existing 15 pii-redactor tests still pass
+
+### Patterns discovered
+- PII pattern ordering matters — PHONE must come before BANK_ACCOUNT (10-16 digit catch-all)
+- Malaysian phone regex needs `\d{1,2}` for the area code group to handle both `012` and `0112` prefixes with separators
+- `maskPiiForProvider` must handle non-string content (Anthropic cache_control objects) by skipping non-string entries
+- pdpa-compliance.ts uses `pool` import (from db.ts) not `getDb()` — linter auto-corrected this
+
+### Gotchas
+- The `+` prefix in phone numbers doesn't match `\b` word boundary, so the country code regex uses `\+?` without `\b` at start
+- Unknown processing country treated as potentially cross-border (TIA pending), not as local
+
+### Status
+✅ Build passes (3 pre-existing warnings). 26/26 new tests pass + 15/15 existing PII tests pass. Marked passes=true.
