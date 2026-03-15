@@ -1,87 +1,165 @@
 diff a/src/routes/public/webchat-api.ts b/src/routes/public/webchat-api.ts	(rejected hunks)
-@@ -18,14 +18,9 @@ import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assista
+@@ -14,21 +14,16 @@ import { sanitizeInput, validateInputSafety, processChat } from '../../assistant
+ import { toolRegistry } from '../../tools/registry.js';
+ import { pool } from '../../lib/db.js';
+ import { cartTools, createCartHandlers } from '../../tools/cart.js';
+-import { cartGetItems, cartFormatSummary, cartGetTableInfo, cartSetTableInfo } from '../../assistant/cart-store.js';
++import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assistant/cart-store.js';
  import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
  import { getSessionOrderId } from '../../assistant/order-id-store.js';
  import { getDisambiguation } from '../../assistant/disambiguation-store.js';
--import { isModificationAllowed, getModificationRemainingSeconds } from '../../assistant/order-modification-store.js';
+-import { isModificationAllowed, getModificationTimeRemaining } from '../../assistant/order-modification-store.js';
  import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
+-import { stripDangerousHtml } from '../../assistant/output-sanitizer.js';
  import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
  import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
--import { handleRecoveryReply } from '../../assistant/cart-idle-recovery.js';
--import { cartResetRecovery, cartAddItem } from '../../assistant/cart-store.js';
--import { getLastOrder } from '../../assistant/order-history-store.js';
--import { fetchMenuItems } from '../../tools/fnb-menu.js';
+ import { getLastOrder } from '../../assistant/order-history-store.js';
+ import { computeAvailability } from '../../assistant/business-hours.js';
+-import { getSessionData, formatSessionDataPrompt } from '../../assistant/session-data-store.js';
+ import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
+-import { getVapidPublicKey, saveSubscription, removeSubscription, updateFrequency, sendPushNotification } from '../../assistant/push-notifications.js';
+-import type { PushSubscriptionData } from '../../assistant/push-notifications.js';
  
  const router = Router();
  
-@@ -197,143 +192,12 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
+@@ -280,16 +275,7 @@ function buildMakanMomentsContext(sessionId: string) {
+   const orderModWindowMinutes = makanSettings?.order_modification?.window_minutes ?? 2;
+   const modificationWindowMs = orderModWindowMinutes * 60 * 1000;
  
-   // Read welcomeMessage from profile settings, fall back to default
-   const settings = profile.configStore.getSettings() as any;
--  let greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
+-  // US-967: Read SST config from settings
+-  const sstSettings = makanSettings?.sst;
+-  const sst = sstSettings?.enabled ? {
+-    enabled: true,
+-    rate: sstSettings.rate ?? 0.06,
+-    registrationNo: sstSettings.registration_no ?? '',
+-    vendorName: sstSettings.vendor_name ?? 'Makan Moments Cafe',
+-  } : undefined;
 -
--  // US-897: Check for returning customer's last order (makan-moments only, opt-in)
--  let lastOrder: any = null;
--  const repeatOrderEnabled = settings.repeatOrderEnabled !== false; // default on
--  if (profileId === 'makan-moments' && repeatOrderEnabled) {
--    try {
--      const order = await getLastOrder(sessionId, profileId);
--      if (order && order.items.length > 0) {
--        // Filter out-of-stock items by checking current menu availability
--        let availableCodes: Set<string> | null = null;
--        try {
--          const menuItems = await fetchMenuItems();
--          availableCodes = new Set(
--            menuItems
--              .filter(m => m.code && m.available !== false)
--              .map(m => m.code!.toLowerCase())
--          );
--        } catch { /* menu fetch failed — skip availability check */ }
--
--        const availableItems = availableCodes
--          ? order.items.filter(i => !i.code || availableCodes!.has(i.code.toLowerCase()))
--          : order.items;
--        const omittedItems = availableCodes
--          ? order.items.filter(i => i.code && !availableCodes!.has(i.code.toLowerCase()))
--          : [];
--
--        if (availableItems.length > 0) {
--          const itemList = availableItems
--            .map(i => `${i.qty}x ${i.name}`)
--            .join(', ');
--          const omittedNote = omittedItems.length > 0
--            ? ` (Note: ${omittedItems.map(i => i.name).join(', ')} ${omittedItems.length === 1 ? 'is' : 'are'} currently unavailable)`
--            : '';
--
--          greeting = `Welcome back! Last time you ordered: ${itemList}.${omittedNote} Would you like to order the same again?`;
--          lastOrder = {
--            items: availableItems,
--            omittedItems: omittedItems.length > 0 ? omittedItems : undefined,
--            orderId: order.orderId,
--            placedAt: order.placedAt,
--          };
--        }
--      }
--    } catch {
--      // Non-blocking — fall back to default greeting
+-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs, sst });
++  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs });
+   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
+ 
+   const currentCartItems = cartGetItems(sessionId);
+@@ -297,21 +283,9 @@ function buildMakanMomentsContext(sessionId: string) {
+   const currentStage = getOrderStage(sessionId);
+   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
+   const pendingDisambig = getDisambiguation(sessionId);
+-  let tableInfo = cartGetTableInfo(sessionId);
++  const tableInfo = cartGetTableInfo(sessionId);
+   const lastOrderId = getSessionOrderId(sessionId);
+ 
+-  // US-921: Auto-restore table info from session data if cart was cleared (e.g. after order placed)
+-  if (!tableInfo) {
+-    const sessionData = getSessionData(sessionId);
+-    if (sessionData.tableNumber || sessionData.orderType) {
+-      const restored: import('../../assistant/cart-store.js').TableInfo = {};
+-      if (sessionData.tableNumber) restored.tableNumber = sessionData.tableNumber;
+-      if (sessionData.orderType) restored.orderType = sessionData.orderType;
+-      cartSetTableInfo(sessionId, restored);
+-      tableInfo = restored;
 -    }
 -  }
-+  const greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
+-
+   const disambigSection = pendingDisambig
+     ? [
+         '',
+@@ -421,8 +395,7 @@ function buildMakanMomentsContext(sessionId: string) {
+     '',
+     'PLACED stage: Order submitted. Cart is cleared.',
+     '  • Thank the guest. Offer to help with anything else.',
+-    '  • If guest says "change my order" / "modify" / "I want to change" / "tukar order" / "ubah order", call order_modify_request.',
+-    '  • If they want to order again (new order, not modification), start fresh from BROWSING.',
++    '  • If they want to order again, start fresh from BROWSING.',
+     '',
+     'REORDER (US-897): When the guest says "reorder", "same as last time", "order lagi",',
+     '  "sama macam semalam", "yes" (in response to the returning-customer welcome-back prompt):',
+@@ -439,19 +412,6 @@ function buildMakanMomentsContext(sessionId: string) {
+     lastOrderId
+       ? `  • Last placed order ID: ${lastOrderId}`
+       : '  • No order has been placed in this session yet.',
+-    '',
+-    '## Order Modification Window (US-881)',
+-    isModificationAllowed(sessionId).allowed
+-      ? `Modification window is OPEN — ${getModificationTimeRemaining(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
+-      : 'No active modification window.',
+-    // US-921: WCAG 2.2 SC 3.3.7 — Redundant Entry Prevention
+-    formatSessionDataPrompt(getSessionData(sessionId)),
+-    '',
+-    '## Redundant Entry Prevention (US-921, WCAG 2.2 SC 3.3.7)',
+-    'NEVER re-ask for information the guest has already provided in this session.',
+-    'When the guest provides their name, table, order type, or address, call session_save_info to persist it.',
+-    'For subsequent orders in the same session, auto-apply saved info (table, order type) and greet by name if known.',
+-    'If saved data needs updating, accept the new value and call session_save_info again.',
+   ].join('\n');
  
-   // Mark session as greeted
-   greetingSessions.set(sessionId, { sentAt: Date.now() });
+   return { allTools, allHandlers, systemPromptSuffix };
+@@ -609,12 +569,9 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
+       console.error('[Webchat] DB persist error:', err.message);
+     });
  
--  res.json({ greeting, sessionId, lastOrder });
+-    // US-946: Sanitize LLM output before sending to webchat (OWASP LLM05)
+-    const sanitizedResponse = stripDangerousHtml(result.message);
+-
+     // Return only public-safe fields
+     res.json({
+-      message: sanitizedResponse,
++      message: result.message,
+       responseTime: result.responseTime,
+       sessionId,
+     });
+@@ -714,135 +671,6 @@ router.post('/:profileId/consent-log', async (req: Request, res: Response) => {
+   }
+ });
+ 
+-// ─── US-916: Push Notification Endpoints ─────────────────────────────
+-
+-/**
+- * GET /api/chat/:profileId/push/vapid-key
+- * Returns the VAPID public key for client-side push subscription.
+- */
+-router.get('/:profileId/push/vapid-key', (_req: Request, res: Response) => {
+-  const publicKey = getVapidPublicKey();
+-  if (!publicKey) {
+-    res.status(503).json({ error: 'Push notifications not configured (VAPID keys missing)' });
+-    return;
+-  }
+-  res.json({ publicKey });
 -});
 -
 -/**
-- * POST /api/chat/:profileId/reorder (US-897)
-- *
-- * Populates the session cart with items from the customer's last completed order.
-- * Checks menu availability and omits out-of-stock items.
-- * Body: { sessionId } (required)
+- * POST /api/chat/:profileId/push/subscribe
+- * Subscribe a webchat session to push notifications.
+- * Body: { sessionId, subscription: { endpoint, keys: { p256dh, auth } } }
 - */
--router.post('/:profileId/reorder', async (req: Request, res: Response) => {
+-router.post('/:profileId/push/subscribe', async (req: Request, res: Response) => {
+-  const profileId = req.params.profileId as string;
+-  const { sessionId, subscription } = req.body;
+-
+-  if (!sessionId || typeof sessionId !== 'string') {
+-    res.status(400).json({ error: 'sessionId (string) required' });
+-    return;
+-  }
+-
+-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+-    res.status(400).json({ error: 'Valid push subscription object required (endpoint, keys.p256dh, keys.auth)' });
+-    return;
+-  }
+-
+-  try {
+-    await saveSubscription(sessionId, profileId, subscription as PushSubscriptionData);
+-    res.json({ ok: true });
+-  } catch (err: any) {
+-    console.error('[Push] Subscribe error:', err.message);
+-    res.status(500).json({ error: 'Failed to save subscription' });
+-  }
+-});
+-
+-/**
+- * POST /api/chat/:profileId/push/unsubscribe
+- * Disable push notifications for a webchat session.
+- * Body: { sessionId }
+- */
+-router.post('/:profileId/push/unsubscribe', async (req: Request, res: Response) => {
 -  const profileId = req.params.profileId as string;
 -  const { sessionId } = req.body;
 -
@@ -90,149 +168,78 @@ diff a/src/routes/public/webchat-api.ts b/src/routes/public/webchat-api.ts	(reje
 -    return;
 -  }
 -
--  if (profileId !== 'makan-moments') {
--    res.status(400).json({ error: 'Reorder is only available for makan-moments profile' });
--    return;
+-  try {
+-    await removeSubscription(sessionId, profileId);
+-    res.json({ ok: true });
+-  } catch (err: any) {
+-    console.error('[Push] Unsubscribe error:', err.message);
+-    res.status(500).json({ error: 'Failed to remove subscription' });
 -  }
+-});
 -
--  const profile = profileRegistry.getProfile(profileId);
--  if (!profile) {
--    res.status(404).json({ error: `Profile "${profileId}" not found` });
--    return;
--  }
+-/**
+- * POST /api/chat/:profileId/push/settings
+- * Update push notification settings (frequency, enabled).
+- * Body: { sessionId, maxFrequencyMinutes?, enabled? }
+- */
+-router.post('/:profileId/push/settings', async (req: Request, res: Response) => {
+-  const profileId = req.params.profileId as string;
+-  const { sessionId, maxFrequencyMinutes, enabled } = req.body;
 -
--  // Check if feature is enabled
--  const settings = profile.configStore.getSettings() as any;
--  if (settings.repeatOrderEnabled === false) {
--    res.status(403).json({ error: 'Repeat order feature is disabled' });
+-  if (!sessionId || typeof sessionId !== 'string') {
+-    res.status(400).json({ error: 'sessionId (string) required' });
 -    return;
 -  }
 -
 -  try {
--    const order = await getLastOrder(sessionId, profileId);
--    if (!order || order.items.length === 0) {
--      res.json({ success: false, message: 'No previous order found for this session', items: [] });
--      return;
+-    if (enabled === false) {
+-      await removeSubscription(sessionId, profileId);
+-    } else if (typeof maxFrequencyMinutes === 'number' && maxFrequencyMinutes > 0) {
+-      await updateFrequency(sessionId, profileId, maxFrequencyMinutes);
 -    }
--
--    // Check current menu availability
--    let availableCodes: Set<string> | null = null;
--    try {
--      const menuItems = await fetchMenuItems();
--      availableCodes = new Set(
--        menuItems
--          .filter(m => m.code && m.available !== false)
--          .map(m => m.code!.toLowerCase())
--      );
--    } catch { /* menu fetch failed — add all items */ }
--
--    const availableItems = availableCodes
--      ? order.items.filter(i => !i.code || availableCodes!.has(i.code.toLowerCase()))
--      : order.items;
--    const omittedItems = availableCodes
--      ? order.items.filter(i => i.code && !availableCodes!.has(i.code.toLowerCase()))
--      : [];
--
--    // Populate the cart with available items and transition to ORDERING stage
--    for (const item of availableItems) {
--      cartAddItem(sessionId, { name: item.name, code: item.code, qty: item.qty, price: item.price });
--    }
--    if (availableItems.length > 0) {
--      const { transitionOrderStage } = await import('../../assistant/order-stage-store.js');
--      transitionOrderStage(sessionId, 'ORDERING');
--    }
--
--    const omittedNote = omittedItems.length > 0
--      ? `Some items are no longer available: ${omittedItems.map(i => i.name).join(', ')}.`
--      : undefined;
--
--    res.json({
--      success: true,
--      items: availableItems,
--      omittedItems: omittedItems.length > 0 ? omittedItems : undefined,
--      omittedNote,
--    });
+-    res.json({ ok: true });
 -  } catch (err: any) {
--    console.error('[Webchat] Reorder error:', err.message);
--    res.status(500).json({ error: 'Failed to process reorder' });
+-    console.error('[Push] Settings error:', err.message);
+-    res.status(500).json({ error: 'Failed to update settings' });
 -  }
-+  res.json({ greeting, sessionId });
- });
- 
- // ─── Makan-Moments Context Builder ─────────────────────────────────────
-@@ -351,22 +215,7 @@ function buildMakanMomentsContext(sessionId: string) {
-   // US-868: Read kitchen queue thresholds from settings
-   const kitchenQueue = makanSettings?.kitchenQueue as { queueWarningThreshold?: number; waitTimeWarningMinutes?: number } | undefined;
- 
--  // US-876: Read KDS/POS webhook config from settings, with env var overrides
--  const kdsFromSettings = makanSettings?.kdsWebhook as { enabled: boolean; webhookUrl: string; authToken?: string; maxRetries?: number; baseDelayMs?: number } | undefined;
--  const kdsWebhook = {
--    enabled: kdsFromSettings?.enabled ?? !!process.env.KDS_WEBHOOK_URL,
--    webhookUrl: process.env.KDS_WEBHOOK_URL || kdsFromSettings?.webhookUrl || '',
--    authToken: process.env.KDS_WEBHOOK_AUTH_TOKEN || kdsFromSettings?.authToken,
--    maxRetries: kdsFromSettings?.maxRetries,
--    baseDelayMs: kdsFromSettings?.baseDelayMs,
--  };
+-});
 -
--  // US-876 AC3: Ops phone for KDS failure alerts
--  const opsAlertPhone = (makanSettings?.staff as any)?.phones?.[0] ?? (makanSettings?.staff as any)?.jay_phone ?? '60127088789';
--  // US-881: Read order modification window from settings
--  const orderModificationWindowMinutes: number | undefined = makanSettings?.orderModificationWindowMinutes;
+-/**
+- * POST /api/chat/:profileId/push/send (admin use — for order-ready notifications)
+- * Sends a push notification to a specific session.
+- * Body: { sessionId, title, body, type, url? }
+- */
+-router.post('/:profileId/push/send', async (req: Request, res: Response) => {
+-  const profileId = req.params.profileId as string;
+-  const { sessionId, title, body: msgBody, type, url } = req.body;
 -
--  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kdsWebhook, profileId: 'makan-moments', opsAlertPhone, orderModificationWindowMinutes });
-+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue });
-   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
- 
-   const currentCartItems = cartGetItems(sessionId);
-@@ -486,8 +335,7 @@ function buildMakanMomentsContext(sessionId: string) {
-     '',
-     'PLACED stage: Order submitted. Cart is cleared.',
-     '  • Thank the guest. Offer to help with anything else.',
--    '  • If guest says "change my order" / "modify" / "I want to change", call order_modify_request.',
--    '  • If they want to order again (new order, not modification), start fresh from BROWSING.',
-+    '  • If they want to order again, start fresh from BROWSING.',
-     '',
-     'ORDER STATUS ENQUIRY: When the guest asks about their order status:',
-     '  • Trigger phrases: "where is my order", "how long more", "is my food ready", "check my order", "order status".',
-@@ -498,11 +346,6 @@ function buildMakanMomentsContext(sessionId: string) {
-     lastOrderId
-       ? `  • Last placed order ID: ${lastOrderId}`
-       : '  • No order has been placed in this session yet.',
--    '',
--    '## Order Modification Window (US-881)',
--    isModificationAllowed(sessionId)
--      ? `Modification window is OPEN — ${getModificationRemainingSeconds(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
--      : 'No active modification window.',
-   ].join('\n');
- 
-   return { allTools, allHandlers, systemPromptSuffix };
-@@ -544,29 +387,6 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
-     console.error('[Webchat] Session reset error:', err.message);
-   });
- 
--  // US-882: Intercept cart recovery replies ("Resume order" / "Clear cart")
--  if (profileId === 'makan-moments') {
--    const recoveryResponse = handleRecoveryReply(sessionId, message);
--    if (recoveryResponse) {
--      cartResetRecovery(sessionId);
--      // Persist to DB so webchat polling picks it up
--      const ip = req.ip || req.socket.remoteAddress || 'unknown';
--      const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
--      persistWebchatExchange(phone, pushName, message, recoveryResponse, 0, profileId).catch(err => {
--        console.error('[Webchat] Cart recovery persist error:', err.message);
--      });
--
--      if (req.body.stream) {
--        sendStaticSSE(res, recoveryResponse, 0, sessionId);
--      } else {
--        res.json({ message: recoveryResponse, responseTime: 0, sessionId });
--      }
--      return;
--    }
--    // Any user message resets the recovery flag (they're active again)
--    cartResetRecovery(sessionId);
+-  if (!sessionId || !title || !msgBody || !type) {
+-    res.status(400).json({ error: 'sessionId, title, body, type required' });
+-    return;
 -  }
 -
-   // Sanitize input
-   const sanitizedMessage = sanitizeInput(message);
-   if (!sanitizedMessage) {
+-  const validTypes = ['order_ready', 'promotion', 'incomplete_order'];
+-  if (!validTypes.includes(type)) {
+-    res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
+-    return;
+-  }
+-
+-  try {
+-    const sent = await sendPushNotification(sessionId, profileId, {
+-      title,
+-      body: msgBody,
+-      type,
+-      url: url || `/chat/${profileId}`,
+-      profileId,
+-      sessionId,
+-    });
+-    res.json({ ok: true, delivered: sent });
+-  } catch (err: any) {
+-    console.error('[Push] Send error:', err.message);
+-    res.status(500).json({ error: 'Failed to send notification' });
+-  }
+-});
+-
+ /**
+  * Persist user message + AI response to rainbow_messages/rainbow_conversations.
+  */

@@ -1,55 +1,138 @@
 diff a/src/lib/data-retention.ts b/src/lib/data-retention.ts	(rejected hunks)
-@@ -12,7 +12,7 @@
+@@ -1,20 +1,17 @@
+ /**
+- * data-retention.ts — Configurable conversation data retention (US-419, US-907)
++ * data-retention.ts — Configurable conversation data retention (US-419)
+  *
+- * GDPR Article 5(1)(e) / Malaysia PDPA 2024 compliance: soft-deletes messages/conversations
+- * older than the configured retention window, then hard-deletes after a grace period.
+- * US-907: Generates a disposal confirmation report (archived to pdpa_disposal_reports) before
+- * any hard-delete, and enforces a 24-month (730-day) default retention period.
++ * GDPR Article 5(1)(e) compliance: soft-deletes messages/conversations older
++ * than the configured retention window, then hard-deletes after a grace period.
+  *
+  * Retention config (settings.json, profile-specific):
+- *   retention.enabled           — toggle (default: true)
+- *   retention.retention_months  — soft-delete cutoff in months (default: 24)
+- *   retention.retention_days    — soft-delete cutoff in days (overrides months if set)
++ *   retention.enabled         — toggle (default: true)
++ *   retention.retention_days  — soft-delete cutoff (default: 90)
+  *   retention.grace_period_days — hard-delete cutoff after soft-delete (default: 30)
+  */
  
  import cron from 'node-cron';
- import { db } from './db.js';
--import { rainbowMessages, rainbowConversations, webhookRawEvents } from '../../shared/schema-tables.js';
-+import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
+-import { db, pool, dbReady } from './db.js';
++import { db } from './db.js';
+ import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
  import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
  import { configStore } from '../assistant/config-store.js';
- import { profileRegistry } from '../assistant/profile-registry.js';
-@@ -110,7 +110,6 @@ export interface PurgeResult {
-     messages_hard: number;
-     conversations_soft: number;
-     conversations_hard: number;
--    rawEvents: number; // US-895: webhook_raw_events pruned (30-day retention)
+@@ -29,18 +26,13 @@ interface RetentionConfig {
+   gracePeriodDays: number;
+ }
+ 
+-// Default: 24 months = 730 days (Malaysia PDPA 2024 Amendment requirement)
+-const DEFAULT_RETENTION_DAYS = 730;
+-
+ function getRetentionConfig(store?: typeof configStore): RetentionConfig {
+   const s = store ?? configStore;
+   const settings = s.getSettings();
+   const retention = (settings as any).retention;
+-  const months = retention?.retention_months;
+-  const daysFromMonths = months ? Math.round(months * 30.44) : DEFAULT_RETENTION_DAYS;
+   return {
+     enabled: retention?.enabled ?? true,
+-    retentionDays: retention?.retention_days ?? daysFromMonths,
++    retentionDays: retention?.retention_days ?? 90,
+     gracePeriodDays: retention?.grace_period_days ?? 30,
    };
+ }
+@@ -123,7 +115,6 @@ export interface PurgeResult {
    cutoff_date: string;
    hard_cutoff_date: string;
-@@ -129,7 +128,7 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
-     const profile = profileId ?? 'pelangi';
-     const result: PurgeResult = {
-       profile,
--      records_deleted: { messages_soft: 0, messages_hard: 0, conversations_soft: 0, conversations_hard: 0, rawEvents: 0 },
-+      records_deleted: { messages_soft: 0, messages_hard: 0, conversations_soft: 0, conversations_hard: 0 },
-       cutoff_date: new Date().toISOString(),
-       hard_cutoff_date: new Date().toISOString(),
-       timestamp: new Date().toISOString(),
-@@ -168,19 +167,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
-     .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
-     .returning({ phone: rainbowConversations.phone });
+   timestamp: string;
+-  disposal_report_archived?: boolean;
+ }
  
--  // 5. US-895: Prune raw webhook events older than 30 days
--  const rawEventCutoff = new Date(now.getTime() - 30 * 86_400_000);
--  let rawEventsPruned = 0;
--  try {
--    const pruned = await db
--      .delete(webhookRawEvents)
--      .where(lt(webhookRawEvents.receivedAt, rawEventCutoff))
--      .returning({ eventId: webhookRawEvents.eventId });
--    rawEventsPruned = pruned.length;
--  } catch (err: any) {
--    console.error('[DataRetention] Failed to prune raw webhook events:', err.message);
+ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult> {
+@@ -147,7 +138,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
+     return result;
+   }
+ 
+-  const profile = profileId ?? 'pelangi';
+   const now = new Date();
+   const cutoffDate = new Date(now.getTime() - config.retentionDays * 86_400_000);
+   const hardCutoffDate = new Date(now.getTime() - (config.retentionDays + config.gracePeriodDays) * 86_400_000);
+@@ -194,22 +185,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
+   // Structured log as required by AC
+   console.log(JSON.stringify({ event: 'data_retention_purge', ...result }));
+ 
+-  // US-907 AC5: Generate and archive a disposal confirmation report
+-  const hardDeleteCount = hardMessages.length + hardConversations.length;
+-  if (hardDeleteCount > 0) {
+-    await saveDisposalReport(
+-      profile, now, config.retentionDays, cutoffDate, hardCutoffDate,
+-      hardMessages.length, hardConversations.length,
+-      {
+-        ...result,
+-        deleted_message_ids: hardMessages.map((m: { id: string }) => m.id),
+-        deleted_conversation_phones: hardConversations.map((c: { phone: string }) => c.phone),
+-        legal_basis: 'Malaysia PDPA 2024 Amendment — data retention policy enforcement',
+-      }
+-    );
+-    result.disposal_report_archived = true;
 -  }
 -
-   const profile = profileId ?? 'pelangi';
-   const result: PurgeResult = {
-     profile,
-@@ -189,7 +175,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
-       messages_hard: hardMessages.length,
-       conversations_soft: softConversations.length,
-       conversations_hard: hardConversations.length,
--      rawEvents: rawEventsPruned,
-     },
-     cutoff_date: cutoffDate.toISOString(),
-     hard_cutoff_date: hardCutoffDate.toISOString(),
+   return result;
+ }
+ 
+@@ -240,50 +215,3 @@ export function startRetentionScheduler(): void {
+ 
+   console.log('[DataRetention] Nightly retention scheduler started (3:00 AM MYT)');
+ }
+-// ─── Disposal Report (US-907 AC5) ────────────────────────────────────
+-
+-async function ensureDisposalReportTable(): Promise<void> {
+-  await pool.query(`
+-    CREATE TABLE IF NOT EXISTS pdpa_disposal_reports (
+-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-      profile TEXT NOT NULL,
+-      purge_timestamp TIMESTAMPTZ NOT NULL,
+-      retention_days INTEGER NOT NULL,
+-      cutoff_date TIMESTAMPTZ NOT NULL,
+-      hard_cutoff_date TIMESTAMPTZ NOT NULL,
+-      messages_hard_deleted INTEGER NOT NULL DEFAULT 0,
+-      conversations_hard_deleted INTEGER NOT NULL DEFAULT 0,
+-      report_json JSONB NOT NULL,
+-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-    )
+-  `);
+-}
+-
+-dbReady.then(ok => { if (ok) ensureDisposalReportTable().catch(() => {}); });
+-
+-async function saveDisposalReport(
+-  profile: string,
+-  purgeTimestamp: Date,
+-  retentionDays: number,
+-  cutoffDate: Date,
+-  hardCutoffDate: Date,
+-  messagesHardDeleted: number,
+-  conversationsHardDeleted: number,
+-  reportData: object
+-): Promise<void> {
+-  try {
+-    await pool.query(
+-      `INSERT INTO pdpa_disposal_reports
+-         (profile, purge_timestamp, retention_days, cutoff_date, hard_cutoff_date,
+-          messages_hard_deleted, conversations_hard_deleted, report_json)
+-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+-      [
+-        profile, purgeTimestamp, retentionDays, cutoffDate, hardCutoffDate,
+-        messagesHardDeleted, conversationsHardDeleted, JSON.stringify(reportData),
+-      ]
+-    );
+-    console.log(`[DataRetention] Disposal report archived: ${profile} — ${messagesHardDeleted} msgs, ${conversationsHardDeleted} convs hard-deleted`);
+-  } catch (err: any) {
+-    console.error('[DataRetention] Failed to save disposal report:', err.message);
+-  }
+-}

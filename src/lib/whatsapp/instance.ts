@@ -1,6 +1,6 @@
 import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion, type AnyMessageContent } from '@whiskeysockets/baileys';
 import fs from 'fs';
-import type { IncomingMessage, MessageType, MediaMetadata, ReferralData } from '../../assistant/types.js';
+import type { IncomingMessage, MessageType, MediaMetadata } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
 import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifier.js';
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';

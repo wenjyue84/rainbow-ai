@@ -293,9 +293,61 @@ export class KnowledgeBaseInstance {
     }
   }
 
+  // ─── US-912: Hybrid RAG Retrieval ───────────────────────────────
+
+  /**
+   * Initialize the hybrid RAG retriever (async, non-blocking).
+   * Chunks all KB files, builds BM25 index, computes embeddings.
+   * Core files (AGENTS.md, soul.md) are excluded from chunking since they're
+   * always included in the system prompt.
+   */
+  async initRAG(): Promise<void> {
+    if (this.ragInitPromise) return this.ragInitPromise;
+    const coreFiles = new Set(this.getCoreFiles());
+    coreFiles.add(DURABLE_MEMORY_FILE);
+    coreFiles.add('README.md');
+    this.ragInitPromise = this.hybridRetriever.initialize(this.kbCache, coreFiles);
+    return this.ragInitPromise;
+  }
+
+  /**
+   * Retrieve relevant KB chunks for a user query using hybrid search.
+   * Falls back to regex-based topic selection if retriever isn't ready.
+   *
+   * @param query - User message text
+   * @returns Retrieval result with scored chunks
+   */
+  async retrieveContext(query: string): Promise<RetrievalResult> {
+    if (!this.hybridRetriever.isReady) {
+      return { chunks: [], hasRelevantContext: false, latencyMs: 0 };
+    }
+    return this.hybridRetriever.retrieve(query);
+  }
+
+  /** Whether the hybrid retriever is initialized and ready */
+  get ragReady(): boolean {
+    return this.hybridRetriever.isReady;
+  }
+
+  /**
+   * Rebuild RAG index (called when KB files change).
+   */
+  private async rebuildRAGIndex(): Promise<void> {
+    if (!this.hybridRetriever.isReady) return;
+    const coreFiles = new Set(this.getCoreFiles());
+    coreFiles.add(DURABLE_MEMORY_FILE);
+    coreFiles.add('README.md');
+    await this.hybridRetriever.rebuild(this.kbCache, coreFiles);
+  }
+
   init(configStore: ConfigStore): void {
     this.reloadAllKB();
     this.watchKBDirectory();
+
+    // US-912: Initialize RAG retriever in background (non-blocking)
+    this.initRAG().catch(err => {
+      console.warn(`[KB:${this.profileId}] RAG initialization failed:`, err.message);
+    });
 
     configStore.on('reload', (domain: string) => {
       if (domain === 'knowledgeBase' || domain === 'all') {

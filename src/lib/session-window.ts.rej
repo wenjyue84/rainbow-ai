@@ -1,0 +1,83 @@
+diff a/src/lib/session-window.ts b/src/lib/session-window.ts	(rejected hunks)
+@@ -16,30 +16,17 @@ const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+ /**
+  * Check if the 24-hour session window is active for a given phone number.
+  * Returns true if the last user message was received within the past 24 hours.
+- *
+- * US-908: tenantId parameter enforces cross-property isolation — a session check
+- * for Pelangi must not be satisfied by a Southern Homestay message from the same phone.
+  */
+-export async function sessionWindowActive(phone: string, tenantId?: string): Promise<boolean> {
++export async function sessionWindowActive(phone: string): Promise<boolean> {
+   try {
+     const cutoff = new Date(Date.now() - SESSION_WINDOW_MS);
+-    let query: string;
+-    let params: unknown[];
+-    if (tenantId) {
+-      query = `SELECT MAX(timestamp) AS last_user_msg
+-               FROM rainbow_messages
+-               WHERE phone = $1
+-                 AND role = 'user'
+-                 AND profile_id = $2`;
+-      params = [phone, tenantId];
+-    } else {
+-      query = `SELECT MAX(timestamp) AS last_user_msg
+-               FROM rainbow_messages
+-               WHERE phone = $1
+-                 AND role = 'user'`;
+-      params = [phone];
+-    }
+-    const result = await pool.query<{ last_user_msg: Date | null }>(query, params);
++    const result = await pool.query<{ last_user_msg: Date | null }>(
++      `SELECT MAX(timestamp) AS last_user_msg
++       FROM rainbow_messages
++       WHERE phone = $1
++         AND role = 'user'`,
++      [phone]
++    );
+     const lastMsg = result.rows[0]?.last_user_msg;
+     if (!lastMsg) return false;
+     const lastMsgTime = lastMsg instanceof Date ? lastMsg : new Date(lastMsg);
+@@ -55,33 +42,20 @@ export async function sessionWindowActive(phone: string, tenantId?: string): Pro
+  * Batch-check session window status for multiple phone numbers.
+  * Used by the conversations list API to annotate each conversation.
+  * Returns a Map<phone, boolean> where true = session active.
+- *
+- * US-908: tenantId parameter enforces cross-property isolation.
+  */
+-export async function batchSessionWindowStatus(phones: string[], tenantId?: string): Promise<Map<string, boolean>> {
++export async function batchSessionWindowStatus(phones: string[]): Promise<Map<string, boolean>> {
+   if (phones.length === 0) return new Map();
+ 
+   try {
+     const cutoff = new Date(Date.now() - SESSION_WINDOW_MS);
+-    let query: string;
+-    let params: unknown[];
+-    if (tenantId) {
+-      query = `SELECT phone, MAX(timestamp) AS last_user_msg
+-               FROM rainbow_messages
+-               WHERE phone = ANY($1)
+-                 AND role = 'user'
+-                 AND profile_id = $2
+-               GROUP BY phone`;
+-      params = [phones, tenantId];
+-    } else {
+-      query = `SELECT phone, MAX(timestamp) AS last_user_msg
+-               FROM rainbow_messages
+-               WHERE phone = ANY($1)
+-                 AND role = 'user'
+-               GROUP BY phone`;
+-      params = [phones];
+-    }
+-    const result = await pool.query<{ phone: string; last_user_msg: Date | null }>(query, params);
++    const result = await pool.query<{ phone: string; last_user_msg: Date | null }>(
++      `SELECT phone, MAX(timestamp) AS last_user_msg
++       FROM rainbow_messages
++       WHERE phone = ANY($1)
++         AND role = 'user'
++       GROUP BY phone`,
++      [phones]
++    );
+ 
+     const map = new Map<string, boolean>();
+ 

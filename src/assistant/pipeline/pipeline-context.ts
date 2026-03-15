@@ -13,6 +13,7 @@
 import type { RouterContext, FlowState } from './types.js';
 import type { ConversationState, ChatMessage, BookingState, IntentResult, EscalationReason } from '../types.js';
 import type { WorkflowState, WorkflowContext } from '../workflow-executor.js';
+import type { RetrievalResult } from '../rag/hybrid-retriever.js';
 
 /**
  * Dependency container for pipeline stages.
@@ -32,6 +33,10 @@ export interface IPipelineContext {
   guessTopicFiles: (text: string) => string[];
   buildSystemPrompt: (basePersona: string, topicFiles: string[]) => string;
   getTimeContext: () => string;
+  /** US-912: Hybrid RAG retrieval */
+  retrieveContext: (query: string) => Promise<RetrievalResult>;
+  /** US-912: Whether hybrid RAG retriever is ready */
+  ragReady: boolean;
   getStaticReply: (intent: string, lang: 'en' | 'ms' | 'zh' | 'ta') => string | null;
   getStaticReplyImageUrl: (intent: string) => string | null;
   getTemplate: (key: string, lang: 'en' | 'ms' | 'zh' | 'ta') => string;
@@ -152,6 +157,11 @@ export async function createPipelineContext(
   const buildSystemPrompt = profileKB
     ? (basePersona: string, topicFiles: string[]) => profileKB.buildSystemPrompt(basePersona, topicFiles, configStore)
     : defaultBuildSystemPrompt;
+  // US-912: Hybrid RAG retrieval
+  const retrieveContext = profileKB
+    ? (query: string) => profileKB.retrieveContext(query)
+    : async (_query: string) => ({ chunks: [], hasRelevantContext: false, latencyMs: 0 } as import('../rag/hybrid-retriever.js').RetrievalResult);
+  const ragReady = profileKB?.ragReady ?? false;
 
   return {
     // Configuration
@@ -165,6 +175,8 @@ export async function createPipelineContext(
     guessTopicFiles,
     buildSystemPrompt,
     getTimeContext,
+    retrieveContext,
+    ragReady,
     getStaticReply,
     getStaticReplyImageUrl,
     getTemplate,

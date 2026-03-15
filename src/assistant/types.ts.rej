@@ -1,9 +1,45 @@
 diff a/src/assistant/types.ts b/src/assistant/types.ts	(rejected hunks)
-@@ -23,7 +23,6 @@ export interface IncomingMessage {
+@@ -10,19 +10,6 @@ export interface MediaMetadata {
+   fileName?: string;
+ }
+ 
+-// US-910: Click-to-WhatsApp ad referral attribution data
+-export interface ReferralData {
+-  sourceType: string;       // ad | post | qr_code
+-  ctwaClid?: string;        // Click ID for Meta Conversions API matching
+-  sourceId?: string;        // Campaign/ad ID
+-  sourceUrl?: string;       // Source URL of the ad/post
+-  headline?: string;        // Ad headline text
+-  body?: string;            // Ad body text
+-  mediaType?: string;       // image | video
+-  thumbnailUrl?: string;    // Ad thumbnail URL
+-  imageUrl?: string;        // Ad image URL
+-}
+-
+ export interface IncomingMessage {
+   from: string;        // Phone number (no @s.whatsapp.net) or BSUID if phone hidden
+   text: string;
+@@ -36,7 +23,6 @@ export interface IncomingMessage {
    transcribed?: boolean; // True if text was transcribed from voice note (US-438)
    bsuid?: string;      // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
    mediaMetadata?: MediaMetadata; // US-448: Media file metadata for images, videos, documents
--  rawEventId?: string;  // US-895: Reference to webhook_raw_events row for DLQ replay
+-  referral?: ReferralData; // US-910: Click-to-WhatsApp ad referral attribution
  }
  
  // ─── Intent Classification ──────────────────────────────────────────
+@@ -83,7 +69,6 @@ export type IntentCategory =
+   | 'review_feedback'
+   | 'checkin'
+   | 'checkout'
+-  | 'off_topic'
+   | 'unknown';
+ 
+ export interface IntentResult {
+@@ -126,7 +111,6 @@ export interface ConversationState {
+   slots: Record<string, any>;             // { checkInDate: "tomorrow", guests: 2 }
+   repeatCount: number;                     // consecutive times same intent classified
+   lastUserMessageAt: number | null;        // Timestamp (ms) of last inbound user message (US-407: 24h window)
+-  aiDisclosed: boolean;                    // US-970: true after AI identity disclosure sent in this session
+ }
+ 
+ // ─── Booking State Machine ──────────────────────────────────────────

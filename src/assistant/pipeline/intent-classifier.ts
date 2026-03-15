@@ -40,7 +40,7 @@ export async function classifyAndRoute(
   const summarization = await applySummarization(state, context);
 
   // ─── Stage 2: Knowledge Base Loading ─────────────────────────────
-  const kb = loadKnowledgeBase(state, context);
+  const kb = await loadKnowledgeBase(state, context);
 
   // ─── Ack Timer: send "thinking" message if LLM takes >3s ────────
   let ackSent = false;

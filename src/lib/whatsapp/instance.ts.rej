@@ -1,16 +1,333 @@
 diff a/src/lib/whatsapp/instance.ts b/src/lib/whatsapp/instance.ts	(rejected hunks)
-@@ -397,14 +397,6 @@ export class WhatsAppInstance {
-       let messageType: MessageType = 'text';
-       let mediaMetadata: MediaMetadata | undefined;
+@@ -31,84 +31,25 @@ export function isBsuid(value: string): boolean {
+   return BSUID_PATTERN.test(value);
+ }
  
--      // US-885: Extract button/list response text from interactive message replies
--      if (!text && m?.buttonsResponseMessage) {
--        text = (m.buttonsResponseMessage as any).selectedDisplayText || (m.buttonsResponseMessage as any).selectedButtonId || '';
--      }
--      if (!text && m?.listResponseMessage) {
--        text = (m.listResponseMessage as any).title || (m.listResponseMessage as any).singleSelectReply?.selectedRowId || '';
--      }
+-/**
+- * US-910: Extract Click-to-WhatsApp ad referral data from a Baileys message.
+- * Referral info appears in contextInfo.externalAdReply on the first inbound
+- * message of an ad-initiated conversation.
+- */
+-function extractReferral(msg: any): ReferralData | undefined {
+-  const m = msg.message;
+-  if (!m) return undefined;
 -
-       // Detect message type and extract media metadata (US-448)
-       if (m?.imageMessage) {
-         messageType = 'image';
+-  // Check all possible contextInfo locations for externalAdReply
+-  const contextInfo =
+-    m.extendedTextMessage?.contextInfo ||
+-    m.conversation?.contextInfo ||
+-    m.imageMessage?.contextInfo ||
+-    m.videoMessage?.contextInfo ||
+-    m.documentMessage?.contextInfo;
+-
+-  const adReply = contextInfo?.externalAdReply;
+-  if (!adReply) return undefined;
+-
+-  // Map Baileys sourceType enum to string
+-  // Baileys: UNKNOWN=0, CTWA=1, QUICK_REPLY_AD=2, etc.
+-  let sourceType = 'ad';
+-  if (adReply.sourceType != null) {
+-    if (adReply.sourceType === 'CTWA' || adReply.sourceType === 1) sourceType = 'ad';
+-    else if (typeof adReply.sourceType === 'string') sourceType = adReply.sourceType.toLowerCase();
+-  }
+-
+-  const referral: ReferralData = {
+-    sourceType,
+-    ...(adReply.sourceId ? { sourceId: String(adReply.sourceId) } : {}),
+-    ...(adReply.sourceUrl ? { sourceUrl: String(adReply.sourceUrl) } : {}),
+-    ...(adReply.title ? { headline: String(adReply.title) } : {}),
+-    ...(adReply.body ? { body: String(adReply.body) } : {}),
+-    ...(adReply.mediaType != null ? { mediaType: adReply.mediaType === 1 ? 'image' : adReply.mediaType === 2 ? 'video' : String(adReply.mediaType) } : {}),
+-    ...(adReply.thumbnailUrl ? { thumbnailUrl: String(adReply.thumbnailUrl) } : {}),
+-  };
+-
+-  console.log(`[Baileys:referral] Ad referral detected: sourceType=${sourceType}, sourceId=${adReply.sourceId || 'N/A'}`);
+-  return referral;
+-}
+-
+-/**
+- * US-960: Strip the "whatsapp:" prefix from a BSUID identifier.
+- * Cloud API returns `whatsapp:CC.BSUID`; Baileys may surface just `CC.BSUID`.
+- */
+-function stripBsuidPrefix(value: string): string {
+-  return value.startsWith('whatsapp:') ? value.slice(9) : value;
+-}
+-
+ /**
+  * Extract BSUID from a Baileys message if present.
+- * US-960: Also checks ExternalUserId field and strips "whatsapp:" prefix.
+- * Checks: ExternalUserId, msg.lid, msg.key.participant, and the resolved `from` JID.
++ * Checks: msg.lid field, msg.key.participant, and the resolved `from` JID itself.
+  */
+ function extractBsuid(msg: any, resolvedFrom: string): string | undefined {
+-  // US-960: 1. Check ExternalUserId field (WhatsApp username rollout, June 2026+)
+-  const externalUserId = msg.externalUserId ?? msg.ExternalUserId
+-    ?? msg.message?.externalUserId ?? msg.message?.ExternalUserId;
+-  if (externalUserId && typeof externalUserId === 'string') {
+-    const raw = stripBsuidPrefix(externalUserId).replace(/@.*$/, '');
+-    if (isBsuid(raw)) return raw;
+-  }
+-
+-  // 2. Check explicit lid field on the message (Baileys v7+)
++  // 1. Check explicit lid field on the message (Baileys v7+)
+   if (msg.lid && typeof msg.lid === 'string') {
+-    const raw = stripBsuidPrefix(msg.lid).replace(/@.*$/, '');
++    const raw = msg.lid.replace(/@.*$/, ''); // strip @lid or @s.whatsapp.net suffix
+     if (isBsuid(raw)) return raw;
+   }
+ 
+-  // 3. Check msg.key.participant (group messages or forwarded identity)
++  // 2. Check msg.key.participant (group messages or forwarded identity)
+   if (msg.key?.participant && typeof msg.key.participant === 'string') {
+-    const raw = stripBsuidPrefix(msg.key.participant).replace(/@.*$/, '');
++    const raw = msg.key.participant.replace(/@.*$/, '');
+     if (isBsuid(raw)) return raw;
+   }
+ 
+-  // 4. Check if the resolved `from` JID itself is a BSUID (phone hidden)
+-  const fromStripped = stripBsuidPrefix(resolvedFrom).replace(/@.*$/, '');
++  // 3. Check if the resolved `from` JID itself is a BSUID (phone hidden)
++  const fromStripped = resolvedFrom.replace(/@.*$/, '');
+   if (isBsuid(fromStripped)) return fromStripped;
+ 
+   return undefined;
+@@ -300,19 +241,6 @@ export class WhatsAppInstance {
+     });
+   }
+ 
+-  /** US-941: Tear down the old socket cleanly before recreating — prevents event listener leaks */
+-  private destroySocket(): void {
+-    if (this.sock) {
+-      this.sock.ev.removeAllListeners('connection.update');
+-      this.sock.ev.removeAllListeners('messages.upsert');
+-      this.sock.ev.removeAllListeners('messages.update');
+-      this.sock.ev.removeAllListeners('creds.update');
+-      this.sock.ev.removeAllListeners('contacts.upsert');
+-      this.sock.end(undefined);
+-      this.sock = null;
+-    }
+-  }
+-
+   private handleDisconnect(lastDisconnect: any, notifyUnlinkedFn: (id: string, label: string) => Promise<void>): void {
+     const statusCode = lastDisconnect?.error?.output?.statusCode;
+ 
+@@ -320,94 +248,77 @@ export class WhatsAppInstance {
+     this.lastDisconnectCode = statusCode ?? null;
+     this.lastDisconnectAt = new Date().toISOString();
+ 
+-    // US-941: 401 loggedOut / device_removed — stop immediately, no reconnect loop
+-    if (statusCode === DisconnectReason.loggedOut) {
+-      console.error(`[Baileys:${this.id}] Logged out from WhatsApp (device removed / user unlinked). No reconnect.`);
+-      this.destroySocket();
+-      trackWhatsAppUnlinked(this.id);
++    if (statusCode !== DisconnectReason.loggedOut) {
++      // US-830: Circuit breaker — track consecutive failures
++      this.circuitBreaker.consecutiveFailures++;
++      this.reconnectAttempts++;
+ 
+-      // Mark as unlinked from WhatsApp side
+-      this.unlinkedFromWhatsApp = true;
+-      this.lastUnlinkedAt = new Date().toISOString();
++      // US-830: Check if circuit breaker should OPEN
++      if (this.circuitBreaker.consecutiveFailures >= this.circuitBreaker.maxFailures) {
++        this.circuitBreaker.state = 'open';
++        this.circuitBreaker.lastOpenedAt = Date.now();
+ 
+-      // Trigger notification to user (only once per unlink event)
+-      if (!this.unlinkNotificationSent) {
+-        this.notifyUnlinked(notifyUnlinkedFn);
+-        this.unlinkNotificationSent = true;
+-      }
+-      return;
+-    }
++        const reason = `Circuit breaker OPEN — ${this.circuitBreaker.consecutiveFailures} consecutive failures. Cooling down for ${this.circuitBreaker.cooldownMs / 60000} min.`;
++        console.warn(`[Baileys:${this.id}] ${reason}`);
++        trackWhatsAppDisconnected(this.id, reason);
+ 
+-    // US-941: restartRequired (515) — destroy old socket, immediately recreate fresh
+-    if (statusCode === DisconnectReason.restartRequired) {
+-      console.log(`[Baileys:${this.id}] restartRequired (515) — recreating socket from fresh DB auth state`);
+-      this.destroySocket();
+-      this.state = 'close';
+-      this.qr = null;
+-      // Don't count as failure — this is a normal WhatsApp protocol event
+-      this.start(notifyUnlinkedFn);
+-      return;
+-    }
++        // Admin notification
++        notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
++          console.error(`[Baileys:${this.id}] Failed to notify admin of circuit breaker:`, err.message);
++        });
+ 
+-    // All other disconnect codes — reconnect with backoff + circuit breaker
+-    // US-830: Circuit breaker — track consecutive failures
+-    this.circuitBreaker.consecutiveFailures++;
+-    this.reconnectAttempts++;
++        // Schedule HALF-OPEN transition after cooldown
++        if (this.cooldownTimeout) clearTimeout(this.cooldownTimeout);
++        this.cooldownTimeout = setTimeout(() => {
++          this.cooldownTimeout = null;
++          this.circuitBreaker.state = 'half-open';
++          console.log(`[Baileys:${this.id}] Circuit breaker HALF-OPEN — attempting single reconnection`);
++          this.reconnectAttempts = 0; // reset for the half-open attempt
++          this.start(notifyUnlinkedFn);
++        }, this.circuitBreaker.cooldownMs);
++
++        this.reconnectTimeout = null;
++        return;
++      }
+ 
+-    // US-830: Check if circuit breaker should OPEN
+-    if (this.circuitBreaker.consecutiveFailures >= this.circuitBreaker.maxFailures) {
+-      this.circuitBreaker.state = 'open';
+-      this.circuitBreaker.lastOpenedAt = Date.now();
++      // Circuit is closed or half-open — allow reconnect with backoff
++      if (this.reconnectAttempts > WhatsAppInstance.MAX_RECONNECT_ATTEMPTS) {
++        const reason = `code ${statusCode}, stopped after ${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS} attempts`;
++        console.warn(`[Baileys:${this.id}] ${reason}. Please visit dashboard to restart.`);
++        notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
++          console.error(`[Baileys:${this.id}] Failed to notify admin of disconnection:`, err.message);
++        });
++        this.reconnectTimeout = null;
++        return;
++      }
+ 
+-      const reason = `Circuit breaker OPEN — ${this.circuitBreaker.consecutiveFailures} consecutive failures. Cooling down for ${this.circuitBreaker.cooldownMs / 60000} min.`;
+-      console.warn(`[Baileys:${this.id}] ${reason}`);
+-      trackWhatsAppDisconnected(this.id, reason);
++      // 408 = request timeout — use longer delay to avoid rapid retry spam
++      const is408 = statusCode === 408;
++      const baseDelay = this.reconnectTimeout ? 5000 : (is408 ? 30000 : 2000);
++      const delay = Math.min(baseDelay * this.reconnectAttempts, 60000);
+ 
+-      // Admin notification
+-      notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
+-        console.error(`[Baileys:${this.id}] Failed to notify admin of circuit breaker:`, err.message);
+-      });
++      console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
++      trackWhatsAppDisconnected(this.id, `code ${statusCode}, reconnecting (${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})`);
+ 
+-      // Schedule HALF-OPEN transition after cooldown
+-      if (this.cooldownTimeout) clearTimeout(this.cooldownTimeout);
+-      this.cooldownTimeout = setTimeout(() => {
+-        this.cooldownTimeout = null;
+-        this.circuitBreaker.state = 'half-open';
+-        console.log(`[Baileys:${this.id}] Circuit breaker HALF-OPEN — attempting single reconnection`);
+-        this.reconnectAttempts = 0; // reset for the half-open attempt
+-        this.destroySocket();
++      if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
++      this.reconnectTimeout = setTimeout(() => {
++        this.reconnectTimeout = null;
+         this.start(notifyUnlinkedFn);
+-      }, this.circuitBreaker.cooldownMs);
++      }, delay);
++    } else {
++      console.error(`[Baileys:${this.id}] Logged out from WhatsApp (user unlinked). Remove auth dir and re-pair.`);
++      trackWhatsAppUnlinked(this.id);
+ 
+-      this.reconnectTimeout = null;
+-      return;
+-    }
++      // Mark as unlinked from WhatsApp side
++      this.unlinkedFromWhatsApp = true;
++      this.lastUnlinkedAt = new Date().toISOString();
+ 
+-    // Circuit is closed or half-open — allow reconnect with backoff
+-    if (this.reconnectAttempts > WhatsAppInstance.MAX_RECONNECT_ATTEMPTS) {
+-      const reason = `code ${statusCode}, stopped after ${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS} attempts`;
+-      console.warn(`[Baileys:${this.id}] ${reason}. Please visit dashboard to restart.`);
+-      notifyAdminDisconnection(this.id, this.label, reason).catch(err => {
+-        console.error(`[Baileys:${this.id}] Failed to notify admin of disconnection:`, err.message);
+-      });
+-      this.reconnectTimeout = null;
+-      return;
++      // Trigger notification to user (only once per unlink event)
++      if (!this.unlinkNotificationSent) {
++        this.notifyUnlinked(notifyUnlinkedFn);
++        this.unlinkNotificationSent = true;
++      }
+     }
+-
+-    // 408 = request timeout — use longer delay to avoid rapid retry spam
+-    const is408 = statusCode === 408;
+-    const baseDelay = this.reconnectTimeout ? 5000 : (is408 ? 30000 : 2000);
+-    const delay = Math.min(baseDelay * this.reconnectAttempts, 60000);
+-
+-    console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
+-    trackWhatsAppDisconnected(this.id, `code ${statusCode}, reconnecting (${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})`);
+-
+-    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+-    this.reconnectTimeout = setTimeout(() => {
+-      this.reconnectTimeout = null;
+-      this.destroySocket();
+-      this.start(notifyUnlinkedFn);
+-    }, delay);
+   }
+ 
+   private handleConnected(): void {
+@@ -517,12 +428,6 @@ export class WhatsAppInstance {
+           fileSize: m.documentMessage.fileLength ? Number(m.documentMessage.fileLength) : undefined,
+           fileName: m.documentMessage.fileName || undefined,
+         };
+-      } else if (m?.buttonsResponseMessage) {
+-        // US-917: User tapped a quick-reply button (e.g. cart recovery Resume/Clear).
+-        // Extract the buttonId so the pipeline can match it to cart recovery actions.
+-        const btnId = (m.buttonsResponseMessage as any).selectedButtonId || '';
+-        const btnText = (m.buttonsResponseMessage as any).selectedDisplayText || '';
+-        text = btnId || btnText;
+       } else if (m?.listResponseMessage) {
+         // US-872: User selected an item from a WhatsApp interactive list message.
+         // Extract the selectedRowId as text so the pipeline can process it as a normal message.
+@@ -559,9 +464,6 @@ export class WhatsAppInstance {
+       // where CC is a two-letter country code and BSUID is alphanumeric (up to 128 chars).
+       const bsuid = extractBsuid(msg, from);
+ 
+-      // US-910: Extract Click-to-WhatsApp ad referral data (only on first message of ad sessions)
+-      const referral = extractReferral(msg);
+-
+       // US-448: Pass rawMessage for all media types (not just audio) so pipeline can download
+       const isMediaType = ['image', 'audio', 'video', 'document'].includes(messageType);
+ 
+@@ -577,7 +479,6 @@ export class WhatsAppInstance {
+         rawMessage: isMediaType ? msg : undefined,
+         ...(mediaMetadata ? { mediaMetadata } : {}),
+         ...(bsuid ? { bsuid } : {}),
+-        ...(referral ? { referral } : {}),
+       };
+ 
+       if (!isGroup) ensureAvatar(from).catch(() => {}); // fire-and-forget
+@@ -606,7 +507,15 @@ export class WhatsAppInstance {
+     this.circuitBreaker.consecutiveFailures = 0;
+     this.reconnectAttempts = 0;
+ 
+-    this.destroySocket();
++    // Stop existing socket cleanly before restarting
++    if (this.sock) {
++      this.sock.ev.removeAllListeners('connection.update');
++      this.sock.ev.removeAllListeners('messages.upsert');
++      this.sock.ev.removeAllListeners('messages.update');
++      this.sock.ev.removeAllListeners('creds.update');
++      this.sock.end(undefined);
++      this.sock = null;
++    }
+     this.state = 'close';
+     this.qr = null;
+ 
+@@ -624,7 +533,16 @@ export class WhatsAppInstance {
+       this.cooldownTimeout = null;
+     }
+     this.reconnectAttempts = 0;
+-    this.destroySocket();
++
++    if (this.sock) {
++      this.sock.ev.removeAllListeners('connection.update');
++      this.sock.ev.removeAllListeners('messages.upsert');
++      this.sock.ev.removeAllListeners('messages.update');
++      this.sock.ev.removeAllListeners('creds.update');
++      this.sock.end(undefined);
++      this.sock = null;
++    }
++
+     this.state = 'close';
+     this.qr = null;
+   }

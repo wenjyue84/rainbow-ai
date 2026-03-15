@@ -1,32 +1,210 @@
 diff a/src/assistant/pipeline/response-processor.ts b/src/assistant/pipeline/response-processor.ts	(rejected hunks)
-@@ -26,8 +26,6 @@ import { addApproval } from '../approval-queue.js';
- import { trackResponseSent } from '../../lib/activity-tracker.js';
+@@ -27,17 +27,6 @@ import { trackResponseSent } from '../../lib/activity-tracker.js';
  import { getUnknownFallbackMessages } from '../ai-response-generator.js';
  import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
+ import { checkFaithfulness, FAITHFULNESS_THRESHOLD, getFaithfulnessFallback } from '../faithfulness-checker.js';
+-import {
+-  detectHallucinations, getHallucinationBlockMessage, getHallucinationDisclaimer,
+-  type HallucinationResult
+-} from '../hallucination-detector.js';
 -import { detectSystemPromptLeakage } from './prompt-injection-guard.js';
 -import { logPromptInjection } from '../../lib/prompt-injection-log.js';
+-import {
+-  trackConfidence, shouldEscalateOnConfidence, markConfidenceEscalation,
+-  isConfidenceEscalationEnabled
+-} from '../confidence-tracker.js';
+-import { scanOutputForPii, getPiiBlockMessage } from '../pii-output-guard.js';
  
  // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
  
-@@ -47,21 +45,6 @@ export async function processAndSend(
+@@ -57,56 +46,6 @@ export async function processAndSend(
    // ─── JSON safety: never send raw LLM JSON to guest ────────────
    response = ensureResponseText(response, lang);
  
--  // ─── US-927: System prompt leakage detection (output validation) ──
--  const systemPrompt = (profileConfig.getSettings() as any).system_prompt;
--  if (systemPrompt && detectSystemPromptLeakage(response, systemPrompt)) {
--    console.warn(`[ResponseProcessor][US-927] System prompt leakage detected for ${phone} — replacing with fallback`);
+-  // ─── US-928: Output fencing — strip system prompt leakage ─────
+-  const fenceResult = detectSystemPromptLeakage(response);
+-  if (fenceResult.leaked) {
+-    console.warn(
+-      `[OutputFence] System prompt leakage detected for ${phone}: ${fenceResult.matchedPatterns.join(', ')}`
+-    );
 -    logPromptInjection({
 -      jid: phone,
 -      profileId,
--      rawMessage: text,
--      matchedPattern: 'output:system_prompt_leakage',
--      action: 'sanitised',
+-      rawMessage: response.slice(0, 500),
+-      matchedPattern: fenceResult.matchedPatterns.join('; '),
+-      layer: 'output_fence',
+-      action: 'logged',
 -    });
--    const fallbacks = getUnknownFallbackMessages(profileConfig);
--    response = fallbacks[lang] || fallbacks.en;
+-    // Use cleaned response (with system blocks stripped)
+-    // If cleaning left it empty, fall back to generic response
+-    if (fenceResult.cleaned.trim()) {
+-      response = fenceResult.cleaned;
+-    } else {
+-      const fallbacks = getUnknownFallbackMessages();
+-      response = fallbacks[lang] || fallbacks.en;
+-    }
+-  }
+-
+-  // ─── US-947: OWASP LLM02 — PII disclosure guard ─────────────────
+-  const piiScan = scanOutputForPii(response, phone);
+-  if (piiScan.hasForeignPii) {
+-    console.warn(
+-      `[PiiOutputGuard] Foreign PII detected in response for ${phone}: ` +
+-      `${piiScan.types.join(', ')} (${piiScan.matches.length} match(es))`
+-    );
+-    // Block the response and replace with apology
+-    response = getPiiBlockMessage(lang);
+-    diaryEvent.escalated = true;
+-
+-    // Log escalation event
+-    const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+-    logEscalationEvent({
+-      jid: phone,
+-      profileId,
+-      trigger: 'pii_disclosure_blocked',
+-      count: piiScan.matches.length,
+-      metadata: {
+-        piiTypes: piiScan.types,
+-        matchCount: piiScan.matches.length,
+-        owasp: 'LLM02',
+-      },
+-    });
 -  }
 -
    // ─── Confidence thresholds + disclaimers ───────────────────────
    const llmSettings = getLLMSettings();
    const lowConfidenceThreshold = llmSettings.thresholds?.lowConfidence ?? 0.5;
+@@ -159,66 +98,6 @@ export async function processAndSend(
+     }
+   }
+ 
+-  // ─── US-913: Hallucination detection (post-faithfulness, pre-send) ──────
+-  let hallucinationAction: string | undefined;
+-  let hallucinationSeverity: number | undefined;
+-  if (devMetadata.kbFiles.length > 0 && response && diaryEvent.action !== 'static_reply') {
+-    try {
+-      const kbContent = state.profileKB.getFilesContent(devMetadata.kbFiles);
+-      if (kbContent.length > 50) {
+-        const haluResult = detectHallucinations(
+-          response, kbContent, diaryEvent.intent, text
+-        );
+-
+-        if (!haluResult.skipped) {
+-          hallucinationSeverity = haluResult.severity;
+-          hallucinationAction = haluResult.action;
+-
+-          if (haluResult.severity > 0) {
+-            console.log(
+-              `[Hallucination] Severity ${haluResult.severity} for ${phone} — ` +
+-              `${haluResult.contradictions.length} contradiction(s): ` +
+-              haluResult.contradictions.map(c => `${c.responseClaim} vs KB: ${c.kbValue}`).join('; ') +
+-              ` (${haluResult.latencyMs}ms)`
+-            );
+-          }
+-
+-          if (haluResult.action === 'block') {
+-            console.warn(
+-              `[Hallucination] BLOCKING response for ${phone} — severity ${haluResult.severity} >= threshold`
+-            );
+-            response = getHallucinationBlockMessage(lang);
+-            diaryEvent.escalated = true;
+-
+-            // Log escalation event
+-            const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+-            logEscalationEvent({
+-              jid: phone,
+-              profileId,
+-              trigger: 'hallucination',
+-              count: haluResult.severity,
+-              metadata: {
+-                contradictions: haluResult.contradictions.map(c => ({
+-                  claim: c.responseClaim,
+-                  kbValue: c.kbValue,
+-                  type: c.claimType,
+-                })),
+-                topCategory: haluResult.topCategory,
+-                latencyMs: haluResult.latencyMs,
+-              },
+-            });
+-          } else if (haluResult.action === 'body') {
+-            response += getHallucinationDisclaimer(lang);
+-          } else if (haluResult.action === 'header') {
+-            response = getHallucinationDisclaimer(lang).trim() + '\n\n' + response;
+-          }
+-        }
+-      }
+-    } catch (err: any) {
+-      console.warn(`[Hallucination] Detection failed for ${phone}:`, err.message);
+-    }
+-  }
+-
+   // ─── US-843 + US-878: First-contact data notice (PDPA compliance, DPO email) ──
+   if (state.isFirstContact) {
+     const knowledgeData = profileConfig.getKnowledge();
+@@ -282,40 +161,6 @@ export async function processAndSend(
+     }
+   }
+ 
+-  // ─── US-914: Consecutive low-confidence escalation ──────────────
+-  if (isConfidenceEscalationEnabled(sentimentSettings)) {
+-    trackConfidence(phone, diaryEvent.confidence, sentimentSettings);
+-    const confidenceCheck = shouldEscalateOnConfidence(phone, sentimentSettings);
+-    if (confidenceCheck.shouldEscalate && !diaryEvent.escalated) {
+-      console.log(
+-        `[Confidence] Escalating: ${confidenceCheck.consecutiveCount} consecutive low-confidence responses for ${phone}`
+-      );
+-      diaryEvent.escalated = true;
+-      await escalateToStaff({
+-        phone,
+-        pushName: msg.pushName,
+-        reason: 'low_confidence' as any,
+-        recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
+-        originalMessage: text,
+-        instanceId: msg.instanceId,
+-        profileId,
+-        triggerDetail: `${confidenceCheck.consecutiveCount} consecutive responses below confidence threshold`,
+-      });
+-      markConfidenceEscalation(phone);
+-
+-      const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+-      logEscalationEvent({
+-        jid: phone,
+-        profileId,
+-        trigger: 'low_confidence_consecutive',
+-        count: confidenceCheck.consecutiveCount,
+-        metadata: { consecutiveLow: confidenceCheck.consecutiveCount, lastConfidence: diaryEvent.confidence },
+-      });
+-
+-      response += "\n\nI notice I haven't been able to fully help you. I've connected you with our team — someone will assist you shortly.";
+-    }
+-  }
+-
+   // ─── Translate back to guest's language ────────────────────────
+   if (foreignLang && isAIAvailable()) {
+     const translatedResponse = await translateText(response, 'English', foreignLang);
+@@ -329,13 +174,6 @@ export async function processAndSend(
+   // ─── Mode dispatch: manual / copilot / autopilot ───────────────
+   const mode = getConversationMode(phone, profileConfig);
+ 
+-  // US-942: Derive WhatsApp compliance audit category from intent + action
+-  const complianceCategory = diaryEvent.escalated
+-    ? 'escalated_to_human'
+-    : diaryEvent.intent === 'off_topic'
+-      ? 'off_topic_declined'
+-      : 'allowed_task';
+-
+   const logMeta = {
+     requestId,
+     intent: diaryEvent.intent || undefined,
+@@ -352,11 +190,8 @@ export async function processAndSend(
+     workflowId: devMetadata.workflowId,
+     stepId: devMetadata.stepId,
+     usage: devMetadata.usage,
+-    complianceCategory,
+     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+     ...(faithfulnessScore !== undefined ? { faithfulnessScore } : {}),
+-    ...(hallucinationAction !== undefined ? { hallucinationAction } : {}),
+-    ...(hallucinationSeverity !== undefined ? { hallucinationSeverity } : {}),
+   };
+ 
+   if (mode === 'manual') {

@@ -1,0 +1,103 @@
+diff a/src/assistant/escalation.ts b/src/assistant/escalation.ts	(rejected hunks)
+@@ -44,29 +44,16 @@ export function destroyEscalation(): void {
+  * Fetch last N messages from rainbow_messages for a given phone number.
+  * Returns formatted strings like "user: hello" / "assistant: hi there".
+  * Falls back to empty array on DB error.
+- *
+- * US-908: tenantId parameter enforces cross-property isolation — messages from
+- * Pelangi must never appear in Southern Homestay escalation summaries.
+  */
+-async function fetchLastDbMessages(phone: string, limit: number, tenantId?: string): Promise<string[]> {
++async function fetchLastDbMessages(phone: string, limit: number): Promise<string[]> {
+   try {
+-    let query: string;
+-    let params: unknown[];
+-    if (tenantId) {
+-      query = `SELECT role, content FROM rainbow_messages
+-               WHERE phone = $1
+-                 AND profile_id = $2
+-               ORDER BY timestamp DESC
+-               LIMIT $3`;
+-      params = [phone, tenantId, limit];
+-    } else {
+-      query = `SELECT role, content FROM rainbow_messages
+-               WHERE phone = $1
+-               ORDER BY timestamp DESC
+-               LIMIT $2`;
+-      params = [phone, limit];
+-    }
+-    const result = await pool.query(query, params);
++    const result = await pool.query(
++      `SELECT role, content FROM rainbow_messages
++       WHERE phone = $1
++       ORDER BY timestamp DESC
++       LIMIT $2`,
++      [phone, limit]
++    );
+     // Reverse so oldest is first (chronological order)
+     return (result.rows as Array<{ role: string; content: string }>)
+       .reverse()
+@@ -96,15 +83,8 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
+ 
+   const label = reasonLabels[context.reason] || 'Unknown reason';
+ 
+-  // US-914: Declare profileId early (needed for DB fetch + deep-link)
+-  const profileId = context.profileId || 'pelangi';
+-
+-  // US-914: Generate a short alphanumeric case reference for the guest
+-  const caseId = `ESC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+-
+   // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
+-  // US-908: pass tenantId/profileId to enforce cross-property isolation
+-  const dbMessages = await fetchLastDbMessages(context.phone, 5, profileId);
++  const dbMessages = await fetchLastDbMessages(context.phone, 5);
+   const historyMessages = dbMessages.length > 0
+     ? dbMessages
+     : context.recentMessages.slice(-5);
+@@ -112,6 +92,7 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
+ 
+   // US-813: Build admin panel deep-link
+   const adminBaseUrl = (process.env.DIGIMAN_API_URL || process.env.PELANGI_API_URL || '').replace(/\/+$/, '');
++  const profileId = context.profileId || 'pelangi';
+   const deepLink = adminBaseUrl
+     ? `${adminBaseUrl}/admin#conversations?profileId=${profileId}&phone=${context.phone}`
+     : '';
+@@ -124,7 +105,6 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
+   const staffMessage = [
+     `*[ESCALATION — BOT PAUSED]* ${label}`,
+     ``,
+-    `*Case ID:* ${caseId}`,
+     `*Guest:* ${context.pushName} (+${context.phone})`,
+     `*Reason:* ${label}`,
+     triggerLine,
+@@ -152,12 +132,11 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
+   });
+ 
+   // US-429: Log escalation event with summary context for warm handoff
+-  // US-914: Include case ID in metadata for cross-reference
+   logEscalationEvent({
+     jid: context.phone,
+-    profileId,
++    profileId: 'pelangi',
+     trigger: context.reason,
+-    metadata: { ...context.metadata, caseId },
++    metadata: context.metadata,
+     summaryContext: {
+       guestName: context.pushName,
+       recentMessages: historyMessages.map(m => m),
+@@ -168,14 +147,10 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
+   // US-815: Check session window before sending holding message to guest
+   const guestSessionActive = await sessionWindowActive(context.phone);
+ 
+-  // US-914: SLA window from config (default 15 min)
+-  const slaDurationMinutes = (configStore.getWorkflow().escalation as any).sla_minutes ?? 15;
+-  const guestHoldingMsg = `I've connected you with our team. Your case reference is *${caseId}*.\n\nExpected response: within ${slaDurationMinutes} minutes. We appreciate your patience.`;
+-
+   // US-410: Send holding message to guest (only if session window is active)
+   if (guestSessionActive) {
+     try {
+-      await sendMessageFn(context.phone, guestHoldingMsg, context.instanceId);
++      await sendMessageFn(context.phone, "I've connected you with our team, they will respond shortly.", context.instanceId);
+     } catch (err: any) {
+       console.error('[Handoff] Failed to send holding message:', err.message);
+     }

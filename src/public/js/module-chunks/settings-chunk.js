@@ -96,9 +96,4 @@ window.toggleMcpConnection = toggleMcpConnection;
 window.saveMcpServerConfig = saveMcpServerConfig;
 window.toggleMcpServer = toggleMcpServer;
 
-// US-890: messaging limits tier selector (lazy-imported on tab switch; expose save fn on window)
-import('/public/js/modules/messaging-limits.js').then(m => {
-  window.saveMessagingLimitsTier = m.saveMessagingLimitsTier;
-});
-
 console.log('[LazyChunk] Settings modules registered');

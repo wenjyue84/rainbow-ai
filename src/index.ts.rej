@@ -1,110 +1,62 @@
 diff a/src/index.ts b/src/index.ts	(rejected hunks)
-@@ -19,14 +19,13 @@ import { join, dirname } from 'path';
- import { fileURLToPath } from 'url';
- import { createMCPHandler } from './server.js';
- import { apiClient, getApiBaseUrl } from './lib/http-client.js';
--import { getWhatsAppStatus, whatsappManager, sendWhatsAppMessage } from './lib/baileys-client.js';
-+import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
- import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
- import { pool, getPoolMetrics, initDb } from './lib/db.js';
- import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
- import adminRoutes from './routes/admin/index.js';
+@@ -27,8 +27,6 @@ import adminRoutes from './routes/admin/index.js';
  import webchatApiRoutes from './routes/public/webchat-api.js';
  import fnbChatRoutes from './routes/public/fnb-chat.js';
--import dataPortabilityRoutes from './routes/public/data-portability.js';
+ import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
+-import whatsappFlowsRoutes from './routes/public/whatsapp-flows.js';
+-import paymentRoutes from './routes/public/payment.js';
  import webhookRoutes from './routes/webhooks/index.js';
  import { captureRawBody } from './lib/webhook-signature.js';
  import { safeRedirect } from './lib/safe-redirect.js';
-@@ -60,9 +59,6 @@ import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
- import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
+@@ -63,13 +61,12 @@ import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
+ import { computeAvailability } from './assistant/business-hours.js';
+ import type { BusinessHoursConfig } from './assistant/business-hours.js';
  import { startHandoffSlaCron } from './lib/handoff-sla.js';
- import { checkBreachDeadlines } from './routes/admin/breach-report.js';
--import { startWabaSubscriptionMonitor, getWebhookSubscriptionState } from './lib/waba-subscription-check.js';
--import { startPacingMonitor } from './lib/pacing-monitor.js';
--import { initCartIdleRecovery } from './assistant/cart-idle-recovery.js';
+-import { checkBreachDeadlines, runBreachDetectionScan } from './routes/admin/breach-report.js';
++import { checkBreachDeadlines } from './routes/admin/breach-report.js';
+ import { migrateObsoleteTiers } from './routes/admin/messaging-limits.js';
+ import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
+ import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
+ import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
+ import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
+-import { validateGraphApiVersion } from './lib/meta-graph-api.js';
  
  const __filename_main = fileURLToPath(import.meta.url);
  const __dirname_main = dirname(__filename_main);
-@@ -183,11 +179,6 @@ loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost da
- // US-495: Load today's WhatsApp message cost accumulators from DB
- loadTodayWhatsappCosts().catch(err => console.warn('[Startup] Failed to load WhatsApp cost data:', err.message));
+@@ -115,9 +112,6 @@ initDb();
+ // Meta CA certificate check (US-478) — warn if cert is missing before 2026-04-01 deadline
+ checkMetaCACert();
  
--// US-890: Auto-migrate legacy messaging tiers (250, 2000) → 10000 on startup
--import('./routes/admin/messaging-limits.js')
--  .then(m => m.migrateLegacyTiers())
--  .catch(err => console.warn('[Startup] Messaging tier migration skipped:', err.message));
+-// Meta Graph API version validation (US-961) — warn if version is below minimum
+-validateGraphApiVersion();
 -
- // US-495: Start daily WhatsApp cost aggregation log
- startWhatsappCostDailyJob();
+ // Ensure DB config tables exist (no-op when DATABASE_URL not set)
+ try {
+   await ensureConfigTables();
+@@ -228,13 +222,6 @@ setInterval(() => {
+   );
+ }, 24 * 60 * 60 * 1000);
  
-@@ -200,12 +191,6 @@ startFallbackAlertScheduler();
- // US-836: Start SLA cron for human handoff breach alerts (runs every 2 min)
- startHandoffSlaCron();
- 
--// US-892: WABA webhook subscription health check (startup + every 6 hours)
--startWabaSubscriptionMonitor();
+-// US-907: Automated breach detection scan (runs every 15 min)
+-setInterval(() => {
+-  runBreachDetectionScan().catch(err =>
+-    console.error('[PDPA] Breach detection scan failed:', err.message)
+-  );
+-}, 15 * 60 * 1000);
 -
--// US-891: Portfolio pacing monitor (startup + every 5 minutes)
--startPacingMonitor();
+ // US-515: Enable pg_stat_statements and start slow query monitor
+ ensurePgStatStatements(pool).then(() => {
+   setSlowQueryAlertHandler(async (report) => {
+@@ -667,12 +654,6 @@ app.use('/api/fnb', fnbChatRoutes);
+ // PDPA 2024 Phase 3 — self-service data portability (public, OTP-verified, US-894)
+ app.use('/api/rainbow', gdprPortabilityRoutes);
+ 
+-// WhatsApp Flows data-exchange and health endpoints (US-909)
+-app.use('/api/rainbow', whatsappFlowsRoutes);
 -
- // US-839: Daily PDPA breach deadline check (runs every 24h)
- setInterval(() => {
-   checkBreachDeadlines().catch(err =>
-@@ -366,18 +351,6 @@ app.get('/webchat.html', (_req, res) => {
-   res.sendFile(join(__dirname_main, 'public', 'webchat.html'));
- });
- 
--// US-893: Serve locally-downloaded WhatsApp media files.
--// Admin-only: guarded by the admin auth middleware mounted on /api/admin.
--// Static route is intentionally separate from /api to allow direct browser loads.
--app.use(
--  '/media',
--  express.static(join(process.cwd(), 'media'), {
--    dotfiles: 'deny',
--    index: false,
--    maxAge: '1d',
--  })
--);
--
- // Serve dashboard static files (CSS, JS, images) with no-cache headers.
- // In dev, this MUST come before Vite middleware so that <link> and <script> tags
- // get raw files (correct Content-Type), not Vite's JS-module transforms.
-@@ -411,13 +384,11 @@ let _poolWaitingStreak = 0;
- 
- // Health check endpoint (liveness — is the process alive?)
- app.get('/health', (req, res) => {
--  const wabaSubState = getWebhookSubscriptionState();
-   res.json({
-     status: 'ok',
-     service: 'pelangi-mcp-server',
-     version: '1.0.0',
-     whatsapp: getWhatsAppStatus().state,
--    webhookSubscribed: wabaSubState.skipped ? null : wabaSubState.webhookSubscribed,
-     timestamp: new Date().toISOString()
-   });
- });
-@@ -649,9 +620,6 @@ app.use('/api/chat', webchatApiRoutes);
- // FnB AI Waiter chat (SSE streaming, makan-moments profile)
- app.use('/api/fnb', fnbChatRoutes);
- 
--// US-894: PDPA self-service data portability (public, OTP-verified)
--app.use('/api/data-portability', dataPortabilityRoutes);
+-// US-911: WhatsApp in-chat webview payment page (public, token-verified)
+-app.use('/api/rainbow', paymentRoutes);
 -
  // Webchat page — serves branded chat UI per profile
  app.get('/chat/:profileId', (req, res) => {
    const { profileId } = req.params;
-@@ -825,14 +793,6 @@ server.listen(PORT, '0.0.0.0', () => {
-     // Initialize scheduled message checker (US-019)
-     initScheduler();
- 
--    // US-882: Initialize abandoned-cart recovery checker with WhatsApp support
--    const makanProfile = profileRegistry.getProfile('makan-moments');
--    const makanCartSettings = makanProfile?.configStore.getSettings() as any;
--    initCartIdleRecovery(
--      makanCartSettings?.cartIdleRecoveryMinutes,
--      sendWhatsAppMessage,
--    );
--
-     // Initialize failover coordinator (primary/standby)
-     const { failoverCoordinator } = await import('./lib/failover-coordinator.js');
-     const failoverSettings = configStore.getSettings().failover ?? {
