@@ -26,6 +26,7 @@ import {
   setListCache,
 } from './conversation-db.js';
 import { scheduleContextUpdate } from './conversation-context.js';
+import type { ReferralData } from './types.js';
 
 // ─── Re-export types (callers still import these from here) ─────────
 
@@ -34,7 +35,6 @@ export type {
   ContactDetails,
   ConversationLog,
   ConversationSummary,
-  ConversationReferral,
 } from './conversation-logger-types.js';
 
 import type {
@@ -81,6 +81,7 @@ export async function logMessage(
     workflowId?: string;
     stepId?: string;
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    referralData?: ReferralData; // US-910: Click-to-WhatsApp ad referral attribution
     // Allow extra keys from copilot approval flow
     [key: string]: unknown;
   }
@@ -109,13 +110,10 @@ export async function logMessage(
       return;
     }
 
-    // US-910: Extract referral from meta if present
-    const referral = meta?.referral as { sourceType: string; ctwaClid?: string; sourceId?: string; sourceUrl?: string; headline?: string; body?: string; mediaType?: string } | undefined;
-
     // Wrap upsert + insert + cap-delete in a single transaction (US-168)
     await db.transaction(async (tx) => {
-      // Upsert conversation (with profileId, bsuid, and referral so it's correctly scoped)
-      await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid, referral);
+      // Upsert conversation (with profileId, bsuid, and referral so it's correctly attributed)
+      await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid, meta?.referralData);
 
       // Insert message
       await tx.insert(rainbowMessages).values({
@@ -136,20 +134,14 @@ export async function logMessage(
         routedAction: meta?.routedAction ?? null,
         workflowId: meta?.workflowId ?? null,
         stepId: meta?.stepId ?? null,
-        usageJson: (meta?.usage || meta?.staffName || meta?.complianceCategory)
-          ? JSON.stringify({
-              ...(meta?.usage || {}),
-              ...(meta?.staffName ? { staffName: meta.staffName } : {}),
-              ...(meta?.complianceCategory ? { complianceCategory: meta.complianceCategory } : {}),
-            })
+        usageJson: (meta?.usage || meta?.staffName)
+          ? JSON.stringify({ ...(meta?.usage || {}), ...(meta?.staffName ? { staffName: meta.staffName } : {}) })
           : null,
         promptTokens: meta?.usage?.prompt_tokens ?? null,
         completionTokens: meta?.usage?.completion_tokens ?? null,
         totalTokens: meta?.usage?.total_tokens ?? null,
         transcribed: meta?.transcribed === true ? true : null,
         faithfulnessScore: meta?.faithfulnessScore ?? null,
-        hallucinationAction: meta?.hallucinationAction ?? null,
-        hallucinationSeverity: meta?.hallucinationSeverity ?? null,
       });
 
       // Cap at 500 messages per conversation
@@ -259,7 +251,6 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           c.favourite,
           c.created_at,
           c.last_read_at,
-          c.referral_source_type,
           lm.content   AS last_msg_content,
           lm.role       AS last_msg_role,
           lm.timestamp  AS last_msg_at,
@@ -308,6 +299,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         pushName: r.push_name,
         instanceId: r.instance_id ?? undefined,
         profileId: r.profile_id ?? undefined,
+        tenantId: r.profile_id ?? undefined,  // US-908: tenant_id = profileId
         lastMessage: (r.last_msg_content || '').slice(0, 100),
         lastMessageRole: r.last_msg_role as 'user' | 'assistant',
         lastMessageAt: r.last_msg_at instanceof Date
@@ -321,7 +313,6 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
         sessionActive: r.session_active === true || r.session_active === 't', // US-815
-        leadSource: r.referral_source_type || undefined, // US-910
       }));
       setListCache(summaries, profileId);
       return summaries;
@@ -357,7 +348,6 @@ export async function searchConversations(
           c.favourite,
           c.created_at,
           c.last_read_at,
-          c.referral_source_type,
           lm.content   AS last_msg_content,
           lm.role       AS last_msg_role,
           lm.timestamp  AS last_msg_at,
@@ -419,6 +409,7 @@ export async function searchConversations(
         pushName: r.push_name,
         instanceId: r.instance_id ?? undefined,
         profileId: r.profile_id ?? undefined,
+        tenantId: r.profile_id ?? undefined,  // US-908: tenant_id = profileId
         lastMessage: (r.last_msg_content || '').slice(0, 100),
         lastMessageRole: r.last_msg_role as 'user' | 'assistant',
         lastMessageAt: r.last_msg_at instanceof Date
@@ -432,7 +423,6 @@ export async function searchConversations(
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
         sessionActive: r.session_active === true || r.session_active === 't',
-        leadSource: r.referral_source_type || undefined, // US-910
       }));
     },
     async () => [],
@@ -440,8 +430,10 @@ export async function searchConversations(
   );
 }
 
-/** Get full conversation log for a phone number or BSUID */
-export async function getConversation(phone: string): Promise<ConversationLog | null> {
+/** Get full conversation log for a phone number or BSUID.
+ *  US-908: When tenantId is provided, enforces tenant isolation — only returns
+ *  the conversation if it belongs to the specified tenant. */
+export async function getConversation(phone: string, tenantId?: string): Promise<ConversationLog | null> {
   if (!(await ensureDb())) return null;
 
   return withFallback(
@@ -466,6 +458,11 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
       if (convoRows.length === 0) return null;
       const convo = convoRows[0];
 
+      // US-908: Tenant isolation — reject if conversation belongs to a different tenant
+      if (tenantId && convo.profileId && convo.profileId !== tenantId) {
+        return null;
+      }
+
       // Get all messages ordered by timestamp (exclude soft-deleted)
       const msgRows = await db
         .select()
@@ -480,31 +477,27 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
         try { contactDetails = JSON.parse(convo.contactDetailsJson); } catch { /* ignore */ }
       }
 
-      // US-910: Build referral object from conversation columns
-      let referral: import('./conversation-logger-types.js').ConversationReferral | undefined;
-      if (convo.referralSourceType) {
-        referral = {
-          sourceType: convo.referralSourceType,
-          ...(convo.referralCtwaClid ? { ctwaClid: convo.referralCtwaClid } : {}),
-          ...(convo.referralSourceId ? { sourceId: convo.referralSourceId } : {}),
-          ...(convo.referralHeadline ? { headline: convo.referralHeadline } : {}),
-          ...(convo.referralBody ? { body: convo.referralBody } : {}),
-          ...(convo.referralMediaType ? { mediaType: convo.referralMediaType } : {}),
-          ...(convo.referralSourceUrl ? { sourceUrl: convo.referralSourceUrl } : {}),
-        };
-      }
+      // US-910: Build referral attribution from DB columns
+      const referral = convo.referralCtwaClid || convo.referralSourceId ? {
+        ...(convo.referralCtwaClid ? { ctwaClid: convo.referralCtwaClid } : {}),
+        ...(convo.referralSourceId ? { sourceId: convo.referralSourceId } : {}),
+        ...(convo.referralSourceType ? { sourceType: convo.referralSourceType } : {}),
+        ...(convo.referralHeadline ? { headline: convo.referralHeadline } : {}),
+        ...(convo.referralBody ? { body: convo.referralBody } : {}),
+      } : undefined;
 
       return {
         phone: convo.phone,
         pushName: convo.pushName,
         instanceId: convo.instanceId ?? undefined,
+        tenantId: convo.profileId ?? undefined,  // US-908: expose tenant_id
+        ...(referral ? { referral } : {}),         // US-910: CTWA referral attribution
         messages,
         contactDetails,
         pinned: convo.pinned,
         favourite: convo.favourite,
         lastReadAt: convo.lastReadAt?.getTime(),
         responseMode: convo.responseMode ?? undefined,
-        referral,
         createdAt: convo.createdAt.getTime(),
         updatedAt: convo.updatedAt.getTime(),
       };

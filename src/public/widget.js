@@ -135,7 +135,8 @@
     // ── Create floating button ────────────────────────────────────────────────
     var btn = document.createElement('button');
     btn.id = '_rbw-btn';
-    btn.setAttribute('aria-label', buttonLabel);
+    // US-922: WCAG 2.2 SC 3.2.6 — launcher acts as consistent help mechanism
+    btn.setAttribute('aria-label', buttonLabel + ' — Help is available');
     btn.setAttribute('aria-haspopup', 'dialog');
     btn.setAttribute('aria-expanded', 'false');
     btn.innerHTML =

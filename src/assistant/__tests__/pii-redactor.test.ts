@@ -128,4 +128,52 @@ describe('redactPii', () => {
     const result = redactPii(msg);
     expect(result.redacted).toBe(msg);
   });
+
+  // ─── Malaysian Phone Numbers (US-915) ─────────────────────────────
+
+  test('redacts a Malaysian phone with +60 prefix', () => {
+    const result = redactPii('Call me at +60123456789');
+    expect(result.redacted).toContain('[PHONE_REDACTED]');
+    expect(result.redacted).not.toContain('+60123456789');
+    expect(result.hadPii).toBe(true);
+    expect(result.types).toContain('PHONE');
+  });
+
+  test('redacts a Malaysian phone with 60 prefix (no plus)', () => {
+    const result = redactPii('Phone: 60123456789');
+    expect(result.redacted).toContain('[PHONE_REDACTED]');
+    expect(result.hadPii).toBe(true);
+  });
+
+  test('redacts a Malaysian mobile starting with 01', () => {
+    const result = redactPii('My number is 012-3456789');
+    expect(result.redacted).toContain('[PHONE_REDACTED]');
+    expect(result.redacted).not.toContain('012-3456789');
+    expect(result.hadPii).toBe(true);
+  });
+
+  test('redacts phone with spaces: +60 12-345 6789', () => {
+    const result = redactPii('Contact: +60 12-345 6789');
+    expect(result.redacted).toContain('[PHONE_REDACTED]');
+    expect(result.hadPii).toBe(true);
+  });
+
+  test('redacts phone in a natural sentence', () => {
+    const result = redactPii('Guest phone number is 0176543210, please call');
+    expect(result.redacted).toContain('[PHONE_REDACTED]');
+    expect(result.redacted).not.toContain('0176543210');
+  });
+
+  // ─── Combined PII types including phone (US-915) ──────────────────
+
+  test('redacts phone, IC, and email in one message (US-915)', () => {
+    const msg = 'Guest: IC 900101-14-5678, phone +60123456789, email test@test.com';
+    const result = redactPii(msg);
+    expect(result.types).toContain('PHONE');
+    expect(result.types).toContain('MY_IC');
+    expect(result.types).toContain('EMAIL');
+    expect(result.redacted).not.toContain('+60123456789');
+    expect(result.redacted).not.toContain('900101-14-5678');
+    expect(result.redacted).not.toContain('test@test.com');
+  });
 });

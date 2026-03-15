@@ -17,6 +17,7 @@ import { callAPI } from './http-client.js';
 import { startDailyReportScheduler } from './daily-report.js';
 import { startRetentionScheduler } from './data-retention.js';
 import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
+import { initCartRecovery } from '../assistant/cart-recovery.js';
 import { configStore } from '../assistant/config-store.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
 import { persistDeliveryStatus } from './delivery-status.js';
@@ -106,6 +107,9 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
     } catch (err: any) {
       console.warn(`[BaileysSupervisor] Dedup cleanup failed (non-fatal): ${err.message}`);
     }
+
+    // US-882: Initialize abandoned-cart recovery checker for WhatsApp
+    initCartRecovery(sendWhatsAppMessage);
 
     // Start daily report scheduler (11:30 AM MYT)
     startDailyReportScheduler();

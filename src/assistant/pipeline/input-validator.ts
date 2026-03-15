@@ -23,7 +23,6 @@ import { trackMessageReceived, trackRateLimited } from '../../lib/activity-track
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
-import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
@@ -31,7 +30,6 @@ import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
 import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
 import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
-import { isIdentityQuestion, getDisclosureText, getIdentityTruthResponse, logDisclosureAudit } from '../identity-disclosure.js';
 
 // Start per-JID rate limiter cleanup (default 60s window)
 startJidRateLimiterCleanup(60_000);
@@ -373,14 +371,11 @@ export async function validateAndPrepare(
   let text = msg.text.trim();
   if (!text) return { continue: false, reason: 'empty' };
 
-  // US-945 AC2: Truncate messages exceeding configurable token limit (default 2000 chars ≈ tokens)
-  const rlSettings = (profileConfig.getSettings() as any).rateLimiting;
-  const maxInputTokens = rlSettings?.maxInputTokens ?? 2000;
-  if (text.length > maxInputTokens) {
-    console.log(`[Router] Message truncated from ${text.length} to ${maxInputTokens} chars (maxInputTokens=${maxInputTokens})`);
-    text = text.slice(0, maxInputTokens) + '...';
-    // Notify user their message was truncated
-    await ctx.sendMessage(phone, 'Your message was quite long, so I\'ve read the first part. Please send the rest in a follow-up if needed.', msg.instanceId);
+  // Truncate very long messages to prevent timeout (max 2000 chars)
+  const MAX_MESSAGE_LENGTH = 2000;
+  if (text.length > MAX_MESSAGE_LENGTH) {
+    console.log(`[Router] Message truncated from ${text.length} to ${MAX_MESSAGE_LENGTH} chars`);
+    text = text.slice(0, MAX_MESSAGE_LENGTH) + '...';
   }
 
   const requestId = randomUUID().slice(0, 8);
@@ -443,16 +438,7 @@ export async function validateAndPrepare(
     const customPatterns = injectionSettings?.patterns?.length > 0 ? injectionSettings.patterns : undefined;
     const injectionResult = detectPromptInjection(text, customPatterns);
     if (injectionResult.blocked) {
-      console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}", layer: ${injectionResult.layer})`);
-      // US-928: Log injection attempt with security alert
-      logPromptInjection({
-        jid: phone,
-        profileId,
-        rawMessage: text.slice(0, 500),
-        matchedPattern: injectionResult.matchedPattern || 'unknown',
-        layer: injectionResult.layer || 'substring',
-        action: 'blocked',
-      });
+      console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };
@@ -543,46 +529,6 @@ export async function validateAndPrepare(
     convo.language = detectedLang;
   }
 
-  // ─── US-970: AI Identity Disclosure ──────────────────────────────────
-  // AC1: First outbound message of every new conversation includes AI disclosure.
-  // AC2: Direct identity questions ("are you a bot?") get an immediate truthful reply.
-  const profileSettings970 = profileConfig.getSettings();
-  const disclosureEnabled = (profileSettings970 as any)?.identity_disclosure?.enabled !== false;
-
-  if (disclosureEnabled) {
-    const disclosureLang = (detectedLang !== 'en' && detectedLang !== 'ms' && detectedLang !== 'zh' && detectedLang !== 'ta')
-      ? 'en'
-      : detectedLang as 'en' | 'ms' | 'zh' | 'ta';
-
-    // AC2: Direct identity question — respond truthfully and stop pipeline
-    if (isIdentityQuestion(text)) {
-      const truthResponse = getIdentityTruthResponse(profileSettings970, disclosureLang);
-      await ctx.sendMessage(phone, truthResponse, msg.instanceId);
-      logMessage(phone, msg.pushName, 'assistant', truthResponse, {
-        action: 'ai_identity_disclosure',
-        instanceId: msg.instanceId,
-        profileId,
-      }).catch(() => {});
-      logDisclosureAudit(phone, profileId, 'direct_query');
-      console.log(`[IdentityDisclosure][US-970] Answered identity question from ${phone}`);
-      return { continue: false, reason: 'identity_question_answered' };
-    }
-
-    // AC1: First message in a new conversation — send disclosure before processing
-    if (!convo.aiDisclosed) {
-      const disclosureText = getDisclosureText(profileSettings970, disclosureLang);
-      await ctx.sendMessage(phone, disclosureText, msg.instanceId);
-      logMessage(phone, msg.pushName, 'assistant', disclosureText, {
-        action: 'ai_identity_disclosure',
-        instanceId: msg.instanceId,
-        profileId,
-      }).catch(() => {});
-      logDisclosureAudit(phone, profileId, 'opening');
-      convo.aiDisclosed = true;
-      console.log(`[IdentityDisclosure][US-970] Sent opening disclosure to ${phone}`);
-    }
-  }
-
   addMessage(phone, 'user', text, profileId);
   // US-448: Log message_type for all media messages that flow through (location, image/video/doc with caption)
   const loggedMessageType = msg.transcribed ? 'audio' : (msg.messageType !== 'text' ? msg.messageType : undefined);
@@ -591,7 +537,7 @@ export async function validateAndPrepare(
     ...(loggedMessageType ? { messageType: loggedMessageType } : {}),
     ...(msg.transcribed ? { transcribed: true } : {}),
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
-    ...(msg.referral ? { referral: msg.referral } : {}),
+    ...(msg.referralData ? { referralData: msg.referralData } : {}), // US-910: CTWA referral attribution
   }).catch(() => { });
   const lang = convo.language;
 

@@ -17,23 +17,30 @@ export interface OrderHistoryEntry {
   placedAt: Date;
 }
 
-// ─── Table Migration (runs once on import) ────────────────────────────────────
-const migrationPromise = pool.query(`
-  CREATE TABLE IF NOT EXISTS webchat_order_history (
-    id SERIAL PRIMARY KEY,
-    phone VARCHAR(100) NOT NULL,
-    order_id VARCHAR(100),
-    items JSONB NOT NULL DEFAULT '[]',
-    placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-`).then(() =>
-  pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_webchat_order_history_phone
-    ON webchat_order_history (phone, placed_at DESC)
-  `)
-).catch(err => {
-  console.error('[OrderHistory] Migration error:', err.message);
-});
+// ─── Table Migration (deferred until pool is available) ────────────────────────
+let _orderHistoryMigrationDone = false;
+let migrationPromise: Promise<void> | undefined;
+function ensureOrderHistoryTable(): Promise<void> {
+  if (_orderHistoryMigrationDone || !pool) return Promise.resolve();
+  _orderHistoryMigrationDone = true;
+  migrationPromise = pool.query(`
+    CREATE TABLE IF NOT EXISTS webchat_order_history (
+      id SERIAL PRIMARY KEY,
+      phone VARCHAR(100) NOT NULL,
+      order_id VARCHAR(100),
+      items JSONB NOT NULL DEFAULT '[]',
+      placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).then(() =>
+    pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_webchat_order_history_phone
+      ON webchat_order_history (phone, placed_at DESC)
+    `)
+  ).then(() => {}).catch(err => {
+    console.error('[OrderHistory] Migration error:', err.message);
+  });
+  return migrationPromise;
+}
 
 /**
  * Save a completed order snapshot for a webchat session.
@@ -44,7 +51,7 @@ export async function saveOrderHistory(
   orderId: string,
   items: CartItem[]
 ): Promise<void> {
-  await migrationPromise;
+  await ensureOrderHistoryTable();
   try {
     await pool.query(
       `INSERT INTO webchat_order_history (phone, order_id, items, placed_at)
@@ -62,7 +69,7 @@ export async function saveOrderHistory(
  * US-856: Only offer to repeat orders from the last 30 days to avoid stale suggestions.
  */
 export async function getLastOrder(phone: string): Promise<OrderHistoryEntry | null> {
-  await migrationPromise;
+  await ensureOrderHistoryTable();
   try {
     // Calculate the cutoff date: 30 days ago
     const thirtyDaysAgo = new Date();

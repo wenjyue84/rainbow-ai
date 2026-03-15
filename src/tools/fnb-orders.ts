@@ -54,6 +54,18 @@ export const fnbOrderTools: MCPTool[] = [
     },
     allowedProfiles: ['makan-moments']
   },
+  {
+    name: 'fnb_get_last_order',
+    description: 'Get the last order placed by a customer (within last 30 days) — used to offer repeat order (US-856)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phone: { type: 'string', description: 'Customer phone number' }
+      },
+      required: ['phone']
+    },
+    allowedProfiles: ['makan-moments']
+  },
   // Admin tools (require FNB_MCP_SECRET)
   {
     name: 'fnb_get_pending_orders',
@@ -150,6 +162,10 @@ export async function fnbGetOrderStatus(args: any): Promise<MCPToolResult> {
 
 export async function fnbGetOperatingHours(_args: any): Promise<MCPToolResult> {
   return callFnbMcp('fnb_get_operating_hours');
+}
+
+export async function fnbGetLastOrder(args: any): Promise<MCPToolResult> {
+  return callFnbMcp('fnb_get_last_order', { phone: args.phone });
 }
 
 // --- Kitchen status with 2-minute cache (US-868) ---

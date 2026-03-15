@@ -1,26 +1,27 @@
 /**
- * WhatsApp Message Cost Admin API (US-495)
+ * WhatsApp Message Cost Admin API (US-495, US-845)
  *
  * Tracks per-message WhatsApp template costs under July 2025 pricing model.
+ * US-845: Adds comparison endpoint showing costs under both per-message and
+ *         per-conversation models with active model indicator.
  *
- * GET  /analytics/whatsapp-cost          — cost summary (daily, by type, top countries)
- * GET  /analytics/whatsapp-cost/daily    — detailed daily breakdown
- * GET  /analytics/whatsapp-cost/rate-table — current rate table
- * PUT  /analytics/whatsapp-cost/rate-table — update rate table
+ * GET  /analytics/whatsapp-cost              — cost summary (daily, by type, top countries)
+ * GET  /analytics/whatsapp-cost/daily        — detailed daily breakdown
+ * GET  /analytics/whatsapp-cost/comparison   — both pricing models side-by-side
+ * GET  /analytics/whatsapp-cost/rate-table   — current rate table
+ * PUT  /analytics/whatsapp-cost/rate-table   — update rate table
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
 import { appSettings } from '../../../shared/schema.js';
-import { sql, eq, and } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
 import { ok, badRequest, serverError } from './http-utils.js';
 import {
   queryWhatsappCostSummary,
   queryWhatsappDailyCosts,
-  getPricingModel,
-  estimateConversationCost,
-  getVolumeTierStatus,
-  queryMonthlyCostReport,
+  queryWhatsappCostComparison,
+  getActivePricingModel,
 } from '../../lib/whatsapp-cost.js';
 
 const router = Router();
@@ -41,39 +42,13 @@ router.get('/analytics/whatsapp-cost', async (req: Request, res: Response) => {
 
     const [summary, activePricingModel] = await Promise.all([
       queryWhatsappCostSummary({ profileId, days }),
-      getPricingModel(profileId),
+      getActivePricingModel(),
     ]);
-
-    // Compute per-conversation comparison from the per-message data.
-    // Each unique (templateType, countryCode) combination within a day represents
-    // one conversation window for the legacy model.
-    const dailyRows = await queryWhatsappDailyCosts({ profileId, days });
-    const perConversationEstimateUsd = dailyRows.reduce((sum, row) => {
-      const rate = estimateConversationCost(
-        row.templateType as any,
-        row.countryCode,
-        false // conservative: assume outside CSW for comparison
-      );
-      // One conversation per unique (date, type, country) row
-      return sum + rate;
-    }, 0);
 
     ok(res, {
       ...summary,
-      queryDays: days,
       activePricingModel,
-      modelComparison: {
-        perMessage: {
-          model: 'per_message',
-          estimatedCostUsd: summary.totalEstimatedCostUsd,
-          isActive: activePricingModel === 'per_message',
-        },
-        perConversation: {
-          model: 'per_conversation',
-          estimatedCostUsd: Number(perConversationEstimateUsd.toFixed(4)),
-          isActive: activePricingModel === 'per_conversation',
-        },
-      },
+      queryDays: days,
     });
   } catch (err: any) {
     console.error('[WACost] Summary query failed:', err.message);
@@ -97,6 +72,29 @@ router.get('/analytics/whatsapp-cost/daily', async (req: Request, res: Response)
     ok(res, { daily: rows, queryDays: days });
   } catch (err: any) {
     console.error('[WACost] Daily query failed:', err.message);
+    serverError(res, err);
+  }
+});
+
+/**
+ * GET /analytics/whatsapp-cost/comparison (US-845)
+ *
+ * Returns estimated costs under both per-message and per-conversation pricing
+ * models with a visual indicator of which model is active.
+ */
+router.get('/analytics/whatsapp-cost/comparison', async (req: Request, res: Response) => {
+  try {
+    const profileId = req.query.profile_id as string | undefined;
+    const days = Math.min(parseInt(req.query.days as string) || 7, 90);
+
+    const comparison = await queryWhatsappCostComparison({ profileId, days });
+
+    ok(res, {
+      ...comparison,
+      queryDays: days,
+    });
+  } catch (err: any) {
+    console.error('[WACost] Comparison query failed:', err.message);
     serverError(res, err);
   }
 });
@@ -162,102 +160,6 @@ router.put('/analytics/whatsapp-cost/rate-table', async (req: Request, res: Resp
     ok(res, { rateTable, updatedAt: new Date().toISOString() });
   } catch (err: any) {
     console.error('[WACost] Rate table update failed:', err.message);
-    serverError(res, err);
-  }
-});
-
-/**
- * GET /analytics/whatsapp-cost/volume-tier
- *
- * Returns current month's volume tier status and discount threshold info.
- */
-router.get('/analytics/whatsapp-cost/volume-tier', async (req: Request, res: Response) => {
-  try {
-    const profileId = req.query.profile_id as string | undefined;
-    const tierStatus = await getVolumeTierStatus(profileId);
-    ok(res, tierStatus);
-  } catch (err: any) {
-    console.error('[WACost] Volume tier query failed:', err.message);
-    serverError(res, err);
-  }
-});
-
-/**
- * GET /analytics/whatsapp-cost/monthly
- *
- * Returns monthly cost report distinguishing free CSW messages from billable,
- * with per-category breakdown and volume tier per month.
- */
-router.get('/analytics/whatsapp-cost/monthly', async (req: Request, res: Response) => {
-  try {
-    const profileId = req.query.profile_id as string | undefined;
-    const months = Math.min(parseInt(req.query.months as string) || 3, 12);
-
-    const report = await queryMonthlyCostReport({ profileId, months });
-
-    ok(res, { months: report, queryMonths: months });
-  } catch (err: any) {
-    console.error('[WACost] Monthly report query failed:', err.message);
-    serverError(res, err);
-  }
-});
-
-/**
- * GET /analytics/whatsapp-cost/pricing-events
- *
- * Returns per-message actual pricing data captured from Meta Cloud API
- * pricing_analytics webhook field.
- */
-router.get('/analytics/whatsapp-cost/pricing-events', async (req: Request, res: Response) => {
-  try {
-    const profileId = req.query.profile_id as string | undefined;
-    const days = Math.min(parseInt(req.query.days as string) || 7, 90);
-    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
-
-    const { whatsappPricingEvents } = await import('../../../shared/schema.js');
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    const conditions: any[] = [sql`${whatsappPricingEvents.createdAt} >= ${since}::timestamp`];
-    if (profileId) {
-      conditions.push(eq(whatsappPricingEvents.profileId, profileId));
-    }
-
-    const rows = await db.select().from(whatsappPricingEvents)
-      .where(and(...conditions))
-      .orderBy(sql`${whatsappPricingEvents.createdAt} DESC`)
-      .limit(limit);
-
-    // Summary stats
-    const totalEvents = rows.length;
-    const billableCount = rows.filter(r => r.billable).length;
-    const cswFreeCount = rows.filter(r => r.cswFree).length;
-    const totalCost = rows.reduce((sum, r) => sum + (r.price ?? 0), 0);
-
-    // Category breakdown
-    const byCategory = new Map<string, { count: number; billable: number; cswFree: number; totalCost: number }>();
-    for (const r of rows) {
-      const cat = r.category;
-      const entry = byCategory.get(cat) ?? { count: 0, billable: 0, cswFree: 0, totalCost: 0 };
-      entry.count++;
-      if (r.billable) entry.billable++;
-      if (r.cswFree) entry.cswFree++;
-      entry.totalCost += r.price ?? 0;
-      byCategory.set(cat, entry);
-    }
-
-    ok(res, {
-      events: rows,
-      summary: {
-        totalEvents,
-        billableCount,
-        cswFreeCount,
-        totalCost: Number(totalCost.toFixed(4)),
-        byCategory: Object.fromEntries(byCategory),
-      },
-      queryDays: days,
-    });
-  } catch (err: any) {
-    console.error('[WACost] Pricing events query failed:', err.message);
     serverError(res, err);
   }
 });

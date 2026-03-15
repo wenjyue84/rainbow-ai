@@ -41,30 +41,29 @@ export interface ContactDetails {
   tags?: string[];
 }
 
-// US-910: Referral attribution data for ad-initiated conversations
-export interface ConversationReferral {
-  sourceType: string;       // ad | post | qr_code
-  ctwaClid?: string;        // Click ID for Meta Conversions API
-  sourceId?: string;        // Campaign/ad ID
-  headline?: string;        // Ad headline text
-  body?: string;            // Ad body text
-  mediaType?: string;       // image | video
-  sourceUrl?: string;       // Source URL
+/** US-910: Click-to-WhatsApp ad referral attribution stored on a conversation */
+export interface ReferralAttribution {
+  ctwaClid?: string;
+  sourceId?: string;
+  sourceType?: string;   // 'ad' | 'post' | 'qr_code'
+  headline?: string;
+  body?: string;
+  mediaType?: string;
+  thumbnailUrl?: string;
 }
 
 export interface ConversationLog {
   phone: string;
   pushName: string;
   instanceId?: string;
-  /** US-908: tenant identifier — matches profileId, enforces cross-property isolation */
-  tenantId?: string;
+  tenantId?: string;       // US-908: tenant_id for multi-property isolation (maps to profileId)
+  referral?: ReferralAttribution; // US-910: Click-to-WhatsApp ad referral attribution
   messages: LoggedMessage[];
   contactDetails?: ContactDetails;
   pinned?: boolean;
   favourite?: boolean;
   lastReadAt?: number;
   responseMode?: string;
-  referral?: ConversationReferral; // US-910: ad referral attribution
   createdAt: number;
   updatedAt: number;
 }
@@ -73,8 +72,7 @@ export interface ConversationSummary {
   phone: string;
   pushName: string;
   instanceId?: string;
-  /** US-908: tenant identifier — matches profileId, enforces cross-property isolation */
-  tenantId?: string;
+  tenantId?: string;       // US-908: tenant_id for multi-property isolation
   lastMessage: string;
   lastMessageRole: 'user' | 'assistant';
   lastMessageAt: number;
@@ -84,5 +82,4 @@ export interface ConversationSummary {
   favourite?: boolean;
   createdAt: number;
   sessionActive?: boolean;  // US-815: true if within 24h session window
-  leadSource?: string;      // US-910: ad | post | qr_code | organic (null = organic)
 }

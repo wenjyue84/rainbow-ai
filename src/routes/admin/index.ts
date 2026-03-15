@@ -6,7 +6,7 @@ import { profileRegistry } from '../../assistant/profile-registry.js';
 import { authBruteForceStore, ADMIN_IP_ALLOWLIST } from '../../lib/auth-brute-force.js';
 import { isReady } from '../../lib/readiness.js';
 import { checkRole } from '../../lib/rbac.js';
-import { tenantContextMiddleware } from '../../lib/tenant-context.js';
+import { enforceAdminTenantScope, isValidTenant } from '../../lib/tenant-context.js';
 import { ADMIN_ROLES } from '../../../shared/schema.js';
 import type { AdminRole } from '../../../shared/schema.js';
 
@@ -67,22 +67,17 @@ import templateQualityRoutes from './template-quality.js';
 import authRoutes from './auth.js';
 import experimentsRoutes from './experiments.js';
 import breachReportRoutes from './breach-report.js';
-import pdpaDpoRoutes from './pdpa-dpo.js';
 import menuAllergensRoutes from './menu-allergens.js';
 import menuItemsRoutes from './menu-items.js';
 import rateLimitSettingsRoutes from './rate-limit-settings.js';
 import serviceRequestsRoutes from './service-requests.js';
 import bookingSequenceRoutes from './booking-sequence.js';
 import waTemplatesRoutes from './wa-templates.js';
+import pdpaDpoRoutes from './pdpa-dpo.js';
+import referralAttributionRoutes from './referral-attribution.js';
 import hallucinationReportRoutes from './hallucination-report.js';
-import chatbotComplianceRoutes from './chatbot-compliance.js';
-import analyticsTopConsumersRoutes from './analytics-top-consumers.js';
-import analyticsLlmValidationRoutes from './analytics-llm-validation.js';
-import analyticsCostRoutes from './analytics-cost.js';
-import analyticsCartRecoveryRoutes from './analytics-cart-recovery.js';
-import analyticsPushRoutes from './analytics-push.js';
-import qrCampaignsRoutes from './qr-campaigns.js';
-import posInventoryRoutes from './pos-inventory.js';
+import complianceRoutes from './compliance.js';
+import festiveStickersRoutes from './festive-stickers.js';
 
 const router = Router();
 
@@ -139,8 +134,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ─── Profile Resolution Middleware ──────────────────────────────────
-// Reads x-profile-id header and attaches the profile's ConfigStore to res.locals
+// ─── Profile Resolution + Tenant Context Middleware (US-908) ─────────
+// Reads x-profile-id header and attaches the profile's ConfigStore to res.locals.
+// Also sets res.locals.tenantId for tenant isolation enforcement.
 router.use((req: Request, res: Response, next: NextFunction) => {
   const profileId = req.headers['x-profile-id'] as string | undefined;
   if (profileId && profileRegistry.isInitialized()) {
@@ -150,15 +146,12 @@ router.use((req: Request, res: Response, next: NextFunction) => {
       res.locals.profileId = profileId;
     }
   }
+  // US-908: Set tenantId from validated profile header
+  if (profileId && isValidTenant(profileId)) {
+    res.locals.tenantId = profileId;
+  }
   next();
 });
-
-// ─── Tenant Context Middleware (US-908) ──────────────────────────────
-// Injects res.locals.tenantId from the resolved profileId.
-// Must run AFTER profile resolution so profileId is already set.
-// Enforces RBAC tenant scoping: admins scoped to a tenantId cannot
-// access data from other tenants (super-admin is exempt).
-router.use(tenantContextMiddleware);
 
 // ─── Role Resolution Middleware (US-898) ─────────────────────────────
 // Client passes x-admin-role header (obtained from /auth/login response).
@@ -172,6 +165,11 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   // defaults to 'operator' for backwards compatibility during migration.
   next();
 });
+
+// ─── Tenant Scope Enforcement (US-908) ───────────────────────────────
+// If the admin user has an allowed_tenants restriction, reject requests
+// to tenants they are not authorized for.
+router.use(enforceAdminTenantScope);
 
 // ─── Rate Limiting (mutation endpoints) ─────────────────────────────
 const adminMutationLimiter = rateLimit({
@@ -220,10 +218,6 @@ const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
   '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis', '/analytics/kpis/containment',
-  '/analytics/hallucination-report',
-  '/analytics/top-consumers',
-  '/analytics/llm-validation',
-  '/analytics/cost-analytics',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -315,22 +309,17 @@ router.use(templateQualityRoutes);
 router.use(authRoutes);
 router.use(experimentsRoutes);
 router.use(breachReportRoutes);
-router.use(pdpaDpoRoutes);
 router.use(menuAllergensRoutes);
 router.use(menuItemsRoutes);
 router.use(rateLimitSettingsRoutes);
 router.use(serviceRequestsRoutes);
 router.use(bookingSequenceRoutes);
 router.use(waTemplatesRoutes);
+router.use(pdpaDpoRoutes);
+router.use(referralAttributionRoutes);
 router.use(hallucinationReportRoutes);
-router.use(chatbotComplianceRoutes);
-router.use(analyticsTopConsumersRoutes);
-router.use(analyticsLlmValidationRoutes);
-router.use(analyticsCostRoutes);
-router.use(analyticsCartRecoveryRoutes);
-router.use(analyticsPushRoutes);
-router.use(qrCampaignsRoutes);
-router.use(posInventoryRoutes);
+router.use(complianceRoutes);
+router.use(festiveStickersRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

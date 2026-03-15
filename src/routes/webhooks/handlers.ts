@@ -15,6 +15,7 @@ import { isFeedbackRequested, markFeedbackRequested, getPhoneByOrderId } from '.
 import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
 import { db } from '../../lib/db.js';
 import { rainbowFeedback, insertRainbowFeedbackSchema } from '../../../shared/schema.js';
+import { sendPushNotification } from '../../lib/push-notifications.js';
 
 const logger = createModuleLogger('WebhookHandlers');
 
@@ -152,9 +153,17 @@ async function handleOrderServed(event: WebhookEvent): Promise<void> {
       logger.error('Failed to send feedback request via WhatsApp', { phone, orderId, error });
     }
   } else {
-    // For webchat, we would need to send via a different mechanism
-    // For now, we log that feedback was requested and rely on next interaction
-    logger.info('Marked feedback as requested for webchat order', { phone, orderId });
+    // US-916: For webchat, send push notification if subscribed
+    sendPushNotification(phone, {
+      title: 'Your order is ready!',
+      body: `Order ${orderId} is ready for pickup. Enjoy your meal!`,
+      tag: 'order_ready',
+      data: { orderId, action: 'order_ready' },
+      actions: [{ action: 'view_order', title: 'View Order' }],
+    }).catch(err => {
+      logger.warn('Push notification failed for order_served', { phone, orderId, error: err.message });
+    });
+    logger.info('Push notification queued for webchat order', { phone, orderId });
   }
 }
 

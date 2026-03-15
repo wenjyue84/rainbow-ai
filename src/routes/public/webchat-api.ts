@@ -14,21 +14,16 @@ import { sanitizeInput, validateInputSafety, processChat } from '../../assistant
 import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
-import { cartGetItems, cartFormatSummary, cartGetTableInfo, cartSetTableInfo } from '../../assistant/cart-store.js';
+import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
-import { isModificationAllowed, getModificationTimeRemaining } from '../../assistant/order-modification-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
-import { stripDangerousHtml } from '../../assistant/output-sanitizer.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
 import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
-import { getSessionData, formatSessionDataPrompt } from '../../assistant/session-data-store.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
-import { getVapidPublicKey, saveSubscription, removeSubscription, updateFrequency, sendPushNotification } from '../../assistant/push-notifications.js';
-import type { PushSubscriptionData } from '../../assistant/push-notifications.js';
 
 const router = Router();
 
@@ -53,11 +48,13 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// ─── Database Migration (Startup) ──────────────────────────────────────────────
-// Add profile_id column to rainbow_conversations if not exists
-pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {
-  // Silently ignore if already exists or other errors
-});
+// ─── Database Migration (deferred until pool is available) ──────────────────────
+let _webchatMigrationDone = false;
+function ensureProfileIdColumn(): void {
+  if (_webchatMigrationDone || !pool) return;
+  _webchatMigrationDone = true;
+  pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {});
+}
 
 // Public rate limit: 10 messages per minute per IP
 const webchatLimiter = rateLimit({
@@ -69,6 +66,32 @@ const webchatLimiter = rateLimit({
 });
 
 router.use(webchatLimiter);
+router.use((_req, _res, next) => { ensureProfileIdColumn(); next(); });
+
+// ─── US-921: Session Data Store (WCAG 3.3.7 Redundant Entry) ─────────────────
+// Persists user-provided data per session so the AI never re-asks for info
+// already collected (name, table number, delivery address, etc.).
+interface WebchatSessionData {
+  guestName?: string;
+  tableNumber?: string;
+  orderType?: string; // 'dine-in' | 'takeaway'
+  deliveryAddress?: string;
+  seatNumber?: string;
+  updatedAt: number;
+}
+
+const sessionDataStore = new Map<string, WebchatSessionData>();
+const SESSION_DATA_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Cleanup stale session data every hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of sessionDataStore) {
+    if (now - data.updatedAt > SESSION_DATA_TTL_MS) {
+      sessionDataStore.delete(key);
+    }
+  }
+}, 60 * 60 * 1000);
 
 // ─── KB Context Cache ──────────────────────────────────────────────
 const kbContextCache = new Map<string, { systemPrompt: string; kbFiles: string[]; cachedAt: number }>();
@@ -224,7 +247,58 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
     }
   }
 
-  res.json({ greeting, sessionId, lastOrder });
+  // US-921: Include any previously stored session data in greeting response
+  const existingSessionData = sessionDataStore.get(sessionId);
+  res.json({ greeting, sessionId, lastOrder, sessionData: existingSessionData || null });
+});
+
+/**
+ * GET /api/chat/:profileId/session-data (US-921: WCAG 3.3.7)
+ *
+ * Returns previously collected session data (name, table, address, etc.)
+ * so the widget can pre-fill fields and the AI doesn't re-ask.
+ * Query params: sessionId (required)
+ */
+router.get('/:profileId/session-data', (req: Request, res: Response) => {
+  const sessionId = req.query.sessionId as string;
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId query parameter required' });
+    return;
+  }
+
+  const data = sessionDataStore.get(sessionId);
+  res.json({ sessionId, sessionData: data || null });
+});
+
+/**
+ * PUT /api/chat/:profileId/session-data (US-921: WCAG 3.3.7)
+ *
+ * Stores/updates session context data. Called by the widget when the user
+ * provides their name, table number, delivery address, etc.
+ * Body: { sessionId, guestName?, tableNumber?, orderType?, deliveryAddress?, seatNumber? }
+ */
+router.put('/:profileId/session-data', (req: Request, res: Response) => {
+  const { sessionId, guestName, tableNumber, orderType, deliveryAddress, seatNumber } = req.body;
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId (string) required' });
+    return;
+  }
+
+  const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+  const updated: WebchatSessionData = {
+    ...existing,
+    updatedAt: Date.now(),
+  };
+
+  // Only overwrite fields that are explicitly provided (non-undefined)
+  if (guestName !== undefined) updated.guestName = String(guestName).slice(0, 100);
+  if (tableNumber !== undefined) updated.tableNumber = String(tableNumber).slice(0, 20);
+  if (orderType !== undefined) updated.orderType = String(orderType).slice(0, 20);
+  if (deliveryAddress !== undefined) updated.deliveryAddress = String(deliveryAddress).slice(0, 500);
+  if (seatNumber !== undefined) updated.seatNumber = String(seatNumber).slice(0, 20);
+
+  sessionDataStore.set(sessionId, updated);
+  res.json({ sessionId, sessionData: updated });
 });
 
 /**
@@ -280,16 +354,7 @@ function buildMakanMomentsContext(sessionId: string) {
   const orderModWindowMinutes = makanSettings?.order_modification?.window_minutes ?? 2;
   const modificationWindowMs = orderModWindowMinutes * 60 * 1000;
 
-  // US-967: Read SST config from settings
-  const sstSettings = makanSettings?.sst;
-  const sst = sstSettings?.enabled ? {
-    enabled: true,
-    rate: sstSettings.rate ?? 0.06,
-    registrationNo: sstSettings.registration_no ?? '',
-    vendorName: sstSettings.vendor_name ?? 'Makan Moments Cafe',
-  } : undefined;
-
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs, sst });
+  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
   const currentCartItems = cartGetItems(sessionId);
@@ -297,20 +362,8 @@ function buildMakanMomentsContext(sessionId: string) {
   const currentStage = getOrderStage(sessionId);
   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
   const pendingDisambig = getDisambiguation(sessionId);
-  let tableInfo = cartGetTableInfo(sessionId);
+  const tableInfo = cartGetTableInfo(sessionId);
   const lastOrderId = getSessionOrderId(sessionId);
-
-  // US-921: Auto-restore table info from session data if cart was cleared (e.g. after order placed)
-  if (!tableInfo) {
-    const sessionData = getSessionData(sessionId);
-    if (sessionData.tableNumber || sessionData.orderType) {
-      const restored: import('../../assistant/cart-store.js').TableInfo = {};
-      if (sessionData.tableNumber) restored.tableNumber = sessionData.tableNumber;
-      if (sessionData.orderType) restored.orderType = sessionData.orderType;
-      cartSetTableInfo(sessionId, restored);
-      tableInfo = restored;
-    }
-  }
 
   const disambigSection = pendingDisambig
     ? [
@@ -330,11 +383,24 @@ function buildMakanMomentsContext(sessionId: string) {
         : '\nOrder Type: Dine-in (already captured — do NOT ask again)'
     : '\nTable/Order Type: Not yet captured';
 
+  // US-921: Build session data context (WCAG 3.3.7 Redundant Entry prevention)
+  const sessionData = sessionDataStore.get(sessionId);
+  const sessionDataLines: string[] = [];
+  if (sessionData) {
+    if (sessionData.guestName) sessionDataLines.push(`Guest Name: ${sessionData.guestName} (already provided — do NOT ask again)`);
+    if (sessionData.deliveryAddress) sessionDataLines.push(`Delivery Address: ${sessionData.deliveryAddress} (already provided — offer as default, allow edit)`);
+    if (sessionData.seatNumber) sessionDataLines.push(`Seat Number: ${sessionData.seatNumber} (already provided — do NOT ask again)`);
+  }
+  const sessionDataSection = sessionDataLines.length > 0
+    ? '\n## Previously Collected Guest Info (WCAG 3.3.7 — do NOT re-ask)\n' + sessionDataLines.join('\n')
+    : '';
+
   const systemPromptSuffix = [
     '## Current Order State',
     `Session: ${sessionId}`,
     `Order Stage: ${currentStage} — ${stageDescription}`,
     tableInfoSection,
+    sessionDataSection,
     '',
     '## Current Cart',
     cartSummary,
@@ -421,8 +487,7 @@ function buildMakanMomentsContext(sessionId: string) {
     '',
     'PLACED stage: Order submitted. Cart is cleared.',
     '  • Thank the guest. Offer to help with anything else.',
-    '  • If guest says "change my order" / "modify" / "I want to change" / "tukar order" / "ubah order", call order_modify_request.',
-    '  • If they want to order again (new order, not modification), start fresh from BROWSING.',
+    '  • If they want to order again, start fresh from BROWSING.',
     '',
     'REORDER (US-897): When the guest says "reorder", "same as last time", "order lagi",',
     '  "sama macam semalam", "yes" (in response to the returning-customer welcome-back prompt):',
@@ -440,21 +505,42 @@ function buildMakanMomentsContext(sessionId: string) {
       ? `  • Last placed order ID: ${lastOrderId}`
       : '  • No order has been placed in this session yet.',
     '',
-    '## Order Modification Window (US-881)',
-    isModificationAllowed(sessionId).allowed
-      ? `Modification window is OPEN — ${getModificationTimeRemaining(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
-      : 'No active modification window.',
-    // US-921: WCAG 2.2 SC 3.3.7 — Redundant Entry Prevention
-    formatSessionDataPrompt(getSessionData(sessionId)),
-    '',
-    '## Redundant Entry Prevention (US-921, WCAG 2.2 SC 3.3.7)',
-    'NEVER re-ask for information the guest has already provided in this session.',
-    'When the guest provides their name, table, order type, or address, call session_save_info to persist it.',
-    'For subsequent orders in the same session, auto-apply saved info (table, order type) and greet by name if known.',
-    'If saved data needs updating, accept the new value and call session_save_info again.',
+    'REDUNDANT ENTRY PREVENTION (WCAG 3.3.7 — US-921):',
+    '  • NEVER re-ask for information the guest has already provided in this session.',
+    '  • If Guest Name is shown above, use it in checkout/confirmation without asking again.',
+    '  • If Table/Order Type is "already captured", do NOT ask again — even for a second order.',
+    '  • If Delivery Address is shown above, offer it as default: "Same address as before ([address])?"',
+    '  • When the guest starts a new order in the same session, carry forward table/name/address.',
   ].join('\n');
 
   return { allTools, allHandlers, systemPromptSuffix };
+}
+
+/**
+ * US-921: Sync cart table info → session data store.
+ * Called after each message so that table/orderType captured via AI tool calls
+ * are persisted and not re-asked on the next request.
+ */
+function syncCartToSessionData(sessionId: string): void {
+  const tableInfo = cartGetTableInfo(sessionId);
+  if (!tableInfo) return;
+
+  const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+  let changed = false;
+
+  if (tableInfo.tableNumber && existing.tableNumber !== tableInfo.tableNumber) {
+    existing.tableNumber = tableInfo.tableNumber;
+    changed = true;
+  }
+  if (tableInfo.orderType && existing.orderType !== tableInfo.orderType) {
+    existing.orderType = tableInfo.orderType;
+    changed = true;
+  }
+
+  if (changed) {
+    existing.updatedAt = Date.now();
+    sessionDataStore.set(sessionId, existing);
+  }
 }
 
 /**
@@ -466,7 +552,7 @@ function buildMakanMomentsContext(sessionId: string) {
  */
 router.post('/:profileId/message', async (req: Request, res: Response) => {
   const profileId = req.params.profileId as string;
-  const { message, history } = req.body;
+  const { message, history, sessionData: clientSessionData } = req.body;
   let { sessionId } = req.body;
 
   // Validate profile
@@ -485,6 +571,18 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   // Generate sessionId on server if not provided
   if (!sessionId || typeof sessionId !== 'string') {
     sessionId = 'web_' + crypto.randomUUID().slice(0, 8) + '_' + Date.now();
+  }
+
+  // US-921: Merge client-side session data (name, table, address) into server store
+  if (clientSessionData && typeof clientSessionData === 'object') {
+    const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+    const merged: WebchatSessionData = { ...existing, updatedAt: Date.now() };
+    if (clientSessionData.guestName) merged.guestName = String(clientSessionData.guestName).slice(0, 100);
+    if (clientSessionData.tableNumber) merged.tableNumber = String(clientSessionData.tableNumber).slice(0, 20);
+    if (clientSessionData.orderType) merged.orderType = String(clientSessionData.orderType).slice(0, 20);
+    if (clientSessionData.deliveryAddress) merged.deliveryAddress = String(clientSessionData.deliveryAddress).slice(0, 500);
+    if (clientSessionData.seatNumber) merged.seatNumber = String(clientSessionData.seatNumber).slice(0, 20);
+    sessionDataStore.set(sessionId, merged);
   }
 
   // US-826: Reset idle/timed-out session when user sends a new message
@@ -554,8 +652,15 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
       const responseTime = Date.now() - startTime;
 
+      // US-921: Sync cart table info back to session data store
+      if (isMakanMoments) {
+        syncCartToSessionData(sessionId);
+      }
+
       if (!disconnected) {
-        sseEvent(res, { done: true, responseTime, sessionId });
+        // US-921: Include updated session data in done event
+        const updatedSessionData = sessionDataStore.get(sessionId) || null;
+        sseEvent(res, { done: true, responseTime, sessionId, sessionData: updatedSessionData });
         res.end();
       }
 
@@ -609,14 +714,18 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       console.error('[Webchat] DB persist error:', err.message);
     });
 
-    // US-946: Sanitize LLM output before sending to webchat (OWASP LLM05)
-    const sanitizedResponse = stripDangerousHtml(result.message);
+    // US-921: Sync cart table info back to session data store
+    if (isMakanMoments) {
+      syncCartToSessionData(sessionId);
+    }
 
-    // Return only public-safe fields
+    // Return only public-safe fields + session data
+    const updatedSessionData = sessionDataStore.get(sessionId) || null;
     res.json({
-      message: sanitizedResponse,
+      message: result.message,
       responseTime: result.responseTime,
       sessionId,
+      sessionData: updatedSessionData,
     });
   } catch (err: any) {
     console.error(`[Webchat] Error processing message for ${profileId}:`, err);
@@ -711,135 +820,6 @@ router.post('/:profileId/consent-log', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Webchat] Consent log error:', err.message);
     res.status(500).json({ error: 'Failed to log consent' });
-  }
-});
-
-// ─── US-916: Push Notification Endpoints ─────────────────────────────
-
-/**
- * GET /api/chat/:profileId/push/vapid-key
- * Returns the VAPID public key for client-side push subscription.
- */
-router.get('/:profileId/push/vapid-key', (_req: Request, res: Response) => {
-  const publicKey = getVapidPublicKey();
-  if (!publicKey) {
-    res.status(503).json({ error: 'Push notifications not configured (VAPID keys missing)' });
-    return;
-  }
-  res.json({ publicKey });
-});
-
-/**
- * POST /api/chat/:profileId/push/subscribe
- * Subscribe a webchat session to push notifications.
- * Body: { sessionId, subscription: { endpoint, keys: { p256dh, auth } } }
- */
-router.post('/:profileId/push/subscribe', async (req: Request, res: Response) => {
-  const profileId = req.params.profileId as string;
-  const { sessionId, subscription } = req.body;
-
-  if (!sessionId || typeof sessionId !== 'string') {
-    res.status(400).json({ error: 'sessionId (string) required' });
-    return;
-  }
-
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-    res.status(400).json({ error: 'Valid push subscription object required (endpoint, keys.p256dh, keys.auth)' });
-    return;
-  }
-
-  try {
-    await saveSubscription(sessionId, profileId, subscription as PushSubscriptionData);
-    res.json({ ok: true });
-  } catch (err: any) {
-    console.error('[Push] Subscribe error:', err.message);
-    res.status(500).json({ error: 'Failed to save subscription' });
-  }
-});
-
-/**
- * POST /api/chat/:profileId/push/unsubscribe
- * Disable push notifications for a webchat session.
- * Body: { sessionId }
- */
-router.post('/:profileId/push/unsubscribe', async (req: Request, res: Response) => {
-  const profileId = req.params.profileId as string;
-  const { sessionId } = req.body;
-
-  if (!sessionId || typeof sessionId !== 'string') {
-    res.status(400).json({ error: 'sessionId (string) required' });
-    return;
-  }
-
-  try {
-    await removeSubscription(sessionId, profileId);
-    res.json({ ok: true });
-  } catch (err: any) {
-    console.error('[Push] Unsubscribe error:', err.message);
-    res.status(500).json({ error: 'Failed to remove subscription' });
-  }
-});
-
-/**
- * POST /api/chat/:profileId/push/settings
- * Update push notification settings (frequency, enabled).
- * Body: { sessionId, maxFrequencyMinutes?, enabled? }
- */
-router.post('/:profileId/push/settings', async (req: Request, res: Response) => {
-  const profileId = req.params.profileId as string;
-  const { sessionId, maxFrequencyMinutes, enabled } = req.body;
-
-  if (!sessionId || typeof sessionId !== 'string') {
-    res.status(400).json({ error: 'sessionId (string) required' });
-    return;
-  }
-
-  try {
-    if (enabled === false) {
-      await removeSubscription(sessionId, profileId);
-    } else if (typeof maxFrequencyMinutes === 'number' && maxFrequencyMinutes > 0) {
-      await updateFrequency(sessionId, profileId, maxFrequencyMinutes);
-    }
-    res.json({ ok: true });
-  } catch (err: any) {
-    console.error('[Push] Settings error:', err.message);
-    res.status(500).json({ error: 'Failed to update settings' });
-  }
-});
-
-/**
- * POST /api/chat/:profileId/push/send (admin use — for order-ready notifications)
- * Sends a push notification to a specific session.
- * Body: { sessionId, title, body, type, url? }
- */
-router.post('/:profileId/push/send', async (req: Request, res: Response) => {
-  const profileId = req.params.profileId as string;
-  const { sessionId, title, body: msgBody, type, url } = req.body;
-
-  if (!sessionId || !title || !msgBody || !type) {
-    res.status(400).json({ error: 'sessionId, title, body, type required' });
-    return;
-  }
-
-  const validTypes = ['order_ready', 'promotion', 'incomplete_order'];
-  if (!validTypes.includes(type)) {
-    res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
-    return;
-  }
-
-  try {
-    const sent = await sendPushNotification(sessionId, profileId, {
-      title,
-      body: msgBody,
-      type,
-      url: url || `/chat/${profileId}`,
-      profileId,
-      sessionId,
-    });
-    res.json({ ok: true, delivered: sent });
-  } catch (err: any) {
-    console.error('[Push] Send error:', err.message);
-    res.status(500).json({ error: 'Failed to send notification' });
   }
 });
 

@@ -10,9 +10,8 @@ import { configStore } from './config-store.js';
 import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
-import { isProviderOverBudget, recordLLMUsage, type LLMCallContext } from './llm-cost-budget.js';
-import { maskPiiForProvider } from './pii-redactor.js';
-import { logDataFlow, resolveProcessingCountry } from '../lib/pdpa-compliance.js';
+import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
+import { logDataFlow } from '../lib/ai-data-flow-log.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -239,121 +238,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: st
   ]);
 }
 
-// ─── Exponential Backoff with Jitter (US-938) ────────────────────────
-
-/** Maximum retries per provider for transient errors */
-const BACKOFF_MAX_RETRIES = 3;
-/** Base delay in ms (doubles each retry: 1s, 2s, 4s) */
-const BACKOFF_BASE_DELAY_MS = 1000;
-/** Jitter factor: ±20% randomization on each delay */
-const BACKOFF_JITTER_FACTOR = 0.2;
-
-/** HTTP status codes considered transient (retryable) */
-const TRANSIENT_STATUS_CODES = [429, 503];
-/** HTTP status codes considered permanent (immediate failover) */
-const PERMANENT_STATUS_CODES = [400, 401, 422];
-
-/**
- * Returns true if the error is transient and the same provider should be retried.
- * Transient: HTTP 429, 503, network timeouts.
- */
-export function isTransientError(err: any): boolean {
-  if (err instanceof TimeoutError) return true;
-  const msg = err?.message || '';
-  return TRANSIENT_STATUS_CODES.some(code => msg.includes(String(code)));
-}
-
-/**
- * Returns true if the error is permanent and should immediately fail over.
- * Permanent: HTTP 400, 401, 422 — retrying won't help.
- */
-export function isPermanentError(err: any): boolean {
-  const msg = err?.message || '';
-  return PERMANENT_STATUS_CODES.some(code => msg.includes(String(code)));
-}
-
-/**
- * Calculate backoff delay with ±20% jitter.
- * attempt=0 → ~1s, attempt=1 → ~2s, attempt=2 → ~4s
- */
-export function calculateBackoffDelay(attempt: number): number {
-  const baseDelay = BACKOFF_BASE_DELAY_MS * Math.pow(2, attempt);
-  const jitter = baseDelay * BACKOFF_JITTER_FACTOR * (2 * Math.random() - 1);
-  return Math.round(baseDelay + jitter);
-}
-
-/** Backoff utilities — exposed as object methods so tests can spy on them. */
-export const backoffUtils = {
-  sleep(delayMs: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, delayMs));
-  }
-};
-
-export interface RetryStats {
-  retryAttempts: number;
-  totalLatencyMs: number;
-  finalError?: string;
-}
-
-/**
- * Retry a providerChat call with exponential backoff + jitter for transient errors.
- * Permanent errors (400/401/422) skip retry and throw immediately.
- */
-export async function retryProviderChat(
-  provider: AIProvider,
-  messages: Array<{ role: string; content: string }>,
-  maxTokens: number,
-  temperature: number,
-  jsonMode: boolean = false,
-  tools?: any[]
-): Promise<{ result: { content: string; usage?: any; toolCalls?: any[] } | null; retryStats: RetryStats }> {
-  const startTime = Date.now();
-  let lastError: any;
-
-  for (let attempt = 0; attempt <= BACKOFF_MAX_RETRIES; attempt++) {
-    try {
-      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
-      return {
-        result,
-        retryStats: { retryAttempts: attempt, totalLatencyMs: Date.now() - startTime }
-      };
-    } catch (err: any) {
-      lastError = err;
-
-      // Permanent errors: skip retry, fail over immediately
-      if (isPermanentError(err)) {
-        console.warn(`[AI] ⛔ Permanent error from ${provider.name} (${err.message?.slice(0, 80)}) — skipping retry, failing over`);
-        throw err;
-      }
-
-      // Transient errors: retry with backoff if attempts remain
-      if (isTransientError(err) && attempt < BACKOFF_MAX_RETRIES) {
-        const delay = calculateBackoffDelay(attempt);
-        console.warn(
-          `[AI] 🔄 Transient error from ${provider.name} (attempt ${attempt + 1}/${BACKOFF_MAX_RETRIES + 1}): ` +
-          `${err.message?.slice(0, 80)} — retrying in ${delay}ms`
-        );
-        await backoffUtils.sleep(delay);
-        continue;
-      }
-
-      // Exhausted retries or non-transient error
-      const stats: RetryStats = {
-        retryAttempts: attempt,
-        totalLatencyMs: Date.now() - startTime,
-        finalError: err.message
-      };
-      console.warn(
-        `[AI] ❌ ${provider.name} exhausted ${attempt + 1} attempt(s) in ${stats.totalLatencyMs}ms — failing over`
-      );
-      throw Object.assign(err, { retryStats: stats });
-    }
-  }
-
-  // Should not reach here, but TypeScript safety
-  throw lastError;
-}
-
 // ─── Generic Provider Chat Call ──────────────────────────────────────
 
 export async function providerChat(
@@ -548,61 +432,16 @@ export async function providerChat(
 
 // ─── Fallback Chain ──────────────────────────────────────────────────
 
-/** Try all providers in priority order, return first success.
- *  US-945 AC4: Global hard timeout (default 30s) prevents the entire fallback chain from blocking indefinitely.
- *  US-918: Optional callContext for per-call cost tracking with conversation_id. */
+/** Try all providers in priority order, return first success */
 export async function chatWithFallback(
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
   temperature: number,
   jsonMode: boolean = false,
   providerIds?: string[],
-  tools?: any[],
-  callContext?: LLMCallContext
-): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
-  // US-945 AC4: Enforce global hard timeout across the entire fallback chain
-  const settings = configStore.getSettings() as any;
-  const llmHardTimeoutMs = settings?.rateLimiting?.llmHardTimeoutMs ?? 30_000;
-
-  return withTimeout(
-    _chatWithFallbackInner(messages, maxTokens, temperature, jsonMode, providerIds, tools, callContext),
-    llmHardTimeoutMs,
-    'LLM-global',
-    Date.now()
-  ).catch(err => {
-    if (err instanceof TimeoutError) {
-      console.error(`[AI] ❌ Global hard timeout (${llmHardTimeoutMs}ms) exceeded — aborting all providers`);
-      const ai = getAISettings();
-      const apology = ai.slow_response_message
-        || "I'm sorry, all my AI systems are running slowly right now. Please try again in a moment, or contact our staff for immediate help.";
-      return { content: apology, provider: null };
-    }
-    throw err;
-  });
-}
-
-/** Inner implementation of chatWithFallback (separated for global timeout wrapping) */
-async function _chatWithFallbackInner(
-  messages: Array<{ role: string; content: string }>,
-  maxTokens: number,
-  temperature: number,
-  jsonMode: boolean = false,
-  providerIds?: string[],
-  tools?: any[],
-  callContext?: LLMCallContext
+  tools?: any[]
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   let providers = getProviders();
-
-  // US-930 (PDPA Section 129): When local_only_ai is enabled, restrict to local/MY providers only
-  const settingsForResidency = configStore.getSettings() as any;
-  if (settingsForResidency?.pdpa?.local_only_ai === true) {
-    const beforeCount = providers.length;
-    providers = providers.filter(p => resolveProcessingCountry(p.base_url, p.type) === 'MY');
-    const skipped = beforeCount - providers.length;
-    if (skipped > 0) {
-      console.log(`[AI] [PDPA] local_only_ai=true — skipped ${skipped} overseas provider(s), using ${providers.length} local provider(s)`);
-    }
-  }
 
   if (providerIds && providerIds.length > 0) {
     const idOrder = new Map(providerIds.map((id, i) => [id, i]));
@@ -637,53 +476,29 @@ async function _chatWithFallbackInner(
     }
 
     try {
-      // US-915 (PDPA 2024): Mask PII in messages before sending to AI provider
-      const { masked: maskedMessages, categories: piiCategories } = maskPiiForProvider(messages);
-      const processingCountry = resolveProcessingCountry(provider.base_url, provider.type);
-
-      // Log data flow for PDPA compliance (fire-and-forget)
-      logDataFlow({
-        providerName: provider.name,
-        providerId: provider.id,
-        dataCategories: piiCategories,
-        processingCountry,
-        timestamp: new Date(),
-      }).catch(() => {/* swallow */});
-
-      // US-938: Use retryProviderChat for exponential backoff on transient errors
-      const { result, retryStats } = await retryProviderChat(provider, maskedMessages, maxTokens, temperature, jsonMode, tools);
-
-      // Log retry stats for observability (AC5)
-      if (retryStats.retryAttempts > 0) {
-        console.log(`[AI] 🔄 ${provider.name} succeeded after ${retryStats.retryAttempts} retry(ies) (${retryStats.totalLatencyMs}ms total)`);
-      }
-
+      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
-        // Record token usage for cost tracking (US-433, US-918)
-        recordLLMUsage(provider.id, provider.model, result.usage, 'pelangi', {
-          ...callContext,
+        // Record token usage for cost tracking (US-433)
+        recordLLMUsage(provider.id, provider.model, result.usage);
+        // Log cross-border data flow for PDPA compliance (US-915)
+        logDataFlow({
+          providerId: provider.id,
+          providerName: provider.name,
           providerType: provider.type,
-        });
+          model: provider.model,
+          baseUrl: provider.base_url ?? '',
+          messages,
+          usage: result.usage,
+        }).catch(() => {});
         console.log(`[AI] ✅ Success using: ${provider.name} (${provider.id})`);
         return { content: result.content, provider, usage: result.usage, toolCalls: result.toolCalls };
       }
     } catch (err: any) {
       breaker.recordFailure();
 
-      // US-938: Log retry stats from exhausted retries
-      const retryStats: RetryStats | undefined = err.retryStats;
-      if (retryStats) {
-        console.warn(`[AI] 📊 Retry stats for ${provider.name}:`, JSON.stringify({
-          provider: provider.id,
-          retryAttempts: retryStats.retryAttempts,
-          totalLatencyMs: retryStats.totalLatencyMs,
-          action: 'failover'
-        }));
-      }
-
-      // Handle latency threshold timeout (after retries exhausted)
+      // Handle latency threshold timeout
       if (err instanceof TimeoutError) {
         timeoutCount++;
         console.warn(`[AI] ⏱️  Latency failover:`, JSON.stringify({

@@ -11,12 +11,16 @@ import { escalationEvents } from '../../shared/schema-tables.js';
 import { chat } from '../assistant/ai-response-generator.js';
 import { eq } from 'drizzle-orm';
 
-// Ensure summary column exists (idempotent migration)
-pool.query(`ALTER TABLE escalation_events ADD COLUMN IF NOT EXISTS summary TEXT`).catch(() => {});
+// Ensure summary column exists (idempotent migration) — deferred until pool is available
+let _migrationDone = false;
+function ensureSummaryColumn(): void {
+  if (_migrationDone || !pool) return;
+  _migrationDone = true;
+  pool.query(`ALTER TABLE escalation_events ADD COLUMN IF NOT EXISTS summary TEXT`).catch(() => {});
+}
 
-// US-914: Summary must be ≤150 words (AC2 requirement)
 const SUMMARY_SYSTEM_PROMPT = `You are a concise conversation summarizer for a hostel customer service team.
-Given a conversation between a guest and an AI assistant, write a summary for the human agent who will take over.
+Given a conversation between a guest and an AI assistant, write a 3-5 sentence summary for the human agent who will take over.
 
 Include:
 - What the guest wants or their issue
@@ -24,11 +28,7 @@ Include:
 - The reason for escalation
 - Any promises or information already provided by the bot
 
-Rules:
-- Maximum 150 words — do not exceed this limit
-- Be factual and brief
-- Do not include greetings or filler
-- Write in English`;
+Be factual and brief. Do not include greetings or filler. Write in English.`;
 
 export interface HandoffSummaryInput {
   escalationEventId: number;
@@ -43,6 +43,7 @@ export interface HandoffSummaryInput {
  * Fire-and-forget — errors are logged but never thrown.
  */
 export function generateAndStoreHandoffSummary(input: HandoffSummaryInput): void {
+  ensureSummaryColumn();
   setImmediate(() => {
     _generateSummary(input).catch((err: any) => {
       console.error(`[HandoffSummary] Failed to generate summary for escalation ${input.escalationEventId}:`, err.message);

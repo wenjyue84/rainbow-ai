@@ -1,267 +1,255 @@
 /**
- * qr-campaigns.ts — Admin CRUD + analytics for QR code campaigns
+ * qr-campaigns.ts — QR Code Campaign Management (US-919)
  *
- * US-919: Admin can create named QR codes with pre-filled messages,
- * view analytics (scan counts per QR code per time period),
- * and export QR code images as PNG (300 DPI).
+ * Admin endpoints for creating, managing, and generating WhatsApp QR codes
+ * with pre-filled deep-link messages for table ordering, room check-in,
+ * and marketing campaigns.
  */
+
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import QRCode from 'qrcode';
-import { db } from '../../lib/db.js';
-import { qrCampaigns, rainbowConversations } from '../../../shared/schema-tables.js';
-import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
+import { pool } from '../../lib/db.js';
+import { ok, serverError } from './http-utils.js';
 
 const router = Router();
 
-// ─── Helpers ────────────────────────────────────────────────────────
+// ─── Table Setup ────────────────────────────────────────────────────
 
-/** Generate a slug from a name. */
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60);
-}
+let _tableEnsured = false;
 
-/** Build wa.me deep-link URL with pre-filled message. */
-function buildWhatsAppLink(phoneNumber: string, prefilledMessage: string): string {
-  const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(prefilledMessage)}`;
-}
-
-// ─── POST /qr-campaigns — Create a new QR campaign ─────────────────
-
-router.post('/qr-campaigns', async (req: Request, res: Response) => {
-  const profileId = (req.query.profileId as string) || (res.locals.profileId as string) || 'pelangi';
-  const { name, campaignLabel, prefilledMessage, deepLinkType, deepLinkValue, whatsappNumber } = req.body;
-
-  if (!name || !prefilledMessage || !deepLinkType) {
-    res.status(400).json({ error: 'name, prefilledMessage, and deepLinkType are required' });
-    return;
-  }
-
-  const validTypes = ['table', 'room', 'campaign'];
-  if (!validTypes.includes(deepLinkType)) {
-    res.status(400).json({ error: `deepLinkType must be one of: ${validTypes.join(', ')}` });
-    return;
-  }
-
-  const id = slugify(name) || `qr-${Date.now()}`;
-
+async function ensureTable(): Promise<void> {
+  if (_tableEnsured) return;
   try {
-    await db.insert(qrCampaigns).values({
-      id,
-      profileId,
-      name,
-      campaignLabel: campaignLabel || null,
-      prefilledMessage,
-      deepLinkType,
-      deepLinkValue: deepLinkValue || null,
-      whatsappNumber: whatsappNumber || null,
-    });
-
-    res.status(201).json({ success: true, id, name, prefilledMessage });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS qr_campaigns (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        campaign_label VARCHAR(100),
+        prefilled_message TEXT NOT NULL,
+        context_type VARCHAR(50) DEFAULT 'general',
+        context_value VARCHAR(255),
+        profile_id VARCHAR(50) DEFAULT 'makan-moments',
+        scan_count INT DEFAULT 0,
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    _tableEnsured = true;
   } catch (err: any) {
-    if (err.code === '23505') {
-      // Unique violation — ID already exists
-      res.status(409).json({ error: `QR campaign with ID "${id}" already exists` });
+    console.warn('[QRCampaigns] Table ensure failed:', err.message);
+  }
+}
+
+// ─── CRUD Endpoints ─────────────────────────────────────────────────
+
+/**
+ * GET /qr-campaigns — List all QR campaigns
+ */
+router.get('/qr-campaigns', async (req: Request, res: Response) => {
+  try {
+    await ensureTable();
+    const profileId = req.query.profileId as string || undefined;
+    const where = profileId ? 'WHERE profile_id = $1' : '';
+    const params = profileId ? [profileId] : [];
+    const result = await pool.query(
+      `SELECT * FROM qr_campaigns ${where} ORDER BY created_at DESC`,
+      params
+    );
+    ok(res, result.rows);
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
+
+/**
+ * POST /qr-campaigns — Create a new QR campaign
+ * Body: { name, campaignLabel?, prefilledMessage, contextType?, contextValue?, profileId? }
+ */
+router.post('/qr-campaigns', async (req: Request, res: Response) => {
+  try {
+    await ensureTable();
+    const { name, campaignLabel, prefilledMessage, contextType, contextValue, profileId } = req.body;
+
+    if (!name || !prefilledMessage) {
+      res.status(400).json({ error: 'name and prefilledMessage are required' });
       return;
     }
-    console.error('[QR-Campaigns] Create error:', err.message);
-    res.status(500).json({ error: 'Failed to create QR campaign' });
-  }
-});
 
-// ─── GET /qr-campaigns — List all QR campaigns ─────────────────────
+    const result = await pool.query(
+      `INSERT INTO qr_campaigns (name, campaign_label, prefilled_message, context_type, context_value, profile_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [name, campaignLabel || null, prefilledMessage, contextType || 'general', contextValue || null, profileId || 'makan-moments']
+    );
 
-router.get('/qr-campaigns', async (req: Request, res: Response) => {
-  const profileId = (req.query.profileId as string) || (res.locals.profileId as string) || undefined;
-
-  try {
-    const conditions = profileId
-      ? [eq(qrCampaigns.profileId, profileId)]
-      : [];
-
-    const rows = await db
-      .select()
-      .from(qrCampaigns)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(qrCampaigns.createdAt));
-
-    res.json({ success: true, campaigns: rows });
+    ok(res, result.rows[0]);
   } catch (err: any) {
-    console.error('[QR-Campaigns] List error:', err.message);
-    res.status(500).json({ error: 'Failed to list QR campaigns' });
+    serverError(res, err);
   }
 });
 
-// ─── GET /qr-campaigns/:id — Get a single QR campaign ──────────────
-
-router.get('/qr-campaigns/:id', async (req: Request, res: Response) => {
+/**
+ * PUT /qr-campaigns/:id — Update a QR campaign
+ */
+router.put('/qr-campaigns/:id', async (req: Request, res: Response) => {
   try {
-    const rows = await db
-      .select()
-      .from(qrCampaigns)
-      .where(eq(qrCampaigns.id, req.params.id))
-      .limit(1);
+    await ensureTable();
+    const { id } = req.params;
+    const { name, campaignLabel, prefilledMessage, contextType, contextValue, active } = req.body;
 
-    if (rows.length === 0) {
+    const result = await pool.query(
+      `UPDATE qr_campaigns SET
+         name = COALESCE($2, name),
+         campaign_label = COALESCE($3, campaign_label),
+         prefilled_message = COALESCE($4, prefilled_message),
+         context_type = COALESCE($5, context_type),
+         context_value = COALESCE($6, context_value),
+         active = COALESCE($7, active),
+         updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id, name, campaignLabel, prefilledMessage, contextType, contextValue, active]
+    );
+
+    if (result.rows.length === 0) {
       res.status(404).json({ error: 'QR campaign not found' });
       return;
     }
-    res.json({ success: true, campaign: rows[0] });
+    ok(res, result.rows[0]);
   } catch (err: any) {
-    console.error('[QR-Campaigns] Get error:', err.message);
-    res.status(500).json({ error: 'Failed to get QR campaign' });
+    serverError(res, err);
   }
 });
 
-// ─── PATCH /qr-campaigns/:id — Update a QR campaign ────────────────
-
-router.patch('/qr-campaigns/:id', async (req: Request, res: Response) => {
-  const allowed = ['name', 'campaignLabel', 'prefilledMessage', 'deepLinkType', 'deepLinkValue', 'whatsappNumber', 'active'];
-  const updates: Record<string, any> = {};
-  for (const key of allowed) {
-    if (req.body[key] !== undefined) updates[key] = req.body[key];
-  }
-
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: 'No valid fields to update' });
-    return;
-  }
-  updates.updatedAt = new Date();
-
-  try {
-    const result = await db
-      .update(qrCampaigns)
-      .set(updates)
-      .where(eq(qrCampaigns.id, req.params.id));
-
-    res.json({ success: true, id: req.params.id });
-  } catch (err: any) {
-    console.error('[QR-Campaigns] Update error:', err.message);
-    res.status(500).json({ error: 'Failed to update QR campaign' });
-  }
-});
-
-// ─── DELETE /qr-campaigns/:id — Deactivate a QR campaign ───────────
-
+/**
+ * DELETE /qr-campaigns/:id — Deactivate a QR campaign
+ */
 router.delete('/qr-campaigns/:id', async (req: Request, res: Response) => {
   try {
-    await db
-      .update(qrCampaigns)
-      .set({ active: false, updatedAt: new Date() })
-      .where(eq(qrCampaigns.id, req.params.id));
-
-    res.json({ success: true, id: req.params.id, deactivated: true });
+    await ensureTable();
+    await pool.query('UPDATE qr_campaigns SET active = FALSE WHERE id = $1', [req.params.id]);
+    ok(res, { deleted: true });
   } catch (err: any) {
-    console.error('[QR-Campaigns] Delete error:', err.message);
-    res.status(500).json({ error: 'Failed to deactivate QR campaign' });
+    serverError(res, err);
   }
 });
 
-// ─── GET /qr-campaigns/:id/qr.png — Export QR code as PNG ──────────
-// AC5: 300 DPI output — at 300 DPI, a 3cm QR code needs ~354px width.
-// We use 600px for comfortable print margin.
-
-router.get('/qr-campaigns/:id/qr.png', async (req: Request, res: Response) => {
+/**
+ * POST /qr-campaigns/:id/scan — Increment scan count (called when a QR referral is detected)
+ */
+router.post('/qr-campaigns/:id/scan', async (req: Request, res: Response) => {
   try {
-    const rows = await db
-      .select()
-      .from(qrCampaigns)
-      .where(eq(qrCampaigns.id, req.params.id))
-      .limit(1);
+    await ensureTable();
+    await pool.query('UPDATE qr_campaigns SET scan_count = scan_count + 1 WHERE id = $1', [req.params.id]);
+    ok(res, { ok: true });
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
 
-    if (rows.length === 0) {
+/**
+ * GET /qr-campaigns/analytics — Scan analytics per QR code per time period
+ */
+router.get('/qr-campaigns/analytics', async (req: Request, res: Response) => {
+  try {
+    await ensureTable();
+    const days = parseInt(req.query.days as string) || 30;
+
+    // Get scan counts from conversations with qr_code referral source
+    const result = await pool.query(
+      `SELECT
+         c.referral_source_id as source_id,
+         qr.name as campaign_name,
+         qr.campaign_label,
+         qr.context_type,
+         COUNT(*)::int as scan_count,
+         MIN(c.created_at) as first_scan,
+         MAX(c.created_at) as last_scan
+       FROM rainbow_conversations c
+       LEFT JOIN qr_campaigns qr ON qr.id::text = c.referral_source_id
+       WHERE c.referral_source_type = 'qr_code'
+         AND c.created_at >= NOW() - INTERVAL '1 day' * $1
+       GROUP BY c.referral_source_id, qr.name, qr.campaign_label, qr.context_type
+       ORDER BY scan_count DESC`,
+      [days]
+    );
+
+    ok(res, result.rows);
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
+
+/**
+ * GET /qr-campaigns/:id/image — Generate QR code PNG (wa.me link with pre-filled message)
+ * Query params: ?format=json (returns link only) | default returns PNG binary
+ * PNG is 900x900px (~3 inches at 300 DPI), suitable for print
+ */
+router.get('/qr-campaigns/:id/image', async (req: Request, res: Response) => {
+  try {
+    await ensureTable();
+    const result = await pool.query('SELECT * FROM qr_campaigns WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) {
       res.status(404).json({ error: 'QR campaign not found' });
       return;
     }
 
-    const campaign = rows[0];
-    const phone = campaign.whatsappNumber || process.env.WHATSAPP_PHONE_NUMBER || '';
-    const waLink = buildWhatsAppLink(phone, campaign.prefilledMessage);
+    const campaign = result.rows[0];
+    const phoneNumber = process.env.WA_PHONE_NUMBER || process.env.WABA_PHONE_NUMBER || '';
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(campaign.prefilled_message)}`;
 
-    const width = parseInt(req.query.width as string) || 600;
-    const margin = parseInt(req.query.margin as string) || 2;
+    // JSON mode: return link metadata (for client-side rendering)
+    if (req.query.format === 'json') {
+      ok(res, {
+        campaignId: campaign.id,
+        name: campaign.name,
+        waLink,
+        prefilledMessage: campaign.prefilled_message,
+        contextType: campaign.context_type,
+      });
+      return;
+    }
 
+    // PNG mode: generate 300 DPI QR code image (900px = 3" at 300 DPI)
     const pngBuffer = await QRCode.toBuffer(waLink, {
       type: 'png',
-      width: Math.min(width, 2000), // Cap at 2000px
-      margin,
-      errorCorrectionLevel: 'H', // High error correction for print
+      width: 900,
+      margin: 2,
+      errorCorrectionLevel: 'H',
       color: { dark: '#000000', light: '#FFFFFF' },
     });
 
-    res.set({
-      'Content-Type': 'image/png',
-      'Content-Disposition': `attachment; filename="qr-${campaign.id}.png"`,
-      'Cache-Control': 'public, max-age=86400',
-    });
-    res.send(pngBuffer);
+    const safeName = campaign.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename="qr-${safeName}.png"`);
+    res.setHeader('Content-Length', pngBuffer.length);
+    res.end(pngBuffer);
   } catch (err: any) {
-    console.error('[QR-Campaigns] QR PNG error:', err.message);
-    res.status(500).json({ error: 'Failed to generate QR code image' });
+    serverError(res, err);
   }
 });
 
-// ─── GET /analytics/qr-campaigns — Scan analytics per QR code ──────
-// AC4: scan count (conversation starts) per QR code per time period
-
-router.get('/analytics/qr-campaigns', async (req: Request, res: Response) => {
-  const profileId = (req.query.profileId as string) || (res.locals.profileId as string) || undefined;
-  const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-
+/**
+ * Increment scan count by prefilled message match.
+ * Called from the message router when a QR deep-link message is detected.
+ */
+export async function incrementQrScanByMessage(message: string): Promise<{ contextType: string; contextValue: string } | null> {
   try {
-    // Get all campaigns with their scan counts
-    const conditions = profileId
-      ? [eq(qrCampaigns.profileId, profileId)]
-      : [];
-
-    const campaigns = await db
-      .select({
-        id: qrCampaigns.id,
-        name: qrCampaigns.name,
-        campaignLabel: qrCampaigns.campaignLabel,
-        deepLinkType: qrCampaigns.deepLinkType,
-        scanCount: qrCampaigns.scanCount,
-        active: qrCampaigns.active,
-        createdAt: qrCampaigns.createdAt,
-      })
-      .from(qrCampaigns)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(qrCampaigns.scanCount));
-
-    // Count conversations attributed to QR codes (referral_source_type = 'qr_code')
-    const qrConversationConditions = [
-      eq(rainbowConversations.referralSourceType, 'qr_code'),
-      gte(rainbowConversations.createdAt, since),
-    ];
-    if (profileId) {
-      qrConversationConditions.push(eq(rainbowConversations.profileId, profileId));
+    await ensureTable();
+    const result = await pool.query(
+      `UPDATE qr_campaigns SET scan_count = scan_count + 1
+       WHERE prefilled_message = $1 AND active = TRUE
+       RETURNING context_type, context_value`,
+      [message]
+    );
+    if (result.rows.length > 0) {
+      return { contextType: result.rows[0].context_type, contextValue: result.rows[0].context_value };
     }
-
-    const [qrConvoStats] = await db
-      .select({ total: count() })
-      .from(rainbowConversations)
-      .where(and(...qrConversationConditions));
-
-    const totalScans = campaigns.reduce((sum, c) => sum + c.scanCount, 0);
-
-    res.json({
-      success: true,
-      periodDays: days,
-      totalScans,
-      totalQrConversations: qrConvoStats?.total ?? 0,
-      campaigns,
-    });
-  } catch (err: any) {
-    console.error('[QR-Campaigns] Analytics error:', err.message);
-    res.status(500).json({ error: 'Failed to get QR analytics' });
-  }
-});
+  } catch { /* non-critical */ }
+  return null;
+}
 
 export default router;

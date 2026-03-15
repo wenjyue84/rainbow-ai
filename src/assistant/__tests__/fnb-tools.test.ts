@@ -36,7 +36,7 @@ describe('FnB Tool Handlers - MCPToolResult Shape', () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
     vi.stubGlobal('fetch', mockFetch);
 
-    const result = await fnbGetMenu({ _profileId: 'test-error-profile' });
+    const result = await fnbGetMenu({});
 
     expect(result).toHaveProperty('content');
     expect(result).toHaveProperty('isError', true);

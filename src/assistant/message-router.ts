@@ -25,8 +25,8 @@ import { classifyAndRoute } from './pipeline/intent-classifier.js';
 import { processAndSend } from './pipeline/response-processor.js';
 import { emitTrace } from '../lib/trace-collector.js';
 import { parseCartRecoveryReply, handleCartRecoveryReply, resetCartRecovery } from './cart-recovery.js';
-import { parseDeepLink, setDeepLinkContext, matchAndTrackQrCampaign, generateDeepLinkResponse } from './qr-deep-link.js';
-import { logMessage } from './conversation-logger.js';
+import { incrementQrScanByMessage } from '../routes/admin/qr-campaigns.js';
+import { updateSlots } from './conversation.js';
 
 // ─── Router context (shared across pipeline) ────────────────────
 
@@ -83,21 +83,28 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
   // US-882: Any incoming message from a WhatsApp user resets their cart idle timer
   resetCartRecovery(phone);
 
-  // US-919: QR code deep-link interception — skip normal intent classification
-  const deepLink = parseDeepLink(text);
-  if (deepLink) {
-    const campaignId = await matchAndTrackQrCampaign(text, state.profileId).catch(() => null);
-    if (campaignId) deepLink.campaignId = campaignId;
-    setDeepLinkContext(phone, deepLink);
-    const response = generateDeepLinkResponse(deepLink, state.lang);
-    await ctx.sendMessage(phone, response, msg.instanceId);
-    logMessage(phone, msg.pushName ?? 'Guest', 'assistant', response, {
-      action: `qr_deeplink_${deepLink.type}`,
-      instanceId: msg.instanceId,
-      profileId: state.profileId,
-    }).catch(() => {});
-    console.log(`[Router] [${rid}] QR deep-link: type=${deepLink.type} value=${deepLink.value} campaign=${campaignId || 'none'}`);
-    return;
+  // US-919: QR code deep-link detection — track scan, set session context, route to flow
+  if (text.startsWith('ORDER:') || text.startsWith('CHECKIN:') || text.startsWith('CAMPAIGN:')) {
+    const qrContext = await incrementQrScanByMessage(text).catch(() => null);
+    const contextValue = qrContext?.contextValue || '';
+    console.log(`[QR] Deep-link detected from ${phone}: ${text} → context=${contextValue}`);
+
+    if (text.startsWith('ORDER:')) {
+      // Table/room order QR → route to menu/ordering flow
+      const tableRef = text.substring('ORDER:'.length).trim() || contextValue;
+      updateSlots(phone, { tableNumber: tableRef, qrSource: 'order', qrCampaign: text }, state.profileId);
+      state.processText = 'show me the menu to order food';
+    } else if (text.startsWith('CHECKIN:')) {
+      // Room check-in QR → route to check-in flow
+      const roomRef = text.substring('CHECKIN:'.length).trim() || contextValue;
+      updateSlots(phone, { roomNumber: roomRef, qrSource: 'checkin', qrCampaign: text }, state.profileId);
+      state.processText = 'I want to check in to my room';
+    } else if (text.startsWith('CAMPAIGN:')) {
+      // Marketing campaign QR → extract message or default greeting
+      const campaignMsg = text.substring('CAMPAIGN:'.length).trim();
+      updateSlots(phone, { qrSource: 'campaign', qrCampaign: text }, state.profileId);
+      state.processText = campaignMsg || 'hello';
+    }
   }
 
   // US-829: Typing indicator — send 'composing' before pipeline dispatch

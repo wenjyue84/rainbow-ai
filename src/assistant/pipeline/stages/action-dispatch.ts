@@ -27,19 +27,6 @@ import {
 import { findMenuItemMatches } from '../../menu-matcher.js';
 import { detectStarRating, getFollowUpMessage, handleFeedbackRating, isFeedbackMessage } from '../../order-feedback-handler.js';
 
-// ─── US-914: High-stakes keyword escalation ──────────────────────────────────
-// These keywords always trigger human handoff regardless of intent classification,
-// unless the conversation is already in manual mode or already routing to escalate.
-// 'cancel' and 'complaint' are handled by intent routing; 'legal'/'urgent'/'refund'
-// are the critical gap-fillers for messages that slip through classification.
-const HIGH_STAKE_KEYWORDS_REGEX = /\b(legal|sue|lawyer|court|urgent|emergency|refund)\b/i;
-
-/** Returns the matched keyword if a high-stakes word is found in the text, else null. */
-export function detectHighStakeKeyword(text: string): string | null {
-  const match = HIGH_STAKE_KEYWORDS_REGEX.exec(text);
-  return match ? match[1].toLowerCase() : null;
-}
-
 /**
  * Stage 6: Action Dispatch
  *
@@ -59,36 +46,6 @@ export async function dispatchAction(
 ): Promise<void> {
   const { phone, text, processText, convo, lang, msg, diaryEvent, devMetadata } = state;
   const { routedAction, responseLang, messageType, repeatCheck } = routing;
-
-  // US-914: High-stakes keyword pre-check — escalate before normal routing
-  // Only triggers when not already routing to escalate and not in manual mode
-  if (routedAction !== 'escalate' && convo.slots?.responseMode !== 'manual') {
-    const matchedKeyword = detectHighStakeKeyword(text);
-    if (matchedKeyword) {
-      diaryEvent.escalated = true;
-      context.logEscalationEvent({
-        jid: phone,
-        profileId: state.profileId,
-        trigger: 'high_stake_keyword',
-        metadata: { keyword: matchedKeyword },
-        summaryContext: {
-          guestName: msg.pushName,
-          recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
-          escalationReason: `High-stakes keyword detected: "${matchedKeyword}"`,
-        },
-      });
-      await context.escalateToStaff({
-        phone, pushName: msg.pushName, reason: 'complaint',
-        recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
-        originalMessage: text, instanceId: msg.instanceId,
-        profileId: state.profileId,
-        triggerDetail: `High-stakes keyword: "${matchedKeyword}"`,
-      });
-      state.response = result.response || context.getTemplate('escalated', lang);
-      console.log(`[Dispatch][US-914] High-stake keyword escalation for ${phone}: "${matchedKeyword}"`);
-      return;
-    }
-  }
 
   switch (routedAction) {
     case 'static_reply':
@@ -517,20 +474,13 @@ async function handleLLMReply(
 
   state.response = result.response;
 
-  // ─── US-880/US-914: Tiered confidence-based fallback with progressive escalation ──
-  // Track unknown intents OR low-confidence results for operator escalation.
-  // US-914: consecutive_fallback_threshold from settings controls when Tier 3 fires.
-  //   threshold=1 → rephrase on 1st fail, escalate on 2nd (AC1b: 2 consecutive)
-  //   threshold=2 → rephrase, capability list, escalate on 3rd
+  // ─── US-880: Tiered confidence-based fallback with progressive escalation ──
+  // Track unknown intents OR low-confidence results for operator escalation
   const isUnknownIntent = result.intent === 'unknown' || result.intent === 'unknown_intent';
   if (isUnknownIntent || result.confidence < 0.4) {
     const unknownCount = context.incrementUnknown(phone);
     const settings = context.getSettings();
     const lang = convo.language || 'en';
-
-    // US-914: Read threshold from settings; escalate when count exceeds threshold
-    const fallbackThreshold = (settings as any).consecutive_fallback_threshold ?? 2;
-    const escalateAt = fallbackThreshold + 1;
 
     if (unknownCount === 1) {
       // ─── Tier 1: Ask to rephrase (first failure) ─────────────────
@@ -542,10 +492,15 @@ async function handleLLMReply(
         count: unknownCount,
         metadata: { failure_tier: 1 },
       });
+      // Log to intent_analytics (US-880 AC: failure_tier in intent_predictions)
+      context.trackIntentPrediction(
+        `${phone}-${Date.now()}`, phone, text, 'unknown', result.confidence,
+        'failure_tier_1', result.model
+      ).catch(() => {});
       console.log(`[Dispatch][US-880] Tier 1 rephrase for ${phone}`);
 
-    } else if (unknownCount < escalateAt) {
-      // ─── Tier 2: Show capability quick-reply list (intermediate failure) ─
+    } else if (unknownCount === 2) {
+      // ─── Tier 2: Show capability quick-reply list (second failure) ─
       const capabilityResponse = buildFallbackSuggestionResponse(settings, lang);
       state.response = capabilityResponse || buildTier2DefaultCapabilities(lang);
       context.logEscalationEvent({
@@ -555,11 +510,15 @@ async function handleLLMReply(
         count: unknownCount,
         metadata: { failure_tier: 2 },
       });
+      // Log to intent_analytics (US-880 AC: failure_tier in intent_predictions)
+      context.trackIntentPrediction(
+        `${phone}-${Date.now()}`, phone, text, 'unknown', result.confidence,
+        'failure_tier_2', result.model
+      ).catch(() => {});
       console.log(`[Dispatch][US-880] Tier 2 capability list for ${phone}`);
 
     } else {
-      // ─── Tier 3: Human handoff (consecutive failures >= escalateAt) ───────
-      // US-914: With threshold=1, fires on 2nd consecutive failure (AC1b)
+      // ─── Tier 3: Human handoff (third+ consecutive failure) ───────
       diaryEvent.escalated = true;
 
       // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
@@ -568,13 +527,18 @@ async function handleLLMReply(
         profileId: state.profileId,
         trigger: 'tiered_fallback',
         count: unknownCount,
-        metadata: { failure_tier: 3, threshold: fallbackThreshold },
+        metadata: { failure_tier: 3 },
         summaryContext: {
           guestName: msg.pushName,
           recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
-          escalationReason: `Bot unable to understand after ${unknownCount} consecutive attempts`,
+          escalationReason: 'Bot unable to understand after 3 consecutive attempts',
         },
       });
+      // Log to intent_analytics (US-880 AC: failure_tier in intent_predictions)
+      context.trackIntentPrediction(
+        `${phone}-${Date.now()}`, phone, text, 'unknown', result.confidence,
+        'failure_tier_3', result.model
+      ).catch(() => {});
 
       // Send customer-facing handoff message
       const handoffMessages: Record<string, string> = {
@@ -589,10 +553,10 @@ async function handleLLMReply(
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
         profileId: state.profileId,
-        triggerDetail: `Tiered fallback Tier 3 (${unknownCount}x unmatched, threshold=${fallbackThreshold})`,
+        triggerDetail: `Tiered fallback Tier 3 (${unknownCount}x unmatched)`,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch][US-880] Tier 3 escalation for ${phone}: ${unknownCount} consecutive unknowns (threshold=${fallbackThreshold})`);
+      console.log(`[Dispatch][US-880] Tier 3 escalation for ${phone}: ${unknownCount} consecutive unknowns`);
     }
   } else {
     context.resetUnknown(phone);

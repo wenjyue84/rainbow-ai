@@ -6,13 +6,11 @@
  *  - DIGIMAN API    (booking/checkin/checkout callback notifications)
  *  - Meta Cloud API (phone_number_quality_update events) — US-458
  *  - Meta Cloud API (account_update events) — US-479
- *  - Meta Cloud API (inbound messages + status dedup) — US-977
  *
  * All routes apply HMAC-SHA256 signature validation via validateWebhookSignature()
  * before any business logic is executed.
  *
  * US-442: Implement webhook signature validation for inbound admin API calls
- * US-977: Webhook event deduplication to prevent double-processing
  */
 
 import { Router } from 'express';
@@ -27,11 +25,9 @@ import {
   notifyAdminTemplatePaused,
 } from '../../lib/admin-notifier.js';
 import { db } from '../../lib/db.js';
-import { templateQualityEvents, whatsappPricingEvents } from '../../../shared/schema.js';
+import { templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
-import { getVolumeTierStatus } from '../../lib/whatsapp-cost.js';
-import { isDuplicateMessage, isDuplicateStatus, getDedupStats } from '../../lib/webhook-dedup.js';
 
 const router = Router();
 
@@ -315,203 +311,6 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
       }
     }
   }
-});
-
-// ─── Meta Cloud API: message status with pricing_analytics (US-943) ────────
-// Meta POSTs message status updates (sent, delivered, read, failed) for outbound
-// template messages. The pricing_analytics field (released July 1, 2025) provides
-// per-message cost breakdowns by category.
-//
-// US-977: Status events are deduplicated by wamid + status pair with a 5-min TTL
-// to prevent double-recording when Meta retries delivery.
-//
-// Payload shape (inside entry[].changes[]):
-//   field = 'messages'
-//   value.statuses[].pricing_analytics = { billable, pricing_model, category }
-//   value.statuses[].id = wamid (message ID)
-//   value.statuses[].recipient_id = phone number
-router.post('/webhooks/meta/message-status', metaSignatureGuard, (req: Request, res: Response) => {
-  // Acknowledge receipt immediately so Meta does not retry.
-  res.status(200).json({ ok: true });
-
-  const body = req.body as {
-    entry?: Array<{
-      changes?: Array<{
-        field?: string;
-        value?: {
-          statuses?: Array<{
-            id?: string;
-            recipient_id?: string;
-            status?: string;
-            pricing_analytics?: {
-              billable?: boolean;
-              pricing_model?: string;
-              category?: string;
-              price?: number;
-              currency?: string;
-            };
-          }>;
-          metadata?: { display_phone_number?: string };
-        };
-      }>;
-    }>;
-    [key: string]: unknown;
-  };
-
-  const entries = body.entry ?? [];
-  for (const entry of entries) {
-    for (const change of entry.changes ?? []) {
-      if (change.field !== 'messages') continue;
-
-      const statuses = change.value?.statuses ?? [];
-      for (const status of statuses) {
-        const pricing = status.pricing_analytics;
-        if (!pricing) continue;
-
-        const messageId = status.id ?? 'unknown';
-        const statusValue = status.status ?? 'unknown';
-
-        // US-977: Deduplicate status events by wamid + status pair
-        if (isDuplicateStatus(messageId, statusValue)) {
-          console.debug(`[webhook:meta:message-status] dedup drop: wamid=${messageId} status=${statusValue}`);
-          continue;
-        }
-
-        const phone = status.recipient_id ?? null;
-        const category = (pricing.category ?? 'unknown').toLowerCase();
-        const billable = pricing.billable ?? true;
-        const price = pricing.price ?? 0;
-        const currency = pricing.currency ?? 'USD';
-
-        // Determine if this is a free CSW message
-        const cswFree = !billable && category === 'utility';
-
-        console.log(
-          `[webhook:meta:message-status] pricing_analytics: msg=${messageId} category=${category} ` +
-          `price=${price} ${currency} billable=${billable} csw_free=${cswFree}`
-        );
-
-        // Persist to whatsapp_pricing_events (with volume tier for AC4 display)
-        getVolumeTierStatus('pelangi').then(tierStatus => {
-          return db.insert(whatsappPricingEvents).values({
-            messageId,
-            phone,
-            category,
-            currency,
-            price,
-            billable,
-            cswFree,
-            volumeTier: tierStatus.tier,
-            profileId: 'pelangi',
-          });
-        }).catch(err =>
-          console.error('[webhook:meta:message-status] Failed to persist pricing event:', err.message)
-        );
-      }
-    }
-  }
-});
-
-// ─── Meta Cloud API: inbound messages webhook (US-977) ───────────────────────
-// Handles inbound user messages delivered via Meta Cloud API (as opposed to the
-// Baileys direct-connect path). Meta can retry delivery under network failures,
-// so all messages are deduplicated by wamid before dispatch.
-//
-// Payload shape (inside entry[].changes[]):
-//   field = 'messages'
-//   value.messages[].id     = wamid (unique per message)
-//   value.messages[].from   = sender phone number
-//   value.messages[].type   = 'text' | 'image' | ...
-//   value.messages[].text.body = message text
-//
-// NOTE: This endpoint handles the Cloud API path only. The primary message path
-// for this deployment is Baileys (handled in src/lib/whatsapp/instance.ts).
-// This webhook is for setups where Cloud API is used alongside or instead of Baileys.
-router.post('/webhooks/meta/messages', metaSignatureGuard, (req: Request, res: Response) => {
-  // Acknowledge receipt immediately so Meta does not retry the same event.
-  res.status(200).json({ ok: true });
-
-  const body = req.body as {
-    entry?: Array<{
-      changes?: Array<{
-        field?: string;
-        value?: {
-          messages?: Array<{
-            id?: string;
-            from?: string;
-            type?: string;
-            timestamp?: string;
-            text?: { body?: string };
-          }>;
-          metadata?: { display_phone_number?: string; phone_number_id?: string };
-        };
-      }>;
-    }>;
-    [key: string]: unknown;
-  };
-
-  const entries = body.entry ?? [];
-  for (const entry of entries) {
-    for (const change of entry.changes ?? []) {
-      if (change.field !== 'messages') continue;
-
-      const messages = change.value?.messages ?? [];
-      for (const msg of messages) {
-        const wamid = msg.id ?? '';
-
-        // US-977: Deduplicate by wamid — silently drop retries
-        if (!wamid || isDuplicateMessage(wamid)) {
-          if (wamid) {
-            console.debug(`[webhook:meta:messages] dedup drop: wamid=${wamid}`);
-          }
-          continue;
-        }
-
-        const from = msg.from ?? 'unknown';
-        const type = msg.type ?? 'unknown';
-        const text = msg.text?.body ?? '';
-
-        console.log(
-          `[webhook:meta:messages] inbound: wamid=${wamid} from=${from} type=${type}`
-        );
-
-        // Future: dispatch to message pipeline (handleIncomingMessage) when
-        // Cloud API mode is fully enabled. For now we log the event for observability.
-      }
-    }
-  }
-});
-
-// ─── Meta Cloud API: webhook verification (US-977) ───────────────────────────
-// Meta sends a GET request to verify the webhook endpoint during configuration.
-// Responds with the hub.challenge token if hub.verify_token matches.
-router.get('/webhooks/meta/messages', (req: Request, res: Response) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN ?? '';
-
-  if (mode === 'subscribe' && token === verifyToken) {
-    console.log('[webhook:meta:messages] Webhook verification successful');
-    res.status(200).send(challenge);
-  } else {
-    console.warn('[webhook:meta:messages] Webhook verification failed — token mismatch');
-    res.status(403).json({ error: 'Forbidden' });
-  }
-});
-
-// ─── Dedup stats endpoint (US-977) ───────────────────────────────────────────
-// Admin-accessible metric: how often Meta retries have been deduplicated.
-// Exposed at GET /webhooks/meta/dedup-stats — no auth required (non-sensitive counter).
-router.get('/webhooks/meta/dedup-stats', (_req: Request, res: Response) => {
-  const stats = getDedupStats();
-  res.status(200).json({
-    dedupHits: stats.dedupHits,
-    cacheSize: stats.cacheSize,
-    ttlSeconds: 300,
-    description: 'Counts duplicate Cloud API webhook events dropped by dedup cache',
-  });
 });
 
 export default router;

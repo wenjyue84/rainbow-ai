@@ -1,0 +1,163 @@
+diff a/src/routes/admin/messaging-limits.ts b/src/routes/admin/messaging-limits.ts	(rejected hunks)
+@@ -1,15 +1,9 @@
+ /**
+- * Messaging Limits Admin API (US-446, US-910)
++ * Messaging Limits Admin API (US-446)
+  *
+  * Tracks WhatsApp Business Portfolio messaging tier and 24-hour outbound count.
+  *
+- * As of October 7, 2025 (Meta change), messaging limits are portfolio-level:
+- * all numbers in a Business Manager portfolio share the highest tier held by
+- * any single number. New numbers immediately inherit the portfolio tier.
+- * Meta evaluates tier upgrades every 6 hours based on quality metrics and
+- * unique recipient counts (upgrade requires 50%+ limit usage within 7 days).
+- *
+- * GET  /analytics/messaging-limits      — portfolioMessagingLimit, used24h, limit, percentUsed
++ * GET  /analytics/messaging-limits      — tier, used24h, limit, percentUsed
+  * PUT  /analytics/messaging-limits/tier  — manually set the portfolio tier
+  */
+ import { Router } from 'express';
+@@ -18,34 +12,24 @@ import { db, dbReady } from '../../lib/db.js';
+ import { appSettings, rainbowMessages } from '../../../shared/schema.js';
+ import { eq, sql } from 'drizzle-orm';
+ import { badRequest, serverError } from './http-utils.js';
+-import { getPacingState } from '../../lib/pacing-monitor.js';
+ 
+ const router = Router();
+ 
+ // ─── Constants ─────────────────────────────────────────────────────
+-// US-890: Meta removed 250 and 2000 tiers in Q2 2026 — verified businesses get 100K/day flat
+ const TIER_LIMITS: Record<string, number> = {
++  '250': 250,
++  '2000': 2_000,
+   '10000': 10_000,
+   '100000': 100_000,
+   'unlimited': Infinity,
+ };
+ 
+-// Tiers removed in Q2 2026; requests using these must be rejected with 400
+-const REMOVED_TIERS = new Set(['250', '2000']);
+-
+ const VALID_TIERS = Object.keys(TIER_LIMITS);
+ 
+ const SETTING_KEY_TIER = 'rainbow_portfolio_tier';
+ const SETTING_KEY_TIER_UPDATED = 'rainbow_portfolio_tier_updated_at';
+ 
+-const DEFAULT_TIER = '100000';
+-
+-/**
+- * US-910: Meta evaluates tier upgrades every 6 hours (effective Oct 7 2025).
+- * Previously documented as 24-48h; the updated cycle is 6h.
+- * Upgrade requires using ≥50% of current limit within a 7-day rolling window.
+- */
+-export const TIER_EVALUATION_CYCLE_HOURS = 6;
++const DEFAULT_TIER = '250';
+ 
+ // ─── In-memory cache (10s TTL) ─────────────────────────────────────
+ let _cache: { data: any; expiry: number } | null = null;
+@@ -76,22 +60,9 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
+   try {
+     const isConnected = await dbReady;
+     if (!isConnected) {
+-      const pacingState = getPacingState();
+       return res.json({
+         success: true,
+-        data: {
+-          portfolioMessagingLimit: DEFAULT_TIER,
+-          tier: DEFAULT_TIER,
+-          used24h: 0,
+-          limit: TIER_LIMITS[DEFAULT_TIER],
+-          percentUsed: 0,
+-          tierEvaluationCycleHours: TIER_EVALUATION_CYCLE_HOURS,
+-          pacingPaused: pacingState.pacingPaused,
+-          pacingQualityRating: pacingState.qualityRating,
+-          pacingStatus: pacingState.status,
+-          pacingPausedSince: pacingState.pausedSince,
+-          pacingLastCheckedAt: pacingState.lastCheckedAt,
+-        },
++        data: { tier: DEFAULT_TIER, used24h: 0, limit: TIER_LIMITS[DEFAULT_TIER], percentUsed: 0 },
+         warning: 'Database connection unavailable. Using defaults.',
+       });
+     }
+@@ -110,22 +81,7 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
+     const limit = TIER_LIMITS[tier] ?? TIER_LIMITS[DEFAULT_TIER];
+     const percentUsed = limit === Infinity ? 0 : Math.round((used24h / limit) * 10000) / 100;
+ 
+-    const pacingState = getPacingState();
+-    const data = {
+-      // US-910: portfolio-level field (all numbers in the portfolio inherit this tier)
+-      portfolioMessagingLimit: tier,
+-      tier,
+-      used24h,
+-      limit: limit === Infinity ? 'unlimited' : limit,
+-      percentUsed,
+-      // US-910: Meta evaluates tier upgrades on a 6-hour cycle (effective Oct 7 2025)
+-      tierEvaluationCycleHours: TIER_EVALUATION_CYCLE_HOURS,
+-      pacingPaused: pacingState.pacingPaused,
+-      pacingQualityRating: pacingState.qualityRating,
+-      pacingStatus: pacingState.status,
+-      pacingPausedSince: pacingState.pausedSince,
+-      pacingLastCheckedAt: pacingState.lastCheckedAt,
+-    };
++    const data = { tier, used24h, limit: limit === Infinity ? 'unlimited' : limit, percentUsed };
+ 
+     _cache = { data, expiry: now + CACHE_TTL };
+ 
+@@ -139,13 +95,7 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
+ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Response) => {
+   try {
+     const { tier } = req.body;
+-    if (!tier) {
+-      return badRequest(res, `Tier is required. Must be one of: ${VALID_TIERS.join(', ')}`);
+-    }
+-    if (REMOVED_TIERS.has(String(tier))) {
+-      return badRequest(res, `Tier '${tier}' was removed in Q2 2026. Valid tiers: ${VALID_TIERS.join(', ')}`);
+-    }
+-    if (!VALID_TIERS.includes(String(tier))) {
++    if (!tier || !VALID_TIERS.includes(String(tier))) {
+       return badRequest(res, `Invalid tier. Must be one of: ${VALID_TIERS.join(', ')}`);
+     }
+ 
+@@ -193,40 +143,5 @@ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Respons
+ 
+ export default router;
+ 
+-// ─── Exported for use by notification scheduler and tests ──────────
+-// Note: TIER_EVALUATION_CYCLE_HOURS is exported inline (export const above)
+-export { TIER_LIMITS, REMOVED_TIERS, VALID_TIERS, getCurrentTier, get24hOutboundCount };
+-
+-// ─── Startup migration (US-890) ─────────────────────────────────────────────
+-/**
+- * Auto-migrate legacy tiers '250' and '2000' to '10000' on server startup.
+- * Emits a single admin notification when migration runs.
+- */
+-export async function migrateLegacyTiers(): Promise<void> {
+-  try {
+-    const tier = await getCurrentTier();
+-    if (!REMOVED_TIERS.has(tier)) return;
+-
+-    const migratedTo = '10000';
+-    const now = new Date().toISOString();
+-
+-    await db.insert(appSettings)
+-      .values({ key: SETTING_KEY_TIER, value: migratedTo, description: 'WhatsApp Business Portfolio messaging tier', updatedBy: null })
+-      .onConflictDoUpdate({ target: [appSettings.key], set: { value: migratedTo, updatedAt: sql`NOW()` } });
+-
+-    await db.insert(appSettings)
+-      .values({ key: SETTING_KEY_TIER_UPDATED, value: now, description: 'When the portfolio tier was last updated', updatedBy: null })
+-      .onConflictDoUpdate({ target: [appSettings.key], set: { value: now, updatedAt: sql`NOW()` } });
+-
+-    _cache = null;
+-    console.log(`[MessagingLimits] Auto-migrated legacy tier '${tier}' → '${migratedTo}' (Q2 2026 tier removal)`);
+-
+-    // Fire-and-forget admin notification (non-critical)
+-    try {
+-      const { notifyAdminConfigError } = await import('../../lib/admin-notifier.js');
+-      await notifyAdminConfigError(`📊 Messaging tier auto-migrated: '${tier}' → '${migratedTo}' (Meta removed 250/2000 tiers in Q2 2026)`);
+-    } catch (_) { /* notification is non-critical */ }
+-  } catch (err) {
+-    console.warn('[MessagingLimits] Legacy tier migration failed (non-fatal):', err instanceof Error ? err.message : err);
+-  }
+-}
++// ─── Exported for use by notification scheduler ────────────────────
++export { TIER_LIMITS, getCurrentTier, get24hOutboundCount };

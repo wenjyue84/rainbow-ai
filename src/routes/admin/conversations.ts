@@ -172,7 +172,9 @@ router.get('/conversations/:phone/export', async (req: Request, res: Response) =
     const format = ((req.query.format as string) || 'json').toLowerCase();
     const profileId = res.locals.profileId as string | undefined;
 
-    const log = await getConversation(phone);
+    // US-908: Pass tenantId to enforce tenant isolation in export
+    const tenantId = res.locals.tenantId as string | undefined;
+    const log = await getConversation(phone, tenantId);
     if (!log) {
       notFound(res, 'Conversation');
       return;
@@ -189,9 +191,16 @@ router.get('/conversations/:phone/export', async (req: Request, res: Response) =
         pushName: log.pushName,
         profileId: profileId || 'default',
         status: log.responseMode || 'active',
-        referral: log.referral || null, // US-910: ad referral attribution
         createdAt: new Date(log.createdAt).toISOString(),
         updatedAt: new Date(log.updatedAt).toISOString(),
+        // US-910: Include referral attribution if present
+        leadSource: log.referral ? {
+          ctwaClid: log.referral.ctwaClid ?? null,
+          sourceId: log.referral.sourceId ?? null,
+          sourceType: log.referral.sourceType ?? null,
+          headline: log.referral.headline ?? null,
+          body: log.referral.body ?? null,
+        } : null,
         messages: log.messages.map((m: LoggedMessage) => ({
           role: m.role,
           content: m.content,
@@ -224,7 +233,9 @@ router.get('/conversations/:phone/export', async (req: Request, res: Response) =
 
 router.get('/conversations/:phone', async (req: Request, res: Response) => {
   const phone = decodeURIComponent(req.params.phone as string);
-  const log = await getConversation(phone);
+  // US-908: Pass tenantId to enforce tenant isolation — prevents cross-property data leakage
+  const tenantId = res.locals.tenantId as string | undefined;
+  const log = await getConversation(phone, tenantId);
   if (!log) {
     notFound(res, 'Conversation');
     return;
@@ -234,6 +245,15 @@ router.get('/conversations/:phone', async (req: Request, res: Response) => {
 
 router.delete('/conversations/:phone', async (req: Request, res: Response) => {
   const phone = decodeURIComponent(req.params.phone as string);
+  // US-908: Verify tenant ownership before deleting
+  const tenantId = res.locals.tenantId as string | undefined;
+  if (tenantId) {
+    const log = await getConversation(phone, tenantId);
+    if (!log) {
+      notFound(res, 'Conversation');
+      return;
+    }
+  }
   const deleted = await deleteConversation(phone);
   res.json({ ok: deleted });
 });
@@ -354,7 +374,9 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
     }
 
     // US-815: Check 24-hour session window before sending
-    const sessionActive = await sessionWindowActive(phone);
+    // US-908: Pass tenantId to scope session window check to the correct property
+    const tenantId = res.locals.tenantId as string | undefined;
+    const sessionActive = await sessionWindowActive(phone, tenantId);
     if (!sessionActive) {
       logSessionExpired(phone, 'admin-manual-send', message);
       res.status(422).json({

@@ -11,13 +11,18 @@ import { optOuts } from '../../shared/schema.js';
 import { eq, sql, desc, isNull } from 'drizzle-orm';
 import { trackOptOutEvent } from '../lib/quality-metrics.js';
 
-// US-812: Add processed_at column if it doesn't exist (idempotent startup migration)
-pool.query(`
-  ALTER TABLE opt_outs
-  ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ
-`).catch((err: Error) => {
-  console.warn('[OptOut] Migration warn (processed_at):', err.message);
-});
+// US-812: Add processed_at column if it doesn't exist (deferred until pool is available)
+let _optOutMigrationDone = false;
+function ensureProcessedAtColumn(): void {
+  if (_optOutMigrationDone || !pool) return;
+  _optOutMigrationDone = true;
+  pool.query(`
+    ALTER TABLE opt_outs
+    ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ
+  `).catch((err: Error) => {
+    console.warn('[OptOut] Migration warn (processed_at):', err.message);
+  });
+}
 
 // ─── In-memory cache for fast opt-out lookups ────────────────────────
 const optOutCache = new Set<string>();
@@ -42,6 +47,7 @@ export function isOptInCommand(text: string): boolean {
 
 /** Load all opted-out phones into cache on startup */
 export async function loadOptOutCache(): Promise<void> {
+  ensureProcessedAtColumn();
   try {
     const rows = await db.select({ phone: optOuts.phone }).from(optOuts);
     optOutCache.clear();

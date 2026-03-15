@@ -41,18 +41,8 @@ import {
 } from '../assistant/order-modification-store.js';
 import { saveOrderHistory } from '../assistant/order-history-store.js';
 import {
-  markConfirmationShown, markCorrected, recordOrderSubmitted,
-  recordConfirmationDeclined, clearAccuracyTracking,
+  markConfirmationShown, markCorrected, recordOrderSubmitted, clearAccuracyTracking,
 } from '../assistant/order-accuracy-tracker.js';
-import { markCartCompleted } from '../assistant/cart-recovery.js';
-import { orderItemExtractionSchema } from '../assistant/schemas.js';
-import { recordValidationEvent } from '../assistant/llm-validation-metrics.js';
-import { saveSessionData } from '../assistant/session-data-store.js';
-import {
-  type SstConfig, calculateSst, generateInvoiceNumber,
-  formatSstReceipt, formatSstConfirmationSummary, storeReceipt,
-} from '../assistant/sst-receipt.js';
-import { isItemAvailable } from '../assistant/inventory-sync.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -337,27 +327,6 @@ export const cartTools: MCPTool[] = [
       properties: {}
     },
     allowedProfiles: ['makan-moments']
-  },
-  // ─── Session Data Tool (US-921: WCAG 2.2 SC 3.3.7 Redundant Entry) ──────
-  {
-    name: 'session_save_info',
-    description: [
-      'Save customer-provided information to the session so it is not asked again (WCAG 2.2 SC 3.3.7).',
-      'Call this whenever the guest provides their name, table number, order type, or delivery address.',
-      'This data persists across order cycles within the same session.',
-      'Fields: customerName (string), tableNumber (string), orderType ("dine-in"/"takeaway"), deliveryAddress (string).',
-      'Only pass the fields that the guest just provided — existing fields are preserved.',
-    ].join(' '),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        customerName: { type: 'string', description: 'Guest\'s name (e.g. "Sarah", "Ahmad")' },
-        tableNumber: { type: 'string', description: 'Table number (e.g. "5", "T5")' },
-        orderType: { type: 'string', enum: ['dine-in', 'takeaway'], description: 'Order type' },
-        deliveryAddress: { type: 'string', description: 'Delivery address if provided' }
-      }
-    },
-    allowedProfiles: ['makan-moments']
   }
 ];
 
@@ -380,8 +349,6 @@ export interface CartHandlerOptions {
   };
   /** US-881: Order modification window in milliseconds. Default: 120000 (2 min) */
   modificationWindowMs?: number;
-  /** US-967: SST (Service Tax) config for receipt generation */
-  sst?: SstConfig;
 }
 
 /**
@@ -454,28 +421,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const kdsProfileId = options?.kds?.profileId ?? 'makan-moments';
   // US-881: Order modification window (default 2 minutes)
   const modificationWindowMs = options?.modificationWindowMs ?? 2 * 60 * 1000;
-  // US-967: SST config
-  const sstConfig: SstConfig = options?.sst ?? { enabled: false, rate: 0, registrationNo: '', vendorName: '' };
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
-    // US-933 AC3: Validate order extraction output against schema before cart mutation
-    const validation = orderItemExtractionSchema.safeParse(args);
-    if (!validation.success) {
-      const errors = validation.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
-      console.warn(`[Cart] cart_add_item schema validation failed: ${errors}`, JSON.stringify(args));
-      recordValidationEvent('cart_add_item', false, false, errors);
-      // Attempt graceful recovery with coerced values
-      if (!args.name || typeof args.name !== 'string' || args.name.trim().length === 0) {
-        return {
-          content: [{ type: 'text', text: 'Could not add item: item name is missing or invalid.' }],
-          isError: true
-        };
-      }
-    } else {
-      recordValidationEvent('cart_add_item', true);
-    }
-
     const item: CartItem = {
       name: args.name,
       qty: typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1,
@@ -483,25 +431,6 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       price: typeof args.price === 'number' ? args.price : undefined,
       notes: args.notes || undefined
     };
-
-    // US-949: Check real-time inventory before adding to cart
-    const stockCheck = isItemAvailable('makan-moments', item.code, item.name);
-    if (!stockCheck.available) {
-      const itemLabel = stockCheck.itemName || item.name;
-      let alternativesText = '\n\nWould you like me to show you the full menu so you can pick something else?';
-      if (stockCheck.alternatives && stockCheck.alternatives.length > 0) {
-        const altList = stockCheck.alternatives
-          .map((a, i) => `${i + 1}. ${a.name} - RM ${a.price.toFixed(2)}`)
-          .join('\n');
-        alternativesText = `\n\nHere are some similar items you might enjoy:\n${altList}\n\nWould you like any of these instead?`;
-      }
-      return {
-        content: [{
-          type: 'text',
-          text: `Sorry, ${itemLabel} is currently out of stock.${alternativesText}`
-        }]
-      };
-    }
 
     // US-877: Check allergen data before adding to cart
     if (item.code) {
@@ -691,47 +620,10 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     const saved = cartSetTableInfo(sessionId, info);
-
-    // US-921: Persist table/order type to session data store (survives cart clears)
-    saveSessionData(sessionId, {
-      tableNumber: saved.tableNumber,
-      orderType: saved.orderType,
-    });
-
     const desc = saved.orderType === 'takeaway'
       ? 'Takeaway order noted!'
       : `Table ${saved.tableNumber || ''} noted!`.trim();
     return { content: [{ type: 'text', text: desc }] };
-  });
-
-  // ─── US-921: Session Data Handler (WCAG 2.2 SC 3.3.7) ──────────────────
-  handlers.set('session_save_info', async (args: any) => {
-    const update: Record<string, string> = {};
-    if (args.customerName && typeof args.customerName === 'string') {
-      update.customerName = args.customerName.trim();
-    }
-    if (args.tableNumber && typeof args.tableNumber === 'string') {
-      update.tableNumber = args.tableNumber.trim();
-    }
-    if (args.orderType && typeof args.orderType === 'string') {
-      const ot = args.orderType.trim().toLowerCase();
-      if (ot === 'dine-in' || ot === 'takeaway') {
-        update.orderType = ot;
-      }
-    }
-    if (args.deliveryAddress && typeof args.deliveryAddress === 'string') {
-      update.deliveryAddress = args.deliveryAddress.trim();
-    }
-
-    if (Object.keys(update).length === 0) {
-      return { content: [{ type: 'text', text: 'No information provided to save.' }] };
-    }
-
-    const saved = saveSessionData(sessionId, update);
-    const fields = Object.keys(update).join(', ');
-    return {
-      content: [{ type: 'text', text: `Saved: ${fields}. This info will be used automatically for future orders in this session.` }]
-    };
   });
 
   // ─── Order Stage Handlers ────────────────────────────────────────
@@ -759,28 +651,15 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     // US-868: Check kitchen queue status (non-blocking)
     const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
 
-    // US-967: SST breakdown in confirmation summary
-    const sstSummary = formatSstConfirmationSummary(sstConfig, items);
-
     return {
       content: [{
         type: 'text',
-        text: `Here is your order summary:\n\n${summary}${sstSummary}${tableLine}${kitchenWarning}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
+        text: `Here is your order summary:\n\n${summary}${tableLine}${kitchenWarning}\n\nShall I place this order? Reply YES to confirm or tell me what to change.`
       }]
     };
   });
 
   handlers.set('order_confirm_submit', async (args: any) => {
-    // US-950 AC2: Enforce confirmation step — order can only be submitted from CONFIRMING stage
-    if (getOrderStage(sessionId) !== 'CONFIRMING') {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Please call order_request_confirmation first to show the guest an order summary before submitting.'
-        }]
-      };
-    }
-
     const items = cartGetItems(sessionId);
     if (items.length === 0) {
       return {
@@ -890,11 +769,6 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     cartClear(sessionId);
     clearOrderStage(sessionId);
 
-    // US-917: Mark abandoned cart as completed (converted) if applicable
-    markCartCompleted(sessionId).catch(err => {
-      console.error('[CartRecovery] Mark completed failed:', err.message);
-    });
-
     // US-881: Start modification window
     if (modificationWindowMs > 0) {
       startModificationWindow(sessionId, placedOrderId, snapshotItems, snapshotTable, modificationWindowMs);
@@ -912,40 +786,15 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       ? `\n\nYou have ${modWindowMinutes} minute${modWindowMinutes !== 1 ? 's' : ''} to request changes. Just say "change order" if you need to modify anything.`
       : '';
 
-    // US-967: SST-compliant receipt with invoice number
-    let sstReceiptText = '';
-    if (sstConfig.enabled) {
-      const invoiceNumber = await generateInvoiceNumber(kdsProfileId);
-      const { subtotal, sstAmount, grandTotal } = calculateSst(snapshotItems, sstConfig.rate);
-      sstReceiptText = formatSstReceipt(sstConfig, snapshotItems, invoiceNumber);
-
-      // Store receipt for 7-year customs retention (fire-and-forget)
-      storeReceipt({
-        invoiceNumber,
-        vendorName: sstConfig.vendorName,
-        sstRegistrationNo: sstConfig.registrationNo || null,
-        subtotal, sstRate: sstConfig.rate, sstAmount, grandTotal,
-        items: snapshotItems,
-        tableNumber: effectiveTableNumber,
-        orderType: effectiveOrderType,
-      }, sessionId, placedOrderId, kdsProfileId).catch(err => {
-        console.error('[SST-Receipt] Store failed:', err.message);
-      });
-    }
-
     return {
       content: [{
         type: 'text',
-        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${sstReceiptText}${orderAck}${kitchenWarning}${paymentGuidance}${modNotice}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kitchenWarning}${paymentGuidance}${modNotice}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });
 
   handlers.set('order_back_to_cart', async (_args: any) => {
-    // US-950 AC5: Record that guest declined at the confirmation step
-    if (getOrderStage(sessionId) === 'CONFIRMING') {
-      recordConfirmationDeclined(sessionId, kdsProfileId).catch(() => {});
-    }
     transitionOrderStage(sessionId, 'ORDERING');
     const items = cartGetItems(sessionId);
     const summary = cartFormatSummary(items);
@@ -982,16 +831,11 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       };
     }
 
-    // US-950 AC5: If cancelling from CONFIRMING stage, record confirmation_declined event
-    if (stage === 'CONFIRMING') {
-      recordConfirmationDeclined(sessionId, kdsProfileId).catch(() => {});
-    }
-
     // Clear cart, pending set meals, and reset to BROWSING
     cartClear(sessionId);
     clearPendingSetMeal(sessionId);
     clearOrderStage(sessionId);
-    // US-902: Clear accuracy tracking on cancel (no order to count; declined already recorded above if CONFIRMING)
+    // US-902: Clear accuracy tracking on cancel (no order to count)
     clearAccuracyTracking(sessionId);
     return {
       content: [{

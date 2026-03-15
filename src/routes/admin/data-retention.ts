@@ -64,7 +64,7 @@ router.get('/retention/settings', (req: Request, res: Response) => {
     const settings = store.getSettings();
     const retention = (settings as any).retention ?? {
       enabled: true,
-      retention_days: 90,
+      retention_days: 730, // US-907: PDPA 2024 default 24 months
       grace_period_days: 30,
     };
     ok(res, { retention });
@@ -144,25 +144,6 @@ router.put('/retention/settings', async (req: Request, res: Response) => {
       message: 'Retention settings updated',
     });
   } catch (error: any) {
-    serverError(res, error);
-  }
-});
-
-// ─── US-907 AC5: Disposal confirmation reports ──────────────────────
-
-// GET /api/rainbow/retention/disposal-reports
-router.get('/retention/disposal-reports', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `SELECT * FROM pdpa_disposal_reports ORDER BY created_at DESC LIMIT 100`
-    );
-    ok(res, { reports: result.rows });
-  } catch (error: any) {
-    // Table may not exist yet
-    if (error.code === '42P01') {
-      ok(res, { reports: [] });
-      return;
-    }
     serverError(res, error);
   }
 });

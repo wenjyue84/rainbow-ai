@@ -31,13 +31,6 @@ import {
   cartGetTableInfo,
 } from '../cart-store.js';
 import { createCartHandlers } from '../../tools/cart.js';
-import {
-  startModificationWindow,
-  isModificationAllowed,
-  markKitchenAccepted,
-  closeModificationWindow,
-  getModificationTimeRemaining,
-} from '../order-modification-store.js';
 
 // ─── State Machine Unit Tests ───────────────────────────────────────
 
@@ -359,22 +352,6 @@ describe('Cart handlers — order stage transitions via tools', () => {
     const result = await handlers.get('order_request_confirmation')!({});
     expect(result.content[0].text).toContain('empty');
     expect(getOrderStage(sid)).toBe('BROWSING'); // unchanged
-  });
-
-  it('US-950 AC2: order_confirm_submit returns error when stage is not CONFIRMING', async () => {
-    const sid = newSid();
-    const handlers = createCartHandlers(sid);
-    await handlers.get('cart_add_item')!({ name: 'Roti Canai', qty: 1, price: 3.00 });
-    // Stage is ORDERING (not CONFIRMING) — submit should be blocked
-    expect(getOrderStage(sid)).toBe('ORDERING');
-
-    const result = await handlers.get('order_confirm_submit')!({});
-    expect(result.content[0].text).toContain('order_request_confirmation');
-    // Stage should not have advanced
-    expect(getOrderStage(sid)).toBe('ORDERING');
-
-    cartClear(sid);
-    clearOrderStage(sid);
   });
 
   it('order_confirm_submit transitions CONFIRMING → PLACED and clears cart', async () => {
@@ -752,136 +729,5 @@ describe('Cart Handler — cart_set_table (US-853)', () => {
     expect(result.content[0].text).toContain('Takeaway');
     cartClear(sid);
     clearOrderStage(sid);
-  });
-});
-
-// ─── US-881: Order Modification Store Unit Tests ────────────────────
-
-describe('Order Modification Store (US-881)', () => {
-  const newSid = () => 'mod-store-' + Date.now() + '-' + Math.random();
-
-  it('isModificationAllowed returns true within window', () => {
-    const sid = newSid();
-    startModificationWindow(sid, 'MM-TEST1', [{ name: 'Nasi Lemak', qty: 1, price: 8.50 }], undefined, 120000);
-    expect(isModificationAllowed(sid).allowed).toBe(true);
-    closeModificationWindow(sid);
-  });
-
-  it('isModificationAllowed returns false after kitchen acceptance', () => {
-    const sid = newSid();
-    const orderId = 'MM-TEST2';
-    startModificationWindow(sid, orderId, [{ name: 'Teh Tarik', qty: 1 }], undefined, 120000);
-    markKitchenAccepted(orderId);
-    expect(isModificationAllowed(sid).allowed).toBe(false);
-    expect(isModificationAllowed(sid).reason).toBe('kitchen_accepted');
-    closeModificationWindow(sid);
-  });
-
-  it('isModificationAllowed returns false for unknown session', () => {
-    expect(isModificationAllowed('nonexistent-session').allowed).toBe(false);
-    expect(isModificationAllowed('nonexistent-session').reason).toBe('no_order');
-  });
-
-  it('getModificationTimeRemaining returns positive value within window', () => {
-    const sid = newSid();
-    startModificationWindow(sid, 'MM-TEST3', [{ name: 'Milo', qty: 1 }], undefined, 60000);
-    const remaining = getModificationTimeRemaining(sid);
-    expect(remaining).toBeGreaterThan(0);
-    expect(remaining).toBeLessThanOrEqual(60);
-    closeModificationWindow(sid);
-  });
-
-  it('getModificationTimeRemaining returns 0 for expired/closed window', () => {
-    expect(getModificationTimeRemaining('nonexistent')).toBe(0);
-  });
-});
-
-// ─── US-881: Cart Handler — order_modify_request ─────────────────────
-
-describe('Cart handlers — order_modify_request tool (US-881)', () => {
-  const newSid = () => 'mod-handler-' + Date.now() + '-' + Math.random();
-
-  it('re-opens cart with original items within modification window', async () => {
-    const sid = newSid();
-    const handlers = createCartHandlers(sid, { modificationWindowMs: 120000 });
-
-    // Place an order
-    await handlers.get('cart_add_item')!({ name: 'Nasi Lemak', qty: 1, price: 8.50 });
-    await handlers.get('cart_add_item')!({ name: 'Teh Tarik', qty: 2, price: 2.50 });
-    setOrderStage(sid, 'CONFIRMING');
-    await handlers.get('order_confirm_submit')!({ tableNumber: '5' });
-
-    // Cart should be empty after placement
-    expect(cartGetItems(sid)).toHaveLength(0);
-
-    // Request modification within window
-    const modResult = await handlers.get('order_modify_request')!({});
-    expect(modResult.content[0].text).toContain('re-opened');
-    expect(modResult.content[0].text).toContain('Nasi Lemak');
-    expect(modResult.content[0].text).toContain('Teh Tarik');
-
-    // Cart should be repopulated
-    const items = cartGetItems(sid);
-    expect(items).toHaveLength(2);
-    expect(getOrderStage(sid)).toBe('ORDERING');
-
-    cartClear(sid);
-    clearOrderStage(sid);
-  });
-
-  it('returns polite rejection when no order to modify', async () => {
-    const sid = newSid();
-    const handlers = createCartHandlers(sid, { modificationWindowMs: 120000 });
-
-    const result = await handlers.get('order_modify_request')!({});
-    expect(result.content[0].text).toContain('no recent order');
-  });
-
-  it('returns polite rejection when kitchen has accepted', async () => {
-    const sid = newSid();
-    const handlers = createCartHandlers(sid, { modificationWindowMs: 120000 });
-    const testOrderId = 'MM-TEST-KITCHEN';
-
-    // Manually set up modification window with a known order ID
-    // (bypasses fnb_create_order which may not resolve in test env)
-    startModificationWindow(
-      sid,
-      testOrderId,
-      [{ name: 'Roti Canai', qty: 1, price: 3.50 }],
-      { tableNumber: '3', orderType: 'dine-in' },
-      120000
-    );
-
-    // Simulate kitchen acceptance via webhook
-    markKitchenAccepted(testOrderId);
-
-    const result = await handlers.get('order_modify_request')!({});
-    expect(result.content[0].text).toContain('kitchen');
-
-    closeModificationWindow(sid);
-    cartClear(sid);
-    clearOrderStage(sid);
-  });
-
-  it('prevents double modification (snapshot consumed on first request)', async () => {
-    const sid = newSid();
-    const handlers = createCartHandlers(sid, { modificationWindowMs: 120000 });
-
-    // Place an order
-    await handlers.get('cart_add_item')!({ name: 'Laksa', qty: 1, price: 10.00 });
-    setOrderStage(sid, 'CONFIRMING');
-    await handlers.get('order_confirm_submit')!({ tableNumber: '1' });
-
-    // First modification — should succeed
-    const mod1 = await handlers.get('order_modify_request')!({});
-    expect(mod1.content[0].text).toContain('re-opened');
-
-    // Clear cart and stage to simulate user is done modifying
-    cartClear(sid);
-    clearOrderStage(sid);
-
-    // Second modification — snapshot consumed, should fail
-    const mod2 = await handlers.get('order_modify_request')!({});
-    expect(mod2.content[0].text).toContain('no recent order');
   });
 });

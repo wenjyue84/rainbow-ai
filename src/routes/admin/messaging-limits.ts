@@ -12,6 +12,7 @@ import { db, dbReady } from '../../lib/db.js';
 import { appSettings, rainbowMessages } from '../../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { badRequest, serverError } from './http-utils.js';
+import { notifyAdminConfigError } from '../../lib/admin-notifier.js';
 import { getPacingState } from '../../lib/pacing-monitor.js';
 
 const router = Router();
@@ -176,6 +177,9 @@ async function migrateObsoleteTiers(): Promise<void> {
         .set({ value: '10000', updatedAt: sql`NOW()` })
         .where(eq(appSettings.key, SETTING_KEY_TIER));
       console.log(`[messaging-limits] Auto-migrated tier from '${current}' to '10000' (US-890)`);
+      notifyAdminConfigError(
+        `[US-890] Messaging tier auto-migrated: '${current}' → '10000' (Meta removed lower tiers in Q2 2026). Current cap: 10,000 messages/day.`
+      ).catch(() => {}); // Fire-and-forget
     }
   } catch (err) {
     console.error('[messaging-limits] Tier migration failed:', err);

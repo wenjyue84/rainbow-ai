@@ -1,11 +1,10 @@
 /**
- * Tests for US-480 / US-941: DB-backed Baileys auth state.
+ * Tests for US-480: DB-backed Baileys auth state.
  *
  * Uses an in-memory mock of the pg pool to verify:
  * - Credential save followed by reload returns the same creds
  * - Signal key set/get round-trips correctly
  * - Null values (deletes) are handled
- * - Baileys v7 key types (lid-mapping, device-list, tctoken) stored correctly (US-941 AC2)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -84,7 +83,7 @@ const { useDbAuthState } = await import('../../lib/whatsapp/db-auth-state.js');
 
 // ─── Tests ───────────────────────────────────────────────────────────────
 
-describe('useDbAuthState (US-480 / US-941)', () => {
+describe('useDbAuthState (US-480)', () => {
   beforeEach(() => {
     store.clear();
     vi.clearAllMocks();
@@ -199,71 +198,5 @@ describe('useDbAuthState (US-480 / US-941)', () => {
 
     expect(r1.creds.registrationId).toBe(regId1);
     expect(r2.creds.registrationId).toBe(regId2);
-  });
-
-  // ─── US-941 AC2: Baileys v7 key types ────────────────────────────────
-
-  it('stores and retrieves lid-mapping keys (Baileys v7)', async () => {
-    const { state } = await useDbAuthState('v7-lid');
-
-    const lidMapping = { phone: '60123456789', lid: '12345678' };
-    await state.keys.set({ 'lid-mapping': { 'lid-1': lidMapping } });
-    await vi.advanceTimersByTimeAsync(150);
-
-    const result = await state.keys.get('lid-mapping', ['lid-1']);
-    expect(result['lid-1']).toBeDefined();
-    expect(result['lid-1'].phone).toBe('60123456789');
-    expect(result['lid-1'].lid).toBe('12345678');
-  });
-
-  it('stores and retrieves device-list keys (Baileys v7)', async () => {
-    const { state } = await useDbAuthState('v7-device');
-
-    const deviceList = [{ id: 'device-0', keyIndex: 0 }, { id: 'device-1', keyIndex: 1 }];
-    await state.keys.set({ 'device-list': { 'my-devices': deviceList } });
-    await vi.advanceTimersByTimeAsync(150);
-
-    const result = await state.keys.get('device-list', ['my-devices']);
-    expect(result['my-devices']).toBeDefined();
-    expect(Array.isArray(result['my-devices'])).toBe(true);
-    expect(result['my-devices']).toHaveLength(2);
-    expect(result['my-devices'][0].id).toBe('device-0');
-  });
-
-  it('stores and retrieves tctoken keys (Baileys v7)', async () => {
-    const { state } = await useDbAuthState('v7-tctoken');
-
-    const tctoken = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE]);
-    await state.keys.set({ 'tctoken': { 'token-1': tctoken } });
-    await vi.advanceTimersByTimeAsync(150);
-
-    const result = await state.keys.get('tctoken', ['token-1']);
-    expect(result['token-1']).toBeDefined();
-    expect(Buffer.from(result['token-1'])).toEqual(Buffer.from(tctoken));
-  });
-
-  it('handles all v7 key types in a single batch write', async () => {
-    const { state } = await useDbAuthState('v7-batch');
-    const connectCallsBefore = mockPool.connect.mock.calls.length;
-
-    await state.keys.set({
-      'lid-mapping': { 'lid-a': { phone: '601', lid: '001' } },
-      'device-list': { 'dev-a': [{ id: 'd0' }] },
-      'tctoken': { 'tok-a': new Uint8Array([1, 2, 3]) },
-    });
-    await vi.advanceTimersByTimeAsync(150);
-
-    // All three key types written in a single transaction
-    const connectCallsAfter = mockPool.connect.mock.calls.length;
-    expect(connectCallsAfter - connectCallsBefore).toBe(1);
-
-    // Verify all retrievable
-    const lids = await state.keys.get('lid-mapping', ['lid-a']);
-    const devs = await state.keys.get('device-list', ['dev-a']);
-    const toks = await state.keys.get('tctoken', ['tok-a']);
-
-    expect(lids['lid-a']).toBeDefined();
-    expect(devs['dev-a']).toBeDefined();
-    expect(toks['tok-a']).toBeDefined();
   });
 });

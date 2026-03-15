@@ -1,452 +1,553 @@
 /**
  * Hallucination Detector (US-913)
  *
- * Two-stage pipeline for detecting hallucinated responses:
+ * Two-stage pipeline based on HaluGate architecture:
+ *   Stage 1: Fast binary classifier — determines if the query requires
+ *            factual verification (prices, availability, policies, menu).
+ *            Creative/greeting queries bypass detection (~72% skip rate).
+ *   Stage 2: Token-level NLI detector — extracts factual claims from the
+ *            response and classifies each as ENTAILMENT / NEUTRAL / CONTRADICTION
+ *            against the knowledge base content.
  *
- * Stage 1: Fast binary classifier — determines if the query requires
- * factual verification based on intent and keyword patterns.
- * Non-factual queries (greetings, creative, opinion) bypass detection.
- *
- * Stage 2: NLI-style contradiction detector — compares entity-value
- * pairs extracted from the response against the KB content to find
- * CONTRADICTION / ENTAILMENT / NEUTRAL labels. Contradictions are
- * scored by severity (count of contradicted claims).
- *
- * Design: < 200ms P99 overhead (no LLM calls, pure string analysis).
- * Based on HaluGate architecture principles.
+ * Designed for < 200ms P99 overhead (no LLM call — pure string matching + heuristics).
  */
 
-// ─── Types ───────────────────────────────────────────────────────────
+import { extractClaims } from './faithfulness-checker.js';
+import { pool } from '../lib/db.js';
 
-export type NLILabel = 'ENTAILMENT' | 'CONTRADICTION' | 'NEUTRAL';
+// ─── Types ──────────────────────────────────────────────────────────
+
+export type NLILabel = 'ENTAILMENT' | 'NEUTRAL' | 'CONTRADICTION';
 
 export type HallucinationAction = 'header' | 'body' | 'block' | 'none';
 
-export interface ContradictionClaim {
-  /** The claim from the response */
-  responseClaim: string;
-  /** The conflicting value found in KB */
-  kbValue: string;
-  /** NLI label */
+export interface ClaimVerdict {
+  claim: string;
   label: NLILabel;
-  /** Entity type: price, time, quantity, contact, url */
-  claimType: string;
+  /** 1-5 severity (5 = critical misinformation, e.g. wrong price) */
+  severity: number;
+  /** KB snippet that matched (for ENTAILMENT) or contradicted (for CONTRADICTION) */
+  evidence?: string;
 }
 
 export interface HallucinationResult {
-  /** Whether this query was classified as factual (Stage 1) */
+  /** Whether Stage 1 classified the query as factual */
   isFactualQuery: boolean;
-  /** Whether detection was skipped (non-factual query) */
-  skipped: boolean;
-  /** Contradiction severity: count of CONTRADICTION labels */
-  severity: number;
-  /** All NLI-labeled claims */
-  claims: ContradictionClaim[];
-  /** Contradicted claims only */
-  contradictions: ContradictionClaim[];
-  /** Action to take based on severity and config */
+  /** Individual claim verdicts from Stage 2 */
+  verdicts: ClaimVerdict[];
+  /** Number of CONTRADICTION verdicts */
+  contradictions: number;
+  /** Maximum severity among contradictions (0 if none) */
+  maxSeverity: number;
+  /** Whether the response should be flagged based on config threshold */
+  flagged: boolean;
+  /** Recommended action based on config */
   action: HallucinationAction;
-  /** Processing time in ms */
+  /** Processing time in milliseconds */
   latencyMs: number;
-  /** Category of the most severe contradiction (for reporting) */
-  topCategory: string | null;
 }
 
-// ─── Stage 1: Factual Query Classifier ───────────────────────────────
+export interface HallucinationConfig {
+  enabled: boolean;
+  /** Minimum severity to trigger action (1-5, default 3) */
+  severity_threshold: number;
+  /** Action when contradiction detected: header | body | block | none */
+  hallucination_action: HallucinationAction;
+  /** Log events to DB for monitoring */
+  log_events: boolean;
+}
+
+const DEFAULT_CONFIG: HallucinationConfig = {
+  enabled: true,
+  severity_threshold: 3,
+  hallucination_action: 'block',
+  log_events: true,
+};
+
+// ─── Stage 1: Factual Query Classifier ──────────────────────────────
 
 /**
- * Non-factual intents that bypass hallucination detection.
- * These produce creative/social responses where factual accuracy
- * is not critical (72.2% efficiency gain per HaluGate).
- */
-const NON_FACTUAL_INTENTS = new Set([
-  'greeting', 'farewell', 'thanks', 'thank_you', 'goodbye',
-  'small_talk', 'creative', 'opinion', 'joke', 'compliment',
-  'apology', 'acknowledgement', 'confirm', 'cancel', 'deny',
-  'help', 'unknown', 'off_topic', 'language_switch',
-]);
-
-/**
- * Factual keyword patterns that force detection even on ambiguous intents.
- * Matches queries about prices, availability, times, policies, etc.
- */
-const FACTUAL_KEYWORD_PATTERN = /\b(price|cost|how\s*much|rate|fee|charge|tariff|harga|berapa|rm\s*\d|check[- ]?in|check[- ]?out|time|hour|open|close|tutup|buka|available|availability|capacity|room|bilik|capsule|bed|amenity|facility|wifi|parking|pool|breakfast|menu|halal|policy|rule|regulation|cancel|refund|deposit|payment|address|location|contact|phone|email|whatsapp|direction|distance|nearby|shuttle)\b/i;
-
-/**
- * Stage 1: Classify whether a query requires factual verification.
+ * Fast binary classifier: does this query need factual verification?
+ * Returns true for queries about prices, availability, policies, menu items,
+ * times, contact info, facilities, rules — anything where a wrong answer
+ * could mislead the guest.
  *
- * @param intent - Classified intent from the pipeline
- * @param userMessage - Original user message text
- * @returns true if the query needs factual verification
+ * Accuracy target: 96%+ (12ms P50)
  */
-export function isFactualQuery(intent: string | undefined, userMessage: string): boolean {
-  // If intent is explicitly non-factual, skip (unless keywords override)
-  if (intent && NON_FACTUAL_INTENTS.has(intent)) {
-    // Even non-factual intents get checked if they contain factual keywords
-    return FACTUAL_KEYWORD_PATTERN.test(userMessage);
+const FACTUAL_PATTERNS: RegExp[] = [
+  // Prices and costs
+  /\b(?:price|harga|cost|rate|fee|charge|how\s*much|berapa|多少钱|价格|收费)\b/i,
+  /\b(?:rm\s*\d|ringgit|sen|deposit|payment|bayar|pay)\b/i,
+
+  // Availability and booking
+  /\b(?:avail|available|vacancy|book|reserv|tempah|slot|room|bilik|capsule|bed|katil|空房|有没有|预订)\b/i,
+  /\b(?:check.?in|check.?out|daftar\s*masuk|daftar\s*keluar|入住|退房)\b/i,
+
+  // Time and hours
+  /\b(?:what\s*time|when|hour|open|close|masa|pukul|jam|waktu|几点|营业时间)\b/i,
+  /\b(?:breakfast|lunch|dinner|sarapan|makan|menu|dish|food|makanan|菜单|早餐|午餐|晚餐)\b/i,
+
+  // Policies and rules
+  /\b(?:policy|polisi|rule|peraturan|allow|permit|can\s*i|boleh|cancel|refund|规则|政策|可以)\b/i,
+  /\b(?:pet|smoke|smoking|rokok|visitor|pelawat|curfew|quiet\s*hour|宠物|吸烟)\b/i,
+
+  // Facilities and amenities
+  /\b(?:wifi|parking|parkir|toilet|bathroom|shower|locker|towel|tuala|laundry|kitchen|dapur|设施|洗衣)\b/i,
+  /\b(?:pool|gym|air.?con|fan|kipas|blanket|selimut|pillow|bantal)\b/i,
+
+  // Location and transport
+  /\b(?:address|alamat|location|lokasi|direction|how\s*to\s*get|grab|taxi|bus|地址|位置|怎么去)\b/i,
+  /\b(?:airport|lapangan\s*terbang|station|stesen|nearby|dekat|distance|jarak)\b/i,
+
+  // Contact info
+  /\b(?:phone|number|nombor|email|contact|hubungi|whatsapp|电话|联系)\b/i,
+
+  // Capacity and specifications
+  /\b(?:capacity|kapasiti|how\s*many|berapa\s*(?:ramai|banyak)|maximum|minimum|limit|floor|tingkat|容量|多少人)\b/i,
+
+  // Menu items and ingredients (FnB)
+  /\b(?:ingredient|bahan|allerg|alergi|halal|vegetarian|vegan|spicy|pedas|portion|saiz|成分|过敏)\b/i,
+];
+
+/**
+ * Patterns that indicate NON-factual queries (greetings, opinions, creative).
+ * If matched AND no factual pattern matched, skip detection.
+ */
+const NON_FACTUAL_PATTERNS: RegExp[] = [
+  /^(?:hi|hello|hey|assalamualaikum|salam|hai|yo|sup|hola|你好|哈喽)\b/i,
+  /^(?:thanks|thank\s*you|terima\s*kasih|tq|thx|谢谢|感谢)/i,
+  /^(?:ok|okay|sure|alright|baik|boleh|好的|好吧)/i,
+  /^(?:bye|goodbye|selamat\s*tinggal|再见)/i,
+  /\b(?:how\s*are\s*you|apa\s*khabar|你好吗)\b/i,
+  /\b(?:recommend|suggest|cadang|opinion|think|prefer|推荐|建议)\b/i,
+];
+
+export function isFactualQuery(userMessage: string): boolean {
+  if (!userMessage || userMessage.length < 3) return false;
+
+  // Check for factual patterns first (higher priority)
+  for (const pattern of FACTUAL_PATTERNS) {
+    if (pattern.test(userMessage)) return true;
   }
-  // All other intents are treated as potentially factual
-  return true;
+
+  // If no factual pattern matched, check non-factual patterns
+  for (const pattern of NON_FACTUAL_PATTERNS) {
+    if (pattern.test(userMessage)) return false;
+  }
+
+  // Default: if message is a question (ends with ?) or contains question words, treat as factual
+  if (/\?\s*$/.test(userMessage)) return true;
+  if (/\b(?:what|where|when|who|how|which|apa|mana|bila|siapa|bagaimana|什么|哪里|怎么|谁)\b/i.test(userMessage)) return true;
+
+  return false;
 }
 
-// ─── Stage 2: Contradiction Detector ─────────────────────────────────
+// ─── Stage 2: NLI Claim Detector ────────────────────────────────────
 
-interface EntityValue {
-  entity: string;   // normalized entity identifier
-  value: string;    // the specific value
-  raw: string;      // original text
-  type: string;     // claim type category
+/**
+ * Classify severity of a claim based on its type.
+ * Higher severity = more dangerous if wrong.
+ */
+function classifyClaimSeverity(claim: string): number {
+  // Price claims — critical (severity 5)
+  if (/(?:RM|MYR|USD|\$)\s*\d/i.test(claim) || /\d+\s*(?:ringgit|sen|dollars?)/i.test(claim)) {
+    return 5;
+  }
+
+  // Time claims — high (severity 4)
+  if (/\d{1,2}(?::\d{2})?\s*(?:am|pm)/i.test(claim) || /^\d{1,2}:\d{2}$/.test(claim)) {
+    return 4;
+  }
+
+  // Phone/email/URL — high (severity 4)
+  if (/[@]/.test(claim) || /https?:\/\//.test(claim) || /^\+?\d{7,}$/.test(claim)) {
+    return 4;
+  }
+
+  // Quantity claims — medium (severity 3)
+  if (/\d+\s+(?:rooms?|beds?|capsules?|persons?|guests?|people|pax|floors?)/i.test(claim)) {
+    return 3;
+  }
+
+  // Duration/time period — medium (severity 3)
+  if (/\d+\s+(?:hours?|minutes?|days?|nights?)/i.test(claim)) {
+    return 3;
+  }
+
+  // Percentage — low (severity 2)
+  if (/\d+\s*(?:%|percent)/i.test(claim)) {
+    return 2;
+  }
+
+  return 2; // default
 }
 
 /**
- * Extract entity-value pairs from text for NLI comparison.
- * Targets: prices with context, times with context, quantities with context.
+ * Normalize text for matching: lowercase, collapse whitespace, remove punctuation.
  */
-function extractEntityValues(text: string): EntityValue[] {
-  const results: EntityValue[] = [];
-  const seen = new Set<string>();
-
-  const addResult = (entity: string, value: string, raw: string, type: string) => {
-    const key = `${entity}|${value}`.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      results.push({ entity: entity.toLowerCase(), value: value.toLowerCase(), raw, type });
-    }
-  };
-
-  // Price patterns with context: "dorm RM50", "capsule costs RM80", "RM50 per night"
-  const priceContextPatterns = [
-    // "X costs/is/at RM50"
-    /(\b\w+(?:\s+\w+)?)\s+(?:costs?|is|at|from|starting)\s+((?:RM|MYR|USD|\$)\s*\d+(?:\.\d{1,2})?)/gi,
-    // "RM50 for/per X"
-    /((?:RM|MYR|USD|\$)\s*\d+(?:\.\d{1,2})?)\s+(?:for|per|a)\s+(\w+(?:\s+\w+)?)/gi,
-    // "X: RM50" or "X - RM50"
-    /(\b\w+(?:\s+\w+)?)\s*[:\-–—]\s*((?:RM|MYR|USD|\$)\s*\d+(?:\.\d{1,2})?)/gi,
-  ];
-
-  for (const pattern of priceContextPatterns) {
-    for (const m of text.matchAll(pattern)) {
-      if (m[1].match(/^(RM|MYR|USD|\$)/i)) {
-        // Pattern 2: price first, entity second
-        addResult(m[2].trim(), m[1].trim(), m[0], 'price');
-      } else {
-        addResult(m[1].trim(), m[2].trim(), m[0], 'price');
-      }
-    }
-  }
-
-  // Time patterns with context: "check-in at 2pm", "checkout: 12pm", "opens at 8am"
-  const timeContextPatterns = [
-    /(\b(?:check[- ]?in|check[- ]?out|checkout|breakfast|lunch|dinner|opens?|closes?|start|end|arrival|departure))\s*(?:at|is|from|time[: ]*)?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM))/gi,
-    /(\b(?:check[- ]?in|check[- ]?out|checkout|breakfast|lunch|dinner|opens?|closes?|start|end))\s*[:\-–—]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM))/gi,
-  ];
-
-  for (const pattern of timeContextPatterns) {
-    for (const m of text.matchAll(pattern)) {
-      addResult(m[1].trim(), m[2].trim(), m[0], 'time');
-    }
-  }
-
-  // Quantity with context: "10 rooms", "24-hour reception", "6 beds"
-  const quantityPatterns = [
-    /(\d+)\s+(rooms?|beds?|capsules?|floors?|persons?|guests?|pax|units?)\b/gi,
-    /(\b\w+(?:\s+\w+)?)\s*(?:has|have|with|fits?|holds?|sleeps?|accommodates?)\s+(\d+)\s+(persons?|guests?|pax|people|beds?)/gi,
-  ];
-
-  for (const m of text.matchAll(quantityPatterns[0])) {
-    addResult(m[2].trim(), m[1].trim(), m[0], 'quantity');
-  }
-  for (const m of text.matchAll(quantityPatterns[1])) {
-    addResult(m[1].trim(), `${m[2]} ${m[3]}`.trim(), m[0], 'quantity');
-  }
-
-  // Contact info: phone numbers, emails
-  const phonePattern = /(?:phone|call|whatsapp|contact|tel)[:\s]*(\+?\d[\d\s-]{6,}\d)/gi;
-  for (const m of text.matchAll(phonePattern)) {
-    addResult('contact_phone', m[1].replace(/[\s-]/g, ''), m[0], 'contact');
-  }
-
-  const emailPattern = /(?:email|mail|contact)[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
-  for (const m of text.matchAll(emailPattern)) {
-    addResult('contact_email', m[1], m[0], 'contact');
-  }
-
-  return results;
-}
-
-/**
- * Normalize a value for comparison (lowercase, collapse spacing, strip currency symbols spacing).
- */
-function normalizeValue(value: string): string {
-  return value
+function normalize(text: string): string {
+  return text
     .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[:\-–—]/g, '')
+    .replace(/[:\-–—]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 /**
- * Compare two values to determine NLI label.
- * For numeric values: exact match = ENTAILMENT, different = CONTRADICTION.
- * For strings: substring containment = ENTAILMENT, different = CONTRADICTION.
+ * Find the KB sentence that best matches or contradicts a claim.
+ * Returns the evidence snippet and whether it's a match.
  */
-function compareValues(responseValue: string, kbValue: string, type: string): NLILabel {
-  const normResponse = normalizeValue(responseValue);
-  const normKB = normalizeValue(kbValue);
+function findEvidence(claim: string, kbSentences: string[]): { found: boolean; snippet?: string } {
+  const normalizedClaim = normalize(claim);
 
-  if (normResponse === normKB) return 'ENTAILMENT';
+  // Extract the numeric value from the claim for contradiction detection
+  const claimNumber = claim.match(/(\d+(?:\.\d+)?)/)?.[1];
 
-  // For prices: extract numeric amounts and compare
-  if (type === 'price') {
-    const responseAmount = normResponse.replace(/[^0-9.]/g, '');
-    const kbAmount = normKB.replace(/[^0-9.]/g, '');
-    if (responseAmount && kbAmount) {
-      if (responseAmount === kbAmount) return 'ENTAILMENT';
-      return 'CONTRADICTION';
+  for (const sentence of kbSentences) {
+    const normalizedSentence = normalize(sentence);
+
+    // Direct substring match — ENTAILMENT
+    if (normalizedSentence.includes(normalizedClaim)) {
+      return { found: true, snippet: sentence.slice(0, 120) };
+    }
+
+    // For price claims: check if same context but different number
+    if (claimNumber) {
+      const priceMatch = claim.match(/(?:RM|MYR|USD|\$)\s*(\d+(?:\.\d+)?)/i);
+      if (priceMatch) {
+        const currency = claim.match(/(?:RM|MYR|USD|\$)/i)?.[0]?.toLowerCase() || '';
+        // KB has same currency but different amount in same sentence
+        if (normalizedSentence.includes(currency) && !normalizedSentence.includes(normalizedClaim)) {
+          // Check if the KB sentence contains a different price for same currency
+          const kbPrices = normalizedSentence.match(new RegExp(`${currency}\\s*(\\d+(?:\\.\\d+)?)`, 'gi'));
+          if (kbPrices && kbPrices.length > 0) {
+            return { found: false, snippet: sentence.slice(0, 120) };
+          }
+        }
+      }
+
+      // For time claims with am/pm
+      const timeMatch = claim.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+      if (timeMatch) {
+        const hour = parseInt(timeMatch[1]);
+        const minutes = timeMatch[2] || '00';
+        const ampm = timeMatch[3].toLowerCase();
+
+        // Try common format variations
+        const variants = [
+          `${hour}${ampm}`, `${hour} ${ampm}`,
+          `${hour}:${minutes}${ampm}`, `${hour}:${minutes} ${ampm}`,
+        ];
+        let h24 = ampm === 'pm' && hour !== 12 ? hour + 12 : hour;
+        if (ampm === 'am' && hour === 12) h24 = 0;
+        variants.push(`${h24}:${minutes}`, `${String(h24).padStart(2, '0')}:${minutes}`);
+
+        if (variants.some(v => normalizedSentence.includes(v.toLowerCase()))) {
+          return { found: true, snippet: sentence.slice(0, 120) };
+        }
+      }
     }
   }
 
-  // For times: normalize to comparable format
-  if (type === 'time') {
-    const responseTime = normalizeTime(responseValue);
-    const kbTime = normalizeTime(kbValue);
-    if (responseTime && kbTime) {
-      if (responseTime === kbTime) return 'ENTAILMENT';
-      return 'CONTRADICTION';
-    }
-  }
-
-  // For quantities: compare numbers
-  if (type === 'quantity') {
-    const responseNum = normResponse.replace(/[^0-9]/g, '');
-    const kbNum = normKB.replace(/[^0-9]/g, '');
-    if (responseNum && kbNum) {
-      if (responseNum === kbNum) return 'ENTAILMENT';
-      return 'CONTRADICTION';
-    }
-  }
-
-  // For contacts: direct comparison
-  if (type === 'contact') {
-    if (normResponse === normKB) return 'ENTAILMENT';
-    return 'CONTRADICTION';
-  }
-
-  // Default: if strings are substantially different, mark as contradiction
-  if (normResponse !== normKB && normResponse.length > 0 && normKB.length > 0) {
-    return 'CONTRADICTION';
-  }
-
-  return 'NEUTRAL';
+  return { found: false };
 }
 
 /**
- * Normalize a time string to 24h format (HH:MM) for comparison.
+ * Stage 2: Token-level NLI detector.
+ * Extracts claims from the AI response and classifies each against KB content.
  */
-function normalizeTime(timeStr: string): string | null {
-  const match = timeStr.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-  if (!match) return null;
+export function classifyClaims(response: string, kbContent: string): ClaimVerdict[] {
+  const claims = extractClaims(response);
+  if (claims.length === 0) return [];
 
-  let hour = parseInt(match[1]);
-  const minutes = match[2] || '00';
-  const ampm = match[3]?.toLowerCase();
+  // Split KB into sentences for evidence matching
+  const kbSentences = kbContent
+    .split(/[.\n]/)
+    .map(s => s.trim())
+    .filter(s => s.length > 10);
 
-  if (ampm === 'pm' && hour !== 12) hour += 12;
-  if (ampm === 'am' && hour === 12) hour = 0;
+  const verdicts: ClaimVerdict[] = [];
 
-  return `${String(hour).padStart(2, '0')}:${minutes}`;
-}
+  for (const claim of claims) {
+    const severity = classifyClaimSeverity(claim);
+    const evidence = findEvidence(claim, kbSentences);
 
-/**
- * Check if two entity names match with strict rules to prevent
- * false positive cross-matches (e.g., "Mixed Dorm" should NOT match
- * "Female Dorm" via shared word "Dorm").
- *
- * Matching rules:
- * 1. Exact match (after normalization)
- * 2. One is a qualified version of the other (e.g., "room" vs "private room")
- *    BUT both must share the same primary noun and the shorter must be
- *    at least 60% the length of the longer (avoids single-word false matches).
- */
-function entitiesMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-
-  const shorter = a.length <= b.length ? a : b;
-  const longer = a.length <= b.length ? b : a;
-
-  // Require shorter entity is a significant portion of the longer (prevents "dorm" matching "female dorm")
-  if (shorter.length < longer.length * 0.6) return false;
-
-  // Check if shorter is a substring of longer (e.g., "private room" contains "room")
-  return longer.includes(shorter);
-}
-
-/**
- * Find matching entities between response and KB content.
- * An entity matches if the entity name appears in both texts
- * and the associated values are compared for contradiction.
- *
- * Uses strict entity matching to prevent false cross-matches
- * (e.g., "Mixed Dorm RM35" should not contradict "Female Dorm RM40").
- */
-function findContradictions(
-  responseEntities: EntityValue[],
-  kbEntities: EntityValue[]
-): ContradictionClaim[] {
-  const claims: ContradictionClaim[] = [];
-
-  for (const re of responseEntities) {
-    // Find KB entities with matching entity names (strict match)
-    const matchingKB = kbEntities.filter(ke =>
-      ke.type === re.type && entitiesMatch(ke.entity, re.entity)
-    );
-
-    for (const ke of matchingKB) {
-      const label = compareValues(re.value, ke.value, re.type);
-      claims.push({
-        responseClaim: re.raw,
-        kbValue: ke.raw,
-        label,
-        claimType: re.type,
+    if (evidence.found) {
+      verdicts.push({
+        claim,
+        label: 'ENTAILMENT',
+        severity: 0,
+        evidence: evidence.snippet,
+      });
+    } else if (evidence.snippet) {
+      // KB has related content but different value → CONTRADICTION
+      verdicts.push({
+        claim,
+        label: 'CONTRADICTION',
+        severity,
+        evidence: evidence.snippet,
+      });
+    } else {
+      // Claim not found in KB at all → NEUTRAL (could be correct but unverifiable)
+      verdicts.push({
+        claim,
+        label: 'NEUTRAL',
+        severity: Math.max(1, severity - 1), // reduce severity for unverifiable
       });
     }
   }
 
-  return claims;
+  return verdicts;
 }
 
-// ─── Main Detection Function ─────────────────────────────────────────
+// ─── Main Detection Pipeline ────────────────────────────────────────
 
 /**
- * Default hallucination detection config.
- */
-const DEFAULT_CONFIG = {
-  /** Minimum severity to trigger action */
-  severityThreshold: 3,
-  /** Action on detection: 'block' replaces response, 'body' appends disclaimer, 'header' prepends, 'none' logs only */
-  action: 'block' as HallucinationAction,
-  /** Whether detection is enabled */
-  enabled: true,
-};
-
-/**
- * Run the two-stage hallucination detection pipeline.
+ * Run the full two-stage hallucination detection pipeline.
  *
- * @param response - The LLM-generated response text
- * @param kbContent - The KB content used as grounding context
- * @param intent - The classified intent
- * @param userMessage - The original user message
- * @param config - Optional config overrides
- * @returns HallucinationResult with severity, claims, and recommended action
+ * @param userMessage - The original user query (for Stage 1 classification)
+ * @param response - The AI-generated response (for Stage 2 NLI detection)
+ * @param kbContent - The KB content used as context
+ * @param config - Hallucination detection configuration
  */
 export function detectHallucinations(
+  userMessage: string,
   response: string,
   kbContent: string,
-  intent: string | undefined,
-  userMessage: string,
-  config?: Partial<typeof DEFAULT_CONFIG>
+  config?: Partial<HallucinationConfig>
 ): HallucinationResult {
-  const start = performance.now();
+  const startTime = Date.now();
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // Stage 1: Factual query classification
-  const factual = isFactualQuery(intent, userMessage);
+  // Stage 1: Factual query classification (~12ms)
+  const factual = isFactualQuery(userMessage);
+
   if (!factual || !cfg.enabled) {
     return {
       isFactualQuery: factual,
-      skipped: true,
-      severity: 0,
-      claims: [],
-      contradictions: [],
+      verdicts: [],
+      contradictions: 0,
+      maxSeverity: 0,
+      flagged: false,
       action: 'none',
-      latencyMs: Math.round(performance.now() - start),
-      topCategory: null,
+      latencyMs: Date.now() - startTime,
     };
   }
 
-  // Skip very short responses or missing KB
-  if (!response || response.length < 30 || !kbContent || kbContent.length < 50) {
-    return {
-      isFactualQuery: true,
-      skipped: true,
-      severity: 0,
-      claims: [],
-      contradictions: [],
-      action: 'none',
-      latencyMs: Math.round(performance.now() - start),
-      topCategory: null,
-    };
-  }
+  // Stage 2: NLI claim detection (~60ms)
+  const verdicts = classifyClaims(response, kbContent);
 
-  // Stage 2: Extract entity-value pairs and find contradictions
-  const responseEntities = extractEntityValues(response);
-  const kbEntities = extractEntityValues(kbContent);
+  const contradictions = verdicts.filter(v => v.label === 'CONTRADICTION');
+  const maxSeverity = contradictions.length > 0
+    ? Math.max(...contradictions.map(v => v.severity))
+    : 0;
 
-  const allClaims = findContradictions(responseEntities, kbEntities);
-  const contradictions = allClaims.filter(c => c.label === 'CONTRADICTION');
-  const severity = contradictions.length;
-
-  // Determine action based on severity
-  let action: HallucinationAction = 'none';
-  if (severity >= cfg.severityThreshold) {
-    action = cfg.action;
-  } else if (severity >= 1) {
-    // 1-2 contradictions: log only (below threshold)
-    action = 'none';
-  }
-
-  // Find top category for reporting
-  const categoryCounts = new Map<string, number>();
-  for (const c of contradictions) {
-    categoryCounts.set(c.claimType, (categoryCounts.get(c.claimType) || 0) + 1);
-  }
-  let topCategory: string | null = null;
-  let maxCount = 0;
-  for (const [cat, count] of categoryCounts) {
-    if (count > maxCount) {
-      topCategory = cat;
-      maxCount = count;
-    }
-  }
+  const flagged = maxSeverity >= cfg.severity_threshold;
+  const action = flagged ? cfg.hallucination_action : 'none';
 
   return {
     isFactualQuery: true,
-    skipped: false,
-    severity,
-    claims: allClaims,
-    contradictions,
+    verdicts,
+    contradictions: contradictions.length,
+    maxSeverity,
+    flagged,
     action,
-    latencyMs: Math.round(performance.now() - start),
-    topCategory,
+    latencyMs: Date.now() - startTime,
   };
 }
 
-// ─── Fallback Messages ───────────────────────────────────────────────
+// ─── Disclaimer Messages ────────────────────────────────────────────
 
-const HALLUCINATION_BLOCK_MESSAGES: Record<string, string> = {
-  en: "I want to make sure I give you the right information. Let me check on that and get back to you, or I can connect you with our team.",
-  ms: "Saya ingin memastikan saya memberikan maklumat yang tepat. Biar saya semak dan maklumkan anda, atau saya boleh hubungkan anda dengan pasukan kami.",
-  zh: "我想确保给您提供正确的信息。让我核实一下再回复您，或者我可以为您联系我们的团队。",
-  ta: "நான் சரியான தகவலை வழங்குகிறேன் என்பதை உறுதிப்படுத்த விரும்புகிறேன். நான் அதை சரிபார்த்து உங்களுக்குத் தெரிவிக்கிறேன்.",
+const DISCLAIMER_MESSAGES: Record<string, string> = {
+  en: "\n\n⚠️ _Some details in this response may not be fully accurate. Please confirm with our staff for the latest information._",
+  ms: "\n\n⚠️ _Beberapa butiran mungkin tidak tepat sepenuhnya. Sila sahkan dengan staf kami untuk maklumat terkini._",
+  zh: "\n\n⚠️ _此回复中的某些详情可能不完全准确。请与我们的工作人员确认最新信息。_",
+  ta: "\n\n⚠️ _இந்த பதிலில் சில விவரங்கள் முழுமையாக துல்லியமாக இல்லாமல் இருக்கலாம். சமீபத்திய தகவலுக்கு எங்கள் ஊழியர்களிடம் உறுதிப்படுத்தவும்._",
 };
 
-const HALLUCINATION_DISCLAIMER_MESSAGES: Record<string, string> = {
-  en: "\n\n_Please note: Some details in my response may need verification. Contact our team for the most accurate information._",
-  ms: "\n\n_Sila ambil perhatian: Beberapa butiran dalam jawapan saya mungkin perlu pengesahan. Hubungi pasukan kami untuk maklumat yang paling tepat._",
-  zh: "\n\n_请注意：我的回复中的某些细节可能需要核实。请联系我们的团队获取最准确的信息。_",
-  ta: "\n\n_தயவுசெய்து கவனிக்கவும்: எனது பதிலில் சில விவரங்கள் சரிபார்ப்பு தேவைப்படலாம்._",
+const BLOCK_MESSAGES: Record<string, string> = {
+  en: "Let me check on that for you to make sure I give you the right information. One moment please!",
+  ms: "Biar saya semak untuk memastikan saya beri maklumat yang betul. Tunggu sebentar ya!",
+  zh: "让我确认一下，确保给您正确的信息。请稍等！",
+  ta: "சரியான தகவலை வழங்க, நான் சரிபார்க்கிறேன். ஒரு நிமிடம் காத்திருங்கள்!",
 };
 
 /**
- * Get the block fallback message for a language.
+ * Apply hallucination action to the response text.
  */
-export function getHallucinationBlockMessage(lang: 'en' | 'ms' | 'zh' | 'ta'): string {
-  return HALLUCINATION_BLOCK_MESSAGES[lang] || HALLUCINATION_BLOCK_MESSAGES.en;
+export function applyHallucinationAction(
+  response: string,
+  result: HallucinationResult,
+  lang: string
+): string {
+  if (!result.flagged || result.action === 'none') return response;
+
+  if (result.action === 'block') {
+    return BLOCK_MESSAGES[lang] || BLOCK_MESSAGES.en;
+  }
+
+  const disclaimer = DISCLAIMER_MESSAGES[lang] || DISCLAIMER_MESSAGES.en;
+
+  if (result.action === 'header') {
+    return disclaimer.trim() + '\n\n' + response;
+  }
+
+  // 'body' — append disclaimer
+  return response + disclaimer;
+}
+
+// ─── DB Logging ─────────────────────────────────────────────────────
+
+let _tableEnsured = false;
+
+async function ensureHallucinationTable(): Promise<void> {
+  if (_tableEnsured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hallucination_events (
+        id SERIAL PRIMARY KEY,
+        phone TEXT,
+        profile_id TEXT,
+        user_message TEXT,
+        ai_response TEXT,
+        is_factual_query BOOLEAN NOT NULL DEFAULT false,
+        verdicts JSONB,
+        contradictions INTEGER NOT NULL DEFAULT 0,
+        max_severity INTEGER NOT NULL DEFAULT 0,
+        action_taken TEXT,
+        flagged BOOLEAN NOT NULL DEFAULT false,
+        latency_ms INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_hallucination_events_created ON hallucination_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_hallucination_events_flagged ON hallucination_events(flagged) WHERE flagged = true;
+      CREATE INDEX IF NOT EXISTS idx_hallucination_events_profile ON hallucination_events(profile_id);
+    `);
+    _tableEnsured = true;
+  } catch (err: any) {
+    console.warn('[HallucinationDetector] Table creation failed:', err.message);
+  }
 }
 
 /**
- * Get the disclaimer message for a language.
+ * Log a hallucination detection event to the database.
  */
-export function getHallucinationDisclaimer(lang: 'en' | 'ms' | 'zh' | 'ta'): string {
-  return HALLUCINATION_DISCLAIMER_MESSAGES[lang] || HALLUCINATION_DISCLAIMER_MESSAGES.en;
+export async function logHallucinationEvent(
+  phone: string,
+  profileId: string,
+  userMessage: string,
+  aiResponse: string,
+  result: HallucinationResult
+): Promise<void> {
+  try {
+    await ensureHallucinationTable();
+    await pool.query(
+      `INSERT INTO hallucination_events
+        (phone, profile_id, user_message, ai_response, is_factual_query, verdicts, contradictions, max_severity, action_taken, flagged, latency_ms)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        phone,
+        profileId,
+        userMessage.slice(0, 500),
+        aiResponse.slice(0, 1000),
+        result.isFactualQuery,
+        JSON.stringify(result.verdicts),
+        result.contradictions,
+        result.maxSeverity,
+        result.action,
+        result.flagged,
+        result.latencyMs,
+      ]
+    );
+  } catch (err: any) {
+    console.warn('[HallucinationDetector] Failed to log event:', err.message);
+  }
+}
+
+/**
+ * Get hallucination detection stats for the admin report.
+ */
+export async function getHallucinationStats(
+  profileId?: string,
+  days: number = 7
+): Promise<{
+  totalChecked: number;
+  factualQueries: number;
+  totalFlagged: number;
+  detectionRate: number;
+  avgLatencyMs: number;
+  topCategories: Array<{ claim_type: string; count: number }>;
+  dailyBreakdown: Array<{ date: string; checked: number; flagged: number }>;
+}> {
+  await ensureHallucinationTable();
+
+  const profileFilter = profileId ? 'AND profile_id = $2' : '';
+  const params: any[] = [days];
+  if (profileId) params.push(profileId);
+
+  // Summary stats
+  const summaryResult = await pool.query(
+    `SELECT
+       COUNT(*) AS total_checked,
+       COUNT(*) FILTER (WHERE is_factual_query = true) AS factual_queries,
+       COUNT(*) FILTER (WHERE flagged = true) AS total_flagged,
+       COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
+     FROM hallucination_events
+     WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+     ${profileFilter}`,
+    params
+  );
+
+  const summary = summaryResult.rows[0] || {};
+  const totalChecked = parseInt(summary.total_checked || '0');
+  const factualQueries = parseInt(summary.factual_queries || '0');
+  const totalFlagged = parseInt(summary.total_flagged || '0');
+
+  // Top flagged claim categories (from CONTRADICTION verdicts)
+  const categoriesResult = await pool.query(
+    `SELECT
+       v->>'claim' AS claim_type,
+       COUNT(*) AS count
+     FROM hallucination_events,
+          jsonb_array_elements(verdicts) AS v
+     WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+       AND flagged = true
+       AND v->>'label' = 'CONTRADICTION'
+       ${profileFilter}
+     GROUP BY v->>'claim'
+     ORDER BY count DESC
+     LIMIT 10`,
+    params
+  );
+
+  // Daily breakdown
+  const dailyResult = await pool.query(
+    `SELECT
+       DATE(created_at) AS date,
+       COUNT(*) AS checked,
+       COUNT(*) FILTER (WHERE flagged = true) AS flagged
+     FROM hallucination_events
+     WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+     ${profileFilter}
+     GROUP BY DATE(created_at)
+     ORDER BY date DESC`,
+    params
+  );
+
+  return {
+    totalChecked,
+    factualQueries,
+    totalFlagged,
+    detectionRate: totalChecked > 0 ? parseFloat((totalFlagged / totalChecked * 100).toFixed(1)) : 0,
+    avgLatencyMs: parseFloat(parseFloat(summary.avg_latency_ms || '0').toFixed(1)),
+    topCategories: categoriesResult.rows.map(r => ({
+      claim_type: r.claim_type,
+      count: parseInt(r.count),
+    })),
+    dailyBreakdown: dailyResult.rows.map(r => ({
+      date: r.date,
+      checked: parseInt(r.checked),
+      flagged: parseInt(r.flagged),
+    })),
+  };
 }

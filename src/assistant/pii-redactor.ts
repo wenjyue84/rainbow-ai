@@ -1,5 +1,5 @@
 /**
- * PII Redactor (US-421, US-915)
+ * PII Redactor (US-421)
  *
  * Detects and redacts sensitive PII patterns from message text before
  * it is sent to external LLM providers or written to structured logs.
@@ -10,10 +10,7 @@
  * - International passport numbers
  * - Bank account numbers (10-16 digit sequences)
  * - Email addresses
- * - Malaysian phone numbers (+60 / 60 / 01X formats)
- *
- * US-915 (PDPA 2024): Added Malaysian phone number patterns and
- * maskPiiForProvider() for pre-API-call masking.
+ * - Malaysian phone numbers
  */
 
 export interface RedactionResult {
@@ -68,18 +65,13 @@ const PII_PATTERNS: PiiPattern[] = [
     label: 'PASSPORT',
     regex: /\b([A-Z]{1,2}\d{6,9})\b/g,
   },
-  // US-915: Malaysian phone numbers — must be BEFORE BANK_ACCOUNT to match first
-  // +60XXXXXXXXX, 60XXXXXXXXX, +60-12-345-6789, +60 12 3456 7890 (country code formats)
+  // Malaysian phone numbers — MUST come before BANK_ACCOUNT to avoid 10+ digit phone being caught as bank account
+  // Formats: +60123456789, 60123456789, 012-3456789, 0176543210, +60 12-345 6789
   {
     label: 'PHONE',
-    regex: /\+?60[\s\-]?\d{1,2}[\s\-]?\d{3,4}[\s\-]?\d{4}\b/g,
+    regex: /\+?60[\s\-]?\d{1,2}[\s\-]?\d{3,4}[\s\-]?\d{4}\b|(?<!\d)0\d{1,2}[\s\-]?\d{3,4}[\s\-]?\d{4}(?!\d)/g,
   },
-  // 01X-XXXXXXX, 01XXXXXXXXX (local formats)
-  {
-    label: 'PHONE',
-    regex: /\b0[1][0-9][\s\-]?\d{3,4}[\s\-]?\d{4}\b/g,
-  },
-  // Bank account: 10-16 consecutive digits (not already matched as CC, IC, or PHONE)
+  // Bank account: 10-16 consecutive digits (not already matched as CC or IC or phone)
   {
     label: 'BANK_ACCOUNT',
     regex: /\b(\d{10,16})\b/g,
@@ -123,43 +115,4 @@ export function redactPii(text: string): RedactionResult {
     hadPii: types.size > 0,
     types: [...types],
   };
-}
-
-// ─── US-915: PDPA 2024 — Provider-level PII masking ─────────────
-
-/**
- * Mask PII in an array of chat messages before sending to an AI provider.
- * Returns a new array with PII redacted; original messages are not mutated.
- * Also replaces guest names (push_name style) with 'Guest' when provided.
- */
-export function maskPiiForProvider(
-  messages: Array<{ role: string; content: string | any }>,
-  guestName?: string
-): { masked: Array<{ role: string; content: string | any }>; categories: string[] } {
-  const allTypes = new Set<string>();
-
-  const masked = messages.map(msg => {
-    // Only mask string content (skip system messages with cache_control objects)
-    if (typeof msg.content !== 'string') return msg;
-
-    let text = msg.content;
-
-    // Replace known guest name with 'Guest' (case-insensitive, whole word)
-    if (guestName && guestName.length >= 2) {
-      const escaped = guestName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const nameRegex = new RegExp(`\\b${escaped}\\b`, 'gi');
-      if (nameRegex.test(text)) {
-        text = text.replace(nameRegex, 'Guest');
-        allTypes.add('GUEST_NAME');
-      }
-    }
-
-    // Apply all PII patterns
-    const result = redactPii(text);
-    for (const t of result.types) allTypes.add(t);
-
-    return { ...msg, content: result.redacted };
-  });
-
-  return { masked, categories: [...allTypes] };
 }

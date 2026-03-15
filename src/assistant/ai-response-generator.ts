@@ -13,17 +13,8 @@ import {
 } from './ai-provider-manager.js';
 import type { SupportedLanguage } from './language-router.js';
 import { z } from 'zod';
-import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse, orderItemExtractionSchema } from './schemas.js';
-import { recordValidationEvent } from './llm-validation-metrics.js';
+import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
-import { validateToolArgs } from './pipeline/prompt-injection-guard.js';
-import { sanitizeToolError } from './output-sanitizer.js';
-import {
-  checkToolPermission,
-  auditToolDispatch,
-  blockedToolResult,
-  type ToolCallContext
-} from './tool-permission-guard.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -130,9 +121,7 @@ export async function chatWithToolsLoop(
   tools: MCPTool[],
   toolHandlers: Map<string, ToolHandler>,
   profileConfigStore?: ConfigStore,
-  detectedLanguage?: SupportedLanguage,
-  /** US-929: Active intent context for tool permission enforcement */
-  toolCallContext?: ToolCallContext
+  detectedLanguage?: SupportedLanguage
 ): Promise<string> {
   if (!isAIAvailable()) {
     throw new Error('AI not available');
@@ -200,39 +189,6 @@ export async function chatWithToolsLoop(
         parsedArgs = typeof fnArgs === 'string' ? JSON.parse(fnArgs) : fnArgs || {};
       } catch {
         parsedArgs = {};
-      }
-
-      // US-928 + US-946: Validate tool arguments against input schema before execution
-      const toolDef = tools.find(t => t.name === fnName);
-      if (toolDef?.inputSchema) {
-        const validation = validateToolArgs(parsedArgs, toolDef.inputSchema);
-        if (!validation.valid) {
-          // Log detailed errors server-side only (never expose to user)
-          console.warn(`[AI] Tool argument validation failed for ${fnName}: ${validation.errors.join(', ')}`);
-          // US-946: Return safe error without disclosing internal structure
-          const safeError = sanitizeToolError(fnName, validation.errors);
-          const result: MCPToolResult = {
-            content: [{ type: 'text', text: safeError }],
-            isError: true
-          };
-          messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.content) });
-          totalToolCalls++;
-          errorToolCalls++;
-          continue;
-        }
-      }
-
-      // US-929: Enforce tool permission matrix before executing
-      if (toolCallContext) {
-        const permCheck = checkToolPermission(fnName, toolCallContext);
-        auditToolDispatch(fnName, toolCallContext, permCheck);
-        if (!permCheck.allowed) {
-          const blocked = blockedToolResult(fnName, permCheck.reason || 'permission denied');
-          messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(blocked.content) });
-          totalToolCalls++;
-          // Not counted as errorToolCalls — lets the AI produce a graceful text response
-          continue;
-        }
       }
 
       const handler = toolHandlers.get(fnName);
@@ -445,8 +401,6 @@ export async function classifyAndRespond(
     // Validation failed even after retry — fall back to parseAIResponse partial recovery
     if (raw) {
       const result = parseAIResponse(raw);
-      // US-933: Record recovered validation
-      recordValidationEvent('classifyAndRespond', false, true, 'Partial recovery via parseAIResponse');
       result.model = provider?.name || provider?.model || 'unknown';
       result.responseTime = responseTime;
       result.usage = usage;
@@ -677,8 +631,6 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
         ? Math.min(1, Math.max(0, parsed.confidence))
         : 0.7;
       const responseText = typeof parsed.response === 'string' ? parsed.response.trim() : '';
-      // US-933: Record recovered validation
-      recordValidationEvent('generateReplyOnly', false, true, 'Partial recovery from raw JSON');
       return {
         response: responseText,
         confidence,

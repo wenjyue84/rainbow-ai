@@ -1,110 +1,80 @@
 /**
- * payment-token.ts — US-911: Signed payment session tokens for webview URLs.
+ * US-911: Signed payment session tokens for WhatsApp in-chat webview.
  *
- * Uses HMAC-SHA256 with PAYMENT_TOKEN_SECRET env var (falls back to RAINBOW_ADMIN_KEY).
- * Token format: base64url(JSON payload).base64url(HMAC signature)
+ * Uses HMAC-SHA256 to sign a JSON payload containing order/session info.
+ * No external JWT dependency required — uses Node.js crypto only.
  */
-import { createHmac, createHash } from 'crypto';
+import crypto from 'crypto';
 
-const DEFAULT_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+const PAYMENT_SECRET = process.env.PAYMENT_TOKEN_SECRET || 'rainbow-payment-dev-secret';
+const TOKEN_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 
 export interface PaymentTokenPayload {
-  /** Payment session ID (UUID) */
-  sid: string;
-  /** Payer phone number */
-  ph: string;
-  /** Amount in MYR (cents) */
-  amt: number;
-  /** Expiry timestamp (epoch ms) */
+  /** Unique payment session ID */
+  sessionId: string;
+  /** Phone number of the customer */
+  phone: string;
+  /** Order reference */
+  orderId: string;
+  /** Total amount in MYR (cents) */
+  amountCents: number;
+  /** Order summary items */
+  items: { name: string; qty: number; priceCents: number }[];
+  /** Profile/tenant ID */
+  profileId: string;
+  /** Created timestamp (ms) */
+  iat: number;
+  /** Expiry timestamp (ms) */
   exp: number;
-  /** Profile ID */
-  pid: string;
-}
-
-function getSecret(): string {
-  const secret = process.env.PAYMENT_TOKEN_SECRET || process.env.RAINBOW_ADMIN_KEY;
-  if (!secret) {
-    throw new Error('PAYMENT_TOKEN_SECRET or RAINBOW_ADMIN_KEY must be set');
-  }
-  return secret;
-}
-
-function base64urlEncode(data: string): string {
-  return Buffer.from(data, 'utf8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function base64urlDecode(data: string): string {
-  const padded = data.replace(/-/g, '+').replace(/_/g, '/');
-  return Buffer.from(padded, 'base64').toString('utf8');
-}
-
-function sign(payload: string, secret: string): string {
-  const sig = createHmac('sha256', secret).update(payload).digest('base64');
-  return sig.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
- * Create a signed payment token.
- * @returns The token string and its SHA-256 hash (for DB storage/revocation).
+ * Create a signed payment token embedding order details.
  */
-export function createPaymentToken(
-  sessionId: string,
-  phone: string,
-  amountMyr: number,
-  profileId: string = 'pelangi',
-  expiryMs: number = DEFAULT_EXPIRY_MS,
-): { token: string; tokenHash: string } {
+export function createPaymentToken(params: {
+  phone: string;
+  orderId: string;
+  amountCents: number;
+  items: { name: string; qty: number; priceCents: number }[];
+  profileId: string;
+}): string {
+  const now = Date.now();
   const payload: PaymentTokenPayload = {
-    sid: sessionId,
-    ph: phone,
-    amt: Math.round(amountMyr * 100), // store as cents
-    exp: Date.now() + expiryMs,
-    pid: profileId,
+    sessionId: crypto.randomUUID(),
+    phone: params.phone,
+    orderId: params.orderId,
+    amountCents: params.amountCents,
+    items: params.items,
+    profileId: params.profileId,
+    iat: now,
+    exp: now + TOKEN_EXPIRY_MS,
   };
 
-  const secret = getSecret();
-  const payloadStr = base64urlEncode(JSON.stringify(payload));
-  const signature = sign(payloadStr, secret);
-  const token = `${payloadStr}.${signature}`;
-  const tokenHash = createHash('sha256').update(token).digest('hex');
-
-  return { token, tokenHash };
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', PAYMENT_SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
 }
 
 /**
  * Verify and decode a payment token.
- * @returns The decoded payload, or null if invalid/expired.
+ * Returns null if invalid or expired.
  */
 export function verifyPaymentToken(token: string): PaymentTokenPayload | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
 
-  const [payloadStr, providedSig] = parts;
-  const secret = getSecret();
-  const expectedSig = sign(payloadStr, secret);
+  const [data, sig] = parts;
+  const expectedSig = crypto.createHmac('sha256', PAYMENT_SECRET).update(data).digest('base64url');
 
-  // Constant-time comparison
-  if (providedSig.length !== expectedSig.length) return null;
-  let mismatch = 0;
-  for (let i = 0; i < providedSig.length; i++) {
-    mismatch |= providedSig.charCodeAt(i) ^ expectedSig.charCodeAt(i);
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    return null;
   }
-  if (mismatch !== 0) return null;
 
   try {
-    const payload: PaymentTokenPayload = JSON.parse(base64urlDecode(payloadStr));
-    if (payload.exp < Date.now()) return null; // expired
+    const payload: PaymentTokenPayload = JSON.parse(Buffer.from(data, 'base64url').toString());
+    if (Date.now() > payload.exp) return null;
     return payload;
   } catch {
     return null;
   }
-}
-
-/** Hash a token for DB lookup (revocation check). */
-export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
 }

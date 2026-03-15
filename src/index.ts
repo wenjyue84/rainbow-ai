@@ -27,9 +27,11 @@ import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import fnbChatRoutes from './routes/public/fnb-chat.js';
 import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
-import whatsappFlowsRoutes from './routes/public/whatsapp-flows.js';
-import paymentRoutes from './routes/public/payment.js';
 import webhookRoutes from './routes/webhooks/index.js';
+import whatsappFlowsRoutes from './routes/public/whatsapp-flows.js';
+import whatsappFlowsCheckinRoutes from './routes/public/whatsapp-flows-checkin.js';
+import paymentWebviewRoutes from './routes/public/payment-webview.js';
+import pushApiRoutes from './routes/public/push-api.js';
 import { captureRawBody } from './lib/webhook-signature.js';
 import { safeRedirect } from './lib/safe-redirect.js';
 import { buildConnectSrc, buildImgSrc } from './lib/csp-directives.js';
@@ -63,13 +65,13 @@ import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { computeAvailability } from './assistant/business-hours.js';
 import type { BusinessHoursConfig } from './assistant/business-hours.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
-import { checkBreachDeadlines, runBreachDetectionScan } from './routes/admin/breach-report.js';
+import { checkBreachDeadlines } from './routes/admin/breach-report.js';
 import { migrateObsoleteTiers } from './routes/admin/messaging-limits.js';
 import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
 import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
 import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
 import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
-import { validateGraphApiVersion } from './lib/meta-graph-api.js';
+import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -114,9 +116,6 @@ initDb();
 
 // Meta CA certificate check (US-478) — warn if cert is missing before 2026-04-01 deadline
 checkMetaCACert();
-
-// Meta Graph API version validation (US-961) — warn if version is below minimum
-validateGraphApiVersion();
 
 // Ensure DB config tables exist (no-op when DATABASE_URL not set)
 try {
@@ -228,12 +227,8 @@ setInterval(() => {
   );
 }, 24 * 60 * 60 * 1000);
 
-// US-907: Automated breach detection scan (runs every 15 min)
-setInterval(() => {
-  runBreachDetectionScan().catch(err =>
-    console.error('[PDPA] Breach detection scan failed:', err.message)
-  );
-}, 15 * 60 * 1000);
+// US-907: PDPA breach detection scheduler (every 15 min, scans for anomalous bulk access)
+startBreachDetectionScheduler();
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {
@@ -667,11 +662,17 @@ app.use('/api/fnb', fnbChatRoutes);
 // PDPA 2024 Phase 3 — self-service data portability (public, OTP-verified, US-894)
 app.use('/api/rainbow', gdprPortabilityRoutes);
 
-// WhatsApp Flows data-exchange and health endpoints (US-909)
-app.use('/api/rainbow', whatsappFlowsRoutes);
+// US-909: WhatsApp Flows data-exchange endpoint (public, Meta-encrypted)
+app.use(whatsappFlowsRoutes);
 
-// US-911: WhatsApp in-chat webview payment page (public, token-verified)
-app.use('/api/rainbow', paymentRoutes);
+// US-920: WhatsApp Flows digital check-in endpoint (public, Meta-encrypted)
+app.use(whatsappFlowsCheckinRoutes);
+
+// US-911: WhatsApp in-chat webview for mobile payment page
+app.use(paymentWebviewRoutes);
+
+// US-916: PWA push notification subscription API
+app.use('/push', pushApiRoutes);
 
 // Webchat page — serves branded chat UI per profile
 app.get('/chat/:profileId', (req, res) => {

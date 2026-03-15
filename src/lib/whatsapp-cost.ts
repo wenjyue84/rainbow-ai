@@ -1,16 +1,14 @@
 /**
  * whatsapp-cost.ts — WhatsApp cost tracking (US-495, US-845)
  *
- * Supports two pricing models (US-845):
- *   - 'per_message'     : Meta July 2025+ per-message pricing (default)
- *   - 'per_conversation': Legacy 24h conversation-window pricing
+ * Tracks outbound message costs under the Meta July 2025 pricing model:
+ * - Per-message pricing (not conversation-based)
+ * - Template types: marketing, utility, authentication, service
+ * - Utility templates within Customer Service Window (CSW) are FREE
+ * - Cost varies by template_type + recipient country
  *
- * Active model is controlled via settings.json `billing.pricingModel`
- * with per-profile overrides in `billing.profileOverrides`.
- *
- * Template types: marketing, utility, authentication, service
- * Utility templates within Customer Service Window (CSW) are FREE (per-message model).
- * Cost varies by template_type + recipient country.
+ * US-845: Adds per-conversation legacy model estimation for admin comparison.
+ * The billing.pricingModel setting toggles which model is active.
  *
  * Architecture mirrors llm-cost-budget.ts: in-memory accumulator + async DB flush.
  */
@@ -21,8 +19,8 @@ import { sql, eq, and } from 'drizzle-orm';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
+export type PricingModel = 'per_conversation' | 'per_message';
 export type TemplateType = 'marketing' | 'utility' | 'authentication' | 'service';
-export type PricingModel = 'per_message' | 'per_conversation';
 
 export interface WhatsappMessageCostInput {
   phone: string;
@@ -39,9 +37,7 @@ interface CostAccumulator {
   estimatedCostUsd: number;
 }
 
-// ─── Default Rate Tables ─────────────────────────────────────────────
-
-// Per-message rates (USD, July 2025)
+// ─── Default Rate Table (USD per message, July 2025) ────────────────
 // Source: https://developers.facebook.com/docs/whatsapp/pricing/
 // Only includes countries relevant to this deployment. Stored in app_settings
 // as JSON under key 'whatsapp_cost_rate_table' for admin configurability.
@@ -82,37 +78,27 @@ const DEFAULT_RATE_TABLE: Record<string, Record<string, number>> = {
   },
 };
 
-// Per-conversation rates (USD, legacy pre-July 2025 model)
-// One charge per 24h conversation window, regardless of message count.
+// ─── Legacy Per-Conversation Rate Table (US-845) ────────────────────
+// Under the old model, one rate covers all messages within a 24h conversation window.
+// These are used for comparison display only.
+
 const DEFAULT_CONVERSATION_RATE_TABLE: Record<string, Record<string, number>> = {
   marketing: {
     MY: 0.0732,
     SG: 0.0858,
     ID: 0.0411,
-    TH: 0.0631,
-    PH: 0.0559,
-    IN: 0.0158,
-    US: 0.0250,
     _default: 0.0600,
   },
   utility: {
     MY: 0.0200,
     SG: 0.0318,
     ID: 0.0150,
-    TH: 0.0150,
-    PH: 0.0150,
-    IN: 0.0042,
-    US: 0.0080,
     _default: 0.0200,
   },
   authentication: {
     MY: 0.0315,
     SG: 0.0453,
     ID: 0.0240,
-    TH: 0.0240,
-    PH: 0.0240,
-    IN: 0.0042,
-    US: 0.0135,
     _default: 0.0300,
   },
   service: {
@@ -120,53 +106,53 @@ const DEFAULT_CONVERSATION_RATE_TABLE: Record<string, Record<string, number>> = 
   },
 };
 
-// ─── Pricing Model Helpers ───────────────────────────────────────────
+// ─── Pricing Model ──────────────────────────────────────────────────
+
+let _pricingModelCache: PricingModel | null = null;
+let _pricingModelCacheExpiry = 0;
+const PRICING_MODEL_CACHE_TTL = 300_000; // 5 min
 
 /**
- * Read the active pricing model from settings.json (cached read).
- * Supports per-profile overrides via billing.profileOverrides.
+ * Read the active pricing model from app_settings.
+ * Falls back to 'per_message' (July 2025 default).
  */
-let _settingsCache: any = null;
-let _settingsCacheExpiry = 0;
-const SETTINGS_CACHE_TTL = 60_000; // 1 min
-
-async function getBillingSettings(): Promise<{ pricingModel: PricingModel; profileOverrides: Record<string, { pricingModel: PricingModel }> }> {
+export async function getActivePricingModel(): Promise<PricingModel> {
   const now = Date.now();
-  if (_settingsCache && now < _settingsCacheExpiry) return _settingsCache;
+  if (_pricingModelCache && now < _pricingModelCacheExpiry) return _pricingModelCache;
 
   try {
-    const { createRequire } = await import('module');
-    const { fileURLToPath } = await import('url');
-    const { dirname, join } = await import('path');
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const settingsPath = join(__dirname, '../assistant/data/settings.json');
-    const fs = await import('fs');
-    const raw = fs.readFileSync(settingsPath, 'utf-8');
-    const settings = JSON.parse(raw);
-    const billing = settings.billing ?? {};
-    _settingsCache = {
-      pricingModel: (billing.pricingModel ?? 'per_message') as PricingModel,
-      profileOverrides: billing.profileOverrides ?? {},
-    };
-  } catch {
-    _settingsCache = { pricingModel: 'per_message', profileOverrides: {} };
+    const rows = await db.select().from(appSettings).where(eq(appSettings.key, 'billing_pricing_model'));
+    if (rows.length > 0 && rows[0].value) {
+      const val = rows[0].value;
+      if (val === 'per_conversation' || val === 'per_message') {
+        _pricingModelCache = val;
+        _pricingModelCacheExpiry = now + PRICING_MODEL_CACHE_TTL;
+        return val;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[WACost] Failed to load pricing model, using default:', err.message);
   }
 
-  _settingsCacheExpiry = now + SETTINGS_CACHE_TTL;
-  return _settingsCache;
+  _pricingModelCache = 'per_message';
+  _pricingModelCacheExpiry = now + PRICING_MODEL_CACHE_TTL;
+  return 'per_message';
 }
 
 /**
- * Get the active pricing model for a given profileId.
- * Per-profile override takes precedence over global setting.
+ * Estimate cost under legacy per-conversation model.
+ * In per-conversation pricing, you pay once per 24h window per unique phone+category.
+ * For estimation from per-message data: cost = uniqueConversations × conversationRate.
  */
-export async function getPricingModel(profileId?: string): Promise<PricingModel> {
-  const billing = await getBillingSettings();
-  if (profileId && billing.profileOverrides[profileId]?.pricingModel) {
-    return billing.profileOverrides[profileId].pricingModel;
-  }
-  return billing.pricingModel;
+export function estimateConversationCost(
+  templateType: TemplateType,
+  countryCode: string,
+  uniqueConversations: number,
+): number {
+  if (templateType === 'service') return 0;
+  const typeRates = DEFAULT_CONVERSATION_RATE_TABLE[templateType] || {};
+  const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
+  return uniqueConversations * rate;
 }
 
 // ─── In-memory Accumulator ──────────────────────────────────────────
@@ -264,52 +250,6 @@ export async function estimateMessageCost(
   const typeRates = rateTable[templateType] || rateTable['marketing'] || {};
   const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
   return rate;
-}
-
-/**
- * Estimate the cost of a single conversation (legacy per-conversation model).
- * Returns 0 for service messages. Utility within CSW is free.
- */
-export function estimateConversationCost(
-  templateType: TemplateType,
-  countryCode: string,
-  withinCSW: boolean
-): number {
-  if (templateType === 'service') return 0;
-  if (templateType === 'utility' && withinCSW) return 0;
-  const typeRates = DEFAULT_CONVERSATION_RATE_TABLE[templateType] ?? DEFAULT_CONVERSATION_RATE_TABLE['marketing'];
-  return typeRates[countryCode] ?? typeRates['_default'] ?? 0.06;
-}
-
-/**
- * Compute cost estimates under both pricing models for a given message sequence.
- * Used by admin dashboard to display model comparison.
- *
- * @param messages - Array of messages with templateType, countryCode, withinCSW
- * @returns { perMessageTotal, perConversationTotal }
- */
-export async function computeBothModelCosts(
-  messages: Array<{ templateType: TemplateType; countryCode: string; withinCSW: boolean }>
-): Promise<{ perMessageTotal: number; perConversationTotal: number }> {
-  let perMessageTotal = 0;
-  let perConversationTotal = 0;
-
-  // Track conversation windows (per phone+type key) for per-conversation dedup
-  const conversationCharged = new Set<string>();
-
-  for (const msg of messages) {
-    const msgCost = await estimateMessageCost(msg.templateType, msg.countryCode, msg.withinCSW);
-    perMessageTotal += msgCost;
-
-    // Per-conversation: charge once per unique type+country per 24h window
-    const convKey = `${msg.templateType}::${msg.countryCode}`;
-    if (!conversationCharged.has(convKey)) {
-      conversationCharged.add(convKey);
-      perConversationTotal += estimateConversationCost(msg.templateType, msg.countryCode, msg.withinCSW);
-    }
-  }
-
-  return { perMessageTotal, perConversationTotal };
 }
 
 // ─── Public API: Record Outbound Message Cost ───────────────────────
@@ -561,147 +501,117 @@ export function startWhatsappCostDailyJob(): void {
   }, 24 * 60 * 60 * 1000);
 }
 
-// ─── Volume Tier Detection (US-943) ──────────────────────────────────
-// Meta applies volume discounts at certain monthly message thresholds.
-// standard: 0–1,000 messages/month
-// tier1: 1,001–10,000 messages/month
-// tier2: 10,001+ messages/month
-
-export type VolumeTier = 'standard' | 'tier1' | 'tier2';
-
-export function detectVolumeTier(monthlyMessages: number): VolumeTier {
-  if (monthlyMessages > 10_000) return 'tier2';
-  if (monthlyMessages > 1_000) return 'tier1';
-  return 'standard';
-}
+// ─── Comparison Query (US-845) ──────────────────────────────────────
 
 /**
- * Get volume tier status for the current month.
+ * Return cost summary with estimated costs under BOTH pricing models.
+ * Uses per-message actual data + estimates per-conversation costs by counting
+ * unique phone-day pairs as proxy for conversation windows.
  */
-export async function getVolumeTierStatus(profileId?: string): Promise<{
-  tier: VolumeTier;
-  monthlyMessages: number;
-  billableMessages: number;
-  cswFreeMessages: number;
-  month: string;
-  nextTierThreshold: number | null;
-  messagesUntilNextTier: number | null;
+export async function queryWhatsappCostComparison(options: {
+  profileId?: string;
+  days?: number;
+}): Promise<{
+  activePricingModel: PricingModel;
+  perMessage: { totalMessages: number; billableMessages: number; estimatedCostUsd: number };
+  perConversation: { estimatedConversations: number; estimatedCostUsd: number };
+  daily: Array<{
+    day: string;
+    perMessageCostUsd: number;
+    perConversationCostUsd: number;
+    totalMessages: number;
+  }>;
 }> {
-  const now = new Date();
-  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-  const firstOfMonth = `${month}-01`;
+  const days = options.days || 7;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const profileFilter = options.profileId ? sql`AND profile_id = ${options.profileId}` : sql``;
+  const activePricingModel = await getActivePricingModel();
 
-  const profileFilter = profileId ? sql`AND profile_id = ${profileId}` : sql``;
-
-  const result = await db.execute(sql`
+  // Per-message totals (from whatsapp_cost_daily)
+  const perMsgResult = await db.execute(sql`
     SELECT
       COALESCE(SUM(total_messages), 0)::int AS total_messages,
       COALESCE(SUM(billable_messages), 0)::int AS billable_messages,
-      COALESCE(SUM(csw_free_messages), 0)::int AS csw_free_messages
-    FROM whatsapp_cost_daily
-    WHERE date >= ${firstOfMonth} ${profileFilter}
-  `);
-
-  const row = (result as any).rows[0] ?? {};
-  const monthlyMessages = Number(row.total_messages ?? 0);
-  const billableMessages = Number(row.billable_messages ?? 0);
-  const cswFreeMessages = Number(row.csw_free_messages ?? 0);
-  const tier = detectVolumeTier(monthlyMessages);
-
-  let nextTierThreshold: number | null = null;
-  let messagesUntilNextTier: number | null = null;
-  if (tier === 'standard') {
-    nextTierThreshold = 1_001;
-    messagesUntilNextTier = Math.max(0, 1_001 - monthlyMessages);
-  } else if (tier === 'tier1') {
-    nextTierThreshold = 10_001;
-    messagesUntilNextTier = Math.max(0, 10_001 - monthlyMessages);
-  }
-
-  return { tier, monthlyMessages, billableMessages, cswFreeMessages, month, nextTierThreshold, messagesUntilNextTier };
-}
-
-// ─── Monthly Cost Report (US-943) ────────────────────────────────────
-
-/**
- * Get monthly cost report distinguishing free CSW from billable messages.
- */
-export async function queryMonthlyCostReport(options: {
-  profileId?: string;
-  months?: number;
-}): Promise<Array<{
-  month: string;
-  totalMessages: number;
-  billableMessages: number;
-  cswFreeMessages: number;
-  estimatedCostUsd: number;
-  byCategory: Array<{ category: string; messages: number; billable: number; cswFree: number; costUsd: number }>;
-  volumeTier: VolumeTier;
-}>> {
-  const months = options.months || 3;
-  const cutoffDate = new Date();
-  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - months);
-  const since = cutoffDate.toISOString().slice(0, 10);
-  const profileFilter = options.profileId ? sql`AND profile_id = ${options.profileId}` : sql``;
-
-  // Monthly aggregation
-  const monthlyResult = await db.execute(sql`
-    SELECT
-      SUBSTRING(date, 1, 7) AS month,
-      SUM(total_messages)::int AS total_messages,
-      SUM(billable_messages)::int AS billable_messages,
-      SUM(csw_free_messages)::int AS csw_free_messages,
       COALESCE(SUM(estimated_cost_usd), 0)::real AS estimated_cost_usd
     FROM whatsapp_cost_daily
     WHERE date >= ${since} ${profileFilter}
-    GROUP BY SUBSTRING(date, 1, 7)
-    ORDER BY month DESC
   `);
 
-  // Per-month category breakdown
-  const categoryResult = await db.execute(sql`
+  // Estimate unique conversations: count distinct phone+day from rainbow_messages
+  // (outbound messages grouped by phone and day approximate conversation windows)
+  const convResult = await db.execute(sql`
+    SELECT COUNT(DISTINCT phone || '::' || date(timestamp))::int AS estimated_conversations
+    FROM rainbow_messages
+    WHERE role = 'assistant'
+      AND timestamp >= ${since}::date
+      AND deleted_at IS NULL
+  `);
+
+  // Per-message daily breakdown
+  const dailyResult = await db.execute(sql`
     SELECT
-      SUBSTRING(date, 1, 7) AS month,
-      template_type AS category,
-      SUM(total_messages)::int AS messages,
-      SUM(billable_messages)::int AS billable,
-      SUM(csw_free_messages)::int AS csw_free,
-      COALESCE(SUM(estimated_cost_usd), 0)::real AS cost_usd
+      date AS day,
+      COALESCE(SUM(total_messages), 0)::int AS total_messages,
+      COALESCE(SUM(estimated_cost_usd), 0)::real AS per_message_cost_usd
     FROM whatsapp_cost_daily
     WHERE date >= ${since} ${profileFilter}
-    GROUP BY SUBSTRING(date, 1, 7), template_type
-    ORDER BY month DESC, cost_usd DESC
+    GROUP BY date
+    ORDER BY date ASC
   `);
 
-  const monthlyRows = (monthlyResult as any).rows ?? [];
-  const categoryRows = (categoryResult as any).rows ?? [];
+  // Estimated conversations per day (for per-conversation model)
+  const dailyConvResult = await db.execute(sql`
+    SELECT
+      date(timestamp) AS day,
+      COUNT(DISTINCT phone)::int AS unique_phones
+    FROM rainbow_messages
+    WHERE role = 'assistant'
+      AND timestamp >= ${since}::date
+      AND deleted_at IS NULL
+    GROUP BY date(timestamp)
+    ORDER BY day ASC
+  `);
 
-  // Group categories by month
-  const categoryByMonth = new Map<string, Array<{ category: string; messages: number; billable: number; cswFree: number; costUsd: number }>>();
-  for (const r of categoryRows) {
-    const m = r.month;
-    if (!categoryByMonth.has(m)) categoryByMonth.set(m, []);
-    categoryByMonth.get(m)!.push({
-      category: r.category,
-      messages: Number(r.messages),
-      billable: Number(r.billable),
-      cswFree: Number(r.csw_free),
-      costUsd: Number(r.cost_usd),
-    });
+  const perMsgRow = (perMsgResult as any).rows[0] || {};
+  const convRow = (convResult as any).rows[0] || {};
+  const estimatedConversations = Number(convRow.estimated_conversations || 0);
+
+  // Estimate per-conversation total cost using default MY marketing rate as average
+  const avgConvRate = DEFAULT_CONVERSATION_RATE_TABLE.marketing['MY'] || 0.0732;
+  const perConversationCostUsd = estimatedConversations * avgConvRate;
+
+  // Build daily comparison
+  const dailyMsgRows = (dailyResult as any).rows || [];
+  const dailyConvRows = (dailyConvResult as any).rows || [];
+  const convByDay = new Map<string, number>();
+  for (const r of dailyConvRows) {
+    convByDay.set(String(r.day), Number(r.unique_phones || 0));
   }
 
-  return monthlyRows.map((r: any) => {
-    const totalMessages = Number(r.total_messages);
+  const daily = dailyMsgRows.map((r: any) => {
+    const day = String(r.day);
+    const uniquePhones = convByDay.get(day) || 0;
     return {
-      month: r.month,
-      totalMessages,
-      billableMessages: Number(r.billable_messages),
-      cswFreeMessages: Number(r.csw_free_messages),
-      estimatedCostUsd: Number(r.estimated_cost_usd),
-      byCategory: categoryByMonth.get(r.month) ?? [],
-      volumeTier: detectVolumeTier(totalMessages),
+      day,
+      perMessageCostUsd: Number(r.per_message_cost_usd || 0),
+      perConversationCostUsd: uniquePhones * avgConvRate,
+      totalMessages: Number(r.total_messages || 0),
     };
   });
+
+  return {
+    activePricingModel,
+    perMessage: {
+      totalMessages: Number(perMsgRow.total_messages || 0),
+      billableMessages: Number(perMsgRow.billable_messages || 0),
+      estimatedCostUsd: Number(perMsgRow.estimated_cost_usd || 0),
+    },
+    perConversation: {
+      estimatedConversations,
+      estimatedCostUsd: perConversationCostUsd,
+    },
+    daily,
+  };
 }
 
 // ─── Exports for testing ────────────────────────────────────────────
@@ -711,5 +621,11 @@ export const _testExports = {
   DEFAULT_CONVERSATION_RATE_TABLE,
   accumulators,
   todayUTC,
-  clearSettingsCache: () => { _settingsCache = null; _settingsCacheExpiry = 0; },
+  /** Reset all module-level caches (for testing) */
+  resetCaches() {
+    _rateTableCache = null;
+    _rateTableCacheExpiry = 0;
+    _pricingModelCache = null;
+    _pricingModelCacheExpiry = 0;
+  },
 };

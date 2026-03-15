@@ -1,11 +1,10 @@
 /**
- * Unit tests for US-902/US-950: AI waiter order accuracy rate KPI.
+ * Unit tests for US-902: AI waiter order accuracy rate KPI.
  *
  * Tests:
  * - In-memory tracker: markConfirmationShown, markCorrected, session lifecycle
  * - Acceptance criteria: 10 orders, 2 post-confirm corrections → 80% accuracy
  * - Alert threshold at 90%
- * - US-950: recordConfirmationDeclined writes confirmation_declined event
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -39,7 +38,6 @@ const {
   markConfirmationShown,
   markCorrected,
   recordOrderSubmitted,
-  recordConfirmationDeclined,
   clearAccuracyTracking,
 } = _testExports;
 
@@ -155,57 +153,6 @@ describe('US-902: Order Accuracy Rate KPI', () => {
       // Calculate accuracy rate: (10 - 2) / 10 * 100 = 80%
       const accuracyRate = ((confirmedCount - correctedCount) / confirmedCount) * 100;
       expect(accuracyRate).toBe(80);
-    });
-  });
-
-  describe('US-950: recordConfirmationDeclined', () => {
-    it('writes a confirmation_declined event to DB', async () => {
-      markConfirmationShown('sess-declined');
-      await recordConfirmationDeclined('sess-declined', 'makan-moments');
-
-      expect(mockInsert).toHaveBeenCalledTimes(1);
-      const valuesCall = mockInsert.mock.results[0].value.values;
-      expect(valuesCall).toHaveBeenCalledWith([
-        { sessionId: 'sess-declined', profileId: 'makan-moments', eventType: 'confirmation_declined' },
-      ]);
-      // Session should be cleared after recording
-      expect(sessions.has('sess-declined')).toBe(false);
-    });
-
-    it('clears session state even without prior markConfirmationShown', async () => {
-      // recordConfirmationDeclined can be called defensively
-      await recordConfirmationDeclined('sess-no-prior', 'makan-moments');
-      expect(sessions.has('sess-no-prior')).toBe(false);
-    });
-
-    it('AC5: confirmed vs declined counts track separately', async () => {
-      const valuesSpy = vi.fn().mockResolvedValue(undefined);
-      mockInsert.mockReturnValue({ values: valuesSpy });
-
-      // 3 confirmed orders
-      for (let i = 1; i <= 3; i++) {
-        markConfirmationShown(`order-c-${i}`);
-        await recordOrderSubmitted(`order-c-${i}`, 'makan-moments');
-      }
-
-      // 2 declined confirmations
-      for (let i = 1; i <= 2; i++) {
-        markConfirmationShown(`order-d-${i}`);
-        await recordConfirmationDeclined(`order-d-${i}`, 'makan-moments');
-      }
-
-      let confirmedCount = 0;
-      let declinedCount = 0;
-      for (const call of valuesSpy.mock.calls) {
-        const events = call[0];
-        for (const event of events) {
-          if (event.eventType === 'order_confirmed') confirmedCount++;
-          if (event.eventType === 'confirmation_declined') declinedCount++;
-        }
-      }
-
-      expect(confirmedCount).toBe(3);
-      expect(declinedCount).toBe(2);
     });
   });
 

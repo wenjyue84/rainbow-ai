@@ -21,6 +21,7 @@ import {
 } from '../../../shared/schema-tables.js';
 import { canonicalPhoneKey } from '../../assistant/conversation-db.js';
 import { badRequest, notFound, serverError } from './http-utils.js';
+import { logDataAccess } from '../../lib/breach-detection.js';
 
 const router = Router();
 
@@ -192,6 +193,14 @@ router.get('/guests/:jid/data-export', async (req: Request, res: Response) => {
     }
 
     console.log(`[GDPR Export] Exporting data for JID hash ${jidHash.substring(0, 12)}...: ${messages.length} msgs, format=${format}`);
+
+    // US-907: Log data access event for breach detection
+    logDataAccess(
+      requestedBy,
+      req.ip || null,
+      `/guests/${jidParam}/data-export`,
+      messages.length
+    ).catch(() => {});
 
     // ── CSV response (US-894) ─────────────────────────────────────────────
     if (format === 'csv') {

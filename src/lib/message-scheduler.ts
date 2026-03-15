@@ -28,8 +28,7 @@ export interface ScheduledMessage {
   sentAt?: string;
   repeatFrequency?: 'none' | 'daily' | 'weekly' | 'monthly';
   repeatEndDate?: string;    // ISO date
-  /** US-908: tenant identifier for multi-property isolation */
-  profileId?: string;
+  tenantId?: string;         // US-908: tenant_id for multi-property isolation
 }
 
 interface ScheduledMessagesData {
@@ -94,6 +93,7 @@ export function addScheduledMessage(msg: Omit<ScheduledMessage, 'id' | 'createdA
     createdAt: new Date().toISOString(),
     repeatFrequency: msg.repeatFrequency || 'none',
     repeatEndDate: msg.repeatEndDate,
+    tenantId: msg.tenantId,  // US-908: persist tenant context
   };
   data.messages.push(newMsg);
   saveData(data);
@@ -152,19 +152,21 @@ async function checkAndSend(): Promise<void> {
       }
 
       // US-458: Block business-initiated messages when phone quality is FLAGGED
-      if (isOutboundBlocked('pelangi')) {
-        console.warn(`[Scheduler] Skipping message ${msg.id} — outbound blocked (phone quality FLAGGED)`);
+      // US-908: Use per-message tenantId instead of hardcoded 'pelangi'
+      const msgTenantId = msg.tenantId || 'pelangi';
+      if (isOutboundBlocked(msgTenantId)) {
+        console.warn(`[Scheduler] Skipping message ${msg.id} — outbound blocked (phone quality FLAGGED, tenant: ${msgTenantId})`);
         continue;
       }
 
       // US-815: Enforce 24-hour session window — keep pending if expired
-      if (!(await sessionWindowActive(msg.phone))) {
+      if (!(await sessionWindowActive(msg.phone, msgTenantId))) {
         logSessionExpired(msg.phone, 'scheduler', msg.content);
         // Leave status as 'pending' so it will be retried when session reopens
         continue;
       }
 
-      trackOutboundMarketing('pelangi');
+      trackOutboundMarketing(msgTenantId);
       const { sendWhatsAppMessage } = await import('./baileys-client.js');
       await sendWhatsAppMessage(msg.phone, msg.content);
 
@@ -199,6 +201,7 @@ async function checkAndSend(): Promise<void> {
             createdAt: now.toISOString(),
             repeatFrequency: msg.repeatFrequency,
             repeatEndDate: msg.repeatEndDate,
+            tenantId: msg.tenantId,  // US-908: carry forward tenant context
           };
           data.messages.push(repeat);
           console.log(`[Scheduler] Created repeat message ${repeat.id} for ${msg.phone} at ${repeat.scheduledAt}`);
@@ -208,7 +211,7 @@ async function checkAndSend(): Promise<void> {
       if (isFrequencyCapError(err)) {
         // Meta 131049: do not retry — record as frequency_capped in DB
         console.warn(`[Scheduler] Message ${msg.id} to ${msg.phone} rejected — frequency cap (131049). Recording and skipping.`);
-        await recordFrequencyCap(msg.phone, msg.content, 'pelangi', notifyAdminFrequencyCap);
+        await recordFrequencyCap(msg.phone, msg.content, msgTenantId, notifyAdminFrequencyCap);
         msg.status = 'cancelled'; // prevent future retry attempts
         msg.sentAt = now.toISOString();
         changed = true;

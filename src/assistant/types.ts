@@ -10,17 +10,16 @@ export interface MediaMetadata {
   fileName?: string;
 }
 
-// US-910: Click-to-WhatsApp ad referral attribution data
+/** US-910: Referral data from Click-to-WhatsApp (CTWA) ad campaigns */
 export interface ReferralData {
-  sourceType: string;       // ad | post | qr_code
-  ctwaClid?: string;        // Click ID for Meta Conversions API matching
-  sourceId?: string;        // Campaign/ad ID
-  sourceUrl?: string;       // Source URL of the ad/post
-  headline?: string;        // Ad headline text
-  body?: string;            // Ad body text
-  mediaType?: string;       // image | video
-  thumbnailUrl?: string;    // Ad thumbnail URL
-  imageUrl?: string;        // Ad image URL
+  ctwaClid?: string;    // Click ID for Meta Conversions API matching
+  sourceId?: string;    // Campaign/source ID
+  sourceType?: string;  // 'ad' | 'post' | 'qr_code'
+  sourceUrl?: string;   // Source URL
+  headline?: string;    // Ad headline (externalAdReply.title)
+  body?: string;        // Ad body text
+  mediaType?: string;   // Media type ('IMAGE' | 'VIDEO' | 'NONE')
+  thumbnailUrl?: string; // Ad thumbnail URL
 }
 
 export interface IncomingMessage {
@@ -36,7 +35,7 @@ export interface IncomingMessage {
   transcribed?: boolean; // True if text was transcribed from voice note (US-438)
   bsuid?: string;      // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
   mediaMetadata?: MediaMetadata; // US-448: Media file metadata for images, videos, documents
-  referral?: ReferralData; // US-910: Click-to-WhatsApp ad referral attribution
+  referralData?: ReferralData;   // US-910: Click-to-WhatsApp ad referral attribution
 }
 
 // ─── Intent Classification ──────────────────────────────────────────
@@ -83,7 +82,6 @@ export type IntentCategory =
   | 'review_feedback'
   | 'checkin'
   | 'checkout'
-  | 'off_topic'
   | 'unknown';
 
 export interface IntentResult {
@@ -126,7 +124,6 @@ export interface ConversationState {
   slots: Record<string, any>;             // { checkInDate: "tomorrow", guests: 2 }
   repeatCount: number;                     // consecutive times same intent classified
   lastUserMessageAt: number | null;        // Timestamp (ms) of last inbound user message (US-407: 24h window)
-  aiDisclosed: boolean;                    // US-970: true after AI identity disclosure sent in this session
 }
 
 // ─── Booking State Machine ──────────────────────────────────────────
@@ -195,7 +192,7 @@ export interface RateLimitResult {
 }
 
 // ─── Escalation ─────────────────────────────────────────────────────
-export type EscalationReason = 'human_request' | 'complaint' | 'unknown_repeated' | 'group_booking' | 'error' | 'config_error';
+export type EscalationReason = 'human_request' | 'complaint' | 'unknown_repeated' | 'group_booking' | 'error' | 'config_error' | 'high_stakes_keyword' | 'consecutive_low_confidence' | 'sentiment';
 
 export interface EscalationContext {
   phone: string;

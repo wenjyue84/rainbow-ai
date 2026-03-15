@@ -15,7 +15,6 @@ import {
   initMcpState,
   renderMcpServersTab
 } from './settings-mcp.js';
-import { renderAccountSecurityTab } from './settings-account-security.js';
 
 /**
  * Shared state — backed by centralized cacheManager.
@@ -112,7 +111,6 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'messaging-limits') {
     import('/public/js/modules/messaging-limits.js').then(m => m.renderMessagingLimitsTab(container));
   }
-  else if (tabId === 'account-security') renderAccountSecurityTab(container);
 }
 window.switchSettingsTab = switchSettingsTab;
 

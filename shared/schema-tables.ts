@@ -12,22 +12,19 @@ import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, inde
 
 export const appSettings = pgTable("app_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  tenantId: text("tenant_id").notNull().default('pelangi'),
-  key: text("key").notNull(),
+  key: text("key").notNull().unique(),
   value: text("value").notNull(),
   description: text("description"),
   updatedBy: varchar("updated_by"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ([
   index("idx_app_settings_key").on(table.key),
-  uniqueIndex("idx_app_settings_tenant_key").on(table.tenantId, table.key),
 ]));
 
 // ─── Rainbow AI ──────────────────────────────────────────────────────
 
 export const intentDetectionSettings = pgTable("intent_detection_settings", {
   id: serial("id").primaryKey(),
-  tenantId: text("tenant_id").notNull().default('pelangi'),
   tier1Enabled: boolean("tier1_enabled").default(true).notNull(),
   tier1ContextMessages: integer("tier1_context_messages").default(0).notNull(),
   tier2Enabled: boolean("tier2_enabled").default(true).notNull(),
@@ -116,10 +113,9 @@ export const rainbowConversationState = pgTable("rainbow_conversation_state", {
 export const rainbowConversations = pgTable("rainbow_conversations", {
   phone: varchar("phone", { length: 64 }).primaryKey(),
   bsuid: varchar("bsuid", { length: 128 }),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
-  bsuidLinkedAt: timestamp("bsuid_linked_at"),  // US-960: When phone+BSUID were last seen together (30-day window)
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
-  profileId: text("profile_id").notNull().default('pelangi'),
+  profileId: text("profile_id").default('pelangi'),
   pinned: boolean("pinned").notNull().default(false),
   favourite: boolean("favourite").notNull().default(false),
   lastReadAt: timestamp("last_read_at"),
@@ -129,19 +125,17 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   contextSummary: text("context_summary"),                    // US-447: LLM-generated context summary
   contextSummaryAt: timestamp("context_summary_at"),          // US-447: when the summary was generated
   // US-910: Click-to-WhatsApp ad referral attribution
-  referralSourceType: text("referral_source_type"),           // ad | post | qr_code
-  referralCtwaClid: text("referral_ctwa_clid"),               // Click ID for Meta Conversions API matching
-  referralSourceId: text("referral_source_id"),               // Campaign/ad ID
-  referralHeadline: text("referral_headline"),                // Ad headline text
+  referralCtwaClid: text("referral_ctwa_clid"),               // Meta Conversions API click ID
+  referralSourceId: text("referral_source_id"),               // Campaign/source ID
+  referralSourceType: text("referral_source_type"),           // 'ad' | 'post' | 'qr_code'
+  referralHeadline: text("referral_headline"),                // Ad headline
   referralBody: text("referral_body"),                        // Ad body text
-  referralMediaType: text("referral_media_type"),             // image | video
-  referralSourceUrl: text("referral_source_url"),             // Source URL of the ad/post
+  referralJson: text("referral_json"),                        // Full referral object as JSON
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
   uniqueIndex("idx_rainbow_conversations_bsuid").on(table.bsuid),
-  index("idx_rainbow_conversations_referral_source_type").on(table.referralSourceType),
 ]));
 
 export const rainbowMessages = pgTable("rainbow_messages", {
@@ -171,9 +165,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
   localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
   faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
-  hallucinationAction: text("hallucination_action"), // US-913: action taken (block/body/header/none, null = not checked)
-  hallucinationSeverity: integer("hallucination_severity"), // US-913: contradiction count (null = not checked)
-  profileId: text("profile_id").notNull().default('pelangi'),
+  profileId: text("profile_id").default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
@@ -360,7 +352,7 @@ export const adminUsers = pgTable("admin_users", {
   username: varchar("username", { length: 64 }).notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default('operator'),  // US-898: viewer | operator | super-admin
-  tenantId: text("tenant_id").notNull().default('pelangi'),  // US-908: tenant scope for RBAC isolation
+  allowedTenants: text("allowed_tenants"),   // US-908: JSON array of tenant_ids this admin can access (null = unrestricted / super-admin)
   totpSecret: text("totp_secret"),          // AES-256-GCM encrypted, null if 2FA not enrolled
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   failedTotpAttempts: integer("failed_totp_attempts").notNull().default(0),
@@ -584,316 +576,43 @@ export const orderAccuracyEvents = pgTable("order_accuracy_events", {
 export type OrderAccuracyEvent = typeof orderAccuracyEvents.$inferSelect;
 export type InsertOrderAccuracyEvent = typeof orderAccuracyEvents.$inferInsert;
 
-// ─── Payment Sessions (US-911) ─────────────────────────────────────
-// Tracks WhatsApp in-chat webview payment sessions.
-// Created when a "Pay Now" CTA is sent; updated on payment gateway callback.
+// ─── Festive Stickers (US-923) ───────────────────────────────────────
+// WhatsApp sticker uploads for Malaysian festive season engagement.
+// Stickers are webp format, 512×512px, ≤100KB with transparent background.
 
-export const paymentSessions = pgTable("payment_sessions", {
+export const festiveStickers = pgTable("festive_stickers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   profileId: text("profile_id").notNull().default('pelangi'),
-  jid: varchar("jid", { length: 64 }).notNull(),             // WhatsApp JID of the payer
-  phone: varchar("phone", { length: 64 }).notNull(),          // Phone number (for confirmation message)
-  orderSummaryJson: text("order_summary_json").notNull(),     // JSON: { items, totalMyr, currency, description }
-  amountMyr: real("amount_myr").notNull(),                    // Total amount in MYR
-  paymentMethod: varchar("payment_method", { length: 32 }),   // duitnow_qr | fpx | tng | null (not yet selected)
-  gatewayRef: text("gateway_ref"),                            // External payment gateway reference ID
-  gatewayProvider: varchar("gateway_provider", { length: 32 }), // hitpay | curlec | manual
-  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | paid | failed | expired
-  tokenHash: varchar("token_hash", { length: 64 }).notNull(), // SHA-256 hash of JWT token (for revocation check)
-  expiresAt: timestamp("expires_at").notNull(),               // Token/session expiry (default: 30 min)
-  paidAt: timestamp("paid_at"),
-  failedAt: timestamp("failed_at"),
-  callbackPayloadJson: text("callback_payload_json"),         // Raw gateway callback payload for audit
+  stickerName: text("sticker_name").notNull(),
+  mediaId: text("media_id"), // WhatsApp media_id after upload
+  fileSize: integer("file_size").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull().default('image/webp'),
+  uploadedBy: text("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+  isActive: boolean("is_active").notNull().default(true),
+}, (table) => ([
+  index("idx_festive_stickers_profile_active").on(table.profileId, table.isActive),
+  index("idx_festive_stickers_profile_name").on(table.profileId, table.stickerName),
+]));
+
+export type FestiveSticker = typeof festiveStickers.$inferSelect;
+export type InsertFestiveSticker = typeof festiveStickers.$inferInsert;
+
+export const stickerIntents = pgTable("sticker_intents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  intent: text("intent").notNull(),
+  stickerId: varchar("sticker_id").notNull().references(() => festiveStickers.id, { onDelete: 'cascade' }),
+  greetingText: text("greeting_text").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ([
-  index("idx_payment_sessions_jid").on(table.jid),
-  index("idx_payment_sessions_status").on(table.status),
-  index("idx_payment_sessions_profile").on(table.profileId),
-  index("idx_payment_sessions_expires_at").on(table.expiresAt),
-  index("idx_payment_sessions_token_hash").on(table.tokenHash),
+  index("idx_sticker_intents_profile_intent").on(table.profileId, table.intent),
+  index("idx_sticker_intents_enabled").on(table.isEnabled),
+  index("idx_sticker_intents_sticker_id").on(table.stickerId),
 ]));
 
-export type PaymentSession = typeof paymentSessions.$inferSelect;
-export type InsertPaymentSession = typeof paymentSessions.$inferInsert;
-
-// ─── US-928: Prompt Injection Security Log ──────────────────────────
-
-export const promptInjectionLog = pgTable("prompt_injection_log", {
-  id: serial("id").primaryKey(),
-  jid: varchar("jid", { length: 64 }).notNull(),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  rawMessage: text("raw_message").notNull(),                       // Truncated + PII-redacted user message
-  matchedPattern: text("matched_pattern").notNull(),               // Pattern or regex that triggered detection
-  layer: varchar("layer", { length: 16 }).notNull(),               // 'substring' | 'regex' | 'output_fence'
-  action: varchar("action", { length: 16 }).notNull(),             // 'blocked' | 'logged'
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_injection_log_jid").on(table.jid),
-  index("idx_injection_log_profile").on(table.profileId),
-  index("idx_injection_log_created").on(table.createdAt),
-]));
-
-export type PromptInjectionLogEntry = typeof promptInjectionLog.$inferSelect;
-export type InsertPromptInjectionLog = typeof promptInjectionLog.$inferInsert;
-
-// ─── US-915: AI Data Flow Log (PDPA 2024) ────────────────────────
-// Records every AI provider API call with data categories sent and processing country.
-// Required for PDPA 2024 cross-border transfer documentation.
-
-export const aiDataFlowLog = pgTable("ai_data_flow_log", {
-  id: serial("id").primaryKey(),
-  providerName: text("provider_name").notNull(),
-  providerId: text("provider_id").notNull(),
-  dataCategories: text("data_categories").notNull(),       // JSON array of PII types detected
-  processingCountry: varchar("processing_country", { length: 4 }).notNull(), // ISO country code
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_ai_data_flow_log_provider").on(table.providerId),
-  index("idx_ai_data_flow_log_country").on(table.processingCountry),
-  index("idx_ai_data_flow_log_created").on(table.createdAt),
-]));
-
-export type AiDataFlowLog = typeof aiDataFlowLog.$inferSelect;
-export type InsertAiDataFlowLog = typeof aiDataFlowLog.$inferInsert;
-
-// ─── US-915: Admin Audit Log (PDPA 2024) ─────────────────────────
-// Captures administrative access to personal data with user, action, timestamp, IP.
-
-export const adminAuditLog = pgTable("admin_audit_log", {
-  id: serial("id").primaryKey(),
-  username: varchar("username", { length: 64 }).notNull(),
-  action: varchar("action", { length: 64 }).notNull(),     // e.g. view_conversations, export_messages
-  ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv4 or IPv6
-  details: text("details"),                                  // Optional JSON context
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_admin_audit_log_username").on(table.username),
-  index("idx_admin_audit_log_action").on(table.action),
-  index("idx_admin_audit_log_created").on(table.createdAt),
-]));
-
-export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
-export type InsertAdminAuditLog = typeof adminAuditLog.$inferInsert;
-
-// ─── US-942: WhatsApp Compliance Audit Log ──────────────────────────
-// Records which intent categories handled each conversation for WABA
-// task-specific chatbot policy compliance review.
-
-export const complianceAuditLog = pgTable("compliance_audit_log", {
-  id: serial("id").primaryKey(),
-  jid: varchar("jid", { length: 64 }).notNull(),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  intent: text("intent").notNull(),                               // classified intent
-  intentCategory: varchar("intent_category", { length: 32 }).notNull(), // 'in_scope' | 'off_topic' | 'escalation'
-  routedAction: text("routed_action"),                            // action taken (static_reply, llm_reply, workflow, etc.)
-  confidence: real("confidence"),                                 // classification confidence
-  userMessage: text("user_message"),                              // truncated user message (first 200 chars)
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_compliance_audit_jid").on(table.jid),
-  index("idx_compliance_audit_profile").on(table.profileId),
-  index("idx_compliance_audit_category").on(table.intentCategory),
-  index("idx_compliance_audit_intent").on(table.intent),
-  index("idx_compliance_audit_created").on(table.createdAt),
-]));
-
-export type ComplianceAuditLog = typeof complianceAuditLog.$inferSelect;
-export type InsertComplianceAuditLog = typeof complianceAuditLog.$inferInsert;
-
-// ─── WhatsApp Pricing Events (US-943) ─────────────────────────────────
-// Captures per-message pricing_analytics from Meta Cloud API status webhooks.
-// Stores actual (not estimated) per-message cost data from Meta.
-
-export const whatsappPricingEvents = pgTable("whatsapp_pricing_events", {
-  id: serial("id").primaryKey(),
-  messageId: varchar("message_id", { length: 128 }).notNull(), // Meta wamid
-  phone: text("phone"),                                         // recipient phone
-  category: varchar("category", { length: 64 }).notNull(),      // marketing, utility, authentication, service
-  currency: varchar("currency", { length: 8 }).notNull().default('USD'),
-  price: real("price").notNull().default(0),                    // actual per-message price from Meta
-  billable: boolean("billable").notNull().default(true),
-  cswFree: boolean("csw_free").notNull().default(false),        // true if utility within CSW (free)
-  volumeTier: varchar("volume_tier", { length: 32 }),           // standard, tier1, tier2
-  profileId: text("profile_id").notNull().default('pelangi'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_wa_pricing_events_message_id").on(table.messageId),
-  index("idx_wa_pricing_events_category").on(table.category),
-  index("idx_wa_pricing_events_profile").on(table.profileId),
-  index("idx_wa_pricing_events_created_at").on(table.createdAt),
-]));
-
-export type WhatsappPricingEvent = typeof whatsappPricingEvents.$inferSelect;
-export type InsertWhatsappPricingEvent = typeof whatsappPricingEvents.$inferInsert;
-
-// ─── LLM Usage Log (US-918) ──────────────────────────────────────────
-// Per-call granular log of every AI provider API call.
-// Enables cost-per-conversation reporting, CSV export, and provider comparison.
-
-export const llmUsageLog = pgTable("llm_usage_log", {
-  id: serial("id").primaryKey(),
-  provider: text("provider").notNull(),              // provider id (e.g. "nvidia-kimi")
-  model: text("model").notNull(),                    // model name (e.g. "moonshotai/kimi-k2.5")
-  inputTokens: integer("input_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
-  conversationId: text("conversation_id"),           // phone/JID (nullable for utility calls)
-  tenantId: text("tenant_id").notNull().default('pelangi'), // profile_id
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_llm_usage_log_provider").on(table.provider),
-  index("idx_llm_usage_log_tenant").on(table.tenantId),
-  index("idx_llm_usage_log_timestamp").on(table.timestamp),
-  index("idx_llm_usage_log_conversation").on(table.conversationId),
-]));
-
-export type LlmUsageLog = typeof llmUsageLog.$inferSelect;
-export type InsertLlmUsageLog = typeof llmUsageLog.$inferInsert;
-
-// ─── US-917: Abandoned Cart Recovery ──────────────────────────────────
-
-export const abandonedCarts = pgTable("abandoned_carts", {
-  id: serial("id").primaryKey(),
-  jid: varchar("jid", { length: 128 }).notNull(),
-  tenantId: text("tenant_id").notNull().default('makan-moments'),
-  itemsJson: text("items_json").notNull(),
-  cartCreatedAt: timestamp("cart_created_at").notNull(),
-  abandonedAt: timestamp("abandoned_at").notNull(),
-  recoverySentAt: timestamp("recovery_sent_at"),
-  recoveredAt: timestamp("recovered_at"),
-  completedAt: timestamp("completed_at"),
-  clearedAt: timestamp("cleared_at"),
-}, (table) => ([
-  index("idx_abandoned_carts_jid").on(table.jid),
-  index("idx_abandoned_carts_tenant").on(table.tenantId),
-  index("idx_abandoned_carts_abandoned_at").on(table.abandonedAt),
-]));
-
-export type AbandonedCart = typeof abandonedCarts.$inferSelect;
-export type InsertAbandonedCart = typeof abandonedCarts.$inferInsert;
-
-// ─── US-900: WhatsApp Template Status Tracking ───────────────────────
-
-export const whatsappTemplates = pgTable("whatsapp_templates", {
-  id: serial("id").primaryKey(),
-  templateName: text("template_name").notNull(),
-  status: text("status").notNull(),
-  previousStatus: text("previous_status"),
-  rejectedReason: text("rejected_reason"),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  lastCheckedAt: timestamp("last_checked_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_whatsapp_templates_status").on(table.status),
-  index("idx_whatsapp_templates_profile").on(table.profileId),
-  uniqueIndex("idx_whatsapp_templates_name_profile").on(table.templateName, table.profileId),
-]));
-
-export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
-export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
-
-// ─── US-916: Push Notification Subscriptions ─────────────────────────
-// Stores Web Push API subscriptions for webchat re-engagement notifications.
-// Each row is a PushSubscription object tied to a webchat session.
-
-export const pushSubscriptions = pgTable("push_subscriptions", {
-  id: serial("id").primaryKey(),
-  sessionId: varchar("session_id", { length: 128 }).notNull(),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  endpoint: text("endpoint").notNull(),
-  p256dh: text("p256dh").notNull(),        // PushSubscription keys.p256dh
-  auth: text("auth").notNull(),            // PushSubscription keys.auth
-  enabled: boolean("enabled").notNull().default(true),
-  maxFrequencyMinutes: integer("max_frequency_minutes").notNull().default(30), // min interval between notifications
-  lastNotifiedAt: timestamp("last_notified_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ([
-  uniqueIndex("idx_push_subs_session_profile").on(table.sessionId, table.profileId),
-  index("idx_push_subs_profile").on(table.profileId),
-  index("idx_push_subs_enabled").on(table.enabled),
-]));
-
-export type PushSubscription = typeof pushSubscriptions.$inferSelect;
-export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
-
-// ─── US-916: Push Notification Delivery Log ──────────────────────────
-// Tracks each push notification sent for analytics and delivery rate monitoring.
-
-export const pushNotificationLog = pgTable("push_notification_log", {
-  id: serial("id").primaryKey(),
-  sessionId: varchar("session_id", { length: 128 }).notNull(),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  notificationType: varchar("notification_type", { length: 32 }).notNull(), // order_ready | promotion | incomplete_order
-  payload: text("payload"),              // JSON stringified notification payload
-  delivered: boolean("delivered").notNull().default(false),
-  error: text("error"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_push_log_session").on(table.sessionId),
-  index("idx_push_log_profile").on(table.profileId),
-  index("idx_push_log_type").on(table.notificationType),
-  index("idx_push_log_created").on(table.createdAt),
-  index("idx_push_log_delivered").on(table.delivered),
-]));
-
-export type PushNotificationLogEntry = typeof pushNotificationLog.$inferSelect;
-export type InsertPushNotificationLog = typeof pushNotificationLog.$inferInsert;
-
-// ─── US-919: QR Code Campaign Tracking ──────────────────────────────
-
-export const qrCampaigns = pgTable("qr_campaigns", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  profileId: text("profile_id").notNull().default('pelangi'),
-  name: text("name").notNull(),
-  campaignLabel: text("campaign_label"),
-  prefilledMessage: text("prefilled_message").notNull(),
-  deepLinkType: varchar("deep_link_type", { length: 32 }).notNull(),
-  deepLinkValue: text("deep_link_value"),
-  whatsappNumber: text("whatsapp_number"),
-  scanCount: integer("scan_count").notNull().default(0),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ([
-  index("idx_qr_campaigns_profile").on(table.profileId),
-  index("idx_qr_campaigns_label").on(table.campaignLabel),
-  index("idx_qr_campaigns_active").on(table.active),
-  index("idx_qr_campaigns_type").on(table.deepLinkType),
-]));
-
-export type QrCampaign = typeof qrCampaigns.$inferSelect;
-export type InsertQrCampaign = typeof qrCampaigns.$inferInsert;
-
-// ─── US-967: Order Receipts (SST-compliant, 7-year retention) ─────────
-// Stores SST-compliant receipts with sequential invoice numbers for
-// Royal Malaysian Customs record-keeping requirements.
-
-export const orderReceipts = pgTable("order_receipts", {
-  id: serial("id").primaryKey(),
-  invoiceNumber: varchar("invoice_number", { length: 32 }).notNull(),
-  profileId: text("profile_id").notNull().default('makan-moments'),
-  sessionId: text("session_id").notNull(),
-  orderId: text("order_id").notNull(),
-  vendorName: text("vendor_name").notNull(),
-  sstRegistrationNo: text("sst_registration_no"),
-  subtotal: real("subtotal").notNull(),
-  sstRate: real("sst_rate").notNull().default(0),
-  sstAmount: real("sst_amount").notNull().default(0),
-  grandTotal: real("grand_total").notNull(),
-  items: text("items").notNull(),
-  tableNumber: text("table_number"),
-  orderType: text("order_type"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ([
-  uniqueIndex("idx_order_receipts_invoice").on(table.invoiceNumber),
-  index("idx_order_receipts_profile").on(table.profileId),
-  index("idx_order_receipts_order").on(table.orderId),
-  index("idx_order_receipts_created").on(table.createdAt),
-  index("idx_order_receipts_session").on(table.sessionId),
-]));
-
-export type OrderReceipt = typeof orderReceipts.$inferSelect;
-export type InsertOrderReceipt = typeof orderReceipts.$inferInsert;
+export type StickerIntent = typeof stickerIntents.$inferSelect;
+export type InsertStickerIntent = typeof stickerIntents.$inferInsert;

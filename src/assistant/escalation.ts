@@ -7,6 +7,8 @@ import { logEscalationEvent } from '../lib/escalation-events.js';
 import { pool } from '../lib/db.js';
 import { sessionWindowActive, logSessionExpired } from '../lib/session-window.js';
 import { markHumanResponded } from '../lib/handoff-sla.js';
+import { sendWhatsAppInteractiveMessage } from '../lib/whatsapp/index.js';
+import { computeAvailability } from './business-hours.js';
 
 let sendMessageFn: SendMessageFn | null = null;
 
@@ -42,30 +44,23 @@ export function destroyEscalation(): void {
 
 /**
  * Fetch last N messages from rainbow_messages for a given phone number.
+ * US-908: Filters by profileId (tenant_id) to prevent cross-property data leakage.
  * Returns formatted strings like "user: hello" / "assistant: hi there".
  * Falls back to empty array on DB error.
- *
- * US-908: tenantId parameter enforces cross-property isolation — messages from
- * Pelangi must never appear in Southern Homestay escalation summaries.
  */
-async function fetchLastDbMessages(phone: string, limit: number, tenantId?: string): Promise<string[]> {
+async function fetchLastDbMessages(phone: string, limit: number, profileId?: string): Promise<string[]> {
   try {
-    let query: string;
-    let params: unknown[];
-    if (tenantId) {
-      query = `SELECT role, content FROM rainbow_messages
-               WHERE phone = $1
-                 AND profile_id = $2
-               ORDER BY timestamp DESC
-               LIMIT $3`;
-      params = [phone, tenantId, limit];
-    } else {
-      query = `SELECT role, content FROM rainbow_messages
-               WHERE phone = $1
-               ORDER BY timestamp DESC
-               LIMIT $2`;
-      params = [phone, limit];
-    }
+    // US-908: Add tenant_id filter when available
+    const query = profileId
+      ? `SELECT role, content FROM rainbow_messages
+         WHERE phone = $1 AND profile_id = $3
+         ORDER BY timestamp DESC
+         LIMIT $2`
+      : `SELECT role, content FROM rainbow_messages
+         WHERE phone = $1
+         ORDER BY timestamp DESC
+         LIMIT $2`;
+    const params = profileId ? [phone, limit, profileId] : [phone, limit];
     const result = await pool.query(query, params);
     // Reverse so oldest is first (chronological order)
     return (result.rows as Array<{ role: string; content: string }>)
@@ -91,19 +86,16 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
     unknown_repeated: 'Bot unable to understand (3+ attempts)',
     group_booking: 'Group booking request (5+ guests)',
     error: 'System error during conversation',
-    config_error: 'Configuration error (missing route/workflow)'
+    config_error: 'Configuration error (missing route/workflow)',
+    high_stakes_keyword: 'High-stakes keyword detected (refund/cancel/legal/urgent)',
+    consecutive_low_confidence: 'AI confidence too low on consecutive messages',
+    sentiment: 'Negative sentiment detected on consecutive messages',
   };
 
   const label = reasonLabels[context.reason] || 'Unknown reason';
 
-  // US-914: Declare profileId early (needed for DB fetch + deep-link)
-  const profileId = context.profileId || 'pelangi';
-
-  // US-914: Generate a short alphanumeric case reference for the guest
-  const caseId = `ESC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
-
   // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
-  // US-908: pass tenantId/profileId to enforce cross-property isolation
+  // US-908: Pass profileId (tenant_id) to enforce tenant isolation in DB query
   const dbMessages = await fetchLastDbMessages(context.phone, 5, profileId);
   const historyMessages = dbMessages.length > 0
     ? dbMessages
@@ -112,6 +104,7 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   // US-813: Build admin panel deep-link
   const adminBaseUrl = (process.env.DIGIMAN_API_URL || process.env.PELANGI_API_URL || '').replace(/\/+$/, '');
+  const profileId = context.profileId || 'pelangi';
   const deepLink = adminBaseUrl
     ? `${adminBaseUrl}/admin#conversations?profileId=${profileId}&phone=${context.phone}`
     : '';
@@ -121,10 +114,13 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
     ? `*Trigger:* ${context.triggerDetail}`
     : '';
 
+  // US-914: Include case ID in staff notification if available
+  const caseIdLine = caseId ? `*Case ID:* ${caseId}` : '';
+
   const staffMessage = [
     `*[ESCALATION — BOT PAUSED]* ${label}`,
     ``,
-    `*Case ID:* ${caseId}`,
+    caseIdLine,
     `*Guest:* ${context.pushName} (+${context.phone})`,
     `*Reason:* ${label}`,
     triggerLine,
@@ -152,12 +148,12 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   });
 
   // US-429: Log escalation event with summary context for warm handoff
-  // US-914: Include case ID in metadata for cross-reference
+  // US-908: Use context.profileId (tenant_id) instead of hardcoded 'pelangi'
   logEscalationEvent({
     jid: context.phone,
-    profileId,
+    profileId: profileId,
     trigger: context.reason,
-    metadata: { ...context.metadata, caseId },
+    metadata: context.metadata,
     summaryContext: {
       guestName: context.pushName,
       recentMessages: historyMessages.map(m => m),
@@ -168,19 +164,25 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
   // US-815: Check session window before sending holding message to guest
   const guestSessionActive = await sessionWindowActive(context.phone);
 
-  // US-914: SLA window from config (default 15 min)
-  const slaDurationMinutes = (configStore.getWorkflow().escalation as any).sla_minutes ?? 15;
-  const guestHoldingMsg = `I've connected you with our team. Your case reference is *${caseId}*.\n\nExpected response: within ${slaDurationMinutes} minutes. We appreciate your patience.`;
+  // US-914: Build holding message with case ID and SLA if available
+  const caseId = context.metadata?.caseId as string | undefined;
+  let holdingMessage = "I've connected you with our team, they will respond shortly.";
+  if (caseId) {
+    holdingMessage = `I've connected you with our team. Your case reference is *${caseId}*. A team member will follow up within 15 minutes.`;
+  }
 
   // US-410: Send holding message to guest (only if session window is active)
   if (guestSessionActive) {
     try {
-      await sendMessageFn(context.phone, guestHoldingMsg, context.instanceId);
+      await sendMessageFn(context.phone, holdingMessage, context.instanceId);
     } catch (err: any) {
       console.error('[Handoff] Failed to send holding message:', err.message);
     }
+
+    // US-887: Send click-to-call button alongside holding message
+    await sendCallButtonIfEnabled(context);
   } else {
-    logSessionExpired(context.phone, 'escalation-holding-message', "I've connected you with our team, they will respond shortly.");
+    logSessionExpired(context.phone, 'escalation-holding-message', holdingMessage);
     console.info('[Escalation] Skipped guest holding message — session window expired for', context.phone);
   }
 
@@ -274,6 +276,61 @@ export function handleStaffReply(phone: string): void {
       }
       pendingEscalations.delete(guestPhone);
     }
+  }
+}
+
+/**
+ * US-887: Send a click-to-call button to the guest during escalation.
+ * Only active when: call_escalation.enabled, profile in allowed list, within business hours.
+ */
+async function sendCallButtonIfEnabled(context: EscalationContext): Promise<void> {
+  try {
+    const settings = configStore.getSettings() as any;
+    const callConfig = settings.call_escalation;
+    if (!callConfig?.enabled) return;
+
+    // Profile gate — only send for allowed profiles (default: pelangi only)
+    const allowedProfiles: string[] = callConfig.profiles || ['pelangi'];
+    const currentProfile = context.profileId || 'pelangi';
+    if (!allowedProfiles.includes(currentProfile)) {
+      console.log(`[Escalation:US-887] Call button skipped — profile "${currentProfile}" not in allowed list`);
+      return;
+    }
+
+    // Business hours gate
+    const businessHours = settings.businessHours;
+    const availability = computeAvailability(businessHours);
+    if (!availability.isAvailable) {
+      console.log(`[Escalation:US-887] Call button skipped — outside business hours (next: ${availability.nextOpenTime})`);
+      return;
+    }
+
+    const phoneNumber = callConfig.phone_number;
+    const buttonText = callConfig.button_text || 'Call Reception';
+    if (!phoneNumber) return;
+
+    // Baileys templateMessage with hydrated call button
+    const callButtonMessage = {
+      templateMessage: {
+        hydratedTemplate: {
+          hydratedContentText: 'Need immediate assistance? Call our reception directly:',
+          hydratedButtons: [
+            {
+              callButton: {
+                displayText: buttonText,
+                phoneNumber: phoneNumber,
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    await sendWhatsAppInteractiveMessage(context.phone, callButtonMessage, context.instanceId);
+    console.log(`[Escalation:US-887] Call button sent to ${context.phone} (phone: ${phoneNumber})`);
+  } catch (err: any) {
+    // Non-fatal — call button is best-effort enhancement
+    console.warn(`[Escalation:US-887] Failed to send call button: ${err.message}`);
   }
 }
 

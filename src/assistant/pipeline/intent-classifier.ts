@@ -21,7 +21,6 @@ import { applyLayer2Fallback } from './stages/layer2-fallback.js';
 import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
-import { logComplianceAudit } from '../../lib/compliance-audit.js';
 
 export async function classifyAndRoute(
   state: PipelineState, ctx: RouterContext
@@ -93,16 +92,6 @@ export async function classifyAndRoute(
 
   // ─── Stage 5: Routing ─────────────────────────────────────────────
   const routing = await resolveRouting(state, result, ackSent, context);
-
-  // ─── US-942: Compliance audit log (fire-and-forget) ───────────────
-  logComplianceAudit({
-    jid: phone,
-    profileId: state.profileId,
-    intent: result.intent,
-    routedAction: routing.routedAction,
-    confidence: result.confidence,
-    userMessage: processText,
-  });
 
   // ─── Stage 6: Action Dispatch ─────────────────────────────────────
   await dispatchAction(state, result, routing, context);

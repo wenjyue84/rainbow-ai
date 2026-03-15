@@ -1,7 +1,6 @@
 /**
  * llm-cost-budget.ts — Per-provider daily LLM cost budget tracking (US-433)
  * + Global daily budget alert with per-JID rate limiting (US-903)
- * + Per-call usage logging & monthly budget alert (US-918)
  *
  * Tracks cumulative token spend per provider per day (UTC).
  * When daily spend reaches 80% of budget cap → logs alert.
@@ -10,14 +9,10 @@
  * US-903: Global daily budget across all providers:
  * - 80% → admin warning notification
  * - 100% → admin critical alert + rate-limit LLM calls to 1/30s per JID
- *
- * US-918: Per-call granular logging + monthly budget alert ($50 default):
- * - Every AI call → insert into llm_usage_log with provider, model, tokens, cost, conversation_id, tenant_id
- * - Monthly spend threshold → admin notification when exceeded
  */
 import { db } from '../lib/db.js';
-import { llmCostDaily, llmUsageLog } from '../../shared/schema-tables.js';
-import { sql, eq, and, gte } from 'drizzle-orm';
+import { llmCostDaily } from '../../shared/schema-tables.js';
+import { sql, eq, and } from 'drizzle-orm';
 import { configStore } from './config-store.js';
 import { notifyAdminLLMBudgetAlert } from '../lib/admin-notifier.js';
 
@@ -123,24 +118,15 @@ export function isProviderOverBudget(providerId: string, profileId: string = 'pe
   return acc.estimatedCostUsd >= budget;
 }
 
-/** Optional context for per-call logging (US-918) */
-export interface LLMCallContext {
-  conversationId?: string; // phone/JID
-  tenantId?: string;       // profile_id
-  providerType?: string;   // 'ollama' | 'groq' | 'openai-compatible' | 'google-gemini'
-}
-
 /**
  * Record token usage after a successful LLM call.
- * Updates in-memory accumulator, fires async DB upsert to daily table,
- * and logs per-call record to llm_usage_log (US-918 AC1).
+ * Updates in-memory accumulator and fires async DB upsert.
  */
 export function recordLLMUsage(
   providerId: string,
   model: string,
   usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined,
-  profileId: string = 'pelangi',
-  callContext?: LLMCallContext
+  profileId: string = 'pelangi'
 ): void {
   if (!usage) return;
 
@@ -148,25 +134,13 @@ export function recordLLMUsage(
   const completionTokens = usage.completion_tokens ?? 0;
   if (promptTokens === 0 && completionTokens === 0) return;
 
-  // US-918 AC5: Ollama (local) calls logged with $0.00 cost
-  const cost = callContext?.providerType === 'ollama'
-    ? 0
-    : calculateCost(promptTokens, completionTokens, model);
+  const cost = calculateCost(promptTokens, completionTokens, model);
   const acc = getOrCreateAccumulator(providerId, profileId);
 
   acc.promptTokens += promptTokens;
   acc.completionTokens += completionTokens;
   acc.estimatedCostUsd += cost;
   acc.requestCount += 1;
-
-  // US-918 AC1: Structured per-call log
-  console.log(`[LLM-Cost] ${JSON.stringify({
-    provider: providerId, model, input_tokens: promptTokens,
-    output_tokens: completionTokens, estimated_cost_usd: Number(cost.toFixed(6)),
-    conversation_id: callContext?.conversationId ?? null,
-    tenant_id: callContext?.tenantId ?? profileId,
-    timestamp: new Date().toISOString(),
-  })}`);
 
   // Check budget thresholds
   const budget = getProviderBudget(providerId);
@@ -183,14 +157,9 @@ export function recordLLMUsage(
     }
   }
 
-  // Fire-and-forget DB upserts (daily aggregate + per-call log)
+  // Fire-and-forget DB upsert
   flushToDb(providerId, profileId, acc, budget).catch(err => {
     console.error(`[CostBudget] DB flush failed for ${providerId}:`, err.message);
-  });
-
-  // US-918 AC1: Per-call record insert
-  insertUsageLog(providerId, model, promptTokens, completionTokens, cost, profileId, callContext).catch(err => {
-    console.error(`[CostBudget] Usage log insert failed:`, err.message);
   });
 }
 
@@ -425,10 +394,6 @@ export function startBudgetAlertInterval(): void {
     checkGlobalBudgetThresholds().catch(err => {
       console.error('[CostBudget] Budget check failed:', err.message);
     });
-    // US-918 AC3: Monthly budget check
-    checkMonthlyBudgetThreshold().catch(err => {
-      console.error('[CostBudget] Monthly budget check failed:', err.message);
-    });
   }, THIRTY_MINUTES_MS);
   // Don't prevent process exit
   if (budgetAlertInterval.unref) budgetAlertInterval.unref();
@@ -445,171 +410,13 @@ export function stopBudgetAlertInterval(): void {
   }
 }
 
-// ─── US-918: Per-Call Usage Log ──────────────────────────────────────
-
-async function insertUsageLog(
-  providerId: string,
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-  estimatedCostUsd: number,
-  profileId: string,
-  callContext?: LLMCallContext
-): Promise<void> {
-  await db.insert(llmUsageLog).values({
-    provider: providerId,
-    model,
-    inputTokens,
-    outputTokens,
-    estimatedCostUsd,
-    conversationId: callContext?.conversationId ?? null,
-    tenantId: callContext?.tenantId ?? profileId,
-    timestamp: new Date(),
-  });
-}
-
-// ─── US-918 AC3: Monthly Budget Alert ────────────────────────────────
-
-const monthlyBudgetAlertState = {
-  month: '',    // YYYY-MM
-  alertSent: false,
-};
-
-function currentMonthUTC(): string {
-  return new Date().toISOString().slice(0, 7); // YYYY-MM
-}
-
-function getMonthlyBudgetUsd(): number {
-  const settings = configStore.getSettings() as any;
-  const val = settings?.costBudget?.monthlyBudgetAlertUsd;
-  return typeof val === 'number' && val > 0 ? val : 50.0; // default $50
-}
-
-/**
- * Query total monthly spend from llm_cost_daily table.
- */
-export async function getMonthlySpendUsd(month?: string): Promise<number> {
-  const targetMonth = month || currentMonthUTC();
-  const startDate = `${targetMonth}-01`;
-  // End date: first of next month
-  const [y, m] = targetMonth.split('-').map(Number);
-  const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
-  const endDate = `${nextMonth}-01`;
-
-  const result = await db.select({
-    total: sql<number>`coalesce(sum(${llmCostDaily.estimatedCostUsd}), 0)`,
-  }).from(llmCostDaily).where(
-    and(
-      sql`${llmCostDaily.date} >= ${startDate}`,
-      sql`${llmCostDaily.date} < ${endDate}`,
-    )
-  );
-
-  return result[0]?.total ?? 0;
-}
-
-/**
- * Check monthly budget threshold and fire notification (US-918 AC3).
- * Called alongside daily budget check in the 30-minute interval.
- */
-export async function checkMonthlyBudgetThreshold(): Promise<void> {
-  const month = currentMonthUTC();
-  if (monthlyBudgetAlertState.month !== month) {
-    monthlyBudgetAlertState.month = month;
-    monthlyBudgetAlertState.alertSent = false;
-  }
-  if (monthlyBudgetAlertState.alertSent) return;
-
-  const budgetUsd = getMonthlyBudgetUsd();
-  if (budgetUsd <= 0) return;
-
-  const spentUsd = await getMonthlySpendUsd(month);
-  if (spentUsd >= budgetUsd) {
-    monthlyBudgetAlertState.alertSent = true;
-    console.warn(`[CostBudget] MONTHLY ALERT: AI spend $${spentUsd.toFixed(2)} >= threshold $${budgetUsd.toFixed(2)} for ${month}`);
-    notifyAdminLLMBudgetAlert('critical', spentUsd, budgetUsd).catch(() => {});
-  }
-}
-
-// ─── US-918 AC6: Provider Comparison Query ──────────────────────────
-
-/**
- * Provider comparison: cost per resolved conversation.
- * Queries llm_usage_log grouped by provider with conversation counts.
- */
-export async function queryProviderComparison(days: number = 30): Promise<any[]> {
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
-  const rows = await db.select({
-    provider: llmUsageLog.provider,
-    model: llmUsageLog.model,
-    totalInputTokens: sql<number>`coalesce(sum(${llmUsageLog.inputTokens}), 0)::int`,
-    totalOutputTokens: sql<number>`coalesce(sum(${llmUsageLog.outputTokens}), 0)::int`,
-    totalCostUsd: sql<number>`coalesce(sum(${llmUsageLog.estimatedCostUsd}), 0)`,
-    totalCalls: sql<number>`count(*)::int`,
-    uniqueConversations: sql<number>`count(distinct ${llmUsageLog.conversationId})::int`,
-  }).from(llmUsageLog)
-    .where(gte(llmUsageLog.timestamp, since))
-    .groupBy(llmUsageLog.provider, llmUsageLog.model)
-    .orderBy(sql`sum(${llmUsageLog.estimatedCostUsd}) DESC`);
-
-  return rows.map(r => ({
-    provider: r.provider,
-    model: r.model,
-    totalInputTokens: r.totalInputTokens,
-    totalOutputTokens: r.totalOutputTokens,
-    totalCostUsd: Number(Number(r.totalCostUsd).toFixed(6)),
-    totalCalls: r.totalCalls,
-    uniqueConversations: r.uniqueConversations,
-    costPerConversation: r.uniqueConversations > 0
-      ? Number((Number(r.totalCostUsd) / r.uniqueConversations).toFixed(6))
-      : 0,
-  }));
-}
-
-// ─── US-918 AC4: CSV Export Query ────────────────────────────────────
-
-/**
- * Query usage log records for CSV export.
- */
-export async function queryUsageLogForExport(options: {
-  days?: number;
-  month?: string;
-  tenantId?: string;
-}): Promise<any[]> {
-  const conditions: any[] = [];
-
-  if (options.month) {
-    const startDate = new Date(`${options.month}-01T00:00:00Z`);
-    const [y, m] = options.month.split('-').map(Number);
-    const nextMonth = m === 12 ? new Date(`${y + 1}-01-01T00:00:00Z`) : new Date(`${y}-${String(m + 1).padStart(2, '0')}-01T00:00:00Z`);
-    conditions.push(gte(llmUsageLog.timestamp, startDate));
-    conditions.push(sql`${llmUsageLog.timestamp} < ${nextMonth}`);
-  } else {
-    const d = options.days ?? 30;
-    const since = new Date(Date.now() - d * 24 * 60 * 60 * 1000);
-    conditions.push(gte(llmUsageLog.timestamp, since));
-  }
-
-  if (options.tenantId) {
-    conditions.push(eq(llmUsageLog.tenantId, options.tenantId));
-  }
-
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-  return db.select().from(llmUsageLog).where(where).orderBy(sql`${llmUsageLog.timestamp} DESC`);
-}
-
 // ─── Test Exports ───────────────────────────────────────────────────
 
 export const _testExports = {
   accumulators,
   globalBudgetAlertState,
-  monthlyBudgetAlertState,
   jidLastLLMCall,
   resetGlobalAlertStateIfNewDay,
   getCostBudgetConfig,
   todayUTC,
-  currentMonthUTC,
-  getMonthlyBudgetUsd,
-  calculateCost,
 };

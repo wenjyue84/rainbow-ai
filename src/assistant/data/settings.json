@@ -237,9 +237,7 @@
   "rateLimiting": {
     "enabled": true,
     "perUserWindowMs": 60000,
-    "perUserMaxMessages": 10,
-    "maxInputTokens": 2000,
-    "llmHardTimeoutMs": 30000
+    "perUserMaxMessages": 10
   },
   "staff": {
     "phones": [
@@ -293,7 +291,7 @@
   },
   "sentiment_analysis": {
     "enabled": true,
-    "consecutive_threshold": 2,
+    "consecutive_threshold": 3,
     "cooldown_minutes": 30,
     "escalation_messages": {
       "en": "\n\nI sense you may be frustrated. I've alerted our team, and someone will reach out to you shortly.",
@@ -302,12 +300,19 @@
     },
     "description": "Automatically detect frustrated users and escalate to staff when they send consecutive negative messages"
   },
-  "confidence_escalation": {
+  "escalation_rules": {
     "enabled": true,
-    "threshold": 0.4,
-    "consecutive_count": 2,
-    "cooldown_minutes": 30,
-    "description": "US-914: Escalate when AI gives consecutive low-confidence responses (scores below threshold for N turns in a row)"
+    "high_stakes_keywords": [
+      "refund",
+      "cancel",
+      "complaint",
+      "legal",
+      "urgent"
+    ],
+    "confidence_threshold": 0.4,
+    "consecutive_low_confidence_limit": 2,
+    "sla_minutes": 15,
+    "description": "US-914: Structured escalation rules — high-stakes keywords trigger immediate escalation, consecutive low-confidence AI responses escalate after 2 turns"
   },
   "failover": {
     "enabled": false,
@@ -408,31 +413,24 @@
   },
   "retention": {
     "enabled": true,
-    "retention_months": 24,
     "retention_days": 730,
-    "grace_period_days": 30
+    "grace_period_days": 30,
+    "description": "US-907: PDPA 2024 default retention 24 months (730 days). Conversations and message logs older than retention_days are flagged for disposal."
   },
   "typingIndicator": {
     "enabled": true,
     "description": "Send WhatsApp typing indicator before LLM responses (T3/T4 paths). Not sent for fast T1 regex matches."
   },
   "token_prices": {
-    "_comment": "Cost per 1K tokens in USD, by model. Used for LLM cost analytics. Ollama models = $0 (local/free cloud).",
+    "_comment": "Cost per 1K tokens in USD, by model. Used for LLM cost analytics.",
     "default": 0.0001,
     "gemini-2.5-flash": 0.00015,
     "gemini-3-flash-preview:cloud": 0,
-    "gpt-oss:20b-cloud": 0,
-    "deepseek-v3.2:cloud": 0,
-    "qwen3-next:80b-cloud": 0,
     "llama-3.3-70b-versatile": 0.00059,
     "moonshotai/kimi-k2.5": 0.0007,
-    "kimi-k2.5": 0.0007,
     "qwen-2.5-72b-instruct": 0,
-    "qwen/qwen-2.5-32b-instruct": 0,
     "deepseek-r1-distill-llama-70b": 0.00059,
     "llama-3.1-8b-instant": 5e-05,
-    "llama-4-scout-17b": 5e-05,
-    "qwen3-32b": 0.00029,
     "gemma2-9b-it": 2e-05
   },
   "costBudget": {
@@ -440,8 +438,6 @@
     "enabled": true,
     "alertThreshold": 0.8,
     "llmDailyBudgetUsd": 10.0,
-    "monthlyBudgetAlertUsd": 50.0,
-    "monthlyBudgetAlertEmail": "",
     "providerBudgets": {
       "_comment": "Map of provider ID -> daily budget in USD. Omit or set null for unlimited.",
       "default": null
@@ -492,14 +488,19 @@
     "description": "US-840: Per-profile toggle for media message acknowledgement replies. When false, media messages (image/audio/document) are silently ignored instead of replied to."
   },
   "pdpa": {
-    "dpo_name": "Data Protection Officer",
+    "dpo_name": "Jay Yue",
     "dpo_email": "dpo@pelangicapsulehostel.com",
-    "dpo_registration_status": "active",
-    "dpo_date_appointed": "2025-06-01",
+    "dpo_registration_status": "registered",
+    "dpo_appointed_date": "2025-06-01",
     "general_contact_email": "hello@pelangicapsulehostel.com",
-    "description": "US-907: Malaysia PDPA 2024 Amendment compliance. DPO appointment mandatory from 1 June 2025. Breach notification to PDPC within 72 hours, data subjects within 7 days.",
-    "local_only_ai": false,
-    "local_only_ai_description": "US-930: When true, restricts AI processing to local/Ollama providers only (MY data residency). Overseas providers (NVIDIA, OpenRouter, Groq, Gemini) are skipped. Satisfies PDPA Section 129 cross-border transfer restriction without requiring TIA."
+    "breach_detection": {
+      "enabled": true,
+      "scan_interval_minutes": 15,
+      "bulk_access_threshold": 100,
+      "description": "US-907: Anomalous bulk data access detection. Scans for >bulk_access_threshold records accessed per minute from a single session."
+    },
+    "retention_months": 24,
+    "description": "US-878/US-907: PDPA 2024 amendment — DPO appointment, breach detection, and data retention. dpo_email and dpo_name are mandatory per Malaysia PDPA Amendment Act 2024 (effective 1 June 2025). DPO must be ordinarily resident in Malaysia and registered with PDPC Commissioner."
   },
   "service_requests": {
     "enabled": true,
@@ -520,8 +521,7 @@
   "cart_recovery": {
     "enabled": true,
     "idle_minutes": 30,
-    "max_age_minutes": 120,
-    "description": "US-882 + US-917: WhatsApp abandoned cart recovery. Sends a proactive recovery message with quick-reply buttons when a WhatsApp session has idle cart items for idle_minutes (min 30). Carts older than max_age_minutes (default 120) are skipped. Cart state is persisted to DB for analytics. Only one recovery message per cart session. Cart auto-clears 24h after recovery message if no response."
+    "description": "US-882: WhatsApp abandoned cart recovery. Sends a proactive message when a WhatsApp session has idle cart items for idle_minutes. Only one message per cart session. Cart auto-clears 24h after recovery message if no response."
   },
   "billing": {
     "pricingModel": "per_message",
@@ -548,15 +548,6 @@
       },
       "service": {
         "_default": 0.0
-      }
-    },
-    "profileOverrides": {
-      "_comment": "Per-profile pricing model overrides. Key = profileId (e.g. \"pelangi\", \"southern\"). Overrides top-level pricingModel for that profile.",
-      "pelangi": {
-        "pricingModel": "per_message"
-      },
-      "southern": {
-        "pricingModel": "per_message"
       }
     }
   },
@@ -605,26 +596,43 @@
     ],
     "holidays": []
   },
-  "sst": {
-    "enabled": false,
-    "rate": 0.06,
-    "registration_no": "",
-    "vendor_name": "Makan Moments Cafe",
-    "description": "US-967: SST (Service Tax) compliance. When enabled, order receipts show SST as a separate line item. Rate is 6% for F&B services. Registration number format: W12-1234-12345678. Required for F&B businesses with annual revenue exceeding RM1.5 million."
-  },
-  "identity_disclosure": {
+  "hallucination_detection": {
     "enabled": true,
-    "disclosure_text": {
-      "en": "Hi! I'm Rainbow 🌈, an AI assistant for Pelangi Capsule Hostel. I'm here to help with bookings, check-in info, and any questions about your stay. Just know you're chatting with an AI — not a human. Type your question and I'll do my best to help! 😊",
-      "ms": "Halo! Saya Rainbow 🌈, pembantu AI untuk Pelangi Capsule Hostel. Saya di sini untuk membantu dengan tempahan, maklumat daftar masuk, dan soalan tentang penginapan anda. Sila ambil maklum bahawa anda sedang berbual dengan AI — bukan manusia. Taip soalan anda dan saya akan cuba membantu! 😊",
-      "zh": "您好！我是 Rainbow 🌈，Pelangi Capsule Hostel 的 AI 助理。我可以帮助您处理预订、入住信息及任何住宿问题。请注意，您正在与 AI 对话，而非真人。请输入您的问题，我会尽力协助！ 😊",
-      "ta": "வணக்கம்! நான் Rainbow 🌈, Pelangi Capsule Hostel-இன் AI உதவியாளர். புக்கிங், செக்-இன் தகவல்கள் மற்றும் தங்கும் இடம் பற்றிய கேள்விகளுக்கு உதவ நான் இங்கே இருக்கிறேன். நீங்கள் ஒரு AI உடன் பேசுகிறீர்கள் என்பதை தெரிந்துகொள்ளுங்கள். உங்கள் கேள்வியை தட்டச்சு செய்யுங்கள்! 😊"
-    },
-    "identity_truth": {
-      "en": "Yes, I'm Rainbow 🌈 — an AI assistant for Pelangi Capsule Hostel, not a human. I can help with bookings, check-in info, and general questions about your stay. Would you like to connect with a human team member instead?",
-      "ms": "Ya, saya Rainbow 🌈 — pembantu AI untuk Pelangi Capsule Hostel, bukan manusia. Saya boleh membantu dengan tempahan, maklumat daftar masuk, dan soalan umum tentang penginapan. Adakah anda ingin berhubung dengan ahli pasukan manusia?",
-      "zh": "是的，我是 Rainbow 🌈 — Pelangi Capsule Hostel 的 AI 助理，不是真人。我可以帮助您处理预订、入住信息及常见问题。您是否希望与人工客服联系？",
-      "ta": "ஆம், நான் Rainbow 🌈 — Pelangi Capsule Hostel-இன் AI உதவியாளர், மனிதர் அல்ல. புக்கிங், செக்-இன் தகவல்கள் மற்றும் பொதுவான கேள்விகளுக்கு உதவ முடியும். மனித குழு உறுப்பினருடன் இணைக்கப்பட விரும்புகிறீர்களா?"
+    "severity_threshold": 3,
+    "hallucination_action": "block",
+    "log_events": true,
+    "description": "US-913: Two-stage hallucination detection — Stage 1 factual query classifier + Stage 2 NLI claim verification against KB."
+  },
+  "call_escalation": {
+    "enabled": true,
+    "phone_number": "+60167620815",
+    "button_text": "Call Reception",
+    "profiles": ["pelangi"],
+    "description": "US-887: Click-to-call escalation button. Sends a WhatsApp call button alongside the holding message during business hours. Only active for listed profiles."
+  },
+  "sticker_responses": {
+    "enabled": true,
+    "description": "US-923: WhatsApp sticker response for Malaysian festive season engagement. When festive keywords are matched, send branded stickers alongside greeting text."
+  },
+  "stickerResponses": {
+    "enabled": true,
+    "festive_periods": {
+      "raya": {
+        "intent": "festive_greeting_raya",
+        "active": true
+      },
+      "cny": {
+        "intent": "festive_greeting_cny",
+        "active": true
+      },
+      "deepavali": {
+        "intent": "festive_greeting_deepavali",
+        "active": true
+      },
+      "general": {
+        "intent": "festive_greeting_general",
+        "active": true
+      }
     }
   }
 }
