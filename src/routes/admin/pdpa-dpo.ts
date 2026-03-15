@@ -20,6 +20,8 @@ import { configStore } from '../../assistant/config-store.js';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { canonicalPhoneKey } from '../../assistant/conversation-db.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
+import { getTiaStatuses, getDataFlowStats, logAdminDataAccess } from '../../lib/pdpa-compliance.js';
+import { getProviders } from '../../assistant/ai-provider-manager.js';
 
 const router = Router();
 
@@ -209,6 +211,60 @@ router.get('/pdpa/incidents', async (_req: Request, res: Response) => {
     ok(res, { incidents, count: incidents.length });
   } catch (error: any) {
     console.error('[PDPA] Failed to list incidents:', error.message);
+    serverError(res, error);
+  }
+});
+
+// ─── GET /pdpa/compliance — Transfer Impact Assessment status (US-915) ──
+
+router.get('/pdpa/compliance', async (req: Request, res: Response) => {
+  try {
+    const providers = getProviders();
+    const tiaStatuses = getTiaStatuses(providers);
+    const dataFlowStats = await getDataFlowStats(30);
+
+    // Log this admin access for PDPA audit trail
+    const username = (req as any).user?.username || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    logAdminDataAccess({
+      username,
+      action: 'view_compliance_dashboard',
+      ipAddress: ip,
+    }).catch(() => {/* swallow */});
+
+    ok(res, {
+      transferImpactAssessments: tiaStatuses,
+      dataFlowSummary: dataFlowStats,
+      pdpaAmendment: {
+        act: 'Personal Data Protection (Amendment) Act 2024',
+        effectiveDate: '2025-04-01',
+        requirement: 'Cross-border transfers require Transfer Impact Assessment',
+        penalty: 'Up to RM1,000,000 for processor security breach',
+      },
+      piiMaskingEnabled: true,
+      maskedFields: ['PHONE', 'EMAIL', 'MY_IC', 'CREDIT_CARD', 'PASSPORT', 'BANK_ACCOUNT', 'GUEST_NAME'],
+    });
+  } catch (error: any) {
+    serverError(res, error);
+  }
+});
+
+// ─── GET /pdpa/audit-log — Admin data access audit trail (US-915) ──
+
+router.get('/pdpa/audit-log', async (_req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(
+      `SELECT id, username, action, ip_address, details, created_at
+       FROM admin_audit_log
+       ORDER BY created_at DESC
+       LIMIT 200`
+    );
+    ok(res, { entries: result.rows, count: result.rows.length });
+  } catch (error: any) {
+    console.error('[PDPA] Failed to list audit log:', error.message);
     serverError(res, error);
   }
 });

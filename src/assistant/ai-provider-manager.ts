@@ -11,6 +11,8 @@ import { circuitBreakerRegistry } from './circuit-breaker.js';
 import { rateLimitManager } from './rate-limit-manager.js';
 import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
 import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
+import { maskPiiForProvider } from './pii-redactor.js';
+import { logDataFlow, resolveProcessingCountry } from '../lib/pdpa-compliance.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -475,7 +477,20 @@ export async function chatWithFallback(
     }
 
     try {
-      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
+      // US-915 (PDPA 2024): Mask PII in messages before sending to AI provider
+      const { masked: maskedMessages, categories: piiCategories } = maskPiiForProvider(messages);
+      const processingCountry = resolveProcessingCountry(provider.base_url, provider.type);
+
+      // Log data flow for PDPA compliance (fire-and-forget)
+      logDataFlow({
+        providerName: provider.name,
+        providerId: provider.id,
+        dataCategories: piiCategories,
+        processingCountry,
+        timestamp: new Date(),
+      }).catch(() => {/* swallow */});
+
+      const result = await providerChat(provider, maskedMessages, maxTokens, temperature, jsonMode, tools);
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);

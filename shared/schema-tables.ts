@@ -635,3 +635,42 @@ export const promptInjectionLog = pgTable("prompt_injection_log", {
 
 export type PromptInjectionLogEntry = typeof promptInjectionLog.$inferSelect;
 export type InsertPromptInjectionLog = typeof promptInjectionLog.$inferInsert;
+
+// ─── US-915: AI Data Flow Log (PDPA 2024) ────────────────────────
+// Records every AI provider API call with data categories sent and processing country.
+// Required for PDPA 2024 cross-border transfer documentation.
+
+export const aiDataFlowLog = pgTable("ai_data_flow_log", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  providerId: text("provider_id").notNull(),
+  dataCategories: text("data_categories").notNull(),       // JSON array of PII types detected
+  processingCountry: varchar("processing_country", { length: 4 }).notNull(), // ISO country code
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_ai_data_flow_log_provider").on(table.providerId),
+  index("idx_ai_data_flow_log_country").on(table.processingCountry),
+  index("idx_ai_data_flow_log_created").on(table.createdAt),
+]));
+
+export type AiDataFlowLog = typeof aiDataFlowLog.$inferSelect;
+export type InsertAiDataFlowLog = typeof aiDataFlowLog.$inferInsert;
+
+// ─── US-915: Admin Audit Log (PDPA 2024) ─────────────────────────
+// Captures administrative access to personal data with user, action, timestamp, IP.
+
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 64 }).notNull(),
+  action: varchar("action", { length: 64 }).notNull(),     // e.g. view_conversations, export_messages
+  ipAddress: varchar("ip_address", { length: 45 }).notNull(), // IPv4 or IPv6
+  details: text("details"),                                  // Optional JSON context
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_admin_audit_log_username").on(table.username),
+  index("idx_admin_audit_log_action").on(table.action),
+  index("idx_admin_audit_log_created").on(table.createdAt),
+]));
+
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+export type InsertAdminAuditLog = typeof adminAuditLog.$inferInsert;
