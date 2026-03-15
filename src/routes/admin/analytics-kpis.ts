@@ -103,11 +103,12 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           profileId ? eq(rainbowMessages.profileId, profileId) : sql`true`,
         )),
 
-      // 6. US-902: Order accuracy — confirmed orders vs corrected orders
+      // 6. US-902/US-950: Order accuracy — confirmed, corrected, and declined at confirmation step
       db
         .select({
           totalConfirmed: sql<number>`count(*) filter (where event_type = 'order_confirmed')::int`,
           totalCorrected: sql<number>`count(*) filter (where event_type = 'order_corrected')::int`,
+          totalDeclined: sql<number>`count(*) filter (where event_type = 'confirmation_declined')::int`,
         })
         .from(orderAccuracyEvents)
         .where(and(
@@ -227,12 +228,13 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           totalChecked: faithfulness.totalChecked,
           lowFaithfulnessCount: faithfulness.lowFaithfulness,
         },
-        // US-902: Order accuracy rate
+        // US-902/US-950: Order accuracy rate
         orderAccuracyRate: {
           rate: orderAccuracyRate !== null ? parseFloat(orderAccuracyRate.toFixed(1)) : null,
           totalConfirmedOrders: orderAccuracy.totalConfirmed,
           correctedOrders: orderAccuracy.totalCorrected,
           accurateOrders,
+          cancelledAtConfirmation: orderAccuracy.totalDeclined,
           threshold: ALERT_THRESHOLDS.orderAccuracy,
           alert: orderAccuracyRate !== null && orderAccuracyRate < ALERT_THRESHOLDS.orderAccuracy,
         },
@@ -253,7 +255,7 @@ function emptyKpis() {
     handoffRate: { rate: null, totalEscalations: 0, uniqueConversationsEscalated: 0 },
     fallbackRate: { rate: null, totalUserMessages: 0, unknownMessages: 0 },
     faithfulness: { lowFaithfulnessRate: null, avgScore: null, totalChecked: 0, lowFaithfulnessCount: 0 },
-    orderAccuracyRate: { rate: null, totalConfirmedOrders: 0, correctedOrders: 0, accurateOrders: 0, threshold: 90, alert: false },
+    orderAccuracyRate: { rate: null, totalConfirmedOrders: 0, correctedOrders: 0, accurateOrders: 0, cancelledAtConfirmation: 0, threshold: 90, alert: false },
   };
 }
 

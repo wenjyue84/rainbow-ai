@@ -1,5 +1,5 @@
 /**
- * order-accuracy-tracker.ts — US-902: Track AI waiter order accuracy
+ * order-accuracy-tracker.ts — US-902/US-950: Track AI waiter order accuracy
  *
  * Records whether customers correct their order after the AI shows a
  * confirmation summary. The KPI = (orders with no correction) / total × 100.
@@ -8,6 +8,7 @@
  *   1. AI calls order_request_confirmation → markConfirmationShown(sessionId)
  *   2. Guest modifies cart while CONFIRMING  → markCorrected(sessionId)
  *   3. Guest confirms → recordOrderSubmitted(sessionId, profileId) writes events to DB
+ *   4. Guest declines at confirmation step → recordConfirmationDeclined(sessionId, profileId)
  */
 
 import { db, dbReady } from '../lib/db.js';
@@ -80,7 +81,27 @@ export async function recordOrderSubmitted(sessionId: string, profileId: string)
   sessions.delete(sessionId);
 }
 
-/** Reset tracking state for a session (e.g., on cart cancel). */
+/**
+ * Call when the guest declines the confirmation step (order_back_to_cart or
+ * cart_cancel_order while in CONFIRMING stage). Writes a confirmation_declined
+ * event so admin analytics can track "confirmed vs cancelled at confirmation step".
+ * US-950 AC5.
+ */
+export async function recordConfirmationDeclined(sessionId: string, profileId: string): Promise<void> {
+  const isConnected = await dbReady;
+  if (isConnected) {
+    try {
+      await db.insert(orderAccuracyEvents).values([
+        { sessionId, profileId, eventType: 'confirmation_declined' },
+      ]);
+    } catch (err: any) {
+      console.error('[OrderAccuracy] Failed to record confirmation_declined:', err.message);
+    }
+  }
+  sessions.delete(sessionId);
+}
+
+/** Reset tracking state for a session (e.g., on cart cancel before confirmation). */
 export function clearAccuracyTracking(sessionId: string): void {
   sessions.delete(sessionId);
 }
@@ -91,5 +112,6 @@ export const _testExports = {
   markConfirmationShown,
   markCorrected,
   recordOrderSubmitted,
+  recordConfirmationDeclined,
   clearAccuracyTracking,
 };

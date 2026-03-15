@@ -9612,3 +9612,32 @@ Completed: Enforce WhatsApp 2026 task-specific chatbot policy compliance (ID: US
 ## Iteration 2 - Sun, Mar 15, 2026  9:13:07 PM
 Completed: Enforce WhatsApp 2026 task-specific chatbot policy compliance (ID: US-942) in 11m
 
+## Iteration 4 - Sun, Mar 15, 2026  9:15:17 PM
+Completed: Enforce WhatsApp 2026 task-specific chatbot policy compliance (ID: US-942) in 15m
+
+## Iteration 3 - Sun, Mar 15, 2026  9:22:46 PM
+Incomplete: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat widget authentication (ID: US-926) — attempt 1/3
+
+
+## Iteration - US-950: Add order confirmation repeat-back step before kitchen submission
+### What was implemented
+- **AC1**: Already fully implemented — `order_request_confirmation` tool shows complete itemised order summary (items, qty, customisations, table info, total) and asks "Shall I place this order?" before submitting.
+- **AC2 (NEW)**: Added server-side guard in `order_confirm_submit` handler — returns error if `getOrderStage(sessionId) !== 'CONFIRMING'`. Previously relied only on AI tool description. Now enforced in code.
+- **AC3**: Already implemented — `order_back_to_cart` transitions stage back to ORDERING with cart contents shown.
+- **AC4**: Already met — `order_request_confirmation` is a synchronous handler that responds immediately (< 3s).
+- **AC5 (NEW)**: Added `recordConfirmationDeclined(sessionId, profileId)` to `order-accuracy-tracker.ts` — writes `confirmation_declined` event to `order_accuracy_events` table. Called from `order_back_to_cart` (when stage is CONFIRMING) and `cart_cancel_order` (when stage is CONFIRMING). Analytics KPI endpoint (`analytics-kpis.ts`) now counts `totalDeclined` events and exposes `cancelledAtConfirmation` field in the `orderAccuracyRate` KPI response.
+
+### Files changed
+- `src/assistant/order-accuracy-tracker.ts` — Added `recordConfirmationDeclined()`, exported in `_testExports`
+- `src/tools/cart.ts` — CONFIRMING stage guard in `order_confirm_submit`; `recordConfirmationDeclined` called from `order_back_to_cart` and `cart_cancel_order`
+- `src/routes/admin/analytics-kpis.ts` — Added `totalDeclined` SQL count + `cancelledAtConfirmation` in KPI response
+- `src/assistant/__tests__/order-accuracy.test.ts` — 3 new US-950 tests for `recordConfirmationDeclined`
+- `src/assistant/__tests__/order-stage.test.ts` — 1 new US-950 AC2 test for stage guard
+
+### Patterns discovered
+- `dbReady` starts as `Promise.resolve(false)` in tests — fire-and-forget DB calls (like `recordConfirmationDeclined`) silently skip without needing mocks in order-stage.test.ts
+- `kdsProfileId` (from `options?.kds?.profileId`) is used as the profileId for accuracy events — consistent with other handlers
+- The CONFIRMING stage guard must be at the TOP of `order_confirm_submit` before any DB/API calls
+
+### Status
+✅ Build passes (3 pre-existing warnings). 80/80 tests pass (12 order-accuracy + 68 order-stage). Story marked passes=true.

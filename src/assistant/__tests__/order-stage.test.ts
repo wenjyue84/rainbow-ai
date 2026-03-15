@@ -361,6 +361,22 @@ describe('Cart handlers — order stage transitions via tools', () => {
     expect(getOrderStage(sid)).toBe('BROWSING'); // unchanged
   });
 
+  it('US-950 AC2: order_confirm_submit returns error when stage is not CONFIRMING', async () => {
+    const sid = newSid();
+    const handlers = createCartHandlers(sid);
+    await handlers.get('cart_add_item')!({ name: 'Roti Canai', qty: 1, price: 3.00 });
+    // Stage is ORDERING (not CONFIRMING) — submit should be blocked
+    expect(getOrderStage(sid)).toBe('ORDERING');
+
+    const result = await handlers.get('order_confirm_submit')!({});
+    expect(result.content[0].text).toContain('order_request_confirmation');
+    // Stage should not have advanced
+    expect(getOrderStage(sid)).toBe('ORDERING');
+
+    cartClear(sid);
+    clearOrderStage(sid);
+  });
+
   it('order_confirm_submit transitions CONFIRMING → PLACED and clears cart', async () => {
     const sid = newSid();
     const handlers = createCartHandlers(sid);

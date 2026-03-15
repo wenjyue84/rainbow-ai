@@ -41,7 +41,8 @@ import {
 } from '../assistant/order-modification-store.js';
 import { saveOrderHistory } from '../assistant/order-history-store.js';
 import {
-  markConfirmationShown, markCorrected, recordOrderSubmitted, clearAccuracyTracking,
+  markConfirmationShown, markCorrected, recordOrderSubmitted,
+  recordConfirmationDeclined, clearAccuracyTracking,
 } from '../assistant/order-accuracy-tracker.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
@@ -660,6 +661,16 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('order_confirm_submit', async (args: any) => {
+    // US-950 AC2: Enforce confirmation step — order can only be submitted from CONFIRMING stage
+    if (getOrderStage(sessionId) !== 'CONFIRMING') {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Please call order_request_confirmation first to show the guest an order summary before submitting.'
+        }]
+      };
+    }
+
     const items = cartGetItems(sessionId);
     if (items.length === 0) {
       return {
@@ -795,6 +806,10 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('order_back_to_cart', async (_args: any) => {
+    // US-950 AC5: Record that guest declined at the confirmation step
+    if (getOrderStage(sessionId) === 'CONFIRMING') {
+      recordConfirmationDeclined(sessionId, kdsProfileId).catch(() => {});
+    }
     transitionOrderStage(sessionId, 'ORDERING');
     const items = cartGetItems(sessionId);
     const summary = cartFormatSummary(items);
@@ -831,11 +846,16 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       };
     }
 
+    // US-950 AC5: If cancelling from CONFIRMING stage, record confirmation_declined event
+    if (stage === 'CONFIRMING') {
+      recordConfirmationDeclined(sessionId, kdsProfileId).catch(() => {});
+    }
+
     // Clear cart, pending set meals, and reset to BROWSING
     cartClear(sessionId);
     clearPendingSetMeal(sessionId);
     clearOrderStage(sessionId);
-    // US-902: Clear accuracy tracking on cancel (no order to count)
+    // US-902: Clear accuracy tracking on cancel (no order to count; declined already recorded above if CONFIRMING)
     clearAccuracyTracking(sessionId);
     return {
       content: [{
