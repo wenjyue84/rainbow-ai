@@ -8,6 +8,7 @@ import { getContextWindows } from './context-windows.js';
 import { isAIAvailable, getAISettings, chatWithFallback, getProviders } from './ai-provider-manager.js';
 import { getLLMSettings } from './llm-settings-loader.js';
 import { classifyResultSchema, safeParseLLMResponse } from './schemas.js';
+import { generateWithValidation } from './ai-response-generator.js';
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -176,21 +177,25 @@ export async function classifyIntent(
 
   const aiCfg = getAISettings();
   const t4Ids = getT4ProviderIds();
-  const { content, usage } = await chatWithFallback(messages, aiCfg.max_classify_tokens, aiCfg.classify_temperature, true, t4Ids);
 
-  if (content) {
-    const validated = safeParseLLMResponse(content, classifyResultSchema, 'classifyIntent');
-    if (validated.success) {
-      const result = parseClassifyResult(validated.data);
-      return { ...result, usage };
-    }
-    // Zod validation failed — try partial recovery from raw JSON
+  // US-1015: Use generateWithValidation with 2 retries and JSON schema enforcement
+  const { data, raw, provider, usage } = await generateWithValidation(
+    messages, classifyResultSchema, aiCfg.max_classify_tokens, aiCfg.classify_temperature, 2, 'classifyResult', t4Ids
+  );
+
+  if (data) {
+    const result = parseClassifyResult(data);
+    return { ...result, usage };
+  }
+
+  // All retries exhausted — try partial recovery from raw (US-1015 AC3: safe fallback)
+  if (raw) {
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(raw);
       const result = parseClassifyResult(parsed);
       return { ...result, usage };
     } catch {
-      console.error('[AI] Failed to parse classify result:', content);
+      console.error('[AI] Failed to parse classify result:', raw);
     }
   }
 
@@ -239,36 +244,32 @@ export async function classifyOnly(
   const aiCfg = getAISettings();
   const startTime = Date.now();
 
-  const providerIds = classifyProviderId ? [classifyProviderId] : getT4ProviderIds();
-  const { content, provider, usage } = await chatWithFallback(
-    messages,
-    aiCfg.max_classify_tokens,
-    aiCfg.classify_temperature,
-    true,
-    providerIds
+  // US-1015: Use generateWithValidation with 2 retries and JSON schema enforcement
+  const classifyProviderIds = classifyProviderId ? [classifyProviderId] : getT4ProviderIds();
+  const { data, raw, provider, usage } = await generateWithValidation(
+    messages, classifyResultSchema, aiCfg.max_classify_tokens, aiCfg.classify_temperature, 2, 'classifyResult', classifyProviderIds
   );
   const responseTime = Date.now() - startTime;
 
-  if (content) {
-    const validated = safeParseLLMResponse(content, classifyResultSchema, 'classifyOnly');
-    const routing = configStore.getRouting();
-    const definedIntents = Object.keys(routing);
+  const routing = configStore.getRouting();
+  const definedIntents = Object.keys(routing);
 
-    if (validated.success) {
-      const d = validated.data;
-      const cat = d.category;
-      const intent = definedIntents.includes(cat) ? cat : 'general';
-      return {
-        intent,
-        confidence: d.confidence,
-        model: provider?.name || provider?.model || 'unknown',
-        responseTime,
-        usage
-      };
-    }
-    // Zod validation failed — try partial recovery from raw JSON
+  if (data) {
+    const cat = data.category;
+    const intent = definedIntents.includes(cat) ? cat : 'general';
+    return {
+      intent,
+      confidence: data.confidence,
+      model: provider?.name || provider?.model || 'unknown',
+      responseTime,
+      usage
+    };
+  }
+
+  // All retries exhausted — try partial recovery from raw (US-1015 AC3: safe fallback)
+  if (raw) {
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(raw);
       const intent = typeof parsed.category === 'string' && definedIntents.includes(parsed.category)
         ? parsed.category
         : (typeof parsed.intent === 'string' && definedIntents.includes(parsed.intent)
@@ -286,7 +287,7 @@ export async function classifyOnly(
         usage
       };
     } catch {
-      console.error('[AI] Failed to parse classifyOnly result:', content);
+      console.error('[AI] Failed to parse classifyOnly result:', raw);
     }
   }
 

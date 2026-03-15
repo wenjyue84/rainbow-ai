@@ -10500,3 +10500,68 @@ However, transposing these requirements into a Frappe/Python context for an app 
 ## Iteration 4 - Mon, Mar 16, 2026  2:07:16 AM
 Incomplete: Implement OWASP LLM04 â€” RAG knowledge base integrity validation pipeline (ID: US-965) — attempt 2/3
 
+
+## Pre-analysis for US-965 (Gemini 2.5 Pro)
+There is a discrepancy in your request. The user story and project context you've provided relate to a **TypeScript/Node.js** application named `rainbow-ai`, focused on a RAG pipeline for an AI assistant. The request, however, asks for a brief for a **Frappe/Python** app.
+
+The following technical brief is based on the provided JSON and file structure, which belong to the TypeScript project, as a Frappe/Python analysis would not be relevant to the source material.
+
+***
+
+### **Technical Brief: US-965 - RAG Knowledge Base Integrity Pipeline**
+
+This brief outlines the implementation strategy for securing the RAG knowledge base ingestion pipeline in the `rainbow-ai` TypeScript project.
+
+1.  **Files to Modify/Create:**
+    *   `shared/schema-tables.ts`: Define new Drizzle ORM schemas for `rainbow_kb_files` (storing file hashes) and `rainbow_config_audit` (logging ingest events).
+    *   `src/assistant/services/kb-ingestion.service.ts` (Likely location): This service, responsible for reading markdown files from `.rainbow-kb/`, will be heavily modified to incorporate hashing, source validation, and audit logging.
+    *   `src/lib/crypto.utils.ts` (New file): Create helpers for SHA-256 file hashing.
+    *   `scripts/audit-kb-embeddings.ts` (New file): A standalone script for the nightly embedding anomaly detection audit.
+    *   `ecosystem.config.cjs`: To schedule the new nightly audit script using PM2's cron feature.
+
+2.  **Key Architectural Components Involved:**
+    *   **Database Schema (Drizzle):** Two new tables are required:
+        *   `rainbow_kb_files`: `(id, file_path, sha256_hash, source, last_ingested_at)`
+        *   `rainbow_config_audit`: `(id, event_type, file_path, file_hash, operator_id, timestamp)`
+    *   **Scheduled Job (PM2):** A cron job will be configured to execute the `audit-kb-embeddings.ts` script nightly.
+
+3.  **Recommended Implementation Approach:**
+    1.  **Schema:** Implement the new tables in `shared/schema-tables.ts` and generate the migration.
+    2.  **Ingestion Pipeline:**
+        *   Modify the KB ingestion service to first calculate the SHA-256 hash of a markdown file.
+        *   Before embedding, query `rainbow_kb_files`. If the file path exists, compare hashes. Abort if the hash has changed, logging an error.
+        *   Implement source validation by checking if the file's path matches an allowlisted prefix (e.g., local path, S3 bucket).
+        *   Upon successful ingestion or a validated update, write the file path and hash to `rainbow_kb_files` and log the event to `rainbow_config_audit`.
+    3.  **Nightly Audit:**
+        *   The `audit-kb-embeddings.ts` script will fetch document embeddings from the vector DB.
+        *   It will calculate the centroid for topic clusters and flag documents whose embedding's cosine similarity falls below a configurable threshold (e.g., < 2 std deviations from the mean).
+        *   Alerts should be logged or sent to an operator.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Operator Override:** A mechanism (e.g., a CLI flag or temporary environment variable) is needed for an operator to approve a hash change and force re-ingestion.
+    *   **Baseline Snapshot:** The initial run of the nightly audit needs a process to create and sign a trusted baseline of the current embeddings.
+    *   **Performance:** The audit script may be resource-intensive. Process embeddings in batches to manage memory and CPU load on the database and vector store.
+    *   **Race Conditions:** Use database transactions when checking for and inserting file hashes to prevent issues if multiple ingestion processes run concurrently.
+
+
+## Iteration 5 - Mon, Mar 16, 2026  2:30 AM
+Story: US-1015 — Structured LLM output schema enforcement with Zod validation and retry
+### What was implemented
+- **AC1 (JSON schema to provider)**: Added `zod-to-json-schema` package. `providerChat()` and `chatWithFallback()` accept optional `jsonSchema` param, passed as `response_format: { type: 'json_schema', json_schema: {...} }` to OpenAI-compatible and Groq providers. `zodSchemaToJsonSchema()` helper converts Zod schemas to JSON Schema format. Falls back to `json_object` mode if schema conversion fails.
+- **AC2 (Max 2 retries with corrective prompt)**: `generateWithValidation()` upgraded from 1 retry to 2 retries (default). Each retry appends a corrective user message containing the JSON schema description and specific validation errors, enabling the LLM to self-correct.
+- **AC3 (Safe fallback)**: All call sites (`classifyAndRespond`, `classifyIntent`, `classifyOnly`, `generateReplyOnly`) now route through `generateWithValidation()`. When all retries exhaust, each caller applies its own safe fallback: unknown intent with 0 confidence for classifiers, static fallback messages for reply generators. Raw JSON is never propagated to the guest.
+- **AC4 (Failure logging)**: `logStructuredOutputFailure()` writes `structured_output_failure` events to `intent_predictions` table via `trackIntentPrediction()` with schema name, attempt number, and error details. Logged asynchronously (non-blocking).
+- **AC5 (Vitest tests)**: 13 tests covering: valid schema pass on first attempt, single failure with retry success, all retries exhausted (null data), failure event logging, JSON schema passthrough to provider, no-content handling, corrective prompt includes schema, maxRetries=0 skips retries, providerIds passthrough.
+### Files changed
+- `package.json` — Added `zod-to-json-schema` dependency
+- `src/assistant/ai-provider-manager.ts` — `providerChat()` and `chatWithFallback()` accept optional `jsonSchema` param; Groq and OpenAI-compatible branches pass `json_schema` response_format when provided
+- `src/assistant/ai-response-generator.ts` — Import `zodToJsonSchema`; new `zodSchemaToJsonSchema()` and `logStructuredOutputFailure()` helpers; `generateWithValidation()` rewritten with 2-retry loop, JSON schema enforcement, corrective prompting, and failure logging; `classifyAndRespond()` uses 2 retries + schema name; `generateReplyOnly()` wired through `generateWithValidation()`
+- `src/assistant/ai-classification.ts` — `classifyIntent()` and `classifyOnly()` wired through `generateWithValidation()` with provider IDs passthrough
+- `src/assistant/__tests__/structured-output-enforcement.test.ts` — NEW: 13 tests covering all 5 ACs
+### Patterns discovered
+- `zod-to-json-schema` with `target: 'openApi3'` produces clean JSON Schema from Zod that OpenAI-compatible providers accept
+- Not all providers support `json_schema` response_format (some only support `json_object`), so the schema is best-effort enhancement over the existing json_object mode
+- `generateWithValidation` now serves as the single enforcement point for all structured LLM outputs — future structured calls should use it
+- Provider IDs need to be passed through to allow T4 provider selection in classification
+### Status
+✅ Build passes (3 pre-existing warnings). 13/13 new tests pass + 14/14 existing LLM validation tests pass. All 5 acceptance criteria verified. Story marked passes=true.

@@ -13,6 +13,7 @@ import {
 } from './ai-provider-manager.js';
 import type { SupportedLanguage } from './language-router.js';
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 
@@ -259,7 +260,7 @@ export async function chatWithToolsLoop(
   return getUnknownFallbackMessages(profileConfigStore).en;
 }
 
-// ─── Structured Output Retry (US-471) ─────────────────────────────────
+// ─── Structured Output Enforcement (US-471, US-1015) ─────────────────
 
 const LLM_STRUCTURED_RETRY_TIMEOUT_MS = parseInt(
   process.env.LLM_STRUCTURED_RETRY_TIMEOUT_MS || '5000',
@@ -267,88 +268,167 @@ const LLM_STRUCTURED_RETRY_TIMEOUT_MS = parseInt(
 );
 
 /**
- * Generate an LLM response with Zod validation and self-healing retry.
- * If the first attempt fails validation, retries once with the validation
- * error appended as a user message so the model can self-correct.
+ * Convert a Zod schema to a JSON Schema object for provider response_format.
+ * Returns undefined if conversion fails (graceful degradation to json_object mode).
+ */
+export function zodSchemaToJsonSchema(
+  schema: z.ZodType<any>,
+  name: string
+): { name: string; schema: Record<string, unknown> } | undefined {
+  try {
+    const jsonSchema = zodToJsonSchema(schema, { target: 'openApi3' });
+    return { name, schema: jsonSchema as Record<string, unknown> };
+  } catch (err: any) {
+    console.warn(`[AI] Failed to convert Zod schema '${name}' to JSON schema: ${err.message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Log a structured_output_failure event for analytics (US-1015 AC4).
+ * Uses the intent prediction tracker to record schema validation failures.
+ */
+async function logStructuredOutputFailure(
+  provider: any,
+  schemaName: string,
+  attempt: number,
+  error: string
+): Promise<void> {
+  try {
+    const { trackIntentPrediction } = await import('./intent-tracker.js');
+    await trackIntentPrediction(
+      `schema_failure_${Date.now()}`,
+      'system',
+      `Schema: ${schemaName}, Attempt: ${attempt}, Error: ${error.slice(0, 200)}`,
+      'structured_output_failure',
+      0,
+      `schema_validation_fail_attempt_${attempt}`,
+      provider?.name || provider?.model || 'unknown'
+    );
+  } catch {
+    // Non-fatal — don't crash the response pipeline
+  }
+}
+
+/**
+ * Generate an LLM response with Zod validation, JSON schema enforcement,
+ * and self-healing retry (max 2 retries).
+ *
+ * US-1015: Passes JSON schema to provider via response_format when supported,
+ * validates with Zod, retries with corrective prompt on failure, and falls
+ * back to safe defaults when all retries are exhausted.
  */
 export async function generateWithValidation<T>(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   schema: z.ZodType<T>,
   maxTokens: number,
   temperature: number,
-  maxRetries: number = 1
+  maxRetries: number = 2,
+  schemaName: string = 'response',
+  providerIds?: string[]
 ): Promise<{ data: T | null; raw: string | null; provider: any; usage?: any; retried: boolean }> {
-  const { content, provider, usage } = await chatWithFallback(messages, maxTokens, temperature, true);
+  // Convert Zod schema to JSON schema for provider-level enforcement (US-1015 AC1)
+  const jsonSchema = zodSchemaToJsonSchema(schema, schemaName);
+
+  const { content, provider, usage } = await chatWithFallback(
+    messages, maxTokens, temperature, true, providerIds, undefined, jsonSchema
+  );
 
   if (!content) {
     return { data: null, raw: null, provider, usage, retried: false };
   }
 
   // First attempt: validate with Zod
-  const firstResult = safeParseLLMResponse(content, schema, 'generateWithValidation:attempt1');
+  const firstResult = safeParseLLMResponse(content, schema, `generateWithValidation:${schemaName}:attempt1`);
   if (firstResult.success) {
     return { data: firstResult.data, raw: content, provider, usage, retried: false };
   }
 
   // Validation failed — retry with error context if retries remain
   if (maxRetries < 1) {
+    // Log failure event (US-1015 AC4)
+    logStructuredOutputFailure(provider, schemaName, 1, (firstResult as any).error || 'validation_failed').catch(() => {});
     return { data: null, raw: content, provider, usage, retried: false };
   }
 
-  // Extract field errors for the retry prompt
-  let fieldErrors: string;
-  try {
-    const parsed = JSON.parse(content.match(/\{[\s\S]*\}/)?.[0] || content);
-    const parseResult = schema.safeParse(parsed);
-    fieldErrors = parseResult.success
-      ? 'Unknown validation error'
-      : JSON.stringify((parseResult as any).error.flatten().fieldErrors);
-  } catch {
-    fieldErrors = firstResult.success ? 'Unknown' : (firstResult as any).error || 'Invalid JSON';
+  // Build the JSON schema description for corrective prompt
+  const schemaDesc = jsonSchema
+    ? JSON.stringify(jsonSchema.schema).slice(0, 500)
+    : 'See the system prompt for required JSON format';
+
+  // Retry loop (US-1015 AC2: max 2 retries with corrective system message)
+  let lastRaw = content;
+  let lastProvider = provider;
+  let lastUsage = usage;
+  let retryMessages = [...messages];
+  let lastError = (firstResult as any).error || 'validation_failed';
+
+  for (let attempt = 2; attempt <= maxRetries + 1; attempt++) {
+    // Extract field errors for the retry prompt
+    let fieldErrors: string;
+    try {
+      const parsed = JSON.parse(lastRaw.match(/\{[\s\S]*\}/)?.[0] || lastRaw);
+      const parseResult = schema.safeParse(parsed);
+      fieldErrors = parseResult.success
+        ? 'Unknown validation error'
+        : JSON.stringify((parseResult as any).error.flatten().fieldErrors);
+    } catch {
+      fieldErrors = lastError || 'Invalid JSON';
+    }
+
+    console.log(`[AI] Structured retry ${attempt - 1}/${maxRetries}: validation failed, retrying. Errors: ${fieldErrors}`);
+
+    // Append corrective message with schema reference (US-1015 AC2)
+    retryMessages = [
+      ...retryMessages,
+      {
+        role: 'user' as const,
+        content: `Your previous response did not conform to the required JSON schema. Here is the schema: ${schemaDesc}. Validation errors: ${fieldErrors}. Please respond again with ONLY valid JSON matching the schema.`
+      }
+    ];
+
+    const retryStart = Date.now();
+    try {
+      const retryPromise = chatWithFallback(
+        retryMessages, maxTokens, temperature, true, providerIds, undefined, jsonSchema
+      );
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Structured retry timeout')), LLM_STRUCTURED_RETRY_TIMEOUT_MS)
+      );
+
+      const { content: retryContent, provider: retryProvider, usage: retryUsage } =
+        await Promise.race([retryPromise, timeoutPromise]);
+
+      const retryTime = Date.now() - retryStart;
+
+      if (!retryContent) {
+        console.warn(`[AI] Structured retry ${attempt - 1}: no content returned (${retryTime}ms)`);
+        continue;
+      }
+
+      const retryResult = safeParseLLMResponse(retryContent, schema, `generateWithValidation:${schemaName}:attempt${attempt}`);
+      if (retryResult.success) {
+        console.log(`[AI] Structured retry succeeded on attempt ${attempt} (${retryTime}ms)`);
+        return { data: retryResult.data, raw: retryContent, provider: retryProvider, usage: retryUsage, retried: true };
+      }
+
+      console.warn(`[AI] Structured retry ${attempt - 1}: attempt ${attempt} also failed validation (${retryTime}ms)`);
+      lastRaw = retryContent;
+      lastProvider = retryProvider;
+      lastUsage = retryUsage;
+      lastError = (retryResult as any).error || 'validation_failed';
+    } catch (err: any) {
+      const retryTime = Date.now() - retryStart;
+      console.warn(`[AI] Structured retry ${attempt - 1} failed: ${err.message} (${retryTime}ms)`);
+      lastError = err.message;
+    }
   }
 
-  console.log(`[AI] Structured retry: first attempt failed validation, retrying with error context. Errors: ${fieldErrors}`);
+  // All retries exhausted — log structured_output_failure event (US-1015 AC4)
+  console.warn(`[AI] generateWithValidation: all ${maxRetries} retries exhausted for schema '${schemaName}'`);
+  logStructuredOutputFailure(lastProvider, schemaName, maxRetries + 1, lastError).catch(() => {});
 
-  // Build retry messages: append validation error as user message
-  const retryMessages = [
-    ...messages,
-    {
-      role: 'user' as const,
-      content: `Previous response failed validation: ${fieldErrors}. Please provide a valid response.`
-    }
-  ];
-
-  // Retry with timeout
-  const retryStart = Date.now();
-  try {
-    const retryPromise = chatWithFallback(retryMessages, maxTokens, temperature, true);
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Structured retry timeout')), LLM_STRUCTURED_RETRY_TIMEOUT_MS)
-    );
-
-    const { content: retryContent, provider: retryProvider, usage: retryUsage } =
-      await Promise.race([retryPromise, timeoutPromise]);
-
-    const retryTime = Date.now() - retryStart;
-
-    if (!retryContent) {
-      console.warn(`[AI] Structured retry: no content returned (${retryTime}ms)`);
-      return { data: null, raw: content, provider, usage, retried: true };
-    }
-
-    const retryResult = safeParseLLMResponse(retryContent, schema, 'generateWithValidation:attempt2');
-    if (retryResult.success) {
-      console.log(`[AI] Structured retry succeeded on attempt 2 (${retryTime}ms)`);
-      return { data: retryResult.data, raw: retryContent, provider: retryProvider, usage: retryUsage, retried: true };
-    }
-
-    console.warn(`[AI] Structured retry: attempt 2 also failed validation (${retryTime}ms)`);
-    return { data: null, raw: retryContent, provider: retryProvider, usage: retryUsage, retried: true };
-  } catch (err: any) {
-    const retryTime = Date.now() - retryStart;
-    console.warn(`[AI] Structured retry failed: ${err.message} (${retryTime}ms)`);
-    return { data: null, raw: content, provider, usage, retried: true };
-  }
+  return { data: null, raw: lastRaw, provider: lastProvider, usage: lastUsage, retried: true };
 }
 
 // ─── Classify + Respond (unified LLM call) ──────────────────────────
@@ -379,9 +459,9 @@ export async function classifyAndRespond(
     const aiCfg = getAISettings();
     const startTime = Date.now();
 
-    // Use generateWithValidation for self-healing retry on Zod failure (US-471)
+    // Use generateWithValidation for self-healing retry on Zod failure (US-471, US-1015)
     const { data, raw, provider, usage, retried } = await generateWithValidation(
-      messages, aiResponseSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 1
+      messages, aiResponseSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 2, 'aiResponse'
     );
     const responseTime = Date.now() - startTime;
 
@@ -611,22 +691,26 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
 
   const aiCfg = getAISettings();
   const startTime = Date.now();
-  const { content, provider } = await chatWithFallback(messages, aiCfg.max_chat_tokens, aiCfg.chat_temperature, true);
+
+  // US-1015: Use generateWithValidation with 2 retries and JSON schema enforcement
+  const { data, raw, provider, usage, retried } = await generateWithValidation(
+    messages, replyOnlyResultSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 2, 'replyOnly'
+  );
   const responseTime = Date.now() - startTime;
 
-  if (content) {
-    const validated = safeParseLLMResponse(content, replyOnlyResultSchema, 'generateReplyOnly');
-    if (validated.success) {
-      return {
-        response: validated.data.response.trim(),
-        confidence: validated.data.confidence ?? 0.7,
-        model: provider?.name || provider?.model || 'unknown',
-        responseTime
-      };
-    }
-    // Zod validation failed — try partial recovery
+  if (data) {
+    return {
+      response: data.response.trim(),
+      confidence: data.confidence ?? 0.7,
+      model: provider?.name || provider?.model || 'unknown',
+      responseTime
+    };
+  }
+
+  // Validation failed after retries — try partial recovery from raw (US-1015 AC3: safe fallback)
+  if (raw) {
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(raw);
       const confidence = typeof parsed.confidence === 'number'
         ? Math.min(1, Math.max(0, parsed.confidence))
         : 0.7;
@@ -638,12 +722,12 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
         responseTime
       };
     } catch {
-      if (looksLikeJson(content)) {
+      if (looksLikeJson(raw)) {
         console.warn('[AI] generateReplyOnly: LLM returned JSON-like content, using empty response');
         return { response: '', confidence: 0.5, model: provider?.name || 'unknown', responseTime };
       }
       return {
-        response: content,
+        response: raw,
         confidence: 0.5,
         model: provider?.name || 'unknown',
         responseTime

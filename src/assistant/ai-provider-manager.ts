@@ -247,7 +247,8 @@ export async function providerChat(
   maxTokens: number,
   temperature: number,
   jsonMode: boolean = false,
-  tools?: any[]
+  tools?: any[],
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
 ): Promise<{ content: string; usage?: any; toolCalls?: any[] } | null> {
   // Resolve provider type name for OTel attributes
   const providerTypeName = provider.type === 'google-gemini' ? 'google'
@@ -300,7 +301,11 @@ export async function providerChat(
           max_tokens: maxTokens,
           temperature
         };
-        if (jsonMode) body.response_format = { type: 'json_object' };
+        if (jsonSchema) {
+          body.response_format = { type: 'json_schema', json_schema: { name: jsonSchema.name, strict: true, schema: jsonSchema.schema } };
+        } else if (jsonMode) {
+          body.response_format = { type: 'json_object' };
+        }
         if (tools && tools.length > 0) { body.tools = tools; body.tool_choice = 'auto'; }
 
         const response = await withTimeout(
@@ -357,7 +362,11 @@ export async function providerChat(
           max_tokens: maxTokens,
           temperature
         };
-        if (jsonMode) body.response_format = { type: 'json_object' };
+        if (jsonSchema) {
+          body.response_format = { type: 'json_schema', json_schema: { name: jsonSchema.name, strict: true, schema: jsonSchema.schema } };
+        } else if (jsonMode) {
+          body.response_format = { type: 'json_object' };
+        }
         if (tools && tools.length > 0) { body.tools = tools; body.tool_choice = 'auto'; }
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -440,7 +449,8 @@ export async function chatWithFallback(
   temperature: number,
   jsonMode: boolean = false,
   providerIds?: string[],
-  tools?: any[]
+  tools?: any[],
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   let providers = getProviders();
 
@@ -477,7 +487,7 @@ export async function chatWithFallback(
     }
 
     try {
-      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
+      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools, jsonSchema);
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
