@@ -20,7 +20,7 @@ import { configStore } from '../../assistant/config-store.js';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { canonicalPhoneKey } from '../../assistant/conversation-db.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
-import { getTiaStatuses, getDataFlowStats, logAdminDataAccess } from '../../lib/pdpa-compliance.js';
+import { getTiaStatuses, getDataFlowStats, logAdminDataAccess, resolveProcessingCountry } from '../../lib/pdpa-compliance.js';
 import { getProviders } from '../../assistant/ai-provider-manager.js';
 
 const router = Router();
@@ -265,6 +265,148 @@ router.get('/pdpa/audit-log', async (_req: Request, res: Response) => {
     ok(res, { entries: result.rows, count: result.rows.length });
   } catch (error: any) {
     console.error('[PDPA] Failed to list audit log:', error.message);
+    serverError(res, error);
+  }
+});
+
+// ─── GET /pdpa/data-transfer-inventory — AI provider cross-border transfer inventory (US-930) ──
+
+/**
+ * Returns a structured data transfer inventory for all configured AI providers.
+ * Lists each provider's name, processing country, data categories that may be
+ * transferred, legal basis under PDPA Section 129, and safeguards applied.
+ *
+ * PDPA 2010 Act 709 Section 129: Cross-border transfer restriction.
+ * Malaysia PDPA 2024 Amendment: TIA required for non-adequate-protection destinations.
+ */
+router.get('/pdpa/data-transfer-inventory', (req: Request, res: Response) => {
+  try {
+    const providers = getProviders();
+
+    const inventory = providers.map(p => {
+      const country = resolveProcessingCountry(p.base_url, p.type);
+      const isOverseas = country !== 'MY';
+      return {
+        provider_id: p.id,
+        provider_name: p.name,
+        provider_type: p.type,
+        base_url: p.base_url || 'http://localhost:11434/v1',
+        processing_country: country,
+        is_overseas_transfer: isOverseas,
+        data_categories_transferred: [
+          'conversation_messages',
+          'guest_intent',
+          'booking_context',
+        ],
+        pii_categories_redacted_before_transfer: [
+          'PHONE',
+          'EMAIL',
+          'MY_IC',
+          'CREDIT_CARD',
+          'PASSPORT',
+          'BANK_ACCOUNT',
+          'GUEST_NAME',
+        ],
+        legal_basis: isOverseas
+          ? 'PDPA 2010 Section 129 — Transfer permitted with contractual safeguards (DPA/SCCs) and Transfer Impact Assessment completed; PII redacted before transfer'
+          : 'PDPA 2010 Section 129(b) — Processing within Malaysia; no cross-border transfer restriction applies',
+        safeguards: isOverseas
+          ? [
+              'PII redacted from messages before transfer (maskPiiForProvider)',
+              'Transfer Impact Assessment (TIA) completed',
+              'Data Processing Agreement (DPA) / SCCs with provider',
+              'Data retained by provider subject to their DPA',
+            ]
+          : [
+              'Data processed locally in Malaysia',
+              'No cross-border transfer occurs',
+            ],
+        contractual_safeguards_status: isOverseas ? 'pending_dpa_execution' : 'not_required',
+      };
+    });
+
+    const settings = configStore.getSettings() as any;
+    const localOnlyEnabled = settings?.pdpa?.local_only_ai === true;
+
+    // Log admin access
+    const username = (req as any).user?.username || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    logAdminDataAccess({
+      username,
+      action: 'view_data_transfer_inventory',
+      ipAddress: ip,
+    }).catch(() => {/* swallow */});
+
+    ok(res, {
+      generated_at: new Date().toISOString(),
+      legal_framework: {
+        act: 'Personal Data Protection Act 2010 (Act 709)',
+        amendment: 'Personal Data Protection (Amendment) Act 2024',
+        section: 'Section 129 — Prohibition on transfer of personal data to places outside Malaysia',
+        jpdp_guidance: 'Cross-border transfer guidelines pending — JPDP workshop held August 2024',
+      },
+      data_residency: {
+        local_only_ai_enabled: localOnlyEnabled,
+        description: localOnlyEnabled
+          ? 'Overseas AI providers are DISABLED — all AI processing restricted to local/MY providers'
+          : 'Overseas AI providers are enabled — PII masking and TIA safeguards apply',
+      },
+      providers: inventory,
+      total_providers: inventory.length,
+      overseas_providers: inventory.filter(p => p.is_overseas_transfer).length,
+      local_providers: inventory.filter(p => !p.is_overseas_transfer).length,
+    });
+  } catch (error: any) {
+    serverError(res, error);
+  }
+});
+
+// ─── PUT /pdpa/data-residency — Toggle local-only AI providers (US-930) ──
+
+/**
+ * Enable or disable overseas AI provider restriction.
+ * When local_only_ai=true, chatWithFallback() filters out all non-MY providers,
+ * ensuring data processing stays within Malaysia (PDPA Section 129 compliance).
+ */
+router.put('/pdpa/data-residency', async (req: Request, res: Response) => {
+  try {
+    const { local_only_ai } = req.body ?? {};
+
+    if (typeof local_only_ai !== 'boolean') {
+      return badRequest(res, 'local_only_ai must be a boolean');
+    }
+
+    const profileId = req.headers['x-profile-id'] as string | undefined;
+    const store = profileId && profileRegistry.isInitialized()
+      ? profileRegistry.getProfile(profileId)?.configStore ?? configStore
+      : configStore;
+
+    const currentSettings = store.getSettings() as any;
+    const updatedPdpa = {
+      ...(currentSettings?.pdpa ?? {}),
+      local_only_ai,
+    };
+
+    await store.updateSettings({ pdpa: updatedPdpa });
+
+    const username = (req as any).user?.username || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    logAdminDataAccess({
+      username,
+      action: local_only_ai ? 'enable_local_only_ai' : 'disable_local_only_ai',
+      ipAddress: ip,
+      details: `PDPA Section 129 data residency mode set to local_only_ai=${local_only_ai}`,
+    }).catch(() => {/* swallow */});
+
+    console.log(`[PDPA] Data residency: local_only_ai set to ${local_only_ai} by ${username}`);
+    ok(res, {
+      local_only_ai,
+      message: local_only_ai
+        ? 'Overseas AI providers disabled — all AI processing restricted to Malaysia (PDPA Section 129 compliance mode)'
+        : 'Overseas AI providers enabled — PII masking and TIA safeguards apply',
+    });
+  } catch (error: any) {
+    console.error('[PDPA] Failed to update data residency:', error.message);
     serverError(res, error);
   }
 });

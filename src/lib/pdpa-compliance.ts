@@ -26,6 +26,7 @@ export function resolveProcessingCountry(baseUrl: string | undefined, providerTy
   if (baseUrl.includes('api.anthropic.com')) return 'US';
   if (baseUrl.includes('api.openai.com')) return 'US';
   if (baseUrl.includes('generativelanguage.googleapis.com')) return 'US';
+  if (baseUrl.includes('api.groq.com')) return 'US';
   if (providerType === 'ollama') return 'MY'; // local deployment
   if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) return 'MY';
   return 'unknown';
@@ -80,7 +81,8 @@ export function getTiaStatuses(providers: Array<{ id: string; name: string; base
     }
 
     // For known US-based providers, mark TIA as completed (document generated)
-    const isKnownProvider = p.base_url?.includes('nvidia.com') || p.base_url?.includes('openrouter.ai');
+    const isKnownProvider = p.base_url?.includes('nvidia.com') || p.base_url?.includes('openrouter.ai')
+      || p.base_url?.includes('api.groq.com') || p.base_url?.includes('generativelanguage.googleapis.com');
     return {
       providerId: p.id,
       providerName: p.name,

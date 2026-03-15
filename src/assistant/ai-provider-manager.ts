@@ -433,7 +433,8 @@ export async function providerChat(
 
 // ─── Fallback Chain ──────────────────────────────────────────────────
 
-/** Try all providers in priority order, return first success */
+/** Try all providers in priority order, return first success.
+ *  US-945 AC4: Global hard timeout (default 30s) prevents the entire fallback chain from blocking indefinitely. */
 export async function chatWithFallback(
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
@@ -442,7 +443,48 @@ export async function chatWithFallback(
   providerIds?: string[],
   tools?: any[]
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
+  // US-945 AC4: Enforce global hard timeout across the entire fallback chain
+  const settings = configStore.getSettings() as any;
+  const llmHardTimeoutMs = settings?.rateLimiting?.llmHardTimeoutMs ?? 30_000;
+
+  return withTimeout(
+    _chatWithFallbackInner(messages, maxTokens, temperature, jsonMode, providerIds, tools),
+    llmHardTimeoutMs,
+    'LLM-global',
+    Date.now()
+  ).catch(err => {
+    if (err instanceof TimeoutError) {
+      console.error(`[AI] ❌ Global hard timeout (${llmHardTimeoutMs}ms) exceeded — aborting all providers`);
+      const ai = getAISettings();
+      const apology = ai.slow_response_message
+        || "I'm sorry, all my AI systems are running slowly right now. Please try again in a moment, or contact our staff for immediate help.";
+      return { content: apology, provider: null };
+    }
+    throw err;
+  });
+}
+
+/** Inner implementation of chatWithFallback (separated for global timeout wrapping) */
+async function _chatWithFallbackInner(
+  messages: Array<{ role: string; content: string }>,
+  maxTokens: number,
+  temperature: number,
+  jsonMode: boolean = false,
+  providerIds?: string[],
+  tools?: any[]
+): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
   let providers = getProviders();
+
+  // US-930 (PDPA Section 129): When local_only_ai is enabled, restrict to local/MY providers only
+  const settingsForResidency = configStore.getSettings() as any;
+  if (settingsForResidency?.pdpa?.local_only_ai === true) {
+    const beforeCount = providers.length;
+    providers = providers.filter(p => resolveProcessingCountry(p.base_url, p.type) === 'MY');
+    const skipped = beforeCount - providers.length;
+    if (skipped > 0) {
+      console.log(`[AI] [PDPA] local_only_ai=true — skipped ${skipped} overseas provider(s), using ${providers.length} local provider(s)`);
+    }
+  }
 
   if (providerIds && providerIds.length > 0) {
     const idOrder = new Map(providerIds.map((id, i) => [id, i]));
