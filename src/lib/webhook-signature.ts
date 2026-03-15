@@ -80,3 +80,72 @@ export function validateWebhookSignature(
     next();
   };
 }
+
+// ─── Meta Cloud API signature validation (US-844) ────────────────────────────
+
+/**
+ * Returns an Express middleware that validates X-Hub-Signature-256 for
+ * Meta Cloud API webhook events using META_APP_SECRET.
+ *
+ * Differences from the general validateWebhookSignature:
+ *  - Uses META_APP_SECRET env var (Meta's own app secret)
+ *  - Returns HTTP 403 on rejection (not 401)
+ *  - Logs rejections at WARN level with source IP
+ *
+ * If META_APP_SECRET is not set, validation is skipped with a startup WARNING.
+ */
+export function validateMetaSignature(
+  secret: string
+): (req: Request, res: Response, next: NextFunction) => void {
+  if (!secret) {
+    console.warn(
+      '[webhook-signature] WARNING: META_APP_SECRET is not set. ' +
+        'Meta webhook signature validation is DISABLED — all inbound Meta webhooks are accepted. ' +
+        'Set META_APP_SECRET in your environment to enable HMAC verification.'
+    );
+    return (_req: Request, _res: Response, next: NextFunction) => next();
+  }
+
+  return (req: Request & { rawBody?: Buffer }, res: Response, next: NextFunction): void => {
+    const sigHeader = req.headers['x-hub-signature-256'];
+    const sourceIp = req.ip || req.socket?.remoteAddress || 'unknown';
+
+    if (!sigHeader || typeof sigHeader !== 'string') {
+      console.warn(
+        `[webhook-signature:meta] REJECTED: Missing X-Hub-Signature-256 header from IP=${sourceIp}`
+      );
+      res.status(403).json({ error: 'Missing X-Hub-Signature-256 header' });
+      return;
+    }
+
+    const rawBody = req.rawBody;
+    if (!rawBody || rawBody.length === 0) {
+      console.warn(
+        `[webhook-signature:meta] REJECTED: No raw body available for signature check from IP=${sourceIp}`
+      );
+      res.status(403).json({ error: 'Request body not available for signature check' });
+      return;
+    }
+
+    // Compute expected HMAC-SHA256 signature
+    const expectedSig = 'sha256=' +
+      crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+
+    // Constant-time comparison to prevent timing attacks
+    const sigBuf = Buffer.from(sigHeader);
+    const expectedBuf = Buffer.from(expectedSig);
+
+    if (
+      sigBuf.length !== expectedBuf.length ||
+      !crypto.timingSafeEqual(sigBuf, expectedBuf)
+    ) {
+      console.warn(
+        `[webhook-signature:meta] REJECTED: Invalid signature from IP=${sourceIp}`
+      );
+      res.status(403).json({ error: 'Invalid webhook signature' });
+      return;
+    }
+
+    next();
+  };
+}

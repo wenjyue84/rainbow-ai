@@ -7516,3 +7516,55 @@ This user story describes a webhook validation task but provides technical notes
 - prd.json has unicode chars — must use `node` not `python3` on Windows (encoding issue)
 - DB table creation is idempotent (CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS)
 - Menu items store is profile-scoped (not global) — makan-moments is default profile
+## Iteration 6 - Sun, Mar 15, 2026  8:27:27 AM
+Incomplete: Webhook HMAC signature validation for incoming Meta Cloud API events (ID: US-844) — attempt 2/3
+
+
+## Pre-analysis for US-844 (Gemini 2.5 Pro)
+This technical brief translates the provided Node.js user story into a plan for a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**Objective:** Implement HMAC-SHA256 signature validation for Meta WhatsApp webhooks.
+
+---
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: Create this file if it doesn't exist. It's the best practice location for the webhook endpoint logic.
+*   `lhdn_payroll_integration/hooks.py`: Not strictly necessary for modification if using a standard API endpoint, but would be used if a custom URL route is desired.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Endpoint:** The webhook will be a whitelisted Python function, exposed via the Frappe API. e.g., `POST /api/method/lhdn_payroll_integration.api.handle_meta_webhook`.
+*   **DocTypes:** The payload data (status updates, receipts) will likely be logged against a DocType such as `WhatsApp Message` or a new custom DocType like `Meta Webhook Log`.
+
+**3. Recommended Implementation Approach:**
+1.  Define a function `handle_meta_webhook` in `lhdn_payroll_integration/api.py`.
+2.  Decorate it with `@frappe.whitelist(allow_guest=True)` to make it a public endpoint. Frappe automatically bypasses CSRF checks for guest-allowed methods.
+3.  Retrieve the App Secret from `frappe.conf.get('meta_app_secret')`. If it's missing, log a startup warning and skip validation.
+4.  Inside the function, get the raw payload with `frappe.request.data` and the signature from the `X-Hub-Signature-256` request header.
+5.  Use Python's `hmac` and `hashlib` libraries to compute the expected signature: `hmac.new(secret, frappe.request.data, hashlib.sha256).hexdigest()`.
+6.  Securely compare the received signature with the computed one using `hmac.compare_digest()`.
+7.  If invalid, log a warning with the source IP (`frappe.local.request_ip`) and set `frappe.response.http_status_code = 403` before returning.
+
+**4. Edge Cases & Gotchas:**
+*   **Configuration:** The `META_APP_SECRET` must be stored as `meta_app_secret` in the site's `site_config.json`.
+*   **Whitelist:** `allow_guest=True` is mandatory, as the request originates from Meta's servers without a Frappe user session.
+*   **Header Parsing:** The signature header format is `sha256=<hex-digest>`. You must split the string to isolate the hex digest before comparison.
+*   **Data vs. Form Dict:** Use `frappe.request.data` to get the raw request body. Do not use `frappe.form_dict` as it will contain the parsed body, which invalidates the HMAC signature.
+
+
+## Iteration 7 - Story: US-844 - Webhook HMAC signature validation for incoming Meta Cloud API events
+### What was implemented
+- Added `validateMetaSignature()` middleware to `src/lib/webhook-signature.ts` that uses `META_APP_SECRET` env var
+- Returns HTTP 403 (not 401) on invalid/missing signature — distinct from the general webhook guard
+- Logs all rejections at WARN level with source IP for security auditing
+- If `META_APP_SECRET` is not set, validation is skipped with a startup WARNING log (permissive mode)
+- Applied the Meta-specific guard to all 3 Meta webhook routes: `/webhooks/meta/quality`, `/webhooks/meta/account`, `/webhooks/meta/template-status`
+- Added 6 unit tests covering: valid signature passes, missing header returns 403, tampered body returns 403, wrong secret returns 403, permissive mode when no secret, source IP logging on rejection
+
+### Patterns discovered
+- The project already had a general `validateWebhookSignature` using `WEBHOOK_SECRET` — Meta needs its own secret since Meta's Cloud API uses the app secret, not a custom webhook secret
+- `req.ip` and `req.socket.remoteAddress` are available for source IP logging
+- The existing test helpers (`makeMocks`) pattern was reusable — created `makeMetaMocks` with additional `ip` and `socket` fields
+
+### Gotchas
+- RTK (`rtk npm run build`) failed on this system — `rtk` command not found for npm. Used `npm run build` directly.

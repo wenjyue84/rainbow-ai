@@ -15,7 +15,7 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { validateWebhookSignature } from '../../lib/webhook-signature.js';
+import { validateWebhookSignature, validateMetaSignature } from '../../lib/webhook-signature.js';
 import { updateQualityState } from '../../lib/phone-quality.js';
 import type { QualityRating, QualityStatus } from '../../lib/phone-quality.js';
 import {
@@ -35,6 +35,10 @@ const router = Router();
 // warning appears at startup rather than on the first request.
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
 const signatureGuard = validateWebhookSignature(WEBHOOK_SECRET);
+
+// Meta Cloud API uses its own app secret for HMAC validation (US-844).
+const META_APP_SECRET = process.env.META_APP_SECRET ?? '';
+const metaSignatureGuard = validateMetaSignature(META_APP_SECRET);
 
 // ─── Evolution API inbound webhook ─────────────────────────────────────────
 // Evolution API POSTs message delivery events, connection status changes,
@@ -116,7 +120,7 @@ router.post('/webhooks/events', signatureGuard, async (req: Request, res: Respon
 // Meta POSTs phone number quality updates when the quality rating transitions
 // between GREEN/YELLOW/RED or when status changes to FLAGGED/RESTRICTED.
 // Must be subscribed in the Meta App Dashboard alongside the messages field.
-router.post('/webhooks/meta/quality', signatureGuard, (req: Request, res: Response) => {
+router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
 
@@ -177,7 +181,7 @@ router.post('/webhooks/meta/quality', signatureGuard, (req: Request, res: Respon
 //   changes[0].value.event = 'ACCOUNT_VIOLATION' | 'ACCOUNT_RESTRICTION'
 //   changes[0].value.violation_info.violation_type  (for ACCOUNT_VIOLATION)
 //   changes[0].value.restriction_info[]             (for ACCOUNT_RESTRICTION)
-router.post('/webhooks/meta/account', signatureGuard, (req: Request, res: Response) => {
+router.post('/webhooks/meta/account', metaSignatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
 
@@ -254,7 +258,7 @@ router.post('/webhooks/meta/account', signatureGuard, (req: Request, res: Respon
 //   value.event = 'APPROVED' | 'PAUSED' | 'DISABLED' | etc.
 //   value.previous_category / value.new_category (optional)
 //   value.reason (optional — e.g. 'LOW_QUALITY')
-router.post('/webhooks/meta/template-status', signatureGuard, (req: Request, res: Response) => {
+router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
 
