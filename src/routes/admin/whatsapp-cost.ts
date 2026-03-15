@@ -1,15 +1,17 @@
 /**
- * WhatsApp Message Cost Admin API (US-495, US-845)
+ * WhatsApp Message Cost Admin API (US-495, US-845, US-963)
  *
  * Tracks per-message WhatsApp template costs under July 2025 pricing model.
  * US-845: Adds comparison endpoint showing costs under both per-message and
  *         per-conversation models with active model indicator.
+ * US-963: Adds volume-tier discount status endpoint and CSW-free/charged utility split.
  *
  * GET  /analytics/whatsapp-cost              — cost summary (daily, by type, top countries)
  * GET  /analytics/whatsapp-cost/daily        — detailed daily breakdown
  * GET  /analytics/whatsapp-cost/comparison   — both pricing models side-by-side
  * GET  /analytics/whatsapp-cost/rate-table   — current rate table
  * PUT  /analytics/whatsapp-cost/rate-table   — update rate table
+ * GET  /analytics/whatsapp-cost/volume-tiers — current volume-tier discount status (US-963)
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -22,6 +24,7 @@ import {
   queryWhatsappDailyCosts,
   queryWhatsappCostComparison,
   getActivePricingModel,
+  queryVolumeTierStatus,
 } from '../../lib/whatsapp-cost.js';
 
 const router = Router();
@@ -95,6 +98,23 @@ router.get('/analytics/whatsapp-cost/comparison', async (req: Request, res: Resp
     });
   } catch (err: any) {
     console.error('[WACost] Comparison query failed:', err.message);
+    serverError(res, err);
+  }
+});
+
+/**
+ * GET /analytics/whatsapp-cost/volume-tiers (US-963)
+ *
+ * Returns current volume-tier discount status for utility and authentication.
+ * Shows monthly billable count, current tier, discount %, and next tier threshold.
+ */
+router.get('/analytics/whatsapp-cost/volume-tiers', async (req: Request, res: Response) => {
+  try {
+    const profileId = (req.query.profile_id as string) || 'pelangi';
+    const tiers = await queryVolumeTierStatus(profileId);
+    ok(res, { volumeTiers: tiers, profileId });
+  } catch (err: any) {
+    console.error('[WACost] Volume tier query failed:', err.message);
     serverError(res, err);
   }
 });

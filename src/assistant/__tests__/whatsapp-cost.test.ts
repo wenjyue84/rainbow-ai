@@ -1,5 +1,5 @@
 /**
- * Unit tests for US-495 + US-845: WhatsApp cost tracking.
+ * Unit tests for US-495 + US-845 + US-963: WhatsApp cost tracking.
  *
  * Tests:
  * - CSW detection logic (within/outside 24h window)
@@ -7,6 +7,8 @@
  * - Per-conversation cost estimation (legacy model)
  * - Rate table defaults for both pricing models
  * - Pricing model toggle
+ * - Volume-tier discount logic (US-963)
+ * - CSW-free vs charged utility dashboard split (US-963)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -63,6 +65,9 @@ import {
   estimateConversationCost,
   getActivePricingModel,
   recordWhatsappMessageCost,
+  getMonthlyBillableCount,
+  getVolumeTierDiscount,
+  queryVolumeTierStatus,
   _testExports,
 } from '../../lib/whatsapp-cost.js';
 
@@ -277,8 +282,8 @@ describe('Both Pricing Models — Sample Message Sequence', () => {
 
   it('per-message model charges more for many short messages in one session', async () => {
     // Scenario: 10 marketing messages to the same phone in one 24h window
-    // Per-message: 10 × MY marketing rate
-    // Per-conversation: 1 × MY conversation rate
+    // Per-message: 10 x MY marketing rate
+    // Per-conversation: 1 x MY conversation rate
     const myMarketingPerMsg = _testExports.DEFAULT_RATE_TABLE.marketing.MY;
     const myMarketingPerConv = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY;
 
@@ -292,8 +297,8 @@ describe('Both Pricing Models — Sample Message Sequence', () => {
 
   it('per-conversation model charges more for single messages across many phones', async () => {
     // Scenario: 1 message each to 10 different phones (10 conversations)
-    // Per-message: 10 × MY utility rate
-    // Per-conversation: 10 × MY conversation utility rate
+    // Per-message: 10 x MY utility rate
+    // Per-conversation: 10 x MY conversation utility rate
     const myUtilityPerMsg = _testExports.DEFAULT_RATE_TABLE.utility.MY;
     const myUtilityPerConv = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.MY;
 
@@ -383,5 +388,202 @@ describe('recordWhatsappMessageCost', () => {
     expect(acc!.billableMessages).toBe(0);
     expect(acc!.cswFreeMessages).toBe(1);
     expect(acc!.estimatedCostUsd).toBe(0);
+  });
+});
+
+// ── US-963: Volume-Tier Discount Tests ──────────────────────────────
+
+describe('Volume-Tier Discount Tables (US-963)', () => {
+  it('has volume tiers for utility and authentication', () => {
+    const tiers = _testExports.DEFAULT_VOLUME_TIERS;
+    expect(tiers).toHaveProperty('utility');
+    expect(tiers).toHaveProperty('authentication');
+    expect(tiers.utility.length).toBeGreaterThanOrEqual(2);
+    expect(tiers.authentication.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('utility tiers start at 1.0 (no discount) and decrease', () => {
+    const tiers = _testExports.DEFAULT_VOLUME_TIERS.utility;
+    expect(tiers[0].minMessages).toBe(0);
+    expect(tiers[0].discount).toBe(1.0);
+    for (let i = 1; i < tiers.length; i++) {
+      expect(tiers[i].discount).toBeLessThan(tiers[i - 1].discount);
+      expect(tiers[i].minMessages).toBeGreaterThan(tiers[i - 1].minMessages);
+    }
+  });
+
+  it('authentication tiers start at 1.0 and decrease', () => {
+    const tiers = _testExports.DEFAULT_VOLUME_TIERS.authentication;
+    expect(tiers[0].minMessages).toBe(0);
+    expect(tiers[0].discount).toBe(1.0);
+    for (let i = 1; i < tiers.length; i++) {
+      expect(tiers[i].discount).toBeLessThan(tiers[i - 1].discount);
+    }
+  });
+
+  it('marketing has no volume tiers', () => {
+    const tiers = _testExports.DEFAULT_VOLUME_TIERS;
+    expect(tiers.marketing).toBeUndefined();
+  });
+});
+
+describe('getMonthlyBillableCount (US-963)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    _testExports.resetCaches();
+  });
+
+  it('returns count from DB', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 5000 }] });
+    const count = await getMonthlyBillableCount('utility', 'pelangi');
+    expect(count).toBe(5000);
+  });
+
+  it('returns 0 on DB error', async () => {
+    mockDbExecute.mockRejectedValueOnce(new Error('connection failed'));
+    const count = await getMonthlyBillableCount('utility', 'pelangi');
+    expect(count).toBe(0);
+  });
+
+  it('returns 0 when no data', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    const count = await getMonthlyBillableCount('authentication', 'pelangi');
+    expect(count).toBe(0);
+  });
+});
+
+describe('getVolumeTierDiscount (US-963)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    _testExports.resetCaches();
+    // Mock: no custom volume tiers in DB → use defaults
+    mockDbSelect.mockResolvedValue([]);
+  });
+
+  it('returns 1.0 (no discount) for marketing', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 50000 }] });
+    const { discount } = await getVolumeTierDiscount('marketing', 'pelangi');
+    expect(discount).toBe(1.0);
+  });
+
+  it('returns 1.0 for utility with 0 monthly messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    const { discount, tier } = await getVolumeTierDiscount('utility', 'pelangi');
+    expect(discount).toBe(1.0);
+    expect(tier).toBe(0);
+  });
+
+  it('returns tier 1 discount for utility with 1500 monthly messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 1500 }] });
+    const { discount, tier, monthlyCount } = await getVolumeTierDiscount('utility', 'pelangi');
+    expect(monthlyCount).toBe(1500);
+    expect(tier).toBe(1);
+    expect(discount).toBe(0.85); // 15% off
+  });
+
+  it('returns tier 2 discount for utility with 15000 monthly messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 15000 }] });
+    const { discount, tier } = await getVolumeTierDiscount('utility', 'pelangi');
+    expect(tier).toBe(2);
+    expect(discount).toBe(0.75); // 25% off
+  });
+
+  it('returns highest tier for utility with 200000 monthly messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 200000 }] });
+    const { discount, tier } = await getVolumeTierDiscount('utility', 'pelangi');
+    expect(tier).toBe(3);
+    expect(discount).toBe(0.60); // 40% off
+  });
+
+  it('returns tier 1 discount for authentication with 2000 monthly messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 2000 }] });
+    const { discount, tier } = await getVolumeTierDiscount('authentication', 'pelangi');
+    expect(tier).toBe(1);
+    expect(discount).toBe(0.90); // 10% off
+  });
+});
+
+describe('estimateMessageCost with volume-tier discounts (US-963)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    _testExports.resetCaches();
+    // Mock: no custom rate table or volume tiers → use defaults
+    mockDbSelect.mockResolvedValue([]);
+  });
+
+  it('applies volume discount to utility messages outside CSW', async () => {
+    // Mock: 1500 billable utility messages this month → 15% discount
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 1500 }] });
+    const cost = await estimateMessageCost('utility', 'MY', false, 'pelangi');
+    const baseRate = _testExports.DEFAULT_RATE_TABLE.utility.MY;
+    expect(cost).toBeCloseTo(baseRate * 0.85, 6);
+  });
+
+  it('utility within CSW is still free regardless of volume tier', async () => {
+    const cost = await estimateMessageCost('utility', 'MY', true, 'pelangi');
+    expect(cost).toBe(0);
+  });
+
+  it('applies volume discount to authentication messages', async () => {
+    // Mock: 5000 billable auth messages → 10% discount
+    mockDbExecute.mockResolvedValueOnce({ rows: [{ total: 5000 }] });
+    const cost = await estimateMessageCost('authentication', 'MY', false, 'pelangi');
+    const baseRate = _testExports.DEFAULT_RATE_TABLE.authentication.MY;
+    expect(cost).toBeCloseTo(baseRate * 0.90, 6);
+  });
+
+  it('marketing never gets volume discount', async () => {
+    const cost = await estimateMessageCost('marketing', 'MY', false, 'pelangi');
+    expect(cost).toBe(_testExports.DEFAULT_RATE_TABLE.marketing.MY);
+  });
+
+  it('service messages remain free', async () => {
+    const cost = await estimateMessageCost('service', 'MY', false, 'pelangi');
+    expect(cost).toBe(0);
+  });
+});
+
+describe('queryVolumeTierStatus (US-963)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    _testExports.resetCaches();
+    mockDbSelect.mockResolvedValue([]);
+  });
+
+  it('returns status for utility and authentication', async () => {
+    // Mock: 500 utility, 100 auth messages
+    mockDbExecute
+      .mockResolvedValueOnce({ rows: [{ total: 500 }] })  // utility count
+      .mockResolvedValueOnce({ rows: [{ total: 100 }] }); // auth count
+
+    const status = await queryVolumeTierStatus('pelangi');
+    expect(status).toHaveLength(2);
+
+    const utilityStatus = status.find(s => s.templateType === 'utility');
+    expect(utilityStatus).toBeDefined();
+    expect(utilityStatus!.monthlyBillableCount).toBe(500);
+    expect(utilityStatus!.currentTier).toBe(0);
+    expect(utilityStatus!.discountMultiplier).toBe(1.0);
+    expect(utilityStatus!.discountPercent).toBe('0%');
+    expect(utilityStatus!.nextTierAt).toBe(1000);
+
+    const authStatus = status.find(s => s.templateType === 'authentication');
+    expect(authStatus).toBeDefined();
+    expect(authStatus!.monthlyBillableCount).toBe(100);
+    expect(authStatus!.currentTier).toBe(0);
+  });
+
+  it('shows next tier as null when at highest tier', async () => {
+    // Mock: 200K messages → highest tier
+    mockDbExecute
+      .mockResolvedValueOnce({ rows: [{ total: 200000 }] })  // utility
+      .mockResolvedValueOnce({ rows: [{ total: 200000 }] }); // auth
+
+    const status = await queryVolumeTierStatus('pelangi');
+    const utilityStatus = status.find(s => s.templateType === 'utility');
+    expect(utilityStatus!.currentTier).toBe(3);
+    expect(utilityStatus!.discountPercent).toBe('40%');
+    expect(utilityStatus!.nextTierAt).toBeNull();
+    expect(utilityStatus!.nextTierDiscount).toBeNull();
   });
 });

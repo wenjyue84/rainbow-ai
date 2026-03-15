@@ -1,13 +1,15 @@
 /**
- * whatsapp-cost.ts — WhatsApp cost tracking (US-495, US-845)
+ * whatsapp-cost.ts — WhatsApp cost tracking (US-495, US-845, US-963)
  *
  * Tracks outbound message costs under the Meta July 2025 pricing model:
  * - Per-message pricing (not conversation-based)
  * - Template types: marketing, utility, authentication, service
  * - Utility templates within Customer Service Window (CSW) are FREE
  * - Cost varies by template_type + recipient country
+ * - Volume-tier discounts for utility and authentication (US-963)
  *
  * US-845: Adds per-conversation legacy model estimation for admin comparison.
+ * US-963: Adds volume-tier discounts and CSW-free/charged utility split in dashboard.
  * The billing.pricingModel setting toggles which model is active.
  *
  * Architecture mirrors llm-cost-budget.ts: in-memory accumulator + async DB flush.
@@ -78,6 +80,32 @@ const DEFAULT_RATE_TABLE: Record<string, Record<string, number>> = {
   },
 };
 
+// ─── Volume-Tier Discount Table (US-963) ─────────────────────────────
+// Meta applies volume-based discounts for utility and authentication
+// templates per WABA per month. Marketing has no volume discounts.
+// Thresholds are monthly message counts; discount is a multiplier (0.85 = 15% off).
+// Stored in app_settings as 'whatsapp_volume_tiers' for admin configurability.
+
+export interface VolumeTier {
+  minMessages: number;
+  discount: number; // multiplier, e.g. 0.85 = 15% discount
+}
+
+const DEFAULT_VOLUME_TIERS: Record<string, VolumeTier[]> = {
+  utility: [
+    { minMessages: 0,      discount: 1.00 },  // Standard rate
+    { minMessages: 1000,   discount: 0.85 },  // 15% off after 1K/month
+    { minMessages: 10000,  discount: 0.75 },  // 25% off after 10K/month
+    { minMessages: 100000, discount: 0.60 },  // 40% off after 100K/month
+  ],
+  authentication: [
+    { minMessages: 0,      discount: 1.00 },
+    { minMessages: 1000,   discount: 0.90 },  // 10% off after 1K/month
+    { minMessages: 10000,  discount: 0.80 },  // 20% off after 10K/month
+    { minMessages: 100000, discount: 0.70 },  // 30% off after 100K/month
+  ],
+};
+
 // ─── Legacy Per-Conversation Rate Table (US-845) ────────────────────
 // Under the old model, one rate covers all messages within a 24h conversation window.
 // These are used for comparison display only.
@@ -142,7 +170,7 @@ export async function getActivePricingModel(): Promise<PricingModel> {
 /**
  * Estimate cost under legacy per-conversation model.
  * In per-conversation pricing, you pay once per 24h window per unique phone+category.
- * For estimation from per-message data: cost = uniqueConversations × conversationRate.
+ * For estimation from per-message data: cost = uniqueConversations x conversationRate.
  */
 export function estimateConversationCost(
   templateType: TemplateType,
@@ -208,6 +236,87 @@ async function getRateTable(): Promise<Record<string, Record<string, number>>> {
   return DEFAULT_RATE_TABLE;
 }
 
+// ─── Volume-Tier Discount Logic (US-963) ─────────────────────────────
+
+let _volumeTierCache: Record<string, VolumeTier[]> | null = null;
+let _volumeTierCacheExpiry = 0;
+const VOLUME_TIER_CACHE_TTL = 300_000; // 5 min
+
+async function getVolumeTiers(): Promise<Record<string, VolumeTier[]>> {
+  const now = Date.now();
+  if (_volumeTierCache && now < _volumeTierCacheExpiry) return _volumeTierCache;
+
+  try {
+    const rows = await db.select().from(appSettings).where(eq(appSettings.key, 'whatsapp_volume_tiers'));
+    if (rows.length > 0 && rows[0].value) {
+      const parsed = JSON.parse(rows[0].value);
+      if (typeof parsed === 'object' && parsed !== null) {
+        _volumeTierCache = parsed;
+        _volumeTierCacheExpiry = now + VOLUME_TIER_CACHE_TTL;
+        return parsed;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[WACost] Failed to load volume tiers from DB, using defaults:', err.message);
+  }
+
+  _volumeTierCache = DEFAULT_VOLUME_TIERS;
+  _volumeTierCacheExpiry = now + VOLUME_TIER_CACHE_TTL;
+  return DEFAULT_VOLUME_TIERS;
+}
+
+/**
+ * Get the current month's billable message count for a template type.
+ * Used to determine which volume-tier discount applies.
+ */
+export async function getMonthlyBillableCount(templateType: string, profileId: string = 'pelangi'): Promise<number> {
+  try {
+    const monthStart = new Date().toISOString().slice(0, 7) + '-01'; // YYYY-MM-01
+    const result = await db.execute(sql`
+      SELECT COALESCE(SUM(billable_messages), 0)::int AS total
+      FROM whatsapp_cost_daily
+      WHERE template_type = ${templateType}
+        AND profile_id = ${profileId}
+        AND date >= ${monthStart}
+    `);
+    return Number((result as any).rows[0]?.total ?? 0);
+  } catch (err: any) {
+    console.warn('[WACost] Monthly count query failed:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Determine the volume-tier discount multiplier for a given template type
+ * based on current month's billable message count.
+ * Returns 1.0 (no discount) for types without tiers (marketing, service).
+ */
+export async function getVolumeTierDiscount(
+  templateType: string,
+  profileId: string = 'pelangi'
+): Promise<{ discount: number; tier: number; monthlyCount: number }> {
+  const tiers = await getVolumeTiers();
+  const typeTiers = tiers[templateType];
+  if (!typeTiers || typeTiers.length === 0) {
+    return { discount: 1.0, tier: 0, monthlyCount: 0 };
+  }
+
+  const monthlyCount = await getMonthlyBillableCount(templateType, profileId);
+
+  // Find the highest tier whose minMessages threshold is met
+  let applicableTier = 0;
+  let discount = 1.0;
+  for (let i = typeTiers.length - 1; i >= 0; i--) {
+    if (monthlyCount >= typeTiers[i].minMessages) {
+      applicableTier = i;
+      discount = typeTiers[i].discount;
+      break;
+    }
+  }
+
+  return { discount, tier: applicableTier, monthlyCount };
+}
+
 // ─── CSW (Customer Service Window) Detection ────────────────────────
 
 /**
@@ -234,11 +343,13 @@ export async function isWithinCSW(phone: string): Promise<boolean> {
 /**
  * Estimate the cost of a single outbound message.
  * Returns 0 for service messages and utility messages within CSW.
+ * Applies volume-tier discounts for utility and authentication (US-963).
  */
 export async function estimateMessageCost(
   templateType: TemplateType,
   countryCode: string,
-  withinCSW: boolean
+  withinCSW: boolean,
+  profileId: string = 'pelangi'
 ): Promise<number> {
   // Service messages are always free
   if (templateType === 'service') return 0;
@@ -249,6 +360,13 @@ export async function estimateMessageCost(
   const rateTable = await getRateTable();
   const typeRates = rateTable[templateType] || rateTable['marketing'] || {};
   const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
+
+  // Apply volume-tier discount for utility and authentication (US-963)
+  if (templateType === 'utility' || templateType === 'authentication') {
+    const { discount } = await getVolumeTierDiscount(templateType, profileId);
+    return rate * discount;
+  }
+
   return rate;
 }
 
@@ -262,7 +380,7 @@ export async function recordWhatsappMessageCost(input: WhatsappMessageCostInput)
   const { phone, templateType, countryCode = 'MY', profileId = 'pelangi' } = input;
 
   const withinCSW = await isWithinCSW(phone);
-  const cost = await estimateMessageCost(templateType, countryCode, withinCSW);
+  const cost = await estimateMessageCost(templateType, countryCode, withinCSW, profileId);
   const isFreeCSW = templateType === 'utility' && withinCSW;
 
   const acc = getOrCreateAccumulator(profileId, templateType, countryCode);
@@ -378,7 +496,7 @@ export async function queryWhatsappCostSummary(options: {
   days?: number;
 }): Promise<{
   daily: Array<{ day: string; totalMessages: number; billableMessages: number; cswFreeMessages: number; estimatedCostUsd: number }>;
-  byTemplateType: Array<{ templateType: string; totalMessages: number; billableMessages: number; estimatedCostUsd: number }>;
+  byTemplateType: Array<{ templateType: string; totalMessages: number; billableMessages: number; cswFreeMessages: number; estimatedCostUsd: number }>;
   topCountries: Array<{ countryCode: string; totalMessages: number; estimatedCostUsd: number }>;
   totalEstimatedCostUsd: number;
 }> {
@@ -400,12 +518,13 @@ export async function queryWhatsappCostSummary(options: {
     ORDER BY date ASC
   `);
 
-  // By template type
+  // By template type — split utility into CSW-free and charged lines (US-963)
   const byTypeResult = await db.execute(sql`
     SELECT
       template_type,
       SUM(total_messages)::int AS total_messages,
       SUM(billable_messages)::int AS billable_messages,
+      SUM(csw_free_messages)::int AS csw_free_messages,
       COALESCE(SUM(estimated_cost_usd), 0)::real AS estimated_cost_usd
     FROM whatsapp_cost_daily
     WHERE date >= ${since} ${profileFilter}
@@ -434,12 +553,43 @@ export async function queryWhatsappCostSummary(options: {
     estimatedCostUsd: Number(r.estimated_cost_usd),
   }));
 
-  const byTemplateType = (byTypeResult as any).rows.map((r: any) => ({
-    templateType: r.template_type,
-    totalMessages: Number(r.total_messages),
-    billableMessages: Number(r.billable_messages),
-    estimatedCostUsd: Number(r.estimated_cost_usd),
-  }));
+  // Split utility into CSW-free and charged lines for dashboard (US-963)
+  const byTemplateType: Array<{ templateType: string; totalMessages: number; billableMessages: number; cswFreeMessages: number; estimatedCostUsd: number }> = [];
+  for (const r of (byTypeResult as any).rows) {
+    const cswFree = Number(r.csw_free_messages || 0);
+    const billable = Number(r.billable_messages || 0);
+    const total = Number(r.total_messages || 0);
+    const cost = Number(r.estimated_cost_usd || 0);
+
+    if (r.template_type === 'utility' && cswFree > 0) {
+      // Charged utility line
+      byTemplateType.push({
+        templateType: 'utility',
+        totalMessages: billable,
+        billableMessages: billable,
+        cswFreeMessages: 0,
+        estimatedCostUsd: cost,
+      });
+      // CSW-free utility line (separate)
+      byTemplateType.push({
+        templateType: 'utility_csw_free',
+        totalMessages: cswFree,
+        billableMessages: 0,
+        cswFreeMessages: cswFree,
+        estimatedCostUsd: 0,
+      });
+    } else {
+      byTemplateType.push({
+        templateType: r.template_type,
+        totalMessages: total,
+        billableMessages: billable,
+        cswFreeMessages: cswFree,
+        estimatedCostUsd: cost,
+      });
+    }
+  }
+  // Sort: charged items first, then free
+  byTemplateType.sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd);
 
   const topCountries = (topCountriesResult as any).rows.map((r: any) => ({
     countryCode: r.country_code,
@@ -450,6 +600,45 @@ export async function queryWhatsappCostSummary(options: {
   const totalEstimatedCostUsd = daily.reduce((sum: number, d: any) => sum + d.estimatedCostUsd, 0);
 
   return { daily, byTemplateType, topCountries, totalEstimatedCostUsd };
+}
+
+// ─── Volume-Tier Status Query (US-963) ───────────────────────────────
+
+/**
+ * Get current volume-tier status for all discount-eligible template types.
+ * Returns monthly count, current tier, discount multiplier, and next tier threshold.
+ */
+export async function queryVolumeTierStatus(profileId: string = 'pelangi'): Promise<Array<{
+  templateType: string;
+  monthlyBillableCount: number;
+  currentTier: number;
+  discountMultiplier: number;
+  discountPercent: string;
+  nextTierAt: number | null;
+  nextTierDiscount: number | null;
+}>> {
+  const tiers = await getVolumeTiers();
+  const result: Array<any> = [];
+
+  for (const templateType of ['utility', 'authentication']) {
+    const typeTiers = tiers[templateType];
+    if (!typeTiers || typeTiers.length === 0) continue;
+
+    const { discount, tier, monthlyCount } = await getVolumeTierDiscount(templateType, profileId);
+    const nextTier = tier + 1 < typeTiers.length ? typeTiers[tier + 1] : null;
+
+    result.push({
+      templateType,
+      monthlyBillableCount: monthlyCount,
+      currentTier: tier,
+      discountMultiplier: discount,
+      discountPercent: `${((1 - discount) * 100).toFixed(0)}%`,
+      nextTierAt: nextTier ? nextTier.minMessages : null,
+      nextTierDiscount: nextTier ? nextTier.discount : null,
+    });
+  }
+
+  return result;
 }
 
 // ─── Daily Aggregation Job ───────────────────────────────────────────
@@ -619,6 +808,7 @@ export async function queryWhatsappCostComparison(options: {
 export const _testExports = {
   DEFAULT_RATE_TABLE,
   DEFAULT_CONVERSATION_RATE_TABLE,
+  DEFAULT_VOLUME_TIERS,
   accumulators,
   todayUTC,
   /** Reset all module-level caches (for testing) */
@@ -627,5 +817,7 @@ export const _testExports = {
     _rateTableCacheExpiry = 0;
     _pricingModelCache = null;
     _pricingModelCacheExpiry = 0;
+    _volumeTierCache = null;
+    _volumeTierCacheExpiry = 0;
   },
 };

@@ -10396,3 +10396,27 @@ Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: U
 - PACING_PAUSE_ERROR_CODE = 131049. Hard failures (131021, 131026, etc.) must NOT be queued as pacing holds.
 - `campaign_pacing_events` uses raw SQL DDL in config-db.ts (not Drizzle migration) for consistency with existing pattern.
 - Build uses esbuild (not tsc) — pre-existing type errors do not block build.
+## Iteration 1 - Mon, Mar 16, 2026  1:27:10 AM
+Completed: Detect and handle portfolio pacing pause signals for batch sends (ID: US-962) in 17m
+
+
+## Iteration [Ralph] - Story: US-963 Implement per-message cost model with free CSW utility window tracking
+### What was implemented
+- **AC1 (CSW tracking)**: `isWithinCSW()` checks rainbow_messages for inbound user messages within 24h — already existed, verified working
+- **AC2 (Utility within CSW tagged cost: 0)**: `estimateMessageCost()` returns 0 for utility+withinCSW; accumulator tracks as `cswFreeMessages`
+- **AC3 (Utility outside CSW charged at standard rate)**: Rate table lookup by country code, falls back to `_default`
+- **AC4 (Marketing always charged)**: Marketing bypasses CSW check entirely
+- **AC5 (Authentication always charged)**: Authentication bypasses CSW check entirely
+- **AC6 (Cost dashboard CSW-free/charged split)**: `queryWhatsappCostSummary()` splits utility into `utility` (charged) and `utility_csw_free` lines in `byTemplateType`
+- **AC7 (Volume-tier discounts)**: `getVolumeTierDiscount()` applies monthly threshold-based multipliers (15%/25%/40% for utility, 10%/20%/30% for auth)
+- **New admin endpoint**: GET /analytics/whatsapp-cost/volume-tiers returns current tier status per template type
+### Files changed
+- `src/lib/whatsapp-cost.ts` — Added VolumeTier interface, DEFAULT_VOLUME_TIERS, getVolumeTiers, getMonthlyBillableCount, getVolumeTierDiscount, queryVolumeTierStatus; updated estimateMessageCost with profileId + discount; updated queryWhatsappCostSummary with utility CSW split; updated _testExports
+- `src/routes/admin/whatsapp-cost.ts` — Added volume-tiers endpoint, imported queryVolumeTierStatus
+- `src/assistant/__tests__/whatsapp-cost.test.ts` — Updated with 54 tests covering all 7 ACs including volume-tier discount logic
+### Patterns discovered
+- Worker-1 had already implemented US-963 — merging from .spiral-workers/worker-1/ was fastest path (same pattern as US-949)
+- `estimateMessageCost()` needed profileId param added for volume-tier lookups — backward compatible with default 'pelangi'
+- `queryWhatsappCostSummary` byTemplateType split: utility rows with cswFree > 0 produce two lines (utility + utility_csw_free)
+### Status
+✅ Build passes (3 pre-existing warnings). 54/54 tests pass. All 7 acceptance criteria verified. Story marked passes=true.
