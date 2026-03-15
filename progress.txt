@@ -8744,3 +8744,24 @@ Incomplete: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: 
 ### Gotchas
 - The language was already being injected via kb-loading.ts system prompt, so the feature was partially working. The gap was that `detectedLanguage` wasn't passed as a separate parameter to AI functions, so the stronger `injectLanguageInstruction()` in ai-response-generator.ts never fired.
 - generateReplyOnly has its own language instruction fallback ("Reply in the same language as the user") when detectedLanguage is not passed — less explicit than "Reply entirely in Chinese."
+## Iteration 5 - Sun, Mar 15, 2026  6:46:20 PM
+Incomplete: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: US-890) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-875 In-chat room amenity and housekeeping request handling
+### What was implemented
+- Story was ALREADY FULLY IMPLEMENTED in codebase — verified all 6 acceptance criteria:
+  1. Intents classified in routing.json: EXTRA_TOWEL, EXTRA_PILLOW, ROOM_CLEANING, MAINTENANCE_ISSUE, WIFI_PASSWORD, extra_amenity_request (all with action: "service_request")
+  2. service_requests table in schema-tables.ts with jid, profile, room_number, request_type, details, status, staff_notified, created_at, resolved_at
+  3. WhatsApp notification to staff via handleServiceRequest() in action-dispatch.ts (fire-and-forget to staff_notify_phone from settings.json)
+  4. Guest confirmation with configurable wait times from settings.json service_requests.wait_times
+  5. Admin API: GET /service-requests, GET /service-requests/:id, PATCH /service-requests/:id/resolve (with completion message to guest)
+  6. Pelangi profile guard: state.profileId !== 'pelangi' blocks non-Pelangi profiles
+- Intent keywords defined in intent-keywords.json for en, ms, zh languages
+- Admin route mounted in routes/admin/index.ts
+- CRUD helpers in src/lib/service-requests.ts
+### Patterns discovered
+- Like US-874, this story was implemented in prior iterations but not marked passes=true in prd.json
+- handleServiceRequest at action-dispatch.ts:564 handles all service_request action types
+### Status
+✅ All acceptance criteria verified. Build passes (3 warnings, no errors). Marked passes=true.
