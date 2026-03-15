@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDLQJobs, retryDLQJob } from '../../lib/message-queue.js';
+import { getRawEventById } from '../../lib/webhook-raw-events.js';
 
 const router = Router();
 
@@ -19,6 +20,34 @@ router.get('/dlq', async (_req: Request, res: Response) => {
       count: jobs.length,
       jobs,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// US-895: GET /dlq/:jobId — return DLQ job with associated raw webhook payload
+router.get('/dlq/:jobId', async (req: Request, res: Response) => {
+  const jobId = req.params.jobId as string;
+  if (!jobId) {
+    res.status(400).json({ error: 'jobId is required' });
+    return;
+  }
+
+  try {
+    const jobs = await getDLQJobs();
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) {
+      res.status(404).json({ error: `DLQ job ${jobId} not found` });
+      return;
+    }
+
+    // Fetch associated raw event if available
+    let rawEvent = null;
+    if (job.rawEventId) {
+      rawEvent = await getRawEventById(job.rawEventId);
+    }
+
+    res.json({ job, rawEvent });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

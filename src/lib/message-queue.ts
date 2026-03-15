@@ -180,6 +180,7 @@ export async function initMessageQueue(
               data: job.data,
               error: err.message,
               failedAt: new Date().toISOString(),
+              rawEventId: job.data?.rawEventId ?? null, // US-895: reference to raw webhook payload
             } as any);
             dlqCount++;
             // Fire alert if DLQ depth exceeds threshold
@@ -323,6 +324,7 @@ export interface DLQJob {
   failedAt: string;
   retryCount: number;
   originalJobId: string | undefined;
+  rawEventId: string | null; // US-895: reference to webhook_raw_events row
 }
 
 /**
@@ -343,6 +345,7 @@ export async function getDLQJobs(): Promise<DLQJob[]> {
         failedAt: data.failedAt || new Date(job.timestamp).toISOString(),
         retryCount: job.attemptsMade || 0,
         originalJobId: data.originalJobId,
+        rawEventId: data.rawEventId ?? null, // US-895
       };
     });
   } catch (err: any) {

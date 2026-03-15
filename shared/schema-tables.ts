@@ -5,7 +5,7 @@
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
@@ -448,3 +448,23 @@ export const webchatConsentLog = pgTable("webchat_consent_log", {
 
 export type WebchatConsentLog = typeof webchatConsentLog.$inferSelect;
 export type InsertWebchatConsentLog = typeof webchatConsentLog.$inferInsert;
+
+// ─── Webhook Raw Events (US-895) ─────────────────────────────────────
+// Persists every inbound webhook payload to durable storage before processing.
+// Enables replay of lost/failed events from the DLQ.
+
+export const webhookRawEvents = pgTable("webhook_raw_events", {
+  eventId: varchar("event_id").primaryKey().default(sql`gen_random_uuid()`),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  source: varchar("source", { length: 64 }).notNull(), // 'meta', 'evolution', 'digiman', 'baileys', etc.
+  profile: varchar("profile", { length: 64 }).notNull().default('pelangi'),
+  payload: jsonb("payload").notNull(),
+  processed: boolean("processed").notNull().default(false),
+}, (table) => ([
+  index("idx_webhook_raw_events_received_at").on(table.receivedAt),
+  index("idx_webhook_raw_events_source").on(table.source),
+  index("idx_webhook_raw_events_processed").on(table.processed),
+]));
+
+export type WebhookRawEvent = typeof webhookRawEvents.$inferSelect;
+export type InsertWebhookRawEvent = typeof webhookRawEvents.$inferInsert;

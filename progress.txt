@@ -8388,3 +8388,46 @@ Incomplete: Prompt injection input sanitisation layer in message processing pipe
 ### Gotchas
 - The conversation cost estimation uses a simplistic 3-messages-per-conversation heuristic — this overestimates for high-volume messaging but is accurate enough for dashboard comparison
 - Conversation rate table rates differ from per-message rates for some countries (e.g., SG marketing: $0.0858/conv vs $0.0516/msg)
+## Iteration 3 - Sun, Mar 15, 2026  5:36:04 PM
+Incomplete: Prompt injection input sanitisation layer in message processing pipeline (ID: US-927) — attempt 2/3
+
+
+## Iteration - Story: US-895 Persist raw webhook payloads to durable storage before processing
+### What was implemented
+- Added `webhook_raw_events` Drizzle table (event_id UUID PK, received_at, source, profile, payload JSONB, processed BOOLEAN) with indexes on received_at, source, processed
+- Created `src/lib/webhook-raw-events.ts` module: `persistRawEvent()` (fire-and-forget insert), `markRawEventProcessed()`, `getRawEventById()` — all with their own try/catch to never block the webhook 200 response
+- Added `rawEventId` optional field to `IncomingMessage` type in `src/assistant/types.ts`
+- Modified ALL webhook routes in `src/routes/webhooks/index.ts` to call `persistRawEvent()` before processing: evolution, digiman, events, meta:quality, meta:account, meta:template-status, meta:capability, kds, meta:messages
+- Meta messages route (`/webhooks/meta/messages`) attaches `rawEventId` to each parsed IncomingMessage so it flows through BullMQ to the DLQ
+- Updated DLQ entry creation in `src/lib/message-queue.ts` to include `rawEventId` from `job.data.rawEventId`
+- Extended `DLQJob` interface with `rawEventId: string | null`
+- Added `GET /dlq/:jobId` admin route in `src/routes/admin/dlq.ts` that returns the DLQ job + associated raw event payload via `getRawEventById()`
+- Added raw event pruning (30-day retention) to `src/lib/data-retention.ts` runRetentionPurge — deletes webhook_raw_events where received_at < 30 days ago
+- Updated `PurgeResult` interface to include `rawEvents` count
+- Created 12 Vitest tests in `src/assistant/__tests__/webhook-raw-events.test.ts`: insert success, DB failure resilience, persistence before downstream throw, default/custom profile, markProcessed, getRawEventById (found/not-found/error), IncomingMessage type compatibility
+
+### Patterns discovered
+- Fire-and-forget pattern: `persistRawEvent().catch(() => {})` — the `.catch(() => {})` prevents unhandled rejection while ensuring the webhook 200 response is never delayed
+- The Meta messages route is the only one that needs `rawEventId` tracking on IncomingMessage because it's the only one that feeds messages into BullMQ via the message handler pipeline
+- jsonb import from `drizzle-orm/pg-core` was needed for the payload column
+
+### Gotchas
+- Must import `jsonb` separately from drizzle-orm/pg-core — it wasn't in the existing imports
+- The DLQ job data structure is `{ originalJobId, data, error, failedAt }` — the `rawEventId` is added as a top-level field alongside these, NOT nested inside `data`
+
+## Iteration 4 - US-895: Persist raw webhook payloads to durable storage before processing
+### What was implemented
+- Story was already fully implemented by previous iterations (SPIRAL workers)
+- Verified all 5 acceptance criteria pass:
+  1. persistRawEvent() called in all 9 webhook handlers before processing
+  2. webhook_raw_events table has event_id UUID, received_at, profile, payload JSONB, processed BOOLEAN
+  3. DLQ entries reference rawEventId via IncomingMessage type and worker failed handler
+  4. GET /admin/dlq/:jobId returns associated raw event payload
+  5. 12 Vitest tests pass including "persists even when downstream processing throws"
+- Data retention scheduler prunes raw events older than 30 days
+- Build passes (esbuild, 3 warnings — pre-existing)
+### Patterns discovered
+- webhook-raw-events.ts uses fire-and-forget pattern (.catch(() => {})) to avoid blocking 200 response
+- Raw event ID flows: webhook handler → persistRawEvent() → IncomingMessage.rawEventId → DLQ entry
+### Gotchas
+- None — implementation was clean and complete

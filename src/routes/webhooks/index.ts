@@ -33,6 +33,7 @@ import { appSettings, templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 import { parseCloudApiMessages } from './meta-messages.js';
+import { persistRawEvent, markRawEventProcessed } from '../../lib/webhook-raw-events.js';
 
 const router = Router();
 
@@ -52,6 +53,9 @@ router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response)
   // Acknowledge receipt immediately so Evolution does not retry.
   res.status(200).json({ ok: true });
 
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('evolution', req.body).catch(() => {});
+
   // TODO: route event types (message.upsert, message.update, connection.update)
   // into the message pipeline once Evolution API integration is enabled.
   // For now we log the event so it can be observed in production logs.
@@ -67,6 +71,9 @@ router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response)
 router.post('/webhooks/digiman', signatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so DIGIMAN does not retry.
   res.status(200).json({ ok: true });
+
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('digiman', req.body).catch(() => {});
 
   const event = req.body as { type?: string; [key: string]: unknown };
   const eventType = event?.type ?? '';
@@ -106,6 +113,9 @@ router.post('/webhooks/events', signatureGuard, async (req: Request, res: Respon
     return;
   }
 
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('events', req.body).catch(() => {});
+
   try {
     await dispatchWebhookEvent({ ...event, type: eventType });
     res.status(200).json({ ok: true, event: eventType });
@@ -128,6 +138,9 @@ router.post('/webhooks/events', signatureGuard, async (req: Request, res: Respon
 router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
+
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('meta:quality', req.body).catch(() => {});
 
   const body = req.body as {
     phone_number?: string;
@@ -189,6 +202,9 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
 router.post('/webhooks/meta/account', metaSignatureGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
+
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('meta:account', req.body).catch(() => {});
 
   const body = req.body as {
     entry?: Array<{
@@ -267,6 +283,9 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
 
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('meta:template-status', req.body).catch(() => {});
+
   const body = req.body as {
     entry?: Array<{
       changes?: Array<{
@@ -329,6 +348,9 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
 router.post('/webhooks/meta/capability', metaSignatureGuard, async (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Meta does not retry.
   res.status(200).json({ ok: true });
+
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('meta:capability', req.body).catch(() => {});
 
   const body = req.body as {
     entry?: Array<{
@@ -442,6 +464,9 @@ router.post('/webhooks/meta/capability', metaSignatureGuard, async (req: Request
 // it is used directly to mark kitchen acceptance. If only orderId is provided,
 // a reverse lookup finds the session (best-effort).
 router.post('/webhooks/kds/accept', signatureGuard, async (req: Request, res: Response) => {
+  // US-895: Persist raw payload before any processing (fire-and-forget)
+  persistRawEvent('kds', req.body).catch(() => {});
+
   const { markKitchenAccepted } = await import('../../assistant/order-modification-store.js');
 
   const body = req.body as { orderId?: string; sessionId?: string };
@@ -500,10 +525,20 @@ router.post('/webhooks/meta/messages', metaSignatureGuard, async (req: Request, 
   // Acknowledge immediately to prevent Meta retries
   res.status(200).json({ ok: true });
 
+  // US-895: Persist raw payload BEFORE any processing (fire-and-forget)
+  const rawEventId = await persistRawEvent('meta:messages', req.body).catch(() => null);
+
   try {
     const incomingMessages = parseCloudApiMessages(req.body);
 
     if (incomingMessages.length === 0) return;
+
+    // Attach rawEventId so DLQ entries can reference the original payload
+    if (rawEventId) {
+      for (const msg of incomingMessages) {
+        msg.rawEventId = rawEventId;
+      }
+    }
 
     // Dynamically import the message handler to avoid circular deps at module load
     const { whatsappManager } = await import('../../lib/whatsapp/index.js');
@@ -520,6 +555,11 @@ router.post('/webhooks/meta/messages', metaSignatureGuard, async (req: Request, 
       } catch (err: any) {
         console.error(`[webhook:meta:messages] Handler error for ${msg.from}:`, err.message);
       }
+    }
+
+    // Mark raw event as processed after all messages handled successfully
+    if (rawEventId) {
+      markRawEventProcessed(rawEventId).catch(() => {});
     }
 
     console.log(`[webhook:meta:messages] Processed ${incomingMessages.length} inbound message(s)`);
