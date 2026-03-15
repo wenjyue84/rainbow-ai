@@ -11212,3 +11212,32 @@ Incomplete: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: U
 - The `translations` column defaults to `'{}'` (empty JSON object string) not `NULL` to avoid null-check complexity
 - `MenuItemUpdate` type (Partial<...>) automatically includes translations since MenuItem has it
 - Existing test suite (20 tests in menu-disambig.test.ts) passes unchanged — no regressions
+
+
+## Iteration N - Story: US-995 WhatsApp portfolio pacing monitor with queue-depth visibility
+### What was implemented
+- Extended `src/lib/pacing-monitor.ts` (US-891) with US-995 additions:
+  - `QueueDepthMetrics` interface: messagesSent24h, messagesPending, messagesDelivered, messagesFailed, volumeAvailable
+  - `PacingStatusPanel` interface: combined panel data for admin dashboard
+  - `fetchMessagingVolume()`: Fetches 24h messaging analytics from Meta Graph API (sent/delivered/failed/pending estimate)
+  - `getPacingStatusPanel()`: Returns structured panel data with status (normal/pacing_active/degraded/unavailable) and warnings
+  - `logPacingEventToAudit()`: Logs pacing state transitions (activated/resolved) to `rainbow_config_audit` via `auditConfigChange()`
+  - `checkPacingStatus()` now fetches quality + volume in parallel, logs state transitions to audit
+- Extended `src/routes/admin/campaign-pacing.ts`:
+  - New endpoint: `GET /analytics/pacing/status` — combined pacing status panel for dashboard
+  - Returns: pacingActive, status, messagesSent, messagesQueued, warning, etc.
+  - Degrades gracefully (status: 'unavailable') when Meta credentials not configured
+- Extended `src/routes/admin/messaging-limits.ts`:
+  - `GET /analytics/messaging-limits` now includes `queueDepth` (sent/pending/delivered/failed) and `pacingWarning` for broadcast UI
+### Patterns discovered
+- `auditConfigChange()` from config-db.ts uses raw SQL pool — not Drizzle — for the audit log
+- Pacing monitor runs independently as a setInterval loop; state is in-memory + persisted to app_settings
+- The `fetchMessagingVolume` uses Meta's analytics endpoint with start/end timestamps
+- Graceful degradation: 403/400 from analytics endpoint = token lacks scope → return volumeAvailable: false
+### Gotchas
+- Previous attempts (2 retries) were blocked — this time focused on extending existing infrastructure rather than creating new files
+- Meta analytics endpoint returns data_points array per granularity period; must sum across all points
+- Pending messages = sent - delivered - failed (estimated, not exact)
+- Import of `auditConfigChange` from config-db.ts must use `.js` extension (NodeNext resolution)
+
+Completed: US-995 WhatsApp portfolio pacing monitor with queue-depth visibility (attempt 3/3)

@@ -1,6 +1,7 @@
 /**
- * Campaign Pacing Admin API (US-962)
+ * Campaign Pacing Admin API (US-962, US-995)
  *
+ * GET  /analytics/pacing/status          — US-995: combined pacing status panel with queue depth
  * GET  /analytics/pacing/health          — pacing health summary (held vs. delivered per batch)
  * GET  /analytics/pacing/held-messages   — list held messages pending operator review
  * POST /analytics/pacing/held-messages/:id/resend  — mark message as resent
@@ -17,8 +18,21 @@ import {
   getBatchPacingStats,
   updateHeldMessageStatus,
 } from '../../lib/campaign-pacing.js';
+import { getPacingStatusPanel } from '../../lib/pacing-monitor.js';
 
 const router = Router();
+
+/**
+ * US-995: GET /analytics/pacing/status
+ * Combined 'Pacing Status' panel for the admin dashboard.
+ * Polls every 5 minutes via the background pacing monitor.
+ * Returns: messages sent, messages queued/pending, pacing active flag, and warning.
+ * Degrades gracefully (status: 'unavailable') if Graph API token lacks scope.
+ */
+router.get('/analytics/pacing/status', (_req: Request, res: Response) => {
+  const panel = getPacingStatusPanel();
+  res.json({ success: true, data: panel });
+});
 
 /**
  * GET /analytics/pacing/health

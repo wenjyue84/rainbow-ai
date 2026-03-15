@@ -1,11 +1,13 @@
 /**
- * Portfolio Pacing Monitor (US-891)
+ * Portfolio Pacing Monitor (US-891, US-995)
  *
  * Detects when Meta's portfolio pacing silently pauses bulk template sends
  * mid-campaign due to negative quality signals (blocks, complaints).
  *
- * Polls Meta's WABA quality endpoint every 5 minutes and alerts admin
- * when pacing pause is detected.
+ * US-891: Polls Meta's WABA quality endpoint every 5 minutes and alerts admin.
+ * US-995: Adds queue-depth visibility via messaging_volume analytics endpoint,
+ *         logs pacing events to the DB audit log, and exposes a combined
+ *         pacing status panel for the admin dashboard.
  *
  * State is persisted to app_settings to avoid repeated notifications.
  */
@@ -14,8 +16,17 @@ import { db, dbReady } from './db.js';
 import { appSettings } from '../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { loadAdminNotificationSettings } from './admin-notification-settings.js';
+import { auditConfigChange } from './config-db.js';
 
 // ─── Types ────────────────────────────────────────────────────────
+
+export interface QueueDepthMetrics {
+  messagesSent24h: number;
+  messagesPending: number;
+  messagesDelivered: number;
+  messagesFailed: number;
+  volumeAvailable: boolean;  // false if token lacks scope
+}
 
 export interface PacingState {
   pacingPaused: boolean;
@@ -23,6 +34,22 @@ export interface PacingState {
   percentNotDelivered: number | null;
   lastCheckedAt: string;
   pauseDetectedAt: string | null;
+  queueDepth: QueueDepthMetrics | null;
+}
+
+/** Combined pacing status panel data for the admin dashboard (US-995) */
+export interface PacingStatusPanel {
+  pacingActive: boolean;
+  status: 'normal' | 'pacing_active' | 'degraded' | 'unavailable';
+  messagesSent: number;
+  messagesQueued: number;
+  messagesDelivered: number;
+  messagesFailed: number;
+  affectedTemplate: string | null;
+  percentNotDelivered: number | null;
+  pauseDetectedAt: string | null;
+  lastCheckedAt: string;
+  warning: string | null;
 }
 
 interface MetaQualityResponse {
@@ -36,6 +63,17 @@ interface MetaQualityResponse {
     total_count?: number;
   }>;
   error?: { message: string };
+}
+
+interface MetaAnalyticsResponse {
+  data?: Array<{
+    data_points?: Array<{
+      sent?: number;
+      delivered?: number;
+      failed?: number;
+    }>;
+  }>;
+  error?: { message: string; code?: number };
 }
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -52,6 +90,7 @@ let _pacingState: PacingState = {
   percentNotDelivered: null,
   lastCheckedAt: new Date().toISOString(),
   pauseDetectedAt: null,
+  queueDepth: null,
 };
 
 let _intervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -65,6 +104,62 @@ let _sendNotification: ((phone: string, text: string) => Promise<any>) | null = 
 /** Get the current pacing state (for GET /analytics/messaging-limits) */
 export function getPacingState(): PacingState {
   return { ..._pacingState };
+}
+
+/**
+ * US-995: Get the combined pacing status panel data for the admin dashboard.
+ * Returns a structured object suitable for direct rendering in a dashboard panel.
+ */
+export function getPacingStatusPanel(): PacingStatusPanel {
+  const qd = _pacingState.queueDepth;
+  const hasCredentials = !!(process.env.WABA_PHONE_NUMBER_ID &&
+    (process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN));
+
+  if (!hasCredentials) {
+    return {
+      pacingActive: false,
+      status: 'unavailable',
+      messagesSent: 0,
+      messagesQueued: 0,
+      messagesDelivered: 0,
+      messagesFailed: 0,
+      affectedTemplate: null,
+      percentNotDelivered: null,
+      pauseDetectedAt: null,
+      lastCheckedAt: _pacingState.lastCheckedAt,
+      warning: null,
+    };
+  }
+
+  const messagesSent = qd?.messagesSent24h ?? 0;
+  const messagesQueued = qd?.messagesPending ?? 0;
+  const messagesDelivered = qd?.messagesDelivered ?? 0;
+  const messagesFailed = qd?.messagesFailed ?? 0;
+
+  let status: PacingStatusPanel['status'] = 'normal';
+  let warning: string | null = null;
+
+  if (_pacingState.pacingPaused) {
+    status = 'pacing_active';
+    warning = `Portfolio pacing is currently active. Messages may be queued and delivered in batches. ${messagesQueued > 0 ? `${messagesQueued} messages pending.` : ''}`.trim();
+  } else if (qd && !qd.volumeAvailable) {
+    status = 'degraded';
+    warning = 'Messaging volume data unavailable — Graph API token may lack the required analytics scope.';
+  }
+
+  return {
+    pacingActive: _pacingState.pacingPaused,
+    status,
+    messagesSent,
+    messagesQueued,
+    messagesDelivered,
+    messagesFailed,
+    affectedTemplate: _pacingState.affectedTemplateName,
+    percentNotDelivered: _pacingState.percentNotDelivered,
+    pauseDetectedAt: _pacingState.pauseDetectedAt,
+    lastCheckedAt: _pacingState.lastCheckedAt,
+    warning,
+  };
 }
 
 /** Initialize the notification sender (called once at startup) */
@@ -109,6 +204,7 @@ export function stopPacingMonitor(): void {
 
 /**
  * Poll Meta's quality endpoint and update pacing state.
+ * US-995: Also fetches messaging volume for queue-depth visibility.
  * Exported for testing and manual trigger.
  */
 export async function checkPacingStatus(): Promise<PacingState> {
@@ -122,8 +218,17 @@ export async function checkPacingStatus(): Promise<PacingState> {
   }
 
   try {
-    const response = await fetchMetaQualitySignals(phoneNumberId, accessToken);
-    const newState = parsePacingFromResponse(response);
+    // Fetch quality signals and messaging volume in parallel
+    const [qualityResponse, volumeMetrics] = await Promise.all([
+      fetchMetaQualitySignals(phoneNumberId, accessToken),
+      fetchMessagingVolume(phoneNumberId, accessToken).catch(err => {
+        console.warn('[PacingMonitor] Messaging volume fetch failed (token may lack scope):', err.message);
+        return null;
+      }),
+    ]);
+
+    const newState = parsePacingFromResponse(qualityResponse);
+    newState.queueDepth = volumeMetrics;
 
     const wasPaused = _pacingState.pacingPaused;
     const nowPaused = newState.pacingPaused;
@@ -132,6 +237,11 @@ export async function checkPacingStatus(): Promise<PacingState> {
 
     // Persist to DB
     await persistPacingState(newState);
+
+    // US-995: Log pacing state transitions to audit log
+    if (wasPaused !== nowPaused) {
+      await logPacingEventToAudit(wasPaused, nowPaused, newState);
+    }
 
     // Notify admin on state change: not paused -> paused
     if (!wasPaused && nowPaused) {
@@ -164,6 +274,63 @@ export async function fetchMetaQualitySignals(
   }
 
   return res.json() as Promise<MetaQualityResponse>;
+}
+
+/**
+ * US-995: Fetch messaging volume analytics from Meta's Graph API.
+ * Returns queue-depth metrics (sent, delivered, failed, pending estimate).
+ * Returns null if the token lacks the required analytics scope.
+ */
+export async function fetchMessagingVolume(
+  phoneNumberId: string,
+  accessToken: string
+): Promise<QueueDepthMetrics> {
+  // Use the analytics endpoint for 24h messaging volume
+  const since = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
+  const until = Math.floor(Date.now() / 1000);
+  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=analytics.start(${since}).end(${until}).granularity(DAY).phone_numbers([])&access_token=${accessToken}`;
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const status = res.status;
+    // 403 or 190 error = token lacks analytics scope — degrade gracefully
+    if (status === 403 || status === 400) {
+      return {
+        messagesSent24h: 0,
+        messagesPending: 0,
+        messagesDelivered: 0,
+        messagesFailed: 0,
+        volumeAvailable: false,
+      };
+    }
+    const body = await res.text().catch(() => '');
+    throw new Error(`Meta Analytics API returned ${status}: ${body.slice(0, 200)}`);
+  }
+
+  const json = await res.json() as MetaAnalyticsResponse;
+  const dataPoints = json?.data?.[0]?.data_points || [];
+
+  let sent = 0;
+  let delivered = 0;
+  let failed = 0;
+
+  for (const dp of dataPoints) {
+    sent += dp?.sent ?? 0;
+    delivered += dp?.delivered ?? 0;
+    failed += dp?.failed ?? 0;
+  }
+
+  // Pending estimate: sent but not yet delivered or failed
+  const pending = Math.max(0, sent - delivered - failed);
+
+  return {
+    messagesSent24h: sent,
+    messagesPending: pending,
+    messagesDelivered: delivered,
+    messagesFailed: failed,
+    volumeAvailable: true,
+  };
 }
 
 /**
@@ -225,7 +392,40 @@ export function parsePacingFromResponse(response: MetaQualityResponse): PacingSt
     percentNotDelivered,
     lastCheckedAt: now,
     pauseDetectedAt: pacingPaused ? now : null,
+    queueDepth: null, // Populated separately by checkPacingStatus
   };
+}
+
+// ─── Audit Logging (US-995) ──────────────────────────────────────
+
+/**
+ * Log pacing state transitions to the DB audit log.
+ * Called when pacing state changes (paused/resumed).
+ */
+async function logPacingEventToAudit(
+  wasPaused: boolean,
+  nowPaused: boolean,
+  state: PacingState
+): Promise<void> {
+  try {
+    const action = nowPaused ? 'pacing_activated' : 'pacing_resolved';
+    await auditConfigChange(
+      'system:pacing-monitor',
+      'pacing_monitor',
+      { pacingPaused: wasPaused },
+      {
+        pacingPaused: nowPaused,
+        action,
+        affectedTemplateName: state.affectedTemplateName,
+        percentNotDelivered: state.percentNotDelivered,
+        queueDepth: state.queueDepth,
+        timestamp: state.lastCheckedAt,
+      }
+    );
+    console.log(`[PacingMonitor] Audit log: ${action} at ${state.lastCheckedAt}`);
+  } catch (err: any) {
+    console.error('[PacingMonitor] Failed to write audit log:', err.message);
+  }
 }
 
 // ─── Persistence ──────────────────────────────────────────────────
@@ -250,6 +450,7 @@ export async function loadPacingStateFromDb(): Promise<void> {
           percentNotDelivered: stored.percentNotDelivered ?? null,
           lastCheckedAt: stored.lastCheckedAt ?? new Date().toISOString(),
           pauseDetectedAt: stored.pauseDetectedAt ?? null,
+          queueDepth: stored.queueDepth ?? null,
         };
         console.log(`[PacingMonitor] Loaded state from DB (paused: ${_pacingState.pacingPaused})`);
       } catch {
@@ -342,6 +543,7 @@ export function _resetForTesting(): void {
     percentNotDelivered: null,
     lastCheckedAt: new Date().toISOString(),
     pauseDetectedAt: null,
+    queueDepth: null,
   };
   _lastNotificationAt = 0;
   _sendNotification = null;

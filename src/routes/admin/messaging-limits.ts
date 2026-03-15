@@ -13,7 +13,7 @@ import { appSettings, rainbowMessages } from '../../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { badRequest, serverError } from './http-utils.js';
 import { notifyAdminConfigError } from '../../lib/admin-notifier.js';
-import { getPacingState } from '../../lib/pacing-monitor.js';
+import { getPacingState, getPacingStatusPanel } from '../../lib/pacing-monitor.js';
 
 const router = Router();
 
@@ -85,7 +85,9 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
     const percentUsed = limit === Infinity ? 0 : Math.round((used24h / limit) * 10000) / 100;
 
     // US-891: Include pacing state from pacing monitor
+    // US-995: Include queue depth metrics and broadcast warning
     const pacing = getPacingState();
+    const qd = pacing.queueDepth;
     const data = {
       tier,
       used24h,
@@ -98,6 +100,18 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
         pauseDetectedAt: pacing.pauseDetectedAt,
       } : undefined,
       pacingLastCheckedAt: pacing.lastCheckedAt,
+      // US-995: Queue depth visibility
+      queueDepth: qd ? {
+        messagesSent24h: qd.messagesSent24h,
+        messagesPending: qd.messagesPending,
+        messagesDelivered: qd.messagesDelivered,
+        messagesFailed: qd.messagesFailed,
+        volumeAvailable: qd.volumeAvailable,
+      } : null,
+      // US-995: Broadcast UI warning — shown in template send UI when pacing active
+      pacingWarning: pacing.pacingPaused
+        ? 'Portfolio pacing is active. Template sends may be delayed as Meta releases messages in batches. This is not a system error.'
+        : null,
     };
 
     _cache = { data, expiry: now + CACHE_TTL };
