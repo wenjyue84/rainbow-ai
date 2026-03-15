@@ -7263,3 +7263,57 @@ This brief outlines the implementation of a UI for managing per-profile WhatsApp
 ### Gotchas
 - Pre-existing build error: `workflow-enhancer.ts` imported non-existent `service-requests.js` — had to create stub
 - The `callFnbMcp` helper doesn't support AbortSignal, so `fnbGetKitchenStatus` uses raw fetch directly
+
+
+## Pre-analysis for US-828 (Gemini 2.5 Pro)
+Based on the user story JSON and project structure, here is a technical brief for the implementation. Note that the request context of "Frappe/Python" appears incorrect; the project is a Node.js/TypeScript application.
+
+**Technical Brief: WhatsApp Rate Limiting UI**
+
+1.  **Files to Modify:**
+    *   `src/routes/admin/settings.ts` (or similar): To add the new `GET /api/admin/rate-limits/stats` API endpoint.
+    *   `src/public/components/AdminSettings.tsx` (or similar): To create the new "Rate Limits" UI section with inputs for each profile.
+    *   `shared/schema.ts`: To update the `rainbow_configs` schema with the `rate_limits` object, including `max_messages_per_user_per_24h` and `enabled` fields.
+    *   `src/lib/config.ts`: To ensure the service that reads configs properly loads and applies the new rate limit settings.
+
+2.  **Frappe DocTypes / Hooks:**
+    *   None. This is a Node.js/TypeScript project, not a Frappe application. The persistence layer is `rainbow_configs`, not Frappe DocTypes.
+
+3.  **Implementation Approach:**
+    *   First, extend the configuration schema in `shared/schema.ts` to include the `rate_limits` settings per profile.
+    *   Implement the `GET /api/admin/rate-limits/stats` endpoint. This will require a new data access function to query the persistence layer (likely a database table where rate limit events are logged) for a count of distinct users who have been rate-limited in the last 24 hours, filtered by `profileId`.
+    *   In the frontend Admin Settings component, add a new section that fetches and displays the current `rate_limits` settings. Use a numeric input for the message cap and a toggle for the enabled status.
+    *   On change, the UI should call the existing configuration update API to persist the settings to `rainbow_configs`.
+    *   Add a display field that periodically calls the new `/stats` endpoint to show the count of recently rate-limited users.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Config Caching:** The system likely caches configurations. Ensure the update mechanism invalidates the cache or that the cache has a TTL of less than one minute for changes to take effect promptly.
+    *   **Stats Performance:** The query for rate-limited user stats could be slow. Ensure the underlying data table is indexed by timestamp and profile ID to handle the query efficiently.
+    *   **Default State:** The code must handle profiles where `rate_limits` settings are not yet defined, applying sane defaults (e.g., rate-limiting disabled).
+
+
+## Iteration N - Story: US-877 Allergen and dietary warning display on item selection
+
+### What was implemented
+- `src/lib/allergen-pending-store.ts` — new per-session store for items awaiting allergen confirmation (10-min TTL, auto-cleanup)
+- `src/tools/cart.ts` — allergen check + confirmation flow integrated into:
+  - `cart_add_item`: checks allergen by item code; if data found, stores pending item and asks for confirmation
+  - `cart_search_item`: same check before adding single unambiguous match to cart
+  - `cart_pick_item`: same check before adding selected item from disambiguation list
+  - `cart_allergen_confirm` new handler: retrieves pending item, adds to cart, clears pending state
+- `cart_allergen_confirm` tool definition added to `cartTools` array
+- `src/routes/admin/index.ts` — `menu-allergens` route registered (was written but not mounted)
+- `src/index.ts` — `initAllergenStore()` called at startup
+- `src/assistant/data-makan/allergens.json` — sample data was already present
+
+### Patterns discovered
+- allergen-store.ts and menu-allergens.ts were already fully implemented from a prior session but never wired up (import missing from admin index, initAllergenStore never called)
+- ESM import must be at top of file — cannot use inline `import` in the middle of execution flow
+- allergen-pending-store follows same TTL + interval cleanup pattern as disambiguation-store
+
+### Acceptance criteria coverage
+1. allergens[] and dietary_flags[] per item — served from allergens.json via allergen-store ✓
+2. Bot displays formatted allergen notice before cart add when data exists ✓
+3. Customer must confirm YES before item added (cart_allergen_confirm tool) ✓
+4. No allergen data → item added immediately (advisory for unknown-code items only) ✓
+5. Allergen data editable via admin API (menu-allergens routes now mounted) ✓

@@ -29,6 +29,10 @@ import {
 import type { SetMealComponent } from '../assistant/cart-store.js';
 import { fetchMenuItems } from './fnb-menu.js';
 import { findMenuItemMatches } from '../assistant/menu-matcher.js';
+import { getAllergenEntry, formatAllergenWarning } from '../lib/allergen-store.js';
+import {
+  setPendingAllergenItem, getPendingAllergenItem, clearPendingAllergenItem,
+} from '../lib/allergen-pending-store.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -269,6 +273,20 @@ export const cartTools: MCPTool[] = [
       required: ['selection']
     },
     allowedProfiles: ['makan-moments']
+  },
+  // ─── Allergen Confirmation Tool (US-877) ──────────────────────
+  {
+    name: 'cart_allergen_confirm',
+    description: [
+      'Confirm adding a pending item to the cart after the guest has acknowledged the allergen warning.',
+      'Use this ONLY when you have already shown the guest an allergen warning (via cart_search_item or cart_add_item) and they reply with "yes", "ok", "proceed", "confirm", or equivalent affirmative.',
+      'If the guest is not responding to an allergen warning, use cart_add_item or cart_search_item instead.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
   }
 ];
 
@@ -359,14 +377,35 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       price: typeof args.price === 'number' ? args.price : undefined,
       notes: args.notes || undefined
     };
+
+    // US-877: Check allergen data before adding to cart
+    if (item.code) {
+      const allergenEntry = getAllergenEntry(item.code);
+      const hasAllergens = allergenEntry && (allergenEntry.allergens.length > 0 || allergenEntry.dietary_flags.length > 0);
+      if (hasAllergens) {
+        const warning = formatAllergenWarning(item.code, item.name);
+        setPendingAllergenItem(sessionId, item, warning);
+        return {
+          content: [{
+            type: 'text',
+            text: `${warning}\n\nWould you like to add ${item.qty}x ${item.name} to your cart? Reply *YES* to confirm or *NO* to cancel.`
+          }]
+        };
+      }
+    }
+
+    // No allergen data — add item and show advisory
     const items = cartAddItem(sessionId, item);
     // Transition stage to ORDERING when an item is added
     transitionOrderStage(sessionId, 'ORDERING');
     const summary = cartFormatSummary(items);
+    const allergenAdvisory = item.code
+      ? '' // Known item with no allergen data on file — skip advisory to avoid noise
+      : '\n\n⚠️ Please inform our staff of any allergies before ordering.';
     return {
       content: [{
         type: 'text',
-        text: `Added ${item.qty}x ${item.name} to cart.\n\nCurrent cart:\n${summary}`
+        text: `Added ${item.qty}x ${item.name} to cart.${allergenAdvisory}\n\nCurrent cart:\n${summary}`
       }]
     };
   });
@@ -861,11 +900,27 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
         };
       }
 
-      // Regular item — add directly to cart
+      // Regular item — check allergens before adding to cart (US-877)
       const item: CartItem = { name: match.name, qty, code: match.code, price: match.price, notes };
+      const priceStr = match.price !== undefined ? ` (RM ${match.price.toFixed(2)})` : '';
+
+      if (match.code) {
+        const allergenEntry = getAllergenEntry(match.code);
+        const hasAllergens = allergenEntry && (allergenEntry.allergens.length > 0 || allergenEntry.dietary_flags.length > 0);
+        if (hasAllergens) {
+          const warning = formatAllergenWarning(match.code, match.name);
+          setPendingAllergenItem(sessionId, item, warning);
+          return {
+            content: [{
+              type: 'text',
+              text: `${warning}\n\nWould you like to add ${qty}x ${match.name}${priceStr} to your cart? Reply *YES* to confirm or *NO* to cancel.`
+            }]
+          };
+        }
+      }
+
       const items = cartAddItem(sessionId, item);
       transitionOrderStage(sessionId, 'ORDERING');
-      const priceStr = match.price !== undefined ? ` (RM ${match.price.toFixed(2)})` : '';
       return {
         content: [{
           type: 'text',
@@ -951,10 +1006,27 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       };
     }
 
+    // US-877: Check allergens before adding to cart
     const item: CartItem = { name: chosen.name, qty, code: chosen.code, price: chosen.price, notes };
+    const priceStr = chosen.price !== undefined ? ` (RM ${chosen.price.toFixed(2)})` : '';
+
+    if (chosen.code) {
+      const allergenEntry = getAllergenEntry(chosen.code);
+      const hasAllergens = allergenEntry && (allergenEntry.allergens.length > 0 || allergenEntry.dietary_flags.length > 0);
+      if (hasAllergens) {
+        const warning = formatAllergenWarning(chosen.code, chosen.name);
+        setPendingAllergenItem(sessionId, item, warning);
+        return {
+          content: [{
+            type: 'text',
+            text: `${warning}\n\nWould you like to add ${qty}x ${chosen.name}${priceStr} to your cart? Reply *YES* to confirm or *NO* to cancel.`
+          }]
+        };
+      }
+    }
+
     const items = cartAddItem(sessionId, item);
     transitionOrderStage(sessionId, 'ORDERING');
-    const priceStr = chosen.price !== undefined ? ` (RM ${chosen.price.toFixed(2)})` : '';
 
     return {
       content: [{
@@ -1058,6 +1130,34 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       content: [{
         type: 'text',
         text: `${confirmText}\n\nAll choices made! Added ${pending.qty}x ${pending.name} to your cart.\n\nCurrent cart:\n${summary}`
+      }]
+    };
+  });
+
+  // ─── Allergen Confirmation Handler (US-877) ────────────────────
+
+  handlers.set('cart_allergen_confirm', async (_args: any) => {
+    const pending = getPendingAllergenItem(sessionId);
+
+    if (!pending) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is no pending item waiting for allergen confirmation. Please add an item to your cart first.'
+        }]
+      };
+    }
+
+    clearPendingAllergenItem(sessionId);
+    const items = cartAddItem(sessionId, pending.item);
+    transitionOrderStage(sessionId, 'ORDERING');
+    const priceStr = pending.item.price !== undefined ? ` (RM ${pending.item.price.toFixed(2)})` : '';
+    const summary = cartFormatSummary(items);
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Added ${pending.item.qty}x ${pending.item.name}${priceStr} to your cart.\n\nCurrent cart:\n${summary}`
       }]
     };
   });

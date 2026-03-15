@@ -41,6 +41,7 @@ import { ensureConfigTables } from './lib/config-db.js';
 import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
+import { initAllergenStore } from './lib/allergen-store.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { loadQualityStateFromDb } from './lib/phone-quality.js';
@@ -138,6 +139,9 @@ try {
 
 // Initialize Unit Cache — fetches from dashboard API in background
 initUnitCache();
+
+// US-877: Initialize allergen store from file
+initAllergenStore();
 
 // CRITICAL: Initialize configStore BEFORE mounting admin routes
 // This is the global singleton for the default profile (backward compat).
