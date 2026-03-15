@@ -728,3 +728,52 @@ export const marketingSubscriptions = pgTable("marketing_subscriptions", {
 
 export type MarketingSubscription = typeof marketingSubscriptions.$inferSelect;
 export type InsertMarketingSubscription = typeof marketingSubscriptions.$inferInsert;
+
+// ─── MM Lite Sends (US-1007) ──────────────────────────────────────────────────
+// Tracks marketing template sends via Meta's Marketing Messages Lite (MM Lite) API.
+// MM Lite provides AI-optimised delivery timing and TTL to avoid late delivery of
+// time-sensitive promotions (flash sales, daily specials).
+//
+// sendApi: 'mm_lite' uses the Cloud API messages endpoint with ttl.seconds set;
+//          'standard' is the normal Baileys/Cloud API send without TTL.
+// deliveryStatus lifecycle: queued → sent → delivered | failed | expired
+//   expired = message not delivered before ttlExpiresAt
+
+export const mmLiteSends = pgTable("mm_lite_sends", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Campaign identifier (admin-assigned, e.g. "makan-daily-2026-03-16") */
+  campaignId: text("campaign_id").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  templateName: text("template_name").notNull(),
+  /** 'mm_lite' | 'standard' — which send path was used */
+  sendApi: varchar("send_api", { length: 16 }).notNull().default('mm_lite'),
+  /** TTL in hours set at send time (default 720h = 30 days) */
+  ttlHours: integer("ttl_hours").notNull().default(720),
+  /** Computed expiry timestamp (sentAt + ttlHours) */
+  ttlExpiresAt: timestamp("ttl_expires_at"),
+  /** 'queued' | 'sent' | 'delivered' | 'failed' | 'expired' */
+  deliveryStatus: varchar("delivery_status", { length: 16 }).notNull().default('queued'),
+  /** Timestamp when MM Lite API accepted the send */
+  sentAt: timestamp("sent_at"),
+  /** Timestamp when delivery confirmation received via webhook */
+  deliveredAt: timestamp("delivered_at"),
+  /** Timestamp when TTL expiry was detected */
+  expiredAt: timestamp("expired_at"),
+  /** Meta message ID returned from Cloud API */
+  metaMessageId: text("meta_message_id"),
+  /** Error code/message if send failed */
+  errorInfo: text("error_info"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_mm_lite_campaign").on(table.campaignId),
+  index("idx_mm_lite_profile_status").on(table.profileId, table.deliveryStatus),
+  index("idx_mm_lite_phone").on(table.phone),
+  index("idx_mm_lite_expires_at").on(table.ttlExpiresAt),
+  index("idx_mm_lite_send_api").on(table.sendApi),
+  index("idx_mm_lite_created_at").on(table.createdAt),
+]));
+
+export type MmLiteSend = typeof mmLiteSends.$inferSelect;
+export type InsertMmLiteSend = typeof mmLiteSends.$inferInsert;

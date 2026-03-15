@@ -11280,3 +11280,35 @@ Completed: WhatsApp portfolio pacing monitor with queue-depth visibility (ID: US
 
 Story marked `passes: true` in prd.json
 
+## Iteration 3 - Mon, Mar 16, 2026  7:40:20 AM
+Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 1/3
+
+
+## Iteration N - Story: US-1007 - Implement WhatsApp MM Lite API with TTL for time-sensitive promotions
+
+### What was implemented
+- `shared/schema-tables.ts`: Added `mm_lite_sends` table tracking send API path, TTL hours, expiry timestamp, delivery status, and Meta message ID for A/B benchmarking
+- `src/lib/mm-lite.ts`: Core MM Lite service with:
+  - `getMmLiteSettings()` / `saveMmLiteSettings()` — DB-backed settings (enabled flag, default TTL, phone number ID)
+  - `sendMmLiteTemplate()` — Routes marketing template sends via Cloud API with `ttl.seconds` when mm_lite_enabled=true; falls back to standard path for A/B control group
+  - `expireMmLiteSends()` / `startMmLiteSweeper()` — Background TTL sweeper marks sent-but-undelivered messages as expired after TTL elapses
+  - `updateMmLiteDeliveryStatus()` — Webhook handler integration point for delivery confirmations
+  - `queryMmLiteBenchmark()` — Aggregates delivery rates by sendApi for A/B comparison
+- `src/routes/admin/mm-lite.ts`: Admin API routes
+  - `GET/PUT /mm-lite/settings` — Enable/disable MM Lite, set default TTL, store phone number ID
+  - `POST /mm-lite/send` — Send single recipient marketing template (with optional per-send TTL override and A/B control flag)
+  - `GET /analytics/mm-lite/benchmark` — Delivery rate comparison MM Lite vs standard (configurable day window)
+- `src/routes/admin/index.ts`: Registered mm-lite routes
+- `src/assistant/data/settings.json`: Added `mm_lite` section documenting the feature flag and TTL defaults
+- `.env.example`: Documented META_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID, WABA_BUSINESS_ID env vars
+
+### Patterns discovered
+- MM Lite TTL is passed as `ttl.seconds` in the Cloud API request body (not in WhatsApp Manager)
+- A/B benchmark requires tagging each send with `send_api` field ('mm_lite' | 'standard')
+- `pool` (raw pg) used for DB operations to stay consistent with other lib files (pacing-monitor, marketing-optin)
+- Settings stored in `app_settings` table with `mm_lite_*` prefixed keys
+
+### Gotchas
+- Cloud API credentials (META_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID) are not in .env.example for existing code — added them
+- Startup error (db-url.js ERR_AMBIGUOUS_MODULE_SYNTAX) is pre-existing and not caused by this change
+- MM Lite requires WABA opt-in in WhatsApp Manager before routing traffic — the enabled flag serves as the guard
