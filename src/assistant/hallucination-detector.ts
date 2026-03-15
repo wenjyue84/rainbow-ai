@@ -55,6 +55,12 @@ export interface HallucinationConfig {
   hallucination_action: HallucinationAction;
   /** Log events to DB for monitoring */
   log_events: boolean;
+  /**
+   * US-993: Sentence-level groundedness threshold (0.0–1.0, default 0.6).
+   * Responses where fewer than this fraction of sentences are grounded in KB
+   * context are blocked before delivery. Set to 0 to disable.
+   */
+  groundedness_threshold?: number;
 }
 
 const DEFAULT_CONFIG: HallucinationConfig = {
@@ -62,6 +68,7 @@ const DEFAULT_CONFIG: HallucinationConfig = {
   severity_threshold: 3,
   hallucination_action: 'block',
   log_events: true,
+  groundedness_threshold: 0.6,
 };
 
 // ─── Stage 1: Factual Query Classifier ──────────────────────────────

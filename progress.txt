@@ -10976,3 +10976,60 @@ Here is the technical brief for implementing the story in its actual **TypeScrip
 - Pre-existing `db-url.js` CJS/ESM conflict causes `node dist/index.js` to fail; `npx tsx src/index.ts` works fine (pre-existing, not related to this story)
 ### Gotchas
 - Build uses esbuild; pre-existing 3 warnings from db-url.js CJS module; not blocking
+## Iteration 1 - Mon, Mar 16, 2026  5:22:35 AM
+Completed: OpenTelemetry GenAI span instrumentation for LLM pipeline tracing (ID: US-992) in 8m
+
+
+## Pre-analysis for US-993 (Gemini 2.5 Pro)
+### Technical Brief for Claude: US-993 Groundedness Score Gate
+
+**Project:** `rainbow-ai` (TypeScript/Node.js assistant)
+**Objective:** Implement a groundedness score to prevent delivering AI responses that are not supported by the retrieved knowledge base (KB) context.
+
+**1. Python Files to Modify:**
+*This project is TypeScript, not Python.* Based on the RAG architecture described, the most likely files for modification are:
+- `src/assistant/pipelines/rag-pipeline.ts` or similar: Core logic for orchestrating the Retrieve-Augment-Generate flow. The groundedness check should be inserted here, after the LLM call and before the response is finalized.
+- `src/lib/llm-client.ts` or `src/assistant/llm.ts`: Wrappers for the LLM call. The response and its source context are likely available here.
+- `src/lib/vector-store.ts` or similar: Logic for embedding and similarity search. A new function to compute sentence-level similarity against context chunks will be needed here.
+- `src/lib/config.ts` or `shared/schema.ts`: To add the new `groundedness_threshold` configuration parameter.
+
+**2. Involved Frappe DocTypes/Hooks:**
+The equivalent in this TS project are configuration objects and data schemas:
+- **Configuration:** The new `groundedness_threshold` should be added to the existing `hallucination_detection` configuration object.
+- **Data Schema:** The groundedness score (a float between 0.0-1.0) should be added to the analytics/tracing schema, likely defined in `shared/schema-tables.ts`, to be stored alongside other span attributes.
+
+**3. Recommended Implementation Approach:**
+1.  After generating the AI response, but before sending it, intercept the response text and the list of retrieved KB context chunks.
+2.  Implement a function that splits the response into individual sentences/claims.
+3.  For each sentence, calculate its embedding using a fast, local model.
+4.  For each retrieved KB chunk, calculate its embedding (these may already be available).
+5.  Calculate the cosine similarity between each sentence embedding and all KB chunk embeddings. The highest similarity score for a sentence is its "support score".
+6.  The final `groundedness_score` is the fraction of sentences whose support score exceeds a similarity floor (e.g., > 0.7).
+7.  If `groundedness_score < config.groundedness_threshold` (default 0.6), discard the response and trigger the existing fallback mechanism (`hallucination_action`).
+8.  Log the `groundedness_score` to the trace span for analytics.
+
+**4. Edge Cases & Gotchas:**
+- **Performance:** The entire check must be < 200ms. Use a lightweight, local embedding model (e.g., from `sentence-transformers` via an ONNX runtime) to avoid network latency. Do not make an external API call for the check itself.
+- **Sentence Tokenization:** Simple string splitting on periods can be unreliable. Use a proper NLP sentence tokenizer to handle abbreviations and complex sentences correctly.
+- **Threshold Tuning:** The `0.6` threshold is a starting point. The new dashboard histogram will be critical for observing the distribution of scores and tuning this value to balance safety and helpfulness.
+- **Empty/Non-Factual Responses:** The logic must gracefully handle responses without factual claims (e.g., "I'm sorry, I don't know"). Such responses should likely bypass the check or be assigned a neutral score.
+
+
+## Iteration 15 - Story: US-993 Groundedness Score Gate
+### What was implemented
+- `src/assistant/groundedness-checker.ts`: New module — `computeGroundednessScore()` uses sentence-level Jaccard word-overlap (deterministic, no API call, < 50ms)
+- Sentences split from response, each scored against KB sentences; grounded if max overlap >= 0.15 (factual) or 0.05 (non-factual)
+- `logGroundednessEvent()` async DB logger to new `groundedness_events` table (created via pool.query IF NOT EXISTS)
+- `getGroundednessHistogram()` for admin analytics with histogram buckets, P50/P10 stats, daily breakdown
+- `src/assistant/hallucination-detector.ts`: Added `groundedness_threshold?: number` (default 0.6) to `HallucinationConfig`
+- `src/assistant/pipeline/response-processor.ts`: Groundedness gate runs after hallucination check, only if response wasn't already blocked. Reads threshold from `halluSettings.groundedness_threshold`. Blocks + escalates when score < threshold.
+- `src/routes/admin/groundedness-report.ts`: New admin routes — GET histogram/stats + GET paginated events
+- `src/routes/admin/index.ts`: Registered groundedness report routes
+### Patterns discovered
+- Jaccard word-overlap is fast and sufficient for topic-grounding (not fact-checking). For <0.15 overlap, sentence is clearly off-topic vs KB.
+- Non-factual sentences (greetings, transitions) use a lower bar (0.05) to avoid false positives
+- Groundedness is about topic coverage; hallucination detector covers value contradictions
+### Gotchas
+- Completely unrelated hallucinations (luxury spa, rooftop pool not in KB) produce Jaccard ~0.05-0.1 → correctly blocked
+- Sentences that happen to share words with KB (check-in/check-out) score ~0.5+ even with wrong values → groundedness passes, hallucination detector catches the specific wrong value
+- Threshold=0 disables the groundedness gate (escape hatch in config)

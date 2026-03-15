@@ -32,6 +32,10 @@ import {
   type HallucinationConfig, type HallucinationResult
 } from '../hallucination-detector.js';
 import {
+  computeGroundednessScore, logGroundednessEvent, getGroundednessFallback,
+  DEFAULT_GROUNDEDNESS_THRESHOLD,
+} from '../groundedness-checker.js';
+import {
   evaluateEscalationRules, resetEscalationTracking,
 } from '../escalation-rules.js';
 
@@ -169,6 +173,42 @@ export async function processAndSend(
           // Log hallucination event to DB (fire-and-forget)
           if (halluSettings?.log_events !== false && hallucinationResult.isFactualQuery) {
             logHallucinationEvent(phone, profileId, text, response, hallucinationResult).catch(() => {});
+          }
+
+          // ─── US-993: Groundedness Score Gate (runs after hallucination check) ──
+          // Only runs if response wasn't already blocked by hallucination detector
+          if (!hallucinationResult.flagged || hallucinationResult.action !== 'block') {
+            const groundednessThreshold =
+              (halluSettings as any)?.groundedness_threshold ?? DEFAULT_GROUNDEDNESS_THRESHOLD;
+
+            if (groundednessThreshold > 0) {
+              const groundednessResult = computeGroundednessScore(
+                response, kbContent, groundednessThreshold
+              );
+
+              // Log for analytics (fire-and-forget)
+              if (halluSettings?.log_events !== false) {
+                logGroundednessEvent(phone, profileId, text, response, groundednessResult).catch(() => {});
+              }
+
+              if (groundednessResult.blocked) {
+                console.warn(
+                  `[GroundednessGate] Blocked response for ${phone} — ` +
+                  `score=${groundednessResult.score.toFixed(2)} < threshold=${groundednessThreshold} ` +
+                  `(${groundednessResult.groundedCount}/${groundednessResult.evaluatedCount} sentences grounded, ` +
+                  `${groundednessResult.latencyMs}ms)`
+                );
+                response = getGroundednessFallback(lang);
+                diaryEvent.escalated = true;
+              } else {
+                console.log(
+                  `[GroundednessGate] OK for ${phone} — ` +
+                  `score=${groundednessResult.score.toFixed(2)} ` +
+                  `(${groundednessResult.groundedCount}/${groundednessResult.evaluatedCount} grounded, ` +
+                  `${groundednessResult.latencyMs}ms)`
+                );
+              }
+            }
           }
         } else if (result.flagged && result.totalClaims >= 2) {
           // Fallback to US-899 faithfulness check when hallucination detection is disabled

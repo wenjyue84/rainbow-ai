@@ -77,6 +77,7 @@ import pdpaDpoRoutes from './pdpa-dpo.js';
 import pdpaSecurityRoutes from './pdpa-security.js';
 import referralAttributionRoutes from './referral-attribution.js';
 import hallucinationReportRoutes from './hallucination-report.js';
+import groundednessReportRoutes from './groundedness-report.js';
 import complianceRoutes from './compliance.js';
 import festiveStickersRoutes from './festive-stickers.js';
 import manglishRoutes from './manglish.js';
@@ -326,6 +327,7 @@ router.use(pdpaDpoRoutes);
 router.use(pdpaSecurityRoutes);
 router.use(referralAttributionRoutes);
 router.use(hallucinationReportRoutes);
+router.use(groundednessReportRoutes); // US-993: Groundedness score histogram
 router.use(complianceRoutes);
 router.use(festiveStickersRoutes);
 router.use(manglishRoutes);
