@@ -580,3 +580,36 @@ export const orderAccuracyEvents = pgTable("order_accuracy_events", {
 
 export type OrderAccuracyEvent = typeof orderAccuracyEvents.$inferSelect;
 export type InsertOrderAccuracyEvent = typeof orderAccuracyEvents.$inferInsert;
+
+// ─── Payment Sessions (US-911) ─────────────────────────────────────
+// Tracks WhatsApp in-chat webview payment sessions.
+// Created when a "Pay Now" CTA is sent; updated on payment gateway callback.
+
+export const paymentSessions = pgTable("payment_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  jid: varchar("jid", { length: 64 }).notNull(),             // WhatsApp JID of the payer
+  phone: varchar("phone", { length: 64 }).notNull(),          // Phone number (for confirmation message)
+  orderSummaryJson: text("order_summary_json").notNull(),     // JSON: { items, totalMyr, currency, description }
+  amountMyr: real("amount_myr").notNull(),                    // Total amount in MYR
+  paymentMethod: varchar("payment_method", { length: 32 }),   // duitnow_qr | fpx | tng | null (not yet selected)
+  gatewayRef: text("gateway_ref"),                            // External payment gateway reference ID
+  gatewayProvider: varchar("gateway_provider", { length: 32 }), // hitpay | curlec | manual
+  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | paid | failed | expired
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(), // SHA-256 hash of JWT token (for revocation check)
+  expiresAt: timestamp("expires_at").notNull(),               // Token/session expiry (default: 30 min)
+  paidAt: timestamp("paid_at"),
+  failedAt: timestamp("failed_at"),
+  callbackPayloadJson: text("callback_payload_json"),         // Raw gateway callback payload for audit
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_payment_sessions_jid").on(table.jid),
+  index("idx_payment_sessions_status").on(table.status),
+  index("idx_payment_sessions_profile").on(table.profileId),
+  index("idx_payment_sessions_expires_at").on(table.expiresAt),
+  index("idx_payment_sessions_token_hash").on(table.tokenHash),
+]));
+
+export type PaymentSession = typeof paymentSessions.$inferSelect;
+export type InsertPaymentSession = typeof paymentSessions.$inferInsert;
