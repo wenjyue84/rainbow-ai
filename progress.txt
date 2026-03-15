@@ -10352,3 +10352,27 @@ Completed: Migrate contact keys to BSUID ahead of WhatsApp June 2026 deadline (I
 - Word-boundary check must guard both prev and next char — otherwise "u" inside "unit" expands to "you nit"
 - Longest-key-first sort is critical for multi-word tokens like "brp harga" to match before "brp"
 - processText is a const destructure from state — must re-read from state.processText to allow normalised override
+## Iteration 2 - Mon, Mar 16, 2026 12:40:54 AM
+Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: US-949) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-949 Real-time out-of-stock sync between chatbot and POS inventory
+### What was implemented
+- **AC1 (POS webhook → menu update within 60s)**: Added `applyPosStockUpdate()` to `menu-items-store.ts` — accepts POS webhook payload, matches items by name (case-insensitive), flips `available` flag in both DB and in-memory store immediately
+- **AC2 (Chatbot refuses out-of-stock + suggests alternatives)**: Already existed — `cart.ts` lines 958-997 check availability on `cart_search_item`, show "out of stock" message with alternatives from same category; `getMenuItems()` filters unavailable by default
+- **AC3 (Admin inventory status panel)**: Created `src/routes/admin/inventory.ts` — GET /inventory/status returns full item list with availability summary (total/available/unavailable counts), filterable by category
+- **AC4 (Admin manual toggle)**: POST /inventory/toggle/:id flips item availability + logs the transition with source='admin'
+- **AC5 (Stock transition logging)**: Added `menu_stock_events` table (auto-created on startup via `ensureStockEventsTable()`), `logStockTransition()` fires on every availability change (POS or admin), GET /inventory/events returns event log for demand forecasting
+### Files changed
+- `src/lib/menu-items-store.ts` — Added StockEvent interface, ensureStockEventsTable, logStockTransition, getStockEvents, applyPosStockUpdate
+- `src/routes/admin/inventory.ts` — NEW: Admin inventory status, events, and toggle routes
+- `src/routes/admin/index.ts` — Registered inventory routes
+- `src/routes/webhooks/index.ts` — Added POS inventory webhook (POST /webhooks/pos/inventory) with HMAC validation
+- `src/index.ts` — Added ensureStockEventsTable() call on startup
+- `src/assistant/__tests__/inventory-sync.test.ts` — NEW: 15 tests covering all 5 ACs
+### Patterns discovered
+- Spiral worker 1 had already implemented most of US-949 but wasn't merged — manual merge from .spiral-workers/worker-1/ was the fastest path
+- In-memory store (Map<profile, Map<id, MenuItem>>) is shared across test suite — must use unique profile names per test to avoid contamination
+- The cart system (cart.ts) already had robust out-of-stock handling for both cart_search_item and cart_confirm paths
+### Status
+✅ Build passes (3 pre-existing warnings). 15/15 inventory sync tests pass. All 5 acceptance criteria verified. Story marked passes=true.

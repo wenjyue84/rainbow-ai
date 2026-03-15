@@ -47,7 +47,7 @@ import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
 import { initAllergenStore } from './lib/allergen-store.js';
-import { loadMenuItemsFromDB } from './lib/menu-items-store.js';
+import { loadMenuItemsFromDB, ensureStockEventsTable } from './lib/menu-items-store.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { loadQualityStateFromDb } from './lib/phone-quality.js';
@@ -160,6 +160,11 @@ initAllergenStore();
 // US-879: Load menu items from DB into in-memory store
 loadMenuItemsFromDB().catch(err => {
   console.warn('[Startup] Menu items load failed (store will be empty):', err?.message);
+});
+
+// US-949: Ensure stock events table exists for inventory sync logging
+ensureStockEventsTable().catch(err => {
+  console.warn('[Startup] Stock events table creation failed:', err?.message);
 });
 
 // CRITICAL: Initialize configStore BEFORE mounting admin routes

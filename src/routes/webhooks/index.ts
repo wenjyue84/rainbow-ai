@@ -28,6 +28,7 @@ import { db } from '../../lib/db.js';
 import { templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
+import { applyPosStockUpdate } from '../../lib/menu-items-store.js';
 
 const router = Router();
 
@@ -310,6 +311,52 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
         notifyAdminTemplatePaused(templateName, newStatus, reason).catch(() => {});
       }
     }
+  }
+});
+
+// ─── POS inventory stock sync webhook (US-949) ─────────────────────────────
+//
+// POST /webhooks/pos/inventory
+//
+// Accepts stock updates from a POS system. When an item quantity reaches 0,
+// the chatbot menu is updated (within the 60-second in-memory propagation SLA).
+//
+// Payload:
+//   { "profile": "makan-moments", "items": [{ "name": "Nasi Lemak", "quantity": 0 }] }
+//
+// Authentication: shared WEBHOOK_SECRET via x-webhook-signature header.
+
+router.post('/webhooks/pos/inventory', signatureGuard, async (req: Request, res: Response) => {
+  const { profile, items } = req.body as {
+    profile?: string;
+    items?: Array<{ name?: string; sku?: string; quantity: number }>;
+  };
+
+  if (!profile || !Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'profile and items[] are required' });
+    return;
+  }
+
+  // Validate item entries
+  const invalid = items.filter(i => i.quantity === undefined || i.quantity === null);
+  if (invalid.length > 0) {
+    res.status(400).json({ error: 'Each item must include a quantity field' });
+    return;
+  }
+
+  try {
+    const result = await applyPosStockUpdate(profile, items);
+    console.log(
+      `[webhook:pos:inventory] profile=${profile} updated=${result.updated.length} not_found=${result.not_found.length}`
+    );
+    res.status(200).json({
+      ok: true,
+      updated: result.updated,
+      not_found: result.not_found,
+    });
+  } catch (err: any) {
+    console.error('[webhook:pos:inventory] Error applying stock update:', err.message);
+    res.status(500).json({ error: 'Internal error applying stock update' });
   }
 });
 

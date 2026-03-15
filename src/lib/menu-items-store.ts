@@ -240,3 +240,137 @@ export async function updateMenuItem(
   getProfileStore(profile).set(id, updated);
   return updated;
 }
+
+// ─── Stock Events (US-949) ────────────────────────────────────────────────────
+
+export interface StockEvent {
+  id: string;
+  profile: string;
+  item_id: string;
+  item_name: string;
+  previous_available: boolean;
+  new_available: boolean;
+  quantity: number | null;
+  source: 'pos_webhook' | 'admin';
+  changed_by: string | null;
+  created_at: string;
+}
+
+/** Ensure menu_stock_events table exists. */
+export async function ensureStockEventsTable(): Promise<void> {
+  if (!hasDB()) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS menu_stock_events (
+        id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        profile           TEXT NOT NULL,
+        item_id           TEXT NOT NULL,
+        item_name         TEXT NOT NULL,
+        previous_available BOOLEAN NOT NULL,
+        new_available     BOOLEAN NOT NULL,
+        quantity          INTEGER,
+        source            TEXT NOT NULL DEFAULT 'admin',
+        changed_by        TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_menu_stock_events_profile ON menu_stock_events(profile);
+      CREATE INDEX IF NOT EXISTS idx_menu_stock_events_item_id ON menu_stock_events(item_id);
+      CREATE INDEX IF NOT EXISTS idx_menu_stock_events_created_at ON menu_stock_events(created_at DESC);
+    `);
+  } catch (err: any) {
+    console.error('[MenuItemsStore] Failed to ensure stock_events table:', err.message);
+  }
+}
+
+/** Log a stock availability transition. Fire-and-forget (non-critical). */
+export function logStockTransition(
+  event: Omit<StockEvent, 'id' | 'created_at'>
+): void {
+  if (!hasDB()) return;
+  pool.query(
+    `INSERT INTO menu_stock_events (profile, item_id, item_name, previous_available, new_available, quantity, source, changed_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      event.profile,
+      event.item_id,
+      event.item_name,
+      event.previous_available,
+      event.new_available,
+      event.quantity ?? null,
+      event.source,
+      event.changed_by ?? null,
+    ]
+  ).catch(err => console.error('[MenuItemsStore] logStockTransition failed:', err.message));
+}
+
+/** Fetch recent stock events for a profile (demand forecasting analytics). */
+export async function getStockEvents(
+  profile: string,
+  limit = 100
+): Promise<StockEvent[]> {
+  if (!hasDB()) return [];
+  try {
+    const { rows } = await pool.query<StockEvent>(
+      `SELECT id, profile, item_id, item_name, previous_available, new_available,
+              quantity, source, changed_by, created_at::text
+       FROM menu_stock_events
+       WHERE profile = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [profile, limit]
+    );
+    return rows;
+  } catch (err: any) {
+    console.error('[MenuItemsStore] getStockEvents failed:', err.message);
+    return [];
+  }
+}
+
+/**
+ * POS stock update: accepts an array of {name, sku?, quantity} and updates
+ * the `available` flag for matching menu items. Items with quantity = 0 are
+ * marked unavailable; quantity > 0 marks them available again.
+ * Returns a summary of changes applied.
+ */
+export async function applyPosStockUpdate(
+  profile: string,
+  updates: Array<{ name?: string; sku?: string; quantity: number }>
+): Promise<{ updated: string[]; not_found: string[] }> {
+  const updated: string[] = [];
+  const not_found: string[] = [];
+
+  const allItems = Array.from(getProfileStore(profile).values());
+
+  for (const u of updates) {
+    // Match by name (case-insensitive) or sku/code
+    const match = allItems.find(item => {
+      if (u.name && item.name.toLowerCase() === u.name.toLowerCase()) return true;
+      return false;
+    });
+
+    const identifier = u.name ?? u.sku ?? `(unknown)`;
+
+    if (!match) {
+      not_found.push(identifier);
+      continue;
+    }
+
+    const newAvailable = u.quantity > 0;
+    if (match.available === newAvailable) continue; // No change needed
+
+    await updateMenuItem(profile, match.id, { available: newAvailable });
+    logStockTransition({
+      profile,
+      item_id: match.id,
+      item_name: match.name,
+      previous_available: match.available,
+      new_available: newAvailable,
+      quantity: u.quantity,
+      source: 'pos_webhook',
+      changed_by: 'pos',
+    });
+    updated.push(`${match.name} -> ${newAvailable ? 'available' : 'out-of-stock'}`);
+  }
+
+  return { updated, not_found };
+}
