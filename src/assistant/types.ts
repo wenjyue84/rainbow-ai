@@ -83,6 +83,7 @@ export type IntentCategory =
   | 'review_feedback'
   | 'checkin'
   | 'checkout'
+  | 'off_topic'
   | 'unknown';
 
 export interface IntentResult {

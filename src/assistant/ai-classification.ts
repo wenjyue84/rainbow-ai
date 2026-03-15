@@ -14,6 +14,8 @@ import { classifyResultSchema, safeParseLLMResponse } from './schemas.js';
 export const VALID_CATEGORIES: IntentCategory[] = [
   // General support
   'greeting', 'thanks', 'contact_staff', 'unknown',
+  // US-942: WhatsApp policy compliance — off-topic decline
+  'off_topic',
   // Pre-arrival
   'pricing', 'availability', 'booking', 'directions', 'facilities_info',
   'rules_policy', 'payment_info', 'payment_made', 'checkin_info', 'checkout_info',

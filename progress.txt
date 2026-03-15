@@ -9553,3 +9553,56 @@ Completed: US-944 — OWASP LLM07 system prompt leakage prevention
 ## Iteration 1 - Sun, Mar 15, 2026  9:00:57 PM
 Completed: Migrate Baileys auth state to production-safe database store (ID: US-941) in 10m
 
+## Iteration 17 - Sun, Mar 15, 2026  9:05:29 PM
+Completed: Migrate Baileys auth state to production-safe database store (ID: US-941) in 12m
+
+
+## Iteration - US-942: Enforce WhatsApp 2026 task-specific chatbot policy compliance
+### What was implemented
+- **AC1: System prompt scoped to business functions** — Added WHATSAPP TASK-SPECIFIC CHATBOT COMPLIANCE block to `knowledge-base-instance.ts` system prompt. Lists 10 allowed business functions (bookings, check-in/out, facilities, F&B, complaints, etc). Explicitly declares bot is NOT general-purpose.
+- **AC2: Off-topic detection and redirect** — Added `off_topic` intent to `routing.json` (static_reply). Added trilingual (en/ms/zh) static response in `knowledge.json` that lists supported services and redirects to hostel-related tasks.
+- **AC3: Human escalation reachable from any flow** — Off-topic response includes "talk to staff" / "hubungi staf" / "联系工作人员" escalation option. System prompt HUMAN ESCALATION section instructs AI to always mention this option when declining off-topic requests. Existing `contact_staff` intent routes to escalation workflow.
+- **AC4: Bot identification with business name** — System prompt BOT IDENTIFICATION section requires Rainbow to always identify as "Rainbow, the AI assistant for Pelangi Capsule Hostel" — never as generic "AI assistant". Off-topic response also includes business name.
+- **AC5: Compliance audit log** — New `compliance_audit_log` table in `shared/schema-tables.ts` (jid, profile_id, intent, intent_category, routed_action, confidence, user_message, created_at). New `src/lib/compliance-audit.ts` with `classifyIntentCategory()` (in_scope/off_topic/escalation) and `logComplianceAudit()` fire-and-forget logger. Integrated into pipeline `intent-classifier.ts` after Stage 5 (routing).
+- **Tests** — 27 tests covering all 5 ACs in `whatsapp-compliance.test.ts`
+
+### Patterns discovered
+- System prompt in `knowledge-base-instance.ts` `getOrBuildBasePrompt()` is the single place to add policy blocks — cached per day+persona
+- `routing.json` + `knowledge.json` pair: add intent to routing, add static response to knowledge
+- Compliance audit follows same fire-and-forget pattern as `escalation-events.ts`
+- `classifyIntentCategory()` uses Set lookups for off_topic and escalation intents, defaults to in_scope
+
+### Status
+✅ Build passes (3 pre-existing warnings). 27/27 new tests pass. Server starts correctly.
+
+## Iteration [Ralph] - Story: US-942 Enforce WhatsApp 2026 task-specific chatbot policy compliance
+### What was implemented
+- AC1: System prompt already scoped in knowledge-base-instance.ts (US-942 section with ALLOWED BUSINESS FUNCTIONS list)
+- AC2: Added `off_topic` to VALID_CATEGORIES (ai-classification.ts) and IntentCategory type (types.ts); added off_topic keywords to intent-keywords.json for T2 fuzzy matching; off_topic routing (static_reply) and knowledge.json static reply already existed
+- AC3: Human escalation already fully implemented (contact_staff intent, escalation.ts, tiered fallback with auto-escalate); off_topic static reply now mentions "talk to staff" option
+- AC4: Updated greeting_first_contact template to explicitly state business name ("Pelangi Capsule Hostel") and list supported tasks (no generic "ask me anything"); removed open-ended language
+- AC5: Added complianceCategory field to message metadata (response-processor.ts) — values: allowed_task, off_topic_declined, escalated_to_human — persisted to usageJson in rainbow_messages table for audit queries
+### Patterns discovered
+- knowledge-base-instance.ts already had extensive US-942 compliance sections in the system prompt (task-specific scope, off-topic handling, bot identification, human escalation)
+- routing.json already had off_topic entry with static_reply action
+- The gap was: off_topic wasn't in VALID_CATEGORIES/IntentCategory type, no T2 keywords, and no compliance audit trail in DB
+- complianceCategory is stored in usageJson (JSONB) alongside usage tokens — queryable via JSON operators
+### Status
+✅ All 5 acceptance criteria met. Build passes. Story ready for production.
+Marked passes=true in prd.json
+
+## Iteration N - Story: US-942 Enforce WhatsApp 2026 task-specific chatbot policy compliance (Re-verification)
+### What was implemented
+- Verified all 5 acceptance criteria already partially in place from previous work
+- Added `queryComplianceAuditLog` and `getComplianceSummary` functions to `src/lib/compliance-audit.ts`
+  to support admin review queries (Drizzle ORM, ordered newest-first)
+- Created `src/routes/admin/chatbot-compliance.ts` with:
+  - `GET /chatbot-compliance/audit` — paginated log with profileId/category/since/limit filters
+  - `GET /chatbot-compliance/summary` — aggregate in_scope/off_topic/escalation stats
+- Registered route in `src/routes/admin/index.ts`
+### Patterns discovered
+- Off-topic handling, bot identification, and escalation path were all already in place
+- Compliance audit DB table (`compliance_audit_log`) and `logComplianceAudit()` were already wired in `intent-classifier.ts`
+- The missing piece was a queryable admin API for "review" per acceptance criterion 5
+### Status
+✅ Build passes. All acceptance criteria met. Marked passes=true.

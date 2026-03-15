@@ -136,8 +136,12 @@ export async function logMessage(
         routedAction: meta?.routedAction ?? null,
         workflowId: meta?.workflowId ?? null,
         stepId: meta?.stepId ?? null,
-        usageJson: (meta?.usage || meta?.staffName)
-          ? JSON.stringify({ ...(meta?.usage || {}), ...(meta?.staffName ? { staffName: meta.staffName } : {}) })
+        usageJson: (meta?.usage || meta?.staffName || meta?.complianceCategory)
+          ? JSON.stringify({
+              ...(meta?.usage || {}),
+              ...(meta?.staffName ? { staffName: meta.staffName } : {}),
+              ...(meta?.complianceCategory ? { complianceCategory: meta.complianceCategory } : {}),
+            })
           : null,
         promptTokens: meta?.usage?.prompt_tokens ?? null,
         completionTokens: meta?.usage?.completion_tokens ?? null,

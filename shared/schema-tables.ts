@@ -674,3 +674,28 @@ export const adminAuditLog = pgTable("admin_audit_log", {
 
 export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
 export type InsertAdminAuditLog = typeof adminAuditLog.$inferInsert;
+
+// ─── US-942: WhatsApp Compliance Audit Log ──────────────────────────
+// Records which intent categories handled each conversation for WABA
+// task-specific chatbot policy compliance review.
+
+export const complianceAuditLog = pgTable("compliance_audit_log", {
+  id: serial("id").primaryKey(),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  intent: text("intent").notNull(),                               // classified intent
+  intentCategory: varchar("intent_category", { length: 32 }).notNull(), // 'in_scope' | 'off_topic' | 'escalation'
+  routedAction: text("routed_action"),                            // action taken (static_reply, llm_reply, workflow, etc.)
+  confidence: real("confidence"),                                 // classification confidence
+  userMessage: text("user_message"),                              // truncated user message (first 200 chars)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_compliance_audit_jid").on(table.jid),
+  index("idx_compliance_audit_profile").on(table.profileId),
+  index("idx_compliance_audit_category").on(table.intentCategory),
+  index("idx_compliance_audit_intent").on(table.intent),
+  index("idx_compliance_audit_created").on(table.createdAt),
+]));
+
+export type ComplianceAuditLog = typeof complianceAuditLog.$inferSelect;
+export type InsertComplianceAuditLog = typeof complianceAuditLog.$inferInsert;

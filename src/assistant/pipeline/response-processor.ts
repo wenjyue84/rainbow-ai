@@ -302,6 +302,13 @@ export async function processAndSend(
   // ─── Mode dispatch: manual / copilot / autopilot ───────────────
   const mode = getConversationMode(phone, profileConfig);
 
+  // US-942: Derive WhatsApp compliance audit category from intent + action
+  const complianceCategory = diaryEvent.escalated
+    ? 'escalated_to_human'
+    : diaryEvent.intent === 'off_topic'
+      ? 'off_topic_declined'
+      : 'allowed_task';
+
   const logMeta = {
     requestId,
     intent: diaryEvent.intent || undefined,
@@ -318,6 +325,7 @@ export async function processAndSend(
     workflowId: devMetadata.workflowId,
     stepId: devMetadata.stepId,
     usage: devMetadata.usage,
+    complianceCategory,
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
     ...(faithfulnessScore !== undefined ? { faithfulnessScore } : {}),
     ...(hallucinationAction !== undefined ? { hallucinationAction } : {}),
