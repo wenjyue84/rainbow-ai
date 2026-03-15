@@ -1,5 +1,6 @@
 /**
  * US-822 / US-914: Sentiment-based early escalation trigger tests
+ * + US-914: Consecutive low-confidence escalation trigger tests
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -10,6 +11,14 @@ import {
 } from '../sentiment-tracker.js';
 import { detectHighStakeKeyword } from '../pipeline/stages/action-dispatch.js';
 import { resetSentimentTracking, getSentimentStats } from '../sentiment-tracker.js';
+import {
+  trackConfidence,
+  shouldEscalateOnConfidence,
+  markConfidenceEscalation,
+  resetConfidenceTracking,
+  isConfidenceEscalationEnabled,
+  getConfidenceStats,
+} from '../confidence-tracker.js';
 
 // Use unique phone per test to avoid cross-test state pollution
 let phoneCounter = 0;
@@ -224,6 +233,117 @@ describe('US-914: Structured chatbot-to-human escalation', () => {
       resetSentimentTracking(phone);
       const stats = getSentimentStats(phone);
       expect(stats?.consecutiveNegative).toBe(0);
+    });
+  });
+
+  // ─── AC1(b): Consecutive low-confidence escalation ────────────────────────
+
+  describe('AC1(b): Consecutive low-confidence escalation', () => {
+    const settings = {
+      confidence_escalation: {
+        enabled: true,
+        threshold: 0.4,
+        consecutive_count: 2,
+        cooldown_minutes: 0, // no cooldown for tests
+      },
+    };
+
+    it('does not escalate on first low-confidence response', () => {
+      const phone = uniquePhone();
+      trackConfidence(phone, 0.35, settings);
+      const result = shouldEscalateOnConfidence(phone, settings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(1);
+    });
+
+    it('escalates on 2 consecutive low-confidence responses', () => {
+      const phone = uniquePhone();
+      trackConfidence(phone, 0.3, settings);
+      trackConfidence(phone, 0.38, settings);
+      const result = shouldEscalateOnConfidence(phone, settings);
+      expect(result.shouldEscalate).toBe(true);
+      expect(result.consecutiveCount).toBe(2);
+    });
+
+    it('resets on above-threshold confidence', () => {
+      const phone = uniquePhone();
+      trackConfidence(phone, 0.3, settings);
+      trackConfidence(phone, 0.85, settings); // resets
+      trackConfidence(phone, 0.35, settings);
+      const result = shouldEscalateOnConfidence(phone, settings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(1);
+    });
+
+    it('respects custom threshold', () => {
+      const phone = uniquePhone();
+      const lenientSettings = {
+        confidence_escalation: {
+          enabled: true,
+          threshold: 0.3,
+          consecutive_count: 2,
+          cooldown_minutes: 0,
+        },
+      };
+      trackConfidence(phone, 0.35, lenientSettings); // above 0.3 — resets
+      trackConfidence(phone, 0.25, lenientSettings);
+      const result = shouldEscalateOnConfidence(phone, lenientSettings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(1);
+    });
+
+    it('respects custom consecutive count', () => {
+      const phone = uniquePhone();
+      const strictSettings = {
+        confidence_escalation: {
+          enabled: true,
+          threshold: 0.4,
+          consecutive_count: 3,
+          cooldown_minutes: 0,
+        },
+      };
+      trackConfidence(phone, 0.3, strictSettings);
+      trackConfidence(phone, 0.35, strictSettings);
+      const r1 = shouldEscalateOnConfidence(phone, strictSettings);
+      expect(r1.shouldEscalate).toBe(false); // only 2, need 3
+
+      trackConfidence(phone, 0.2, strictSettings);
+      const r2 = shouldEscalateOnConfidence(phone, strictSettings);
+      expect(r2.shouldEscalate).toBe(true);
+      expect(r2.consecutiveCount).toBe(3);
+    });
+
+    it('markConfidenceEscalation resets counter', () => {
+      const phone = uniquePhone();
+      trackConfidence(phone, 0.3, settings);
+      trackConfidence(phone, 0.35, settings);
+      markConfidenceEscalation(phone);
+      const stats = getConfidenceStats(phone);
+      expect(stats?.consecutiveLow).toBe(0);
+      expect(stats?.lastEscalationAt).toBeGreaterThan(0);
+    });
+
+    it('resetConfidenceTracking resets counter without setting escalation time', () => {
+      const phone = uniquePhone();
+      trackConfidence(phone, 0.2, settings);
+      trackConfidence(phone, 0.3, settings);
+      resetConfidenceTracking(phone);
+      const stats = getConfidenceStats(phone);
+      expect(stats?.consecutiveLow).toBe(0);
+      expect(stats?.lastEscalationAt).toBeNull();
+    });
+
+    it('returns false for unknown phone', () => {
+      const result = shouldEscalateOnConfidence('never_seen_phone', settings);
+      expect(result.shouldEscalate).toBe(false);
+      expect(result.consecutiveCount).toBe(0);
+    });
+
+    it('isConfidenceEscalationEnabled checks settings', () => {
+      expect(isConfidenceEscalationEnabled({ confidence_escalation: { enabled: true } })).toBe(true);
+      expect(isConfidenceEscalationEnabled({ confidence_escalation: { enabled: false } })).toBe(false);
+      expect(isConfidenceEscalationEnabled({})).toBe(true); // defaults to enabled
+      expect(isConfidenceEscalationEnabled(null)).toBe(true); // defaults to enabled
     });
   });
 });

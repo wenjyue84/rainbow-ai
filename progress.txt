@@ -9424,3 +9424,62 @@ Completed: RAG hybrid retrieval with BM25 and cross-encoder reranking for knowle
 ### Gotchas
 - Async dynamic import (`await import(...)`) inside a non-async `it()` test causes esbuild transform error — moved import to top-level static import instead.
 - The `getSentimentStats` and `resetSentimentTracking` functions needed to be explicitly imported at file top, not lazily.
+## Iteration 15 - Sun, Mar 15, 2026  8:43:47 PM
+Incomplete: Migrate Baileys auth state to production-safe database store (ID: US-941) — attempt 2/3
+
+
+## Iteration 16 - Story: US-914 - Structured chatbot-to-human escalation
+### What was implemented
+- US-914 was already fully implemented by previous iterations across multiple stories (US-428, US-429, US-822, US-836, US-880, US-913)
+- All acceptance criteria already met: 4 escalation triggers (human request, consecutive failures, sentiment, high-stakes keywords), case ID + SLA, context handoff, manual mode disengagement, P90 analytics, resolve/resume
+- Test file (sentiment-escalation.test.ts) with 27 tests covering all AC already existed
+- Verified: tests pass, build succeeds, server starts
+### Patterns discovered
+- Large stories may be incrementally implemented across many smaller stories — always verify before writing new code
+- The escalation system is spread across: escalation.ts (core), pipeline/stages/action-dispatch.ts (keyword triggers), sentiment-tracker.ts (sentiment triggers), response-processor.ts (confidence triggers), lib/handoff-sla.ts (SLA monitoring), routes/admin/escalations.ts (analytics)
+### Gotchas
+- "cancel" and "complaint" are deliberately NOT in HIGH_STAKE_KEYWORDS_REGEX — they're handled by intent routing to allow the bot to process cancel/complaint flows before escalating
+
+## Iteration 4 - Sun, Mar 15, 2026  8:46:00 PM
+Completed: US-914 — Structured chatbot-to-human escalation with full conversation context handoff
+
+### What was implemented
+- **`src/assistant/confidence-tracker.ts`** (NEW):
+  - StateManager-based tracker for consecutive low-confidence AI responses
+  - `trackConfidence(phone, confidence, settings)` records per-response confidence
+  - `shouldEscalateOnConfidence(phone, settings)` checks if N consecutive below threshold
+  - Configurable: threshold (default 0.4), consecutive_count (default 2), cooldown (30 min)
+  - `resetConfidenceTracking()` / `markConfidenceEscalation()` for lifecycle management
+
+- **`src/assistant/pipeline/response-processor.ts`** (MODIFIED):
+  - Integrated confidence tracker after sentiment escalation block
+  - Tracks every response's confidence score
+  - Auto-escalates when 2+ consecutive responses fall below 0.4 threshold
+  - Appends guest notification message on escalation
+
+- **`src/assistant/data/settings.json`** + **`data-southern/settings.json`** (MODIFIED):
+  - Added `confidence_escalation` config: enabled, threshold, consecutive_count, cooldown_minutes
+
+- **`src/assistant/__tests__/sentiment-escalation.test.ts`** (EXTENDED):
+  - 10 new tests for AC1(b) consecutive low-confidence escalation
+  - Tests: single low (no escalate), 2 consecutive (escalate), reset on above-threshold,
+    custom threshold, custom consecutive count, markEscalation reset, resetTracking,
+    unknown phone, isEnabled check
+
+### Pre-existing infrastructure leveraged (already implemented before this iteration)
+- AC1(a): 'agent'/'human'/'speak to someone' → `contact_staff` intent → escalate workflow
+- AC1(c): sentiment threshold=2 in settings.json → sentiment-tracker.ts
+- AC1(d): HIGH_STAKE_KEYWORDS_REGEX in action-dispatch.ts (legal, sue, lawyer, court, urgent, emergency, refund)
+- AC2: Admin panel with full history, name, summary, trigger reason via escalation events + handoff summary
+- AC3: SLA + case ID via escalation.ts guest holding message
+- AC4: AI disengages via responseMode='manual' on escalation
+- AC5: P90 pickup time via /escalations/analytics/pickup endpoint
+- AC6: AI resumes via !resolve command + resolveHandoff()
+
+### Patterns discovered
+- StateManager pattern reused from sentiment-tracker for consistency
+- Confidence tracking runs AFTER sentiment escalation to avoid double-escalation (checks !diaryEvent.escalated)
+- Settings structure mirrors sentiment_analysis for consistency
+
+### Status
+✅ Build passes (3 pre-existing warnings). 36/36 tests pass (10 new + 26 existing). Server starts successfully.

@@ -33,6 +33,10 @@ import {
 } from '../hallucination-detector.js';
 import { detectSystemPromptLeakage } from './prompt-injection-guard.js';
 import { logPromptInjection } from '../../lib/prompt-injection-log.js';
+import {
+  trackConfidence, shouldEscalateOnConfidence, markConfidenceEscalation,
+  isConfidenceEscalationEnabled
+} from '../confidence-tracker.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -248,6 +252,40 @@ export async function processAndSend(
       };
       const messages = configuredMessages || defaultMessages;
       response += messages[lang] || messages.en || defaultMessages.en;
+    }
+  }
+
+  // ─── US-914: Consecutive low-confidence escalation ──────────────
+  if (isConfidenceEscalationEnabled(sentimentSettings)) {
+    trackConfidence(phone, diaryEvent.confidence, sentimentSettings);
+    const confidenceCheck = shouldEscalateOnConfidence(phone, sentimentSettings);
+    if (confidenceCheck.shouldEscalate && !diaryEvent.escalated) {
+      console.log(
+        `[Confidence] Escalating: ${confidenceCheck.consecutiveCount} consecutive low-confidence responses for ${phone}`
+      );
+      diaryEvent.escalated = true;
+      await escalateToStaff({
+        phone,
+        pushName: msg.pushName,
+        reason: 'low_confidence' as any,
+        recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
+        originalMessage: text,
+        instanceId: msg.instanceId,
+        profileId,
+        triggerDetail: `${confidenceCheck.consecutiveCount} consecutive responses below confidence threshold`,
+      });
+      markConfidenceEscalation(phone);
+
+      const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+      logEscalationEvent({
+        jid: phone,
+        profileId,
+        trigger: 'low_confidence_consecutive',
+        count: confidenceCheck.consecutiveCount,
+        metadata: { consecutiveLow: confidenceCheck.consecutiveCount, lastConfidence: diaryEvent.confidence },
+      });
+
+      response += "\n\nI notice I haven't been able to fully help you. I've connected you with our team — someone will assist you shortly.";
     }
   }
 
