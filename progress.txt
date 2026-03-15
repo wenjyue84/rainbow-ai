@@ -8651,3 +8651,20 @@ Build passes. 5/5 tests pass. Story marked passes=true.
 ### Status
 Build passes. 5 tests pass. Story marked passes=true.
 
+
+## Iteration [Ralph] - Story: US-872 WhatsApp interactive list message for menu category browsing
+### What was implemented
+- Implementation was already complete in `src/assistant/pipeline/stages/action-dispatch.ts`:
+  - `handleMenuBrowseInteractive()` function: detects ORDER_BROWSE intent for makan-moments profile, fetches menu items via `fetchMenuItems()`, groups by category, builds Baileys `listMessage` payload with sections (max 3 × 3 items = 9 rows)
+  - Row IDs use `add to cart: ITEMNAME` format for deterministic cart routing
+  - Text fallback for webchat (non-WhatsApp) or when `interactiveMessages.enabled=false`
+  - i18n: English, Malay, Chinese title/description/button text
+- Test file `src/assistant/__tests__/menu-list-browse.test.ts` already existed with 11 tests
+- `buildListMessage()` and `listMessageToText()` in `formatter.ts` support the payload
+- `sendWhatsAppInteractiveMessage()` exported from `src/lib/whatsapp/index.ts`
+### Patterns discovered
+- The spiral workers had already completed this story fully — Ralph validated implementation and confirmed all quality gates pass
+- `interactivePayload` on PipelineState carries the Baileys message; delivery layer picks it up
+- MENU_LIST_MAX_SECTIONS=3, MENU_LIST_MAX_ITEMS_PER_SECTION=3 keeps total rows at 9 (under 10 Baileys limit)
+### Status
+Build passes. 11/11 tests pass. Story marked passes=true.
