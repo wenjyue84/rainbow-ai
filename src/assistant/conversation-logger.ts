@@ -252,6 +252,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           c.favourite,
           c.created_at,
           c.last_read_at,
+          c.referral_source_type,
           lm.content   AS last_msg_content,
           lm.role       AS last_msg_role,
           lm.timestamp  AS last_msg_at,

@@ -41,6 +41,17 @@ export interface ContactDetails {
   tags?: string[];
 }
 
+// US-910: Referral attribution data for ad-initiated conversations
+export interface ConversationReferral {
+  sourceType: string;       // ad | post | qr_code
+  ctwaClid?: string;        // Click ID for Meta Conversions API
+  sourceId?: string;        // Campaign/ad ID
+  headline?: string;        // Ad headline text
+  body?: string;            // Ad body text
+  mediaType?: string;       // image | video
+  sourceUrl?: string;       // Source URL
+}
+
 export interface ConversationLog {
   phone: string;
   pushName: string;
@@ -53,6 +64,7 @@ export interface ConversationLog {
   favourite?: boolean;
   lastReadAt?: number;
   responseMode?: string;
+  referral?: ConversationReferral; // US-910: ad referral attribution
   createdAt: number;
   updatedAt: number;
 }
@@ -72,4 +84,5 @@ export interface ConversationSummary {
   favourite?: boolean;
   createdAt: number;
   sessionActive?: boolean;  // US-815: true if within 24h session window
+  leadSource?: string;      // US-910: ad | post | qr_code | organic (null = organic)
 }
