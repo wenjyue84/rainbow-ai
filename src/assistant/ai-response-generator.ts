@@ -16,6 +16,12 @@ import { z } from 'zod';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 import { validateToolArgs } from './pipeline/prompt-injection-guard.js';
+import {
+  checkToolPermission,
+  auditToolDispatch,
+  blockedToolResult,
+  type ToolCallContext
+} from './tool-permission-guard.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -122,7 +128,9 @@ export async function chatWithToolsLoop(
   tools: MCPTool[],
   toolHandlers: Map<string, ToolHandler>,
   profileConfigStore?: ConfigStore,
-  detectedLanguage?: SupportedLanguage
+  detectedLanguage?: SupportedLanguage,
+  /** US-929: Active intent context for tool permission enforcement */
+  toolCallContext?: ToolCallContext
 ): Promise<string> {
   if (!isAIAvailable()) {
     throw new Error('AI not available');
@@ -205,6 +213,19 @@ export async function chatWithToolsLoop(
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.content) });
           totalToolCalls++;
           errorToolCalls++;
+          continue;
+        }
+      }
+
+      // US-929: Enforce tool permission matrix before executing
+      if (toolCallContext) {
+        const permCheck = checkToolPermission(fnName, toolCallContext);
+        auditToolDispatch(fnName, toolCallContext, permCheck);
+        if (!permCheck.allowed) {
+          const blocked = blockedToolResult(fnName, permCheck.reason || 'permission denied');
+          messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(blocked.content) });
+          totalToolCalls++;
+          // Not counted as errorToolCalls — lets the AI produce a graceful text response
           continue;
         }
       }
