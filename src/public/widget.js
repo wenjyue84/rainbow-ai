@@ -167,18 +167,15 @@
     var isOpen = false;
     var unreadCount = 0;
 
-    // US-883: Dynamic unread count in badge aria-label
-    function updateBadgeLabel() {
-      badge.setAttribute('aria-label', unreadCount === 1 ? '1 new message' : unreadCount + ' new messages');
-    }
     function showBadge() {
       unreadCount++;
-      updateBadgeLabel();
       badge.style.display = 'block';
+      badge.setAttribute('aria-label', unreadCount + ' unread message' + (unreadCount !== 1 ? 's' : ''));
     }
     function hideBadge() {
       unreadCount = 0;
       badge.style.display = 'none';
+      badge.setAttribute('aria-label', '');
     }
 
     function openPanel() {

@@ -233,7 +233,8 @@
   "unknownFallback": {
     "en": "Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.",
     "ms": "Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.",
-    "zh": "抱歉，我暂时无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。"
+    "zh": "抱歉，我暂时无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。",
+    "ta": "மன்னிக்கவும், தற்போது அந்தத் தகவலைப் பெற முடியவில்லை. எங்கள் ஊழியர்களிடம் கேளுங்கள் அல்லது முயற்சிக்கவும்: மெனுவைக் காட்டு / ஆர்டர் செய் / என் ஆர்டரைப் பார்."
   },
   "kitchenQueue": {
     "queueWarningThreshold": 5,
@@ -243,8 +244,6 @@
     "cash",
     "qr"
   ],
-  "orderModificationWindowMinutes": 2,
-  "cartIdleRecoveryMinutes": 30,
   "staffName": "Rachel",
   "consecutive_fallback_threshold": 2,
   "traces": {
@@ -258,23 +257,62 @@
     "recipient": "",
     "description": "Daily fallback rate alert (US-814). Sends WhatsApp alert when AI misunderstanding rate exceeds threshold. threshold is a decimal (0.20 = 20%). recipient defaults to system admin if empty."
   },
-  "kdsWebhook": {
-    "enabled": false,
-    "webhookUrl": "",
-    "authToken": "",
-    "maxRetries": 3,
-    "baseDelayMs": 2000,
-    "description": "POS/KDS webhook integration (US-876). POSTs confirmed orders to a kitchen display system. Set enabled: true and webhookUrl to activate. authToken is sent as Authorization header. Configurable without redeploy via admin settings."
-  },
-  "productCatalog": {
+  "interactiveMessages": {
     "enabled": true,
-    "catalogSource": "menu_items_store",
-    "whatsappCatalogId": "",
-    "syncMode": "auto",
-    "description": "Product catalog configuration (US-885). Controls how menu items are displayed as product cards. catalogSource: 'menu_items_store' (default, uses DB-backed menu items), 'whatsapp_catalog' (requires Meta Business Manager setup with whatsappCatalogId). syncMode: 'auto' (syncs on menu change), 'manual'. When whatsappCatalogId is empty, product cards use image+button fallback via Baileys."
+    "description": "US-872: Send WhatsApp interactive list messages for menu browsing (ORDER_BROWSE / menu_browse_category intents). When disabled, falls back to plain-text menu."
+  },
+  "kds": {
+    "enabled": false,
+    "opsNotifyPhone": "",
+    "description": "US-876: KDS/POS webhook integration. Set KDS_WEBHOOK_URL and KDS_WEBHOOK_AUTH_TOKEN env vars to activate. opsNotifyPhone defaults to first staff phone if empty."
+  },
+  "cart_recovery": {
+    "enabled": true,
+    "idle_minutes": 30,
+    "description": "US-882: WhatsApp abandoned cart recovery. Sends a proactive message when a WhatsApp session has idle cart items for idle_minutes. Only one message per cart session. Cart auto-clears 24h after recovery message if no response."
+  },
+  "catalog": {
+    "enabled": false,
+    "catalogId": "",
+    "businessJid": "",
+    "description": "US-885: WhatsApp Business catalog for single-item product cards. Set catalogId and businessJid from Meta Business Manager to enable native product messages. When disabled, falls back to button message with item details."
+  },
+  "returning_customer": {
+    "enabled": true,
+    "description": "US-856/US-897: Returning-customer order suggestion. On webchat session start, if the session matches a prior order within the last 30 days, show 'Welcome back! Order your usual again?' quick-reply. Can be enabled per profile."
+  },
+  "tiered_fallback": {
+    "description": "US-880: Three-tier progressive escalation for unrecognised messages.",
+    "tier1": {
+      "en": "Sorry, I didn't catch that! Could you rephrase? For example: Show menu, Place order, or Check my order.",
+      "ms": "Maaf, saya tidak faham! Boleh ulang? Contoh: Tunjuk menu, Buat pesanan, atau Semak pesanan saya.",
+      "zh": "抱歉，我没明白！能换个方式说吗？例如：显示菜单、下单或查询我的订单。",
+      "ta": "மன்னிக்கவும், புரியவில்லை! வேறு விதமாக சொல்ல முடியுமா? உதாரணம்: மெனு காட்டு, ஆர்டர் செய்"
+    }
   },
   "billing": {
     "pricingModel": "per_message",
     "description": "WhatsApp Business pricing model (US-845). per_message = Meta July 2025+ model."
+  },
+  "businessHours": {
+    "timezone": "Asia/Kuala_Lumpur",
+    "schedule": [
+      { "day": 1, "open": "08:00", "close": "22:00" },
+      { "day": 2, "open": "08:00", "close": "22:00" },
+      { "day": 3, "open": "08:00", "close": "22:00" },
+      { "day": 4, "open": "08:00", "close": "22:00" },
+      { "day": 5, "open": "08:00", "close": "22:00" },
+      { "day": 6, "open": "08:00", "close": "22:00" },
+      { "day": 0, "open": "10:00", "close": "21:00" }
+    ],
+    "holidays": []
+  },
+  "webchat_onboarding": {
+    "enabled": true,
+    "buttons": [
+      { "label": "View Menu", "payload": "Show me the menu" },
+      { "label": "Place Order", "payload": "I want to place an order" },
+      { "label": "Opening Hours", "payload": "What are your opening hours?" }
+    ]
   }
 }

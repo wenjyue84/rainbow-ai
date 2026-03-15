@@ -1,6 +1,6 @@
 {
   "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
-  "branchName": "master",
+  "branchName": "spiral-worker-1-1773549790",
   "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
   "goals": [
     "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
@@ -1177,104 +1177,6 @@
       "passes": true
     },
     {
-      "id": "US-845",
-      "title": "Update WhatsApp cost tracker for per-message pricing model (July 2025)",
-      "priority": "low",
-      "description": "Meta is transitioning WhatsApp Business from per-conversation to per-message pricing effective July 1, 2025. The existing cost tracking module was built for the conversation-based model. Without updating it, cost estimates in the admin dashboard will be inaccurate by up to 10x for profiles that send many short proactive messages.",
-      "acceptanceCriteria": [
-        "A settings toggle `billing.pricingModel: 'per_conversation' | 'per_message'` is added to settings.json with per-profile support",
-        "When `per_message` is active, each outbound message increments a per-message cost counter using configurable per-category rates (marketing, utility, authentication)",
-        "The admin dashboard cost chart displays estimated costs under both models with a visual indicator of which model is active",
-        "Unit tests cover cost calculation for both pricing models using sample message sequences"
-      ],
-      "technicalNotes": [
-        "Locate existing cost tracking in `src/routes/admin/whatsapp-cost.ts` and `src/assistant/__tests__/whatsapp-cost.test.ts`",
-        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message — use MYR rates for Malaysia",
-        "The message category (marketing/utility) must be determined at send time — proactive messages are typically marketing, reactive replies are utility"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/__tests__/message-pipeline.test.ts",
-        "src/assistant/__tests__/sentiment-escalation.test.ts"
-      ]
-    },
-    {
-      "id": "US-846",
-      "title": "Webchat widget offline hours banner with configurable business hours",
-      "priority": "low",
-      "description": "The webchat widget is always-open with no indication of business operating hours. When staff are unavailable (late night, public holidays), users send messages expecting prompt responses and become frustrated when none arrives. An unavailability banner set by configurable business hours improves user expectations.",
-      "acceptanceCriteria": [
-        "Business hours are configurable per-profile in admin settings: `businessHours.timezone`, `businessHours.schedule` (array of day/open/close)",
-        "When current time is outside business hours, the webchat widget header shows a banner: 'We're currently offline. Leave a message and we'll reply during business hours.'",
-        "The input field remains functional (messages can still be sent and will be answered by AI or queued for human review)",
-        "Business hours configuration is exposed via `GET /api/webchat/config/:profile` for client-side rendering",
-        "Public holiday override can be configured as a list of dates in settings"
-      ],
-      "technicalNotes": [
-        "Business hours logic should be evaluated server-side in `src/routes/public/webchat-api.ts` and included in the initial widget config payload",
-        "Use the `luxon` library (or native `Intl.DateTimeFormat`) for timezone-aware time comparison",
-        "The widget config endpoint should return `isAvailable: boolean, nextOpenTime: string | null`"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        ".claude/scheduled_tasks.lock",
-        ".spiral-workers/worker-1",
-        ".spiral-workers/worker-2",
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/workers/worker_1.json",
-        ".spiral/workers/worker_2.json",
-        "fix-unicode.mjs",
-        "prd.json",
-        "prd.json.bak"
-      ]
-    },
-    {
-      "id": "US-847",
-      "title": "Admin audit log for configuration changes with before/after diff",
-      "priority": "low",
-      "description": "Any admin can modify AI system prompts, routing rules, and intent configurations with no record of who changed what and when. When the bot starts behaving unexpectedly after a config change, operators cannot determine root cause. PDPA's Data Integrity Principle also requires that processing decisions be accountable.",
-      "acceptanceCriteria": [
-        "Every write operation through the config API (`PUT /api/rainbow/config/*`, settings updates) inserts a record into `rainbow_config_audit` with: admin_user, endpoint, before (JSON), after (JSON), timestamp",
-        "Admin dashboard shows an audit log tab with the last 100 config change events, filterable by date range and admin user",
-        "Each audit entry shows a human-readable diff (changed keys highlighted)",
-        "Audit records are retained for 365 days (not subject to standard conversation retention policy)",
-        "Verify `rainbow_config_audit` table is being populated by ALL config write paths, not just current partial coverage"
-      ],
-      "technicalNotes": [
-        "`rainbow_config_audit` table already exists — audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
-        "Add an `auditConfigChange(adminUser, endpoint, before, after)` helper and call it from all config mutation routes",
-        "The before-value must be captured BEFORE the write — common bug to avoid"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts",
-        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
-        "src/assistant/__tests__/csp-connect-src.test.ts",
-        "src/assistant/__tests__/fnb-widget-bugs.test.ts"
-      ]
-    },
-    {
       "id": "US-848",
       "title": "Conversational cart: AI waiter maintains running order across multiple messages",
       "priority": "high",
@@ -1457,76 +1359,6 @@
       ],
       "estimatedComplexity": "small",
       "passes": true
-    },
-    {
-      "id": "US-856",
-      "title": "Repeat order shortcut: AI waiter offers to repeat last order for returning guests",
-      "priority": "low",
-      "description": "If a returning guest has a previous order on record, the AI waiter should proactively offer to repeat it at the start of the conversation. This reduces friction for regulars and makes the experience feel personalised.",
-      "acceptanceCriteria": [
-        "On session start, check FnB MCP for last order by guest JID or phone",
-        "If found within last 30 days, AI offers to repeat previous order",
-        "Guest reply YES loads previous order into cart as starting point",
-        "Guest reply NO proceeds to normal browsing flow",
-        "If no prior order found, normal welcome message shown"
-      ],
-      "technicalNotes": [
-        "Call FnB MCP get_order_history with jid and limit 1 on webchat session init",
-        "Trigger only for webchat widget not WhatsApp to avoid unsolicited messages",
-        "Last order check is best-effort and fails silently if MCP unavailable"
-      ],
-      "dependencies": [
-        "US-851"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "spiral.config.sh",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/__tests__/malay-ordering.test.ts"
-      ]
-    },
-    {
-      "id": "US-857",
-      "title": "Upsell suggestions: AI waiter recommends add-ons after main item is ordered",
-      "priority": "low",
-      "description": "After a guest adds a main item to the cart, the AI waiter should make one natural upsell suggestion such as a drink pairing or add-on based on the item category. Should feel conversational and never pushy and suggested once per session max.",
-      "acceptanceCriteria": [
-        "Triggered once after first main item added to cart",
-        "Suggestion fetched from FnB MCP get_upsell_suggestions or category-based fallback",
-        "AI message is brief: Great choice! Would you also like a suggestion to go with that?",
-        "Guest can accept to add to cart, decline, or ignore with no follow-up if declined",
-        "Upsell only triggered once per session regardless of how many items are added"
-      ],
-      "technicalNotes": [
-        "Add upsellOffered boolean to session state to prevent repeat triggering",
-        "If MCP has no upsell endpoint, use category-based hardcoded map: rice to drink, cake to coffee",
-        "Keep suggestion message to one sentence max"
-      ],
-      "dependencies": [
-        "US-848"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "spiral.config.sh",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/__tests__/malay-ordering.test.ts",
-        "src/assistant/__tests__/menu-disambig.test.ts"
-      ]
     },
     {
       "id": "US-858",
@@ -1790,79 +1622,6 @@
       "passes": true
     },
     {
-      "id": "US-869",
-      "title": "Post-order feedback: AI waiter requests a quick star rating after order is served",
-      "priority": "low",
-      "description": "After an order is marked as served by the kitchen, the AI waiter should send a follow-up message asking for a simple 1 to 5 star rating. This captures real-time guest satisfaction and surfaces issues before guests leave a bad review elsewhere.",
-      "acceptanceCriteria": [
-        "Feedback request sent when FnB MCP order status changes to SERVED",
-        "Message is brief: Hope you enjoyed your meal! Rate your experience: 1 to 5 stars",
-        "Guest can reply with a number 1 to 5 or skip entirely with no follow-up",
-        "Rating stored via FnB MCP submit_feedback or in rainbow_messages table",
-        "Low ratings of 1 or 2 trigger an empathetic follow-up: Sorry to hear that. Let us know how we can improve.",
-        "High ratings of 4 or 5 get a thank you: Thank you for the kind words! See you again soon.",
-        "Feedback only requested once per order"
-      ],
-      "technicalNotes": [
-        "Listen for order status webhook event ORDER_SERVED from FnB MCP",
-        "Check feedbackRequested: boolean in session state before sending",
-        "Store rating and orderId in rainbow_messages or new order_feedback table",
-        "Low rating alert optionally notifiable to admin via existing admin-notifier.ts"
-      ],
-      "dependencies": [
-        "US-855"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "spiral.config.sh",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/__tests__/malay-ordering.test.ts"
-      ]
-    },
-    {
-      "id": "US-870",
-      "title": "Popular items suggestion: AI waiter proactively recommends top-ordered dishes when guest is undecided",
-      "priority": "low",
-      "description": "When a guest seems undecided (asking what is good, what do you recommend, what is popular), the AI waiter should surface the top 3 to 5 most ordered items from the FnB MCP rather than giving a generic response. Data-driven recommendations feel personalised and help guests decide faster.",
-      "acceptanceCriteria": [
-        "Undecided intent detected: what is good, what do you recommend, what is popular, what should I order",
-        "FnB MCP get_popular_items called with optional limit of 5",
-        "Response highlights top items with a short appeal: Our most popular dish is Nasi Lemak Special at RM 9.50, loved by most guests!",
-        "Each recommendation includes name, price, and one-line description",
-        "If popularity data unavailable, fall back to items tagged as featured or bestseller",
-        "Guest can pick any item directly from the recommendation list"
-      ],
-      "technicalNotes": [
-        "Add MENU_RECOMMEND intent to routing.json",
-        "Call get_popular_items MCP tool; fall back to get_menu_items with isFeatured filter",
-        "Limit to 3 to 5 items to keep response scannable",
-        "Response includes a natural call to action: Want me to add any of these to your order?"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "spiral.config.sh",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/__tests__/malay-ordering.test.ts",
-        "src/assistant/__tests__/order-stage.test.ts"
-      ]
-    },
-    {
       "id": "US-871",
       "title": "WhatsApp Flows: in-chat check-in form for hostel guests",
       "priority": "high",
@@ -1884,6 +1643,153 @@
         "WhatsApp Cloud API access or Flows-compatible gateway"
       ],
       "estimatedComplexity": "large",
+      "passes": true
+    },
+    {
+      "id": "US-873",
+      "title": "Voice message transcription and intent processing via Whisper",
+      "priority": "high",
+      "description": "Allow guests and cafe customers to send WhatsApp voice messages that are automatically transcribed using Groq Whisper and fed into the intent classification pipeline as text. Many Malaysian users, particularly older guests or those placing complex orders, prefer voice over typing. Without this, voice messages currently go unhandled, producing confusion or silence.",
+      "acceptanceCriteria": [
+        "When a voice message (audio/ogg or audio/mp4) is received, the system downloads the audio, transcribes it via Whisper API, and processes the transcript as a regular text message",
+        "Transcription latency is under 5 seconds for messages up to 30 seconds long",
+        "If transcription fails, the bot sends a fallback message asking the user to type their request",
+        "Transcribed text is logged alongside the original audio reference in rainbow_messages",
+        "Works for both Pelangi and Makan Moments profiles"
+      ],
+      "technicalNotes": [
+        "Baileys provides audio messages as buffers; pass to Whisper API endpoint",
+        "Use Groq Whisper for lower latency and cost vs. OpenAI directly",
+        "n8n workflow template reference: https://n8n.io/workflows/6077-transcribe-whatsapp-audio-messages-with-whisper-ai-via-groq/",
+        "Store transcription in message metadata field, not as message content, to preserve audit trail"
+      ],
+      "dependencies": [
+        "Groq API key in env"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-877",
+      "title": "Allergen and dietary warning display on item selection",
+      "priority": "high",
+      "description": "When a customer selects a menu item, proactively display allergen and dietary information (e.g. 'Contains: peanuts, gluten. Suitable for: halal.') before adding to cart. Customers with allergies currently have no way to get allergen information from the chatbot without asking explicitly, creating a food safety and liability gap.",
+      "acceptanceCriteria": [
+        "Each menu item in the data source has an optional allergens array and dietary_flags array (e.g. ['halal', 'gluten-free'])",
+        "When an item is selected (before cart add), the bot displays a formatted allergen notice if the item has any allergen data",
+        "Customer must confirm (reply 'yes' or tap a confirm button) before the item is added to cart",
+        "If no allergen data exists for an item, a standard 'please inform staff of any allergies' message is shown instead",
+        "Allergen data is editable via admin API without redeploy"
+      ],
+      "technicalNotes": [
+        "Extend menu item schema in src/assistant/schemas.ts with allergens: string[] and dietary_flags: string[]",
+        "Allergen display uses a pre-formatted template in knowledge.json",
+        "Admin API: PATCH /api/menu-items/:id with allergen and dietary_flags fields",
+        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/"
+      ],
+      "dependencies": [
+        "Menu item data schema with allergen fields"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-878",
+      "title": "PDPA 2024 amendment: include DPO contact email in first-contact data notice",
+      "priority": "high",
+      "description": "Update the structured data notice sent to users on first WhatsApp interaction to include the mandatory Data Protection Officer (DPO) contact email, as required by Malaysia's Personal Data Protection (Amendment) Act 2024 effective 1 June 2025. The amendment requires organizations processing personal data to publish a designated DPO contact on public channels, which includes the WhatsApp chatbot's first-contact notice.",
+      "acceptanceCriteria": [
+        "The first-contact data notice message includes the DPO email address in a clearly labelled field (e.g. 'Data Protection Officer: dpo@example.com')",
+        "DPO email is configurable per-profile in settings.json (Pelangi and Southern Homestay may have different DPOs)",
+        "If DPO email is not configured, the data notice falls back to a general contact email with a warning logged",
+        "The data notice template in knowledge.json is updated to include a {dpo_email} interpolation variable",
+        "Existing conversations that have already received a data notice are NOT re-sent (idempotency check by JID)"
+      ],
+      "technicalNotes": [
+        "Malaysia PDPA Amendment Act 2024, effective 1 June 2025: DPO appointment mandatory for large-scale processing",
+        "DPO must be reachable via published contact: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
+        "Template variable interpolation (already implemented) can be used for {dpo_email}",
+        "Existing structured data notice story covers sending mechanism — this story only adds the DPO field"
+      ],
+      "dependencies": [
+        "Structured data notice (already implemented)",
+        "Template variable interpolation (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-879",
+      "title": "Menu sync via admin API: live price and availability updates without redeploy",
+      "priority": "high",
+      "description": "Provide an admin API endpoint to update menu item prices, availability, and descriptions in real time, syncing changes to the in-memory menu state used by the AI ordering pipeline without requiring a server restart or file edit. Cafe menus change frequently (daily specials, sold-out items, price adjustments), and the current file-based menu data requires SSH or a redeploy to update.",
+      "acceptanceCriteria": [
+        "POST /api/admin/menu-items creates a new menu item with name, description, price, category, allergens, dietary_flags, and available fields",
+        "PATCH /api/admin/menu-items/:id updates any menu item field including available (boolean)",
+        "Changes are written to the DB and immediately reflected in the AI pipeline's in-memory menu state (no restart needed)",
+        "When available is set to false, the item is excluded from menu browsing responses and triggers the existing out-of-stock graceful handling",
+        "All menu changes are logged in the admin audit log with before/after diff",
+        "Admin API endpoints require DIGIMAN_API_TOKEN auth"
+      ],
+      "technicalNotes": [
+        "New DB table: menu_items (id, profile, name, description, price, category, allergens jsonb, dietary_flags jsonb, available, display_order, created_at, updated_at)",
+        "Cache invalidation: on PATCH, update in-memory Map directly (no restart needed)",
+        "Menu data currently in src/assistant/data/ JSON files — migrate to DB-backed store with in-memory cache",
+        "Reference: https://hostie.ai/resources/how-to-set-up-ai-texting-takeout-orders-toast-pos-2025"
+      ],
+      "dependencies": [
+        "Out-of-stock graceful handling (already implemented)",
+        "Admin audit log (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": true
+    },
+    {
+      "id": "US-888",
+      "title": "Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message",
+      "priority": "high",
+      "description": "Add a Vitest integration test that catches the 'AI service temporarily unavailable' failure mode. The test mocks chatWithFallback to return a valid AI response and asserts the /api/chat/makan-moments/message endpoint streams a non-error reply. Also test the all-providers-fail path asserts the correct STREAM_FALLBACK message is sent as a streamed SSE token rather than a hard crash.",
+      "acceptanceCriteria": [
+        "Test file: src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } — assert streamChatWithTools streams that content as an SSE token",
+        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail — assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
+        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text — assert the tool handlers are invoked and the final text is streamed",
+        "All 3 tests pass in npm run test:run",
+        "No test imports the real AI providers or makes real HTTP calls"
+      ],
+      "technicalNotes": [
+        "Import streamChatWithTools from src/assistant/chat-stream.ts",
+        "Mock chatWithFallback from ai-provider-manager.ts using vi.mock",
+        "Mock the Express Response object with vi.fn() for res.write, res.setHeader, res.end, res.flushHeaders",
+        "The STREAM_FALLBACK constant is: 'AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.'",
+        "streamChatWithTools now streams content directly when chatWithFallback returns text with no toolCalls (no second provider call)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-889",
+      "title": "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text",
+      "priority": "high",
+      "description": "Write a Vitest test that verifies the fix to streamChatWithTools: when chatWithFallback returns text content with no tool calls (e.g. Gemini responds directly), the text is streamed immediately and NO second provider call is made. This prevents the 'double round-trip' that caused AI waiter failures when the second call hit a rate-limited provider.",
+      "acceptanceCriteria": [
+        "Test in src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Mock chatWithFallback to return { content: 'Here are our menu items...', toolCalls: undefined }",
+        "Assert that sseEvent is called with { token: 'Here are our menu items...' }",
+        "Assert that chatWithFallback is called exactly ONCE (not twice)",
+        "Assert that streamFromProviders is NOT called when content is available",
+        "Test passes in npm run test:run"
+      ],
+      "technicalNotes": [
+        "The fix is in src/assistant/chat-stream.ts lines 250-260: if content is truthy when toolCalls is empty, sseEvent(res, { token: content }) and return immediately",
+        "Use vi.spyOn to count how many times chatWithFallback is called",
+        "Confirm streamFromProviders is not called by spying on the internal function"
+      ],
+      "dependencies": [
+        "US-888"
+      ],
+      "estimatedComplexity": "small",
       "passes": true
     },
     {
@@ -1921,30 +1827,6 @@
         "src/assistant/__tests__/menu-disambig.test.ts",
         "src/assistant/__tests__/message-pipeline.test.ts"
       ]
-    },
-    {
-      "id": "US-873",
-      "title": "Voice message transcription and intent processing via Whisper",
-      "priority": "high",
-      "description": "Allow guests and cafe customers to send WhatsApp voice messages that are automatically transcribed using Groq Whisper and fed into the intent classification pipeline as text. Many Malaysian users, particularly older guests or those placing complex orders, prefer voice over typing. Without this, voice messages currently go unhandled, producing confusion or silence.",
-      "acceptanceCriteria": [
-        "When a voice message (audio/ogg or audio/mp4) is received, the system downloads the audio, transcribes it via Whisper API, and processes the transcript as a regular text message",
-        "Transcription latency is under 5 seconds for messages up to 30 seconds long",
-        "If transcription fails, the bot sends a fallback message asking the user to type their request",
-        "Transcribed text is logged alongside the original audio reference in rainbow_messages",
-        "Works for both Pelangi and Makan Moments profiles"
-      ],
-      "technicalNotes": [
-        "Baileys provides audio messages as buffers; pass to Whisper API endpoint",
-        "Use Groq Whisper for lower latency and cost vs. OpenAI directly",
-        "n8n workflow template reference: https://n8n.io/workflows/6077-transcribe-whatsapp-audio-messages-with-whisper-ai-via-groq/",
-        "Store transcription in message metadata field, not as message content, to preserve audit trail"
-      ],
-      "dependencies": [
-        "Groq API key in env"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": true
     },
     {
       "id": "US-874",
@@ -2063,79 +1945,174 @@
       ]
     },
     {
-      "id": "US-877",
-      "title": "Allergen and dietary warning display on item selection",
+      "id": "US-890",
+      "title": "Migrate messaging-limits tier model to 100K flat cap (Q2 2026)",
       "priority": "high",
-      "description": "When a customer selects a menu item, proactively display allergen and dietary information (e.g. 'Contains: peanuts, gluten. Suitable for: halal.') before adding to cart. Customers with allergies currently have no way to get allergen information from the chatbot without asking explicitly, creating a food safety and liability gap.",
+      "description": "Meta is removing the 2K and 10K daily messaging limit tiers in Q2 2026; any verified business immediately receives 100K/day. The existing messaging-limits.ts still models tiers '250', '2000', '10000', '100000'. The admin tier selector and in-app messaging-limit display must be updated to reflect the new flat-cap model and remove obsolete lower tiers.",
       "acceptanceCriteria": [
-        "Each menu item in the data source has an optional allergens array and dietary_flags array (e.g. ['halal', 'gluten-free'])",
-        "When an item is selected (before cart add), the bot displays a formatted allergen notice if the item has any allergen data",
-        "Customer must confirm (reply 'yes' or tap a confirm button) before the item is added to cart",
-        "If no allergen data exists for an item, a standard 'please inform staff of any allergies' message is shown instead",
-        "Allergen data is editable via admin API without redeploy"
+        "TIER_LIMITS constant in messaging-limits.ts removes '250' and '2000' tiers",
+        "PUT /analytics/messaging-limits/tier returns 400 if tier '250' or '2000' is supplied",
+        "Admin UI tier dropdown shows only '10000', '100000', and 'unlimited' as selectable options",
+        "Existing rows in app_settings table with value '250' or '2000' are auto-migrated to '10000' on startup",
+        "Vitest unit test asserts 200 response for valid tiers and 400 for removed tiers"
       ],
       "technicalNotes": [
-        "Extend menu item schema in src/assistant/schemas.ts with allergens: string[] and dietary_flags: string[]",
-        "Allergen display uses a pre-formatted template in knowledge.json",
-        "Admin API: PATCH /api/menu-items/:id with allergen and dietary_flags fields",
-        "Reference: https://controlhippo.com/blog/ai/restaurant-chatbots/"
+        "Source: Meta developer docs — https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
+        "Migration must be backward-compatible; if DB row is missing, default to '100000' not '250'",
+        "Admin notification should be sent once when auto-migration executes"
       ],
-      "dependencies": [
-        "Menu item data schema with allergen fields"
-      ],
+      "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true
+      "passes": true,
+      "filesTouch": [
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "src/lib/whatsapp/__tests__/media-validator.test.ts",
+        "src/lib/whatsapp/index.ts",
+        "src/lib/whatsapp/media-validator.ts",
+        "src/routes/admin/conversations.ts",
+        "src/routes/admin/index.ts",
+        "src/routes/admin/rate-limit-settings.ts"
+      ]
     },
     {
-      "id": "US-878",
-      "title": "PDPA 2024 amendment: include DPO contact email in first-contact data notice",
+      "id": "US-891",
+      "title": "WhatsApp portfolio pacing monitor: detect and alert when batch delivery is paused",
       "priority": "high",
-      "description": "Update the structured data notice sent to users on first WhatsApp interaction to include the mandatory Data Protection Officer (DPO) contact email, as required by Malaysia's Personal Data Protection (Amendment) Act 2024 effective 1 June 2025. The amendment requires organizations processing personal data to publish a designated DPO contact on public channels, which includes the WhatsApp chatbot's first-contact notice.",
+      "description": "Meta's portfolio pacing silently pauses bulk template sends mid-campaign when quality signals (blocks, complaints) are negative. There is currently no mechanism in Rainbow AI to detect that a scheduled send was paused or that quality feedback triggered a hold, meaning operators discover delivery failures only after the fact.",
       "acceptanceCriteria": [
-        "The first-contact data notice message includes the DPO email address in a clearly labelled field (e.g. 'Data Protection Officer: dpo@example.com')",
-        "DPO email is configurable per-profile in settings.json (Pelangi and Southern Homestay may have different DPOs)",
-        "If DPO email is not configured, the data notice falls back to a general contact email with a warning logged",
-        "The data notice template in knowledge.json is updated to include a {dpo_email} interpolation variable",
-        "Existing conversations that have already received a data notice are NOT re-sent (idempotency check by JID)"
+        "GET /analytics/messaging-limits returns a pacingPaused: boolean field derived from Meta Graph API quality signals",
+        "When pacingPaused is true, admin dashboard displays a visible warning banner",
+        "Admin notification is sent within 5 minutes of a pacing pause being detected",
+        "Alert body includes the affected template name and percentage of batch not yet delivered",
+        "Vitest test mocks the Meta quality signal endpoint and asserts the correct pacingPaused state is surfaced"
       ],
       "technicalNotes": [
-        "Malaysia PDPA Amendment Act 2024, effective 1 June 2025: DPO appointment mandatory for large-scale processing",
-        "DPO must be reachable via published contact: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
-        "Template variable interpolation (already implemented) can be used for {dpo_email}",
-        "Existing structured data notice story covers sending mechanism — this story only adds the DPO field"
+        "Poll Meta's WABA health/quality endpoint: GET /{phone-number-id}/quality_rating",
+        "Store last known pacing state in app_settings to avoid repeated notifications",
+        "Reference: https://www.fyno.io/blog/how-does-whatsapp-template-pacing-work-a-detailed-guide-cm2tykayw00d7wixo00hhiuxk"
       ],
       "dependencies": [
-        "Structured data notice (already implemented)",
-        "Template variable interpolation (already implemented)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-879",
-      "title": "Menu sync via admin API: live price and availability updates without redeploy",
-      "priority": "high",
-      "description": "Provide an admin API endpoint to update menu item prices, availability, and descriptions in real time, syncing changes to the in-memory menu state used by the AI ordering pipeline without requiring a server restart or file edit. Cafe menus change frequently (daily specials, sold-out items, price adjustments), and the current file-based menu data requires SSH or a redeploy to update.",
-      "acceptanceCriteria": [
-        "POST /api/admin/menu-items creates a new menu item with name, description, price, category, allergens, dietary_flags, and available fields",
-        "PATCH /api/admin/menu-items/:id updates any menu item field including available (boolean)",
-        "Changes are written to the DB and immediately reflected in the AI pipeline's in-memory menu state (no restart needed)",
-        "When available is set to false, the item is excluded from menu browsing responses and triggers the existing out-of-stock graceful handling",
-        "All menu changes are logged in the admin audit log with before/after diff",
-        "Admin API endpoints require DIGIMAN_API_TOKEN auth"
-      ],
-      "technicalNotes": [
-        "New DB table: menu_items (id, profile, name, description, price, category, allergens jsonb, dietary_flags jsonb, available, display_order, created_at, updated_at)",
-        "Cache invalidation: on PATCH, update in-memory Map directly (no restart needed)",
-        "Menu data currently in src/assistant/data/ JSON files — migrate to DB-backed store with in-memory cache",
-        "Reference: https://hostie.ai/resources/how-to-set-up-ai-texting-takeout-orders-toast-pos-2025"
-      ],
-      "dependencies": [
-        "Out-of-stock graceful handling (already implemented)",
-        "Admin audit log (already implemented)"
+        "Migrate messaging-limits tier model to 100K flat cap (Q2 2026)"
       ],
       "estimatedComplexity": "medium",
-      "passes": true
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_research_output.json",
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "shared/schema-tables.ts",
+        "src/assistant/conversation-logger-types.ts",
+        "src/assistant/conversation-logger.ts",
+        "src/assistant/data-makan/settings.json",
+        "src/assistant/data-southern/settings.json"
+      ]
+    },
+    {
+      "id": "US-892",
+      "title": "WABA webhook subscription health check on server startup",
+      "priority": "high",
+      "description": "Meta's developer experience change in late 2025 means the WABA-to-App webhook subscription can fail silently: the webhook URL is verified but the app never actually receives events. Rainbow AI has no startup check that confirms the WABA subscription is active, so a silently broken subscription could cause all inbound WhatsApp messages to go missing without any alert.",
+      "acceptanceCriteria": [
+        "On server startup, a check calls GET /{waba-id}/subscribed_apps and confirms the app is subscribed",
+        "If the subscription is missing, the check automatically resubscribes via POST /{waba-id}/subscribed_apps",
+        "Admin notification is sent if auto-resubscription fails",
+        "Health endpoint GET /health returns webhookSubscribed: true|false",
+        "The check is skipped gracefully when WABA credentials are absent (e.g., development environment)",
+        "Vitest test mocks the Meta Graph API and asserts resubscription is attempted when subscription is absent"
+      ],
+      "technicalNotes": [
+        "Use the existing Meta Graph API token stored in env vars",
+        "Reference: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices",
+        "Subscription check should run once on startup and then every 6 hours via setInterval"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        "prd.json",
+        "progress.txt",
+        "src/assistant/__tests__/webhook-signature.test.ts",
+        "src/assistant/chat-stream.ts",
+        "src/assistant/conversation-logger-types.ts",
+        "src/assistant/conversation-logger.ts",
+        "src/assistant/data/routing.json",
+        "src/assistant/escalation.ts",
+        "src/assistant/flows/checkin-form-flow.ts",
+        "src/assistant/flows/index.ts"
+      ]
+    },
+    {
+      "id": "US-893",
+      "title": "WhatsApp media auto-download: save incoming images/documents before URL expiry",
+      "priority": "high",
+      "description": "WhatsApp temporary media URLs provided via webhooks expire after 24-48 hours. Currently, Rainbow AI receives image and document messages but does not eagerly download and persist the binary content. If a guest sends a photo of their ID or a booking confirmation document and the URL expires before a staff member views it, the media is permanently lost.",
+      "acceptanceCriteria": [
+        "When a Baileys message event contains imageMessage, documentMessage, or videoMessage, the binary is downloaded immediately",
+        "Downloaded file is stored on disk (or S3) under a path keyed by message ID",
+        "The conversation message record in rainbow_messages is updated with a localMediaUrl field",
+        "If the download fails, a retry is attempted up to 3 times with exponential backoff before logging to DLQ",
+        "Admin conversation view renders the locally-stored URL, not the ephemeral WhatsApp URL",
+        "Vitest test mocks the download call and asserts the localMediaUrl field is populated"
+      ],
+      "technicalNotes": [
+        "Use Baileys downloadMediaMessage() helper: it handles decryption automatically",
+        "Store under ./media/<YYYY-MM-DD>/<messageId>.<ext> and serve via a static Express route",
+        "Reference: https://wasenderapi.com/blog/how-to-receive-whatsapp-messages-via-webhook-the-ultimate-2025-guide"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_research_output.json",
+        "prd.json",
+        "progress.txt",
+        "retry-counts.json",
+        "shared/schema-tables.ts",
+        "src/assistant/__tests__/webhook-signature.test.ts",
+        "src/assistant/conversation-logger-types.ts",
+        "src/assistant/conversation-logger.ts",
+        "src/assistant/data/knowledge.json"
+      ]
+    },
+    {
+      "id": "US-894",
+      "title": "PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP",
+      "priority": "high",
+      "description": "Malaysia's PDPA Amendment Act 2024 Phase 3 (June 2025) introduced the right to data portability requiring structured, machine-readable formats on request. The existing data export returns JSON but lacks CSV format and a self-service customer-facing route with OTP verification as required for compliance.",
+      "acceptanceCriteria": [
+        "GET /api/rainbow/guests/:jid/data-export?format=json returns existing JSON (no change)",
+        "GET /api/rainbow/guests/:jid/data-export?format=csv returns all message data as RFC 4180-compliant CSV with BOM for Excel compatibility",
+        "Both formats include: timestamp, direction (inbound/outbound), message content, intent, sentiment",
+        "A publicly documented endpoint (not behind admin auth) allows guests to request their own data using their phone number + a one-time verification code sent via WhatsApp",
+        "The export request is logged to gdpr_audit_log with action='portability'",
+        "Vitest test asserts CSV output parses correctly with 100% field coverage and no formula-injection characters"
+      ],
+      "technicalNotes": [
+        "CSV must not contain formula-injection characters (=, +, -, @) at the start of fields",
+        "OTP verification for self-service: send a WhatsApp message with a 6-digit code, valid 10 minutes",
+        "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/",
+        "Phase 3 effective June 1, 2025 — this is already overdue"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        "prd.json",
+        "progress.txt",
+        "src/assistant/data-southern/knowledge.json",
+        "src/assistant/data-southern/settings.json",
+        "src/assistant/data/knowledge.json",
+        "src/assistant/data/settings.json",
+        "src/assistant/pipeline/input-validator.ts",
+        "src/assistant/pipeline/response-processor.ts",
+        "src/assistant/pipeline/types.ts",
+        "src/assistant/schemas.ts"
+      ]
     },
     {
       "id": "US-880",
@@ -2362,297 +2339,6 @@
         "src/assistant/__tests__/order-stage.test.ts",
         "src/assistant/cart-store.ts",
         "src/assistant/conversation-logger-types.ts"
-      ]
-    },
-    {
-      "id": "US-886",
-      "title": "WhatsApp message reaction emoji as lightweight CSAT signal",
-      "priority": "low",
-      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals — mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
-      "acceptanceCriteria": [
-        "Incoming webhook events of type 'reaction' are parsed and not silently discarded",
-        "Thumbs-up reaction on a bot message increments the positive CSAT counter for that conversation session",
-        "Thumbs-down reaction triggers a follow-up message asking the user what went wrong (optional short text reply)",
-        "Reaction data is stored in conversation_feedback table with message_id, emoji, and timestamp",
-        "Reaction handling is profile-agnostic (works for both Pelangi and Makan Moments)"
-      ],
-      "technicalNotes": [
-        "Baileys emits reaction events in the messages.upsert event as a message with a reaction key",
-        "WhatsApp Cloud API reaction webhook: messages[].type == 'reaction', with reaction.message_id and reaction.emoji fields",
-        "Map emoji to sentiment: thumbs-up/heart = positive, thumbs-down = negative, others = neutral/ignored",
-        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/"
-      ],
-      "dependencies": [
-        "CSAT and resolution rate analytics (already implemented)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/_research_output.json",
-        "fix-unicode.mjs",
-        "prd.json",
-        "prd.json.bak",
-        "prd.json.restored",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts"
-      ]
-    },
-    {
-      "id": "US-887",
-      "title": "WhatsApp Business Calling API: click-to-call escalation button",
-      "priority": "low",
-      "description": "When a conversation is escalated to a human agent, send an interactive WhatsApp message with a call button allowing the guest to initiate a voice call to Pelangi reception directly within WhatsApp. The WhatsApp Business Calling API (launched July 2025) supports user-initiated inbound calls triggered by a button in an interactive message template.",
-      "acceptanceCriteria": [
-        "On human escalation trigger, the bot sends an interactive message with a 'Call Reception' button alongside the existing text handoff message",
-        "Tapping the button initiates a WhatsApp voice call to the configured business phone number",
-        "The calling feature is only active during configured business hours (falls back to text-only message outside hours)",
-        "Call button is only sent on the Pelangi profile (hostel context), not Makan Moments",
-        "Feature can be toggled on/off in settings.json without a redeploy"
-      ],
-      "technicalNotes": [
-        "WhatsApp Business Calling API launched July 1, 2025; requires Cloud API access, not available via Baileys alone",
-        "Interactive call template with click-to-call: https://developers.facebook.com/docs/whatsapp/cloud-api/calling/",
-        "Business hours check reuses existing offline hours logic",
-        "Requires explicit user opt-in if business wants to initiate outbound calls (inbound via button is user-initiated)"
-      ],
-      "dependencies": [
-        "WhatsApp Cloud API access",
-        "Human handoff escalation (already implemented)"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/_research_output.json",
-        "fix-unicode.mjs",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "run-test.mjs",
-        "shared/schema-tables.ts"
-      ]
-    },
-    {
-      "id": "US-888",
-      "title": "Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message",
-      "priority": "high",
-      "description": "Add a Vitest integration test that catches the 'AI service temporarily unavailable' failure mode. The test mocks chatWithFallback to return a valid AI response and asserts the /api/chat/makan-moments/message endpoint streams a non-error reply. Also test the all-providers-fail path asserts the correct STREAM_FALLBACK message is sent as a streamed SSE token rather than a hard crash.",
-      "acceptanceCriteria": [
-        "Test file: src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } — assert streamChatWithTools streams that content as an SSE token",
-        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail — assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
-        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text — assert the tool handlers are invoked and the final text is streamed",
-        "All 3 tests pass in npm run test:run",
-        "No test imports the real AI providers or makes real HTTP calls"
-      ],
-      "technicalNotes": [
-        "Import streamChatWithTools from src/assistant/chat-stream.ts",
-        "Mock chatWithFallback from ai-provider-manager.ts using vi.mock",
-        "Mock the Express Response object with vi.fn() for res.write, res.setHeader, res.end, res.flushHeaders",
-        "The STREAM_FALLBACK constant is: 'AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.'",
-        "streamChatWithTools now streams content directly when chatWithFallback returns text with no toolCalls (no second provider call)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-889",
-      "title": "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text",
-      "priority": "high",
-      "description": "Write a Vitest test that verifies the fix to streamChatWithTools: when chatWithFallback returns text content with no tool calls (e.g. Gemini responds directly), the text is streamed immediately and NO second provider call is made. This prevents the 'double round-trip' that caused AI waiter failures when the second call hit a rate-limited provider.",
-      "acceptanceCriteria": [
-        "Test in src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "Mock chatWithFallback to return { content: 'Here are our menu items...', toolCalls: undefined }",
-        "Assert that sseEvent is called with { token: 'Here are our menu items...' }",
-        "Assert that chatWithFallback is called exactly ONCE (not twice)",
-        "Assert that streamFromProviders is NOT called when content is available",
-        "Test passes in npm run test:run"
-      ],
-      "technicalNotes": [
-        "The fix is in src/assistant/chat-stream.ts lines 250-260: if content is truthy when toolCalls is empty, sseEvent(res, { token: content }) and return immediately",
-        "Use vi.spyOn to count how many times chatWithFallback is called",
-        "Confirm streamFromProviders is not called by spying on the internal function"
-      ],
-      "dependencies": [
-        "US-888"
-      ],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
-      "id": "US-890",
-      "title": "Migrate messaging-limits tier model to 100K flat cap (Q2 2026)",
-      "priority": "high",
-      "description": "Meta is removing the 2K and 10K daily messaging limit tiers in Q2 2026; any verified business immediately receives 100K/day. The existing messaging-limits.ts still models tiers '250', '2000', '10000', '100000'. The admin tier selector and in-app messaging-limit display must be updated to reflect the new flat-cap model and remove obsolete lower tiers.",
-      "acceptanceCriteria": [
-        "TIER_LIMITS constant in messaging-limits.ts removes '250' and '2000' tiers",
-        "PUT /analytics/messaging-limits/tier returns 400 if tier '250' or '2000' is supplied",
-        "Admin UI tier dropdown shows only '10000', '100000', and 'unlimited' as selectable options",
-        "Existing rows in app_settings table with value '250' or '2000' are auto-migrated to '10000' on startup",
-        "Vitest unit test asserts 200 response for valid tiers and 400 for removed tiers"
-      ],
-      "technicalNotes": [
-        "Source: Meta developer docs — https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
-        "Migration must be backward-compatible; if DB row is missing, default to '100000' not '250'",
-        "Admin notification should be sent once when auto-migration executes"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "filesTouch": [
-        "prd.json",
-        "progress.txt",
-        "retry-counts.json",
-        "src/lib/whatsapp/__tests__/media-validator.test.ts",
-        "src/lib/whatsapp/index.ts",
-        "src/lib/whatsapp/media-validator.ts",
-        "src/routes/admin/conversations.ts",
-        "src/routes/admin/index.ts",
-        "src/routes/admin/rate-limit-settings.ts"
-      ]
-    },
-    {
-      "id": "US-891",
-      "title": "WhatsApp portfolio pacing monitor: detect and alert when batch delivery is paused",
-      "priority": "high",
-      "description": "Meta's portfolio pacing silently pauses bulk template sends mid-campaign when quality signals (blocks, complaints) are negative. There is currently no mechanism in Rainbow AI to detect that a scheduled send was paused or that quality feedback triggered a hold, meaning operators discover delivery failures only after the fact.",
-      "acceptanceCriteria": [
-        "GET /analytics/messaging-limits returns a pacingPaused: boolean field derived from Meta Graph API quality signals",
-        "When pacingPaused is true, admin dashboard displays a visible warning banner",
-        "Admin notification is sent within 5 minutes of a pacing pause being detected",
-        "Alert body includes the affected template name and percentage of batch not yet delivered",
-        "Vitest test mocks the Meta quality signal endpoint and asserts the correct pacingPaused state is surfaced"
-      ],
-      "technicalNotes": [
-        "Poll Meta's WABA health/quality endpoint: GET /{phone-number-id}/quality_rating",
-        "Store last known pacing state in app_settings to avoid repeated notifications",
-        "Reference: https://www.fyno.io/blog/how-does-whatsapp-template-pacing-work-a-detailed-guide-cm2tykayw00d7wixo00hhiuxk"
-      ],
-      "dependencies": [
-        "Migrate messaging-limits tier model to 100K flat cap (Q2 2026)"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts",
-        "src/assistant/conversation-logger-types.ts",
-        "src/assistant/conversation-logger.ts",
-        "src/assistant/data-makan/settings.json",
-        "src/assistant/data-southern/settings.json"
-      ]
-    },
-    {
-      "id": "US-892",
-      "title": "WABA webhook subscription health check on server startup",
-      "priority": "high",
-      "description": "Meta's developer experience change in late 2025 means the WABA-to-App webhook subscription can fail silently: the webhook URL is verified but the app never actually receives events. Rainbow AI has no startup check that confirms the WABA subscription is active, so a silently broken subscription could cause all inbound WhatsApp messages to go missing without any alert.",
-      "acceptanceCriteria": [
-        "On server startup, a check calls GET /{waba-id}/subscribed_apps and confirms the app is subscribed",
-        "If the subscription is missing, the check automatically resubscribes via POST /{waba-id}/subscribed_apps",
-        "Admin notification is sent if auto-resubscription fails",
-        "Health endpoint GET /health returns webhookSubscribed: true|false",
-        "The check is skipped gracefully when WABA credentials are absent (e.g., development environment)",
-        "Vitest test mocks the Meta Graph API and asserts resubscription is attempted when subscription is absent"
-      ],
-      "technicalNotes": [
-        "Use the existing Meta Graph API token stored in env vars",
-        "Reference: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices",
-        "Subscription check should run once on startup and then every 6 hours via setInterval"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        "prd.json",
-        "progress.txt",
-        "src/assistant/__tests__/webhook-signature.test.ts",
-        "src/assistant/chat-stream.ts",
-        "src/assistant/conversation-logger-types.ts",
-        "src/assistant/conversation-logger.ts",
-        "src/assistant/data/routing.json",
-        "src/assistant/escalation.ts",
-        "src/assistant/flows/checkin-form-flow.ts",
-        "src/assistant/flows/index.ts"
-      ]
-    },
-    {
-      "id": "US-893",
-      "title": "WhatsApp media auto-download: save incoming images/documents before URL expiry",
-      "priority": "high",
-      "description": "WhatsApp temporary media URLs provided via webhooks expire after 24-48 hours. Currently, Rainbow AI receives image and document messages but does not eagerly download and persist the binary content. If a guest sends a photo of their ID or a booking confirmation document and the URL expires before a staff member views it, the media is permanently lost.",
-      "acceptanceCriteria": [
-        "When a Baileys message event contains imageMessage, documentMessage, or videoMessage, the binary is downloaded immediately",
-        "Downloaded file is stored on disk (or S3) under a path keyed by message ID",
-        "The conversation message record in rainbow_messages is updated with a localMediaUrl field",
-        "If the download fails, a retry is attempted up to 3 times with exponential backoff before logging to DLQ",
-        "Admin conversation view renders the locally-stored URL, not the ephemeral WhatsApp URL",
-        "Vitest test mocks the download call and asserts the localMediaUrl field is populated"
-      ],
-      "technicalNotes": [
-        "Use Baileys downloadMediaMessage() helper: it handles decryption automatically",
-        "Store under ./media/<YYYY-MM-DD>/<messageId>.<ext> and serve via a static Express route",
-        "Reference: https://wasenderapi.com/blog/how-to-receive-whatsapp-messages-via-webhook-the-ultimate-2025-guide"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts",
-        "src/assistant/__tests__/webhook-signature.test.ts",
-        "src/assistant/conversation-logger-types.ts",
-        "src/assistant/conversation-logger.ts",
-        "src/assistant/data/knowledge.json"
-      ]
-    },
-    {
-      "id": "US-894",
-      "title": "PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP",
-      "priority": "high",
-      "description": "Malaysia's PDPA Amendment Act 2024 Phase 3 (June 2025) introduced the right to data portability requiring structured, machine-readable formats on request. The existing data export returns JSON but lacks CSV format and a self-service customer-facing route with OTP verification as required for compliance.",
-      "acceptanceCriteria": [
-        "GET /api/rainbow/guests/:jid/data-export?format=json returns existing JSON (no change)",
-        "GET /api/rainbow/guests/:jid/data-export?format=csv returns all message data as RFC 4180-compliant CSV with BOM for Excel compatibility",
-        "Both formats include: timestamp, direction (inbound/outbound), message content, intent, sentiment",
-        "A publicly documented endpoint (not behind admin auth) allows guests to request their own data using their phone number + a one-time verification code sent via WhatsApp",
-        "The export request is logged to gdpr_audit_log with action='portability'",
-        "Vitest test asserts CSV output parses correctly with 100% field coverage and no formula-injection characters"
-      ],
-      "technicalNotes": [
-        "CSV must not contain formula-injection characters (=, +, -, @) at the start of fields",
-        "OTP verification for self-service: send a WhatsApp message with a 6-digit code, valid 10 minutes",
-        "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/",
-        "Phase 3 effective June 1, 2025 — this is already overdue"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "filesTouch": [
-        "prd.json",
-        "progress.txt",
-        "src/assistant/data-southern/knowledge.json",
-        "src/assistant/data-southern/settings.json",
-        "src/assistant/data/knowledge.json",
-        "src/assistant/data/settings.json",
-        "src/assistant/pipeline/input-validator.ts",
-        "src/assistant/pipeline/response-processor.ts",
-        "src/assistant/pipeline/types.ts",
-        "src/assistant/schemas.ts"
       ]
     },
     {
@@ -2992,6 +2678,320 @@
         "run-test.mjs",
         "spiral-watchdog.sh",
         "src/assistant/__tests__/ai-waiter-connectivity.test.ts"
+      ]
+    },
+    {
+      "id": "US-845",
+      "title": "Update WhatsApp cost tracker for per-message pricing model (July 2025)",
+      "priority": "low",
+      "description": "Meta is transitioning WhatsApp Business from per-conversation to per-message pricing effective July 1, 2025. The existing cost tracking module was built for the conversation-based model. Without updating it, cost estimates in the admin dashboard will be inaccurate by up to 10x for profiles that send many short proactive messages.",
+      "acceptanceCriteria": [
+        "A settings toggle `billing.pricingModel: 'per_conversation' | 'per_message'` is added to settings.json with per-profile support",
+        "When `per_message` is active, each outbound message increments a per-message cost counter using configurable per-category rates (marketing, utility, authentication)",
+        "The admin dashboard cost chart displays estimated costs under both models with a visual indicator of which model is active",
+        "Unit tests cover cost calculation for both pricing models using sample message sequences"
+      ],
+      "technicalNotes": [
+        "Locate existing cost tracking in `src/routes/admin/whatsapp-cost.ts` and `src/assistant/__tests__/whatsapp-cost.test.ts`",
+        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message — use MYR rates for Malaysia",
+        "The message category (marketing/utility) must be determined at send time — proactive messages are typically marketing, reactive replies are utility"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_research_output.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "shared/schema-tables.ts",
+        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "src/assistant/__tests__/message-pipeline.test.ts",
+        "src/assistant/__tests__/sentiment-escalation.test.ts"
+      ]
+    },
+    {
+      "id": "US-846",
+      "title": "Webchat widget offline hours banner with configurable business hours",
+      "priority": "low",
+      "description": "The webchat widget is always-open with no indication of business operating hours. When staff are unavailable (late night, public holidays), users send messages expecting prompt responses and become frustrated when none arrives. An unavailability banner set by configurable business hours improves user expectations.",
+      "acceptanceCriteria": [
+        "Business hours are configurable per-profile in admin settings: `businessHours.timezone`, `businessHours.schedule` (array of day/open/close)",
+        "When current time is outside business hours, the webchat widget header shows a banner: 'We're currently offline. Leave a message and we'll reply during business hours.'",
+        "The input field remains functional (messages can still be sent and will be answered by AI or queued for human review)",
+        "Business hours configuration is exposed via `GET /api/webchat/config/:profile` for client-side rendering",
+        "Public holiday override can be configured as a list of dates in settings"
+      ],
+      "technicalNotes": [
+        "Business hours logic should be evaluated server-side in `src/routes/public/webchat-api.ts` and included in the initial widget config payload",
+        "Use the `luxon` library (or native `Intl.DateTimeFormat`) for timezone-aware time comparison",
+        "The widget config endpoint should return `isAvailable: boolean, nextOpenTime: string | null`"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "filesTouch": [
+        ".claude/scheduled_tasks.lock",
+        ".spiral-workers/worker-1",
+        ".spiral-workers/worker-2",
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        ".spiral/workers/worker_1.json",
+        ".spiral/workers/worker_2.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak"
+      ]
+    },
+    {
+      "id": "US-847",
+      "title": "Admin audit log for configuration changes with before/after diff",
+      "priority": "low",
+      "description": "Any admin can modify AI system prompts, routing rules, and intent configurations with no record of who changed what and when. When the bot starts behaving unexpectedly after a config change, operators cannot determine root cause. PDPA's Data Integrity Principle also requires that processing decisions be accountable.",
+      "acceptanceCriteria": [
+        "Every write operation through the config API (`PUT /api/rainbow/config/*`, settings updates) inserts a record into `rainbow_config_audit` with: admin_user, endpoint, before (JSON), after (JSON), timestamp",
+        "Admin dashboard shows an audit log tab with the last 100 config change events, filterable by date range and admin user",
+        "Each audit entry shows a human-readable diff (changed keys highlighted)",
+        "Audit records are retained for 365 days (not subject to standard conversation retention policy)",
+        "Verify `rainbow_config_audit` table is being populated by ALL config write paths, not just current partial coverage"
+      ],
+      "technicalNotes": [
+        "`rainbow_config_audit` table already exists — audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
+        "Add an `auditConfigChange(adminUser, endpoint, before, after)` helper and call it from all config mutation routes",
+        "The before-value must be captured BEFORE the write — common bug to avoid"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "shared/schema-tables.ts",
+        "src/assistant/__tests__/chat-with-tools-loop.test.ts",
+        "src/assistant/__tests__/csp-connect-src.test.ts",
+        "src/assistant/__tests__/fnb-widget-bugs.test.ts"
+      ]
+    },
+    {
+      "id": "US-856",
+      "title": "Repeat order shortcut: AI waiter offers to repeat last order for returning guests",
+      "priority": "low",
+      "description": "If a returning guest has a previous order on record, the AI waiter should proactively offer to repeat it at the start of the conversation. This reduces friction for regulars and makes the experience feel personalised.",
+      "acceptanceCriteria": [
+        "On session start, check FnB MCP for last order by guest JID or phone",
+        "If found within last 30 days, AI offers to repeat previous order",
+        "Guest reply YES loads previous order into cart as starting point",
+        "Guest reply NO proceeds to normal browsing flow",
+        "If no prior order found, normal welcome message shown"
+      ],
+      "technicalNotes": [
+        "Call FnB MCP get_order_history with jid and limit 1 on webchat session init",
+        "Trigger only for webchat widget not WhatsApp to avoid unsolicited messages",
+        "Last order check is best-effort and fails silently if MCP unavailable"
+      ],
+      "dependencies": [
+        "US-851"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        ".spiral/_research_output.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "src/assistant/__tests__/malay-ordering.test.ts"
+      ]
+    },
+    {
+      "id": "US-857",
+      "title": "Upsell suggestions: AI waiter recommends add-ons after main item is ordered",
+      "priority": "low",
+      "description": "After a guest adds a main item to the cart, the AI waiter should make one natural upsell suggestion such as a drink pairing or add-on based on the item category. Should feel conversational and never pushy and suggested once per session max.",
+      "acceptanceCriteria": [
+        "Triggered once after first main item added to cart",
+        "Suggestion fetched from FnB MCP get_upsell_suggestions or category-based fallback",
+        "AI message is brief: Great choice! Would you also like a suggestion to go with that?",
+        "Guest can accept to add to cart, decline, or ignore with no follow-up if declined",
+        "Upsell only triggered once per session regardless of how many items are added"
+      ],
+      "technicalNotes": [
+        "Add upsellOffered boolean to session state to prevent repeat triggering",
+        "If MCP has no upsell endpoint, use category-based hardcoded map: rice to drink, cake to coffee",
+        "Keep suggestion message to one sentence max"
+      ],
+      "dependencies": [
+        "US-848"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "src/assistant/__tests__/malay-ordering.test.ts",
+        "src/assistant/__tests__/menu-disambig.test.ts"
+      ]
+    },
+    {
+      "id": "US-869",
+      "title": "Post-order feedback: AI waiter requests a quick star rating after order is served",
+      "priority": "low",
+      "description": "After an order is marked as served by the kitchen, the AI waiter should send a follow-up message asking for a simple 1 to 5 star rating. This captures real-time guest satisfaction and surfaces issues before guests leave a bad review elsewhere.",
+      "acceptanceCriteria": [
+        "Feedback request sent when FnB MCP order status changes to SERVED",
+        "Message is brief: Hope you enjoyed your meal! Rate your experience: 1 to 5 stars",
+        "Guest can reply with a number 1 to 5 or skip entirely with no follow-up",
+        "Rating stored via FnB MCP submit_feedback or in rainbow_messages table",
+        "Low ratings of 1 or 2 trigger an empathetic follow-up: Sorry to hear that. Let us know how we can improve.",
+        "High ratings of 4 or 5 get a thank you: Thank you for the kind words! See you again soon.",
+        "Feedback only requested once per order"
+      ],
+      "technicalNotes": [
+        "Listen for order status webhook event ORDER_SERVED from FnB MCP",
+        "Check feedbackRequested: boolean in session state before sending",
+        "Store rating and orderId in rainbow_messages or new order_feedback table",
+        "Low rating alert optionally notifiable to admin via existing admin-notifier.ts"
+      ],
+      "dependencies": [
+        "US-855"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        ".spiral/_research_output.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "src/assistant/__tests__/malay-ordering.test.ts"
+      ]
+    },
+    {
+      "id": "US-870",
+      "title": "Popular items suggestion: AI waiter proactively recommends top-ordered dishes when guest is undecided",
+      "priority": "low",
+      "description": "When a guest seems undecided (asking what is good, what do you recommend, what is popular), the AI waiter should surface the top 3 to 5 most ordered items from the FnB MCP rather than giving a generic response. Data-driven recommendations feel personalised and help guests decide faster.",
+      "acceptanceCriteria": [
+        "Undecided intent detected: what is good, what do you recommend, what is popular, what should I order",
+        "FnB MCP get_popular_items called with optional limit of 5",
+        "Response highlights top items with a short appeal: Our most popular dish is Nasi Lemak Special at RM 9.50, loved by most guests!",
+        "Each recommendation includes name, price, and one-line description",
+        "If popularity data unavailable, fall back to items tagged as featured or bestseller",
+        "Guest can pick any item directly from the recommendation list"
+      ],
+      "technicalNotes": [
+        "Add MENU_RECOMMEND intent to routing.json",
+        "Call get_popular_items MCP tool; fall back to get_menu_items with isFeatured filter",
+        "Limit to 3 to 5 items to keep response scannable",
+        "Response includes a natural call to action: Want me to add any of these to your order?"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "spiral.config.sh",
+        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "src/assistant/__tests__/malay-ordering.test.ts",
+        "src/assistant/__tests__/order-stage.test.ts"
+      ]
+    },
+    {
+      "id": "US-886",
+      "title": "WhatsApp message reaction emoji as lightweight CSAT signal",
+      "priority": "low",
+      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals — mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
+      "acceptanceCriteria": [
+        "Incoming webhook events of type 'reaction' are parsed and not silently discarded",
+        "Thumbs-up reaction on a bot message increments the positive CSAT counter for that conversation session",
+        "Thumbs-down reaction triggers a follow-up message asking the user what went wrong (optional short text reply)",
+        "Reaction data is stored in conversation_feedback table with message_id, emoji, and timestamp",
+        "Reaction handling is profile-agnostic (works for both Pelangi and Makan Moments)"
+      ],
+      "technicalNotes": [
+        "Baileys emits reaction events in the messages.upsert event as a message with a reaction key",
+        "WhatsApp Cloud API reaction webhook: messages[].type == 'reaction', with reaction.message_id and reaction.emoji fields",
+        "Map emoji to sentiment: thumbs-up/heart = positive, thumbs-down = negative, others = neutral/ignored",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/"
+      ],
+      "dependencies": [
+        "CSAT and resolution rate analytics (already implemented)"
+      ],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        ".spiral/_research_output.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "prd.json.restored",
+        "progress.txt",
+        "retry-counts.json",
+        "shared/schema-tables.ts"
+      ]
+    },
+    {
+      "id": "US-887",
+      "title": "WhatsApp Business Calling API: click-to-call escalation button",
+      "priority": "low",
+      "description": "When a conversation is escalated to a human agent, send an interactive WhatsApp message with a call button allowing the guest to initiate a voice call to Pelangi reception directly within WhatsApp. The WhatsApp Business Calling API (launched July 2025) supports user-initiated inbound calls triggered by a button in an interactive message template.",
+      "acceptanceCriteria": [
+        "On human escalation trigger, the bot sends an interactive message with a 'Call Reception' button alongside the existing text handoff message",
+        "Tapping the button initiates a WhatsApp voice call to the configured business phone number",
+        "The calling feature is only active during configured business hours (falls back to text-only message outside hours)",
+        "Call button is only sent on the Pelangi profile (hostel context), not Makan Moments",
+        "Feature can be toggled on/off in settings.json without a redeploy"
+      ],
+      "technicalNotes": [
+        "WhatsApp Business Calling API launched July 1, 2025; requires Cloud API access, not available via Baileys alone",
+        "Interactive call template with click-to-call: https://developers.facebook.com/docs/whatsapp/cloud-api/calling/",
+        "Business hours check reuses existing offline hours logic",
+        "Requires explicit user opt-in if business wants to initiate outbound calls (inbound via button is user-initiated)"
+      ],
+      "dependencies": [
+        "WhatsApp Cloud API access",
+        "Human handoff escalation (already implemented)"
+      ],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "filesTouch": [
+        ".spiral/_checkpoint.json",
+        ".spiral/_prd_post_ralph.json",
+        ".spiral/_research_output.json",
+        "fix-unicode.mjs",
+        "prd.json",
+        "prd.json.bak",
+        "progress.txt",
+        "retry-counts.json",
+        "run-test.mjs",
+        "shared/schema-tables.ts"
       ]
     },
     {

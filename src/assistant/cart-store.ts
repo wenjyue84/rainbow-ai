@@ -28,14 +28,10 @@ export interface TableInfo {
   orderType?: 'dine-in' | 'takeaway';
 }
 
-export interface CartSession {
+interface CartSession {
   items: CartItem[];
   lastAccess: number;
   tableInfo?: TableInfo;
-  /** US-882: Whether an abandoned-cart recovery message has been sent for this session */
-  recoveryMessageSent?: boolean;
-  /** US-882: Timestamp when recovery message was sent (for 24h auto-clear) */
-  recoveryMessageSentAt?: number;
 }
 
 const CART_TTL_MS = 60 * 60 * 1000; // 1 hour idle timeout
@@ -77,9 +73,6 @@ export function cartAddItem(sessionId: string, item: CartItem): CartItem[] {
   } else {
     session.items.push({ ...item, name: item.name.trim() });
   }
-  // US-882: Reset recovery flag on new cart activity
-  session.recoveryMessageSent = false;
-  session.recoveryMessageSentAt = undefined;
   return [...session.items];
 }
 
@@ -171,41 +164,18 @@ export function cartGetTableInfo(sessionId: string): TableInfo | undefined {
   return session?.tableInfo ? { ...session.tableInfo } : undefined;
 }
 
-/** Mark that a recovery message has been sent for this session. */
-export function cartMarkRecoverySent(sessionId: string): void {
-  const session = cartSessions.get(sessionId);
-  if (session) {
-    session.recoveryMessageSent = true;
-    session.recoveryMessageSentAt = Date.now();
-  }
-}
-
-/** Check if a recovery message has already been sent for this session. */
-export function cartIsRecoverySent(sessionId: string): boolean {
-  return cartSessions.get(sessionId)?.recoveryMessageSent === true;
-}
-
-/** Reset the recovery flag (e.g. when user resumes or adds more items). */
-export function cartResetRecovery(sessionId: string): void {
-  const session = cartSessions.get(sessionId);
-  if (session) {
-    session.recoveryMessageSent = false;
-    session.recoveryMessageSentAt = undefined;
-  }
-}
-
 /**
- * Get all active cart sessions with non-empty items.
- * Used by the idle recovery checker.
+ * Get all active (non-empty) cart sessions with metadata.
+ * Used by cart-recovery (US-882) to scan for idle WhatsApp carts.
  */
-export function cartGetActiveSessions(): Array<{ sessionId: string; session: CartSession }> {
-  const results: Array<{ sessionId: string; session: CartSession }> = [];
+export function getActiveCartSessions(): Array<{ sessionId: string; items: CartItem[]; lastAccess: number }> {
+  const result: Array<{ sessionId: string; items: CartItem[]; lastAccess: number }> = [];
   for (const [sessionId, session] of cartSessions) {
     if (session.items.length > 0) {
-      results.push({ sessionId, session: { ...session, items: [...session.items] } });
+      result.push({ sessionId, items: [...session.items], lastAccess: session.lastAccess });
     }
   }
-  return results;
+  return result;
 }
 
 /** Format cart as a human-readable WhatsApp-friendly summary. */

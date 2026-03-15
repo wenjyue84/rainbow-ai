@@ -1,14 +1,20 @@
 /**
  * llm-cost-budget.ts — Per-provider daily LLM cost budget tracking (US-433)
+ * + Global daily budget alert with per-JID rate limiting (US-903)
  *
  * Tracks cumulative token spend per provider per day (UTC).
  * When daily spend reaches 80% of budget cap → logs alert.
  * When daily spend reaches 100% → blocks that provider (fallback chain skips it).
+ *
+ * US-903: Global daily budget across all providers:
+ * - 80% → admin warning notification
+ * - 100% → admin critical alert + rate-limit LLM calls to 1/30s per JID
  */
 import { db } from '../lib/db.js';
 import { llmCostDaily } from '../../shared/schema-tables.js';
 import { sql, eq, and } from 'drizzle-orm';
 import { configStore } from './config-store.js';
+import { notifyAdminLLMBudgetAlert } from '../lib/admin-notifier.js';
 
 // ─── In-memory accumulator (fast path, flushed to DB periodically) ───
 
@@ -57,6 +63,7 @@ function getOrCreateAccumulator(providerId: string, profileId: string): DailyAcc
 interface CostBudgetConfig {
   enabled: boolean;
   alertThreshold: number;
+  llmDailyBudgetUsd: number;
   providerBudgets: Record<string, number | null>;
 }
 
@@ -64,11 +71,12 @@ function getCostBudgetConfig(): CostBudgetConfig {
   const settings = configStore.getSettings() as any;
   const cfg = settings.costBudget;
   if (!cfg || typeof cfg !== 'object') {
-    return { enabled: false, alertThreshold: 0.8, providerBudgets: {} };
+    return { enabled: false, alertThreshold: 0.8, llmDailyBudgetUsd: 10.0, providerBudgets: {} };
   }
   return {
     enabled: cfg.enabled !== false,
     alertThreshold: typeof cfg.alertThreshold === 'number' ? cfg.alertThreshold : 0.8,
+    llmDailyBudgetUsd: typeof cfg.llmDailyBudgetUsd === 'number' ? cfg.llmDailyBudgetUsd : 10.0,
     providerBudgets: cfg.providerBudgets || {},
   };
 }
@@ -272,3 +280,143 @@ export async function queryDailyCosts(options: {
     budgetBreached: r.budgetBreached,
   }));
 }
+
+// ─── US-903: Global Daily Budget Alert ──────────────────────────────
+
+/** Tracks whether global budget warning/critical alerts have fired today */
+const globalBudgetAlertState = {
+  date: '',
+  warningSent: false,
+  criticalSent: false,
+};
+
+function resetGlobalAlertStateIfNewDay(): void {
+  const today = todayUTC();
+  if (globalBudgetAlertState.date !== today) {
+    globalBudgetAlertState.date = today;
+    globalBudgetAlertState.warningSent = false;
+    globalBudgetAlertState.criticalSent = false;
+  }
+}
+
+/**
+ * Get total daily cost across ALL providers for the current UTC day.
+ */
+export function getTotalDailyCostUsd(): number {
+  const today = todayUTC();
+  let total = 0;
+  for (const [key, acc] of accumulators.entries()) {
+    if (acc.date === today) {
+      total += acc.estimatedCostUsd;
+    }
+  }
+  return total;
+}
+
+/**
+ * Get global daily budget status (for admin API).
+ */
+export function getGlobalBudgetStatus(): {
+  currentDayUsd: number;
+  budgetUsd: number;
+  budgetPctUsed: number;
+} {
+  const cfg = getCostBudgetConfig();
+  const currentDayUsd = getTotalDailyCostUsd();
+  const budgetUsd = cfg.llmDailyBudgetUsd;
+  const budgetPctUsed = budgetUsd > 0 ? Math.min((currentDayUsd / budgetUsd) * 100, 100) : 0;
+  return { currentDayUsd, budgetUsd, budgetPctUsed };
+}
+
+/**
+ * Check global budget thresholds and fire notifications.
+ * Called every 30 minutes by setInterval (started via startBudgetAlertInterval).
+ */
+export async function checkGlobalBudgetThresholds(): Promise<void> {
+  const cfg = getCostBudgetConfig();
+  if (!cfg.enabled || cfg.llmDailyBudgetUsd <= 0) return;
+
+  resetGlobalAlertStateIfNewDay();
+
+  const currentDayUsd = getTotalDailyCostUsd();
+  const ratio = currentDayUsd / cfg.llmDailyBudgetUsd;
+
+  if (ratio >= 1.0 && !globalBudgetAlertState.criticalSent) {
+    globalBudgetAlertState.criticalSent = true;
+    console.warn(`[CostBudget] CRITICAL: Global daily spend $${currentDayUsd.toFixed(4)} >= budget $${cfg.llmDailyBudgetUsd.toFixed(2)} — rate-limiting LLM calls`);
+    notifyAdminLLMBudgetAlert('critical', currentDayUsd, cfg.llmDailyBudgetUsd).catch(() => {});
+  } else if (ratio >= cfg.alertThreshold && !globalBudgetAlertState.warningSent) {
+    globalBudgetAlertState.warningSent = true;
+    console.warn(`[CostBudget] WARNING: Global daily spend at ${(ratio * 100).toFixed(0)}%: $${currentDayUsd.toFixed(4)} / $${cfg.llmDailyBudgetUsd.toFixed(2)}`);
+    notifyAdminLLMBudgetAlert('warning', currentDayUsd, cfg.llmDailyBudgetUsd).catch(() => {});
+  }
+}
+
+// ─── Per-JID Rate Limiting (when global budget is breached) ─────────
+
+/** In-memory token bucket: JID → last allowed timestamp */
+const jidLastLLMCall = new Map<string, number>();
+const BUDGET_RATE_LIMIT_MS = 30_000; // 1 call per 30 seconds per JID
+
+/**
+ * Check if an LLM call for this JID should be rate-limited due to global budget breach.
+ * Returns true if the call should be BLOCKED.
+ */
+export function isJidRateLimited(jid: string): boolean {
+  const cfg = getCostBudgetConfig();
+  if (!cfg.enabled || cfg.llmDailyBudgetUsd <= 0) return false;
+
+  const currentDayUsd = getTotalDailyCostUsd();
+  if (currentDayUsd < cfg.llmDailyBudgetUsd) return false;
+
+  // Budget breached — enforce 1 call per 30s per JID
+  const now = Date.now();
+  const lastCall = jidLastLLMCall.get(jid) ?? 0;
+  if (now - lastCall < BUDGET_RATE_LIMIT_MS) {
+    return true; // rate-limited
+  }
+  jidLastLLMCall.set(jid, now);
+  return false; // allowed (token consumed)
+}
+
+// ─── Budget Alert Interval ──────────────────────────────────────────
+
+let budgetAlertInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Start the 30-minute budget check interval.
+ * Call once at server startup.
+ */
+export function startBudgetAlertInterval(): void {
+  if (budgetAlertInterval) return; // already running
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  budgetAlertInterval = setInterval(() => {
+    checkGlobalBudgetThresholds().catch(err => {
+      console.error('[CostBudget] Budget check failed:', err.message);
+    });
+  }, THIRTY_MINUTES_MS);
+  // Don't prevent process exit
+  if (budgetAlertInterval.unref) budgetAlertInterval.unref();
+  console.log('[CostBudget] Started global budget alert interval (every 30 min)');
+}
+
+/**
+ * Stop the budget alert interval (for testing/cleanup).
+ */
+export function stopBudgetAlertInterval(): void {
+  if (budgetAlertInterval) {
+    clearInterval(budgetAlertInterval);
+    budgetAlertInterval = null;
+  }
+}
+
+// ─── Test Exports ───────────────────────────────────────────────────
+
+export const _testExports = {
+  accumulators,
+  globalBudgetAlertState,
+  jidLastLLMCall,
+  resetGlobalAlertStateIfNewDay,
+  getCostBudgetConfig,
+  todayUTC,
+};

@@ -5,6 +5,9 @@ import rateLimit from 'express-rate-limit';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { authBruteForceStore, ADMIN_IP_ALLOWLIST } from '../../lib/auth-brute-force.js';
 import { isReady } from '../../lib/readiness.js';
+import { checkRole } from '../../lib/rbac.js';
+import { ADMIN_ROLES } from '../../../shared/schema.js';
+import type { AdminRole } from '../../../shared/schema.js';
 
 import knowledgeBaseRoutes from './knowledge-base.js';
 import memoryRoutes from './memory.js';
@@ -66,7 +69,9 @@ import breachReportRoutes from './breach-report.js';
 import menuAllergensRoutes from './menu-allergens.js';
 import menuItemsRoutes from './menu-items.js';
 import rateLimitSettingsRoutes from './rate-limit-settings.js';
-import injectionAttemptsRoutes from './injection-attempts.js';
+import serviceRequestsRoutes from './service-requests.js';
+import bookingSequenceRoutes from './booking-sequence.js';
+import waTemplatesRoutes from './wa-templates.js';
 
 const router = Router();
 
@@ -137,6 +142,19 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// ─── Role Resolution Middleware (US-898) ─────────────────────────────
+// Client passes x-admin-role header (obtained from /auth/login response).
+// Trusted because the request already passed admin key auth above.
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const rawRole = req.headers['x-admin-role'] as string | undefined;
+  if (rawRole && (ADMIN_ROLES as readonly string[]).includes(rawRole)) {
+    res.locals.adminRole = rawRole as AdminRole;
+  }
+  // If header missing, res.locals.adminRole stays undefined → checkRole
+  // defaults to 'operator' for backwards compatibility during migration.
+  next();
+});
+
 // ─── Rate Limiting (mutation endpoints) ─────────────────────────────
 const adminMutationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -147,6 +165,28 @@ const adminMutationLimiter = rateLimit({
   skip: (req: Request) => req.method === 'GET', // Only limit mutations
 });
 router.use(adminMutationLimiter);
+
+// ─── Endpoint-Specific Rate Limiting (US-904) ───────────────────────
+// Strict limiter for auth routes: 5 requests per minute per IP (brute-force protection)
+export const authRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5,
+  standardHeaders: true,   // RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset + Retry-After
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Please try again later.' },
+});
+router.use('/auth', authRateLimiter);
+
+// Standard limiter for analytics and read-only GET routes: 60 requests per minute per IP
+export const standardReadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,
+  standardHeaders: true,   // RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+  skip: (req: Request) => req.method !== 'GET', // Only limit GET requests
+});
+router.use('/analytics', standardReadLimiter);
 
 // ─── Selective Cache Headers ─────────────────────────────────────────
 // Stable endpoints (config/definitions that rarely change) — 60s cache
@@ -161,7 +201,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis',
+  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis', '/analytics/kpis/containment',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -176,6 +216,21 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Pragma', 'no-cache');
   }
   next();
+});
+
+// ─── RBAC: Method-based role enforcement (US-898) ───────────────────
+// Viewers can only use GET/HEAD/OPTIONS. Mutations require operator+.
+// Super-admin-only routes are guarded individually below.
+const requireOperator = checkRole(['operator', 'super-admin']);
+const requireSuperAdmin = checkRole(['super-admin']);
+
+router.use((req: Request, res: Response, next: NextFunction) => {
+  // Auth routes are always accessible (login, register, 2fa)
+  if (req.path.startsWith('/auth/')) { next(); return; }
+  // GET/HEAD/OPTIONS are read-only — all roles can access
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) { next(); return; }
+  // All mutations require at least operator role
+  requireOperator(req, res, next);
 });
 
 // ─── Mount Sub-Routers ──────────────────────────────────────────────
@@ -205,7 +260,9 @@ router.use(scheduledMessagesRoutes);
 router.use(paymentRemindersRoutes);
 router.use('/test', latencyRoutes);
 router.use(fleetRoutes);
-router.use(profilesRoutes);
+
+// Super-admin only: user management, profile config, data deletion, GDPR
+router.use(profilesRoutes);    // Profile config — super-admin for mutations (GET allowed above)
 router.use(mcpServersRoutes);
 router.use(webchatRoutes);
 router.use(integrationHealthRoutes);
@@ -213,7 +270,7 @@ router.use(diagnosticsRoutes);
 router.use(optOutsRoutes);
 router.use(kbHealthRoutes);
 router.use(dataRetentionRoutes);
-router.use(gdprErasureRoutes);
+router.use(gdprErasureRoutes);    // Data deletion — super-admin enforced below
 router.use(gdprDataExportRoutes);
 router.use(consentRoutes);
 router.use(llmCostRoutes);
@@ -239,7 +296,9 @@ router.use(breachReportRoutes);
 router.use(menuAllergensRoutes);
 router.use(menuItemsRoutes);
 router.use(rateLimitSettingsRoutes);
-router.use(injectionAttemptsRoutes);
+router.use(serviceRequestsRoutes);
+router.use(bookingSequenceRoutes);
+router.use(waTemplatesRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

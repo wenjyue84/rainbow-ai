@@ -1,9 +1,8 @@
 /**
- * US-880: 3-tier confidence-based fallback with progressive escalation
+ * US-445: Multi-stage fallback reply with suggested options
  *
- * Tier 1: First unrecognized message → friendly rephrase request
- * Tier 2: Second consecutive unrecognized → suggestion list of core capabilities
- * Tier 3: Third consecutive unrecognized → human handoff + staff notification
+ * Stage 1: First unrecognized message → structured suggestion response
+ * Stage 2: Second consecutive unrecognized → escalation to staff
  * Counter resets when a recognized intent is classified.
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -17,15 +16,13 @@ const fallbackSuggestions = [
   { intent: 'pricing', label: { en: 'Pricing & Rates', ms: 'Harga & Kadar', zh: '价格与房价' } },
   { intent: 'checkin_info', label: { en: 'Check-in Info', ms: 'Info Check-in', zh: '入住信息' } },
   { intent: 'facilities_info', label: { en: 'Facilities & WiFi', ms: 'Kemudahan & WiFi', zh: '设施与WiFi' } },
-  { intent: 'booking', label: { en: 'Make a Booking', ms: 'Buat Tempahan', zh: '预订房间' } },
-  { intent: 'location', label: { en: 'Location & Directions', ms: 'Lokasi & Arah', zh: '位置与路线' } },
 ];
 
 function createMockContext(overrides: Partial<IPipelineContext> = {}): IPipelineContext {
   let unknownCount = 0;
   return {
     getSettings: () => ({
-      consecutive_fallback_threshold: 2,
+      consecutive_fallback_threshold: 1,
       fallback: { suggestions: fallbackSuggestions },
     }),
     getRouting: () => ({}),
@@ -129,88 +126,61 @@ function unknownRouting(): RoutingResult {
   };
 }
 
-describe('US-880: 3-tier confidence-based fallback with progressive escalation', () => {
-  test('Tier 1: first unrecognized message returns rephrase request', async () => {
+describe('US-445: Multi-stage fallback reply with suggested options', () => {
+  test('Stage 1: first unrecognized message returns suggestion response', async () => {
     const context = createMockContext();
     const state = createMockState();
 
     await dispatchAction(state, unknownResult(), unknownRouting(), context);
 
-    // Should ask user to rephrase, NOT show suggestions yet
-    expect(state.response).toContain('rephrase');
-    expect(state.response).not.toContain('Pricing & Rates');
+    // Should show suggestions, NOT the raw LLM response
+    expect(state.response).toContain('Pricing & Rates');
+    expect(state.response).toContain('Check-in Info');
+    expect(state.response).toContain('Facilities & WiFi');
+    expect(state.response).toContain('1.');
+    expect(state.response).toContain('2.');
+    expect(state.response).toContain('3.');
+
+    // Should NOT escalate on first unknown
     expect(context.escalateToStaff).not.toHaveBeenCalled();
   });
 
-  test('Tier 2: second consecutive unrecognized shows suggestion list', async () => {
+  test('Stage 2: second consecutive unrecognized triggers escalation', async () => {
     const context = createMockContext();
 
-    // 1st unknown — rephrase
+    // 1st unknown — suggestions
     const state1 = createMockState();
     await dispatchAction(state1, unknownResult(), unknownRouting(), context);
-    expect(state1.response).toContain('rephrase');
+    expect(context.escalateToStaff).not.toHaveBeenCalled();
 
-    // 2nd unknown — suggestions
+    // 2nd unknown — escalation
     const state2 = createMockState();
     await dispatchAction(state2, unknownResult(), unknownRouting(), context);
-    expect(state2.response).toContain('Pricing & Rates');
-    expect(state2.response).toContain('Check-in Info');
-    expect(state2.response).toContain('Facilities & WiFi');
-    expect(state2.response).toContain('Make a Booking');
-    expect(state2.response).toContain('Location & Directions');
-    expect(state2.response).toContain('1.');
-    expect(state2.response).toContain('5.');
-
-    // Should NOT escalate yet
-    expect(context.escalateToStaff).not.toHaveBeenCalled();
-  });
-
-  test('Tier 3: third consecutive unrecognized triggers escalation', async () => {
-    const context = createMockContext();
-
-    // 1st unknown — rephrase
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    // 2nd unknown — suggestions
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-
-    // 3rd unknown — escalation
-    const state3 = createMockState();
-    await dispatchAction(state3, unknownResult(), unknownRouting(), context);
-
     expect(context.escalateToStaff).toHaveBeenCalledTimes(1);
-    expect(context.logEscalationEvent).toHaveBeenCalledTimes(1);
-    expect(state3.response).toContain('connecting you with our team');
+    expect(state2.response).toContain('connecting you with our team');
   });
 
-  test('three consecutive unknowns: rephrase → suggestions → handoff', async () => {
+  test('two consecutive unknowns: suggestion then escalation', async () => {
     const context = createMockContext();
 
-    // Tier 1: rephrase
+    // 1st: suggestion
     const state1 = createMockState();
     await dispatchAction(state1, unknownResult(), unknownRouting(), context);
-    expect(state1.response).toContain('rephrase');
+    expect(state1.response).toContain('Pricing & Rates');
     expect(context.escalateToStaff).not.toHaveBeenCalled();
 
-    // Tier 2: suggestions
+    // 2nd: escalation
     const state2 = createMockState();
     await dispatchAction(state2, unknownResult(), unknownRouting(), context);
-    expect(state2.response).toContain('Pricing & Rates');
-    expect(context.escalateToStaff).not.toHaveBeenCalled();
-
-    // Tier 3: escalation
-    const state3 = createMockState();
-    await dispatchAction(state3, unknownResult(), unknownRouting(), context);
     expect(context.escalateToStaff).toHaveBeenCalledTimes(1);
     expect(context.logEscalationEvent).toHaveBeenCalledTimes(1);
-    expect(state3.response).toContain('connecting you with our team');
+    expect(state2.response).toContain('connecting you with our team');
   });
 
   test('counter resets when recognized intent is classified', async () => {
     const context = createMockContext();
 
-    // 1st unknown — rephrase
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    // 2nd unknown — suggestions
+    // 1st unknown — suggestions
     await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
     expect(context.escalateToStaff).not.toHaveBeenCalled();
 
@@ -224,18 +194,16 @@ describe('US-880: 3-tier confidence-based fallback with progressive escalation',
     await dispatchAction(createMockState(), knownResult, knownRouting, context);
     expect(context.resetUnknown).toHaveBeenCalled();
 
-    // Next unknown after reset → Tier 1 rephrase again (not escalation)
-    const state4 = createMockState();
-    await dispatchAction(state4, unknownResult(), unknownRouting(), context);
-    expect(state4.response).toContain('rephrase');
+    // Next unknown after reset → suggestions again (not escalation)
+    const state3 = createMockState();
+    await dispatchAction(state3, unknownResult(), unknownRouting(), context);
+    expect(state3.response).toContain('Pricing & Rates');
     expect(context.escalateToStaff).not.toHaveBeenCalled();
   });
 
   test('suggestions use conversation language (Malay)', async () => {
     const context = createMockContext();
-
-    // 1st unknown (Malay) — Tier 1 rephrase in Malay
-    const state1 = createMockState({
+    const state = createMockState({
       convo: {
         phone: '60123456789', pushName: 'Test', messages: [], language: 'ms' as const,
         bookingState: null, workflowState: null, activeFlow: null, unknownCount: 0,
@@ -244,23 +212,12 @@ describe('US-880: 3-tier confidence-based fallback with progressive escalation',
         lastUserMessageAt: null,
       },
     });
-    await dispatchAction(state1, unknownResult(), unknownRouting(), context);
-    expect(state1.response).toContain('ulangi');
 
-    // 2nd unknown (Malay) — Tier 2 suggestions in Malay
-    const state2 = createMockState({
-      convo: {
-        phone: '60123456789', pushName: 'Test', messages: [], language: 'ms' as const,
-        bookingState: null, workflowState: null, activeFlow: null, unknownCount: 0,
-        createdAt: Date.now(), lastActiveAt: Date.now(), lastIntent: null,
-        lastIntentConfidence: null, lastIntentTimestamp: null, slots: {}, repeatCount: 0,
-        lastUserMessageAt: null,
-      },
-    });
-    await dispatchAction(state2, unknownResult(), unknownRouting(), context);
-    expect(state2.response).toContain('Harga & Kadar');
-    expect(state2.response).toContain('Info Check-in');
-    expect(state2.response).toContain('Kemudahan & WiFi');
+    await dispatchAction(state, unknownResult(), unknownRouting(), context);
+
+    expect(state.response).toContain('Harga & Kadar');
+    expect(state.response).toContain('Info Check-in');
+    expect(state.response).toContain('Kemudahan & WiFi');
   });
 
   test('suggestions configurable via settings.json fallback.suggestions', async () => {
@@ -270,76 +227,31 @@ describe('US-880: 3-tier confidence-based fallback with progressive escalation',
     ];
     const context = createMockContext({
       getSettings: () => ({
-        consecutive_fallback_threshold: 2,
+        consecutive_fallback_threshold: 1,
         fallback: { suggestions: customSuggestions },
       }),
     });
 
-    // 1st unknown — Tier 1 rephrase
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
+    const state = createMockState();
+    await dispatchAction(state, unknownResult(), unknownRouting(), context);
 
-    // 2nd unknown — Tier 2 shows custom suggestions
-    const state2 = createMockState();
-    await dispatchAction(state2, unknownResult(), unknownRouting(), context);
-
-    expect(state2.response).toContain('WiFi Password');
-    expect(state2.response).toContain('Directions');
-    expect(state2.response).not.toContain('Pricing & Rates');
+    expect(state.response).toContain('WiFi Password');
+    expect(state.response).toContain('Directions');
+    expect(state.response).not.toContain('Pricing & Rates');
   });
 
-  test('no suggestions when fallback.suggestions is empty — Tier 2 keeps LLM response', async () => {
+  test('no suggestions when fallback.suggestions is empty — falls through to LLM response', async () => {
     const context = createMockContext({
       getSettings: () => ({
-        consecutive_fallback_threshold: 2,
+        consecutive_fallback_threshold: 1,
         fallback: { suggestions: [] },
       }),
     });
 
-    // 1st unknown — Tier 1 rephrase
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
+    const state = createMockState();
+    await dispatchAction(state, unknownResult(), unknownRouting(), context);
 
-    // 2nd unknown — Tier 2, but no suggestions → keep original LLM response
-    const state2 = createMockState();
-    await dispatchAction(state2, unknownResult(), unknownRouting(), context);
-
-    expect(state2.response).toBe('I am not sure how to help with that.');
-  });
-
-  test('failure_tier logged in intent_analytics for each tier', async () => {
-    const context = createMockContext();
-
-    // Tier 1
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    expect(context.trackIntentPrediction).toHaveBeenCalledWith(
-      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
-      'failure_tier_1', 'test-model'
-    );
-
-    // Tier 2
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    expect(context.trackIntentPrediction).toHaveBeenCalledWith(
-      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
-      'failure_tier_2', 'test-model'
-    );
-
-    // Tier 3
-    await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    expect(context.trackIntentPrediction).toHaveBeenCalledWith(
-      expect.any(String), '60123456789', 'asdfghjkl', 'unknown', 0.2,
-      'failure_tier_3', 'test-model'
-    );
-  });
-
-  test('escalation event contains failure_tier 3 metadata', async () => {
-    const context = createMockContext();
-
-    // Send 3 consecutive unknowns
-    for (let i = 0; i < 3; i++) {
-      await dispatchAction(createMockState(), unknownResult(), unknownRouting(), context);
-    }
-
-    const logCall = (context.logEscalationEvent as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(logCall.trigger).toBe('consecutive_fallback');
-    expect(logCall.metadata).toEqual({ failure_tier: 3 });
+    // Should keep the original LLM response since no suggestions configured
+    expect(state.response).toBe('I am not sure how to help with that.');
   });
 });

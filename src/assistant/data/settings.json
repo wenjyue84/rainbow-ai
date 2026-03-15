@@ -259,7 +259,7 @@
     "keep_verbatim_to": 20,
     "description": "Token-aware pruning: when context exceeds max_context_tokens (6000), older messages beyond the last keep_recent_turns (4) turns are summarized. Legacy message-count summarization is also applied."
   },
-  "consecutive_fallback_threshold": 2,
+  "consecutive_fallback_threshold": 1,
   "fallback": {
     "suggestions": [
       {
@@ -285,25 +285,9 @@
           "ms": "Kemudahan & WiFi",
           "zh": "设施与WiFi"
         }
-      },
-      {
-        "intent": "booking",
-        "label": {
-          "en": "Make a Booking",
-          "ms": "Buat Tempahan",
-          "zh": "预订房间"
-        }
-      },
-      {
-        "intent": "location",
-        "label": {
-          "en": "Location & Directions",
-          "ms": "Lokasi & Arah",
-          "zh": "位置与路线"
-        }
       }
     ],
-    "description": "3-tier progressive fallback (US-880). Tier 1: rephrase request, Tier 2: suggestion list, Tier 3: human handoff."
+    "description": "Multi-stage fallback (US-445). First unrecognized message shows suggested options; second consecutive unrecognized triggers escalation."
   },
   "sentiment_analysis": {
     "enabled": true,
@@ -431,13 +415,14 @@
     "moonshotai/kimi-k2.5": 0.0007,
     "qwen-2.5-72b-instruct": 0,
     "deepseek-r1-distill-llama-70b": 0.00059,
-    "llama-3.1-8b-instant": 0.00005,
-    "gemma2-9b-it": 0.00002
+    "llama-3.1-8b-instant": 5e-05,
+    "gemma2-9b-it": 2e-05
   },
   "costBudget": {
     "_comment": "Per-provider daily cost budget caps in USD (US-433). null = unlimited. Alert at 80%, block at 100%.",
     "enabled": true,
     "alertThreshold": 0.8,
+    "llmDailyBudgetUsd": 10.00,
     "providerBudgets": {
       "_comment": "Map of provider ID -> daily budget in USD. Omit or set null for unlimited.",
       "default": null
@@ -455,8 +440,6 @@
     "reengagement_window_minutes": 10,
     "description": "Webchat idle timeout (US-826). Sends re-engagement message after timeout_minutes of inactivity. If no response within reengagement_window_minutes, session marked as timed_out. Webchat only — does NOT apply to WhatsApp. Min timeout: 5 minutes."
   },
-  "repeatOrderEnabled": true,
-  "repeatOrderEnabled_description": "US-897: Show returning customers a quick-reply to reorder their last completed order on webchat session start. Opt-in per profile, default enabled for makan-moments.",
   "interactiveMessages": {
     "enabled": true,
     "description": "Send WhatsApp interactive list/button messages instead of plain text numbered lists (US-430). When disabled, falls back to plain text."
@@ -494,8 +477,57 @@
     "general_contact_email": "hello@pelangicapsulehostel.com",
     "description": "US-878: PDPA 2024 amendment — DPO contact email included in first-contact data notice. dpo_email is mandatory per Malaysia PDPA Amendment Act 2024 (effective 1 June 2025). Falls back to general_contact_email with a warning if dpo_email is missing."
   },
+  "service_requests": {
+    "enabled": true,
+    "staff_notify_phone": "60127088789",
+    "wait_times": {
+      "extra_towel": "10-15 minutes",
+      "extra_pillow": "10-15 minutes",
+      "room_cleaning": "15-20 minutes",
+      "maintenance_issue": "20-30 minutes",
+      "wifi_password": "0 minutes",
+      "amenity": "10-15 minutes"
+    }
+  },
+  "order_modification": {
+    "window_minutes": 2,
+    "description": "US-881: Post-placement order modification window. Customers can request changes within window_minutes after confirming. Closed early if kitchen accepts via POS webhook."
+  },
+  "cart_recovery": {
+    "enabled": true,
+    "idle_minutes": 30,
+    "description": "US-882: WhatsApp abandoned cart recovery. Sends a proactive message when a WhatsApp session has idle cart items for idle_minutes. Only one message per cart session. Cart auto-clears 24h after recovery message if no response."
+  },
   "billing": {
     "pricingModel": "per_message",
-    "description": "WhatsApp Business pricing model (US-845). per_message = Meta July 2025+ model."
+    "description": "WhatsApp Business pricing model toggle (US-845). 'per_message' = Meta July 2025+ per-message pricing. 'per_conversation' = legacy 24h conversation-window pricing. Admin dashboard shows estimated costs under both models for comparison.",
+    "legacyConversationRates": {
+      "_comment": "Legacy per-conversation rates (USD) by category and country. Used for comparison display only when pricingModel is per_message.",
+      "marketing": { "MY": 0.0732, "SG": 0.0858, "ID": 0.0411, "_default": 0.0600 },
+      "utility": { "MY": 0.0200, "SG": 0.0318, "ID": 0.0150, "_default": 0.0200 },
+      "authentication": { "MY": 0.0315, "SG": 0.0453, "ID": 0.0240, "_default": 0.0300 },
+      "service": { "_default": 0.0000 }
+    }
+  },
+  "tiered_fallback": {
+    "description": "US-880: Three-tier progressive escalation for unrecognised messages.",
+    "tier1": {
+      "en": "I'm sorry, I didn't quite catch that. Could you rephrase or give me more detail? I'm happy to help!",
+      "ms": "Maaf, saya kurang faham. Boleh anda ulang dengan cara lain atau beri lebih butiran? Saya sedia membantu!",
+      "zh": "抱歉，我没太明白您的意思。能换个方式或提供更多详情吗？我很乐意帮忙！",
+      "ta": "மன்னிக்கவும், நான் புரிந்துகொள்ளவில்லை. வேறொரு விதத்தில் சொல்ல முடியுமா? நான் உதவ தயாராக இருக்கிறேன்!"
+    }
+  },
+  "businessHours": {
+    "timezone": "Asia/Kuala_Lumpur",
+    "schedule": [
+      { "day": 1, "open": "09:00", "close": "17:00" },
+      { "day": 2, "open": "09:00", "close": "17:00" },
+      { "day": 3, "open": "09:00", "close": "17:00" },
+      { "day": 4, "open": "09:00", "close": "17:00" },
+      { "day": 5, "open": "09:00", "close": "17:00" },
+      { "day": 6, "open": "10:00", "close": "14:00" }
+    ],
+    "holidays": []
   }
 }

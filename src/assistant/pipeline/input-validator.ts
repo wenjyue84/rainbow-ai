@@ -23,14 +23,13 @@ import { trackMessageReceived, trackRateLimited } from '../../lib/activity-track
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
-import { logPromptInjection } from '../../lib/prompt-injection-log.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
-import { scheduleMediaDownload } from '../../lib/media-downloader.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
 import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
+import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
 
 // Start per-JID rate limiter cleanup (default 60s window)
 startJidRateLimiterCleanup(60_000);
@@ -330,30 +329,28 @@ export async function validateAndPrepare(
       // Image/video/document with caption text — acknowledge the media, then process caption
       else if (['image', 'video', 'document'].includes(msg.messageType) && msg.text) {
         console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType} with caption] "${msg.text.slice(0, 60)}"`);
+        // US-893: Eagerly download media before URL expires; fire-and-forget for caption flow
+        const dlResult = await downloadAndSaveMedia(msg);
+        const localMediaUrl = dlResult.success ? dlResult.localUrl : undefined;
         if (mediaRepliesEnabled) {
           const templateKey = getMediaTemplateKey(msg.messageType);
           const mediaAck = getTemplate(templateKey, lang);
           await ctx.sendMessage(phone, mediaAck, msg.instanceId);
-          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, msg.messageId);
-        }
-        // US-893: Download media binary eagerly before the ephemeral URL expires
-        if (msg.rawMessage && msg.messageId) {
-          scheduleMediaDownload(msg.messageId, msg.messageType as 'image' | 'video' | 'document', msg.rawMessage);
+          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, localMediaUrl);
         }
         // Fall through — caption text will be processed by the pipeline
       }
       // Image/video/document with NO caption — acknowledge and stop
       else if (['image', 'video', 'document'].includes(msg.messageType)) {
         console.log(`[Router] ${phone} (${msg.pushName}): [${msg.messageType}]`);
+        // US-893: Eagerly download media before URL expires
+        const dlResult = await downloadAndSaveMedia(msg);
+        const localMediaUrl = dlResult.success ? dlResult.localUrl : undefined;
         if (mediaRepliesEnabled) {
           const templateKey = getMediaTemplateKey(msg.messageType);
           const mediaAck = getTemplate(templateKey, lang);
           await ctx.sendMessage(phone, mediaAck, msg.instanceId);
-          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, msg.messageId);
-        }
-        // US-893: Download media binary eagerly before the ephemeral URL expires
-        if (msg.rawMessage && msg.messageId) {
-          scheduleMediaDownload(msg.messageId, msg.messageType as 'image' | 'video' | 'document', msg.rawMessage);
+          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, localMediaUrl);
         }
         return { continue: false, reason: 'media_acknowledged' };
       }
@@ -442,14 +439,6 @@ export async function validateAndPrepare(
     const injectionResult = detectPromptInjection(text, customPatterns);
     if (injectionResult.blocked) {
       console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
-      // US-927: Persist injection attempt to DB for analytics
-      logPromptInjection({
-        jid: phone,
-        profileId: profileId,
-        rawMessage: text,
-        matchedPattern: injectionResult.matchedPattern!,
-        action: 'blocked',
-      });
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };

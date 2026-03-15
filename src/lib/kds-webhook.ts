@@ -1,253 +1,237 @@
 /**
- * kds-webhook.ts — Kitchen Display System webhook dispatcher (US-876)
+ * kds-webhook.ts — POS/KDS webhook integration (US-876)
  *
- * After order confirmation, POSTs the order payload to a configurable
- * KDS_WEBHOOK_URL so kitchen staff see the ticket in real time.
- *
- * Features:
- *  - Configurable webhook URL, auth header, and retry settings
- *  - In-memory retry queue with exponential backoff (max 3 attempts)
- *  - Ops WhatsApp alert on persistent failure
- *  - POS response relay (accepted/rejected) back to caller
+ * Sends confirmed orders to an external Kitchen Display System via HTTP POST.
+ * Supports retry with exponential backoff and persistent fallback queue.
  */
 
 import { createHash } from 'crypto';
 import { createModuleLogger } from './logger.js';
+import { sendWhatsAppMessage, getWhatsAppStatus } from './baileys-client.js';
 
-const logger = createModuleLogger('KdsWebhook');
+const logger = createModuleLogger('kds-webhook');
 
-// ─── Types ────────────────────────────────────────────────────────────
+// ─── Configuration (env vars, overridable without redeploy) ─────────
 
-export interface KdsWebhookConfig {
-  enabled: boolean;
-  /** Full URL to POST order payloads to */
-  webhookUrl: string;
-  /** Value sent as Authorization header (e.g. "Bearer <token>") */
-  authToken?: string;
-  /** Max retry attempts (default 3) */
-  maxRetries?: number;
-  /** Base delay in ms for exponential backoff (default 2000) */
-  baseDelayMs?: number;
-}
+const KDS_WEBHOOK_URL = () => process.env.KDS_WEBHOOK_URL || '';
+const KDS_WEBHOOK_AUTH_TOKEN = () => process.env.KDS_WEBHOOK_AUTH_TOKEN || '';
+const KDS_MAX_RETRIES = 3;
+const KDS_BASE_DELAY_MS = 1000; // 1s, 2s, 4s exponential backoff
+
+// ─── Types ──────────────────────────────────────────────────────────
 
 export interface KdsOrderPayload {
   orderId: string;
-  items: Array<{
-    name: string;
-    qty: number;
-    code?: string;
-    specialInstructions?: string;
-  }>;
-  tableOrPickup: string;
-  customerJidHash: string;
-  timestamp: string;
+  items: KdsOrderItem[];
+  tableOrPickup: string;        // e.g. "Table 5" or "Takeaway"
+  customerJidHash: string;      // SHA-256 hash of JID for privacy
+  timestamp: string;            // ISO 8601
   profileId: string;
 }
 
-export interface KdsResponse {
-  status: 'accepted' | 'rejected' | 'error' | 'disabled';
-  message?: string;
+export interface KdsOrderItem {
+  name: string;
+  code?: string;
+  qty: number;
+  specialInstructions?: string;
 }
 
-// ─── In-memory retry queue ────────────────────────────────────────────
+export interface KdsWebhookResult {
+  success: boolean;
+  posStatus?: string;           // accepted | rejected | unknown
+  posMessage?: string;          // status message from POS
+  error?: string;
+}
 
-interface RetryEntry {
+// ─── In-memory retry queue ──────────────────────────────────────────
+
+interface QueueEntry {
   payload: KdsOrderPayload;
-  config: KdsWebhookConfig;
   attempt: number;
   nextRetryAt: number;
+  opsPhone: string;
 }
 
-const retryQueue: RetryEntry[] = [];
-let retryTimerRunning = false;
+const retryQueue: QueueEntry[] = [];
+let retryTimerActive = false;
 
-function scheduleRetry(entry: RetryEntry): void {
-  retryQueue.push(entry);
-  if (!retryTimerRunning) {
-    retryTimerRunning = true;
-    setTimeout(processRetryQueue, entry.nextRetryAt - Date.now());
+// ─── Core: send order to KDS webhook ────────────────────────────────
+
+export async function sendToKds(
+  payload: KdsOrderPayload,
+  opsPhone: string
+): Promise<KdsWebhookResult> {
+  const url = KDS_WEBHOOK_URL();
+  if (!url) {
+    logger.debug('KDS_WEBHOOK_URL not configured, skipping webhook');
+    return { success: false, error: 'KDS_WEBHOOK_URL not configured' };
+  }
+
+  try {
+    const result = await postToKds(url, payload);
+    logger.info('KDS webhook delivered', { orderId: payload.orderId, posStatus: result.posStatus });
+    return result;
+  } catch (err: any) {
+    logger.warn('KDS webhook failed, queuing for retry', { orderId: payload.orderId, error: err.message });
+    enqueueRetry(payload, opsPhone, 0);
+    return { success: false, error: err.message };
   }
 }
 
-async function processRetryQueue(): Promise<void> {
+async function postToKds(url: string, payload: KdsOrderPayload): Promise<KdsWebhookResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const authToken = KDS_WEBHOOK_AUTH_TOKEN();
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`KDS returned HTTP ${res.status}`);
+    }
+
+    // Parse POS response for status relay
+    try {
+      const data = await res.json() as Record<string, any>;
+      return {
+        success: true,
+        posStatus: data.status || 'accepted',
+        posMessage: data.message || undefined,
+      };
+    } catch {
+      // Non-JSON response is fine — treat as accepted
+      return { success: true, posStatus: 'accepted' };
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
+// ─── Retry logic with exponential backoff ───────────────────────────
+
+function enqueueRetry(payload: KdsOrderPayload, opsPhone: string, attempt: number) {
+  if (attempt >= KDS_MAX_RETRIES) {
+    logger.error('KDS webhook exhausted retries', { orderId: payload.orderId });
+    sendOpsAlert(payload.orderId, opsPhone);
+    return;
+  }
+
+  const delay = KDS_BASE_DELAY_MS * Math.pow(2, attempt);
+  retryQueue.push({
+    payload,
+    attempt: attempt + 1,
+    nextRetryAt: Date.now() + delay,
+    opsPhone,
+  });
+
+  if (!retryTimerActive) {
+    retryTimerActive = true;
+    setTimeout(processRetryQueue, delay);
+  }
+}
+
+async function processRetryQueue() {
   const now = Date.now();
   const ready = retryQueue.filter(e => e.nextRetryAt <= now);
 
   // Remove ready entries from queue
   for (const entry of ready) {
     const idx = retryQueue.indexOf(entry);
-    if (idx >= 0) retryQueue.splice(idx, 1);
+    if (idx !== -1) retryQueue.splice(idx, 1);
   }
 
   for (const entry of ready) {
-    const result = await postToKds(entry.payload, entry.config, entry.attempt);
-    if (result.status === 'error') {
-      const maxRetries = entry.config.maxRetries ?? 3;
-      if (entry.attempt < maxRetries) {
-        const baseDelay = entry.config.baseDelayMs ?? 2000;
-        const delay = baseDelay * Math.pow(2, entry.attempt);
-        scheduleRetry({
-          ...entry,
-          attempt: entry.attempt + 1,
-          nextRetryAt: Date.now() + delay,
-        });
-      } else {
-        logger.error(`KDS webhook failed after ${maxRetries} attempts for order ${entry.payload.orderId}: ${result.message}`);
-        // Alert ops — fire-and-forget (caller provides alertFn via dispatchToKds)
-      }
+    const url = KDS_WEBHOOK_URL();
+    if (!url) continue;
+
+    try {
+      await postToKds(url, entry.payload);
+      logger.info('KDS webhook retry succeeded', { orderId: entry.payload.orderId, attempt: entry.attempt });
+    } catch (err: any) {
+      logger.warn('KDS webhook retry failed', { orderId: entry.payload.orderId, attempt: entry.attempt, error: err.message });
+      enqueueRetry(entry.payload, entry.opsPhone, entry.attempt);
     }
   }
 
-  // Schedule next batch if queue has entries
+  // Schedule next batch if entries remain
   if (retryQueue.length > 0) {
     const nextTime = Math.min(...retryQueue.map(e => e.nextRetryAt));
     setTimeout(processRetryQueue, Math.max(nextTime - Date.now(), 100));
   } else {
-    retryTimerRunning = false;
+    retryTimerActive = false;
   }
 }
 
-// ─── HTTP POST to KDS ─────────────────────────────────────────────────
+// ─── Ops alert on persistent failure ────────────────────────────────
 
-async function postToKds(
-  payload: KdsOrderPayload,
-  config: KdsWebhookConfig,
-  _attempt: number,
-): Promise<KdsResponse> {
+async function sendOpsAlert(orderId: string, opsPhone: string) {
+  if (!opsPhone) return;
   try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (config.authToken) {
-      headers['Authorization'] = config.authToken;
+    const status = getWhatsAppStatus();
+    if (status.state === 'open') {
+      await sendWhatsAppMessage(
+        opsPhone,
+        `⚠️ KDS Webhook Failed\n\nOrder ${orderId} could not be sent to the kitchen display system after ${KDS_MAX_RETRIES} attempts. Please check the POS connection and manually enter this order.\n\n— Rainbow AI`
+      );
+      logger.info('Sent KDS failure alert to ops', { orderId, opsPhone });
+    } else {
+      logger.warn('WhatsApp not connected, cannot send KDS failure alert', { orderId });
     }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s timeout
-
-    const res = await fetch(config.webhookUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      return {
-        status: 'error',
-        message: `HTTP ${res.status} ${res.statusText}`,
-      };
-    }
-
-    // Parse POS response for accepted/rejected status
-    try {
-      const body = await res.json() as { status?: string; message?: string };
-      if (body.status === 'rejected') {
-        return { status: 'rejected', message: body.message ?? 'Order rejected by POS' };
-      }
-      return { status: 'accepted', message: body.message };
-    } catch {
-      // Non-JSON 2xx response — treat as accepted
-      return { status: 'accepted' };
-    }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { status: 'error', message };
+  } catch (err: any) {
+    logger.error('Failed to send KDS alert', { orderId, error: err.message });
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────
 
-/**
- * Hash a JID for privacy (PDPA compliance).
- * Returns first 12 hex chars of SHA-256.
- */
 export function hashJid(jid: string): string {
-  return createHash('sha256').update(jid).digest('hex').slice(0, 12);
+  return createHash('sha256').update(jid).digest('hex').slice(0, 16);
 }
 
-/**
- * Build a KDS order payload from cart data.
- */
+export function isKdsEnabled(settings: Record<string, any>): boolean {
+  return settings?.kds?.enabled === true;
+}
+
+export function getKdsOpsPhone(settings: Record<string, any>): string {
+  return settings?.kds?.opsNotifyPhone || settings?.staff?.phones?.[0] || '';
+}
+
+/** Build a KDS payload from cart data */
 export function buildKdsPayload(opts: {
   orderId: string;
-  items: Array<{ name: string; qty: number; code?: string; notes?: string }>;
+  items: Array<{ name: string; code?: string; qty: number; notes?: string }>;
   tableNumber?: string;
   orderType?: string;
-  customerJid: string;
+  jid: string;
   profileId: string;
 }): KdsOrderPayload {
-  let tableOrPickup = 'Walk-in';
-  if (opts.orderType === 'takeaway') {
-    tableOrPickup = 'Takeaway';
-  } else if (opts.tableNumber) {
-    tableOrPickup = `Table ${opts.tableNumber}`;
-  }
-
   return {
     orderId: opts.orderId,
     items: opts.items.map(i => ({
       name: i.name,
+      ...(i.code ? { code: i.code } : {}),
       qty: i.qty,
-      code: i.code,
-      specialInstructions: i.notes,
+      ...(i.notes ? { specialInstructions: i.notes } : {}),
     })),
-    tableOrPickup,
-    customerJidHash: hashJid(opts.customerJid),
+    tableOrPickup: opts.orderType === 'takeaway'
+      ? 'Takeaway'
+      : opts.tableNumber
+        ? `Table ${opts.tableNumber}`
+        : 'Walk-in',
+    customerJidHash: hashJid(opts.jid),
     timestamp: new Date().toISOString(),
     profileId: opts.profileId,
   };
-}
-
-/**
- * Dispatch an order to the KDS webhook.
- *
- * - If KDS is disabled, returns { status: 'disabled' } immediately.
- * - On success, returns accepted/rejected from the POS.
- * - On failure, queues for retry and returns { status: 'error' }.
- * - Calls alertFn on final failure so ops gets a WhatsApp alert.
- */
-export async function dispatchToKds(
-  payload: KdsOrderPayload,
-  config: KdsWebhookConfig,
-  alertFn?: (message: string) => void,
-): Promise<KdsResponse> {
-  if (!config.enabled || !config.webhookUrl) {
-    return { status: 'disabled' };
-  }
-
-  const result = await postToKds(payload, config, 1);
-
-  if (result.status === 'error') {
-    const maxRetries = config.maxRetries ?? 3;
-    if (maxRetries > 1) {
-      const baseDelay = config.baseDelayMs ?? 2000;
-      scheduleRetry({
-        payload,
-        config,
-        attempt: 2, // first attempt already done
-        nextRetryAt: Date.now() + baseDelay,
-      });
-    }
-
-    if (alertFn) {
-      // Alert immediately on first failure — retries happen in background
-      alertFn(`⚠️ KDS webhook failed for order ${payload.orderId}: ${result.message}. Retrying...`);
-    }
-  }
-
-  return result;
-}
-
-/** Get current retry queue size (for monitoring/testing). */
-export function getRetryQueueSize(): number {
-  return retryQueue.length;
-}
-
-/** Clear retry queue (for testing). */
-export function clearRetryQueue(): void {
-  retryQueue.length = 0;
-  retryTimerRunning = false;
 }

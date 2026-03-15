@@ -13,10 +13,11 @@ import {
   type CartItem, type TableInfo
 } from '../assistant/cart-store.js';
 import {
-  transitionOrderStage, clearOrderStage,
+  transitionOrderStage, clearOrderStage, getOrderStage,
 } from '../assistant/order-stage-store.js';
 import { fnbCreateOrder, fnbGetOrderStatus, fnbGetKitchenStatus } from './fnb-orders.js';
 import { setSessionOrderId, getSessionOrderId } from '../assistant/order-id-store.js';
+import { hasUpsellBeenOffered, markUpsellOffered, getUpsellSuggestion } from '../assistant/upsell-tracker.js';
 import {
   setDisambiguation, getDisambiguation, clearDisambiguation,
   formatDisambiguationList, type DisambiguationCandidate,
@@ -33,17 +34,15 @@ import { getAllergenEntry, formatAllergenWarning } from '../lib/allergen-store.j
 import {
   setPendingAllergenItem, getPendingAllergenItem, clearPendingAllergenItem,
 } from '../lib/allergen-pending-store.js';
+import { sendToKds, buildKdsPayload, type KdsWebhookResult } from '../lib/kds-webhook.js';
 import {
-  dispatchToKds, buildKdsPayload,
-  type KdsWebhookConfig,
-} from '../lib/kds-webhook.js';
-import {
-  saveModificationSnapshot, isModificationAllowed,
-  getModificationSnapshot, clearModificationWindow,
-  getModificationRemainingSeconds,
-  setActiveModification, consumeActiveModification,
+  startModificationWindow, isModificationAllowed, consumeModificationWindow,
+  getModificationTimeRemaining,
 } from '../assistant/order-modification-store.js';
 import { saveOrderHistory } from '../assistant/order-history-store.js';
+import {
+  markConfirmationShown, markCorrected, recordOrderSubmitted, clearAccuracyTracking,
+} from '../assistant/order-accuracy-tracker.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -207,21 +206,6 @@ export const cartTools: MCPTool[] = [
     },
     allowedProfiles: ['makan-moments']
   },
-  // ─── Order Modification Tool (US-881) ────────────────────────────
-  {
-    name: 'order_modify_request',
-    description: [
-      'Request to modify a recently placed order within the modification window.',
-      'Use when the guest says "change my order", "I want to modify", "actually change the X", "wait I need to change something".',
-      'If the modification window is still open, the original items are restored to the cart for editing.',
-      'If the window has expired or the kitchen has already accepted, the guest is told politely.',
-    ].join(' '),
-    inputSchema: {
-      type: 'object',
-      properties: {}
-    },
-    allowedProfiles: ['makan-moments']
-  },
   // ─── Order Status Tool ──────────────────────────────────────────
   {
     name: 'order_check_status',
@@ -313,6 +297,36 @@ export const cartTools: MCPTool[] = [
       properties: {}
     },
     allowedProfiles: ['makan-moments']
+  },
+  // ─── Order Modification Tool (US-881) ───────────────────────────
+  {
+    name: 'order_modify_request',
+    description: [
+      'Re-open a recently placed order for modification within the allowed time window.',
+      'Use when the guest says "change order", "modify order", "I made a mistake", "wait I want to change", "tukar order", "ubah order" AFTER their order was already placed.',
+      'If the modification window has expired or the kitchen has already accepted, tells the guest politely that changes are no longer possible.',
+      'If allowed, re-populates the cart with the original items and transitions back to ORDERING stage.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  // ─── Reorder Last Order Tool (US-897) ──────────────────────────────
+  {
+    name: 'reorder_last_order',
+    description: [
+      'Populate the cart with the guest\'s most recent completed order.',
+      'Use when the guest says "yes" to the "Order your usual again?" prompt,',
+      'or when they say "reorder", "same as last time", "order lagi", "sama macam semalam".',
+      'Checks each item for current menu availability and omits out-of-stock items with a notification.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    },
+    allowedProfiles: ['makan-moments']
   }
 ];
 
@@ -327,16 +341,14 @@ export interface CartHandlerOptions {
     queueWarningThreshold?: number;
     waitTimeWarningMinutes?: number;
   };
-  /** KDS/POS webhook config (US-876). When enabled, order payloads are POSTed to the configured URL. */
-  kdsWebhook?: KdsWebhookConfig;
-  /** Profile ID for KDS payload context */
-  profileId?: string;
-  /** Customer JID (phone) for KDS payload hashing */
-  customerJid?: string;
-  /** Ops staff phone for KDS failure alerts (US-876 AC3). Falls back to system default. */
-  opsAlertPhone?: string;
-  /** Order modification window in minutes (US-881). Default: 2 */
-  orderModificationWindowMinutes?: number;
+  /** US-876: KDS/POS webhook integration */
+  kds?: {
+    enabled?: boolean;
+    opsNotifyPhone?: string;
+    profileId?: string;
+  };
+  /** US-881: Order modification window in milliseconds. Default: 120000 (2 min) */
+  modificationWindowMs?: number;
 }
 
 /**
@@ -403,11 +415,12 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const paymentMethods = options?.paymentMethods ?? ['cash'];
   const queueThreshold = options?.kitchenQueue?.queueWarningThreshold ?? 5;
   const waitThreshold = options?.kitchenQueue?.waitTimeWarningMinutes ?? 20;
-  const kdsConfig = options?.kdsWebhook;
-  const profileId = options?.profileId ?? 'makan-moments';
-  const customerJid = options?.customerJid ?? `webchat-${sessionId}`;
-  const opsAlertPhone = options?.opsAlertPhone;
-  const modificationWindowMs = (options?.orderModificationWindowMinutes ?? 2) * 60 * 1000;
+  // US-876: KDS webhook config
+  const kdsEnabled = options?.kds?.enabled ?? false;
+  const kdsOpsPhone = options?.kds?.opsNotifyPhone ?? '';
+  const kdsProfileId = options?.kds?.profileId ?? 'makan-moments';
+  // US-881: Order modification window (default 2 minutes)
+  const modificationWindowMs = options?.modificationWindowMs ?? 2 * 60 * 1000;
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
@@ -435,6 +448,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       }
     }
 
+    // US-902: If modifying cart while in CONFIRMING stage, record correction
+    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+
     // No allergen data — add item and show advisory
     const items = cartAddItem(sessionId, item);
     // Transition stage to ORDERING when an item is added
@@ -443,15 +459,28 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     const allergenAdvisory = item.code
       ? '' // Known item with no allergen data on file — skip advisory to avoid noise
       : '\n\n⚠️ Please inform our staff of any allergies before ordering.';
+
+    // US-857: Suggest an upsell after first main item is added
+    let upsellMessage = '';
+    if (!hasUpsellBeenOffered(sessionId) && item.code) {
+      // Only suggest upsell for items with a code (known menu items)
+      const { message } = getUpsellSuggestion(args.category);
+      markUpsellOffered(sessionId);
+      upsellMessage = `\n\n${message}`;
+    }
+
     return {
       content: [{
         type: 'text',
-        text: `Added ${item.qty}x ${item.name} to cart.${allergenAdvisory}\n\nCurrent cart:\n${summary}`
+        text: `Added ${item.qty}x ${item.name} to cart.${allergenAdvisory}\n\nCurrent cart:\n${summary}${upsellMessage}`
       }]
     };
   });
 
   handlers.set('cart_remove_item', async (args: any) => {
+    // US-902: If modifying cart while in CONFIRMING stage, record correction
+    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+
     const { removed, items } = cartRemoveItem(sessionId, args.name);
     if (!removed) {
       return {
@@ -470,6 +499,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('cart_update_qty', async (args: any) => {
+    // US-902: If modifying cart while in CONFIRMING stage, record correction
+    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+
     const name: string = String(args.name || '').trim();
     const qty: number = typeof args.qty === 'number' ? Math.max(0, Math.floor(args.qty)) : 0;
 
@@ -604,6 +636,8 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       };
     }
     transitionOrderStage(sessionId, 'CONFIRMING');
+    // US-902: Track that confirmation was shown for accuracy KPI
+    markConfirmationShown(sessionId);
     const summary = cartFormatSummary(items);
     const tableInfo = cartGetTableInfo(sessionId);
     const tableLine = tableInfo
@@ -634,9 +668,6 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
     const summary = cartFormatSummary(items);
 
-    // US-881: Check if this is a resubmission after modification
-    const isModifiedOrder = consumeActiveModification(sessionId);
-
     // Resolve table info: prefer stored session state, fall back to args
     const storedTable = cartGetTableInfo(sessionId);
     const effectiveTableNumber = args.tableNumber || storedTable?.tableNumber;
@@ -659,6 +690,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       }));
 
     let orderAck = '';
+    let placedOrderId = `ORD-${Date.now()}`;
 
     // Build notes for FnB MCP with table/order type info
     const fnbNotes: string[] = [];
@@ -686,8 +718,28 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
         // Extract and store order ID for later status checks (US-855)
         const orderIdMatch = fnbText.match(/\b(MM-[A-Z0-9]{4,})\b/i)
           || fnbText.match(/order\s*(?:id|#|number)?[:\s]*([A-Za-z0-9-]{4,})/i);
+        const extractedOrderId = orderIdMatch ? (orderIdMatch[1] || orderIdMatch[0]) : placedOrderId;
+        placedOrderId = extractedOrderId;
         if (orderIdMatch) {
-          setSessionOrderId(sessionId, orderIdMatch[1] || orderIdMatch[0]);
+          setSessionOrderId(sessionId, extractedOrderId);
+        }
+
+        // US-876: Fire-and-forget KDS webhook for kitchen display
+        if (kdsEnabled) {
+          const kdsPayload = buildKdsPayload({
+            orderId: extractedOrderId,
+            items: items.map(i => ({ name: i.name, code: i.code, qty: i.qty, notes: i.notes })),
+            tableNumber: effectiveTableNumber,
+            orderType: effectiveOrderType,
+            jid: 'webchat-' + sessionId,
+            profileId: kdsProfileId,
+          });
+          sendToKds(kdsPayload, kdsOpsPhone).then((kdsResult: KdsWebhookResult) => {
+            if (kdsResult.posStatus === 'rejected' && kdsResult.posMessage) {
+              // POS rejected — log for admin visibility (customer already notified of order sent)
+              console.warn(`[KDS] Order ${extractedOrderId} rejected by POS: ${kdsResult.posMessage}`);
+            }
+          }).catch(() => { /* retry queue handles failures */ });
         }
       } else {
         // FnB system unavailable — still acknowledge and notify
@@ -698,60 +750,29 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       orderAck = '\n\nOur staff has been notified and will prepare your order shortly.';
     }
 
-    // US-876: Dispatch to KDS/POS webhook (non-blocking)
-    let kdsNote = '';
-    if (kdsConfig?.enabled && kdsConfig.webhookUrl) {
-      const extractedOrderId = getSessionOrderId(sessionId) ?? `ORD-${Date.now()}`;
-      const kdsPayload = buildKdsPayload({
-        orderId: extractedOrderId,
-        items: items.map(i => ({ name: i.name, qty: i.qty, code: i.code, notes: i.notes })),
-        tableNumber: effectiveTableNumber,
-        orderType: effectiveOrderType,
-        customerJid,
-        profileId,
-      });
+    // US-881: Snapshot order for modification window before clearing cart
+    const snapshotItems = items.map(i => ({ ...i }));
+    const snapshotTable = storedTable ? { ...storedTable } : undefined;
 
-      // US-876 AC3: Alert ops WhatsApp on webhook failure
-      const kdsAlertFn = opsAlertPhone
-        ? (msg: string) => {
-            import('../lib/baileys-client.js')
-              .then(({ sendWhatsAppMessage }) => sendWhatsAppMessage(opsAlertPhone, msg))
-              .catch(() => { /* fire-and-forget */ });
-          }
-        : undefined;
-
-      try {
-        const kdsResult = await dispatchToKds(kdsPayload, kdsConfig, kdsAlertFn);
-        if (kdsResult.status === 'rejected') {
-          kdsNote = `\n\n⚠️ Kitchen update: ${kdsResult.message || 'Order was not accepted by the POS system. Our staff will follow up.'}`;
-        }
-      } catch {
-        // KDS dispatch is non-blocking — order was already placed
-      }
-    }
-
-    // US-881: Save snapshot for modification window BEFORE clearing cart
-    const modWindowMinutes = Math.round(modificationWindowMs / 60000);
-    const placedOrderId = getSessionOrderId(sessionId);
-    saveModificationSnapshot(sessionId, items, modificationWindowMs, {
-      tableInfo: { tableNumber: effectiveTableNumber, orderType: effectiveOrderType },
-      orderId: placedOrderId,
+    // US-897: Save order history for returning-customer feature (fire-and-forget)
+    saveOrderHistory('webchat-' + sessionId, placedOrderId, snapshotItems).catch(err => {
+      console.error('[OrderHistory] Save failed:', err.message);
     });
 
-    // US-897: Persist order items for returning-customer reorder (fire-and-forget)
-    saveOrderHistory({
-      sessionId,
-      phone: customerJid,
-      profileId,
-      items,
-      tableInfo: storedTable ?? (effectiveTableNumber ? { tableNumber: effectiveTableNumber, orderType: effectiveOrderType } : undefined),
-      orderId: placedOrderId,
-    }).catch(() => {});
+    // US-902: Record order accuracy events (fire-and-forget)
+    recordOrderSubmitted(sessionId, kdsProfileId || 'makan-moments').catch(err => {
+      console.error('[OrderAccuracy] Record failed:', err.message);
+    });
 
     // Transition to PLACED and clear cart
     transitionOrderStage(sessionId, 'PLACED');
     cartClear(sessionId);
     clearOrderStage(sessionId);
+
+    // US-881: Start modification window
+    if (modificationWindowMs > 0) {
+      startModificationWindow(sessionId, placedOrderId, snapshotItems, snapshotTable, modificationWindowMs);
+    }
 
     // US-867: Append payment method guidance after successful order placement
     const paymentGuidance = formatPaymentGuidance(paymentMethods);
@@ -759,17 +780,16 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     // US-868: Include kitchen wait time in acknowledgement
     const kitchenWarning = await getKitchenWarning(queueThreshold, waitThreshold);
 
-    // US-881: Inform about modification window
-    // US-881: Modification window note (only for new orders, not resubmissions)
-    const modWindowNote = isModifiedOrder
-      ? ''
-      : `\n\nYou have ${modWindowMinutes} minute${modWindowMinutes !== 1 ? 's' : ''} to make changes. Just say "change my order" if needed.`;
-    const orderLabel = isModifiedOrder ? 'Your updated order' : 'Your order';
+    // US-881: Modification window notice
+    const modWindowMinutes = Math.round(modificationWindowMs / 60000);
+    const modNotice = modificationWindowMs > 0
+      ? `\n\nYou have ${modWindowMinutes} minute${modWindowMinutes !== 1 ? 's' : ''} to request changes. Just say "change order" if you need to modify anything.`
+      : '';
 
     return {
       content: [{
         type: 'text',
-        text: `${orderLabel}${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kdsNote}${kitchenWarning}${paymentGuidance}${modWindowNote}\n\nThank you! Please let us know if you need anything else.`
+        text: `Your order${tableDesc} has been sent to the kitchen!\n\n${summary}${orderAck}${kitchenWarning}${paymentGuidance}${modNotice}\n\nThank you! Please let us know if you need anything else.`
       }]
     };
   });
@@ -787,7 +807,6 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('cart_cancel_order', async (_args: any) => {
-    const { getOrderStage } = await import('../assistant/order-stage-store.js');
     const stage = getOrderStage(sessionId);
 
     // Order already sent to kitchen — cannot cancel
@@ -816,71 +835,12 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     cartClear(sessionId);
     clearPendingSetMeal(sessionId);
     clearOrderStage(sessionId);
+    // US-902: Clear accuracy tracking on cancel (no order to count)
+    clearAccuracyTracking(sessionId);
     return {
       content: [{
         type: 'text',
         text: 'Your order has been cleared. Let me know if you would like to start a new order!'
-      }]
-    };
-  });
-
-  // ─── Order Modification Handler (US-881) ───────────────────────
-
-  handlers.set('order_modify_request', async (_args: any) => {
-    const snapshot = getModificationSnapshot(sessionId);
-
-    // No recent order to modify
-    if (!snapshot) {
-      return {
-        content: [{
-          type: 'text',
-          text: 'There is no recent order to modify. If you would like to place a new order, just let me know!'
-        }]
-      };
-    }
-
-    // Kitchen already accepted — too late
-    if (snapshot.kitchenAccepted) {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Sorry, the kitchen has already accepted your order and it cannot be modified. Please speak to our staff directly if you need changes.'
-        }]
-      };
-    }
-
-    // Window expired
-    if (!isModificationAllowed(sessionId)) {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Sorry, the modification window has expired. Your order is already being prepared. Please speak to our staff directly if you need changes.'
-        }]
-      };
-    }
-
-    // Within window — restore items to cart for editing
-    // Calculate remaining time before clearing snapshot
-    const remainingSec = Math.ceil(
-      Math.max(0, snapshot.windowMs - (Date.now() - snapshot.confirmedAt)) / 1000
-    );
-    // Clear snapshot first to prevent double-restore if user says "change order" again
-    clearModificationWindow(sessionId);
-    // Mark session as actively being modified so order_confirm_submit knows it's a resubmission
-    setActiveModification(sessionId);
-    for (const item of snapshot.items) {
-      cartAddItem(sessionId, { ...item });
-    }
-    if (snapshot.tableInfo) {
-      cartSetTableInfo(sessionId, snapshot.tableInfo);
-    }
-    transitionOrderStage(sessionId, 'ORDERING');
-    const summary = cartFormatSummary(cartGetItems(sessionId));
-
-    return {
-      content: [{
-        type: 'text',
-        text: `Your order has been reopened for changes. You have about ${remainingSec} seconds remaining.\n\nCurrent items:\n${summary}\n\nFeel free to add, remove, or change items. When you're done, I'll resubmit your updated order.`
       }]
     };
   });
@@ -1321,6 +1281,129 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
         type: 'text',
         text: `Added ${pending.item.qty}x ${pending.item.name}${priceStr} to your cart.\n\nCurrent cart:\n${summary}`
       }]
+    };
+  });
+
+  // ─── US-881: Order Modification Request ─────────────────────────
+  handlers.set('order_modify_request', async (_args: any) => {
+    const check = isModificationAllowed(sessionId);
+
+    if (!check.allowed) {
+      if (check.reason === 'no_order') {
+        return {
+          content: [{
+            type: 'text',
+            text: 'There is no recent order to modify. Would you like to start a new order?'
+          }]
+        };
+      }
+      if (check.reason === 'kitchen_accepted') {
+        return {
+          content: [{
+            type: 'text',
+            text: 'Sorry, the kitchen has already accepted your order so changes can no longer be made. Please contact our staff if you need assistance.'
+          }]
+        };
+      }
+      // window_expired
+      return {
+        content: [{
+          type: 'text',
+          text: 'Sorry, the modification window has expired. Your order is being prepared. Please contact our staff if you need to make changes.'
+        }]
+      };
+    }
+
+    // Window is still open — re-populate the cart from the snapshot
+    const snapshot = consumeModificationWindow(sessionId);
+    if (!snapshot) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'There is no recent order to modify. Would you like to start a new order?'
+        }]
+      };
+    }
+
+    // Re-add items to cart
+    for (const item of snapshot.items) {
+      cartAddItem(sessionId, { ...item });
+    }
+    // Restore table info
+    if (snapshot.tableInfo) {
+      cartSetTableInfo(sessionId, snapshot.tableInfo);
+    }
+    // Set stage to ORDERING so the guest can add/remove/modify
+    transitionOrderStage(sessionId, 'ORDERING');
+
+    const summary = cartFormatSummary(cartGetItems(sessionId));
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Your order has been re-opened for changes. Here are your current items:\n\n${summary}\n\nYou can add, remove, or change items. When you're done, just say "place my order".`
+      }]
+    };
+  });
+
+  // ─── US-897: Reorder Last Order ─────────────────────────────────
+  handlers.set('reorder_last_order', async (_args: any) => {
+    const { getLastOrder } = await import('../assistant/order-history-store.js');
+    const phone = 'webchat-' + sessionId;
+    const lastOrder = await getLastOrder(phone);
+
+    if (!lastOrder || lastOrder.items.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'I don\'t have a previous order on file for this session. Would you like to browse the menu instead?'
+        }]
+      };
+    }
+
+    // Fetch current menu to check availability
+    const menuItems = await fetchMenuItems();
+    const menuNameSet = new Set(menuItems.map(m => m.name.toLowerCase()));
+    const unavailableItems = menuItems.filter(m => m.available === false);
+    const unavailableNameSet = new Set(unavailableItems.map(m => m.name.toLowerCase()));
+
+    const added: string[] = [];
+    const omitted: string[] = [];
+
+    for (const item of lastOrder.items) {
+      const nameLower = item.name.toLowerCase();
+      // Check if item is explicitly out of stock
+      if (unavailableNameSet.has(nameLower)) {
+        omitted.push(item.name);
+        continue;
+      }
+      // If menu was fetched and item is not found at all, still try to add
+      // (menu structure may have changed but item could still exist)
+      cartAddItem(sessionId, {
+        name: item.name,
+        code: item.code,
+        qty: item.qty,
+        price: item.price,
+        notes: item.notes,
+      });
+      added.push(`${item.qty}x ${item.name}`);
+    }
+
+    if (added.length > 0) {
+      transitionOrderStage(sessionId, 'ORDERING');
+    }
+
+    const items = cartGetItems(sessionId);
+    const summary = cartFormatSummary(items);
+
+    let response = `Welcome back! I've added your previous order to the cart:\n\n${summary}`;
+    if (omitted.length > 0) {
+      response += `\n\nNote: ${omitted.join(', ')} ${omitted.length === 1 ? 'is' : 'are'} currently unavailable and ${omitted.length === 1 ? 'has' : 'have'} been omitted.`;
+    }
+    response += '\n\nWould you like to place this order, or make any changes?';
+
+    return {
+      content: [{ type: 'text', text: response }]
     };
   });
 

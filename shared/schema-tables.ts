@@ -5,7 +5,7 @@
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
@@ -156,8 +156,8 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   staffName: text("staff_name"),
   transcribed: boolean("transcribed"),  // US-438: true if voice note was transcribed
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
-  baileysMessageId: text("baileys_message_id"), // US-893: Baileys message key.id (for media update)
-  localMediaUrl: text("local_media_url"),       // US-893: locally-stored media path after download
+  localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
+  faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
   profileId: text("profile_id").default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([
@@ -334,12 +334,17 @@ export const utteranceGaps = pgTable("utterance_gaps", {
   uniqueIndex("idx_utterance_gaps_profile_normalized").on(table.profileId, table.normalizedKey),
 ]));
 
-// ─── Admin Users (US-514: TOTP 2FA) ─────────────────────────────────
+// ─── Admin Users (US-514: TOTP 2FA, US-898: RBAC) ──────────────────
+
+/** Valid admin roles — enforced at app layer (no PG enum migration needed). */
+export const ADMIN_ROLES = ['viewer', 'operator', 'super-admin'] as const;
+export type AdminRole = typeof ADMIN_ROLES[number];
 
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
   username: varchar("username", { length: 64 }).notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default('operator'),  // US-898: viewer | operator | super-admin
   totpSecret: text("totp_secret"),          // AES-256-GCM encrypted, null if 2FA not enrolled
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   failedTotpAttempts: integer("failed_totp_attempts").notNull().default(0),
@@ -449,39 +454,116 @@ export const webchatConsentLog = pgTable("webchat_consent_log", {
 export type WebchatConsentLog = typeof webchatConsentLog.$inferSelect;
 export type InsertWebchatConsentLog = typeof webchatConsentLog.$inferInsert;
 
+// ─── Service Requests (US-875) ────────────────────────────────────────
+// Tracks in-stay housekeeping and maintenance requests from WhatsApp guests.
+// Scoped to Pelangi Capsule Hostel profile.
+
+export const serviceRequests = pgTable("service_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jid: text("jid").notNull(),
+  profile: text("profile").notNull().default('pelangi'),
+  roomNumber: text("room_number"),
+  requestType: text("request_type").notNull(), // extra_towel | extra_pillow | room_cleaning | maintenance_issue | wifi_password | amenity
+  details: text("details"),
+  status: text("status").notNull().default('pending'), // pending | resolved
+  staffNotified: boolean("staff_notified").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => ([
+  index("idx_service_requests_jid").on(table.jid),
+  index("idx_service_requests_profile").on(table.profile),
+  index("idx_service_requests_status").on(table.status),
+  index("idx_service_requests_created_at").on(table.createdAt),
+]));
+
+export type ServiceRequest = typeof serviceRequests.$inferSelect;
+export type InsertServiceRequest = typeof serviceRequests.$inferInsert;
+
+// ─── Order Webhook Queue (US-876) ─────────────────────────────────────
+// Persistent fallback queue for KDS/POS webhook deliveries that failed
+// in-memory retries. Allows manual retry via admin API.
+
+export const orderWebhookQueue = pgTable("order_webhook_queue", {
+  id: serial("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  payloadJson: text("payload_json").notNull(), // JSON-serialized KdsOrderPayload
+  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | delivered | failed
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  profileId: text("profile_id").notNull().default('makan-moments'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  deliveredAt: timestamp("delivered_at"),
+}, (table) => ([
+  index("idx_order_webhook_queue_status").on(table.status),
+  index("idx_order_webhook_queue_order_id").on(table.orderId),
+  index("idx_order_webhook_queue_created_at").on(table.createdAt),
+]));
+
+export type OrderWebhookQueue = typeof orderWebhookQueue.$inferSelect;
+export type InsertOrderWebhookQueue = typeof orderWebhookQueue.$inferInsert;
+
+// ─── Scheduled Messages (US-884) ──────────────────────────────────────
+// DB-backed scheduler for pre-arrival booking sequences and future scheduled sends.
+// Each row represents a single scheduled message with template interpolation.
+
+export const scheduledMessagesDb = pgTable("scheduled_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jid: varchar("jid", { length: 64 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  sendAt: timestamp("send_at").notNull(),
+  templateKey: varchar("template_key", { length: 128 }).notNull(),
+  variables: text("variables"), // JSON string for template interpolation
+  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | sent | cancelled | skipped
+  bookingId: varchar("booking_id", { length: 128 }),
+  sequenceStep: varchar("sequence_step", { length: 32 }), // confirmation | directions | ready
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  sentAt: timestamp("sent_at"),
+  error: text("error"),
+}, (table) => ([
+  index("idx_scheduled_messages_status_send_at").on(table.status, table.sendAt),
+  index("idx_scheduled_messages_booking_id").on(table.bookingId),
+  index("idx_scheduled_messages_jid").on(table.jid),
+]));
+
+export type ScheduledMessageDb = typeof scheduledMessagesDb.$inferSelect;
+export type InsertScheduledMessageDb = typeof scheduledMessagesDb.$inferInsert;
+
 // ─── Webhook Raw Events (US-895) ─────────────────────────────────────
 // Persists every inbound webhook payload to durable storage before processing.
-// Enables replay of lost/failed events from the DLQ.
+// Enables replay of lost/failed events and provides an audit trail.
 
 export const webhookRawEvents = pgTable("webhook_raw_events", {
-  eventId: varchar("event_id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   receivedAt: timestamp("received_at").notNull().defaultNow(),
-  source: varchar("source", { length: 64 }).notNull(), // 'meta', 'evolution', 'digiman', 'baileys', etc.
-  profile: varchar("profile", { length: 64 }).notNull().default('pelangi'),
-  payload: jsonb("payload").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  payload: text("payload").notNull(), // JSON-serialized raw IncomingMessage
   processed: boolean("processed").notNull().default(false),
 }, (table) => ([
   index("idx_webhook_raw_events_received_at").on(table.receivedAt),
-  index("idx_webhook_raw_events_source").on(table.source),
   index("idx_webhook_raw_events_processed").on(table.processed),
+  index("idx_webhook_raw_events_profile").on(table.profileId),
 ]));
 
 export type WebhookRawEvent = typeof webhookRawEvents.$inferSelect;
 export type InsertWebhookRawEvent = typeof webhookRawEvents.$inferInsert;
 
-// ─── Prompt Injection Log (US-927) ──────────────────────────────────
-export const promptInjectionLog = pgTable("prompt_injection_log", {
+// ─── Order Accuracy Events (US-902) ──────────────────────────────────
+// Tracks order_confirmed and order_corrected events for AI waiter accuracy KPI.
+// A "correction" = cart modification after the AI showed order confirmation.
+
+export const orderAccuracyEvents = pgTable("order_accuracy_events", {
   id: serial("id").primaryKey(),
-  jid: varchar("jid", { length: 64 }).notNull(),
-  profileId: varchar("profile_id", { length: 64 }).notNull().default('pelangi'),
-  rawMessage: text("raw_message").notNull(),
-  matchedPattern: varchar("matched_pattern", { length: 255 }).notNull(),
-  action: varchar("action", { length: 32 }).notNull().default('blocked'), // 'blocked' | 'sanitised' | 'escalated'
+  sessionId: varchar("session_id", { length: 128 }).notNull(),
+  profileId: text("profile_id").notNull().default('makan-moments'),
+  eventType: varchar("event_type", { length: 32 }).notNull(), // order_confirmed | order_corrected
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ([
-  index("idx_prompt_injection_log_created_at").on(table.createdAt),
-  index("idx_prompt_injection_log_jid").on(table.jid),
+  index("idx_order_accuracy_events_type").on(table.eventType),
+  index("idx_order_accuracy_events_created_at").on(table.createdAt),
+  index("idx_order_accuracy_events_session").on(table.sessionId),
+  index("idx_order_accuracy_events_profile").on(table.profileId),
 ]));
 
-export type PromptInjectionLogEntry = typeof promptInjectionLog.$inferSelect;
-export type InsertPromptInjectionLogEntry = typeof promptInjectionLog.$inferInsert;
+export type OrderAccuracyEvent = typeof orderAccuracyEvents.$inferSelect;
+export type InsertOrderAccuracyEvent = typeof orderAccuracyEvents.$inferInsert;

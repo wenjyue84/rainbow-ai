@@ -6,8 +6,17 @@ import type { IntentEntry, RoutingAction, RoutingData, WorkflowDefinition, AIPro
 import { updateRoutingRequestSchema, updateSingleRouteRequestSchema } from '../../assistant/schemas.js';
 import { deepMerge } from './utils.js';
 import { ok, badRequest, notFound, conflict, serverError, getStore } from './http-utils.js';
+import { auditConfigChange } from '../../lib/config-db.js';
 
 const router = Router();
+
+// ─── Helper: Extract admin user identifier ───────────────────────────
+function getAdminUser(req: Request): string | null {
+  // TODO: In future with JWT/session auth, extract from token/session
+  // For now, use role header or default to 'admin'
+  const role = (req.headers['x-admin-role'] as string) || 'admin';
+  return role;
+}
 
 // ─── Routing ────────────────────────────────────────────────────────
 
@@ -21,7 +30,10 @@ router.put('/routing', (req: Request, res: Response) => {
     badRequest(res, result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
     return;
   }
-  getStore(res).setRouting(result.data as RoutingData);
+  const store = getStore(res);
+  const before = store.getRouting();
+  store.setRouting(result.data as RoutingData);
+  auditConfigChange(getAdminUser(req), 'PUT /api/rainbow/routing', before, result.data);
   ok(res, { routing: result.data });
 });
 
@@ -32,9 +44,13 @@ router.patch('/routing/:intent', (req: Request, res: Response) => {
     badRequest(res, result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
     return;
   }
-  const data = { ...getStore(res).getRouting() };
+  const store = getStore(res);
+  const oldRouting = store.getRouting();
+  const before = oldRouting[intent];
+  const data = { ...oldRouting };
   data[intent] = result.data;
-  getStore(res).setRouting(data);
+  store.setRouting(data);
+  auditConfigChange(getAdminUser(req), `PATCH /api/rainbow/routing/${intent}`, before, result.data);
   ok(res, { intent, ...result.data });
 });
 
@@ -50,7 +66,8 @@ router.post('/intents', (req: Request, res: Response) => {
     badRequest(res, 'category and patterns[] required');
     return;
   }
-  const data = getStore(res).getIntents();
+  const store = getStore(res);
+  const data = store.getIntents();
   const exists = data.categories.find((c: any) => c.category === category);
   if (exists) {
     conflict(res, `Category "${category}" already exists. Use PUT to update.`);
@@ -64,13 +81,15 @@ router.post('/intents', (req: Request, res: Response) => {
     ...(time_sensitive !== undefined && { time_sensitive: Boolean(time_sensitive) })
   };
   data.categories.push(entry);
-  getStore(res).setIntents(data);
+  store.setIntents(data);
+  auditConfigChange(getAdminUser(req), 'POST /api/rainbow/intents', null, entry);
   ok(res, { category, entry });
 });
 
 router.put('/intents/:category', (req: Request, res: Response) => {
   const { category } = req.params;
-  const data = getStore(res).getIntents();
+  const store = getStore(res);
+  const data = store.getIntents();
   // Search through nested phases → intents structure
   let entry: IntentEntry | undefined;
   for (const phase of data.categories as any[]) {
@@ -82,6 +101,7 @@ router.put('/intents/:category', (req: Request, res: Response) => {
     notFound(res, `Category "${category}"`);
     return;
   }
+  const before = JSON.parse(JSON.stringify(entry)); // Deep copy for audit
   if (req.body.patterns !== undefined) entry.patterns = req.body.patterns;
   if (req.body.flags !== undefined) entry.flags = req.body.flags;
   if (req.body.enabled !== undefined) entry.enabled = req.body.enabled;
@@ -104,19 +124,23 @@ router.put('/intents/:category', (req: Request, res: Response) => {
     }
   }
 
-  getStore(res).setIntents(data);
+  store.setIntents(data);
+  auditConfigChange(getAdminUser(req), `PUT /api/rainbow/intents/${category}`, before, entry);
   ok(res, { category, entry });
 });
 
 router.delete('/intents/:category', (req: Request, res: Response) => {
   const { category } = req.params;
-  const data = getStore(res).getIntents();
+  const store = getStore(res);
+  const data = store.getIntents();
   // Search through nested phases → intents structure
+  let deleted: IntentEntry | undefined;
   let found = false;
   for (const phase of data.categories as any[]) {
     const intents = phase.intents || [];
     const idx = intents.findIndex((i: IntentEntry) => i.category === category);
     if (idx !== -1) {
+      deleted = intents[idx];
       intents.splice(idx, 1);
       found = true;
       break;
@@ -126,7 +150,8 @@ router.delete('/intents/:category', (req: Request, res: Response) => {
     notFound(res, `Category "${category}"`);
     return;
   }
-  getStore(res).setIntents(data);
+  store.setIntents(data);
+  auditConfigChange(getAdminUser(req), `DELETE /api/rainbow/intents/${category}`, deleted, null);
   ok(res, { deleted: category });
 });
 
@@ -142,39 +167,48 @@ router.post('/templates', (req: Request, res: Response) => {
     badRequest(res, 'key and en required');
     return;
   }
-  const data = getStore(res).getTemplates();
+  const store = getStore(res);
+  const data = store.getTemplates();
   if (data[key]) {
     conflict(res, `Template "${key}" already exists. Use PUT to update.`);
     return;
   }
-  data[key] = { en, ms: ms || '', zh: zh || '' };
-  getStore(res).setTemplates(data);
+  const newTemplate = { en, ms: ms || '', zh: zh || '' };
+  data[key] = newTemplate;
+  store.setTemplates(data);
+  auditConfigChange(getAdminUser(req), 'POST /api/rainbow/templates', null, newTemplate);
   ok(res, { key });
 });
 
 router.put('/templates/:key', (req: Request, res: Response) => {
   const key = req.params.key as string;
-  const data = getStore(res).getTemplates();
+  const store = getStore(res);
+  const data = store.getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
     return;
   }
+  const before = JSON.parse(JSON.stringify(data[key])); // Deep copy for audit
   if (req.body.en !== undefined) data[key].en = req.body.en;
   if (req.body.ms !== undefined) data[key].ms = req.body.ms;
   if (req.body.zh !== undefined) data[key].zh = req.body.zh;
-  getStore(res).setTemplates(data);
+  store.setTemplates(data);
+  auditConfigChange(getAdminUser(req), `PUT /api/rainbow/templates/${key}`, before, data[key]);
   ok(res, { key, template: data[key] });
 });
 
 router.delete('/templates/:key', (req: Request, res: Response) => {
   const key = req.params.key as string;
-  const data = getStore(res).getTemplates();
+  const store = getStore(res);
+  const data = store.getTemplates();
   if (!data[key]) {
     notFound(res, `Template "${key}"`);
     return;
   }
+  const before = JSON.parse(JSON.stringify(data[key])); // Deep copy for audit
   delete data[key];
-  getStore(res).setTemplates(data);
+  store.setTemplates(data);
+  auditConfigChange(getAdminUser(req), `DELETE /api/rainbow/templates/${key}`, before, null);
   ok(res, { deleted: key });
 });
 
@@ -199,9 +233,12 @@ router.get('/settings', (_req: Request, res: Response) => {
 });
 
 router.patch('/settings', (req: Request, res: Response) => {
-  const current = getStore(res).getSettings();
+  const store = getStore(res);
+  const current = store.getSettings();
+  const before = JSON.parse(JSON.stringify(current)); // Deep copy for audit
   const merged = deepMerge(current, req.body);
-  getStore(res).setSettings(merged);
+  store.setSettings(merged);
+  auditConfigChange(getAdminUser(req), 'PATCH /api/rainbow/settings', before, merged);
   ok(res, { settings: merged });
 });
 
@@ -213,9 +250,12 @@ router.put('/settings/providers', (req: Request, res: Response) => {
     badRequest(res, 'providers array required');
     return;
   }
-  const settings = getStore(res).getSettings();
+  const store = getStore(res);
+  const settings = store.getSettings();
+  const before = settings.ai.providers;
   settings.ai.providers = providers;
-  getStore(res).setSettings(settings);
+  store.setSettings(settings);
+  auditConfigChange(getAdminUser(req), 'PUT /api/rainbow/settings/providers', before, providers);
   ok(res, { providers: settings.ai.providers });
 });
 
@@ -230,7 +270,8 @@ router.post('/settings/providers', (req: Request, res: Response) => {
     badRequest(res, `type must be one of: ${validTypes.join(', ')}`);
     return;
   }
-  const settings = getStore(res).getSettings();
+  const store = getStore(res);
+  const settings = store.getSettings();
   if (!settings.ai.providers) settings.ai.providers = [];
   if (settings.ai.providers.find(p => p.id === id)) {
     conflict(res, `Provider "${id}" already exists`);
@@ -250,13 +291,15 @@ router.post('/settings/providers', (req: Request, res: Response) => {
   if (api_key) newProvider.api_key = api_key;
   if (description) newProvider.description = description;
   settings.ai.providers.push(newProvider);
-  getStore(res).setSettings(settings);
+  store.setSettings(settings);
+  auditConfigChange(getAdminUser(req), 'POST /api/rainbow/settings/providers', null, newProvider);
   ok(res, { provider: newProvider });
 });
 
 router.delete('/settings/providers/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const settings = getStore(res).getSettings();
+  const store = getStore(res);
+  const settings = store.getSettings();
   if (!settings.ai.providers) {
     notFound(res, `Provider "${id}"`);
     return;
@@ -266,14 +309,17 @@ router.delete('/settings/providers/:id', (req: Request, res: Response) => {
     notFound(res, `Provider "${id}"`);
     return;
   }
+  const before = settings.ai.providers[idx];
   settings.ai.providers.splice(idx, 1);
-  getStore(res).setSettings(settings);
+  store.setSettings(settings);
+  auditConfigChange(getAdminUser(req), `DELETE /api/rainbow/settings/providers/${id}`, before, null);
   ok(res, { deleted: id });
 });
 
 router.patch('/settings/providers/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const settings = getStore(res).getSettings();
+  const store = getStore(res);
+  const settings = store.getSettings();
   if (!settings.ai.providers) {
     notFound(res, `Provider "${id}"`);
     return;
@@ -284,12 +330,14 @@ router.patch('/settings/providers/:id', (req: Request, res: Response) => {
     return;
   }
 
+  const before = JSON.parse(JSON.stringify(provider)); // Deep copy for audit
   if (req.body.enabled !== undefined) provider.enabled = req.body.enabled;
   if (req.body.priority !== undefined) provider.priority = req.body.priority;
   if (req.body.name !== undefined) provider.name = req.body.name;
   if (req.body.model !== undefined) provider.model = req.body.model;
 
-  getStore(res).setSettings(settings);
+  store.setSettings(settings);
+  auditConfigChange(getAdminUser(req), `PATCH /api/rainbow/settings/providers/${id}`, before, provider);
   ok(res, { provider });
 });
 
@@ -300,9 +348,12 @@ router.get('/workflow', (_req: Request, res: Response) => {
 });
 
 router.patch('/workflow', (req: Request, res: Response) => {
-  const current = getStore(res).getWorkflow();
+  const store = getStore(res);
+  const current = store.getWorkflow();
+  const before = JSON.parse(JSON.stringify(current)); // Deep copy for audit
   const merged = deepMerge(current, req.body);
-  getStore(res).setWorkflow(merged);
+  store.setWorkflow(merged);
+  auditConfigChange(getAdminUser(req), 'PATCH /api/rainbow/workflow', before, merged);
   ok(res, { workflow: merged });
 });
 
@@ -329,7 +380,8 @@ router.post('/workflows', (req: Request, res: Response) => {
     badRequest(res, 'id and name required');
     return;
   }
-  const data = getStore(res).getWorkflows();
+  const store = getStore(res);
+  const data = store.getWorkflows();
   if (data.workflows.find(w => w.id === id)) {
     conflict(res, `Workflow "${id}" already exists`);
     return;
@@ -344,25 +396,29 @@ router.post('/workflows', (req: Request, res: Response) => {
   if (req.body.nodes) newWf.nodes = req.body.nodes;
   if (req.body.startNodeId) newWf.startNodeId = req.body.startNodeId;
   data.workflows.push(newWf);
-  getStore(res).setWorkflows(data);
+  store.setWorkflows(data);
+  auditConfigChange(getAdminUser(req), 'POST /api/rainbow/workflows', null, newWf);
   ok(res, { workflow: newWf });
 });
 
 router.put('/workflows/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = getStore(res).getWorkflows();
+  const store = getStore(res);
+  const data = store.getWorkflows();
   const idx = data.workflows.findIndex(w => w.id === id);
   if (idx === -1) {
     notFound(res, `Workflow "${id}"`);
     return;
   }
+  const before = JSON.parse(JSON.stringify(data.workflows[idx])); // Deep copy for audit
   if (req.body.name !== undefined) data.workflows[idx].name = req.body.name;
   if (req.body.steps !== undefined) data.workflows[idx].steps = req.body.steps;
   // Node-based workflow fields
   if (req.body.format !== undefined) (data.workflows[idx] as any).format = req.body.format;
   if (req.body.nodes !== undefined) (data.workflows[idx] as any).nodes = req.body.nodes;
   if (req.body.startNodeId !== undefined) (data.workflows[idx] as any).startNodeId = req.body.startNodeId;
-  getStore(res).setWorkflows(data);
+  store.setWorkflows(data);
+  auditConfigChange(getAdminUser(req), `PUT /api/rainbow/workflows/${id}`, before, data.workflows[idx]);
   ok(res, { workflow: data.workflows[idx] });
 });
 
@@ -374,7 +430,8 @@ router.patch('/workflows/:id/steps/:stepId', (req: Request, res: Response) => {
     badRequest(res, 'message object with en/ms/zh required');
     return;
   }
-  const data = getStore(res).getWorkflows();
+  const store = getStore(res);
+  const data = store.getWorkflows();
   const workflow = data.workflows.find(w => w.id === id);
   if (!workflow) {
     notFound(res, `Workflow "${id}"`);
@@ -385,32 +442,109 @@ router.patch('/workflows/:id/steps/:stepId', (req: Request, res: Response) => {
     notFound(res, `Step "${stepId}" in workflow "${id}"`);
     return;
   }
+  const before = JSON.parse(JSON.stringify(step.message)); // Deep copy for audit
   if (message.en !== undefined) step.message.en = message.en;
   if (message.ms !== undefined) step.message.ms = message.ms;
   if (message.zh !== undefined) step.message.zh = message.zh;
-  getStore(res).setWorkflows(data);
+  store.setWorkflows(data);
+  auditConfigChange(getAdminUser(req), `PATCH /api/rainbow/workflows/${id}/steps/${stepId}`, before, step.message);
   ok(res, { workflowId: id, stepId, message: step.message });
 });
 
 router.delete('/workflows/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const routing = getStore(res).getRouting();
+  const store = getStore(res);
+  const routing = store.getRouting();
   const refs = Object.entries(routing).filter(([, cfg]) => cfg.action === 'workflow' && cfg.workflow_id === id);
   if (refs.length > 0) {
     const intentNames = refs.map(([intent]) => intent).join(', ');
     conflict(res, `Cannot delete: workflow "${id}" is referenced by intents: ${intentNames}`);
     return;
   }
-  const data = getStore(res).getWorkflows();
+  const data = store.getWorkflows();
   const idx = data.workflows.findIndex(w => w.id === id);
   if (idx === -1) {
     notFound(res, `Workflow "${id}"`);
     return;
   }
+  const before = data.workflows[idx];
   data.workflows.splice(idx, 1);
-  getStore(res).setWorkflows(data);
+  store.setWorkflows(data);
+  auditConfigChange(getAdminUser(req), `DELETE /api/rainbow/workflows/${id}`, before, null);
   ok(res, { deleted: id });
 });
+
+// ─── Audit Log (US-847) ────────────────────────────────────────────────
+
+/**
+ * GET /api/rainbow/audit-log
+ * Returns configuration change audit log with optional filtering
+ * @query limit - Max records to return (default 100, max 365 days retained)
+ * @query adminUser - Filter by admin user (optional)
+ * @query dateStart - ISO 8601 start date (optional)
+ * @query dateEnd - ISO 8601 end date (optional)
+ */
+router.get('/audit-log', async (req: Request, res: Response) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 100, 100);
+  const adminUserFilter = req.query.adminUser as string | undefined;
+  const dateStart = req.query.dateStart as string | undefined;
+  const dateEnd = req.query.dateEnd as string | undefined;
+
+  try {
+    const { getConfigAuditLog } = await import('../../lib/config-db.js');
+    const entries = await getConfigAuditLog(limit, adminUserFilter, dateStart, dateEnd);
+
+    // Compute human-readable diffs for each entry
+    const entriesWithDiff = entries.map((entry: any) => ({
+      ...entry,
+      diff: computeDiff(entry.before_json, entry.after_json)
+    }));
+
+    ok(res, {
+      auditLog: entriesWithDiff,
+      count: entriesWithDiff.length,
+      filters: { adminUser: adminUserFilter, dateStart, dateEnd }
+    });
+  } catch (err: any) {
+    serverError(res, `Failed to retrieve audit log: ${err.message}`);
+  }
+});
+
+// ─── Helper: Compute human-readable diff ────────────────────────────
+
+function computeDiff(before: any, after: any): string {
+  if (!before && !after) return '(no change)';
+  if (!before) return `Created`;
+  if (!after) return `Deleted`;
+  if (JSON.stringify(before) === JSON.stringify(after)) return '(no change)';
+
+  const beforeObj = typeof before === 'string' ? JSON.parse(before) : before;
+  const afterObj = typeof after === 'string' ? JSON.parse(after) : after;
+
+  const changes: string[] = [];
+
+  // Find changed keys
+  const allKeys = new Set([
+    ...Object.keys(beforeObj || {}),
+    ...Object.keys(afterObj || {})
+  ]);
+
+  for (const key of allKeys) {
+    const beforeVal = beforeObj?.[key];
+    const afterVal = afterObj?.[key];
+    if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
+      if (beforeVal === undefined) {
+        changes.push(`+ ${key}`);
+      } else if (afterVal === undefined) {
+        changes.push(`- ${key}`);
+      } else {
+        changes.push(`~ ${key}: ${JSON.stringify(beforeVal)} → ${JSON.stringify(afterVal)}`);
+      }
+    }
+  }
+
+  return changes.length > 0 ? changes.slice(0, 5).join('; ') + (changes.length > 5 ? '...' : '') : '(no change)';
+}
 
 // ─── Circuit Breaker Status (Health Check) ─────────────────────────────
 

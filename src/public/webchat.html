@@ -174,38 +174,6 @@
       text-align: right;
     }
 
-    /* US-897: Quick-reply button for returning customer reorder */
-    .quick-reply-container {
-      display: flex;
-      gap: 8px;
-      padding: 4px 0;
-      flex-wrap: wrap;
-      align-self: flex-start;
-    }
-
-    .quick-reply-btn {
-      background: var(--surface);
-      color: var(--primary);
-      border: 1.5px solid var(--primary);
-      border-radius: 20px;
-      padding: 8px 16px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-      white-space: nowrap;
-    }
-
-    .quick-reply-btn:hover {
-      background: var(--primary);
-      color: var(--user-text);
-    }
-
-    .quick-reply-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
     /* Typing indicator */
     .typing {
       display: none;
@@ -417,6 +385,85 @@
 
     .chat-hidden { display: none !important; }
 
+    /* US-846: Offline hours banner */
+    .offline-banner {
+      display: none;
+      background: #fef3c7;
+      border-bottom: 1px solid #fde68a;
+      padding: 8px 16px;
+      font-size: 13px;
+      color: #92400e;
+      line-height: 1.4;
+      flex-shrink: 0;
+      text-align: center;
+    }
+
+    .offline-banner.visible {
+      display: block;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      html:not(.light-theme) .offline-banner {
+        background: #1c1408;
+        border-bottom-color: #3d2a00;
+        color: #fbbf24;
+      }
+    }
+
+    html.dark-theme .offline-banner {
+      background: #1c1408;
+      border-bottom-color: #3d2a00;
+      color: #fbbf24;
+    }
+
+    /* US-905: Quick-reply onboarding buttons */
+    .onboarding-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 4px 0 8px;
+      align-self: flex-start;
+      max-width: 85%;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    .onboarding-btn {
+      background: var(--surface);
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      border-radius: 18px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    .onboarding-btn:hover {
+      background: var(--primary);
+      color: var(--user-text);
+    }
+
+    .onboarding-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    /* Screen-reader only */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     /* Desktop centering */
     @media (min-width: 640px) {
       body {
@@ -489,9 +536,12 @@
       <div class="header-avatar" id="avatar"></div>
       <div class="header-info">
         <h1 id="profileName">AI Assistant</h1>
-        <p>Online</p>
+        <p id="headerStatus">Online</p>
       </div>
     </div>
+
+    <!-- US-846: Offline hours banner -->
+    <div class="offline-banner" id="offlineBanner" role="status" aria-live="polite"></div>
 
     <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite" aria-relevant="additions">
       <div class="typing" id="typing" aria-hidden="true">
@@ -500,8 +550,8 @@
         <div class="typing-dot"></div>
       </div>
     </div>
-    <!-- US-883: Separate live region for typing status announcements -->
-    <div id="typingStatus" aria-live="polite" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
+    <!-- SR-only live region for typing status announcements (WCAG 4.1.3) -->
+    <div id="typingStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
     <div class="input-area">
       <textarea
@@ -655,6 +705,9 @@
         localStorage.setItem(SESSION_KEY + '_sid', sessionId);
       }
 
+      // US-905: Onboarding state key
+      const ONBOARDING_KEY = 'rainbow_onboarded_' + profile.id;
+
       let history = [];
       let sending = false;
       let lastPollTimestamp = 0;
@@ -667,11 +720,25 @@
       const sendBtn = document.getElementById('sendBtn');
       const nameEl = document.getElementById('profileName');
       const avatarEl = document.getElementById('avatar');
+      const typingStatusEl = document.getElementById('typingStatus');
 
       // Set profile branding
       nameEl.textContent = profile.name;
       document.title = 'Chat - ' + profile.name;
       avatarEl.textContent = avatarMap[profile.id] || '\u{1F4AC}';
+
+      // US-846: Show offline banner when outside business hours
+      var offlineBannerEl = document.getElementById('offlineBanner');
+      var headerStatusEl = document.getElementById('headerStatus');
+      if (offlineBannerEl && profile.isAvailable === false) {
+        var bannerText = "We're currently offline. Leave a message and we'll reply during business hours.";
+        if (profile.nextOpenTime) {
+          bannerText += ' Next available: ' + profile.nextOpenTime + '.';
+        }
+        offlineBannerEl.textContent = bannerText;
+        offlineBannerEl.classList.add('visible');
+        if (headerStatusEl) headerStatusEl.textContent = 'Offline';
+      }
 
       // Disable input while loading history
       inputEl.disabled = true;
@@ -715,8 +782,8 @@
         // Insert before typing indicator
         messagesEl.insertBefore(div, typingEl);
 
-        // US-883: Notify parent widget of new bot messages for unread badge
-        if (type === 'bot' && animate && window.parent !== window) {
+        // Notify parent frame of new bot messages (for widget badge)
+        if (type === 'bot' && window.parent !== window) {
           window.parent.postMessage({ type: 'rainbow-new-message' }, '*');
         }
       }
@@ -733,9 +800,6 @@
           messagesEl.scrollTop = messagesEl.scrollHeight;
         });
       }
-
-      // US-883: Screen reader typing announcements via separate live region
-      var typingStatusEl = document.getElementById('typingStatus');
 
       function showTyping() {
         typingEl.classList.add('visible');
@@ -775,6 +839,13 @@
         sendBtn.disabled = true;
         inputEl.value = '';
         inputEl.style.height = 'auto';
+
+        // US-905: Mark onboarded on first message send, remove buttons if visible
+        if (!localStorage.getItem(ONBOARDING_KEY)) {
+          localStorage.setItem(ONBOARDING_KEY, '1');
+          var existingBtns = messagesEl.querySelector('.onboarding-buttons');
+          if (existingBtns) existingBtns.remove();
+        }
 
         // Add user message
         appendMessage('user', text);
@@ -908,51 +979,43 @@
         }
       }
 
-      // ─── US-897: Reorder quick-reply handler ─────────────────────────────
-      function appendQuickReplyButton(text, onClick) {
+      // ─── US-905: Onboarding quick-reply buttons ──────────────────
+      function showOnboardingButtons() {
+        var onboarding = profile.onboarding;
+        if (!onboarding || !onboarding.enabled) return;
+        var buttons = onboarding.buttons;
+        if (!Array.isArray(buttons) || buttons.length === 0) return;
+        // Skip if already onboarded in a previous session
+        if (localStorage.getItem(ONBOARDING_KEY)) return;
+
         var container = document.createElement('div');
-        container.className = 'quick-reply-container';
-        var btn = document.createElement('button');
-        btn.className = 'quick-reply-btn';
-        btn.textContent = text;
-        btn.addEventListener('click', function() {
-          btn.disabled = true;
-          btn.textContent = 'Loading...';
-          onClick(function() { container.remove(); });
+        container.className = 'onboarding-buttons';
+        container.setAttribute('role', 'group');
+        container.setAttribute('aria-label', 'Quick reply options');
+
+        buttons.forEach(function(btn) {
+          var el = document.createElement('button');
+          el.className = 'onboarding-btn';
+          el.type = 'button';
+          el.textContent = btn.label;
+          el.addEventListener('click', function() {
+            // Mark onboarded
+            localStorage.setItem(ONBOARDING_KEY, '1');
+            // Remove buttons
+            container.remove();
+            // Send the payload as a user message
+            inputEl.value = btn.payload;
+            sendMessage();
+          });
+          container.appendChild(el);
         });
-        container.appendChild(btn);
+
         messagesEl.insertBefore(container, typingEl);
         scrollToBottom();
       }
 
-      async function handleReorder(onDone) {
-        try {
-          var resp = await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/reorder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: sessionId })
-          });
-          var data = await resp.json();
-          if (onDone) onDone();
-          if (data.success && data.items && data.items.length > 0) {
-            var itemList = data.items.map(function(i) { return i.qty + 'x ' + i.name; }).join(', ');
-            var msg = 'Added to your cart: ' + itemList + '.';
-            if (data.omittedNote) msg += ' ' + data.omittedNote;
-            msg += ' You can add more items or say "place my order" when ready!';
-            appendMessage('bot', msg, true);
-            history.push({ role: 'assistant', content: msg });
-          } else {
-            appendMessage('bot', data.message || 'Could not reorder — your previous items may no longer be available.', true);
-          }
-        } catch (err) {
-          if (onDone) onDone();
-          appendMessage('bot', 'Sorry, something went wrong loading your last order. Please order normally.', true);
-        }
-        scrollToBottom();
-      }
-
       // ─── History restoration ───────────────────────────────────
-      // Fetch last 10 messages from server if returning session, else fetch greeting from server.
+      // Fetch last 10 messages from server if returning session, else show greeting.
       async function initHistory() {
         if (isReturningSession) {
           try {
@@ -971,37 +1034,16 @@
                 history.push({ role: msg.role, content: msg.content });
               }
               scrollToBottom();
-              return;
+              return; // Returning session — skip onboarding
             }
           } catch (err) {
             // Graceful failure — fall through to greeting
           }
         }
 
-        // New session or returning session with no prior messages — fetch greeting from server
-        // US-897: Server greeting includes lastOrder data for returning customers
-        try {
-          var greetUrl = '/api/chat/' + encodeURIComponent(profile.id) + '/greeting?sessionId=' + encodeURIComponent(sessionId);
-          var greetResp = await fetch(greetUrl);
-          if (greetResp.ok) {
-            var greetData = await greetResp.json();
-            if (greetData.greeting) {
-              appendMessage('bot', greetData.greeting, false);
-              history.push({ role: 'assistant', content: greetData.greeting });
-              // US-897: Show quick-reply button if last order data is available
-              if (greetData.lastOrder && greetData.lastOrder.items && greetData.lastOrder.items.length > 0) {
-                appendQuickReplyButton('Order the same again', handleReorder);
-              }
-              scrollToBottom();
-              return;
-            }
-          }
-        } catch (err) {
-          // Graceful failure — use static greeting
-        }
-
-        // Final fallback: static greeting from profile config
+        // New session or no prior messages found — show greeting + onboarding
         appendMessage('bot', profile.greeting, false);
+        showOnboardingButtons();
         scrollToBottom();
       }
 

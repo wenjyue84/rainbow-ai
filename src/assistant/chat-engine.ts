@@ -9,6 +9,7 @@ import type { ConfigStore } from './config-store.js';
 import type { KnowledgeBaseInstance } from './knowledge-base-instance.js';
 import type { MCPTool, ToolHandler } from '../types/mcp.js';
 import type { ChatMessage as TypesChatMessage } from './types.js';
+import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 
@@ -189,12 +190,14 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
 
   // Tool-calling mode: bypass intent classification and use tool loop
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {
+    const { languageRouter } = await import('./language-router.js');
+    const toolLang = languageRouter.detectLanguage(message) as SupportedLanguage;
     const topicFiles = kb.guessTopicFiles(message);
     const baseSystemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
     const systemPrompt = options.systemPromptSuffix
       ? `${baseSystemPrompt}\n\n${options.systemPromptSuffix}`
       : baseSystemPrompt;
-    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers, store);
+    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers, store, toolLang);
     const responseTime = Date.now() - startTime;
     return {
       message: result,
@@ -335,8 +338,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   } else if (routedAction === 'static_reply') {
     const knowledge = store.getKnowledge() || { static: [], dynamic: {} };
     const staticEntry = (knowledge.static || []).find(e => e.intent === intentResult.category);
-    const langKey = (intentResult.detectedLanguage === 'ms' || intentResult.detectedLanguage === 'zh')
-      ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh'
+    const langKey = (['ms', 'zh', 'ta'].includes(intentResult.detectedLanguage || ''))
+      ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh' | 'ta'
       : 'en';
     const staticText = staticEntry?.response?.[langKey] || staticEntry?.response?.en || '(no static reply configured)';
 
@@ -347,7 +350,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
         const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-        const result = await classifyAndRespond(systemPrompt, conversationHistory, message);
+        const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response || staticText;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
@@ -414,7 +417,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
         const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-        const result = await classifyAndRespond(systemPrompt, conversationHistory, message);
+        const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
@@ -426,7 +429,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   } else if (isAIAvailable()) {
     topicFiles = kb.guessTopicFiles(message);
     const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-    const result = await classifyAndRespond(systemPrompt, conversationHistory, message);
+    const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
     finalMessage = result.response;
     llmModel = result.model || 'unknown';
     llmUsage = result.usage;
@@ -436,8 +439,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
 
   // Catch-all fallback
   if (!finalMessage || !finalMessage.trim()) {
-    const detectedLang = (intentResult.detectedLanguage === 'ms' || intentResult.detectedLanguage === 'zh')
-      ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh'
+    const detectedLang = (['ms', 'zh', 'ta'].includes(intentResult.detectedLanguage || ''))
+      ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh' | 'ta'
       : 'en';
     finalMessage = getUnknownFallbackMessages(store)[detectedLang];
     llmModel = llmModel === 'none' ? 'static_fallback' : llmModel;

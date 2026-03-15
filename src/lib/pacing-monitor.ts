@@ -1,259 +1,349 @@
 /**
- * WhatsApp Portfolio Pacing Monitor (US-891)
+ * Portfolio Pacing Monitor (US-891)
  *
- * Meta's portfolio pacing silently pauses bulk template sends mid-campaign when
- * quality signals (blocks, complaints) are negative. This module polls the Meta
- * Graph API quality_rating endpoint and exposes a `pacingPaused` flag that is
- * surfaced via GET /analytics/messaging-limits.
+ * Detects when Meta's portfolio pacing silently pauses bulk template sends
+ * mid-campaign due to negative quality signals (blocks, complaints).
  *
- * Required env vars (all optional — check is skipped gracefully if absent):
- *   PHONE_NUMBER_ID    — WhatsApp Business phone number ID (from Meta dashboard)
- *   META_ACCESS_TOKEN  — Permanent or system-user Graph API access token
+ * Polls Meta's WABA quality endpoint every 5 minutes and alerts admin
+ * when pacing pause is detected.
  *
- * Pacing pause is inferred when quality_rating = 'RED' AND status = 'FLAGGED'
- * (Meta's documented signal for paused batch delivery due to quality degradation).
- * The last known state is stored in app_settings to avoid repeated notifications.
+ * State is persisted to app_settings to avoid repeated notifications.
  */
 
-import { createModuleLogger } from './logger.js';
-import { WA_API_TIMEOUT_MS } from './timeouts.js';
 import { db, dbReady } from './db.js';
 import { appSettings } from '../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
+import { loadAdminNotificationSettings } from './admin-notification-settings.js';
 
-const logger = createModuleLogger('PacingMonitor');
-
-const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
-/** Poll every 5 minutes to meet the "alert within 5 minutes" AC */
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
-
-const SETTING_KEY_PACING = 'portfolio_pacing_paused';
-const SETTING_KEY_PACING_SINCE = 'portfolio_pacing_paused_since';
-
-// ─── In-memory state exposed to messaging-limits endpoint ──────────────────
+// ─── Types ────────────────────────────────────────────────────────
 
 export interface PacingState {
   pacingPaused: boolean;
-  qualityRating: string | null;
-  status: string | null;
-  pausedSince: string | null;
-  lastCheckedAt: string | null;
-  skipped: boolean;
+  affectedTemplateName: string | null;
+  percentNotDelivered: number | null;
+  lastCheckedAt: string;
+  pauseDetectedAt: string | null;
 }
 
-let _state: PacingState = {
+interface MetaQualityResponse {
+  data?: Array<{
+    quality_score?: { score?: string };
+    messaging_limit_tier?: string;
+    current_limit?: string;
+    pacing_status?: string; // 'paused' | 'active' | 'unknown'
+    template_name?: string;
+    sent_count?: number;
+    total_count?: number;
+  }>;
+  error?: { message: string };
+}
+
+// ─── Constants ────────────────────────────────────────────────────
+
+const SETTING_KEY_PACING = 'rainbow_pacing_state';
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const NOTIFICATION_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes between alerts
+
+// ─── In-memory state ──────────────────────────────────────────────
+
+let _pacingState: PacingState = {
   pacingPaused: false,
-  qualityRating: null,
-  status: null,
-  pausedSince: null,
-  lastCheckedAt: null,
-  skipped: true,
+  affectedTemplateName: null,
+  percentNotDelivered: null,
+  lastCheckedAt: new Date().toISOString(),
+  pauseDetectedAt: null,
 };
 
+let _intervalHandle: ReturnType<typeof setInterval> | null = null;
+let _lastNotificationAt = 0;
+
+// Pluggable notification sender (set by initPacingNotifier)
+let _sendNotification: ((phone: string, text: string) => Promise<any>) | null = null;
+
+// ─── Public API ───────────────────────────────────────────────────
+
+/** Get the current pacing state (for GET /analytics/messaging-limits) */
 export function getPacingState(): PacingState {
-  return { ..._state };
+  return { ..._pacingState };
 }
 
-// ─── Meta Graph API call ───────────────────────────────────────────────────
-
-interface QualityRatingResponse {
-  display_phone_number?: string;
-  id?: string;
-  quality_rating?: string;   // 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN'
-  status?: string;           // 'CONNECTED' | 'FLAGGED' | 'RESTRICTED' | ...
-  messaging_limit_tier?: string;
+/** Initialize the notification sender (called once at startup) */
+export function initPacingNotifier(
+  sendMessage: (phone: string, text: string) => Promise<any>
+): void {
+  _sendNotification = sendMessage;
 }
-
-export async function fetchQualityRating(
-  phoneNumberId: string,
-  token: string,
-): Promise<QualityRatingResponse> {
-  const url = `${GRAPH_API_BASE}/${phoneNumberId}?fields=quality_rating,status,display_phone_number,messaging_limit_tier`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WA_API_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Graph API ${res.status}: ${body}`);
-    }
-
-    return (await res.json()) as QualityRatingResponse;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ─── Pacing pause detection ─────────────────────────────────────────────────
 
 /**
- * Pacing is considered paused when:
- *  - quality_rating is 'RED' — severe quality degradation detected by Meta
- *  - status is 'FLAGGED'     — account flagged, batched sends are held
- *
- * A RED rating alone may not pause sends; FLAGGED status confirms the hold.
+ * Start the pacing monitor polling loop.
+ * Checks Meta's quality endpoint every 5 minutes.
  */
-export function isPacingPaused(rating: string | undefined, status: string | undefined): boolean {
-  return rating === 'RED' && status === 'FLAGGED';
+export function startPacingMonitor(): void {
+  if (_intervalHandle) return; // Already running
+
+  // Initial check after 30s delay (let server stabilize)
+  setTimeout(() => {
+    checkPacingStatus().catch(err =>
+      console.error('[PacingMonitor] Initial check failed:', err.message)
+    );
+  }, 30_000);
+
+  _intervalHandle = setInterval(() => {
+    checkPacingStatus().catch(err =>
+      console.error('[PacingMonitor] Poll failed:', err.message)
+    );
+  }, POLL_INTERVAL_MS);
+
+  console.log('[PacingMonitor] Started (polling every 5 minutes)');
 }
 
-// ─── DB persistence ─────────────────────────────────────────────────────────
-
-async function persistPacingState(paused: boolean, since: string | null): Promise<void> {
-  try {
-    const ready = await dbReady;
-    if (!ready) return;
-
-    await db.insert(appSettings)
-      .values({
-        key: SETTING_KEY_PACING,
-        value: paused ? 'true' : 'false',
-        description: 'Portfolio pacing paused flag (derived from Meta quality_rating)',
-        updatedBy: null,
-      })
-      .onConflictDoUpdate({
-        target: [appSettings.key],
-        set: { value: paused ? 'true' : 'false', updatedAt: sql`NOW()` },
-      });
-
-    if (since !== null) {
-      await db.insert(appSettings)
-        .values({
-          key: SETTING_KEY_PACING_SINCE,
-          value: since,
-          description: 'ISO timestamp when pacing pause was first detected',
-          updatedBy: null,
-        })
-        .onConflictDoUpdate({
-          target: [appSettings.key],
-          set: { value: since, updatedAt: sql`NOW()` },
-        });
-    }
-  } catch (err: any) {
-    logger.error('Failed to persist pacing state to DB', { error: err.message });
+/** Stop the polling loop (for testing/cleanup) */
+export function stopPacingMonitor(): void {
+  if (_intervalHandle) {
+    clearInterval(_intervalHandle);
+    _intervalHandle = null;
   }
 }
 
-async function loadPacingStateFromDb(): Promise<{ paused: boolean; since: string | null }> {
+// ─── Core Check Logic ─────────────────────────────────────────────
+
+/**
+ * Poll Meta's quality endpoint and update pacing state.
+ * Exported for testing and manual trigger.
+ */
+export async function checkPacingStatus(): Promise<PacingState> {
+  const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID;
+  const accessToken = process.env.META_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+
+  if (!phoneNumberId || !accessToken) {
+    // No Meta credentials configured — skip silently
+    _pacingState.lastCheckedAt = new Date().toISOString();
+    return _pacingState;
+  }
+
   try {
-    const ready = await dbReady;
-    if (!ready) return { paused: false, since: null };
+    const response = await fetchMetaQualitySignals(phoneNumberId, accessToken);
+    const newState = parsePacingFromResponse(response);
+
+    const wasPaused = _pacingState.pacingPaused;
+    const nowPaused = newState.pacingPaused;
+
+    _pacingState = newState;
+
+    // Persist to DB
+    await persistPacingState(newState);
+
+    // Notify admin on state change: not paused -> paused
+    if (!wasPaused && nowPaused) {
+      await notifyAdminPacingPaused(newState);
+    }
+  } catch (err: any) {
+    console.error('[PacingMonitor] Check failed:', err.message);
+    _pacingState.lastCheckedAt = new Date().toISOString();
+  }
+
+  return _pacingState;
+}
+
+// ─── Meta API Abstraction ─────────────────────────────────────────
+
+/**
+ * Fetch quality signals from Meta's Graph API.
+ * Abstracted for testability — callers can mock this.
+ */
+export async function fetchMetaQualitySignals(
+  phoneNumberId: string,
+  accessToken: string
+): Promise<MetaQualityResponse> {
+  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=quality_rating,messaging_limit_tier,health_status&access_token=${accessToken}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Meta API returned ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  return res.json() as Promise<MetaQualityResponse>;
+}
+
+/**
+ * Parse pacing state from Meta's quality response.
+ * Exported for testing.
+ */
+export function parsePacingFromResponse(response: MetaQualityResponse): PacingState {
+  const now = new Date().toISOString();
+
+  // Check health_status for pacing signals
+  const data = response as any;
+  const healthStatus = data?.health_status;
+  const entities = healthStatus?.entities || [];
+
+  let pacingPaused = false;
+  let affectedTemplateName: string | null = null;
+  let percentNotDelivered: number | null = null;
+
+  // Look for pacing indicators in health_status entities
+  for (const entity of entities) {
+    const canSendMessage = entity?.can_send_message;
+    if (canSendMessage === 'LIMITED' || canSendMessage === 'BLOCKED') {
+      pacingPaused = true;
+    }
+
+    // Check entity_type for template-specific pacing
+    if (entity?.entity_type === 'TEMPLATE' && entity?.id) {
+      affectedTemplateName = entity.id;
+    }
+
+    // Check for errors array which indicates pacing issues
+    const errors = entity?.errors || [];
+    for (const error of errors) {
+      const errorCode = error?.error_code;
+      // Error code 131026 = template pacing, 131047 = re-engagement needed
+      if (errorCode === 131026 || error?.possible_solution?.includes('pacing')) {
+        pacingPaused = true;
+        if (error?.error_description) {
+          // Try to extract percentage from error description
+          const match = error.error_description.match(/(\d+(?:\.\d+)?)%/);
+          if (match) {
+            percentNotDelivered = parseFloat(match[1]);
+          }
+        }
+      }
+    }
+  }
+
+  // Also check quality_rating for degradation signals
+  const qualityRating = data?.quality_rating;
+  if (qualityRating === 'RED') {
+    // RED quality rating often correlates with pacing pauses
+    pacingPaused = true;
+  }
+
+  return {
+    pacingPaused,
+    affectedTemplateName,
+    percentNotDelivered,
+    lastCheckedAt: now,
+    pauseDetectedAt: pacingPaused ? now : null,
+  };
+}
+
+// ─── Persistence ──────────────────────────────────────────────────
+
+/** Load pacing state from DB on startup */
+export async function loadPacingStateFromDb(): Promise<void> {
+  try {
+    const isConnected = await dbReady;
+    if (!isConnected) return;
 
     const rows = await db
       .select()
       .from(appSettings)
       .where(eq(appSettings.key, SETTING_KEY_PACING));
 
-    const sinceRows = await db
-      .select()
-      .from(appSettings)
-      .where(eq(appSettings.key, SETTING_KEY_PACING_SINCE));
-
-    const paused = rows[0]?.value === 'true';
-    const since = sinceRows[0]?.value ?? null;
-    return { paused, since };
+    if (rows[0]?.value) {
+      try {
+        const stored = JSON.parse(rows[0].value);
+        _pacingState = {
+          pacingPaused: stored.pacingPaused ?? false,
+          affectedTemplateName: stored.affectedTemplateName ?? null,
+          percentNotDelivered: stored.percentNotDelivered ?? null,
+          lastCheckedAt: stored.lastCheckedAt ?? new Date().toISOString(),
+          pauseDetectedAt: stored.pauseDetectedAt ?? null,
+        };
+        console.log(`[PacingMonitor] Loaded state from DB (paused: ${_pacingState.pacingPaused})`);
+      } catch {
+        // Corrupt JSON — start fresh
+      }
+    }
   } catch (err: any) {
-    logger.error('Failed to load pacing state from DB', { error: err.message });
-    return { paused: false, since: null };
+    console.error('[PacingMonitor] Failed to load state from DB:', err.message);
   }
 }
 
-// ─── Main poll cycle ────────────────────────────────────────────────────────
+async function persistPacingState(state: PacingState): Promise<void> {
+  try {
+    const isConnected = await dbReady;
+    if (!isConnected) return;
 
-export async function runPacingCheck(): Promise<void> {
-  const phoneNumberId = process.env.PHONE_NUMBER_ID;
-  const token = process.env.META_ACCESS_TOKEN;
+    await db.insert(appSettings)
+      .values({
+        key: SETTING_KEY_PACING,
+        value: JSON.stringify(state),
+        description: 'Portfolio pacing monitor state (US-891)',
+        updatedBy: null,
+      })
+      .onConflictDoUpdate({
+        target: [appSettings.key],
+        set: {
+          value: JSON.stringify(state),
+          updatedAt: sql`NOW()`,
+        },
+      });
+  } catch (err: any) {
+    console.error('[PacingMonitor] Failed to persist state:', err.message);
+  }
+}
 
-  if (!phoneNumberId || !token) {
-    logger.debug('PHONE_NUMBER_ID or META_ACCESS_TOKEN not set — skipping pacing check');
-    _state = { ..._state, skipped: true };
+// ─── Admin Notification ───────────────────────────────────────────
+
+async function notifyAdminPacingPaused(state: PacingState): Promise<void> {
+  const now = Date.now();
+  if (now - _lastNotificationAt < NOTIFICATION_COOLDOWN_MS) {
+    console.log('[PacingMonitor] Notification skipped (cooldown)');
+    return;
+  }
+  _lastNotificationAt = now;
+
+  if (!_sendNotification) {
+    console.warn('[PacingMonitor] No notification sender — cannot alert admin');
     return;
   }
 
-  logger.info('Running portfolio pacing check', { phoneNumberId });
-
   try {
-    const data = await fetchQualityRating(phoneNumberId, token);
-    const nowIso = new Date().toISOString();
-    const wasPaused = _state.pacingPaused;
-    const nowPaused = isPacingPaused(data.quality_rating, data.status);
+    const settings = await loadAdminNotificationSettings();
+    if (!settings.enabled) return;
 
-    _state = {
-      pacingPaused: nowPaused,
-      qualityRating: data.quality_rating ?? null,
-      status: data.status ?? null,
-      pausedSince: nowPaused ? (_state.pausedSince ?? nowIso) : null,
-      lastCheckedAt: nowIso,
-      skipped: false,
-    };
+    const templateInfo = state.affectedTemplateName
+      ? `Affected Template: *${state.affectedTemplateName}*\n`
+      : '';
+    const deliveryInfo = state.percentNotDelivered != null
+      ? `Batch Not Delivered: *${state.percentNotDelivered.toFixed(1)}%*\n`
+      : '';
 
-    logger.info('Pacing check result', {
-      qualityRating: data.quality_rating,
-      status: data.status,
-      pacingPaused: nowPaused,
-    });
+    const message = `⚠️ *WhatsApp Portfolio Pacing PAUSED*\n\n` +
+      `Meta has silently paused your bulk template delivery due to negative quality signals.\n\n` +
+      templateInfo +
+      deliveryInfo +
+      `Detected At: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+      `**Impact:**\n` +
+      `Scheduled bulk messages are not being delivered. Recipients will not receive your templates until pacing resumes.\n\n` +
+      `**Actions:**\n` +
+      `1. Check Meta Business Manager for quality signals\n` +
+      `2. Pause any active campaigns to prevent further quality degradation\n` +
+      `3. Review recent template content for compliance issues\n` +
+      `4. Monitor via: GET /api/rainbow/analytics/messaging-limits\n\n` +
+      `_Pacing usually resumes automatically when quality signals improve._`;
 
-    // Newly paused — persist state and send admin notification
-    if (nowPaused && !wasPaused) {
-      _state.pausedSince = nowIso;
-      await persistPacingState(true, nowIso);
-
-      logger.warn('Portfolio pacing PAUSED detected — sending admin alert');
-      try {
-        const { notifyAdminPortfolioPacingPaused } = await import('./admin-notifier.js');
-        await notifyAdminPortfolioPacingPaused(
-          data.display_phone_number ?? phoneNumberId,
-          data.quality_rating ?? 'RED',
-          data.status ?? 'FLAGGED',
-        );
-      } catch (notifyErr: any) {
-        logger.error('Failed to send pacing pause admin notification', { error: notifyErr.message });
-      }
-    }
-
-    // Resumed — persist cleared state
-    if (!nowPaused && wasPaused) {
-      logger.info('Portfolio pacing RESUMED');
-      await persistPacingState(false, null);
-    }
+    await _sendNotification(settings.systemAdminPhone, message);
+    console.log('[PacingMonitor] Sent pacing pause notification');
   } catch (err: any) {
-    logger.error('Pacing check error', { error: err.message });
-    // Don't flip state on transient errors — keep last known state
+    console.error('[PacingMonitor] Failed to send notification:', err.message);
   }
 }
 
-// ─── Startup + scheduler ───────────────────────────────────────────────────
+// ─── Test Helpers ─────────────────────────────────────────────────
 
-let _started = false;
-
-export function startPacingMonitor(): void {
-  if (_started) return;
-  _started = true;
-
-  // Load last known state from DB on startup
-  loadPacingStateFromDb()
-    .then(({ paused, since }) => {
-      if (paused) {
-        _state = { ..._state, pacingPaused: true, pausedSince: since };
-        logger.info('Restored pacing paused state from DB', { pausedSince: since });
-      }
-    })
-    .catch(err => logger.error('Failed to load pacing state from DB on startup', { error: err.message }));
-
-  // Run immediately on startup (fire-and-forget)
-  runPacingCheck().catch(err =>
-    logger.error('Startup pacing check threw', { error: err.message })
-  );
-
-  // Schedule recurring polls every 5 minutes
-  setInterval(() => {
-    runPacingCheck().catch(err =>
-      logger.error('Scheduled pacing check threw', { error: err.message })
-    );
-  }, POLL_INTERVAL_MS).unref(); // .unref() so this timer won't prevent process exit
+/** Reset internal state (for testing only) */
+export function _resetForTesting(): void {
+  _pacingState = {
+    pacingPaused: false,
+    affectedTemplateName: null,
+    percentNotDelivered: null,
+    lastCheckedAt: new Date().toISOString(),
+    pauseDetectedAt: null,
+  };
+  _lastNotificationAt = 0;
+  _sendNotification = null;
+  stopPacingMonitor();
 }

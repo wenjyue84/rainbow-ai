@@ -315,6 +315,14 @@ export class KnowledgeBaseInstance {
     return Array.from(this.kbCache.values()).join('\n\n---\n\n');
   }
 
+  /** US-899: Get raw content for specific KB files (for faithfulness checking) */
+  getFilesContent(filenames: string[]): string {
+    return filenames
+      .map(f => this.kbCache.get(f) || '')
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+  }
+
   // ─── System Prompt Cache ────────────────────────────────────────
 
   invalidateSystemPromptCache(): void {

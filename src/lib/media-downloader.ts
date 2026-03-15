@@ -1,110 +1,123 @@
 /**
- * Media Downloader — US-893
+ * Media Auto-Downloader (US-893)
  *
- * Downloads incoming WhatsApp media (images, documents, videos) before
- * the ephemeral URL expires (24-48 hours). Stores binaries on disk under
- * ./media/YYYY-MM-DD/<messageId>.<ext> and updates the rainbow_messages
- * record with a localMediaUrl.
+ * Downloads incoming WhatsApp media (image, video, document) from Baileys
+ * before the ephemeral URL expires (24-48h). Saves to ./media/<YYYY-MM-DD>/<msgId>.<ext>
+ * and returns a /media/... URL served by Express static middleware.
  *
- * Retry: up to 3 attempts with exponential backoff (2s → 4s → 8s).
- * DLQ: failed downloads are logged with prefix [MediaDownloader:DLQ].
+ * Retry policy: up to 3 attempts with exponential backoff (1s, 2s, 4s).
+ * On all retries exhausted, logs to DLQ (error log) and returns failure.
  */
-
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { eq } from 'drizzle-orm';
-import { db } from './db.js';
-import { rainbowMessages } from '../../shared/schema-tables.js';
+import fs from 'fs';
+import path from 'path';
+import type { IncomingMessage } from '../assistant/types.js';
 
-const MEDIA_BASE = join(process.cwd(), 'media');
+export const MEDIA_BASE_DIR = process.env.MEDIA_STORE_PATH ?? './media';
+const MAX_RETRIES = 3;
 
-/** Map message type + MIME to a file extension */
-function getExt(messageType: string, mimeType: string): string {
-  if (messageType === 'image') {
-    if (mimeType.includes('png')) return 'png';
-    if (mimeType.includes('gif')) return 'gif';
-    if (mimeType.includes('webp')) return 'webp';
-    return 'jpg';
+/** Map MIME type (or file extension) to a file extension string */
+function resolveExtension(mimeType: string, fileName?: string): string {
+  // Prefer extension from fileName if present
+  if (fileName) {
+    const ext = path.extname(fileName).replace(/^\./, '');
+    if (ext) return ext;
   }
-  if (messageType === 'video') return 'mp4';
-  // document — pick from mime
-  if (mimeType.includes('pdf')) return 'pdf';
-  if (mimeType.includes('msword') || mimeType.includes('wordprocessingml')) return 'docx';
-  if (mimeType.includes('spreadsheetml') || mimeType.includes('ms-excel')) return 'xlsx';
-  return 'bin';
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/zip': 'zip',
+  };
+  return map[mimeType] ?? 'bin';
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export interface MediaDownloadResult {
+  success: boolean;
+  localPath?: string;
+  localUrl?: string;  // e.g. /media/2026-03-15/abc123.jpg
+  error?: string;
 }
 
 /**
- * Download a Baileys media message, persist it to disk, and update the DB record.
- * Returns the local URL path on success, null on failure.
+ * Download and persist a media attachment from an incoming Baileys message.
+ *
+ * @param msg - IncomingMessage with rawMessage and messageType set
+ * @returns MediaDownloadResult with localUrl on success
  */
 export async function downloadAndSaveMedia(
-  baileysMessageId: string,
-  messageType: 'image' | 'video' | 'document',
-  rawMessage: any,
-): Promise<string | null> {
-  const msgContent = rawMessage?.message;
-  const mimeType: string =
-    msgContent?.imageMessage?.mimetype ||
-    msgContent?.videoMessage?.mimetype ||
-    msgContent?.documentMessage?.mimetype ||
-    'application/octet-stream';
+  msg: IncomingMessage
+): Promise<MediaDownloadResult> {
+  if (!msg.rawMessage) {
+    return { success: false, error: 'No rawMessage available' };
+  }
 
-  const ext = getExt(messageType, mimeType);
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const dir = join(MEDIA_BASE, today);
-  const filename = `${baileysMessageId}.${ext}`;
-  const filepath = join(dir, filename);
-  const localUrl = `/media/${today}/${filename}`;
+  if (!['image', 'video', 'document'].includes(msg.messageType)) {
+    return { success: false, error: `Unsupported media type: ${msg.messageType}` };
+  }
 
-  const MAX_RETRIES = 3;
+  const messageId = msg.messageId || `unknown-${Date.now()}`;
+  const mimeType = msg.mediaMetadata?.mimeType ?? 'application/octet-stream';
+  const fileName = msg.mediaMetadata?.fileName;
+  const ext = resolveExtension(mimeType, fileName);
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dirPath = path.join(MEDIA_BASE_DIR, dateStr);
+  const filePath = path.join(dirPath, `${messageId}.${ext}`);
+  const localUrl = `/media/${dateStr}/${messageId}.${ext}`;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      if (attempt > 0) {
-        await sleep(Math.pow(2, attempt) * 1000); // 2s, 4s, 8s
+      const buffer = await downloadMediaMessage(
+        msg.rawMessage,
+        'buffer',
+        {}
+      ) as Buffer;
+
+      if (!buffer || buffer.length === 0) {
+        throw new Error('Empty buffer returned by Baileys');
       }
 
-      const buffer = (await downloadMediaMessage(rawMessage, 'buffer', {})) as Buffer;
+      fs.mkdirSync(dirPath, { recursive: true });
+      fs.writeFileSync(filePath, buffer);
 
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(filepath, buffer);
+      console.log(
+        `[MediaDownloader] Saved ${msg.messageType} ${messageId} ` +
+        `(${buffer.length} bytes, ${mimeType}) -> ${filePath}`
+      );
+      return { success: true, localPath: filePath, localUrl };
 
-      // Update the DB record — find by baileysMessageId
-      await db
-        .update(rainbowMessages)
-        .set({ localMediaUrl: localUrl })
-        .where(eq(rainbowMessages.baileysMessageId, baileysMessageId));
-
-      console.log(`[MediaDownloader] Saved ${messageType} → ${localUrl} (attempt ${attempt + 1})`);
-      return localUrl;
     } catch (err: any) {
-      const label = attempt < MAX_RETRIES ? `retrying (${attempt + 1}/${MAX_RETRIES})` : 'giving up';
-      console.warn(`[MediaDownloader] Download failed for ${baileysMessageId}: ${err.message} — ${label}`);
+      const errMsg = err?.message ?? String(err);
+      console.warn(
+        `[MediaDownloader] Attempt ${attempt}/${MAX_RETRIES} failed ` +
+        `for ${messageId}: ${errMsg}`
+      );
+
+      if (attempt < MAX_RETRIES) {
+        const backoffMs = Math.pow(2, attempt) * 500; // 1000ms, 2000ms
+        await new Promise(r => setTimeout(r, backoffMs));
+      } else {
+        // DLQ: log final failure for observability / manual recovery
+        console.error(
+          `[MediaDownloader] DLQ: All ${MAX_RETRIES} attempts failed ` +
+          `for ${msg.messageType} ${messageId} (${mimeType}): ${errMsg}`
+        );
+        return { success: false, error: errMsg };
+      }
     }
   }
 
-  console.error(
-    `[MediaDownloader:DLQ] Failed to download ${messageType} message ${baileysMessageId} after ${MAX_RETRIES} retries`,
-  );
-  return null;
-}
-
-/**
- * Fire-and-forget wrapper. Call this from the message pipeline after logging.
- * All errors are caught internally so callers never throw.
- */
-export function scheduleMediaDownload(
-  baileysMessageId: string,
-  messageType: 'image' | 'video' | 'document',
-  rawMessage: any,
-): void {
-  downloadAndSaveMedia(baileysMessageId, messageType, rawMessage).catch((err) => {
-    console.error(`[MediaDownloader] Unexpected error for ${baileysMessageId}:`, err?.message);
-  });
+  return { success: false, error: 'Unexpected exit from retry loop' };
 }

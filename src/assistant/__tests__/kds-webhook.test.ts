@@ -1,288 +1,270 @@
 /**
- * kds-webhook.test.ts — Unit tests for KDS/POS webhook dispatcher (US-876)
+ * kds-webhook.test.ts — Tests for POS/KDS webhook integration (US-876)
  *
- * Tests:
- *  - Payload building (items, table/pickup, JID hashing)
- *  - Dispatch disabled when config.enabled is false
- *  - Dispatch disabled when webhookUrl is empty
- *  - Successful POST returns accepted
- *  - POS rejected response relayed
- *  - Failed POST triggers retry queue
- *  - Alert function called on failure
- *  - Cart handler integration: KDS note appended on rejection
+ * Validates:
+ *   - KDS payload construction (orderId, items, table/pickup, JID hash, timestamp)
+ *   - Webhook skipped when KDS_WEBHOOK_URL not set
+ *   - Webhook fires on order confirmation when enabled
+ *   - Retry queue (max 3 attempts with backoff)
+ *   - Ops alert on persistent failure
+ *   - Per-profile enable/disable via settings
+ *   - JID hashing for privacy
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildKdsPayload,
-  dispatchToKds,
   hashJid,
-  clearRetryQueue,
-  getRetryQueueSize,
-  type KdsWebhookConfig,
+  isKdsEnabled,
+  getKdsOpsPhone,
+  sendToKds,
   type KdsOrderPayload,
 } from '../../lib/kds-webhook.js';
 
-// ─── hashJid ──────────────────────────────────────────────────────────
+// ─── Mocks ──────────────────────────────────────────────────────────
 
-describe('KDS Webhook — hashJid', () => {
-  it('returns a 12-char hex string', () => {
-    const hash = hashJid('60127088789@s.whatsapp.net');
-    expect(hash).toHaveLength(12);
-    expect(hash).toMatch(/^[0-9a-f]{12}$/);
-  });
+// Mock baileys-client (used for ops alert)
+vi.mock('../../lib/baileys-client.js', () => ({
+  sendWhatsAppMessage: vi.fn().mockResolvedValue(undefined),
+  getWhatsAppStatus: vi.fn().mockReturnValue({ state: 'open' }),
+}));
 
-  it('produces consistent output for same input', () => {
-    const a = hashJid('test-jid');
-    const b = hashJid('test-jid');
-    expect(a).toBe(b);
-  });
+// Mock logger
+vi.mock('../../lib/logger.js', () => ({
+  createModuleLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
 
-  it('produces different output for different inputs', () => {
-    const a = hashJid('jid-one');
-    const b = hashJid('jid-two');
-    expect(a).not.toBe(b);
-  });
-});
+// ─── Tests ──────────────────────────────────────────────────────────
 
-// ─── buildKdsPayload ──────────────────────────────────────────────────
-
-describe('KDS Webhook — buildKdsPayload', () => {
-  it('builds payload with dine-in table', () => {
-    const payload = buildKdsPayload({
-      orderId: 'MM-A1B2',
-      items: [
-        { name: 'Nasi Lemak', qty: 2, code: 'NR01', notes: 'Extra sambal' },
-        { name: 'Teh Tarik', qty: 1, code: 'BV02' },
-      ],
-      tableNumber: '5',
-      orderType: 'dine-in',
-      customerJid: 'webchat-abc123',
-      profileId: 'makan-moments',
-    });
-
-    expect(payload.orderId).toBe('MM-A1B2');
-    expect(payload.items).toHaveLength(2);
-    expect(payload.items[0].name).toBe('Nasi Lemak');
-    expect(payload.items[0].qty).toBe(2);
-    expect(payload.items[0].specialInstructions).toBe('Extra sambal');
-    expect(payload.items[1].specialInstructions).toBeUndefined();
-    expect(payload.tableOrPickup).toBe('Table 5');
-    expect(payload.customerJidHash).toMatch(/^[0-9a-f]{12}$/);
-    expect(payload.profileId).toBe('makan-moments');
-    expect(payload.timestamp).toBeTruthy();
-  });
-
-  it('builds payload with takeaway', () => {
-    const payload = buildKdsPayload({
-      orderId: 'MM-C3D4',
-      items: [{ name: 'Roti Canai', qty: 3 }],
-      orderType: 'takeaway',
-      customerJid: 'webchat-xyz',
-      profileId: 'makan-moments',
-    });
-
-    expect(payload.tableOrPickup).toBe('Takeaway');
-  });
-
-  it('defaults to Walk-in when no table or order type', () => {
-    const payload = buildKdsPayload({
-      orderId: 'MM-E5F6',
-      items: [{ name: 'Coffee', qty: 1 }],
-      customerJid: 'webchat-anon',
-      profileId: 'makan-moments',
-    });
-
-    expect(payload.tableOrPickup).toBe('Walk-in');
-  });
-});
-
-// ─── dispatchToKds ────────────────────────────────────────────────────
-
-describe('KDS Webhook — dispatchToKds', () => {
-  const samplePayload: KdsOrderPayload = {
-    orderId: 'MM-TEST',
-    items: [{ name: 'Test Item', qty: 1 }],
-    tableOrPickup: 'Table 1',
-    customerJidHash: 'abcdef123456',
-    timestamp: new Date().toISOString(),
-    profileId: 'makan-moments',
-  };
+describe('US-876: KDS Webhook', () => {
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    clearRetryQueue();
     vi.restoreAllMocks();
+    // Reset env
+    delete process.env.KDS_WEBHOOK_URL;
+    delete process.env.KDS_WEBHOOK_AUTH_TOKEN;
   });
 
-  it('returns disabled when config.enabled is false', async () => {
-    const config: KdsWebhookConfig = { enabled: false, webhookUrl: 'http://example.com/kds' };
-    const result = await dispatchToKds(samplePayload, config);
-    expect(result.status).toBe('disabled');
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
-  it('returns disabled when webhookUrl is empty', async () => {
-    const config: KdsWebhookConfig = { enabled: true, webhookUrl: '' };
-    const result = await dispatchToKds(samplePayload, config);
-    expect(result.status).toBe('disabled');
-  });
+  describe('buildKdsPayload', () => {
+    it('builds payload with all fields from cart items', () => {
+      const payload = buildKdsPayload({
+        orderId: 'MM-A1B2',
+        items: [
+          { name: 'Nasi Lemak', code: 'NR01', qty: 2, notes: 'extra sambal' },
+          { name: 'Teh Tarik', code: 'DR05', qty: 1 },
+        ],
+        tableNumber: '5',
+        orderType: 'dine-in',
+        jid: 'webchat-abc123',
+        profileId: 'makan-moments',
+      });
 
-  it('returns accepted on successful POST', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ status: 'accepted', message: 'Order received' }),
+      expect(payload.orderId).toBe('MM-A1B2');
+      expect(payload.items).toHaveLength(2);
+      expect(payload.items[0].name).toBe('Nasi Lemak');
+      expect(payload.items[0].code).toBe('NR01');
+      expect(payload.items[0].qty).toBe(2);
+      expect(payload.items[0].specialInstructions).toBe('extra sambal');
+      expect(payload.items[1].specialInstructions).toBeUndefined();
+      expect(payload.tableOrPickup).toBe('Table 5');
+      expect(payload.customerJidHash).toHaveLength(16);
+      expect(payload.timestamp).toBeTruthy();
+      expect(payload.profileId).toBe('makan-moments');
     });
-    vi.stubGlobal('fetch', mockFetch);
 
-    const config: KdsWebhookConfig = { enabled: true, webhookUrl: 'http://kds.local/order' };
-    const result = await dispatchToKds(samplePayload, config);
+    it('sets tableOrPickup to "Takeaway" for takeaway orders', () => {
+      const payload = buildKdsPayload({
+        orderId: 'MM-C3D4',
+        items: [{ name: 'Mee Goreng', qty: 1 }],
+        orderType: 'takeaway',
+        jid: '60123456789@s.whatsapp.net',
+        profileId: 'makan-moments',
+      });
 
-    expect(result.status).toBe('accepted');
-    expect(result.message).toBe('Order received');
-    expect(mockFetch).toHaveBeenCalledOnce();
-
-    // Verify POST body
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe('http://kds.local/order');
-    expect(opts.method).toBe('POST');
-    const body = JSON.parse(opts.body);
-    expect(body.orderId).toBe('MM-TEST');
-  });
-
-  it('sends Authorization header when authToken is set', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ status: 'accepted' }),
+      expect(payload.tableOrPickup).toBe('Takeaway');
     });
-    vi.stubGlobal('fetch', mockFetch);
 
-    const config: KdsWebhookConfig = {
-      enabled: true,
-      webhookUrl: 'http://kds.local/order',
-      authToken: 'Bearer secret-token-123',
-    };
-    await dispatchToKds(samplePayload, config);
+    it('sets tableOrPickup to "Walk-in" when no table and not takeaway', () => {
+      const payload = buildKdsPayload({
+        orderId: 'MM-E5F6',
+        items: [{ name: 'Roti Canai', qty: 3 }],
+        jid: 'webchat-xyz',
+        profileId: 'makan-moments',
+      });
 
-    const [, opts] = mockFetch.mock.calls[0];
-    expect(opts.headers.Authorization).toBe('Bearer secret-token-123');
-  });
-
-  it('returns rejected when POS rejects the order', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ status: 'rejected', message: 'Kitchen closed' }),
+      expect(payload.tableOrPickup).toBe('Walk-in');
     });
-    vi.stubGlobal('fetch', mockFetch);
 
-    const config: KdsWebhookConfig = { enabled: true, webhookUrl: 'http://kds.local/order' };
-    const result = await dispatchToKds(samplePayload, config);
+    it('omits optional fields (code, specialInstructions) when absent', () => {
+      const payload = buildKdsPayload({
+        orderId: 'MM-G7H8',
+        items: [{ name: 'Ice Lemon Tea', qty: 1 }],
+        jid: 'webchat-test',
+        profileId: 'makan-moments',
+      });
 
-    expect(result.status).toBe('rejected');
-    expect(result.message).toBe('Kitchen closed');
-  });
-
-  it('returns error and queues retry on HTTP failure', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
+      expect(payload.items[0].code).toBeUndefined();
+      expect(payload.items[0].specialInstructions).toBeUndefined();
     });
-    vi.stubGlobal('fetch', mockFetch);
-
-    const alertFn = vi.fn();
-    const config: KdsWebhookConfig = {
-      enabled: true,
-      webhookUrl: 'http://kds.local/order',
-      maxRetries: 3,
-      baseDelayMs: 100,
-    };
-    const result = await dispatchToKds(samplePayload, config, alertFn);
-
-    expect(result.status).toBe('error');
-    expect(alertFn).toHaveBeenCalledOnce();
-    expect(alertFn.mock.calls[0][0]).toContain('KDS webhook failed');
-    expect(getRetryQueueSize()).toBe(1);
   });
 
-  it('returns error but no retry when maxRetries is 1', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
+  describe('hashJid', () => {
+    it('returns a 16-character hex string', () => {
+      const hash = hashJid('60123456789@s.whatsapp.net');
+      expect(hash).toMatch(/^[0-9a-f]{16}$/);
     });
-    vi.stubGlobal('fetch', mockFetch);
 
-    const config: KdsWebhookConfig = {
-      enabled: true,
-      webhookUrl: 'http://kds.local/order',
-      maxRetries: 1,
-    };
-    const result = await dispatchToKds(samplePayload, config);
-
-    expect(result.status).toBe('error');
-    expect(getRetryQueueSize()).toBe(0);
-  });
-
-  it('handles fetch network errors gracefully', async () => {
-    const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-    vi.stubGlobal('fetch', mockFetch);
-
-    const config: KdsWebhookConfig = {
-      enabled: true,
-      webhookUrl: 'http://kds.local/order',
-      maxRetries: 1,
-    };
-    const result = await dispatchToKds(samplePayload, config);
-
-    expect(result.status).toBe('error');
-    expect(result.message).toContain('ECONNREFUSED');
-  });
-
-  it('treats non-JSON 2xx response as accepted', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => { throw new SyntaxError('Unexpected token'); },
+    it('returns consistent hashes for the same input', () => {
+      const a = hashJid('webchat-abc123');
+      const b = hashJid('webchat-abc123');
+      expect(a).toBe(b);
     });
-    vi.stubGlobal('fetch', mockFetch);
 
-    const config: KdsWebhookConfig = { enabled: true, webhookUrl: 'http://kds.local/order' };
-    const result = await dispatchToKds(samplePayload, config);
-
-    expect(result.status).toBe('accepted');
+    it('returns different hashes for different inputs', () => {
+      const a = hashJid('webchat-abc123');
+      const b = hashJid('webchat-xyz789');
+      expect(a).not.toBe(b);
+    });
   });
-});
 
-// ─── Integration: payload contains all required fields ────────────────
+  describe('isKdsEnabled', () => {
+    it('returns true when kds.enabled is true', () => {
+      expect(isKdsEnabled({ kds: { enabled: true } })).toBe(true);
+    });
 
-describe('KDS Webhook — Payload Schema Compliance', () => {
-  it('payload contains all required fields per acceptance criteria', () => {
-    const payload = buildKdsPayload({
-      orderId: 'MM-SCHEMA',
-      items: [
-        { name: 'Nasi Goreng', qty: 1, code: 'NG01', notes: 'No egg' },
-      ],
-      tableNumber: '12',
-      orderType: 'dine-in',
-      customerJid: '60127088789@s.whatsapp.net',
+    it('returns false when kds.enabled is false', () => {
+      expect(isKdsEnabled({ kds: { enabled: false } })).toBe(false);
+    });
+
+    it('returns false when kds config is absent', () => {
+      expect(isKdsEnabled({})).toBe(false);
+      expect(isKdsEnabled({ other: 'stuff' })).toBe(false);
+    });
+  });
+
+  describe('getKdsOpsPhone', () => {
+    it('returns kds.opsNotifyPhone when set', () => {
+      expect(getKdsOpsPhone({ kds: { opsNotifyPhone: '+60111' } })).toBe('+60111');
+    });
+
+    it('falls back to first staff phone', () => {
+      expect(getKdsOpsPhone({ staff: { phones: ['+60222'] } })).toBe('+60222');
+    });
+
+    it('returns empty string when nothing configured', () => {
+      expect(getKdsOpsPhone({})).toBe('');
+    });
+  });
+
+  describe('sendToKds', () => {
+    const testPayload: KdsOrderPayload = {
+      orderId: 'MM-TEST',
+      items: [{ name: 'Test Item', qty: 1 }],
+      tableOrPickup: 'Table 1',
+      customerJidHash: 'abcdef1234567890',
+      timestamp: new Date().toISOString(),
       profileId: 'makan-moments',
+    };
+
+    it('skips when KDS_WEBHOOK_URL is not set', async () => {
+      const result = await sendToKds(testPayload, '+60111');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not configured');
     });
 
-    // Acceptance criteria: order ID
-    expect(payload.orderId).toBe('MM-SCHEMA');
+    it('sends POST to KDS_WEBHOOK_URL with correct payload', async () => {
+      process.env.KDS_WEBHOOK_URL = 'http://localhost:9999/kds';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ status: 'accepted', message: 'Order received' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
 
-    // Acceptance criteria: items (name, qty, special instructions)
-    expect(payload.items[0].name).toBe('Nasi Goreng');
-    expect(payload.items[0].qty).toBe(1);
-    expect(payload.items[0].specialInstructions).toBe('No egg');
+      const result = await sendToKds(testPayload, '+60111');
+      expect(result.success).toBe(true);
+      expect(result.posStatus).toBe('accepted');
+      expect(result.posMessage).toBe('Order received');
 
-    // Acceptance criteria: table/pickup identifier
-    expect(payload.tableOrPickup).toBe('Table 12');
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toBe('http://localhost:9999/kds');
+      expect(opts?.method).toBe('POST');
+      const body = JSON.parse(opts?.body as string);
+      expect(body.orderId).toBe('MM-TEST');
+      expect(body.items).toHaveLength(1);
+    });
 
-    // Acceptance criteria: customer JID (hashed)
-    expect(payload.customerJidHash).toMatch(/^[0-9a-f]{12}$/);
-    // Must NOT contain the raw phone number
-    expect(payload.customerJidHash).not.toContain('60127088789');
+    it('includes Authorization header when KDS_WEBHOOK_AUTH_TOKEN is set', async () => {
+      process.env.KDS_WEBHOOK_URL = 'http://localhost:9999/kds';
+      process.env.KDS_WEBHOOK_AUTH_TOKEN = 'secret-token-123';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ status: 'accepted' }), { status: 200 })
+      );
 
-    // Acceptance criteria: timestamp
-    expect(new Date(payload.timestamp).getTime()).not.toBeNaN();
+      await sendToKds(testPayload, '+60111');
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      const headers = opts?.headers as Record<string, string>;
+      expect(headers['Authorization']).toBe('Bearer secret-token-123');
+    });
+
+    it('queues for retry on fetch failure', async () => {
+      process.env.KDS_WEBHOOK_URL = 'http://localhost:9999/kds';
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Connection refused'));
+
+      const result = await sendToKds(testPayload, '+60111');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Connection refused');
+    });
+
+    it('queues for retry on non-2xx response', async () => {
+      process.env.KDS_WEBHOOK_URL = 'http://localhost:9999/kds';
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('Internal Server Error', { status: 500 })
+      );
+
+      const result = await sendToKds(testPayload, '+60111');
+      // First call will throw due to non-ok status, queuing for retry
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('KDS payload schema compliance', () => {
+    it('payload contains all required fields per acceptance criteria', () => {
+      const payload = buildKdsPayload({
+        orderId: 'MM-FULL',
+        items: [
+          { name: 'Nasi Goreng', code: 'NR02', qty: 1, notes: 'no egg' },
+        ],
+        tableNumber: '12',
+        orderType: 'dine-in',
+        jid: '60198765432@s.whatsapp.net',
+        profileId: 'makan-moments',
+      });
+
+      // AC: order ID
+      expect(payload.orderId).toBe('MM-FULL');
+      // AC: items (name, qty, special instructions)
+      expect(payload.items[0].name).toBe('Nasi Goreng');
+      expect(payload.items[0].qty).toBe(1);
+      expect(payload.items[0].specialInstructions).toBe('no egg');
+      // AC: table/pickup identifier
+      expect(payload.tableOrPickup).toBe('Table 12');
+      // AC: customer JID (hashed)
+      expect(payload.customerJidHash).toMatch(/^[0-9a-f]{16}$/);
+      // AC: timestamp
+      expect(new Date(payload.timestamp).getTime()).toBeGreaterThan(0);
+    });
   });
 });

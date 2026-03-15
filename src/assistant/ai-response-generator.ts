@@ -11,6 +11,7 @@ import {
   isAIAvailable, getAISettings, getProviders, resolveApiKey,
   getGroqInstance, providerChat, chatWithFallback
 } from './ai-provider-manager.js';
+import type { SupportedLanguage } from './language-router.js';
 import { z } from 'zod';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
@@ -39,23 +40,44 @@ const VALID_ACTIONS = aiResponseActionSchema.options;
 const DEFAULT_FALLBACK_MESSAGES = {
   en: "I'm sorry, I didn't quite understand that. Could you rephrase your question? I can help with bookings, check-in/out, amenities, and general hostel information.",
   ms: "Maaf, saya tidak faham mesej anda. Boleh anda tulis semula soalan anda? Saya boleh bantu dengan tempahan, daftar masuk/keluar, kemudahan, dan maklumat am hostel.",
-  zh: "抱歉，我没有理解您的意思。您能重新表述一下您的问题吗？我可以帮助您处理预订、入住/退房、设施和旅舍的一般信息。"
+  zh: "抱歉，我没有理解您的意思。您能重新表述一下您的问题吗？我可以帮助您处理预订、入住/退房、设施和旅舍的一般信息。",
+  ta: "மன்னிக்கவும், உங்கள் செய்தியை நான் புரிந்துகொள்ளவில்லை. உங்கள் கேள்வியை மீண்டும் எழுதுங்கள். முன்பதிவு, செக்-இன்/செக்-அவுட், வசதிகள் மற்றும் பொது தகவல்கள் குறித்து நான் உதவ முடியும்."
 } as const;
 
 export function getUnknownFallbackMessages(store?: ConfigStore): Record<string, string> {
   const settings = (store || configStore).getSettings();
   const custom = (settings as any)?.unknownFallback;
-  if (custom && (custom.en || custom.ms || custom.zh)) {
+  if (custom && (custom.en || custom.ms || custom.zh || custom.ta)) {
     return {
       en: custom.en || DEFAULT_FALLBACK_MESSAGES.en,
       ms: custom.ms || DEFAULT_FALLBACK_MESSAGES.ms,
       zh: custom.zh || DEFAULT_FALLBACK_MESSAGES.zh,
+      ta: custom.ta || DEFAULT_FALLBACK_MESSAGES.ta,
     };
   }
   return { ...DEFAULT_FALLBACK_MESSAGES };
 }
 
 export const UNKNOWN_FALLBACK_MESSAGES = DEFAULT_FALLBACK_MESSAGES;
+
+// ─── Language-aware system prompt injection ─────────────────────────
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  ms: 'Malay (Bahasa Melayu)',
+  zh: 'Chinese (Simplified Mandarin)',
+  ta: 'Tamil',
+};
+
+/**
+ * Append a language instruction to the system prompt so the LLM responds
+ * in the detected/preferred language. No-op for English or unknown.
+ */
+function injectLanguageInstruction(systemPrompt: string, lang?: SupportedLanguage): string {
+  if (!lang || lang === 'unknown' || lang === 'en') return systemPrompt;
+  const name = LANGUAGE_NAMES[lang] || lang;
+  return `${systemPrompt}\n\nIMPORTANT: The user is writing in ${name}. You MUST respond entirely in ${name}. Do not switch to English unless the user switches first.`;
+}
 
 // ─── Chat (simple prompt → response) ────────────────────────────────
 
@@ -98,15 +120,17 @@ export async function chatWithToolsLoop(
   userMessage: string,
   tools: MCPTool[],
   toolHandlers: Map<string, ToolHandler>,
-  profileConfigStore?: ConfigStore
+  profileConfigStore?: ConfigStore,
+  detectedLanguage?: SupportedLanguage
 ): Promise<string> {
   if (!isAIAvailable()) {
     throw new Error('AI not available');
   }
 
   const cw = getContextWindows();
+  const langPrompt = injectLanguageInstruction(systemPrompt, detectedLanguage);
   const messages: any[] = [
-    { role: 'system', content: systemPrompt }
+    { role: 'system', content: langPrompt }
   ];
 
   const recentHistory = history.slice(-cw.combined);
@@ -332,7 +356,8 @@ export async function generateWithValidation<T>(
 export async function classifyAndRespond(
   systemPrompt: string,
   history: ChatMessage[],
-  userMessage: string
+  userMessage: string,
+  detectedLanguage?: SupportedLanguage
 ): Promise<AIResponse> {
   try {
     if (!isAIAvailable()) {
@@ -340,8 +365,9 @@ export async function classifyAndRespond(
     }
 
     const cw = getContextWindows();
+    const langPrompt = injectLanguageInstruction(systemPrompt, detectedLanguage);
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt }
+      { role: 'system', content: langPrompt }
     ];
 
     const recentHistory = history.slice(-cw.combined);
@@ -405,7 +431,8 @@ export async function classifyAndRespond(
 export async function classifyAndRespondWithSmartFallback(
   systemPrompt: string,
   history: ChatMessage[],
-  userMessage: string
+  userMessage: string,
+  detectedLanguage?: SupportedLanguage
 ): Promise<AIResponse> {
   const startTime = Date.now();
 
@@ -419,7 +446,7 @@ export async function classifyAndRespondWithSmartFallback(
 
   if (smartProviders.length === 0) {
     console.warn('[AI] No smart providers available for fallback, using all enabled');
-    return classifyAndRespond(systemPrompt, history, userMessage);
+    return classifyAndRespond(systemPrompt, history, userMessage, detectedLanguage);
   }
 
   const cw = getContextWindows();
@@ -430,8 +457,9 @@ export async function classifyAndRespondWithSmartFallback(
     `${expandedHistory.length} context messages`
   );
 
+  const langPrompt = injectLanguageInstruction(systemPrompt, detectedLanguage);
   const messages = [
-    { role: 'system' as const, content: systemPrompt },
+    { role: 'system' as const, content: langPrompt },
     ...expandedHistory.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     { role: 'user' as const, content: userMessage }
   ];
@@ -546,13 +574,21 @@ export async function generateReplyOnly(
   systemPrompt: string,
   history: ChatMessage[],
   userMessage: string,
-  intent: string
+  intent: string,
+  detectedLanguage?: SupportedLanguage
 ): Promise<{ response: string; confidence?: number; model?: string; responseTime?: number }> {
   if (!isAIAvailable()) {
     return { response: '', confidence: 0, model: 'none' };
   }
 
-  const replyPrompt = systemPrompt + `\n\nThe user's intent has been classified as "${intent}". Generate a helpful response. Reply in the same language as the user.
+  const langName = detectedLanguage && detectedLanguage !== 'unknown' && detectedLanguage !== 'en'
+    ? (LANGUAGE_NAMES[detectedLanguage] || detectedLanguage)
+    : null;
+  const langInstruction = langName
+    ? `Reply entirely in ${langName}.`
+    : 'Reply in the same language as the user.';
+
+  const replyPrompt = systemPrompt + `\n\nThe user's intent has been classified as "${intent}". Generate a helpful response. ${langInstruction}
 
 IMPORTANT: Include a confidence score for your response:
 - Set confidence < 0.5 if: answer is partial, information is incomplete, or you're not sure

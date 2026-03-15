@@ -24,6 +24,7 @@ import { handleActiveStates } from './pipeline/state-executor.js';
 import { classifyAndRoute } from './pipeline/intent-classifier.js';
 import { processAndSend } from './pipeline/response-processor.js';
 import { emitTrace } from '../lib/trace-collector.js';
+import { parseCartRecoveryReply, handleCartRecoveryReply, resetCartRecovery } from './cart-recovery.js';
 
 // ─── Router context (shared across pipeline) ────────────────────
 
@@ -69,6 +70,16 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
   const { phone, text } = state;
 
   const rid = state.requestId;
+
+  // US-882: Intercept cart recovery replies ("Resume order" / "Clear cart")
+  const recoveryAction = parseCartRecoveryReply(text);
+  if (recoveryAction) {
+    const handled = await handleCartRecoveryReply(phone, recoveryAction, ctx.sendMessage);
+    if (handled) return;
+  }
+
+  // US-882: Any incoming message from a WhatsApp user resets their cart idle timer
+  resetCartRecovery(phone);
 
   // US-829: Typing indicator — send 'composing' before pipeline dispatch
   const typingCfg = (state.profileConfig.getSettings() as any).typingIndicator;

@@ -12,6 +12,7 @@
 import { Queue, Worker, QueueEvents, type Job } from 'bullmq';
 import net from 'net';
 import type { IncomingMessage } from '../assistant/types.js';
+import { persistRawEvent, markRawEventProcessed } from './webhook-raw-events.js';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -28,6 +29,11 @@ export interface QueueHealthMetrics {
 }
 
 type MessageHandler = (msg: IncomingMessage) => Promise<void>;
+
+/** Job payload shape — IncomingMessage + optional raw event tracking */
+interface QueueJobData extends IncomingMessage {
+  _rawEventId?: string;
+}
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -150,8 +156,13 @@ export async function initMessageQueue(
     // Worker — processes jobs from the queue
     worker = new Worker(
       QUEUE_NAME,
-      async (job: Job<IncomingMessage>) => {
-        await handler(job.data);
+      async (job: Job<QueueJobData>) => {
+        const { _rawEventId, ...msg } = job.data;
+        await handler(msg);
+        // Mark raw event as processed on success
+        if (_rawEventId) {
+          markRawEventProcessed(_rawEventId).catch(() => {});
+        }
       },
       {
         connection: connectionOpts,
@@ -164,7 +175,7 @@ export async function initMessageQueue(
     );
 
     // Move permanently failed jobs to DLQ
-    worker.on('failed', async (job: Job<IncomingMessage> | undefined, err: Error) => {
+    worker.on('failed', async (job: Job<QueueJobData> | undefined, err: Error) => {
       if (!job) return;
       const attemptsMade = job.attemptsMade;
 
@@ -178,9 +189,9 @@ export async function initMessageQueue(
             await dlq.add('dead-letter', {
               originalJobId: job.id,
               data: job.data,
+              rawEventId: job.data._rawEventId ?? null,
               error: err.message,
               failedAt: new Date().toISOString(),
-              rawEventId: job.data?.rawEventId ?? null, // US-895: reference to raw webhook payload
             } as any);
             dlqCount++;
             // Fire alert if DLQ depth exceeds threshold
@@ -230,12 +241,19 @@ export async function initMessageQueue(
  * Enqueue an incoming message for async processing.
  * If Redis is unavailable, processes directly (fallback).
  *
+ * US-895: Persists the raw payload to webhook_raw_events before enqueuing.
+ * The insert is fire-and-forget — a DB failure does not block processing.
+ *
  * Returns within 200ms in queue mode.
  */
 export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
+  // US-895: Persist raw payload before any processing
+  const rawEventId = await persistRawEvent(msg, msg.instanceId ?? 'pelangi');
+
   if (isConnected && queue) {
     try {
-      await queue.add('incoming-message', msg, {
+      const jobData: QueueJobData = { ...msg, _rawEventId: rawEventId ?? undefined };
+      await queue.add('incoming-message', jobData, {
         jobId: `msg-${msg.messageId}-${Date.now()}`,
       });
       return;
@@ -248,6 +266,10 @@ export async function enqueueMessage(msg: IncomingMessage): Promise<void> {
   // Fallback: direct processing
   if (directHandler) {
     await directHandler(msg);
+    // Mark as processed on success in direct mode
+    if (rawEventId) {
+      markRawEventProcessed(rawEventId).catch(() => {});
+    }
   }
 }
 
@@ -324,7 +346,7 @@ export interface DLQJob {
   failedAt: string;
   retryCount: number;
   originalJobId: string | undefined;
-  rawEventId: string | null; // US-895: reference to webhook_raw_events row
+  rawEventId: string | null;  // US-895: reference to webhook_raw_events row
 }
 
 /**
@@ -345,7 +367,7 @@ export async function getDLQJobs(): Promise<DLQJob[]> {
         failedAt: data.failedAt || new Date(job.timestamp).toISOString(),
         retryCount: job.attemptsMade || 0,
         originalJobId: data.originalJobId,
-        rawEventId: data.rawEventId ?? null, // US-895
+        rawEventId: data.rawEventId ?? null,
       };
     });
   } catch (err: any) {

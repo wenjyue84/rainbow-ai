@@ -62,7 +62,7 @@ describe('Config Data Files Integration', () => {
     test('every routed intent has a valid action', () => {
       const dataDir = path.join(rainbowRoot, 'src', 'assistant', 'data');
       const routing = JSON.parse(fs.readFileSync(path.join(dataDir, 'routing.json'), 'utf-8'));
-      const validActions = ['static_reply', 'workflow', 'llm_reply', 'escalate', 'start_booking', 'flow', 'menu_browse'];
+      const validActions = ['static_reply', 'workflow', 'llm_reply', 'escalate', 'start_booking'];
 
       for (const [intent, config] of Object.entries(routing)) {
         const action = (config as any).action;

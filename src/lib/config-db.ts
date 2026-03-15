@@ -55,13 +55,23 @@ export async function ensureConfigTables(): Promise<void> {
         server_role TEXT,
         old_version INTEGER,
         new_version INTEGER,
+        endpoint    TEXT,
+        before_json JSONB,
+        after_json  JSONB,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
-      -- US-847: Add before/after JSON diff columns for audit trail
+      -- US-847: Add missing columns to audit table (idempotent)
       ALTER TABLE rainbow_config_audit
-        ADD COLUMN IF NOT EXISTS before_data JSONB,
-        ADD COLUMN IF NOT EXISTS after_data JSONB;
+        ADD COLUMN IF NOT EXISTS endpoint TEXT,
+        ADD COLUMN IF NOT EXISTS before_json JSONB,
+        ADD COLUMN IF NOT EXISTS after_json JSONB;
+
+      -- US-847: Add indexes for audit log queries
+      CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_endpoint ON rainbow_config_audit(endpoint);
+      CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_changed_by ON rainbow_config_audit(changed_by);
+      CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_created_at ON rainbow_config_audit(created_at);
+      CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_changed_date ON rainbow_config_audit(changed_by, created_at);
 
       -- US-831: Template quality events for Meta message_template_status_update webhook
       CREATE TABLE IF NOT EXISTS template_quality_events (
@@ -128,13 +138,12 @@ export async function saveConfigToDB(
     // UPSERT with version increment + audit in a single transaction
     await pool.query('BEGIN');
 
-    // Get current version and data (if exists) for before/after diff
+    // Get current version (if exists)
     const { rows: existing } = await pool.query(
-      'SELECT version, data FROM rainbow_configs WHERE key = $1',
+      'SELECT version FROM rainbow_configs WHERE key = $1',
       [key]
     );
     const oldVersion = existing.length > 0 ? existing[0].version : null;
-    const oldData = existing.length > 0 ? existing[0].data : null;
     const newVersion = oldVersion !== null ? oldVersion + 1 : 1;
 
     await pool.query(
@@ -145,20 +154,11 @@ export async function saveConfigToDB(
       [key, JSON.stringify(data), newVersion, changedBy || null]
     );
 
-    // US-847: Audit log with before/after JSON data
+    // Audit log
     await pool.query(
-      `INSERT INTO rainbow_config_audit (config_key, action, changed_by, server_role, old_version, new_version, before_data, after_data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        key,
-        oldVersion === null ? 'create' : 'update',
-        changedBy || null,
-        serverRole,
-        oldVersion,
-        newVersion,
-        oldData ? JSON.stringify(oldData) : null,
-        JSON.stringify(data)
-      ]
+      `INSERT INTO rainbow_config_audit (config_key, action, changed_by, server_role, old_version, new_version)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [key, oldVersion === null ? 'create' : 'update', changedBy || null, serverRole, oldVersion, newVersion]
     );
 
     await pool.query('COMMIT');
@@ -231,68 +231,84 @@ export async function getKBFilesHealth(): Promise<KBFileHealth[]> {
   }
 }
 
-// ─── Audit Query ────────────────────────────────────────────────────
+// ─── Audit Operations ───────────────────────────────────────────────
 
-export interface AuditLogFilter {
-  limit?: number;
-  changedBy?: string;
-  fromDate?: string;
-  toDate?: string;
-}
-
-export async function getConfigAuditLog(filter: AuditLogFilter = {}): Promise<any[]> {
-  if (!hasDB()) return [];
+/**
+ * US-847: Record a config change with before/after diff
+ * Called by all config mutation routes to maintain audit trail
+ */
+export async function auditConfigChange(
+  adminUser: string | null,
+  endpoint: string,
+  before: unknown | null,
+  after: unknown
+): Promise<void> {
+  if (!hasDB()) return;
   try {
-    const limit = Math.min(filter.limit || 100, 200);
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramIdx = 1;
-
-    if (filter.changedBy) {
-      conditions.push(`changed_by = $${paramIdx++}`);
-      params.push(filter.changedBy);
-    }
-    if (filter.fromDate) {
-      conditions.push(`created_at >= $${paramIdx++}::timestamptz`);
-      params.push(filter.fromDate);
-    }
-    if (filter.toDate) {
-      conditions.push(`created_at <= $${paramIdx++}::timestamptz`);
-      params.push(filter.toDate);
-    }
-
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-    params.push(limit);
-
-    const { rows } = await pool.query(
-      `SELECT id, config_key, action, changed_by, server_role, old_version, new_version, before_data, after_data, created_at
-       FROM rainbow_config_audit
-       ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT $${paramIdx}`,
-      params
+    const serverRole = process.env.RAINBOW_ROLE || 'unknown';
+    await pool.query(
+      `INSERT INTO rainbow_config_audit (changed_by, endpoint, before_json, after_json, server_role, action, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'config_update', NOW())`,
+      [adminUser, endpoint, before ? JSON.stringify(before) : null, JSON.stringify(after), serverRole]
     );
-    return rows;
   } catch (err: any) {
-    console.error('[ConfigDB] getConfigAuditLog() failed:', err.message);
-    return [];
+    console.error('[ConfigDB] auditConfigChange() failed:', err.message);
   }
 }
 
 /**
- * US-847: Delete audit records older than the given number of days.
- * Default retention is 365 days.
+ * US-847: Query audit log with optional filtering by date range and admin user
+ * @param limit Maximum number of records to return (default 100, per acceptance criteria)
+ * @param adminUserFilter Optional filter by admin user
+ * @param dateStart Optional start date (ISO 8601)
+ * @param dateEnd Optional end date (ISO 8601)
+ * @returns Array of audit log entries with before/after JSON
  */
-export async function purgeOldAuditLogs(retentionDays: number = 365): Promise<number> {
-  if (!hasDB()) return 0;
+export interface AuditLogEntry {
+  id: number;
+  changed_by: string | null;
+  endpoint: string | null;
+  before_json: any;
+  after_json: any;
+  server_role: string | null;
+  action: string;
+  created_at: Date;
+}
+
+export async function getConfigAuditLog(
+  limit: number = 100,
+  adminUserFilter?: string,
+  dateStart?: string,
+  dateEnd?: string
+): Promise<AuditLogEntry[]> {
+  if (!hasDB()) return [];
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM rainbow_config_audit WHERE created_at < NOW() - ($1 || ' days')::INTERVAL`,
-      [retentionDays]
-    );
-    return rowCount ?? 0;
+    let query = `SELECT id, changed_by, endpoint, before_json, after_json, server_role, action, created_at
+                 FROM rainbow_config_audit WHERE 1=1`;
+    const params: any[] = [];
+
+    if (adminUserFilter) {
+      query += ` AND changed_by = $${params.length + 1}`;
+      params.push(adminUserFilter);
+    }
+
+    if (dateStart) {
+      query += ` AND created_at >= $${params.length + 1}`;
+      params.push(new Date(dateStart));
+    }
+
+    if (dateEnd) {
+      query += ` AND created_at <= $${params.length + 1}`;
+      params.push(new Date(dateEnd));
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const { rows } = await pool.query(query, params);
+    return rows;
   } catch (err: any) {
-    console.error('[ConfigDB] purgeOldAuditLogs() failed:', err.message);
-    return 0;
+    console.error('[ConfigDB] getConfigAuditLog() failed:', err.message);
+    return [];
   }
 }

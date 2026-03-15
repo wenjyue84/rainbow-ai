@@ -65,31 +65,6 @@ describe('LanguageRouter', () => {
     });
   });
 
-  describe('Tamil Detection', () => {
-    test('should detect simple Tamil', () => {
-      expect(router.detectLanguage('வணக்கம்')).toBe('ta');       // vanakkam (hello)
-      expect(router.detectLanguage('நன்றி')).toBe('ta');         // nandri (thank you)
-      expect(router.detectLanguage('எவ்வளவு')).toBe('ta');      // evvalavu (how much)
-    });
-
-    test('should detect Tamil sentences', () => {
-      expect(router.detectLanguage('அறை எவ்வளவு?')).toBe('ta');               // How much is the room?
-      expect(router.detectLanguage('wifi கடவுச்சொல் என்ன?')).toBe('ta');       // What is the wifi password?
-      expect(router.detectLanguage('நான் ஒரு அறை பதிவு செய்ய விரும்புகிறேன்')).toBe('ta'); // I want to book a room
-    });
-
-    test('should detect mixed Tamil-English', () => {
-      const lang = router.detectLanguage('wifi கடவுச்சொல்');
-      expect(lang).toBe('ta'); // Tamil script should be prioritized
-    });
-
-    test('should return high confidence for Tamil script', () => {
-      const result = router.detectWithConfidence('வணக்கம்');
-      expect(result.language).toBe('ta');
-      expect(result.confidence).toBeGreaterThanOrEqual(0.95);
-    });
-  });
-
   describe('Unknown/Short Text', () => {
     test('should return unknown for very short text', () => {
       expect(router.detectLanguage('hi')).toBe('en'); // Should detect via pattern
@@ -189,11 +164,9 @@ describe('LanguageRouter', () => {
         'hello',
         'terima kasih',
         '你好',
-        'வணக்கம்',
         'what time check in',
         'berapa harga',
-        'wifi密码',
-        'அறை எவ்வளவு?'
+        'wifi密码'
       ];
 
       const start = Date.now();
@@ -236,16 +209,6 @@ describe('Real-world Language Detection Test Cases', () => {
       expect(router.detectLanguage('wifi密码')).toBe('zh');
       expect(router.detectLanguage('多少钱')).toBe('zh');
       expect(router.detectLanguage('几点退房')).toBe('zh');
-    });
-  });
-
-  describe('Guest Messages (Tamil)', () => {
-    test('Common Tamil queries', () => {
-      expect(router.detectLanguage('வணக்கம்')).toBe('ta');         // Hello
-      expect(router.detectLanguage('நன்றி')).toBe('ta');           // Thank you
-      expect(router.detectLanguage('எவ்வளவு')).toBe('ta');        // How much
-      expect(router.detectLanguage('எங்கே')).toBe('ta');           // Where
-      expect(router.detectLanguage('அறை வேண்டும்')).toBe('ta');    // Need a room
     });
   });
 

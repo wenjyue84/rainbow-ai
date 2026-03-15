@@ -397,14 +397,6 @@ export class WhatsAppInstance {
       let messageType: MessageType = 'text';
       let mediaMetadata: MediaMetadata | undefined;
 
-      // US-885: Extract button/list response text from interactive message replies
-      if (!text && m?.buttonsResponseMessage) {
-        text = (m.buttonsResponseMessage as any).selectedDisplayText || (m.buttonsResponseMessage as any).selectedButtonId || '';
-      }
-      if (!text && m?.listResponseMessage) {
-        text = (m.listResponseMessage as any).title || (m.listResponseMessage as any).singleSelectReply?.selectedRowId || '';
-      }
-
       // Detect message type and extract media metadata (US-448)
       if (m?.imageMessage) {
         messageType = 'image';
@@ -436,6 +428,12 @@ export class WhatsAppInstance {
           fileSize: m.documentMessage.fileLength ? Number(m.documentMessage.fileLength) : undefined,
           fileName: m.documentMessage.fileName || undefined,
         };
+      } else if (m?.listResponseMessage) {
+        // US-872: User selected an item from a WhatsApp interactive list message.
+        // Extract the selectedRowId as text so the pipeline can process it as a normal message.
+        const rowId = m.listResponseMessage.singleSelectReply?.selectedRowId || '';
+        const rowTitle = m.listResponseMessage.title || '';
+        text = rowId || rowTitle;
       } else if (m?.contactMessage || m?.contactsArrayMessage) {
         messageType = 'contact';
       } else if (m?.locationMessage || m?.liveLocationMessage) {

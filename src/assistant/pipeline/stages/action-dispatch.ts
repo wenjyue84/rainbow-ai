@@ -15,12 +15,17 @@ import type { PipelineState, FlowContext } from '../types.js';
 import type { ClassificationResult } from './tier-classification.js';
 import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
-import { buildListMessage, listMessageToText, buildProductCardButtons, productCardToText } from '../../formatter.js';
-import type { ProductCardItem } from '../../formatter.js';
+import { buildListMessage, listMessageToText } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
-import { fnbGetMenu, fnbGetMenuItem, fnbGetDailySpecials, fnbGetPopularItems, fetchMenuItems } from '../../../tools/fnb-menu.js';
-import { findMenuItemMatches } from '../../menu-matcher.js';
+import { fnbGetMenu, fnbGetDailySpecials, fnbGetPopularItems, fetchMenuItems } from '../../../tools/fnb-menu.js';
 import { flowRegistry } from '../../flows/index.js';
+import { createServiceRequest, markStaffNotified } from '../../../lib/service-requests.js';
+import {
+  buildProductMessage, buildProductCardButtons, productCardToText,
+  extractItemNameFromQuery, type CatalogConfig, type ProductCardItem
+} from '../../product-card.js';
+import { findMenuItemMatches } from '../../menu-matcher.js';
+import { detectStarRating, getFollowUpMessage, handleFeedbackRating, isFeedbackMessage } from '../../order-feedback-handler.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -65,6 +70,18 @@ export async function dispatchAction(
 
     case 'flow':
       await handleStartFlow(state, result, context);
+      break;
+
+    case 'service_request':
+      await handleServiceRequest(state, result, context);
+      break;
+
+    case 'product_card':
+      await handleProductCard(state, result, context);
+      break;
+
+    case 'order_feedback':
+      await handleOrderFeedback(state, result, context);
       break;
 
     case 'llm_reply':
@@ -415,14 +432,11 @@ async function handleStartFlow(
  *
  * Uses the LLM-generated response directly.
  * If confidence is very low (<0.4), increments unknown counter and
- * applies tiered progressive escalation.
+ * may escalate if threshold is reached.
  *
- * US-880: 3-tier confidence-based fallback with progressive escalation:
- *   Tier 1 (1st failure): Ask user to rephrase in a friendly tone
- *   Tier 2 (2nd failure): Present quick-reply list of 4-5 core capabilities
- *   Tier 3 (3rd failure): Human handoff message + staff notification
- * Counter resets on successful intent classification.
- * All fallback events logged in intent_analytics with failure_tier (1, 2, or 3).
+ * US-428: Consecutive fallback escalation — after N consecutive T4 LLM-fallback
+ * unknowns (configurable via settings.json consecutive_fallback_threshold),
+ * automatically trigger human handoff and log to escalation_events table.
  */
 async function handleLLMReply(
   state: PipelineState,
@@ -430,6 +444,15 @@ async function handleLLMReply(
   context: IPipelineContext
 ): Promise<void> {
   const { phone, text, convo, msg, diaryEvent } = state;
+
+  // US-872: Interactive list message for menu category browsing (makan-moments only)
+  if (
+    (result.intent === 'ORDER_BROWSE' || result.intent === 'menu_browse_category') &&
+    state.profileId === 'makan-moments'
+  ) {
+    await handleMenuBrowseInteractive(state, context);
+    return;
+  }
 
   // US-863: Handle MENU_FILTER_PRICE intent specially
   if (result.intent === 'MENU_FILTER_PRICE') {
@@ -443,61 +466,71 @@ async function handleLLMReply(
     return;
   }
 
-  // US-885: Handle MENU_ITEM_DETAIL intent — show product card
-  if (result.intent === 'MENU_ITEM_DETAIL') {
-    await handleMenuItemDetail(state, context);
-    return;
-  }
-
-  // US-870: Handle food_recommendation intent — show popular items
-  if (result.intent === 'food_recommendation') {
-    await handlePopularItems(state, context);
+  // US-870: Handle MENU_RECOMMEND intent — proactive popular items suggestion
+  if (result.intent === 'MENU_RECOMMEND') {
+    await handleMenuRecommend(state, context);
     return;
   }
 
   state.response = result.response;
 
+  // ─── US-880: Tiered confidence-based fallback with progressive escalation ──
   // Track unknown intents OR low-confidence results for operator escalation
   const isUnknownIntent = result.intent === 'unknown' || result.intent === 'unknown_intent';
   if (isUnknownIntent || result.confidence < 0.4) {
     const unknownCount = context.incrementUnknown(phone);
-
-    // US-880: 3-tier confidence-based fallback with progressive escalation
     const settings = context.getSettings();
-    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 2;
-    const shouldEscalateConsecutive = unknownCount > fallbackThreshold;
     const lang = convo.language || 'en';
 
-    if (shouldEscalateConsecutive) {
-      // ─── Tier 3: Human handoff (US-880) ─────────────────────────────
-      diaryEvent.escalated = true;
-
-      // Log escalation event to DB (fire-and-forget)
+    if (unknownCount === 1) {
+      // ─── Tier 1: Ask to rephrase (first failure) ─────────────────
+      state.response = buildTier1RephraseMessage(settings, lang);
       context.logEscalationEvent({
         jid: phone,
         profileId: state.profileId,
-        trigger: 'consecutive_fallback',
+        trigger: 'tiered_fallback',
+        count: unknownCount,
+        metadata: { failure_tier: 1 },
+      });
+      console.log(`[Dispatch][US-880] Tier 1 rephrase for ${phone}`);
+
+    } else if (unknownCount === 2) {
+      // ─── Tier 2: Show capability quick-reply list (second failure) ─
+      const capabilityResponse = buildFallbackSuggestionResponse(settings, lang);
+      state.response = capabilityResponse || buildTier2DefaultCapabilities(lang);
+      context.logEscalationEvent({
+        jid: phone,
+        profileId: state.profileId,
+        trigger: 'tiered_fallback',
+        count: unknownCount,
+        metadata: { failure_tier: 2 },
+      });
+      console.log(`[Dispatch][US-880] Tier 2 capability list for ${phone}`);
+
+    } else {
+      // ─── Tier 3: Human handoff (third+ consecutive failure) ───────
+      diaryEvent.escalated = true;
+
+      // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
+      context.logEscalationEvent({
+        jid: phone,
+        profileId: state.profileId,
+        trigger: 'tiered_fallback',
         count: unknownCount,
         metadata: { failure_tier: 3 },
         summaryContext: {
           guestName: msg.pushName,
           recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
-          escalationReason: 'Bot unable to understand (consecutive fallback)',
+          escalationReason: 'Bot unable to understand after 3 consecutive attempts',
         },
       });
 
-      // Log failure_tier to intent_analytics
-      const conversationId = `${phone}-${Date.now()}`;
-      context.trackIntentPrediction(
-        conversationId, phone, text, 'unknown', result.confidence,
-        'failure_tier_3', result.model
-      ).catch(() => {});
-
-      // Send customer-facing message about operator handoff
+      // Send customer-facing handoff message
       const handoffMessages: Record<string, string> = {
-        en: "I'm connecting you with our team for better assistance. A staff member will reply to you shortly.",
-        ms: "Saya menghubungkan anda dengan pasukan kami untuk bantuan yang lebih baik. Staf akan membalas anda tidak lama lagi.",
-        zh: "我正在为您联系我们的团队以提供更好的帮助。工作人员将很快回复您。"
+        en: "I'm sorry I couldn't help with that. I'm connecting you with our team — a staff member will reply shortly.",
+        ms: "Maaf, saya tidak dapat membantu dengan itu. Saya menghubungkan anda dengan pasukan kami — staf akan membalas tidak lama lagi.",
+        zh: "非常抱歉我无法帮您解决。我正在为您联系我们的团队——工作人员将很快回复您。",
+        ta: "மன்னிக்கவும், என்னால் உதவ முடியவில்லை. நான் உங்களை எங்கள் குழுவுடன் இணைக்கிறேன் — ஊழியர் விரைவில் பதிலளிப்பார்.",
       };
       state.response = handoffMessages[lang] || handoffMessages.en;
       await context.escalateToStaff({
@@ -505,46 +538,339 @@ async function handleLLMReply(
         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
         originalMessage: text, instanceId: msg.instanceId,
         profileId: state.profileId,
-        triggerDetail: `Consecutive fallback tier 3 (${unknownCount}x unmatched)`,
+        triggerDetail: `Tiered fallback Tier 3 (${unknownCount}x unmatched)`,
       });
       context.resetUnknown(phone);
-      console.log(`[Dispatch] Tier 3 handoff (US-880): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
-    } else if (unknownCount === 2) {
-      // ─── Tier 2: Suggestion list (US-880) ───────────────────────────
-      const suggestionResponse = buildFallbackSuggestionResponse(settings, lang);
-      if (suggestionResponse) {
-        state.response = suggestionResponse;
-      }
-
-      // Log failure_tier to intent_analytics
-      const conversationId = `${phone}-${Date.now()}`;
-      context.trackIntentPrediction(
-        conversationId, phone, text, 'unknown', result.confidence,
-        'failure_tier_2', result.model
-      ).catch(() => {});
-
-      console.log(`[Dispatch] Tier 2 suggestions (US-880): showing ${(settings.fallback?.suggestions || []).length} options`);
-    } else if (unknownCount === 1) {
-      // ─── Tier 1: Rephrase request (US-880) ──────────────────────────
-      const rephraseMessages: Record<string, string> = {
-        en: "I'm sorry, I didn't quite understand that. Could you please rephrase your question?",
-        ms: "Maaf, saya kurang faham. Bolehkah anda ulangi soalan anda dengan cara lain?",
-        zh: "抱歉，我没太明白您的意思。您能换个方式再说一遍吗？",
-        ta: "மன்னிக்கவும், எனக்கு புரியவில்லை. தயவுசெய்து உங்கள் கேள்வியை வேறு விதமாக கேளுங்கள்.",
-      };
-      state.response = rephraseMessages[lang] || rephraseMessages.en;
-
-      // Log failure_tier to intent_analytics
-      const conversationId = `${phone}-${Date.now()}`;
-      context.trackIntentPrediction(
-        conversationId, phone, text, 'unknown', result.confidence,
-        'failure_tier_1', result.model
-      ).catch(() => {});
-
-      console.log(`[Dispatch] Tier 1 rephrase (US-880): asking user to rephrase`);
+      console.log(`[Dispatch][US-880] Tier 3 escalation for ${phone}: ${unknownCount} consecutive unknowns`);
     }
   } else {
     context.resetUnknown(phone);
+  }
+}
+
+// ─── US-875: Service Request handler ─────────────────────────────────────────
+
+/**
+ * US-875: Handle in-stay housekeeping and maintenance service requests.
+ *
+ * Scoped to Pelangi Capsule Hostel profile only.
+ *
+ * Flow:
+ * 1. Look up request_type from routing.json entry
+ * 2. Log request in service_requests table
+ * 3. Send WhatsApp notification to staff operations number
+ * 4. Reply to guest with confirmation + estimated wait time
+ */
+async function handleServiceRequest(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  const { phone, text, convo, msg, lang } = state;
+
+  context.resetUnknown(phone);
+
+  // Guard: service requests are Pelangi-only
+  if (state.profileId !== 'pelangi') {
+    state.response = result.response || context.getStaticReply(result.intent, lang) || context.getTemplate('escalated', lang);
+    console.log(`[Dispatch] Service request blocked — not pelangi profile (${state.profileId})`);
+    return;
+  }
+
+  const settings = context.getSettings();
+  const srConfig = settings.service_requests ?? {};
+  const routingConfig = context.getRouting();
+  const route = routingConfig[result.intent] ?? {};
+  const requestType: string = route.request_type ?? result.intent.toLowerCase();
+
+  // Extract room number from conversation state if available
+  const roomNumber: string | null = (convo as any).roomNumber ?? null;
+
+  // 1. Log to DB (fire-and-forget on failure, don't block guest response)
+  let requestId: string | null = null;
+  try {
+    requestId = await createServiceRequest({
+      jid: phone,
+      profile: state.profileId,
+      roomNumber,
+      requestType,
+      details: text,
+    });
+    console.log(`[Dispatch] US-875: Service request logged id=${requestId} type=${requestType} jid=${phone}`);
+  } catch (err: any) {
+    console.error(`[Dispatch] US-875: Failed to log service request:`, err.message);
+  }
+
+  // 2. Notify staff via WhatsApp (fire-and-forget)
+  const staffPhone: string | null = srConfig.staff_notify_phone ?? settings.staff?.phones?.[0] ?? null;
+  if (staffPhone && requestId) {
+    const roomLabel = roomNumber ? ` (Room: ${roomNumber})` : '';
+    const staffMsg = `🛎️ *Service Request — ${result.intent}*\nGuest: ${msg.pushName || phone}${roomLabel}\nRequest: ${text}\nRef: ${requestId}`;
+    try {
+      await context.sendMessage(staffPhone, staffMsg, msg.instanceId);
+      await markStaffNotified(requestId);
+      console.log(`[Dispatch] US-875: Staff notified at ${staffPhone}`);
+    } catch (err: any) {
+      console.error(`[Dispatch] US-875: Failed to notify staff:`, err.message);
+    }
+  }
+
+  // 3. Reply to guest: use static knowledge entry first, fall back to generic confirmation
+  const staticReply = context.getStaticReply(result.intent, lang);
+  if (staticReply) {
+    state.response = staticReply;
+  } else {
+    const waitTimes: Record<string, string> = srConfig.wait_times ?? {};
+    const wait = waitTimes[requestType] ?? '15-20 minutes';
+    const confirmations: Record<string, string> = {
+      en: `Your request has been received! Our team will attend to it shortly. Estimated wait time: ${wait}.`,
+      ms: `Permintaan anda telah diterima! Pasukan kami akan hadir tidak lama lagi. Anggaran masa: ${wait}.`,
+      zh: `您的请求已收到！我们的团队将尽快处理。预计等待时间：${wait}。`,
+    };
+    state.response = confirmations[lang] ?? confirmations.en;
+  }
+}
+
+// ─── US-885: Product Card handler ─────────────────────────────────────────────
+
+/**
+ * US-885: Handle menu_item_detail intent with a product card.
+ *
+ * Extracts the item name from the user's message, looks it up via fetchMenuItems
+ * + fuzzy match, then sends a product card:
+ *   - Catalog mode: Baileys productMessage (if catalog configured)
+ *   - Fallback: Buttons message with item details + "Add to cart"
+ *   - Text-only: For non-WhatsApp channels
+ *
+ * Falls back to LLM reply if no matching item is found.
+ */
+
+/**
+ * Order Feedback Handler (US-869)
+ * Processes star rating responses (1-5) after order is served.
+ * Stores the rating and sends appropriate follow-up messages.
+ */
+async function handleOrderFeedback(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const { phone, text, lang } = state;
+  const rating = detectStarRating(text);
+
+  if (rating === null) {
+    // Shouldn't reach here since intent classification should have caught this
+    // But just in case, provide a fallback
+    state.response = result.response || 'Thank you for your response!';
+    return;
+  }
+
+  console.log(`[Dispatch] US-869: Processing order feedback rating=${rating} from phone=${phone}`);
+
+  // Store the rating in database
+  const feedbackResult = await handleFeedbackRating(phone, null, rating, (lang || 'en') as 'en' | 'ms' | 'zh');
+
+  if (!feedbackResult.stored) {
+    console.warn(`[Dispatch] US-869: Failed to store rating=${rating} for phone=${phone}`);
+  }
+
+  // Send follow-up message if applicable (low ratings get empathetic message, high ratings get thank you)
+  if (feedbackResult.followUp) {
+    state.response = feedbackResult.followUp;
+  } else {
+    // Rating of 3 (neutral) — acknowledge and thank
+    const messages: Record<string, string> = {
+      en: 'Thank you for your feedback! We appreciate it.',
+      ms: 'Terima kasih atas maklum balas anda! Kami menghargainya.',
+      zh: '感谢您的反馈！我们感谢您的意见。'
+    };
+    state.response = messages[lang as string] || messages.en;
+  }
+}
+
+async function handleProductCard(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const lang = state.lang || 'en';
+  const itemQuery = extractItemNameFromQuery(state.processText);
+
+  if (!itemQuery || itemQuery.length < 2) {
+    // Can't extract item name — fall back to LLM reply
+    state.response = result.response;
+    console.log(`[Dispatch] US-885: no item name extracted from "${state.processText}", using LLM reply`);
+    return;
+  }
+
+  // Fetch structured menu items from FnB MCP
+  const menuItems = await fetchMenuItems();
+
+  if (menuItems.length === 0) {
+    // MCP down or no items — fall back to LLM reply
+    state.response = result.response;
+    console.log(`[Dispatch] US-885: fetchMenuItems returned empty, using LLM reply`);
+    return;
+  }
+
+  // Fuzzy match the extracted item name
+  const matches = findMenuItemMatches(itemQuery, menuItems, { threshold: 4, maxResults: 1 });
+
+  if (matches.length === 0) {
+    // No match found — fall back to LLM reply
+    state.response = result.response;
+    console.log(`[Dispatch] US-885: no fuzzy match for "${itemQuery}", using LLM reply`);
+    return;
+  }
+
+  const matched = matches[0];
+  const productItem: ProductCardItem = {
+    code: matched.code,
+    name: matched.name,
+    price: matched.price,
+    category: matched.category,
+    available: matched.available,
+  };
+
+  // Check catalog configuration
+  const settings = context.getSettings();
+  const catalogConfig = (settings as any).catalog as CatalogConfig | undefined;
+  const isWhatsApp = Boolean(state.msg.instanceId);
+
+  if (catalogConfig?.enabled && catalogConfig.catalogId && catalogConfig.businessJid && isWhatsApp) {
+    // Catalog mode: send native product message
+    try {
+      const payload = buildProductMessage(productItem, catalogConfig);
+      state.interactivePayload = payload;
+      state.response = productCardToText(productItem, lang); // text fallback
+      console.log(`[Dispatch] US-885: built catalog product message for "${matched.name}"`);
+      return;
+    } catch (err: any) {
+      console.warn(`[Dispatch] US-885: catalog product message failed (${err.message}), using button fallback`);
+    }
+  }
+
+  if (isWhatsApp) {
+    // Button fallback: item details + "Add to cart" button
+    try {
+      const payload = buildProductCardButtons(productItem, lang);
+      state.interactivePayload = payload;
+      state.response = productCardToText(productItem, lang); // text fallback if interactive fails
+      console.log(`[Dispatch] US-885: built product card buttons for "${matched.name}"`);
+      return;
+    } catch (err: any) {
+      console.warn(`[Dispatch] US-885: button message failed (${err.message}), using text fallback`);
+    }
+  }
+
+  // Text-only fallback (webchat or errors)
+  state.response = productCardToText(productItem, lang);
+  console.log(`[Dispatch] US-885: text-only product card for "${matched.name}"`);
+}
+
+// ─── WhatsApp list message limits ───────────────────────────────────────────
+const MENU_LIST_MAX_SECTIONS = 3;
+const MENU_LIST_MAX_ITEMS_PER_SECTION = 3; // 3 sections × 3 items = 9 rows < 10 limit
+
+/**
+ * US-872: Build and send a WhatsApp interactive list message for menu browsing.
+ *
+ * Fetches menu items from FnB MCP, groups them by category (up to 3 sections,
+ * 3 items each), and builds a Baileys listMessage payload. Falls back to plain-text
+ * menu when:
+ *   - interactiveMessages is disabled in settings
+ *   - msg.instanceId is absent (webchat / non-WhatsApp channel)
+ *   - FnB MCP is unreachable or returns no structured data
+ *
+ * Row IDs follow the format `add to cart: ITEMNAME` so that when the user selects
+ * a row, the incoming text is immediately recognised as ORDER_ITEM_ADD by the LLM tier.
+ */
+async function handleMenuBrowseInteractive(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const settings = context.getSettings();
+  const interactiveEnabled = (settings as any).interactiveMessages?.enabled;
+  const isWhatsApp = Boolean(state.msg.instanceId);
+
+  // Text fallback for non-WhatsApp channels or when interactive is disabled
+  if (!interactiveEnabled || !isWhatsApp) {
+    await _menuBrowseTextFallback(state);
+    return;
+  }
+
+  // Fetch structured menu items from FnB MCP
+  const items = await fetchMenuItems();
+
+  if (items.length === 0) {
+    await _menuBrowseTextFallback(state);
+    return;
+  }
+
+  // Group items by category
+  const categoryMap = new Map<string, typeof items>();
+  for (const item of items) {
+    const cat = item.category || 'Others';
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat)!.push(item);
+  }
+
+  // Build list sections — cap at MENU_LIST_MAX_SECTIONS × MENU_LIST_MAX_ITEMS_PER_SECTION
+  const sections: import('../../formatter.js').ListSection[] = [];
+  for (const [cat, catItems] of Array.from(categoryMap.entries()).slice(0, MENU_LIST_MAX_SECTIONS)) {
+    const rows = catItems.slice(0, MENU_LIST_MAX_ITEMS_PER_SECTION).map(item => ({
+      rowId: `add to cart: ${item.name}`,
+      title: item.name.slice(0, 24),
+      ...(item.price !== undefined ? { description: `RM ${item.price.toFixed(2)}` } : {}),
+    }));
+    if (rows.length > 0) {
+      sections.push({ title: cat.slice(0, 24), rows });
+    }
+  }
+
+  if (sections.length < 1) {
+    await _menuBrowseTextFallback(state);
+    return;
+  }
+
+  const lang = state.lang || 'en';
+  const i18n: Record<string, { title: string; description: string; buttonText: string }> = {
+    en: { title: 'Makan Moments Menu', description: 'Tap an item to add it to your cart 🛒', buttonText: 'View Menu' },
+    ms: { title: 'Menu Makan Moments', description: 'Ketik item untuk tambah ke troli 🛒', buttonText: 'Lihat Menu' },
+    zh: { title: 'Makan Moments菜单', description: '点击菜品加入购物车 🛒', buttonText: '查看菜单' },
+  };
+  const t = i18n[lang] || i18n.en;
+
+  try {
+    const payload = buildListMessage(t.title, t.description, t.buttonText, sections);
+    state.interactivePayload = payload;
+    state.response = t.description; // Plain-text fallback used if interactive send fails
+    console.log(`[Dispatch] US-872: built menu list message (${sections.length} sections, makan-moments)`);
+  } catch (err: any) {
+    console.warn(`[Dispatch] US-872: buildListMessage failed (${err.message}), falling back to text`);
+    await _menuBrowseTextFallback(state);
+  }
+}
+
+/** Serve a plain-text menu as a text fallback (US-872). */
+async function _menuBrowseTextFallback(state: PipelineState): Promise<void> {
+  const result = await fnbGetMenu({ _profileId: state.profileId });
+  if (result.isError || !result.content[0]?.text) {
+    const lang = state.lang || 'en';
+    const msgs: Record<string, string> = {
+      en: 'Here\'s our menu — tap any item or type its name to order! 🍽️',
+      ms: 'Ini menu kami — ketik nama item untuk memesan! 🍽️',
+      zh: '这是我们的菜单 — 输入菜品名称即可下单！🍽️',
+    };
+    state.response = msgs[lang] || msgs.en;
+  } else {
+    state.response = result.content[0].text;
   }
 }
 
@@ -663,6 +989,97 @@ async function handleMenuSpecials(
 }
 
 /**
+ * US-870: Handle MENU_RECOMMEND intent
+ * Surfaces the top 3-5 most popular / featured items when guest is undecided.
+ * Falls back to featured items if dedicated popular endpoint is unavailable.
+ */
+async function handleMenuRecommend(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const lang = state.convo.language || 'en';
+  const LIMIT = 5;
+
+  console.log(`[Dispatch] US-870 MENU_RECOMMEND: fetching popular items for profile=${state.profileId}, limit=${LIMIT}`);
+
+  const result = await fnbGetPopularItems({ _profileId: state.profileId, limit: LIMIT });
+
+  if (result.isError) {
+    const errorMessages: Record<string, string> = {
+      en: "I'm unable to fetch recommendations right now. Please ask our staff — they'll be happy to suggest something delicious! 😊",
+      ms: "Maaf, saya tidak dapat mendapatkan cadangan buat masa ini. Sila tanya staf kami — mereka akan senang membantu! 😊",
+      zh: "抱歉，我现在无法获取推荐。请询问我们的员工——他们很乐意为您推荐美食！😊"
+    };
+    state.response = errorMessages[lang] || errorMessages.en;
+    return;
+  }
+
+  const text = (result.content[0]?.text || '').trim();
+
+  if (!text) {
+    const emptyMessages: Record<string, string> = {
+      en: "I don't have popularity data right now, but everything on our menu is made with love! Would you like to see the full menu?",
+      ms: "Saya tiada data populariti buat masa ini, tetapi semua dalam menu kami dibuat dengan penuh kasih sayang! Nak tengok menu penuh?",
+      zh: "我现在没有人气数据，但我们菜单上的每道菜都是用心烹制的！要看完整菜单吗？"
+    };
+    state.response = emptyMessages[lang] || emptyMessages.en;
+    return;
+  }
+
+  const headerMessages: Record<string, string> = {
+    en: `Here are our most popular dishes right now! ⭐`,
+    ms: `Ini hidangan paling popular kami sekarang! ⭐`,
+    zh: `这是我们现在最受欢迎的菜肴！⭐`
+  };
+
+  const ctaMessages: Record<string, string> = {
+    en: `\n\nWant me to add any of these to your order? Just let me know! 😊`,
+    ms: `\n\nMahu saya tambahkan mana-mana ke pesanan anda? Beritahu saya sahaja! 😊`,
+    zh: `\n\n要我把其中一道加入您的订单吗？告诉我就行！😊`
+  };
+
+  const header = headerMessages[lang] || headerMessages.en;
+  const cta = ctaMessages[lang] || ctaMessages.en;
+  state.response = `${header}\n\n${text}${cta}`;
+}
+
+/**
+ * US-880: Tier 1 — Ask user to rephrase (first consecutive unknown).
+ * Uses profile-specific message from settings.tiered_fallback.tier1 or a built-in default.
+ */
+function buildTier1RephraseMessage(
+  settings: any,
+  lang: 'en' | 'ms' | 'zh' | 'ta'
+): string {
+  const configured = settings.tiered_fallback?.tier1?.[lang]
+    || settings.tiered_fallback?.tier1?.en;
+  if (configured) return configured;
+
+  const defaults: Record<string, string> = {
+    en: "I'm sorry, I didn't quite catch that. Could you rephrase or give me more detail? I'm happy to help! 😊",
+    ms: "Maaf, saya kurang faham. Boleh anda ulang dengan cara lain atau beri lebih butiran? Saya sedia membantu! 😊",
+    zh: "抱歉，我没太明白您的意思。能换个方式或提供更多详情吗？我很乐意帮忙！😊",
+    ta: "மன்னிக்கவும், நான் புரிந்துகொள்ளவில்லை. வேறொரு விதத்தில் சொல்ல முடியுமா? நான் உதவ தயாராக இருக்கிறேன்! 😊",
+  };
+  return defaults[lang] || defaults.en;
+}
+
+/**
+ * US-880: Tier 2 default capabilities when no suggestions are configured.
+ */
+function buildTier2DefaultCapabilities(lang: 'en' | 'ms' | 'zh' | 'ta'): string {
+  const msgs: Record<string, string> = {
+    en: "Here's what I can help with:\n\n1. Room pricing & availability\n2. Check-in / check-out info\n3. Facilities & WiFi\n4. Location & directions\n5. Contact staff\n\nType a number or ask your question again.",
+    ms: "Ini yang boleh saya bantu:\n\n1. Harga & ketersediaan bilik\n2. Info check-in / check-out\n3. Kemudahan & WiFi\n4. Lokasi & arah\n5. Hubungi staf\n\nTaip nombor atau tanya semula soalan anda.",
+    zh: "我可以帮助您：\n\n1. 房价与空房查询\n2. 入住/退房信息\n3. 设施与WiFi\n4. 位置与路线\n5. 联系工作人员\n\n请输入数字或重新提问。",
+    ta: "நான் உதவக்கூடியவை:\n\n1. அறை விலை & கிடைக்கும் தன்மை\n2. செக்-இன் / செக்-அவுட் தகவல்\n3. வசதிகள் & WiFi\n4. இடம் & திசைகள்\n5. ஊழியர்களை தொடர்பு கொள்ளுங்கள்\n\nஒரு எண்ணை தட்டச்சு செய்யுங்கள் அல்லது மீண்டும் கேளுங்கள்.",
+  };
+  return msgs[lang] || msgs.en;
+}
+
+/**
  * US-445: Build a structured suggestion response from fallback.suggestions config.
  * Returns a numbered text list of suggested options for the user to pick from.
  */
@@ -757,246 +1174,4 @@ function logLanguageResolution(
   if (responseLang !== lang && result.detectedLanguage !== 'unknown') {
     console.log(`[Dispatch] Language resolved (${context}): '${lang}' → '${responseLang}'`);
   }
-}
-
-/**
- * US-870: Handle food_recommendation / popular items intent.
- *
- * Flow:
- *   1. Call fnbGetPopularItems for top-ordered dishes (limit 5)
- *   2. Format response with name, price, and one-line description per item
- *   3. Fall back to featured/bestseller items if popularity data unavailable
- *   4. Guest can pick any item directly from the recommendation list
- */
-async function handlePopularItems(
-  state: PipelineState,
-  context: IPipelineContext
-): Promise<void> {
-  context.resetUnknown(state.phone);
-
-  const lang = state.convo.language || 'en';
-
-  console.log(`[Dispatch] US-870 POPULAR_ITEMS: fetching popular items for profile=${state.profileId}`);
-
-  const result = await fnbGetPopularItems({ _profileId: state.profileId, limit: 5 });
-
-  if (result.isError) {
-    const errorMessages: Record<string, string> = {
-      en: "I'm unable to check our popular items right now. Would you like to see the full menu instead? Just type \"menu\".",
-      ms: "Maaf, saya tidak dapat menyemak hidangan popular buat masa ini. Nak tengok menu penuh? Taip \"menu\".",
-      zh: "抱歉，我现在无法查看热门菜品。要看完整菜单吗？请输入\"菜单\"。"
-    };
-    state.response = errorMessages[lang] || errorMessages.en;
-    return;
-  }
-
-  const text = result.content[0]?.text || '';
-
-  if (!text || text.trim().length === 0) {
-    // No popularity data — offer full menu
-    const noDataMessages: Record<string, string> = {
-      en: "I don't have popularity data right now, but our menu is full of great choices! Would you like to see the full menu? Just type \"menu\".",
-      ms: "Saya tiada data populariti buat masa ini, tetapi menu kami penuh dengan pilihan hebat! Nak tengok menu penuh? Taip \"menu\".",
-      zh: "我暂时没有人气数据，但我们的菜单有很多好选择！要看完整菜单吗？请输入\"菜单\"。"
-    };
-    state.response = noDataMessages[lang] || noDataMessages.en;
-    return;
-  }
-
-  // Format popular items response
-  state.response = formatPopularItemsResponse(text, lang);
-}
-
-/**
- * US-870: Format popular items into a friendly recommendation message.
- * Each item line is expected as "CODE Name - RM X.XX" or "Name - RM X.XX".
- */
-function formatPopularItemsResponse(itemsText: string, lang: string): string {
-  const headerMessages: Record<string, string> = {
-    en: "Here are our most popular dishes, loved by most guests!",
-    ms: "Ini hidangan paling popular kami, kegemaran ramai tetamu!",
-    zh: "这些是我们最受欢迎的菜品，深受大多数客人喜爱！"
-  };
-
-  const footerMessages: Record<string, string> = {
-    en: "\nJust tell me the name or number of any item to add it to your order!",
-    ms: "\nBeritahu saya nama atau nombor item untuk menambahnya ke pesanan anda!",
-    zh: "\n告诉我菜品名称或编号即可加入您的订单！"
-  };
-
-  const header = headerMessages[lang] || headerMessages.en;
-  const footer = footerMessages[lang] || footerMessages.en;
-
-  // Number the items for easy selection
-  const lines = itemsText.split('\n').filter(l => l.trim());
-  const numbered = lines.map((line, i) => `${i + 1}. ${line.trim()}`);
-
-  return `${header}\n\n${numbered.join('\n')}${footer}`;
-}
-
-/**
- * US-885: Handle MENU_ITEM_DETAIL intent — extract item name from message,
- * look up the item via fuzzy match and FnB MCP, and send a product card.
- *
- * Flow:
- *   1. Extract item name from user's message (strip "tell me about", "what is", etc.)
- *   2. Fuzzy match against menu items
- *   3. Single match → build product card with buttons
- *   4. Multiple matches → show disambiguation list
- *   5. No match → friendly "item not found" message
- */
-async function handleMenuItemDetail(
-  state: PipelineState,
-  context: IPipelineContext
-): Promise<void> {
-  context.resetUnknown(state.phone);
-
-  const lang = state.convo.language || 'en';
-  const itemName = extractItemName(state.processText);
-
-  if (!itemName) {
-    const fallbackMessages: Record<string, string> = {
-      en: "I'd be happy to tell you about any menu item! Could you specify which dish you'd like to know about? You can also type \"menu\" to see our full menu.",
-      ms: "Saya dengan senang hati akan ceritakan tentang menu kami! Hidangan mana yang anda ingin tahu? Anda juga boleh taip \"menu\" untuk lihat menu penuh.",
-      zh: '我很乐意为您介绍菜单上的任何菜品！请问您想了解哪道菜？也可以输入\u201C菜单\u201D查看完整菜单。'
-    };
-    state.response = fallbackMessages[lang] || fallbackMessages.en;
-    return;
-  }
-
-  console.log(`[Dispatch] US-885 MENU_ITEM_DETAIL: looking up "${itemName}" for profile=${state.profileId}`);
-
-  // Fetch menu items and fuzzy match
-  const menuItems = await fetchMenuItems();
-  const matches = findMenuItemMatches(itemName, menuItems, { threshold: 4, maxResults: 5 });
-
-  if (matches.length === 0) {
-    const notFoundMessages: Record<string, string> = {
-      en: `I couldn't find "${itemName}" on our menu. Would you like to see the full menu? Just type "menu".`,
-      ms: `Saya tidak jumpa "${itemName}" dalam menu kami. Nak tengok menu penuh? Taip "menu".`,
-      zh: `我在菜单上找不到\u201C${itemName}\u201D。要看完整菜单吗？请输入\u201C菜单\u201D。`
-    };
-    state.response = notFoundMessages[lang] || notFoundMessages.en;
-    return;
-  }
-
-  if (matches.length === 1) {
-    // Single match → product card
-    const match = matches[0];
-    let cardItem: ProductCardItem = {
-      name: match.name,
-      code: match.code,
-      price: match.price,
-      category: match.category,
-    };
-
-    // Try to get full details from FnB MCP for richer data
-    if (match.code) {
-      try {
-        const detailResult = await fnbGetMenuItem({ code: match.code, _profileId: state.profileId });
-        if (!detailResult.isError) {
-          const detailText = detailResult.content[0]?.text || '';
-          const parsed = parseItemDetail(detailText);
-          if (parsed) {
-            cardItem = { ...cardItem, ...parsed };
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[Dispatch] US-885: Failed to fetch item detail for ${match.code}:`, err.message);
-      }
-    }
-
-    // Build product card
-    const settings = context.getSettings();
-    const interactiveEnabled = (settings as any).interactiveMessages?.enabled;
-
-    if (interactiveEnabled) {
-      try {
-        state.interactivePayload = buildProductCardButtons(cardItem, lang);
-        state.response = productCardToText(cardItem, lang); // text fallback
-        console.log(`[Dispatch] US-885: Built product card for "${match.name}" with interactive buttons`);
-      } catch (err: any) {
-        console.warn(`[Dispatch] US-885: Failed to build interactive card, using text fallback:`, err.message);
-        state.response = productCardToText(cardItem, lang);
-      }
-    } else {
-      state.response = productCardToText(cardItem, lang);
-    }
-    return;
-  }
-
-  // Multiple matches → disambiguation list
-  const headerMessages: Record<string, string> = {
-    en: `I found several items matching "${itemName}". Which one did you mean?`,
-    ms: `Saya jumpa beberapa item yang sepadan dengan "${itemName}". Yang mana satu?`,
-    zh: `我找到了几个与\u201C${itemName}\u201D匹配的菜品。您指的是哪个？`
-  };
-
-  const lines = [headerMessages[lang] || headerMessages.en, ''];
-  matches.forEach((m, i) => {
-    const priceStr = m.price ? ` — RM ${m.price.toFixed(2)}` : '';
-    const catStr = m.category ? ` (${m.category})` : '';
-    lines.push(`${i + 1}. ${m.name}${catStr}${priceStr}`);
-  });
-
-  const footerMessages: Record<string, string> = {
-    en: '\nReply with a number or the item name for more details.',
-    ms: '\nBalas dengan nombor atau nama item untuk maklumat lanjut.',
-    zh: '\n回复数字或菜品名称了解更多。'
-  };
-  lines.push(footerMessages[lang] || footerMessages.en);
-
-  state.response = lines.join('\n');
-}
-
-/**
- * US-885: Extract the item name from a user's message about a menu item.
- * Strips common question prefixes like "tell me about", "what is", etc.
- */
-function extractItemName(text: string): string | null {
-  const stripped = text
-    .replace(/\b(tell\s+me\s+(more\s+)?about|what\s+is\s+(the\s+)?|what's\s+(the\s+)?|describe\s+(the\s+)?|info\s+(on|about)\s+(the\s+)?|details?\s+(of|on|about|for)\s+(the\s+)?|how\s+is\s+(the\s+)?|is\s+the\s+|what\s+(comes?|does\s+it)\s+(with|include)\s+|ingredients?\s+(of|in)\s+(the\s+)?)/gi, '')
-    .replace(/\b(apa\s+(itu|tu)\s+|ceritakan\s+(tentang\s+)?|maklumat\s+(tentang|pasal)\s+|lebih\s+lanjut\s+tentang\s+|sedap\s+tak\s+)/gi, '')
-    .replace(/(介绍|什么是|告诉我|这个怎么样|有什么|里面有什么)/g, '')
-    .replace(/[?？。.!！]+$/g, '')
-    .trim();
-
-  // Must have at least 2 chars to be a meaningful item name
-  return stripped.length >= 2 ? stripped : null;
-}
-
-/**
- * US-885: Parse item detail from FnB MCP response text into structured data.
- */
-function parseItemDetail(text: string): Partial<ProductCardItem> | null {
-  if (!text || text.trim().length === 0) return null;
-
-  const result: Partial<ProductCardItem> = {};
-
-  // Extract description (first paragraph or first few lines)
-  const lines = text.split('\n').filter(l => l.trim());
-  const descLines: string[] = [];
-  for (const line of lines) {
-    if (/^(code|price|category|allergen|dietary|RM\s)/i.test(line.trim())) continue;
-    if (/^[\*_]*(code|price|category|allergen|dietary)/i.test(line.trim())) continue;
-    descLines.push(line.trim());
-    if (descLines.length >= 3) break;
-  }
-  if (descLines.length > 0) result.description = descLines.join('\n');
-
-  // Extract allergens
-  const allergenMatch = text.match(/allergens?:?\s*(.+)/i);
-  if (allergenMatch) {
-    const allergens = allergenMatch[1].split(/[,;]/).map(a => a.trim()).filter(Boolean);
-    if (allergens.length > 0) result.allergens = allergens;
-  }
-
-  // Extract dietary flags
-  const dietaryMatch = text.match(/dietary[_ ]?flags?:?\s*(.+)/i);
-  if (dietaryMatch) {
-    const flags = dietaryMatch[1].split(/[,;]/).map(f => f.trim()).filter(Boolean);
-    if (flags.length > 0) result.dietary_flags = flags;
-  }
-
-  return Object.keys(result).length > 0 ? result : null;
 }

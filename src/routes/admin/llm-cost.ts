@@ -4,7 +4,7 @@ import { db } from '../../lib/db.js';
 import { sql } from 'drizzle-orm';
 import { ok, serverError } from './http-utils.js';
 import { getStore } from './http-utils.js';
-import { queryDailyCosts, getProviderDailyCost } from '../../assistant/llm-cost-budget.js';
+import { queryDailyCosts, getProviderDailyCost, getGlobalBudgetStatus } from '../../assistant/llm-cost-budget.js';
 
 const router = Router();
 
@@ -121,7 +121,13 @@ router.get('/analytics/llm-cost', async (req: Request, res: Response) => {
       };
     });
 
+    // US-903: Include global daily budget status
+    const globalBudget = getGlobalBudgetStatus();
+
     ok(res, {
+      currentDayUsd: globalBudget.currentDayUsd,
+      budgetUsd: globalBudget.budgetUsd,
+      budgetPctUsed: globalBudget.budgetPctUsed,
       byProfile: profileStats,
       averagePerConversation: {
         conversationCount: Number(avgRow.conversation_count ?? 0),

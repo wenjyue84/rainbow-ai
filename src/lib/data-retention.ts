@@ -12,10 +12,11 @@
 
 import cron from 'node-cron';
 import { db } from './db.js';
-import { rainbowMessages, rainbowConversations, webhookRawEvents } from '../../shared/schema-tables.js';
+import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
 import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { configStore } from '../assistant/config-store.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
+import { pruneRawEvents } from './webhook-raw-events.js';
 
 // ─── Config ──────────────────────────────────────────────────────────
 
@@ -110,7 +111,6 @@ export interface PurgeResult {
     messages_hard: number;
     conversations_soft: number;
     conversations_hard: number;
-    rawEvents: number; // US-895: webhook_raw_events pruned (30-day retention)
   };
   cutoff_date: string;
   hard_cutoff_date: string;
@@ -129,7 +129,7 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     const profile = profileId ?? 'pelangi';
     const result: PurgeResult = {
       profile,
-      records_deleted: { messages_soft: 0, messages_hard: 0, conversations_soft: 0, conversations_hard: 0, rawEvents: 0 },
+      records_deleted: { messages_soft: 0, messages_hard: 0, conversations_soft: 0, conversations_hard: 0 },
       cutoff_date: new Date().toISOString(),
       hard_cutoff_date: new Date().toISOString(),
       timestamp: new Date().toISOString(),
@@ -168,19 +168,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
     .returning({ phone: rainbowConversations.phone });
 
-  // 5. US-895: Prune raw webhook events older than 30 days
-  const rawEventCutoff = new Date(now.getTime() - 30 * 86_400_000);
-  let rawEventsPruned = 0;
-  try {
-    const pruned = await db
-      .delete(webhookRawEvents)
-      .where(lt(webhookRawEvents.receivedAt, rawEventCutoff))
-      .returning({ eventId: webhookRawEvents.eventId });
-    rawEventsPruned = pruned.length;
-  } catch (err: any) {
-    console.error('[DataRetention] Failed to prune raw webhook events:', err.message);
-  }
-
   const profile = profileId ?? 'pelangi';
   const result: PurgeResult = {
     profile,
@@ -189,7 +176,6 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
       messages_hard: hardMessages.length,
       conversations_soft: softConversations.length,
       conversations_hard: hardConversations.length,
-      rawEvents: rawEventsPruned,
     },
     cutoff_date: cutoffDate.toISOString(),
     hard_cutoff_date: hardCutoffDate.toISOString(),
@@ -213,6 +199,15 @@ export function startRetentionScheduler(): void {
       console.log(`[DataRetention] Purge complete — messages: ${result.records_deleted.messages_soft} soft / ${result.records_deleted.messages_hard} hard deleted`);
     } catch (err: any) {
       console.error('[DataRetention] Purge failed:', err.message);
+    }
+    // US-895: Prune processed raw webhook events older than 30 days
+    try {
+      const pruned = await pruneRawEvents(30);
+      if (pruned > 0) {
+        console.log(`[DataRetention] Pruned ${pruned} processed raw webhook events`);
+      }
+    } catch (err: any) {
+      console.error('[DataRetention] Raw event prune failed:', err.message);
     }
   }, {
     timezone: 'Asia/Kuala_Lumpur',

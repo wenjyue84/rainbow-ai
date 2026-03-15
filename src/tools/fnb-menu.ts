@@ -262,50 +262,31 @@ function formatSpecialsResponse(text: string): string {
 }
 
 /**
- * US-870: Get popular/most-ordered items.
- * Tries fnb_get_popular_items MCP endpoint first;
- * falls back to fnb_get_menu and picks items tagged as featured/bestseller.
+ * US-870: Get popular / recommended items.
+ * Tries fnb_get_popular_items MCP endpoint first; falls back to fnb_get_menu
+ * with isFeatured=true or isBestseller=true filter.
+ * Returns up to `limit` items (default 5).
  */
-export async function fnbGetPopularItems(args: { _profileId?: string; limit?: number }): Promise<MCPToolResult> {
-  const profileId = args._profileId || 'makan-moments';
-  const limit = args.limit || 5;
+export async function fnbGetPopularItems(args: {
+  _profileId?: string;
+  limit?: number;
+}): Promise<MCPToolResult> {
+  const limit = args.limit ?? 5;
 
-  // Try dedicated popular items endpoint
-  const result = await callFnbMcp('fnb_get_popular_items', { limit });
+  // Try dedicated popular items endpoint first
+  let result = await callFnbMcp('fnb_get_popular_items', { limit });
 
-  if (!result.isError) {
-    const text = result.content[0]?.text || '';
-    if (text.trim().length > 0) return result;
+  // Fallback 1: featured items
+  if (result.isError) {
+    result = await callFnbMcp('fnb_get_menu', { is_featured: true });
   }
 
-  // Fallback: fetch full menu and pick featured/bestseller items
-  console.log(`[fnb-menu] US-870: fnb_get_popular_items unavailable, falling back to menu scan`);
-  const menuResult = await callFnbMcp('fnb_get_menu', {});
-  if (menuResult.isError) return menuResult;
-
-  const menuText = menuResult.content[0]?.text || '';
-  const items = parseMenuFromText(menuText);
-
-  // Pick items tagged as featured/bestseller in the text, or just the first N items
-  const featuredPattern = /\b(featured|bestseller|best seller|popular|top|recommended|signature)\b/i;
-  const featured = items.filter(item =>
-    featuredPattern.test(item.name) || (item.category && featuredPattern.test(item.category))
-  );
-
-  const selected = featured.length >= 2 ? featured.slice(0, limit) : items.slice(0, limit);
-
-  if (selected.length === 0) {
-    return {
-      content: [{ type: 'text', text: '' }],
-    };
+  // Fallback 2: bestseller-tagged items
+  if (result.isError) {
+    result = await callFnbMcp('fnb_get_menu', { is_bestseller: true });
   }
 
-  const lines = selected.map(item => {
-    const priceStr = item.price ? ` - RM ${item.price.toFixed(2)}` : '';
-    return `${item.code ? `${item.code} ` : ''}${item.name}${priceStr}`;
-  });
-
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  return result;
 }
 
 // ─── Structured Menu Item Fetch (for disambiguation) ──────────────────────────

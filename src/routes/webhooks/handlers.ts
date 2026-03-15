@@ -10,6 +10,11 @@
 import { createModuleLogger } from '../../lib/logger.js';
 import { notifyAdminDisconnection } from '../../lib/admin-notifier.js';
 import { loadAdminNotificationSettings } from '../../lib/admin-notification-settings.js';
+import { markKitchenAccepted } from '../../assistant/order-modification-store.js';
+import { isFeedbackRequested, markFeedbackRequested, getPhoneByOrderId } from '../../assistant/order-id-store.js';
+import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
+import { db } from '../../lib/db.js';
+import { rainbowFeedback, insertRainbowFeedbackSchema } from '../../../shared/schema.js';
 
 const logger = createModuleLogger('WebhookHandlers');
 
@@ -91,6 +96,143 @@ async function handleCheckoutCompleted(event: WebhookEvent): Promise<void> {
   logger.info('Received checkout_completed', { bookingRef, guestName, unit });
 }
 
+/**
+ * Handle kitchen_accepted events (US-881).
+ * Closes the order modification window when the kitchen/POS accepts the order.
+ * Payload: { type: "kitchen_accepted", orderId: "MM-A1B2" }
+ */
+async function handleKitchenAccepted(event: WebhookEvent): Promise<void> {
+  const { orderId } = event as { orderId?: string; [key: string]: unknown };
+  if (!orderId) {
+    logger.warn('kitchen_accepted event missing orderId');
+    return;
+  }
+  const found = markKitchenAccepted(orderId);
+  logger.info('kitchen_accepted processed', { orderId, windowClosed: found });
+}
+
+/**
+ * Handle order_served events (US-869).
+ * Sends a feedback request when an order is marked as served.
+ * Payload: { type: "order_served", orderId: "MM-A1B2" }
+ */
+async function handleOrderServed(event: WebhookEvent): Promise<void> {
+  const { orderId } = event as { orderId?: string; [key: string]: unknown };
+  if (!orderId) {
+    logger.warn('order_served event missing orderId');
+    return;
+  }
+
+  // Check if feedback was already requested for this order
+  if (isFeedbackRequested(orderId)) {
+    logger.info('Feedback already requested for order', { orderId });
+    return;
+  }
+
+  // Get the phone number for this order
+  const phone = getPhoneByOrderId(orderId);
+  if (!phone) {
+    logger.warn('Could not find phone for order', { orderId });
+    return;
+  }
+
+  // Mark feedback as requested to prevent duplicate requests
+  markFeedbackRequested(orderId);
+
+  // Determine if this is WhatsApp (numeric phone) or webchat (starts with 'webchat-')
+  const isWhatsApp = /^\d+$/.test(phone);
+
+  if (isWhatsApp) {
+    // Send feedback request via WhatsApp
+    const feedbackMessage = 'Hope you enjoyed your meal! Rate your experience: 1 to 5 stars';
+    try {
+      await sendWhatsAppMessage(phone, feedbackMessage);
+      logger.info('Sent feedback request via WhatsApp', { phone, orderId });
+    } catch (error) {
+      logger.error('Failed to send feedback request via WhatsApp', { phone, orderId, error });
+    }
+  } else {
+    // For webchat, we would need to send via a different mechanism
+    // For now, we log that feedback was requested and rely on next interaction
+    logger.info('Marked feedback as requested for webchat order', { phone, orderId });
+  }
+}
+
+/**
+ * Handle reaction webhook events (US-886).
+ * Process incoming WhatsApp reaction events (emoji reactions to bot messages)
+ * and use them as lightweight CSAT feedback signals.
+ * Payload: { type: "reaction", phone: "1234567890", messageId: "...", emoji: "👍" or "👎" }
+ */
+async function handleReaction(event: WebhookEvent): Promise<void> {
+  const { phone, messageId, emoji } = event as {
+    phone?: string;
+    messageId?: string;
+    emoji?: string;
+    [key: string]: unknown;
+  };
+
+  if (!phone || !messageId || !emoji) {
+    logger.warn('reaction event missing required fields', { phone, messageId, emoji });
+    return;
+  }
+
+  // Map emoji to CSAT rating: thumbs-up = 1 (positive), thumbs-down = -1 (negative)
+  let rating: number | null = null;
+  if (emoji === '👍' || emoji === ':+1:' || emoji === 'thumbsup') {
+    rating = 1;
+  } else if (emoji === '👎' || emoji === ':-1:' || emoji === 'thumbsdown') {
+    rating = -1;
+  } else {
+    // Other emojis are not mapped to CSAT; log and skip
+    logger.info('Reaction emoji not mapped to CSAT', { phone, emoji });
+    return;
+  }
+
+  // Generate a simple conversation ID using phone and current timestamp
+  // This matches the pattern used in routing.ts: `${phone}-${Date.now()}`
+  const conversationId = `${phone}-${Date.now()}`;
+
+  try {
+    // Validate and insert the feedback into rainbowFeedback table
+    const feedbackData = {
+      conversationId,
+      phoneNumber: phone,
+      messageId,
+      rating,
+      // feedbackText is left undefined/null for emoji-only reactions
+    };
+
+    const validated = insertRainbowFeedbackSchema.parse(feedbackData);
+    const [inserted] = await db.insert(rainbowFeedback).values(validated).returning();
+
+    logger.info('Reaction feedback recorded', {
+      phone,
+      messageId,
+      emoji,
+      rating,
+      feedbackId: inserted.id,
+    });
+
+    // If thumbs-down, send a follow-up message asking what went wrong
+    if (rating === -1) {
+      const followUpMessage =
+        'We\'re sorry to hear that! Could you let us know what went wrong so we can improve?';
+      try {
+        await sendWhatsAppMessage(phone, followUpMessage);
+        logger.info('Sent follow-up message for negative reaction', { phone });
+      } catch (error) {
+        logger.error('Failed to send follow-up message for negative reaction', {
+          phone,
+          error,
+        });
+      }
+    }
+  } catch (error) {
+    logger.error('Failed to process reaction event', { phone, messageId, emoji, error });
+  }
+}
+
 // ─── Handler Registry ────────────────────────────────────────────────────────
 
 /**
@@ -102,6 +244,9 @@ export const handlerRegistry: Record<string, WebhookHandler> = {
   booking_created: handleBookingCreated,
   checkin_completed: handleCheckinCompleted,
   checkout_completed: handleCheckoutCompleted,
+  kitchen_accepted: handleKitchenAccepted,
+  order_served: handleOrderServed,
+  reaction: handleReaction,
 };
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────

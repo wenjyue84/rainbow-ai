@@ -19,14 +19,14 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
-import { getWhatsAppStatus, whatsappManager, sendWhatsAppMessage } from './lib/baileys-client.js';
+import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
 import { pool, getPoolMetrics, initDb } from './lib/db.js';
 import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import fnbChatRoutes from './routes/public/fnb-chat.js';
-import dataPortabilityRoutes from './routes/public/data-portability.js';
+import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import { captureRawBody } from './lib/webhook-signature.js';
 import { safeRedirect } from './lib/safe-redirect.js';
@@ -48,7 +48,7 @@ import { loadOptOutCache } from './assistant/opt-out.js';
 import { startQualityMetricsJob } from './lib/quality-metrics.js';
 import { loadQualityStateFromDb } from './lib/phone-quality.js';
 import { checkMetaCACert } from './lib/meta-ca-check.js';
-import { loadTodayCosts } from './assistant/llm-cost-budget.js';
+import { loadTodayCosts, startBudgetAlertInterval } from './assistant/llm-cost-budget.js';
 import { loadTodayWhatsappCosts, startWhatsappCostDailyJob } from './lib/whatsapp-cost.js';
 import { isReady, markReady, markListening } from './lib/readiness.js';
 import {
@@ -58,11 +58,15 @@ import {
 } from './lib/slow-query-monitor.js';
 import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
+import { computeAvailability } from './assistant/business-hours.js';
+import type { BusinessHoursConfig } from './assistant/business-hours.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
-import { startWabaSubscriptionMonitor, getWebhookSubscriptionState } from './lib/waba-subscription-check.js';
-import { startPacingMonitor } from './lib/pacing-monitor.js';
-import { initCartIdleRecovery } from './assistant/cart-idle-recovery.js';
+import { migrateObsoleteTiers } from './routes/admin/messaging-limits.js';
+import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
+import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
+import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
+import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -177,16 +181,27 @@ try {
   console.warn('[Startup] Some DB config loads failed (using file fallbacks):', err.message);
 }
 
+// US-890: Migrate obsolete messaging tiers ('250'/'2000') to '10000'
+migrateObsoleteTiers().catch(err => console.warn('[Startup] Tier migration failed:', err?.message));
+
+// US-891: Load pacing state from DB and start pacing monitor
+loadPacingStateFromDb().catch(err => console.warn('[Startup] Pacing state load failed:', err?.message));
+startPacingMonitor();
+
+// US-892: Start WABA webhook subscription health check (30s delay, then every 6h)
+startWebhookHealthCheck();
+
+// US-884: Start booking sequence processor (60s polling for pre-arrival messages)
+startBookingSequenceProcessor();
+
 // US-433: Load today's LLM cost accumulators from DB
 loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost data:', err.message));
 
+// US-903: Start global LLM budget alert interval (every 30 min)
+startBudgetAlertInterval();
+
 // US-495: Load today's WhatsApp message cost accumulators from DB
 loadTodayWhatsappCosts().catch(err => console.warn('[Startup] Failed to load WhatsApp cost data:', err.message));
-
-// US-890: Auto-migrate legacy messaging tiers (250, 2000) → 10000 on startup
-import('./routes/admin/messaging-limits.js')
-  .then(m => m.migrateLegacyTiers())
-  .catch(err => console.warn('[Startup] Messaging tier migration skipped:', err.message));
 
 // US-495: Start daily WhatsApp cost aggregation log
 startWhatsappCostDailyJob();
@@ -199,12 +214,6 @@ startFallbackAlertScheduler();
 
 // US-836: Start SLA cron for human handoff breach alerts (runs every 2 min)
 startHandoffSlaCron();
-
-// US-892: WABA webhook subscription health check (startup + every 6 hours)
-startWabaSubscriptionMonitor();
-
-// US-891: Portfolio pacing monitor (startup + every 5 minutes)
-startPacingMonitor();
 
 // US-839: Daily PDPA breach deadline check (runs every 24h)
 setInterval(() => {
@@ -367,16 +376,9 @@ app.get('/webchat.html', (_req, res) => {
 });
 
 // US-893: Serve locally-downloaded WhatsApp media files.
-// Admin-only: guarded by the admin auth middleware mounted on /api/admin.
-// Static route is intentionally separate from /api to allow direct browser loads.
-app.use(
-  '/media',
-  express.static(join(process.cwd(), 'media'), {
-    dotfiles: 'deny',
-    index: false,
-    maxAge: '1d',
-  })
-);
+// Files are saved by media-downloader.ts under ./media/<YYYY-MM-DD>/<msgId>.<ext>
+// Admin conversation view references these as /media/... URLs.
+app.use('/media', express.static(MEDIA_BASE_DIR));
 
 // Serve dashboard static files (CSS, JS, images) with no-cache headers.
 // In dev, this MUST come before Vite middleware so that <link> and <script> tags
@@ -411,13 +413,13 @@ let _poolWaitingStreak = 0;
 
 // Health check endpoint (liveness — is the process alive?)
 app.get('/health', (req, res) => {
-  const wabaSubState = getWebhookSubscriptionState();
+  const webhookHealth = getWebhookHealthState();
   res.json({
     status: 'ok',
     service: 'pelangi-mcp-server',
     version: '1.0.0',
     whatsapp: getWhatsAppStatus().state,
-    webhookSubscribed: wabaSubState.skipped ? null : wabaSubState.webhookSubscribed,
+    webhookSubscribed: webhookHealth.webhookSubscribed,
     timestamp: new Date().toISOString()
   });
 });
@@ -649,8 +651,8 @@ app.use('/api/chat', webchatApiRoutes);
 // FnB AI Waiter chat (SSE streaming, makan-moments profile)
 app.use('/api/fnb', fnbChatRoutes);
 
-// US-894: PDPA self-service data portability (public, OTP-verified)
-app.use('/api/data-portability', dataPortabilityRoutes);
+// PDPA 2024 Phase 3 — self-service data portability (public, OTP-verified, US-894)
+app.use('/api/rainbow', gdprPortabilityRoutes);
 
 // Webchat page — serves branded chat UI per profile
 app.get('/chat/:profileId', (req, res) => {
@@ -675,9 +677,24 @@ app.get('/chat/:profileId', (req, res) => {
   // Read webchat HTML and inject profile config
   try {
     const html = readFileSync(WEBCHAT_HTML_PATH, 'utf-8');
-    const greeting = profile.configStore.getSettings()?.greeting
+    const settings = profile.configStore.getSettings() as any;
+    const greeting = settings?.greeting
       || `Hello! I'm the AI assistant for ${profile.name}. How can I help you today?`;
-    const profileData = JSON.stringify({ id: profile.id, name: profile.name, greeting });
+    // US-846: Compute availability from business hours config
+    const businessHours: BusinessHoursConfig | undefined = settings?.businessHours;
+    const { isAvailable, nextOpenTime } = computeAvailability(businessHours);
+    // US-905: Webchat onboarding quick-reply buttons
+    const onboarding = settings?.webchat_onboarding?.enabled
+      ? { enabled: true, buttons: settings.webchat_onboarding.buttons || [] }
+      : undefined;
+    const profileData = JSON.stringify({
+      id: profile.id,
+      name: profile.name,
+      greeting,
+      isAvailable,
+      nextOpenTime,
+      onboarding,
+    });
     const nonce = res.locals.cspNonce;
     const injected = html.replace(
       '<head>',
@@ -824,14 +841,6 @@ server.listen(PORT, '0.0.0.0', () => {
 
     // Initialize scheduled message checker (US-019)
     initScheduler();
-
-    // US-882: Initialize abandoned-cart recovery checker with WhatsApp support
-    const makanProfile = profileRegistry.getProfile('makan-moments');
-    const makanCartSettings = makanProfile?.configStore.getSettings() as any;
-    initCartIdleRecovery(
-      makanCartSettings?.cartIdleRecoveryMinutes,
-      sendWhatsAppMessage,
-    );
 
     // Initialize failover coordinator (primary/standby)
     const { failoverCoordinator } = await import('./lib/failover-coordinator.js');

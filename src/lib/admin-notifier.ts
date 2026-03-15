@@ -501,6 +501,52 @@ export async function notifyAdminQualityDegradation(
 }
 
 /**
+ * Send LLM global daily budget alert to system admin (US-903).
+ * Fires at 80% (warning) and 100% (critical) of the configured llmDailyBudgetUsd.
+ * Throttled: only one notification per severity per UTC day (handled by caller).
+ */
+export async function notifyAdminLLMBudgetAlert(
+  severity: 'warning' | 'critical',
+  currentDayUsd: number,
+  budgetUsd: number,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send LLM budget alert');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const pct = budgetUsd > 0 ? ((currentDayUsd / budgetUsd) * 100).toFixed(1) : '0';
+  const emoji = severity === 'critical' ? '🚨' : '⚠️';
+  const label = severity === 'critical' ? 'CRITICAL' : 'WARNING';
+
+  const rateLimitNote = severity === 'critical'
+    ? `\n🛑 *Rate limiting active:* New LLM calls are limited to 1 per 30 seconds per JID until UTC midnight.\n`
+    : '';
+
+  const message = `${emoji} *LLM Daily Budget ${label}*\n\n` +
+    `Daily Spend: *$${currentDayUsd.toFixed(4)}*\n` +
+    `Budget: *$${budgetUsd.toFixed(2)}*\n` +
+    `Usage: *${pct}%*\n` +
+    rateLimitNote +
+    `\n**Actions:**\n` +
+    `1. Check provider usage: GET /api/rainbow/llm-costs\n` +
+    `2. Review traffic for unusual spikes\n` +
+    `3. Adjust budget in settings if needed\n\n` +
+    `Budget resets at UTC midnight.\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info(`Sent LLM budget ${severity} notification`, { currentDayUsd, budgetUsd });
+  } catch (err: any) {
+    logger.error(`Failed to send LLM budget ${severity} notification`, { error: err.message });
+  }
+}
+
+/**
  * Send AI provider rate limit alert to system admin
  * Notifies when a provider hits too many consecutive 429 errors
  */
@@ -818,143 +864,5 @@ export async function notifyAdminBreachReport(
     logger.info('Sent breach report notification', { affectedCount });
   } catch (err: any) {
     logger.error('Failed to send breach report notification', { error: err.message });
-  }
-}
-
-/**
- * Send business capability (messaging tier) change alert to system admin (US-908).
- * Fires when a business_capability_update webhook reports a tier or phone number limit change.
- * Throttled to at most one notification per 10 minutes.
- */
-const CAPABILITY_UPDATE_COOLDOWN_MS = 10 * 60 * 1000;
-let lastCapabilityUpdateNotifyAt = 0;
-
-export async function notifyAdminCapabilityUpdate(
-  newTier: string,
-  maxPhoneNumbers: number | null,
-  previousTier: string | null,
-): Promise<void> {
-  if (!notificationContext) {
-    logger.warn('Not initialized — cannot send capability update notification');
-    return;
-  }
-
-  const now = Date.now();
-  if (now - lastCapabilityUpdateNotifyAt < CAPABILITY_UPDATE_COOLDOWN_MS) {
-    logger.info('Capability update notification skipped (cooldown)');
-    return;
-  }
-  lastCapabilityUpdateNotifyAt = now;
-
-  const settings = await loadAdminNotificationSettings();
-  if (!settings.enabled) return;
-
-  const tierChanged = previousTier && previousTier !== newTier;
-  const emoji = tierChanged ? '📈' : 'ℹ️';
-  const message = `${emoji} *WhatsApp Business Capability Update*\n\n` +
-    `Messaging Tier: *${newTier}*` +
-    (tierChanged ? ` (was: ${previousTier})` : '') + '\n' +
-    (maxPhoneNumbers != null ? `Max Phone Numbers: *${maxPhoneNumbers}*\n` : '') +
-    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
-    (tierChanged
-      ? `Your WhatsApp Business portfolio messaging tier has changed.\n` +
-        `This affects the maximum number of business-initiated conversations per day.\n\n`
-      : `Meta has confirmed your current business capabilities.\n\n`) +
-    `📊 View limits: GET /api/rainbow/analytics/messaging-limits`;
-
-  try {
-    await notificationContext.sendMessage(settings.systemAdminPhone, message);
-    logger.info('Sent capability update notification', { newTier, maxPhoneNumbers, previousTier });
-  } catch (err: any) {
-    logger.error('Failed to send capability update notification', { error: err.message });
-  }
-}
-
-/**
- * Send WABA webhook subscription failure alert to system admin (US-892).
- * Fires when auto-resubscription to the WABA fails on startup or during the
- * 6-hourly health check.
- */
-export async function notifyAdminWabaSubscriptionFailed(
-  wabaId: string,
-  errorDetail: string,
-): Promise<void> {
-  if (!notificationContext) {
-    logger.warn('Not initialized — cannot send WABA subscription notification');
-    return;
-  }
-
-  const settings = await loadAdminNotificationSettings();
-  if (!settings.enabled) return;
-
-  const message = `🚨 *WABA Webhook Subscription Failed*\n\n` +
-    `WABA ID: ${wabaId}\n` +
-    `Error: ${errorDetail}\n` +
-    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
-    `The app is *not subscribed* to receive WhatsApp webhook events. ` +
-    `All inbound messages will be silently dropped until the subscription is restored.\n\n` +
-    `*Actions:*\n` +
-    `1. Check META_ACCESS_TOKEN is valid and has whatsapp_business_management permission\n` +
-    `2. Manually POST /${wabaId}/subscribed_apps via Graph API Explorer\n` +
-    `3. Restart Rainbow AI — it will retry auto-subscription on startup\n\n` +
-    `Admin dashboard: GET /health → webhookSubscribed field`;
-
-  try {
-    await notificationContext.sendMessage(settings.systemAdminPhone, message);
-    logger.info('Sent WABA subscription failure notification', { wabaId });
-  } catch (err: any) {
-    logger.error('Failed to send WABA subscription notification', { error: err.message });
-  }
-}
-
-// ─── US-891 — Portfolio pacing pause alert ─────────────────────────────────
-const PACING_PAUSE_COOLDOWN_MS = 5 * 60 * 1000; // max one notification per 5 min
-let _lastPacingPauseNotifyAt = 0;
-
-/**
- * Send admin alert when Meta portfolio pacing is paused due to quality degradation.
- * Throttled to one notification per 5 minutes (meets the "within 5 minutes" AC).
- */
-export async function notifyAdminPortfolioPacingPaused(
-  phoneNumber: string,
-  qualityRating: string,
-  status: string,
-): Promise<void> {
-  if (!notificationContext) {
-    logger.warn('Not initialized — cannot send pacing pause notification');
-    return;
-  }
-
-  const now = Date.now();
-  if (now - _lastPacingPauseNotifyAt < PACING_PAUSE_COOLDOWN_MS) {
-    logger.info('Pacing pause notification skipped (cooldown)');
-    return;
-  }
-  _lastPacingPauseNotifyAt = now;
-
-  const settings = await loadAdminNotificationSettings();
-  if (!settings.enabled) return;
-
-  const message = `⚠️ *WhatsApp Portfolio Pacing PAUSED*\n\n` +
-    `Phone Number: *${phoneNumber}*\n` +
-    `Quality Rating: *${qualityRating}*\n` +
-    `Account Status: *${status}*\n` +
-    `Detected At: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
-    `*Impact:*\n` +
-    `Meta has paused bulk template send pacing due to quality signals ` +
-    `(high block/complaint rates). Scheduled batch messages may be held back ` +
-    `and not delivered until quality improves.\n\n` +
-    `*Actions:*\n` +
-    `1. Log into Meta Business Manager → Phone Numbers → Quality\n` +
-    `2. Review recent template campaigns for high opt-out/block rates\n` +
-    `3. Pause or remove low-quality message templates\n` +
-    `4. Monitor via Rainbow Admin: GET /api/rainbow/analytics/messaging-limits\n\n` +
-    `Pacing will auto-resume when quality signals improve.`;
-
-  try {
-    await notificationContext.sendMessage(settings.systemAdminPhone, message);
-    logger.info('Sent portfolio pacing pause notification', { phoneNumber, qualityRating });
-  } catch (err: any) {
-    logger.error('Failed to send pacing pause notification', { error: err.message });
   }
 }

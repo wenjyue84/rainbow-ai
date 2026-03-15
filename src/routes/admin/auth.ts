@@ -16,7 +16,8 @@ import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { adminUsers } from '../../../shared/schema.js';
+import { adminUsers, ADMIN_ROLES } from '../../../shared/schema.js';
+import type { AdminRole } from '../../../shared/schema.js';
 import {
   generateTotpSecret,
   buildOtpauthUri,
@@ -79,7 +80,7 @@ setInterval(() => {
 
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body ?? {};
+    const { username, password, role: rawRole } = req.body ?? {};
     if (!username || typeof username !== 'string' || username.length < 3) {
       res.status(400).json({ error: 'username must be at least 3 characters' });
       return;
@@ -88,6 +89,9 @@ router.post('/auth/register', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'password must be at least 8 characters' });
       return;
     }
+
+    // US-898: validate role (defaults to 'viewer' if omitted)
+    const role: AdminRole = (rawRole && ADMIN_ROLES.includes(rawRole)) ? rawRole : 'viewer';
 
     const existing = await db.select({ id: adminUsers.id })
       .from(adminUsers)
@@ -102,9 +106,10 @@ router.post('/auth/register', async (req: Request, res: Response) => {
     const [user] = await db.insert(adminUsers).values({
       username,
       passwordHash,
+      role,
     }).returning({ id: adminUsers.id, username: adminUsers.username });
 
-    res.status(201).json({ id: user.id, username: user.username, totpEnabled: false });
+    res.status(201).json({ id: user.id, username: user.username, role, totpEnabled: false });
   } catch (err) {
     console.error('[auth/register]', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -237,7 +242,7 @@ router.post('/auth/login', async (req: Request, res: Response) => {
 
     if (!user.totpEnabled) {
       // No 2FA — login complete
-      res.json({ authenticated: true, requires2fa: false, username: user.username });
+      res.json({ authenticated: true, requires2fa: false, username: user.username, role: user.role });
       return;
     }
 
@@ -319,7 +324,7 @@ router.post('/auth/verify-totp', async (req: Request, res: Response) => {
       .set({ failedTotpAttempts: 0, totpLockedUntil: null, updatedAt: new Date() })
       .where(eq(adminUsers.id, userId));
 
-    res.json({ authenticated: true, username: user.username });
+    res.json({ authenticated: true, username: user.username, role: user.role });
   } catch (err) {
     console.error('[auth/verify-totp]', err);
     res.status(500).json({ error: 'Internal server error' });

@@ -26,8 +26,7 @@ import { addApproval } from '../approval-queue.js';
 import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
-import { detectSystemPromptLeakage } from './prompt-injection-guard.js';
-import { logPromptInjection } from '../../lib/prompt-injection-log.js';
+import { checkFaithfulness, FAITHFULNESS_THRESHOLD, getFaithfulnessFallback } from '../faithfulness-checker.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -46,21 +45,6 @@ export async function processAndSend(
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
   response = ensureResponseText(response, lang);
-
-  // ─── US-927: System prompt leakage detection (output validation) ──
-  const systemPrompt = (profileConfig.getSettings() as any).system_prompt;
-  if (systemPrompt && detectSystemPromptLeakage(response, systemPrompt)) {
-    console.warn(`[ResponseProcessor][US-927] System prompt leakage detected for ${phone} — replacing with fallback`);
-    logPromptInjection({
-      jid: phone,
-      profileId,
-      rawMessage: text,
-      matchedPattern: 'output:system_prompt_leakage',
-      action: 'sanitised',
-    });
-    const fallbacks = getUnknownFallbackMessages(profileConfig);
-    response = fallbacks[lang] || fallbacks.en;
-  }
 
   // ─── Confidence thresholds + disclaimers ───────────────────────
   const llmSettings = getLLMSettings();
@@ -88,6 +72,30 @@ export async function processAndSend(
     );
     const disclaimer = getTemplate('confidence_low', lang);
     response += disclaimer;
+  }
+
+  // ─── US-899: Faithfulness check (post-generation, pre-send) ──────
+  let faithfulnessScore: number | undefined;
+  if (devMetadata.kbFiles.length > 0 && response && diaryEvent.action !== 'static_reply') {
+    try {
+      const kbContent = state.profileKB.getFilesContent(devMetadata.kbFiles);
+      if (kbContent.length > 50) {
+        const result = checkFaithfulness(response, kbContent);
+        faithfulnessScore = result.score;
+        if (result.flagged && result.totalClaims >= 2) {
+          console.warn(
+            `[Faithfulness] Score ${result.score.toFixed(2)} < ${FAITHFULNESS_THRESHOLD} for ${phone} — ` +
+            `${result.unmatchedClaims.length} unmatched claims: ${result.unmatchedClaims.join(', ')}`
+          );
+          response = getFaithfulnessFallback(lang);
+          diaryEvent.escalated = true;
+        } else if (result.totalClaims > 0) {
+          console.log(`[Faithfulness] Score ${result.score.toFixed(2)} (${result.matchedClaims}/${result.totalClaims} claims) for ${phone}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Faithfulness] Check failed for ${phone}:`, err.message);
+    }
   }
 
   // ─── US-843 + US-878: First-contact data notice (PDPA compliance, DPO email) ──
@@ -183,6 +191,7 @@ export async function processAndSend(
     stepId: devMetadata.stepId,
     usage: devMetadata.usage,
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+    ...(faithfulnessScore !== undefined ? { faithfulnessScore } : {}),
   };
 
   if (mode === 'manual') {

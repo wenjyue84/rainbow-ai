@@ -1,149 +1,164 @@
 /**
- * Media Downloader Tests (US-893)
+ * Media Auto-Downloader Tests (US-893)
  *
- * Verifies that incoming WhatsApp media (image, document, video) is
- * downloaded via Baileys, persisted to disk, and the rainbow_messages
- * record is updated with localMediaUrl.
+ * Tests download, retry, DLQ logging, and localMediaUrl population.
+ * Mocks Baileys downloadMediaMessage and fs operations.
  */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { IncomingMessage } from '../types.js';
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+// ─── Mocks ────────────────────────────────────────────────────────
 
-// ─── Module mocks (must be declared before dynamic imports) ──────────────────
-
-const mockWriteFileSync = vi.fn();
-const mockMkdirSync = vi.fn();
-
-vi.mock('fs', () => ({
-  mkdirSync: mockMkdirSync,
-  writeFileSync: mockWriteFileSync,
+vi.mock('@whiskeysockets/baileys', () => ({
+  downloadMediaMessage: vi.fn(),
 }));
 
-const mockDbUpdate = vi.fn().mockReturnValue({
-  set: vi.fn().mockReturnValue({
-    where: vi.fn().mockResolvedValue(undefined),
-  }),
-});
-
-vi.mock('../../lib/db.js', () => ({
-  db: {
-    update: mockDbUpdate,
+vi.mock('fs', () => ({
+  default: {
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
   },
 }));
 
-const mockDownloadMediaMessage = vi.fn();
+import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import fs from 'fs';
 
-vi.mock('@whiskeysockets/baileys', () => ({
-  downloadMediaMessage: mockDownloadMediaMessage,
-}));
+const mockDownload = downloadMediaMessage as ReturnType<typeof vi.fn>;
+const mockWriteFile = fs.writeFileSync as ReturnType<typeof vi.fn>;
+const mockMkdir = fs.mkdirSync as ReturnType<typeof vi.fn>;
 
-vi.mock('../../../shared/schema-tables.js', () => ({
-  rainbowMessages: { baileysMessageId: 'baileys_message_id' },
-}));
+// ─── Helper ───────────────────────────────────────────────────────
 
-vi.mock('drizzle-orm', () => ({
-  eq: vi.fn((col, val) => ({ col, val })),
-}));
-
-// ─── SUT ─────────────────────────────────────────────────────────────────────
-
-const { downloadAndSaveMedia, scheduleMediaDownload } = await import('../../lib/media-downloader.js');
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-const MSG_ID = 'ABCD1234567890';
-
-function makeRawMessage(type: 'imageMessage' | 'documentMessage' | 'videoMessage', mimeType: string) {
+function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
   return {
-    message: {
-      [type]: { mimetype: mimeType },
-    },
+    from: '60123456789',
+    text: '',
+    pushName: 'Test User',
+    messageId: 'msg-abc-123',
+    isGroup: false,
+    timestamp: Math.floor(Date.now() / 1000),
+    messageType: 'image',
+    instanceId: 'pelangi',
+    rawMessage: { key: { id: 'msg-abc-123' }, message: { imageMessage: {} } } as any,
+    mediaMetadata: { mimeType: 'image/jpeg' },
+    ...overrides,
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ─── Tests ────────────────────────────────────────────────────────
 
 describe('downloadAndSaveMedia', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDownloadMediaMessage.mockResolvedValue(Buffer.from('fake-binary-data'));
-  });
-
-  it('downloads image and populates localMediaUrl in DB', async () => {
-    const raw = makeRawMessage('imageMessage', 'image/jpeg');
-
-    const result = await downloadAndSaveMedia(MSG_ID, 'image', raw);
-
-    expect(result).toMatch(/^\/media\/\d{4}-\d{2}-\d{2}\/ABCD1234567890\.jpg$/);
-    expect(mockDownloadMediaMessage).toHaveBeenCalledOnce();
-    expect(mockWriteFileSync).toHaveBeenCalledOnce();
-    expect(mockMkdirSync).toHaveBeenCalledOnce();
-
-    // DB update called with correct localMediaUrl
-    const setCall = mockDbUpdate.mock.results[0].value.set;
-    expect(setCall).toHaveBeenCalledWith(
-      expect.objectContaining({ localMediaUrl: expect.stringMatching(/ABCD1234567890\.jpg$/) }),
-    );
-  });
-
-  it('downloads document (PDF) and uses .pdf extension', async () => {
-    const raw = makeRawMessage('documentMessage', 'application/pdf');
-
-    const result = await downloadAndSaveMedia(MSG_ID, 'document', raw);
-
-    expect(result).toMatch(/\.pdf$/);
-  });
-
-  it('downloads video and uses .mp4 extension', async () => {
-    const raw = makeRawMessage('videoMessage', 'video/mp4');
-
-    const result = await downloadAndSaveMedia(MSG_ID, 'video', raw);
-
-    expect(result).toMatch(/\.mp4$/);
-  });
-
-  it('retries up to 3 times on transient failure then succeeds', async () => {
-    mockDownloadMediaMessage
-      .mockRejectedValueOnce(new Error('timeout'))
-      .mockRejectedValueOnce(new Error('timeout'))
-      .mockResolvedValue(Buffer.from('ok'));
-
-    // Speed up retries in tests by mocking setTimeout
     vi.useFakeTimers();
-    const downloadPromise = downloadAndSaveMedia(MSG_ID, 'image', makeRawMessage('imageMessage', 'image/png'));
-    // Advance through exponential backoff delays
-    await vi.runAllTimersAsync();
-    const result = await downloadPromise;
-    vi.useRealTimers();
-
-    expect(result).not.toBeNull();
-    expect(mockDownloadMediaMessage).toHaveBeenCalledTimes(3);
   });
 
-  it('returns null and logs DLQ after 4 consecutive failures', async () => {
-    mockDownloadMediaMessage.mockRejectedValue(new Error('network error'));
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('returns success and populates localMediaUrl on happy path', async () => {
+    const buf = Buffer.from('fake-jpeg-data');
+    mockDownload.mockResolvedValueOnce(buf);
 
-    vi.useFakeTimers();
-    const downloadPromise = downloadAndSaveMedia(MSG_ID, 'image', makeRawMessage('imageMessage', 'image/jpeg'));
-    await vi.runAllTimersAsync();
-    const result = await downloadPromise;
-    vi.useRealTimers();
+    const msg = makeMsg();
+    const result = await downloadAndSaveMedia(msg);
 
-    expect(result).toBeNull();
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[MediaDownloader:DLQ]'),
-    );
-    consoleSpy.mockRestore();
+    expect(result.success).toBe(true);
+    expect(result.localUrl).toMatch(/^\/media\/\d{4}-\d{2}-\d{2}\/msg-abc-123\.jpg$/);
+    expect(result.localPath).toContain('msg-abc-123.jpg');
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(mockMkdir).toHaveBeenCalledOnce();
   });
-});
 
-describe('scheduleMediaDownload', () => {
-  it('fires and forgets without throwing', async () => {
-    mockDownloadMediaMessage.mockResolvedValue(Buffer.from('data'));
+  it('uses .pdf extension for PDF documents', async () => {
+    mockDownload.mockResolvedValueOnce(Buffer.from('pdf-data'));
+    const msg = makeMsg({
+      messageType: 'document',
+      mediaMetadata: { mimeType: 'application/pdf' },
+    });
+    const result = await downloadAndSaveMedia(msg);
+    expect(result.localUrl).toMatch(/\.pdf$/);
+  });
 
-    // Should not throw
-    expect(() =>
-      scheduleMediaDownload(MSG_ID, 'image', makeRawMessage('imageMessage', 'image/jpeg')),
-    ).not.toThrow();
+  it('uses fileName extension when provided', async () => {
+    mockDownload.mockResolvedValueOnce(Buffer.from('doc-data'));
+    const msg = makeMsg({
+      messageType: 'document',
+      mediaMetadata: { mimeType: 'application/octet-stream', fileName: 'booking.docx' },
+    });
+    const result = await downloadAndSaveMedia(msg);
+    expect(result.localUrl).toMatch(/\.docx$/);
+  });
+
+  it('returns failure with error when rawMessage is absent', async () => {
+    const msg = makeMsg({ rawMessage: undefined });
+    const result = await downloadAndSaveMedia(msg);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/No rawMessage/);
+    expect(mockDownload).not.toHaveBeenCalled();
+  });
+
+  it('returns failure for unsupported message types', async () => {
+    const msg = makeMsg({ messageType: 'audio', rawMessage: {} as any });
+    const result = await downloadAndSaveMedia(msg);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Unsupported media type/);
+  });
+
+  it('retries up to 3 times on download failure, then returns failure', async () => {
+    const err = new Error('Network error');
+    mockDownload
+      .mockRejectedValueOnce(err)
+      .mockRejectedValueOnce(err)
+      .mockRejectedValueOnce(err);
+
+    const msg = makeMsg();
+    const resultPromise = downloadAndSaveMedia(msg);
+
+    // Advance timers for each backoff: 1000ms then 2000ms
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Network error');
+    expect(mockDownload).toHaveBeenCalledTimes(3);
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('succeeds on second attempt after first failure', async () => {
+    const buf = Buffer.from('image-data');
+    mockDownload
+      .mockRejectedValueOnce(new Error('Transient error'))
+      .mockResolvedValueOnce(buf);
+
+    const msg = makeMsg();
+    const resultPromise = downloadAndSaveMedia(msg);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.success).toBe(true);
+    expect(result.localUrl).toBeTruthy();
+    expect(mockDownload).toHaveBeenCalledTimes(2);
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+  });
+
+  it('returns failure when Baileys returns empty buffer', async () => {
+    mockDownload
+      .mockResolvedValue(Buffer.alloc(0));
+
+    const msg = makeMsg();
+    const resultPromise = downloadAndSaveMedia(msg);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Empty buffer/);
+  });
+
+  it('localUrl uses YYYY-MM-DD date format', async () => {
+    mockDownload.mockResolvedValueOnce(Buffer.from('data'));
+    const msg = makeMsg();
+    const result = await downloadAndSaveMedia(msg);
+
+    const today = new Date().toISOString().slice(0, 10);
+    expect(result.localUrl).toContain(`/media/${today}/`);
   });
 });
