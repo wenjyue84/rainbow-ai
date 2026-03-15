@@ -8324,3 +8324,30 @@ Incomplete: Handle BSUID in inbound webhooks and route conversations by BSUID (I
 ### Gotchas
 - The in-memory conversation state (conversation.ts) uses raw `msg.from` as key, while DB operations use `conversationKey()` which normalizes to `bsuid:XX.YYY` — this asymmetry is intentional (in-memory is ephemeral)
 - resolveBsuidToPhone only triggers for `bsuid:`-prefixed phone strings (admin-initiated outbound), not for raw BSUID JIDs (which pass through unchanged)
+## Iteration 2 - Sun, Mar 15, 2026  5:23:35 PM
+Completed: Handle BSUID in inbound webhooks and route conversations by BSUID (ID: US-926) in 10m
+
+
+## Iteration - Story: US-894 PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP
+### What was implemented
+- Added `?format=csv` support to existing `/api/rainbow/guests/:jid/data-export` endpoint
+- CSV output is RFC 4180 compliant with UTF-8 BOM for Excel compatibility
+- CSV fields: timestamp, direction (inbound/outbound mapped from role), content, intent, sentiment
+- Formula-injection sanitization: fields starting with =, +, -, @, \t, \r are prefixed with single quote
+- Created self-service public endpoint `/api/data-portability/request` (POST) to send 6-digit OTP via WhatsApp
+- Created `/api/data-portability/verify` (POST) to verify OTP and download data in JSON or CSV format
+- OTP is cryptographically random, valid 10 minutes, single-use, max 5 attempts
+- Timing-safe OTP comparison to prevent side-channel attacks
+- Rate limiting: 5 OTP requests and 10 verify attempts per 15-minute window per IP
+- Self-service exports logged to gdpr_audit_log with action='portability'
+- Refactored data-fetching logic into reusable `fetchGuestData()` and `buildJsonPayload()` functions
+- 20 Vitest tests covering: BOM, headers, CRLF, direction mapping, field coverage, quoting, formula injection
+
+### Patterns discovered
+- Sentiment is tracked in-memory (StateManager with TTL) but NOT persisted per-message in DB, so CSV sentiment column is empty
+- The `role` field maps to direction: user=inbound, assistant=outbound
+- Admin routes are all behind adminAuth middleware in routes/admin/index.ts; public routes go in routes/public/ and mount directly on app
+
+### Gotchas
+- No sentiment column in rainbow_messages table — sentiment analysis is ephemeral per-session
+- Had to export ensureAuditTable from gdpr-data-export.ts for reuse in the public route
