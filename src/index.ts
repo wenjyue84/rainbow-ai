@@ -59,6 +59,7 @@ import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
+import { startWabaSubscriptionMonitor, getWebhookSubscriptionState } from './lib/waba-subscription-check.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -195,6 +196,9 @@ startFallbackAlertScheduler();
 
 // US-836: Start SLA cron for human handoff breach alerts (runs every 2 min)
 startHandoffSlaCron();
+
+// US-892: WABA webhook subscription health check (startup + every 6 hours)
+startWabaSubscriptionMonitor();
 
 // US-839: Daily PDPA breach deadline check (runs every 24h)
 setInterval(() => {
@@ -389,11 +393,13 @@ let _poolWaitingStreak = 0;
 
 // Health check endpoint (liveness — is the process alive?)
 app.get('/health', (req, res) => {
+  const wabaSubState = getWebhookSubscriptionState();
   res.json({
     status: 'ok',
     service: 'pelangi-mcp-server',
     version: '1.0.0',
     whatsapp: getWhatsAppStatus().state,
+    webhookSubscribed: wabaSubState.skipped ? null : wabaSubState.webhookSubscribed,
     timestamp: new Date().toISOString()
   });
 });

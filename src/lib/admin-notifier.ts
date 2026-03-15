@@ -820,3 +820,40 @@ export async function notifyAdminBreachReport(
     logger.error('Failed to send breach report notification', { error: err.message });
   }
 }
+
+/**
+ * Send WABA webhook subscription failure alert to system admin (US-892).
+ * Fires when auto-resubscription to the WABA fails on startup or during the
+ * 6-hourly health check.
+ */
+export async function notifyAdminWabaSubscriptionFailed(
+  wabaId: string,
+  errorDetail: string,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send WABA subscription notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const message = `🚨 *WABA Webhook Subscription Failed*\n\n` +
+    `WABA ID: ${wabaId}\n` +
+    `Error: ${errorDetail}\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    `The app is *not subscribed* to receive WhatsApp webhook events. ` +
+    `All inbound messages will be silently dropped until the subscription is restored.\n\n` +
+    `*Actions:*\n` +
+    `1. Check META_ACCESS_TOKEN is valid and has whatsapp_business_management permission\n` +
+    `2. Manually POST /${wabaId}/subscribed_apps via Graph API Explorer\n` +
+    `3. Restart Rainbow AI — it will retry auto-subscription on startup\n\n` +
+    `Admin dashboard: GET /health → webhookSubscribed field`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent WABA subscription failure notification', { wabaId });
+  } catch (err: any) {
+    logger.error('Failed to send WABA subscription notification', { error: err.message });
+  }
+}

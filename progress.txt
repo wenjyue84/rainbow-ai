@@ -7962,3 +7962,28 @@ The core KDS webhook module (`src/lib/kds-webhook.ts`) and cart integration alre
 ### Gotchas
 - `config-integration.integration.test.ts` validActions list was stale — previous US-872 iteration claimed to fix it but the fix was not persisted
 - `kdsWebhook` settings field uses `description` as inline documentation — Zod schema marks it optional
+## Iteration 4 - Sun, Mar 15, 2026  3:35:28 PM
+Incomplete: WABA webhook subscription health check on server startup (ID: US-892) — attempt 1/3
+
+
+## Iteration 5 - US-892: WABA Webhook Subscription Health Check
+### What was implemented
+- New module `src/lib/waba-subscription-check.ts`:
+  - `runSubscriptionCheck()` — GET /{wabaId}/subscribed_apps; auto-POSTs if missing; sends admin notification on failure
+  - `startWabaSubscriptionMonitor()` — runs once on startup, then every 6h (setInterval.unref())
+  - `getWebhookSubscriptionState()` — exposes in-memory state for /health endpoint
+- `src/index.ts`:
+  - Import and call `startWabaSubscriptionMonitor()` after other monitors (pre-listen)
+  - `/health` endpoint now includes `webhookSubscribed: true|false|null` field
+- `src/lib/admin-notifier.ts`:
+  - Added `notifyAdminWabaSubscriptionFailed(wabaId, errorDetail)` with standard WhatsApp alert format
+- `src/assistant/__tests__/waba-subscription-check.test.ts`:
+  - 7 tests covering: skip when no credentials, subscribed=true, resubscription attempt, resubscription failure + notification, network error preservation
+### Patterns discovered
+- Meta Graph API base: https://graph.facebook.com/v20.0 — env vars WABA_ID + META_ACCESS_TOKEN
+- Use `setInterval(...).unref()` for background timers so they don't prevent process exit
+- `vi.resetModules()` + re-import pattern needed for module-level state tests
+- Admin notifier uses dynamic import in modules that fire-and-forget (avoids circular dep issues)
+### Gotchas
+- `/health` returns `webhookSubscribed: null` when credentials absent (skipped), not false (skipped != broken)
+- Network errors during check preserve last known state (don't flip to false)
