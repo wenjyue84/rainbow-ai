@@ -8431,3 +8431,23 @@ Incomplete: Prompt injection input sanitisation layer in message processing pipe
 - Raw event ID flows: webhook handler → persistRawEvent() → IncomingMessage.rawEventId → DLQ entry
 ### Gotchas
 - None — implementation was clean and complete
+
+
+## Iteration 5 - Sun, Mar 15, 2026 - Story: US-895 Persist raw webhook payloads to durable storage before processing
+### What was implemented
+- **Already complete from prior SPIRAL iterations**: All 5 acceptance criteria were already implemented:
+  - `shared/schema-tables.ts`: `webhookRawEvents` table with event_id UUID PK, received_at, source, profile, payload JSONB, processed BOOLEAN
+  - `src/lib/webhook-raw-events.ts`: `persistRawEvent()`, `markRawEventProcessed()`, `getRawEventById()` functions
+  - All webhook routes in `src/routes/webhooks/index.ts` call `persistRawEvent()` fire-and-forget before processing
+  - `src/routes/admin/dlq.ts`: GET /dlq/:jobId returns associated raw event payload via `getRawEventById()`
+  - `src/lib/message-queue.ts`: DLQ entries include `rawEventId` field referencing webhook_raw_events row
+  - `src/assistant/__tests__/webhook-raw-events.test.ts`: 12 Vitest tests covering persist, mark processed, get by ID, DLQ integration
+- **Verification only**: All 12 tests pass, build succeeds, server starts cleanly
+
+### Patterns discovered
+- US-895 was implemented across multiple files by SPIRAL workers but never marked as passes=true
+- The `persistRawEvent()` is called fire-and-forget (.catch(() => {})) in most webhooks to avoid blocking the 200 response
+- The meta:messages webhook awaits persistRawEvent to capture the rawEventId for downstream DLQ linking
+
+### Gotchas
+- The story was already fully implemented but not marked as `passes: true` — verification-only iteration
