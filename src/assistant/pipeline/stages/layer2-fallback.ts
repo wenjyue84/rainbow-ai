@@ -33,7 +33,8 @@ export async function applyLayer2Fallback(
   contextMessages: ChatMessage[],
   processText: string,
   devMetadata: DevMetadata,
-  context: IPipelineContext
+  context: IPipelineContext,
+  detectedLanguage?: string
 ): Promise<ClassificationResult> {
   const llmSettings = getLLMSettings();
   const layer2Threshold = llmSettings.thresholds?.layer2 ?? 0.80;
@@ -48,7 +49,7 @@ export async function applyLayer2Fallback(
   );
 
   const fallbackResult = await context.classifyAndRespondWithSmartFallback(
-    systemPrompt, contextMessages, processText
+    systemPrompt, contextMessages, processText, detectedLanguage
   );
 
   if (fallbackResult.confidence > result.confidence) {

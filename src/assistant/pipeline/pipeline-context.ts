@@ -61,10 +61,10 @@ export interface IPipelineContext {
 
   isAIAvailable: () => boolean;
   classifyMessageWithContext: (text: string, context: ChatMessage[], lastIntent: string | null) => Promise<IntentResult>;
-  classifyAndRespond: (systemPrompt: string, context: ChatMessage[], text: string) => Promise<any>;
+  classifyAndRespond: (systemPrompt: string, context: ChatMessage[], text: string, detectedLanguage?: string) => Promise<any>;
   classifyOnly: (text: string, context: ChatMessage[], provider?: string) => Promise<any>;
-  generateReplyOnly: (systemPrompt: string, context: ChatMessage[], text: string, intent: string) => Promise<any>;
-  classifyAndRespondWithSmartFallback: (systemPrompt: string, context: ChatMessage[], text: string) => Promise<any>;
+  generateReplyOnly: (systemPrompt: string, context: ChatMessage[], text: string, intent: string, detectedLanguage?: string) => Promise<any>;
+  classifyAndRespondWithSmartFallback: (systemPrompt: string, context: ChatMessage[], text: string, detectedLanguage?: string) => Promise<any>;
 
   // ─── Detection & Analysis ─────────────────────────────────────────
 

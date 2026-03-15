@@ -33,6 +33,8 @@ interface ClassificationInput {
   devMetadata: DevMetadata;
   phone?: string;
   instanceId?: string;
+  /** US-874: Detected language for stronger LLM language enforcement */
+  detectedLanguage?: string;
 }
 
 /**
@@ -140,7 +142,7 @@ async function classifyTieredPipeline(
     const replyPrompt = timeSensitiveSet.has(tierResult.category)
       ? systemPrompt + '\n\n' + context.getTimeContext()
       : systemPrompt;
-    const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, tierResult.category);
+    const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, tierResult.category, input.detectedLanguage);
     clearAckTimer();
 
     const finalConfidence = replyResult.confidence !== undefined
@@ -166,7 +168,7 @@ async function classifyTieredPipeline(
   // Send typing indicator before LLM call for T4
   await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
-  const llmResult = await context.classifyAndRespond(systemPrompt, contextMessages, processText);
+  const llmResult = await context.classifyAndRespond(systemPrompt, contextMessages, processText, input.detectedLanguage);
   clearAckTimer();
   devMetadata.source = 'tiered-llm-fallback';
 
@@ -214,7 +216,7 @@ async function classifySplitModel(
     const replyPrompt = timeSensitiveSet.has(classifyResult.intent)
       ? systemPrompt + '\n\n' + context.getTimeContext()
       : systemPrompt;
-    const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, classifyResult.intent);
+    const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, classifyResult.intent, input.detectedLanguage);
 
     const finalConfidence = replyResult.confidence !== undefined
       ? replyResult.confidence
@@ -259,7 +261,7 @@ async function classifyDefault(
   // Send typing indicator before LLM call in default mode
   await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
-  const result = await context.classifyAndRespond(systemPrompt, contextMessages, processText);
+  const result = await context.classifyAndRespond(systemPrompt, contextMessages, processText, input.detectedLanguage);
   clearAckTimer();
   devMetadata.source = 'llm';
 

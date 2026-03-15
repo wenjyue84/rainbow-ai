@@ -8728,3 +8728,19 @@ Build passes (3 warnings, no errors). 62/62 language tests pass. Story marked pa
 ### Status
 ✅ All acceptance criteria verified. Build passes. 13/13 tests pass.
 Marked passes=true in prd.json
+## Iteration 6 - Sun, Mar 15, 2026  6:41:22 PM
+Incomplete: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: US-890) — attempt 1/3
+
+
+## Iteration - Story: US-874 Automatic language detection and response in Chinese/Tamil
+### What was implemented
+- Language infrastructure was ALREADY in place: ELD+pattern detection (language-router.ts), per-JID preference storage (language-preference.ts), system prompt injection (kb-loading.ts), fallback messages in en/ms/zh/ta
+- Threaded `detectedLanguage` through the full pipeline: IPipelineContext → tier-classification → layer2-fallback → intent-classifier
+- Updated ClassificationInput to carry detectedLanguage field
+- Now all 3 LLM call paths (classifyAndRespond, generateReplyOnly, classifyAndRespondWithSmartFallback) receive the detected language for stronger language enforcement via injectLanguageInstruction()
+### Patterns discovered
+- kb-loading.ts injects a soft language instruction ("Always reply in X"), while ai-response-generator.ts injectLanguageInstruction() adds a stronger one ("IMPORTANT: You MUST respond entirely in X"). Both now fire for non-English messages — double reinforcement.
+- Pipeline context functions are just re-exports of the actual AI functions, so adding optional params to the interface works without any wiring changes in createPipelineContext.
+### Gotchas
+- The language was already being injected via kb-loading.ts system prompt, so the feature was partially working. The gap was that `detectedLanguage` wasn't passed as a separate parameter to AI functions, so the stronger `injectLanguageInstruction()` in ai-response-generator.ts never fired.
+- generateReplyOnly has its own language instruction fallback ("Reply in the same language as the user") when detectedLanguage is not passed — less explicit than "Reply entirely in Chinese."

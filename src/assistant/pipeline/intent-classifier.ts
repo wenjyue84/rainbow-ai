@@ -68,6 +68,7 @@ export async function classifyAndRoute(
       devMetadata,
       phone,
       instanceId: msg.instanceId,
+      detectedLanguage: lang,
     },
     context,
     () => clearTimeout(ackTimer)
@@ -80,7 +81,7 @@ export async function classifyAndRoute(
   // ─── Stage 4: Layer 2 Fallback ────────────────────────────────────
   result = await applyLayer2Fallback(
     result, kb.systemPrompt, summarization.contextMessages,
-    processText, devMetadata, context
+    processText, devMetadata, context, lang
   );
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
