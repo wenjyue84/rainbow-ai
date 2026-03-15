@@ -10932,3 +10932,47 @@ This brief outlines the required changes in a Frappe/Python environment to imple
 - YES should NOT stop the pipeline (it may be a reply to other bot questions) — use non-blocking then() not early return
 - Marketing revocation is separate from global STOP opt-out — global handles all messaging, marketing-specific is for campaign targeting only
 - ON CONFLICT logic: revoked contacts cannot be re-added via upsert (preserves audit integrity)
+
+## Pre-analysis for US-992 (Gemini 2.5 Pro)
+This user story describes a TypeScript/Node.js project, not a Frappe/Python one. The file paths (`.ts`), dependencies (`@opentelemetry/sdk-node`), and technical notes confirm this.
+
+Here is the technical brief for implementing the story in its actual **TypeScript** environment:
+
+**1. Files to Modify:**
+*   `src/assistant/ai-provider-manager.ts`: Core logic for AI provider calls; will contain the primary `CLIENT` span instrumentation.
+*   `src/assistant/ai-response-generator.ts`: Orchestrates calls; will initiate the parent trace context.
+*   `src/instrumentation.ts` (New File): Centralize OpenTelemetry SDK initialization and exporter configuration.
+*   `src/lib/config.ts` (or similar): To read and expose the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
+*   `package.json`: To add `@opentelemetry/sdk-node` and `@opentelemetry/exporter-trace-otlp-http` dependencies.
+
+**2. Key Modules / Classes Involved:**
+*   `AIProviderManager`: The class where API calls are made. Spans will be created here to wrap provider requests.
+*   `AIResponseGenerator`: The entry point for the LLM pipeline, where the top-level trace should begin.
+*   A new `TelemetryService` or `TracerProvider` module in `instrumentation.ts` to manage the OTEL SDK lifecycle.
+
+**3. Recommended Implementation Approach:**
+1.  In `instrumentation.ts`, initialize the NodeSDK. Use an `OtlpHttpTraceExporter` if `OTEL_EXPORTER_OTLP_ENDPOINT` is present; otherwise, use a `NoopSpanProcessor` to disable tracing.
+2.  In `ai-provider-manager.ts`, get the global tracer. Before each external AI provider call, start a span (e.g., `'chat llm/openai/gpt-4'`).
+3.  Use the provider response to populate span attributes like `gen_ai.usage.input_tokens` and `gen_ai.response.finish_reasons`.
+4.  Wrap the provider call in a `try/catch/finally` to ensure `span.end()` is always called.
+5.  The OTEL SDK's context manager should automatically link spans in the provider fallover chain under a single trace.
+
+**4. Edge Cases & Gotchas:**
+*   **Async Context:** Verify that OTEL's async context propagates correctly across the promise-based retry/failover logic to ensure a unified trace.
+*   **Graceful Failure:** Telemetry code must not crash the application. Wrap instrumentation in defensive `try/catch` blocks.
+*   **Configuration:** The system must remain fully functional when the OTEL endpoint is not configured. The `NoopSpanProcessor` handles this.
+*   **Semantic Conventions:** Adhere strictly to the GenAI Semantic Convention names (e.g., `gen_ai.system`) for backend compatibility.
+
+
+## Iteration 14 - Story: US-992 OpenTelemetry GenAI span instrumentation for LLM pipeline tracing
+### What was implemented
+- Added `SpanKind.CLIENT` to `providerChat()` spans via `{ kind: SpanKind.CLIENT }` option
+- Added parent `gen_ai.chat_with_fallback` INTERNAL span in `chatWithFallback()` to link full fallback chain as a single trace
+- Parent span records: `gen_ai.fallback.provider_count`, `gen_ai.fallback.result`, `gen_ai.fallback.winning_provider`
+- Existing per-provider spans already had gen_ai.system, gen_ai.request.model, gen_ai.usage.input_tokens/output_tokens, gen_ai.response.finish_reasons
+- `instrumentation.ts` already had OTEL_EXPORTER_OTLP_ENDPOINT no-op behavior implemented
+### Patterns discovered
+- OTEL `startActiveSpan` automatically propagates trace context to child spans — no manual linking needed
+- Pre-existing `db-url.js` CJS/ESM conflict causes `node dist/index.js` to fail; `npx tsx src/index.ts` works fine (pre-existing, not related to this story)
+### Gotchas
+- Build uses esbuild; pre-existing 3 warnings from db-url.js CJS module; not blocking

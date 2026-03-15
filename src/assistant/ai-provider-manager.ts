@@ -4,7 +4,7 @@
  */
 import Groq from 'groq-sdk';
 import axios from 'axios';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { trace, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 import type { AIProvider } from './config-store.js';
 import { configStore } from './config-store.js';
 import { circuitBreakerRegistry } from './circuit-breaker.js';
@@ -258,7 +258,7 @@ export async function providerChat(
 
   const spanName = `chat ${provider.model}`;
 
-  return tracer.startActiveSpan(spanName, async (span) => {
+  return tracer.startActiveSpan(spanName, { kind: SpanKind.CLIENT }, async (span) => {
     const startTime = Date.now();
     const timeoutMs = provider.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
@@ -452,6 +452,8 @@ export async function chatWithFallback(
   tools?: any[],
   jsonSchema?: { name: string; schema: Record<string, unknown> }
 ): Promise<{ content: string | null; provider: AIProvider | null; usage?: any; toolCalls?: any[] }> {
+  // Parent span links the full fallback chain as a single trace
+  return tracer.startActiveSpan('gen_ai.chat_with_fallback', { kind: SpanKind.INTERNAL }, async (parentSpan) => {
   let providers = getProviders();
 
   if (providerIds && providerIds.length > 0) {
@@ -461,6 +463,7 @@ export async function chatWithFallback(
       .sort((a, b) => (idOrder.get(a.id)!) - (idOrder.get(b.id)!));
   }
 
+  parentSpan.setAttribute('gen_ai.fallback.provider_count', providers.length);
   let timeoutCount = 0;
 
   for (const provider of providers) {
@@ -506,6 +509,10 @@ export async function chatWithFallback(
           usage: result.usage,
         }).catch(() => {});
         console.log(`[AI] ✅ Success using: ${provider.name} (${provider.id})`);
+        parentSpan.setAttribute('gen_ai.fallback.result', 'success');
+        parentSpan.setAttribute('gen_ai.fallback.winning_provider', provider.id);
+        parentSpan.setStatus({ code: SpanStatusCode.OK });
+        parentSpan.end();
         return { content: result.content, provider, usage: result.usage, toolCalls: result.toolCalls };
       }
     } catch (err: any) {
@@ -549,9 +556,16 @@ export async function chatWithFallback(
     const apology = ai.slow_response_message
       || "I'm sorry, all my AI systems are running slowly right now. Please try again in a moment, or contact our staff for immediate help.";
     console.error(`[AI] ❌ All ${timeoutCount} providers timed out — returning slow-response apology`);
+    parentSpan.setAttribute('gen_ai.fallback.result', 'all_timed_out');
+    parentSpan.setStatus({ code: SpanStatusCode.ERROR, message: 'All providers timed out' });
+    parentSpan.end();
     return { content: apology, provider: null };
   }
 
   console.error(`[AI] ❌ All providers failed - no response generated`);
+  parentSpan.setAttribute('gen_ai.fallback.result', 'all_failed');
+  parentSpan.setStatus({ code: SpanStatusCode.ERROR, message: 'All providers failed' });
+  parentSpan.end();
   return { content: null, provider: null };
+  }); // end tracer.startActiveSpan
 }
