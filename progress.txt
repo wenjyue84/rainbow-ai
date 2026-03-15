@@ -10150,3 +10150,31 @@ Incomplete: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 30/30 identity-disclosure tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+## Iteration 2 - Sun, Mar 15, 2026 11:33:01 PM
+Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: US-949) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-970 - AI chatbot identity disclosure and anti-impersonation guard
+### What was implemented
+Implementation was already complete from a previous iteration but was not marked as passes=true. Verified all 6 acceptance criteria:
+
+- **AC1**: First outbound message in every new conversation includes AI disclosure. Handled in `input-validator.ts` (lines 571-583) — checks `convo.aiDisclosed` flag, sends `getDisclosureText()`, logs to compliance audit, sets flag true.
+- **AC2**: Direct identity questions ("Are you a bot?", "Are you human?", etc.) get immediate truthful response via `isIdentityQuestion()` pattern matching in 4 languages (EN, MS, ZH, TA). Pipeline stops after answering (returns `{ continue: false }`).
+- **AC3**: AI never claims to be human — disclosure text and truth responses explicitly state "I'm Rainbow, an AI assistant, not a human" in all 4 languages.
+- **AC4**: After 3 consecutive failed intents, automatic human escalation via `unknown_repeated` reason in `action-dispatch.ts` (line 588) and `escalation.ts` (line 287, threshold check).
+- **AC5**: Disclosure text is configurable per property in `settings.json` under `identity_disclosure.disclosure_text` and `identity_disclosure.identity_truth` with per-language overrides. Admin can update via `PATCH /api/rainbow/settings`.
+- **AC6**: Compliance audit log records each disclosure event via `logDisclosureAudit()` — writes to `complianceAuditLog` table with intent `ai_identity_disclosure_opening` or `ai_identity_disclosure_query`. Queryable via `GET /chatbot-compliance/audit`.
+
+### Files involved
+- `src/assistant/identity-disclosure.ts` — Core module: `isIdentityQuestion()`, `getDisclosureText()`, `getIdentityTruthResponse()`, `logDisclosureAudit()`
+- `src/assistant/pipeline/input-validator.ts` — Pipeline integration point (lines 546-585)
+- `src/assistant/conversation.ts` — `aiDisclosed` flag in ConversationState (line 79)
+- `src/assistant/types.ts` — `aiDisclosed: boolean` type definition (line 129)
+- `src/assistant/data/settings.json` — `identity_disclosure` config section (lines 608-622)
+- `src/assistant/escalation.ts` — `unknown_repeated` escalation (line 287)
+- `shared/schema-tables.ts` — `complianceAuditLog` table (lines 683-702)
+- `src/routes/admin/chatbot-compliance.ts` — Audit query API
+- `src/assistant/__tests__/identity-disclosure.test.ts` — 30 tests
+
+### Status
+✅ Build passes (3 pre-existing warnings). 30/30 identity disclosure tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
