@@ -16,6 +16,7 @@ import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
 import { db } from '../../lib/db.js';
 import { rainbowFeedback, insertRainbowFeedbackSchema } from '../../../shared/schema.js';
 import { sendPushNotification } from '../../lib/push-notifications.js';
+import { schedulePostCheckoutReview } from '../../assistant/post-checkout-review.js';
 
 const logger = createModuleLogger('WebhookHandlers');
 
@@ -90,11 +91,32 @@ async function handleCheckinCompleted(event: WebhookEvent): Promise<void> {
 }
 
 /**
- * Handle checkout_completed events.
+ * Handle checkout_completed events (US-1022).
+ * Triggers a delayed post-checkout review request via WhatsApp.
+ *
+ * Payload: { type: "checkout_completed", bookingRef: "...", guestName: "...", phone: "...", unit: "..." }
  */
 async function handleCheckoutCompleted(event: WebhookEvent): Promise<void> {
-  const { bookingRef, guestName, unit } = event as Record<string, unknown>;
-  logger.info('Received checkout_completed', { bookingRef, guestName, unit });
+  const { bookingRef, guestName, unit, phone } = event as Record<string, unknown>;
+  logger.info('Received checkout_completed', { bookingRef, guestName, unit, phone });
+
+  // US-1022: Schedule post-checkout review request if phone is provided
+  if (phone && typeof phone === 'string') {
+    const scheduled = await schedulePostCheckoutReview(
+      phone,
+      guestName ? String(guestName) : undefined,
+      bookingRef ? String(bookingRef) : undefined
+    );
+
+    if (scheduled) {
+      logger.info('Post-checkout review request scheduled', { phone, bookingRef });
+    }
+  } else {
+    logger.warn('checkout_completed missing phone number — cannot schedule review request', {
+      bookingRef,
+      guestName,
+    });
+  }
 }
 
 /**
