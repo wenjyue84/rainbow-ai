@@ -1908,7 +1908,7 @@
         "Menu data source/API"
       ],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_research_output.json",
@@ -1970,7 +1970,7 @@
         "Per-JID conversation state storage (already exists)"
       ],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_prd_post_ralph.json",
@@ -1982,45 +1982,6 @@
         "src/assistant/__tests__/malay-ordering.test.ts",
         "src/assistant/data-makan/intent-keywords.json",
         "src/assistant/data-makan/intents.json"
-      ]
-    },
-    {
-      "id": "US-875",
-      "title": "In-chat room amenity and housekeeping request handling",
-      "priority": "high",
-      "description": "Allow Pelangi Capsule guests to request housekeeping services (extra towels, pillow, room cleaning) and report maintenance issues (broken AC, faulty socket) via WhatsApp, with the request routed to the correct staff queue and confirmed to the guest with an estimated response time. This automates the most common in-stay service requests without requiring phone calls or walking to reception.",
-      "acceptanceCriteria": [
-        "Intents for common requests are classified: 'extra towel', 'room cleaning', 'maintenance issue', 'extra pillow', 'wifi password'",
-        "Classified requests are logged in a service_requests table with guest JID, room number, request type, timestamp, and status",
-        "A WhatsApp notification is sent to the staff operations number with request details",
-        "Guest receives confirmation message with estimated wait time (configurable per request type)",
-        "Staff can mark a request as fulfilled via admin API, triggering a completion message to the guest",
-        "Request intents are scoped to Pelangi profile only"
-      ],
-      "technicalNotes": [
-        "New DB table: service_requests (id, jid, profile, room_number, request_type, details, status, created_at, resolved_at)",
-        "Staff notification uses existing outbound WhatsApp send mechanism",
-        "Admin API endpoint: PATCH /api/service-requests/:id/resolve",
-        "Estimated wait times stored in settings.json per request_type key",
-        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
-      ],
-      "dependencies": [
-        "Table/room number capture (already implemented)",
-        "Outbound WhatsApp send"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "src/assistant/ai-response-generator.ts",
-        "src/assistant/approval-queue.ts",
-        "src/assistant/booking.ts",
-        "src/assistant/cart-store.ts"
       ]
     },
     {
@@ -2287,44 +2248,6 @@
         "fix-unicode.mjs",
         "prd.json",
         "prd.json.bak"
-      ]
-    },
-    {
-      "id": "US-884",
-      "title": "Pre-arrival automated WhatsApp message sequence for confirmed hostel bookings",
-      "priority": "medium",
-      "description": "Send a timed sequence of pre-arrival WhatsApp messages to guests after a booking is confirmed: (1) booking confirmation with key details immediately, (2) directions and check-in instructions 24 hours before arrival, (3) a 'we're ready for you' message 1 hour before check-in time. Hotels using this pattern report a 40% reduction in service queries.",
-      "acceptanceCriteria": [
-        "A booking record (guest JID, arrival date/time, room type) can be submitted via POST /api/bookings",
-        "Three scheduled messages are queued: confirmation (immediate), directions (T-24h), ready message (T-1h)",
-        "Each message content is a configurable template in knowledge.json with variable interpolation (guest name, check-in time, room type)",
-        "If the arrival is within 24 hours of booking, the T-24h message is skipped to avoid duplicate sends",
-        "All scheduled messages respect the WhatsApp 24-hour session window; if expired, use a pre-approved utility template",
-        "Scheduled messages can be cancelled if the booking is cancelled before send time"
-      ],
-      "technicalNotes": [
-        "Use a DB-backed scheduler: scheduled_messages table (id, jid, profile, send_at, template_key, variables jsonb, status, booking_id)",
-        "Template variable interpolation (already implemented) covers message personalization",
-        "Utility template pre-approval required for T-24h and T-1h messages if session window may expire",
-        "Reference: https://www.jengu.ai/blog/whatsapp-chatbot-hotels-complete-guide-2025"
-      ],
-      "dependencies": [
-        "WhatsApp 24-hour session window check (already implemented)",
-        "Template variable interpolation (already implemented)"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "filesTouch": [
-        ".spiral/_checkpoint.json",
-        ".spiral/_prd_post_ralph.json",
-        ".spiral/_research_output.json",
-        "prd.json",
-        "prd.json.bak",
-        "progress.txt",
-        "retry-counts.json",
-        "shared/schema-tables.ts",
-        "spiral.config.sh",
-        "src/assistant/__tests__/ai-waiter-connectivity.test.ts"
       ]
     },
     {

@@ -7820,3 +7820,70 @@ Based on the user story for **US-845**, here is a technical brief for the implem
 *   The "proactive = marketing" rule is a heuristic. The system should be designed to accommodate more explicit message categorization in the future.
 *   Hardcoded MYR currency rates should be easily configurable, ideally within `settings.json`, to handle future price changes.
 
+## Iteration 1 - Sun, Mar 15, 2026  2:57:20 PM
+Completed: Migrate messaging-limits tier model to 100K flat cap (Q2 2026) (ID: US-890) in 11m
+
+
+## Iteration N - Story: US-872 WhatsApp interactive list message for menu category browsing
+
+### What was implemented
+- Added `MENU_BROWSE` intent to `src/assistant/data/routing.json` with action `menu_browse`
+- Added `menu_browse` case to `dispatchAction` switch in `src/assistant/pipeline/stages/action-dispatch.ts`
+- Implemented `handleMenuBrowse()` function that:
+  - Restricts to `makan-moments` profile only (hostel falls back to LLM response)
+  - Fetches menu items via `fetchMenuItems()` from `src/tools/fnb-menu.ts`
+  - Groups items by category, picks top 3 categories × top 3 items = 9 rows (within WhatsApp 10-row limit)
+  - Builds interactive list payload using `buildListMessage()` with `state.interactivePayload`
+  - Webchat fallback: phone starts with `webchat-` → plain text with `*Category*` headers
+  - Row IDs use `item_<code>` format for deterministic cart operations
+  - Text fallback if `buildListMessage` fails or interactive is disabled
+- Updated `config-integration.integration.test.ts` validActions list to include `flow` and `menu_browse`
+- Added 13-test file: `src/assistant/__tests__/menu-browse-list.test.ts` covering all acceptance criteria
+- Build: esbuild passes (3 pre-existing warnings, 0 errors)
+- Tests: 887/894 pass (7 pre-existing failures, down from 9 before this story)
+
+### Patterns discovered
+- `handleLLMReply` has special-case checks for specific intents (MENU_FILTER_PRICE, MENU_SPECIALS) — new distinct handlers need their own `case` in `dispatchAction` switch
+- Webchat detection: `phone.startsWith('webchat-')` pattern used throughout codebase
+- Interactive payload: set `state.interactivePayload` in action-dispatch; `response-processor.ts` sends it via `sendWhatsAppInteractiveMessage`
+- `buildListMessage` enforces 10 TOTAL rows across all sections (not 10 per section)
+- `fetchMenuItems()` parses MCP response in multiple formats (array, {items:[]}, {data:[]}, text)
+
+### Gotchas
+- `config-integration.integration.test.ts` validates all routing.json actions against a hardcoded list — must add new actions to `validActions` array when adding new routing action types
+- `prd.json` uses UTF-8 with special chars — always open with `encoding='utf-8'` in Python
+- WhatsApp row title max is 24 chars — truncate long item names with `…`
+## Iteration 2 - Sun, Mar 15, 2026  3:10:08 PM
+Incomplete: WABA webhook subscription health check on server startup (ID: US-892) — attempt 1/3
+
+
+## Iteration 3 - Story: US-874 Automatic language detection and response in Chinese (Mandarin) and Tamil
+
+### What was implemented
+- **Already implemented**: Full multilingual pipeline was already in place from prior stories (US-418, US-462):
+  - Language detection via ELD library + pattern-based fast path (`language-router.ts`)
+  - Per-JID language preference persistence with confidence thresholds (`language-preference.ts`)
+  - System prompt language injection in `kb-loading.ts` ("LANGUAGE INSTRUCTION: Always reply in {lang}")
+  - Foreign language translation for non-supported scripts (Thai, Japanese, etc.)
+  - Tamil excluded from foreign-language translation (handled natively)
+
+- **Gap filled — Tamil test coverage**: Added 33 new tests in `multilingual-detection.test.ts` covering:
+  - AC1: Detection for all 4 languages (en/ms/zh/ta) with real-world messages
+  - AC2: `detectLanguage()` wrapper defaults unknown to 'en'
+  - AC3: Tamil NOT treated as foreign language (no unnecessary translation)
+  - AC4: Language override via `resolveResponseLanguage()` with confidence thresholds
+  - AC5: System prompt adapted per-language (English/Malay/Chinese/Tamil instructions)
+  - AC6: Performance — 1000 detections in <200ms
+
+- **Tamil tests added to `language-router.test.ts`**: Simple Tamil, Tamil sentences, mixed Tamil-English, confidence scoring
+- **Fixed `language-resolution.test.ts`**: Replaced stale replicated function with actual import from `routing.ts`; added 5 Tamil-specific tests
+
+### Patterns discovered
+- Tamil detection uses Unicode block `\u0B80-\u0BFF` — instant pattern match, 0.95 confidence
+- `detectFullLanguage()` in `formatter.ts` explicitly skips Tamil (returns null) — handled by native template system
+- Language system spans 4 files: `language-router.ts` (detect), `language-preference.ts` (persist), `kb-loading.ts` (prompt inject), `routing.ts` (resolve)
+- `resolveExperimentPrompt` from `lib/experiments.ts` is imported by `kb-loading.ts` — tests need DB connection string available
+
+### Gotchas
+- `language-resolution.test.ts` had a STALE replicated function that didn't include 'ta' — now imports the real function
+- All 7 test failures in full suite are pre-existing (webhook-routing mock issues), not related to this story
