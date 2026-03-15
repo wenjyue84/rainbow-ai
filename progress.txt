@@ -9008,3 +9008,32 @@ Completed: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification
 ## Iteration 9 - Sun, Mar 15, 2026  7:43:22 PM
 Completed: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) in 10m
 
+## Iteration 3 - Sun, Mar 15, 2026  7:43:50 PM
+Completed: Malaysia PDPA 2024 Amendment: DPO appointment and breach notification workflow (ID: US-907) in 12m
+
+
+## Iteration [Ralph] - Story: US-910 - Click-to-WhatsApp ad referral attribution tracking
+### What was implemented
+- **Schema:** Added 7 referral columns to `rainbow_conversations` table: `referral_source_type`, `referral_ctwa_clid`, `referral_source_id`, `referral_headline`, `referral_body`, `referral_media_type`, `referral_source_url` + index on `referral_source_type`
+- **Types:** Added `ReferralData` interface to `src/assistant/types.ts`, added `referral` field to `IncomingMessage`
+- **Types:** Added `ConversationReferral` interface and `leadSource` to `ConversationSummary`, `referral` to `ConversationLog` in `conversation-logger-types.ts`
+- **Baileys extraction:** Added `extractReferral()` in `src/lib/whatsapp/instance.ts` — reads `contextInfo.externalAdReply` from Baileys messages, maps sourceType enum to string
+- **Pipeline:** Updated `input-validator.ts` to pass `msg.referral` through to `logMessage()` meta
+- **Persistence:** Updated `upsertConversation()` in `conversation-db.ts` to accept optional `referral` param, writes referral fields on INSERT and conflict UPDATE
+- **Logger:** Updated `logMessage()` to extract referral from meta and pass to upsert
+- **Listing:** Updated `listConversations()` and `searchConversations()` SQL to SELECT `referral_source_type`, mapped as `leadSource` in `ConversationSummary`
+- **Detail:** Updated `getConversation()` to build `referral` object from DB columns
+- **Export:** Added `referral` field to JSON export format
+
+### Patterns discovered
+- Baileys ad referral data lives in `msg.message.extendedTextMessage.contextInfo.externalAdReply`
+- Baileys uses numeric enums for sourceType (1=CTWA) and mediaType (1=image, 2=video)
+- Referral only appears on the first inbound message of an ad-initiated session
+- QR code vs ad-click is distinguished by `sourceType` field (ad vs qr_code)
+
+### Gotchas
+- Need to run `npm run db:push` after deployment to apply schema migration (7 new columns + 1 index)
+- Baileys doesn't expose `ctwa_clid` directly — it's a Cloud API concept. For Baileys, `sourceId` is the closest equivalent for campaign attribution
+
+### Status
+✅ Build passes (3 warnings, no errors). Server startup OK. Marked passes=true.

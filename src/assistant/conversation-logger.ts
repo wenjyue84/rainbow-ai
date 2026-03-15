@@ -34,6 +34,7 @@ export type {
   ContactDetails,
   ConversationLog,
   ConversationSummary,
+  ConversationReferral,
 } from './conversation-logger-types.js';
 
 import type {
@@ -314,6 +315,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
         sessionActive: r.session_active === true || r.session_active === 't', // US-815
+        leadSource: r.referral_source_type || undefined, // US-910
       }));
       setListCache(summaries, profileId);
       return summaries;
@@ -349,6 +351,7 @@ export async function searchConversations(
           c.favourite,
           c.created_at,
           c.last_read_at,
+          c.referral_source_type,
           lm.content   AS last_msg_content,
           lm.role       AS last_msg_role,
           lm.timestamp  AS last_msg_at,
@@ -423,6 +426,7 @@ export async function searchConversations(
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
         sessionActive: r.session_active === true || r.session_active === 't',
+        leadSource: r.referral_source_type || undefined, // US-910
       }));
     },
     async () => [],
@@ -470,6 +474,20 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
         try { contactDetails = JSON.parse(convo.contactDetailsJson); } catch { /* ignore */ }
       }
 
+      // US-910: Build referral object from conversation columns
+      let referral: import('./conversation-logger-types.js').ConversationReferral | undefined;
+      if (convo.referralSourceType) {
+        referral = {
+          sourceType: convo.referralSourceType,
+          ...(convo.referralCtwaClid ? { ctwaClid: convo.referralCtwaClid } : {}),
+          ...(convo.referralSourceId ? { sourceId: convo.referralSourceId } : {}),
+          ...(convo.referralHeadline ? { headline: convo.referralHeadline } : {}),
+          ...(convo.referralBody ? { body: convo.referralBody } : {}),
+          ...(convo.referralMediaType ? { mediaType: convo.referralMediaType } : {}),
+          ...(convo.referralSourceUrl ? { sourceUrl: convo.referralSourceUrl } : {}),
+        };
+      }
+
       return {
         phone: convo.phone,
         pushName: convo.pushName,
@@ -480,6 +498,7 @@ export async function getConversation(phone: string): Promise<ConversationLog | 
         favourite: convo.favourite,
         lastReadAt: convo.lastReadAt?.getTime(),
         responseMode: convo.responseMode ?? undefined,
+        referral,
         createdAt: convo.createdAt.getTime(),
         updatedAt: convo.updatedAt.getTime(),
       };

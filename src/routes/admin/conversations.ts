@@ -189,6 +189,7 @@ router.get('/conversations/:phone/export', async (req: Request, res: Response) =
         pushName: log.pushName,
         profileId: profileId || 'default',
         status: log.responseMode || 'active',
+        referral: log.referral || null, // US-910: ad referral attribution
         createdAt: new Date(log.createdAt).toISOString(),
         updatedAt: new Date(log.updatedAt).toISOString(),
         messages: log.messages.map((m: LoggedMessage) => ({
