@@ -18,6 +18,7 @@ import { rateLimitManager } from './rate-limit-manager.js';
 import { isProviderOverBudget } from './llm-cost-budget.js';
 import { getContextWindows } from './context-windows.js';
 import { looksLikeJson } from './ai-response-generator.js';
+import { stripDangerousHtml } from './output-sanitizer.js';
 
 const STREAM_FALLBACK = "AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.";
 
@@ -40,7 +41,8 @@ export function sseEvent(res: Response, data: Record<string, unknown>): void {
 /** Send a complete text as a single SSE token + done (for static/workflow responses) */
 export function sendStaticSSE(res: Response, text: string, responseTime: number, sessionId: string): void {
   setupSSEHeaders(res);
-  sseEvent(res, { token: text });
+  // US-946: Sanitize output before sending to webchat (OWASP LLM05)
+  sseEvent(res, { token: stripDangerousHtml(text) });
   sseEvent(res, { done: true, responseTime, sessionId });
   res.end();
 }
@@ -90,8 +92,10 @@ async function streamFromProvider(
     for await (const chunk of stream) {
       const delta = (chunk as any).choices?.[0]?.delta?.content;
       if (delta) {
-        fullText += delta;
-        sseEvent(res, { token: delta });
+        // US-946: Sanitize streaming token (OWASP LLM05)
+        const safeDelta = stripDangerousHtml(delta);
+        fullText += safeDelta;
+        sseEvent(res, { token: safeDelta });
       }
     }
 
@@ -99,8 +103,9 @@ async function streamFromProvider(
     // Gemini streaming API differs; fall back to non-streaming single chunk
     const result = await providerChat(provider, messages, maxTokens, temperature);
     if (result?.content) {
-      fullText = result.content;
-      sseEvent(res, { token: result.content });
+      // US-946: Sanitize output (OWASP LLM05)
+      fullText = stripDangerousHtml(result.content);
+      sseEvent(res, { token: fullText });
     }
 
   } else {
@@ -148,8 +153,10 @@ async function streamFromProvider(
         try {
           const delta = JSON.parse(d).choices?.[0]?.delta?.content;
           if (delta) {
-            fullText += delta;
-            sseEvent(res, { token: delta });
+            // US-946: Sanitize streaming token (OWASP LLM05)
+            const safeDelta = stripDangerousHtml(delta);
+            fullText += safeDelta;
+            sseEvent(res, { token: safeDelta });
           }
         } catch { /* skip malformed chunks */ }
       }

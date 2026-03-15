@@ -20,6 +20,7 @@ import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
 import { isModificationAllowed, getModificationTimeRemaining } from '../../assistant/order-modification-store.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
+import { stripDangerousHtml } from '../../assistant/output-sanitizer.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
 import { getLastOrder } from '../../assistant/order-history-store.js';
@@ -576,9 +577,12 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       console.error('[Webchat] DB persist error:', err.message);
     });
 
+    // US-946: Sanitize LLM output before sending to webchat (OWASP LLM05)
+    const sanitizedResponse = stripDangerousHtml(result.message);
+
     // Return only public-safe fields
     res.json({
-      message: result.message,
+      message: sanitizedResponse,
       responseTime: result.responseTime,
       sessionId,
     });

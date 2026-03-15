@@ -9934,3 +9934,30 @@ FAILED quality gates: Support BSUID as primary contact identifier in webhook han
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 17/17 cart recovery tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+
+## Iteration 56 - Story: US-946 - Implement OWASP LLM05 improper output handling sanitisation
+### What was implemented
+- Created `src/assistant/output-sanitizer.ts` — server-side output sanitization module with:
+  - `escapeHtml()` — full HTML entity escaping for HTML contexts
+  - `stripDangerousHtml()` — selective removal of dangerous patterns (script, iframe, event handlers, javascript: URIs, data:text/html, etc.)
+  - `sanitizeWebchatOutput()` — combined strip + escape for webchat widget
+  - `sanitizeToolError()` — generic error messages that don't leak internal schema/argument details
+- Integrated `stripDangerousHtml()` into all webchat output paths:
+  - Non-streaming JSON response in `webchat-api.ts`
+  - Streaming SSE tokens in `chat-stream.ts` (Groq, Gemini, OpenAI-compatible)
+  - Static SSE responses via `sendStaticSSE()`
+- Updated tool validation error handling in `ai-response-generator.ts` to use `sanitizeToolError()` — detailed errors logged server-side, only generic message sent to LLM/user
+- Created comprehensive test suite (`output-sanitizer.test.ts`) with 23 tests:
+  - Output sanitization: escapeHtml, stripDangerousHtml, sanitizeWebchatOutput
+  - 7 adversarial tool payload tests: SQL injection (DROP TABLE, UNION SELECT, DELETE), shell injection ($(), backticks, pipe to bash), path traversal
+  - Tool error sanitization: verifies no internal structure leakage
+
+### Patterns discovered
+- Codebase already had strong defenses: validateToolArgs (US-928), parameterized SQL everywhere, prompt injection detection (US-422/US-928)
+- Main gap was output-side: no sanitization of LLM responses before sending to webchat widget
+- Streaming tokens are sanitized per-chunk; cross-chunk patterns (e.g. `<scr` + `ipt>`) are unlikely but theoretically possible — client-side defense-in-depth recommended
+- Tool validation errors previously included schema details (argument names, types) — now generic
+
+### Gotchas
+- Pre-existing test failure in config-integration.integration.test.ts (service_request action) — not related to this change
+- Global regex patterns need `lastIndex = 0` reset before each test to avoid stateful matching issues

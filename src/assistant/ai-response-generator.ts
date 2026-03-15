@@ -17,6 +17,7 @@ import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safePa
 import { recordValidationEvent } from './llm-validation-metrics.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 import { validateToolArgs } from './pipeline/prompt-injection-guard.js';
+import { sanitizeToolError } from './output-sanitizer.js';
 import {
   checkToolPermission,
   auditToolDispatch,
@@ -201,14 +202,17 @@ export async function chatWithToolsLoop(
         parsedArgs = {};
       }
 
-      // US-928: Validate tool arguments against input schema before execution
+      // US-928 + US-946: Validate tool arguments against input schema before execution
       const toolDef = tools.find(t => t.name === fnName);
       if (toolDef?.inputSchema) {
         const validation = validateToolArgs(parsedArgs, toolDef.inputSchema);
         if (!validation.valid) {
+          // Log detailed errors server-side only (never expose to user)
           console.warn(`[AI] Tool argument validation failed for ${fnName}: ${validation.errors.join(', ')}`);
+          // US-946: Return safe error without disclosing internal structure
+          const safeError = sanitizeToolError(fnName, validation.errors);
           const result: MCPToolResult = {
-            content: [{ type: 'text', text: `Tool argument validation failed: ${validation.errors.join(', ')}` }],
+            content: [{ type: 'text', text: safeError }],
             isError: true
           };
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.content) });
