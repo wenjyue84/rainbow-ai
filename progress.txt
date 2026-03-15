@@ -9360,3 +9360,44 @@ Completed: Malaysia PDPA 2024 Amendment: PII masking before AI provider API call
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 26/26 new tests pass + 15/15 existing PII tests pass. Marked passes=true.
+
+## Iteration [Ralph] - Story: US-912 RAG hybrid retrieval with BM25 and cross-encoder reranking
+### What was implemented
+- **`src/assistant/kb-hybrid-retriever.ts`** (pre-existing from attempt 1):
+  - Full hybrid retrieval pipeline: BM25 keyword ranking + vector cosine similarity via Xenova/all-MiniLM-L6-v2
+  - RRF (Reciprocal Rank Fusion) merges BM25 and vector rankings with k=60
+  - Cross-encoder reranking (Xenova/ms-marco-MiniLM-L-6-v2) re-scores top-20 candidates
+  - Returns top-3 chunks above relevance threshold (default 0.65)
+  - Chunking: 300-word chunks with 15% (45-word) overlap, split on sentence boundaries
+  - Graceful fallbacks: BM25-only if vector fails, RRF-order if cross-encoder fails
+
+- **`src/assistant/knowledge-base-instance.ts`** (pre-existing integration):
+  - `hybridRetriever` instance created per KnowledgeBaseInstance
+  - `buildIndex()` called on `reloadAllKB()` and `initKBFromDB()`
+  - `precomputeEmbeddings()` called in background after index build
+  - `retrieveContext(query)` public API returns joined chunk text or empty string
+
+- **`src/assistant/chat-engine.ts`** (pre-existing integration):
+  - `hybridContextPromise` pre-fetched concurrently with intent classification
+  - `hybridContext` passed to `kb.buildSystemPrompt()` for static_reply, workflow, and llm_reply paths
+  - `buildSystemPrompt()` accepts optional `hybridContext` parameter
+
+- **`src/assistant/__tests__/kb-hybrid-retriever.test.ts`** (NEW — 14 tests):
+  - buildIndex: from file map, skips memory files, handles empty map
+  - chunking: long text produces multiple chunks, single-sentence handled
+  - retrieve: returns relevant chunks, belowThreshold for no match, empty index, respects topK, measures time
+  - threshold filtering: default 0.65 threshold correctly filters low-scoring results
+  - fallback behavior: BM25-only when vector fails, RRF-order when cross-encoder fails
+  - integration: accepts same Map<string, string> format as kbCache
+
+### Patterns discovered
+- Server startup loads embedding model in ~553ms, indexes 61 chunks from 33 KB files
+- @xenova/transformers pipeline can be mocked cleanly with vi.mock for deterministic tests
+- Cross-encoder scores are logits that need sigmoid normalization to 0-1 range
+
+### Gotchas
+- Previous attempt (iteration 13) failed silently — the code was already complete but had no tests
+- The embedder/cross-encoder loading uses lazy singleton pattern with dedup via Promises
+
+### Status
+✅ Build passes (3 pre-existing warnings). 14/14 tests pass. Server starts successfully. Marked passes=true.
