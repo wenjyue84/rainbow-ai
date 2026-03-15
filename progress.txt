@@ -8608,3 +8608,45 @@ Completed: Portfolio-level messaging limit consolidation: inherit highest tier a
 ### Gotchas
 - The `saveOrderHistory` function signature was enriched by linter to take an object param with phone, tableInfo, totalAmount — the cart.ts call needed to match
 - The linter also added order stage transition (ORDERING) to the reorder endpoint for consistency with cart population
+
+
+## Iteration [Ralph] - Story: US-897 AI waiter returning-customer order history
+### What was implemented
+- **Drizzle schema**: Added `webchat_order_history` table in `shared/schema-tables.ts` with session_id, phone, profile_id, items_json, table_info_json, order_id, total_amount, created_at
+- **Order history store** (`src/assistant/order-history-store.ts`): Updated to match new Drizzle schema with `saveOrderHistory()` (object params) and `getLastOrder()` returning items, tableInfo, orderId, totalAmount, placedAt
+- **Cart order persistence** (`src/tools/cart.ts`): `order_confirm_submit` handler saves completed order snapshot via `saveOrderHistory()` with profileId and customerJid from closure
+- **Greeting endpoint** (`src/routes/public/webchat-api.ts`): Enhanced `GET /:profileId/greeting` to detect returning customers, check menu availability (via `fetchMenuItems()`), omit out-of-stock items, and return `lastOrder` data with "Welcome back!" greeting
+- **Reorder endpoint** (`POST /:profileId/reorder`): Populates cart with available items from last order, transitions to ORDERING stage, omits out-of-stock items with notification
+- **Admin toggle**: Feature controlled by `settings.repeatOrderEnabled` (default: enabled) per AC#4
+- **5 Vitest tests**: first-time session returns null, returning session returns correct cart, save persists correctly, DB error graceful handling for both save and get
+### Patterns discovered
+- Spiral worker had already implemented most of the endpoint code — Ralph validated, fixed schema alignment, and ensured order stage transition on reorder
+- prd.json was truncated (only 3KB vs 202KB backup) — restored from prd.json.bak before marking story
+### Status
+Build passes. 5/5 tests pass. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-897 AI waiter returning-customer order history
+### What was implemented
+- **Server-side was already complete** from prior spiral work:
+  - `src/assistant/order-history-store.ts`: DB table `webchat_order_history`, `saveOrderHistory()` (fire-and-forget on order completion), `getLastOrder()` (latest order per session)
+  - `src/routes/public/webchat-api.ts` greeting endpoint: returns `lastOrder` data with out-of-stock filtering via menu availability check
+  - `src/routes/public/webchat-api.ts` reorder endpoint (`POST /reorder`): populates cart from last order, filters unavailable items
+  - `src/tools/cart.ts`: calls `saveOrderHistory()` on order submission
+  - `src/assistant/__tests__/order-history.test.ts`: 5 tests (first-time null, returning cart, save, DB error handling)
+- **Added client-side webchat changes** (`src/public/webchat.html`):
+  - CSS: `.quick-reply-container` and `.quick-reply-btn` styles (pill button, hover/disabled states)
+  - `appendQuickReplyButton()`: renders a quick-reply button below the greeting message
+  - `handleReorder()`: calls `POST /reorder`, shows cart confirmation with item list, handles errors
+  - `initHistory()` updated: new/empty sessions now call `/greeting` endpoint instead of using static `profile.greeting`, enabling server to return `lastOrder` data; shows "Order the same again" button when `lastOrder` is present
+- **Added `repeatOrderEnabled` toggle** to `settings.json` (default true)
+
+### Patterns discovered
+- The greeting endpoint was already wired up server-side but the webchat client never called it — it used the static `profile.greeting` from `window.__WEBCHAT_PROFILE__`
+- Quick-reply buttons use `messagesEl.insertBefore(container, typingEl)` pattern, same as message bubbles
+
+### Gotchas
+- prd.json requires utf-8-sig encoding for Python json.load on Windows (BOM prefix)
+- Linter/hooks may revert file changes — need to re-apply edits if hooks modify files
+
+### Status
+Build passes. 5 tests pass. Story marked passes=true.

@@ -174,6 +174,38 @@
       text-align: right;
     }
 
+    /* US-897: Quick-reply button for returning customer reorder */
+    .quick-reply-container {
+      display: flex;
+      gap: 8px;
+      padding: 4px 0;
+      flex-wrap: wrap;
+      align-self: flex-start;
+    }
+
+    .quick-reply-btn {
+      background: var(--surface);
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+      border-radius: 20px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    .quick-reply-btn:hover {
+      background: var(--primary);
+      color: var(--user-text);
+    }
+
+    .quick-reply-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* Typing indicator */
     .typing {
       display: none;
@@ -876,8 +908,51 @@
         }
       }
 
+      // ─── US-897: Reorder quick-reply handler ─────────────────────────────
+      function appendQuickReplyButton(text, onClick) {
+        var container = document.createElement('div');
+        container.className = 'quick-reply-container';
+        var btn = document.createElement('button');
+        btn.className = 'quick-reply-btn';
+        btn.textContent = text;
+        btn.addEventListener('click', function() {
+          btn.disabled = true;
+          btn.textContent = 'Loading...';
+          onClick(function() { container.remove(); });
+        });
+        container.appendChild(btn);
+        messagesEl.insertBefore(container, typingEl);
+        scrollToBottom();
+      }
+
+      async function handleReorder(onDone) {
+        try {
+          var resp = await fetch('/api/chat/' + encodeURIComponent(profile.id) + '/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: sessionId })
+          });
+          var data = await resp.json();
+          if (onDone) onDone();
+          if (data.success && data.items && data.items.length > 0) {
+            var itemList = data.items.map(function(i) { return i.qty + 'x ' + i.name; }).join(', ');
+            var msg = 'Added to your cart: ' + itemList + '.';
+            if (data.omittedNote) msg += ' ' + data.omittedNote;
+            msg += ' You can add more items or say "place my order" when ready!';
+            appendMessage('bot', msg, true);
+            history.push({ role: 'assistant', content: msg });
+          } else {
+            appendMessage('bot', data.message || 'Could not reorder — your previous items may no longer be available.', true);
+          }
+        } catch (err) {
+          if (onDone) onDone();
+          appendMessage('bot', 'Sorry, something went wrong loading your last order. Please order normally.', true);
+        }
+        scrollToBottom();
+      }
+
       // ─── History restoration ───────────────────────────────────
-      // Fetch last 10 messages from server if returning session, else show greeting.
+      // Fetch last 10 messages from server if returning session, else fetch greeting from server.
       async function initHistory() {
         if (isReturningSession) {
           try {
@@ -903,7 +978,29 @@
           }
         }
 
-        // New session or no prior messages found — show greeting
+        // New session or returning session with no prior messages — fetch greeting from server
+        // US-897: Server greeting includes lastOrder data for returning customers
+        try {
+          var greetUrl = '/api/chat/' + encodeURIComponent(profile.id) + '/greeting?sessionId=' + encodeURIComponent(sessionId);
+          var greetResp = await fetch(greetUrl);
+          if (greetResp.ok) {
+            var greetData = await greetResp.json();
+            if (greetData.greeting) {
+              appendMessage('bot', greetData.greeting, false);
+              history.push({ role: 'assistant', content: greetData.greeting });
+              // US-897: Show quick-reply button if last order data is available
+              if (greetData.lastOrder && greetData.lastOrder.items && greetData.lastOrder.items.length > 0) {
+                appendQuickReplyButton('Order the same again', handleReorder);
+              }
+              scrollToBottom();
+              return;
+            }
+          }
+        } catch (err) {
+          // Graceful failure — use static greeting
+        }
+
+        // Final fallback: static greeting from profile config
         appendMessage('bot', profile.greeting, false);
         scrollToBottom();
       }
