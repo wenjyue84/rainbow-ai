@@ -60,6 +60,7 @@ import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
 import { startWabaSubscriptionMonitor, getWebhookSubscriptionState } from './lib/waba-subscription-check.js';
+import { startPacingMonitor } from './lib/pacing-monitor.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -199,6 +200,9 @@ startHandoffSlaCron();
 
 // US-892: WABA webhook subscription health check (startup + every 6 hours)
 startWabaSubscriptionMonitor();
+
+// US-891: Portfolio pacing monitor (startup + every 5 minutes)
+startPacingMonitor();
 
 // US-839: Daily PDPA breach deadline check (runs every 24h)
 setInterval(() => {

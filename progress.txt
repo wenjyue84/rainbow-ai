@@ -8011,3 +8011,36 @@ Completed: WABA webhook subscription health check on server startup (ID: US-892)
 ### Gotchas
 - DB update for `localMediaUrl` uses Drizzle `.where(eq(rainbowMessages.baileysMessageId, id))` — requires `db:push` migration to add columns to Neon before production
 - console.error DLQ line has only 1 argument; test must assert with single-arg form
+## Iteration 3 - Sun, Mar 15, 2026  3:49:22 PM
+Completed: WhatsApp media auto-download: save incoming images/documents before URL expiry (ID: US-893) in 9m
+
+
+## Iteration N - Story: US-891 WhatsApp portfolio pacing monitor
+
+### What was implemented
+- New module `src/lib/pacing-monitor.ts`:
+  - `fetchQualityRating(phoneNumberId, token)` — GET /{phone-number-id}?fields=quality_rating,status,... from Meta Graph API
+  - `isPacingPaused(rating, status)` — returns true only when rating='RED' AND status='FLAGGED'
+  - `runPacingCheck()` — polls Meta, updates in-memory state, sends admin notification on newly detected pause
+  - `startPacingMonitor()` — idempotent startup + setInterval every 5 minutes (unref'd)
+  - `getPacingState()` — exposes state for messaging-limits endpoint
+  - DB persistence of pacing state to `app_settings` (keys: portfolio_pacing_paused, portfolio_pacing_paused_since)
+- `src/lib/admin-notifier.ts`:
+  - Added `notifyAdminPortfolioPacingPaused(phoneNumber, qualityRating, status)` with 5-min cooldown
+- `src/routes/admin/messaging-limits.ts`:
+  - Imported `getPacingState` from pacing-monitor
+  - GET response now includes: `pacingPaused`, `pacingQualityRating`, `pacingStatus`, `pacingPausedSince`, `pacingLastCheckedAt`
+  - DB-unavailable fallback also includes pacing state (from in-memory)
+- `src/index.ts`:
+  - Added `import { startPacingMonitor }` and called `startPacingMonitor()` after waba subscription monitor
+- `src/assistant/__tests__/pacing-monitor.test.ts`:
+  - 20 tests covering: isPacingPaused helper, no credentials skip, GREEN quality, RED+FLAGGED pause, network error resilience, initial state
+
+### Patterns discovered
+- `PHONE_NUMBER_ID` is the env var for the WhatsApp phone number ID (separate from WABA_ID)
+- Pacing detection: rating='RED' + status='FLAGGED' is the Meta-documented signal for quality-triggered hold
+- Admin notifier cooldown (5 min) means one notification per detection event — meets the "within 5 minutes" AC
+
+### Gotchas
+- `vi.resetModules()` + re-apply all mocks needed for in-memory state isolation between test groups
+- DB persistence uses `drizzle-orm` eq/sql — must mock both `drizzle-orm` and `shared/schema.js` in tests

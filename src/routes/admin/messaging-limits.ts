@@ -12,6 +12,7 @@ import { db, dbReady } from '../../lib/db.js';
 import { appSettings, rainbowMessages } from '../../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { badRequest, serverError } from './http-utils.js';
+import { getPacingState } from '../../lib/pacing-monitor.js';
 
 const router = Router();
 
@@ -62,9 +63,20 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
   try {
     const isConnected = await dbReady;
     if (!isConnected) {
+      const pacingState = getPacingState();
       return res.json({
         success: true,
-        data: { tier: DEFAULT_TIER, used24h: 0, limit: TIER_LIMITS[DEFAULT_TIER], percentUsed: 0 },
+        data: {
+          tier: DEFAULT_TIER,
+          used24h: 0,
+          limit: TIER_LIMITS[DEFAULT_TIER],
+          percentUsed: 0,
+          pacingPaused: pacingState.pacingPaused,
+          pacingQualityRating: pacingState.qualityRating,
+          pacingStatus: pacingState.status,
+          pacingPausedSince: pacingState.pausedSince,
+          pacingLastCheckedAt: pacingState.lastCheckedAt,
+        },
         warning: 'Database connection unavailable. Using defaults.',
       });
     }
@@ -83,7 +95,18 @@ router.get('/analytics/messaging-limits', async (_req: Request, res: Response) =
     const limit = TIER_LIMITS[tier] ?? TIER_LIMITS[DEFAULT_TIER];
     const percentUsed = limit === Infinity ? 0 : Math.round((used24h / limit) * 10000) / 100;
 
-    const data = { tier, used24h, limit: limit === Infinity ? 'unlimited' : limit, percentUsed };
+    const pacingState = getPacingState();
+    const data = {
+      tier,
+      used24h,
+      limit: limit === Infinity ? 'unlimited' : limit,
+      percentUsed,
+      pacingPaused: pacingState.pacingPaused,
+      pacingQualityRating: pacingState.qualityRating,
+      pacingStatus: pacingState.status,
+      pacingPausedSince: pacingState.pausedSince,
+      pacingLastCheckedAt: pacingState.lastCheckedAt,
+    };
 
     _cache = { data, expiry: now + CACHE_TTL };
 

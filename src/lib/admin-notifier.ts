@@ -857,3 +857,55 @@ export async function notifyAdminWabaSubscriptionFailed(
     logger.error('Failed to send WABA subscription notification', { error: err.message });
   }
 }
+
+// ─── US-891 — Portfolio pacing pause alert ─────────────────────────────────
+const PACING_PAUSE_COOLDOWN_MS = 5 * 60 * 1000; // max one notification per 5 min
+let _lastPacingPauseNotifyAt = 0;
+
+/**
+ * Send admin alert when Meta portfolio pacing is paused due to quality degradation.
+ * Throttled to one notification per 5 minutes (meets the "within 5 minutes" AC).
+ */
+export async function notifyAdminPortfolioPacingPaused(
+  phoneNumber: string,
+  qualityRating: string,
+  status: string,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send pacing pause notification');
+    return;
+  }
+
+  const now = Date.now();
+  if (now - _lastPacingPauseNotifyAt < PACING_PAUSE_COOLDOWN_MS) {
+    logger.info('Pacing pause notification skipped (cooldown)');
+    return;
+  }
+  _lastPacingPauseNotifyAt = now;
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const message = `⚠️ *WhatsApp Portfolio Pacing PAUSED*\n\n` +
+    `Phone Number: *${phoneNumber}*\n` +
+    `Quality Rating: *${qualityRating}*\n` +
+    `Account Status: *${status}*\n` +
+    `Detected At: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}\n\n` +
+    `*Impact:*\n` +
+    `Meta has paused bulk template send pacing due to quality signals ` +
+    `(high block/complaint rates). Scheduled batch messages may be held back ` +
+    `and not delivered until quality improves.\n\n` +
+    `*Actions:*\n` +
+    `1. Log into Meta Business Manager → Phone Numbers → Quality\n` +
+    `2. Review recent template campaigns for high opt-out/block rates\n` +
+    `3. Pause or remove low-quality message templates\n` +
+    `4. Monitor via Rainbow Admin: GET /api/rainbow/analytics/messaging-limits\n\n` +
+    `Pacing will auto-resume when quality signals improve.`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent portfolio pacing pause notification', { phoneNumber, qualityRating });
+  } catch (err: any) {
+    logger.error('Failed to send pacing pause notification', { error: err.message });
+  }
+}

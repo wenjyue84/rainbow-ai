@@ -1,10 +1,10 @@
 {
-  "productName": "Rainbow AI — FnB Widget Bug Fixes (Image 3 + Image 4)",
+  "productName": "Rainbow AI \u2014 FnB Widget Bug Fixes (Image 3 + Image 4)",
   "branchName": "master",
   "overview": "Fix two critical bugs visible in screenshots: (1) hostel fallback text appearing in makan-moments cafe widget (UNKNOWN_FALLBACK_MESSAGES hardcoded hostel text), (2) raw JSON object rendered in chat bubble instead of plain text (chatWithToolsLoop returns unguarded LLM content). Also fix webchat-api not injecting FnB tools and unicode corruption in system prompt.",
   "goals": [
     "Fix Image 3: hostel fallback text ('bookings, check-in/out, amenities') never appears in makan-moments widget",
-    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble — chatWithToolsLoop sanitizes LLM output",
+    "Fix Image 4: raw JSON '{\"intent\":...}' never rendered in chat bubble \u2014 chatWithToolsLoop sanitizes LLM output",
     "Fix webchat-api tool injection: /chat/makan-moments widget gets FnB tool-calling capability",
     "Fix unicode corruption in system prompt (em dash + rainbow emoji garbled)",
     "Graceful tool-failure fallback: if FNB_MCP_URL is down, AI gives a helpful answer instead of hostel fallback",
@@ -28,7 +28,7 @@
       "technicalNotes": [
         "Edit src/assistant/ai-response-generator.ts: update getUnknownFallbackMessages() to accept optional configStore param. Update chatWithToolsLoop to call getUnknownFallbackMessages(profileConfigStore) for its fallback at line 142 and 183. Add optional configStore param to chatWithToolsLoop signature.",
         "Edit src/assistant/chat-engine.ts: pass store to getUnknownFallbackMessages() in the catch-all fallback at the bottom of processChat(). Also pass store to chatWithToolsLoop.",
-        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '抱歉，我现在无法获取该信息。请联系我们的员工，或尝试：显示菜单 / 下单 / 查询订单。'}"
+        "Edit src/assistant/data-makan/settings.json: add 'unknownFallback': {'en': 'Sorry, I could not get that information right now. Please ask our staff or try: Show me the menu / Place an order / Check my order.', 'ms': 'Maaf, saya tidak dapat maklumat itu sekarang. Sila tanya staf kami atau cuba: Tunjuk menu / Buat pesanan / Semak pesanan saya.', 'zh': '\u62b1\u6b49\uff0c\u6211\u73b0\u5728\u65e0\u6cd5\u83b7\u53d6\u8be5\u4fe1\u606f\u3002\u8bf7\u8054\u7cfb\u6211\u4eec\u7684\u5458\u5de5\uff0c\u6216\u5c1d\u8bd5\uff1a\u663e\u793a\u83dc\u5355 / \u4e0b\u5355 / \u67e5\u8be2\u8ba2\u5355\u3002'}"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -38,12 +38,12 @@
       "id": "US-802",
       "title": "Fix raw JSON displayed in chat widget when LLM returns JSON format",
       "priority": "high",
-      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop — if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
+      "description": "chatWithToolsLoop returns the raw LLM content string without checking if it is JSON. When the LLM responds in the old structured format {'intent':'menu_query','action':'llm_reply','response':'...','confidence':0.0}, the entire JSON string is sent to the chat widget and rendered verbatim (Image 4 bug). Fix: add a looksLikeJson guard in chatWithToolsLoop \u2014 if content looks like JSON, try to extract the 'response' or 'text' field; if none found, use the profile fallback.",
       "acceptanceCriteria": [
         "chatWithToolsLoop never returns a string starting with '{' to the caller",
         "If LLM content is valid JSON with a 'response' or 'text' string field, that field value is returned",
         "If JSON has no extractable text, profile-aware fallback is returned instead",
-        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' — chatWithToolsLoop must return 'Test reply'",
+        "Test: mock chatWithFallback to return '{\"intent\":\"menu_query\",\"response\":\"Test reply\",\"confidence\":0.5}' \u2014 chatWithToolsLoop must return 'Test reply'",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -81,10 +81,10 @@
       "id": "US-804",
       "title": "Fix corrupted unicode in makan-moments system prompt (em dash + emoji)",
       "priority": "medium",
-      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: 'â\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
+      "description": "The makan-moments settings.json system_prompt contains corrupted unicode: '\u00e2\\u20ac\\u201d' instead of the em dash and garbled bytes instead of the rainbow emoji. This causes the sign-off to appear garbled in responses. Fix by correcting the encoding in settings.json.",
       "acceptanceCriteria": [
-        "data-makan/settings.json system_prompt sign-off is properly encoded (no 'â' or garbled bytes)",
-        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('â'))\" returns false",
+        "data-makan/settings.json system_prompt sign-off is properly encoded (no '\u00e2' or garbled bytes)",
+        "Running: node -e \"const s=require('./src/assistant/data-makan/settings.json'); console.log(s.system_prompt.includes('\u00e2'))\" returns false",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -103,7 +103,7 @@
         "When all tool results have isError:true, chatWithToolsLoop makes a final toolless LLM call",
         "Final call uses the same system prompt and conversation history but no tools array",
         "If final call also fails, returns profile-aware fallback (not hardcoded hostel text)",
-        "Test: mock all tool handlers to return {isError:true} — result should be a non-empty meaningful text, not the hostel fallback",
+        "Test: mock all tool handlers to return {isError:true} \u2014 result should be a non-empty meaningful text, not the hostel fallback",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -122,9 +122,9 @@
       "description": "Write targeted tests to prevent regression of the two bugs seen in the screenshots: (1) hostel fallback text appearing in makan-moments widget, (2) raw JSON being returned from chatWithToolsLoop. Also test the webchat-api tool injection fix.",
       "acceptanceCriteria": [
         "File src/assistant/__tests__/fnb-widget-bugs.test.ts exists",
-        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' → result is 'OK' (not raw JSON)",
-        "Test: chatWithToolsLoop with all tool handlers throwing → result does NOT contain 'hostel' or 'check-in' or 'bookings'",
-        "Test: getUnknownFallbackMessages() with makan-moments configStore → returns text without 'hostel'",
+        "Test: chatWithToolsLoop with mocked LLM returning JSON '{\"intent\":\"menu_query\",\"response\":\"OK\",\"confidence\":0.5}' \u2192 result is 'OK' (not raw JSON)",
+        "Test: chatWithToolsLoop with all tool handlers throwing \u2192 result does NOT contain 'hostel' or 'check-in' or 'bookings'",
+        "Test: getUnknownFallbackMessages() with makan-moments configStore \u2192 returns text without 'hostel'",
         "npm run test:run passes"
       ],
       "technicalNotes": [
@@ -146,7 +146,7 @@
       "id": "US-807",
       "title": "Fix sign-off language: rainbow-ai webchat widget shows correct cafe sign-off",
       "priority": "low",
-      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '— Makan Moments AI' (cafe-appropriate, no hostel branding).",
+      "description": "The makan-moments system prompt instructs the AI to sign off with the generic hostel Rainbow sign-off. After fixing the unicode corruption, update it so the cafe bot signs off as '\u2014 Makan Moments AI' (cafe-appropriate, no hostel branding).",
       "acceptanceCriteria": [
         "data-makan/settings.json system_prompt instructs sign-off as cafe-appropriate name, not generic hostel Rainbow",
         "npm run build passes"
@@ -170,16 +170,16 @@
         "data-makan/routing.json maps vegetarian_query, budget_query, specials_query to action: static_reply",
         "data-makan/routing.json maps operating_hours to action: static_reply",
         "data-makan/knowledge.json has static entries for vegetarian_query, budget_query, specials_query, operating_hours with en/ms/zh placeholder text",
-        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, 素食",
+        "vegetarian_query patterns match: vegetarian, veg, sayur, plant-based, no meat, halal, tanpa daging, \u7d20\u98df",
         "budget_query patterns match: under rm15, cheap, affordable, murah, budget, below rm, less than rm",
-        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, 今日特餐",
-        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, 几点开",
+        "specials_query patterns match: specials, today special, popular, best seller, recommend, apa sedap, \u4eca\u65e5\u7279\u9910",
+        "operating_hours patterns match: open, close, hours, timing, when do you open, berapa masa, \u51e0\u70b9\u5f00",
         "npm run build passes"
       ],
       "technicalNotes": [
-        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|素食|斋)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|实惠|便宜)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|今日特餐|推荐|招牌)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
+        "Edit src/assistant/data-makan/intents.json: add 3 new intents to CAFE_OPERATIONS phase: {category:\"vegetarian_query\",patterns:[\"\b(vegetarian|vegan|veg\b|sayur|plant.based|no.meat|tanpa.daging|halal.*option|\u7d20\u98df|\u658b)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}, {category:\"budget_query\",patterns:[\"\b(under.?rms*d+|below.?rm|cheap|affordable|murah|budget|less.than.rm|rms*d+.?below|d+.?ringgit.?below|ekonomi|\u5b9e\u60e0|\u4fbf\u5b9c)\b\"],flags:\"i\",enabled:true,min_confidence:0.68}, {category:\"specials_query\",patterns:[\"\b(special|today.?special|popular|best.?seller|recommend|favourite|apa.*sedap|\u4eca\u65e5\u7279\u9910|\u63a8\u8350|\u62db\u724c)\b\"],flags:\"i\",enabled:true,min_confidence:0.7}. Also update operating_hours patterns to include more patterns.",
         "Edit src/assistant/data-makan/routing.json: change operating_hours to {action:\"static_reply\"}, add vegetarian_query: {action:\"static_reply\"}, budget_query: {action:\"static_reply\"}, specials_query: {action:\"static_reply\"}.",
-        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly — ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"有的！我们提供素食选项，包括素椰浆饭、蔬菜炒饭和新鲜沙拉。请询问我们的员工了解今日素食选择！\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15以下超值选择：椰浆饭(RM8)、炒面(RM10)、拉茶(RM3)、黑咖啡(RM3)、吐司套餐(RM7)。请询问员工了解完整菜单！\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"我们的热门选择：特色椰浆饭、马来炒面和咖喱煎饼。查看我们的每日特供板或询问员工了解今日推荐！\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM – 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG – 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments咖啡厅每天营业时间：早上7点至晚上10点。提供早餐、午餐和晚餐。最后下单时间：晚上9点30分。\"}}"
+        "Edit src/assistant/data-makan/knowledge.json: add 4 entries to the static array: {intent:\"vegetarian_query\",response:{en:\"Yes! We have vegetarian options including Nasi Lemak Sayur, Vegetable Fried Rice, and fresh salads. Our menu is updated regularly \u2014 ask our staff for today's vegetarian choices!\",ms:\"Ya! Kami ada pilihan vegetarian termasuk Nasi Lemak Sayur, Nasi Goreng Sayuran, dan salad segar. Tanya staf kami untuk pilihan hari ini!\",zh:\"\u6709\u7684\uff01\u6211\u4eec\u63d0\u4f9b\u7d20\u98df\u9009\u9879\uff0c\u5305\u62ec\u7d20\u6930\u6d46\u996d\u3001\u852c\u83dc\u7092\u996d\u548c\u65b0\u9c9c\u6c99\u62c9\u3002\u8bf7\u8be2\u95ee\u6211\u4eec\u7684\u5458\u5de5\u4e86\u89e3\u4eca\u65e5\u7d20\u98df\u9009\u62e9\uff01\"}}, {intent:\"budget_query\",response:{en:\"Great value picks under RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Toast Set (RM7). Ask our staff for the full menu!\",ms:\"Pilihan berbaloi bawah RM15: Nasi Lemak (RM8), Mee Goreng (RM10), Teh Tarik (RM3), Kopi O (RM3), Set Toast (RM7). Tanya staf kami untuk menu penuh!\",zh:\"RM15\u4ee5\u4e0b\u8d85\u503c\u9009\u62e9\uff1a\u6930\u6d46\u996d(RM8)\u3001\u7092\u9762(RM10)\u3001\u62c9\u8336(RM3)\u3001\u9ed1\u5496\u5561(RM3)\u3001\u5410\u53f8\u5957\u9910(RM7)\u3002\u8bf7\u8be2\u95ee\u5458\u5de5\u4e86\u89e3\u5b8c\u6574\u83dc\u5355\uff01\"}}, {intent:\"specials_query\",response:{en:\"Our popular picks: Nasi Lemak Special, Mee Goreng Mamak, and Roti Canai with Curry. Check our daily specials board or ask our friendly staff for today's recommendations!\",ms:\"Pilihan popular kami: Nasi Lemak Special, Mee Goreng Mamak, dan Roti Canai dengan Kari. Semak papan spesial harian kami atau tanya staf untuk cadangan hari ini!\",zh:\"\u6211\u4eec\u7684\u70ed\u95e8\u9009\u62e9\uff1a\u7279\u8272\u6930\u6d46\u996d\u3001\u9a6c\u6765\u7092\u9762\u548c\u5496\u55b1\u714e\u997c\u3002\u67e5\u770b\u6211\u4eec\u7684\u6bcf\u65e5\u7279\u4f9b\u677f\u6216\u8be2\u95ee\u5458\u5de5\u4e86\u89e3\u4eca\u65e5\u63a8\u8350\uff01\"}}, {intent:\"operating_hours\",response:{en:\"Makan Moments Cafe is open daily 7:00 AM \u2013 10:00 PM. We serve breakfast, lunch, and dinner. Last order at 9:30 PM. Come visit us!\",ms:\"Makan Moments Cafe buka setiap hari 7:00 PG \u2013 10:00 MLM. Kami hidangkan sarapan, makan tengah hari, dan makan malam. Pesanan terakhir jam 9:30 MLM.\",zh:\"Makan Moments\u5496\u5561\u5385\u6bcf\u5929\u8425\u4e1a\u65f6\u95f4\uff1a\u65e9\u4e0a7\u70b9\u81f3\u665a\u4e0a10\u70b9\u3002\u63d0\u4f9b\u65e9\u9910\u3001\u5348\u9910\u548c\u665a\u9910\u3002\u6700\u540e\u4e0b\u5355\u65f6\u95f4\uff1a\u665a\u4e0a9\u70b930\u5206\u3002\"}}"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -189,16 +189,16 @@
       "id": "US-809",
       "title": "Profile-scoped admin tab URLs: every tab includes profileId in hash",
       "priority": "high",
-      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage — the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
+      "description": "The admin panel URL only encodes the tab name (e.g. #intents, #responses) but never the active profile. Switching from hostel to cafe profile only updates localStorage \u2014 the URL stays the same. This causes cross-profile data bleed: a user on #intents may see hostel intents instead of cafe intents because the API calls use a stale x-profile-id header. Fix: update all profile-specific tabs to include profileId in the URL (#intents/makan-moments, #responses/pelangi, etc.) following the pattern already used by #dashboard/makan-moments/tests. Switching profiles updates the URL; loading a URL auto-switches to the correct profile. Global tabs (settings, whatsapp, staff-review, help) keep the current flat URL.",
       "acceptanceCriteria": [
         "Navigating to #intents/makan-moments auto-switches to makan-moments profile and loads cafe intents",
         "Navigating to #intents/pelangi auto-switches to pelangi profile and loads hostel intents",
         "When profileSwitcher.switchTo() is called, the URL updates to #currentTab/newProfileId",
-        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents → #intents/activeProfileId)",
+        "Tabs that are profile-specific update their URL on load if profileId is missing (redirect #intents \u2192 #intents/activeProfileId)",
         "Global tabs (settings, whatsapp, staff-review, help, live-chat) do NOT get a profileId in the URL",
         "Profile-specific tabs: dashboard, intents, understanding, responses, performance, chat-simulator, tests, knowledge-base, workflows",
         "Refreshing the page restores both the tab and the profile from the URL",
-        "getTabInfoFromUrl() returns {main, profileId, sub} — profileId is parts[1] if it matches a known profile ID, else null",
+        "getTabInfoFromUrl() returns {main, profileId, sub} \u2014 profileId is parts[1] if it matches a known profile ID, else null",
         "npm run build passes"
       ],
       "technicalNotes": [
@@ -207,7 +207,7 @@
         "Edit loadTab() function: if tab is in PROFILE_SPECIFIC_TABS and URL has no profileId, append active profileId to hash: window.location.hash = tabName + \"/\" + (window.profileSwitcher?.getActiveProfileId() || \"\"); (skip if profileId already in URL).",
         "Edit hashchange handler in tabs.js: if {profileId} is present in parsed URL and differs from active profile, call window.profileSwitcher.switchTo(profileId) before loading the tab.",
         "Edit src/public/js/core/profile-switcher.js switchTo(): after switching, update window.location.hash to include new profileId: const {main} = getTabInfoFromUrl(); if (PROFILE_SPECIFIC_TABS.includes(main)) { window.location.hash = main + \"/\" + profileId; }",
-        "Backward compat: existing flat links like #intents still work — the redirect to #intents/profileId happens automatically on page load."
+        "Backward compat: existing flat links like #intents still work \u2014 the redirect to #intents/profileId happens automatically on page load."
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -844,7 +844,7 @@
         "Behaviour is configurable per-profile via settings.json `features.typingIndicator: true|false`"
       ],
       "technicalNotes": [
-        "`sendWhatsAppTypingIndicator` already exists in `src/lib/whatsapp/index.ts` — integrate into `src/assistant/message-router.ts` before pipeline dispatch",
+        "`sendWhatsAppTypingIndicator` already exists in `src/lib/whatsapp/index.ts` \u2014 integrate into `src/assistant/message-router.ts` before pipeline dispatch",
         "Baileys API: `sock.sendPresenceUpdate('composing', jid)` and `sock.sendPresenceUpdate('paused', jid)`",
         "Gate behind `delay > 500ms` check to avoid unnecessary presence updates for instant cached replies"
       ],
@@ -859,14 +859,14 @@
       "description": "The current reconnect logic (3 attempts, max 60s delay) is insufficient to prevent WhatsApp account bans caused by rapid connect/disconnect cycling. When the supervisor and Baileys instance both retry simultaneously, hundreds of failed handshakes can trigger abuse detection. A circuit breaker must open after N consecutive failures and enforce a 30-minute cooldown.",
       "acceptanceCriteria": [
         "After 5 consecutive connection failures (configurable), the circuit opens and no further reconnection is attempted for 30 minutes",
-        "A WARNING-level log is emitted: `[Baileys:id] Circuit breaker OPEN — 5 consecutive failures. Cooling down for 30 min.`",
+        "A WARNING-level log is emitted: `[Baileys:id] Circuit breaker OPEN \u2014 5 consecutive failures. Cooling down for 30 min.`",
         "An admin WhatsApp notification is sent when the circuit opens",
         "After the 30-minute cooldown the circuit enters HALF-OPEN, attempts one reconnection, and either closes (success) or reopens with another 30-min cooldown",
         "Circuit state (open/closed/half-open, last-open timestamp, failure count) is exposed on `GET /api/rainbow/status` per instance"
       ],
       "technicalNotes": [
-        "Implement inside `src/lib/whatsapp/instance.ts` `handleDisconnect()` — replace current 3-attempt counter with a circuit-breaker state machine",
-        "Separate from `baileys-supervisor.ts` which handles supervisor-level crashes — this is instance-level connection cycling",
+        "Implement inside `src/lib/whatsapp/instance.ts` `handleDisconnect()` \u2014 replace current 3-attempt counter with a circuit-breaker state machine",
+        "Separate from `baileys-supervisor.ts` which handles supervisor-level crashes \u2014 this is instance-level connection cycling",
         "Use `Date.now()` timestamps rather than a library; no external dependency needed"
       ],
       "dependencies": [],
@@ -886,8 +886,8 @@
         "Webhook handler returns HTTP 200 within 5 seconds to avoid Meta retry storms"
       ],
       "technicalNotes": [
-        "Meta sends `message_template_status_update` to the registered webhook — add handler to `src/routes/webhooks/index.ts`",
-        "This is a Meta Cloud API webhook, not a Baileys event — requires Meta webhook subscription to include `message_template_status_update` field",
+        "Meta sends `message_template_status_update` to the registered webhook \u2014 add handler to `src/routes/webhooks/index.ts`",
+        "This is a Meta Cloud API webhook, not a Baileys event \u2014 requires Meta webhook subscription to include `message_template_status_update` field",
         "Distinct from existing phone number quality tracking in `src/lib/phone-quality.ts`"
       ],
       "dependencies": [],
@@ -909,7 +909,7 @@
       ],
       "technicalNotes": [
         "Mirror the query pattern from `src/routes/admin/gdpr-erasure.ts` but SELECT instead of DELETE",
-        "Canonicalize the JID using `canonicalPhoneKey()` before querying — same as erasure endpoint",
+        "Canonicalize the JID using `canonicalPhoneKey()` before querying \u2014 same as erasure endpoint",
         "Use `Content-Disposition: attachment; filename=data-export-{hash}.json` header for download"
       ],
       "dependencies": [],
@@ -923,7 +923,7 @@
       "description": "A single WhatsApp number can flood the bot with hundreds of messages per minute, exhausting AI provider quotas and degrading service for all users. The existing rate limiter operates at a profile level, not per individual user JID. A sliding-window per-JID limiter should throttle abusive senders with a polite rejection message.",
       "acceptanceCriteria": [
         "Each unique sender JID is limited to 10 messages per 60-second sliding window (configurable per profile in settings.json)",
-        "When the limit is exceeded, the bot sends one brief reply: 'Too many messages — please wait a moment before sending more.' and drops subsequent messages until the window resets",
+        "When the limit is exceeded, the bot sends one brief reply: 'Too many messages \u2014 please wait a moment before sending more.' and drops subsequent messages until the window resets",
         "The throttle reply is sent at most once per window (not once per dropped message)",
         "Rate limit counters are in-memory (not Redis-dependent) with TTL-based cleanup to avoid memory leaks",
         "Admin dashboard shows current throttled JID count and throttle events in the last 24 hours"
@@ -932,7 +932,7 @@
         "Implement as middleware in `src/assistant/message-router.ts` before pipeline dispatch",
         "Use a `Map<string, {count: number, windowStart: number}>` with periodic cleanup (every 5 minutes)",
         "Default limits: 10 msg/60s; configurable `rateLimiting.perUserWindowMs` and `perUserMaxMessages` in settings.json",
-        "Distinct from `src/lib/frequency-cap.ts` (outbound cap) — this is inbound abuse prevention"
+        "Distinct from `src/lib/frequency-cap.ts` (outbound cap) \u2014 this is inbound abuse prevention"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -944,14 +944,14 @@
       "priority": "medium",
       "description": "When staff or automated workflows send media via `sendWhatsAppMedia`, there is no pre-send validation. Sending an oversized video (>16MB) or unsupported MIME type silently fails at the WhatsApp level with no actionable error surfaced to the admin.",
       "acceptanceCriteria": [
-        "Before sending, validate MIME type against WhatsApp-supported list: JPEG/PNG (images ≤5MB), MP4 (video ≤16MB, H.264+AAC only), AAC/MP3/OGG/AMR (audio ≤16MB), PDF/DOCX/XLSX (documents ≤100MB)",
+        "Before sending, validate MIME type against WhatsApp-supported list: JPEG/PNG (images \u22645MB), MP4 (video \u226416MB, H.264+AAC only), AAC/MP3/OGG/AMR (audio \u226416MB), PDF/DOCX/XLSX (documents \u2264100MB)",
         "If validation fails, `sendWhatsAppMedia` throws a structured error with fields: `code: 'MEDIA_VALIDATION_FAILED'`, `reason`, `actualSizeMb`, `limitMb`",
         "Admin API routes that call `sendWhatsAppMedia` return HTTP 422 with the validation error details",
         "A unit test covers each unsupported type and the boundary size condition for images and videos",
         "Validation is skipped when the media URL is a remote HTTPS URL (size cannot be pre-checked without fetching)"
       ],
       "technicalNotes": [
-        "`sendWhatsAppMedia` is in `src/lib/whatsapp/index.ts` — add a `validateMedia(buffer, mimeType)` helper called before `sock.sendMessage()`",
+        "`sendWhatsAppMedia` is in `src/lib/whatsapp/index.ts` \u2014 add a `validateMedia(buffer, mimeType)` helper called before `sock.sendMessage()`",
         "WhatsApp size limits: image 5MB, video 16MB, audio 16MB, document 100MB, sticker 100KB",
         "Add `src/lib/whatsapp/media-validator.ts` as a new file with exported `validateWhatsAppMedia()` function"
       ],
@@ -972,7 +972,7 @@
         "`img-src` is extended to include `https://pps.whatsapp.net data:` to allow WhatsApp avatar images in the dashboard"
       ],
       "technicalNotes": [
-        "Edit the `helmet()` call in `src/index.ts` — add to `connectSrc` array",
+        "Edit the `helmet()` call in `src/index.ts` \u2014 add to `connectSrc` array",
         "AI provider base URLs can be derived from `src/assistant/data/settings.json` `providers[].baseUrl` at startup",
         "Use `Content-Security-Policy-Report-Only` in development mode to catch violations without blocking"
       ],
@@ -994,9 +994,9 @@
         "Admin dashboard shows open handoffs with elapsed time and SLA status (green/amber/red)"
       ],
       "technicalNotes": [
-        "Integrate with `src/assistant/escalation.ts` — on escalation creation, insert a pending SLA record",
+        "Integrate with `src/assistant/escalation.ts` \u2014 on escalation creation, insert a pending SLA record",
         "Use a cron job (every 2 minutes) to check for breached SLAs rather than Node.js `setTimeout` (which doesn't survive restarts)",
-        "`escalation_events` table already exists — add `sla_breached_at` and `human_responded_at` columns via Drizzle migration",
+        "`escalation_events` table already exists \u2014 add `sla_breached_at` and `human_responded_at` columns via Drizzle migration",
         "Detect human response by checking if an outbound message for that phone was sent after the escalation timestamp"
       ],
       "dependencies": [],
@@ -1038,7 +1038,7 @@
         "When retention is disabled for a profile, an audit log entry is created recording who disabled it and when"
       ],
       "technicalNotes": [
-        "`src/lib/data-retention.ts` already reads from `configStore` per profile — the backend logic is complete",
+        "`src/lib/data-retention.ts` already reads from `configStore` per profile \u2014 the backend logic is complete",
         "Missing piece: admin UI tab + API endpoint to write `settings.retention.*` values back via `configStore.updateSettings()`",
         "Expose `GET /api/rainbow/retention/stats?profile=X` (wrapping `getRetentionStats`) for the preview feature"
       ],
@@ -1060,7 +1060,7 @@
         "A daily cron job checks for overdue notifications and sends a reminder alert if deadlines are approaching within 6 hours"
       ],
       "technicalNotes": [
-        "Lightweight workflow management — no external PDPC API integration required (notification is done manually by admin, system tracks deadlines)",
+        "Lightweight workflow management \u2014 no external PDPC API integration required (notification is done manually by admin, system tracks deadlines)",
         "Create `src/routes/admin/breach-report.ts` following the same pattern as `src/routes/admin/gdpr-erasure.ts`",
         "Use existing `admin-notifier.ts` for the WhatsApp alert"
       ],
@@ -1120,13 +1120,13 @@
       "acceptanceCriteria": [
         "At server startup, before calling `makeWASocket`, a `validateAuthState(instanceId)` check queries DB auth rows and verifies JSON parseability of credential fields",
         "If validation fails (unparseable JSON, missing required creds fields), corrupted rows are deleted and the QR pairing flow is re-initiated",
-        "An admin WhatsApp notification is sent: '[instanceId] auth state was corrupted and cleared — please re-scan QR code'",
+        "An admin WhatsApp notification is sent: '[instanceId] auth state was corrupted and cleared \u2014 please re-scan QR code'",
         "Validation results are logged at INFO level: `[DbAuth:pelangi] Auth state healthy: creds OK, 42 signal keys`",
         "A new admin endpoint `GET /api/rainbow/instances/:id/auth-health` returns auth state validity without triggering recovery"
       ],
       "technicalNotes": [
         "Add `validateAuthState(instanceId: string)` to `src/lib/whatsapp/db-auth-state.ts`",
-        "Check: `SELECT key, value FROM wa_auth_state WHERE instance_id = $1` — attempt `JSON.parse(value)` for each row",
+        "Check: `SELECT key, value FROM wa_auth_state WHERE instance_id = $1` \u2014 attempt `JSON.parse(value)` for each row",
         "Required credential fields for a valid Baileys session: `noiseKey`, `signedIdentityKey`, `registrationId`, `advSecretKey`",
         "Call validation from `WhatsAppInstance.start()` before `useDbAuthState()` in `src/lib/whatsapp/instance.ts`"
       ],
@@ -1142,13 +1142,13 @@
       "acceptanceCriteria": [
         "On the very first message from a new JID (no prior `rainbow_conversations` record), a data notice follows the normal welcome response",
         "Notice text is configurable in `knowledge.json` under key `data_notice_first_contact`",
-        "The notice is sent only once per JID — subsequent conversations do not include it",
+        "The notice is sent only once per JID \u2014 subsequent conversations do not include it",
         "If the JID has previously opted out (exists in `opt_outs` table), the notice is not sent"
       ],
       "technicalNotes": [
-        "Check for first-contact in `src/assistant/message-router.ts` using `conversationDb.getOrCreateConversation()` return value — if `created: true`, it is a first contact",
+        "Check for first-contact in `src/assistant/message-router.ts` using `conversationDb.getOrCreateConversation()` return value \u2014 if `created: true`, it is a first contact",
         "Inject the notice as a suffix to the reply before `sendWhatsAppMessage` is called",
-        "Reuse existing STOP keyword opt-out handling — do not duplicate opt-out logic"
+        "Reuse existing STOP keyword opt-out handling \u2014 do not duplicate opt-out logic"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -1189,8 +1189,8 @@
       ],
       "technicalNotes": [
         "Locate existing cost tracking in `src/routes/admin/whatsapp-cost.ts` and `src/assistant/__tests__/whatsapp-cost.test.ts`",
-        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message — use MYR rates for Malaysia",
-        "The message category (marketing/utility) must be determined at send time — proactive messages are typically marketing, reactive replies are utility"
+        "Per-message rates (2025): marketing ~$0.0588, utility ~$0.02 per message \u2014 use MYR rates for Malaysia",
+        "The message category (marketing/utility) must be determined at send time \u2014 proactive messages are typically marketing, reactive replies are utility"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -1254,9 +1254,9 @@
         "Verify `rainbow_config_audit` table is being populated by ALL config write paths, not just current partial coverage"
       ],
       "technicalNotes": [
-        "`rainbow_config_audit` table already exists — audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
+        "`rainbow_config_audit` table already exists \u2014 audit routes in `src/routes/admin/config.ts` to identify which write paths are missing",
         "Add an `auditConfigChange(adminUser, endpoint, before, after)` helper and call it from all config mutation routes",
-        "The before-value must be captured BEFORE the write — common bug to avoid"
+        "The before-value must be captured BEFORE the write \u2014 common bug to avoid"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -1899,7 +1899,7 @@
       ],
       "technicalNotes": [
         "WhatsApp Cloud API interactive list message type: 'list' with up to 10 rows per section",
-        "Requires Cloud API — verify Baileys supports sending interactive list messages (it does via message patching)",
+        "Requires Cloud API \u2014 verify Baileys supports sending interactive list messages (it does via message patching)",
         "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/",
         "Row IDs map to menu item SKUs for deterministic cart operations"
       ],
@@ -2063,7 +2063,7 @@
         "Malaysia PDPA Amendment Act 2024, effective 1 June 2025: DPO appointment mandatory for large-scale processing",
         "DPO must be reachable via published contact: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
         "Template variable interpolation (already implemented) can be used for {dpo_email}",
-        "Existing structured data notice story covers sending mechanism — this story only adds the DPO field"
+        "Existing structured data notice story covers sending mechanism \u2014 this story only adds the DPO field"
       ],
       "dependencies": [
         "Structured data notice (already implemented)",
@@ -2088,7 +2088,7 @@
       "technicalNotes": [
         "New DB table: menu_items (id, profile, name, description, price, category, allergens jsonb, dietary_flags jsonb, available, display_order, created_at, updated_at)",
         "Cache invalidation: on PATCH, update in-memory Map directly (no restart needed)",
-        "Menu data currently in src/assistant/data/ JSON files — migrate to DB-backed store with in-memory cache",
+        "Menu data currently in src/assistant/data/ JSON files \u2014 migrate to DB-backed store with in-memory cache",
         "Reference: https://hostie.ai/resources/how-to-set-up-ai-texting-takeout-orders-toast-pos-2025"
       ],
       "dependencies": [
@@ -2216,7 +2216,7 @@
       "id": "US-883",
       "title": "ARIA live region announcements for new webchat widget messages",
       "priority": "medium",
-      "description": "Add ARIA live regions to the webchat widget so that new messages from the bot are automatically announced by screen readers (NVDA, JAWS, VoiceOver) without the user having to navigate to them. The existing keyboard accessibility story covers tab/keyboard navigation but does not address dynamic content announcement — a separate WCAG 2.1 SC 4.1.3 (Status Messages) requirement.",
+      "description": "Add ARIA live regions to the webchat widget so that new messages from the bot are automatically announced by screen readers (NVDA, JAWS, VoiceOver) without the user having to navigate to them. The existing keyboard accessibility story covers tab/keyboard navigation but does not address dynamic content announcement \u2014 a separate WCAG 2.1 SC 4.1.3 (Status Messages) requirement.",
       "acceptanceCriteria": [
         "The message list container has aria-live='polite' and aria-relevant='additions' set",
         "Each new bot message added to the DOM is announced by screen readers without focus being moved away from the input field",
@@ -2230,7 +2230,7 @@
         "Avoid aria-live='assertive' which interrupts current screen reader output",
         "Reference: https://www.sprinklr.com/help/articles/accessibility/live-chat-accessibility/65eecea5748e35549d8ef0e2",
         "WCAG 2.1 SC 4.1.3 Status Messages: https://www.levelaccess.com/blog/wcag-2-1-exploring-new-success-criteria/",
-        "Do NOT set aria-live on the entire widget container — scope it to the messages list only"
+        "Do NOT set aria-live on the entire widget container \u2014 scope it to the messages list only"
       ],
       "dependencies": [
         "WCAG 2.1 AA keyboard accessibility story (already implemented)"
@@ -2291,7 +2291,7 @@
       "id": "US-886",
       "title": "WhatsApp message reaction emoji as lightweight CSAT signal",
       "priority": "low",
-      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals — mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
+      "description": "Process incoming WhatsApp reaction events (emoji reactions to bot messages) and use them as lightweight feedback signals \u2014 mapping thumbs-up/thumbs-down reactions to positive/negative CSAT signals without requiring the user to complete a full star-rating flow. This supplements the existing post-order feedback star rating for users who prefer one-tap reactions.",
       "acceptanceCriteria": [
         "Incoming webhook events of type 'reaction' are parsed and not silently discarded",
         "Thumbs-up reaction on a bot message increments the positive CSAT counter for that conversation session",
@@ -2362,14 +2362,14 @@
     },
     {
       "id": "US-888",
-      "title": "Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message",
+      "title": "Vitest: AI waiter connectivity regression test \u2014 POST /api/chat/makan-moments/message must not return error message",
       "priority": "high",
       "description": "Add a Vitest integration test that catches the 'AI service temporarily unavailable' failure mode. The test mocks chatWithFallback to return a valid AI response and asserts the /api/chat/makan-moments/message endpoint streams a non-error reply. Also test the all-providers-fail path asserts the correct STREAM_FALLBACK message is sent as a streamed SSE token rather than a hard crash.",
       "acceptanceCriteria": [
         "Test file: src/assistant/__tests__/ai-waiter-connectivity.test.ts",
-        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } — assert streamChatWithTools streams that content as an SSE token",
-        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail — assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
-        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text — assert the tool handlers are invoked and the final text is streamed",
+        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } \u2014 assert streamChatWithTools streams that content as an SSE token",
+        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail \u2014 assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
+        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text \u2014 assert the tool handlers are invoked and the final text is streamed",
         "All 3 tests pass in npm run test:run",
         "No test imports the real AI providers or makes real HTTP calls"
       ],
@@ -2421,7 +2421,7 @@
         "Vitest unit test asserts 200 response for valid tiers and 400 for removed tiers"
       ],
       "technicalNotes": [
-        "Source: Meta developer docs — https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
+        "Source: Meta developer docs \u2014 https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
         "Migration must be backward-compatible; if DB row is missing, default to '100000' not '250'",
         "Admin notification should be sent once when auto-migration executes"
       ],
@@ -2461,7 +2461,7 @@
         "Migrate messaging-limits tier model to 100K flat cap (Q2 2026)"
       ],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_research_output.json",
@@ -2560,7 +2560,7 @@
         "CSV must not contain formula-injection characters (=, +, -, @) at the start of fields",
         "OTP verification for self-service: send a WhatsApp message with a 6-digit code, valid 10 minutes",
         "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/",
-        "Phase 3 effective June 1, 2025 — this is already overdue"
+        "Phase 3 effective June 1, 2025 \u2014 this is already overdue"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -2621,12 +2621,12 @@
         "Dark mode applies to the chat bubble, header bar, message list, and input field",
         "Widget embed script accepts an optional theme: 'light' | 'dark' | 'auto' config parameter",
         "When theme is 'auto', the widget follows the OS preference dynamically",
-        "No flash of unstyled content (FOUC) on load — theme class is applied before first paint",
+        "No flash of unstyled content (FOUC) on load \u2014 theme class is applied before first paint",
         "Playwright visual test captures dark-mode screenshot on a simulated dark-mode browser"
       ],
       "technicalNotes": [
         "Add CSS custom properties (variables) for all palette tokens to minimize duplication",
-        "Existing rainbow-theme.css already has a dark-mode section for the admin panel — widget CSS should follow the same token naming",
+        "Existing rainbow-theme.css already has a dark-mode section for the admin panel \u2014 widget CSS should follow the same token naming",
         "Reference: https://lollypop.design/blog/2025/january/chatbot-ui-ux-design-best-practices-examples/"
       ],
       "dependencies": [],
@@ -2658,7 +2658,7 @@
         "Vitest test confirms the last-order lookup returns empty for first-time sessions and the correct prior cart for returning sessions"
       ],
       "technicalNotes": [
-        "Customer identity: use the webchat session ID or a local-storage UUID — no account registration required",
+        "Customer identity: use the webchat session ID or a local-storage UUID \u2014 no account registration required",
         "Query: SELECT items FROM fnb_orders WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
         "Reference: https://botpress.com/blog/chatbot-for-restaurants (returning customer personalization section)"
       ],
@@ -2787,7 +2787,7 @@
       "id": "US-901",
       "title": "Chatbot conversation containment rate KPI on admin analytics dashboard",
       "priority": "medium",
-      "description": "The admin analytics panel tracks CSAT and resolution rates but is missing the deflection/containment rate — the percentage of conversations fully resolved by the bot without human escalation. This is the single most-cited chatbot ROI metric in 2025 analytics best practices.",
+      "description": "The admin analytics panel tracks CSAT and resolution rates but is missing the deflection/containment rate \u2014 the percentage of conversations fully resolved by the bot without human escalation. This is the single most-cited chatbot ROI metric in 2025 analytics best practices.",
       "acceptanceCriteria": [
         "GET /analytics/kpis returns a containmentRate field: (conversations without escalation) / (total conversations) x 100",
         "Containment rate is shown as a percentage card on the admin dashboard with 24h, 7d, and 30d views",
@@ -2864,7 +2864,7 @@
         "Vitest test mocks daily spend at 81% and asserts warning notification fires exactly once"
       ],
       "technicalNotes": [
-        "Build on existing llm-cost-budget.ts — add threshold comparison logic and notification call",
+        "Build on existing llm-cost-budget.ts \u2014 add threshold comparison logic and notification call",
         "Use admin-notifier.ts sendAlert() for the notification",
         "Rate-limit fallback should use a simple in-memory token bucket, not a hard block (to avoid breaking emergency messages)"
       ],
@@ -2932,7 +2932,7 @@
       ],
       "technicalNotes": [
         "Detect first visit via localStorage key 'rainbow_session_started'",
-        "Quick-reply buttons post a predefined intent payload to the webchat-api — same mechanism as existing quick replies",
+        "Quick-reply buttons post a predefined intent payload to the webchat-api \u2014 same mechanism as existing quick replies",
         "Reference: https://www.netguru.com/blog/chatbot-ux-tips (progressive disclosure section)"
       ],
       "dependencies": [],
@@ -2985,6 +2985,420 @@
         "src/assistant/data-makan/intents.json",
         "src/assistant/data-makan/routing.json"
       ]
+    },
+    {
+      "id": "US-907",
+      "title": "PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC",
+      "priority": "critical",
+      "description": "Effective June 1, 2025 under Malaysia's Personal Data Protection (Amendment) Act 2024, data controllers must notify the Personal Data Protection Commissioner (PDPC) within 72 hours of discovering a breach that may cause significant harm, and notify affected data subjects within 7 days. Rainbow AI processes personal data (guest names, phone numbers, booking details) and currently has no automated breach detection or notification pipeline.",
+      "acceptanceCriteria": [
+        "A breach incident can be logged via a new POST /admin/breach-incidents endpoint with fields: discovery_time, affected_records_count, data_types_affected, likely_harm",
+        "The system computes the 72-hour PDPC notification deadline from discovery_time and displays a countdown in the admin dashboard",
+        "Breach records are retained in the DB for a minimum of 2 years (matching PDPA requirement)",
+        "If the 72-hour deadline passes without the operator marking PDPC notified, an escalation alert is sent to the configured admin contact",
+        "A structured breach summary report is exportable in JSON and PDF for submission to PDPC"
+      ],
+      "technicalNotes": [
+        "PDPA (Amendment) Act 2024 Phase 3 effective June 1, 2025",
+        "72-hour window applies to breaches likely to cause significant harm; smaller breaches still require internal logging",
+        "Data subject notification must follow within 7 calendar days of PDPC notification",
+        "Breach records must be maintained for minimum 2 years per the Act",
+        "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-908",
+      "title": "Subscribe and handle `business_capability_update` webhook for tier changes",
+      "priority": "high",
+      "description": "Meta's WhatsApp Cloud API emits `business_capability_update` events whenever the portfolio's messaging tier limit or the maximum number of allowed phone numbers changes. Rainbow AI currently has no handler for this webhook field, so operators are unaware when the portfolio automatically upgrades or downgrades without polling the Graph API. Handling this event enables real-time admin alerts and automatic tier-record updates.",
+      "acceptanceCriteria": [
+        "The WABA webhook subscription includes the `business_capability_update` field on app startup",
+        "A dedicated route handler parses the event and updates the `app_settings` messaging-tier key in the DB",
+        "An admin notification is dispatched within 60 seconds of receiving a tier change event",
+        "Vitest unit test asserts the handler updates the DB row and emits the notification for a sample payload"
+      ],
+      "technicalNotes": [
+        "Webhook field name: `business_capability_update` per Meta's WhatsApp Cloud API documentation",
+        "Payload includes new messaging limit tier and maximum phone numbers allowed",
+        "Pair with existing WABA subscription health check to verify field is registered at startup",
+        "Reference: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-909",
+      "title": "Handle `phone_number_quality_update` webhook to track quality rating changes",
+      "priority": "high",
+      "description": "Meta's Cloud API emits `phone_number_quality_update` events when a WABA phone number's quality rating transitions between GREEN, YELLOW, and RED, or when the number is FLAGGED or UNFLAGGED. Rainbow AI does not currently track quality rating, meaning operators discover messaging restrictions (reduced throughput, potential ban) only after delivery failures accumulate.",
+      "acceptanceCriteria": [
+        "The WABA subscription includes `phone_number_quality_update` on startup",
+        "Handler persists the new quality rating (GREEN/YELLOW/RED) and event type (FLAGGED/UNFLAGGED) to `app_settings`",
+        "Admin notification is sent immediately when rating drops to YELLOW or RED",
+        "Admin dashboard quality indicator reflects the stored rating",
+        "Vitest unit test asserts the handler persists the rating and sends the notification for YELLOW and RED events"
+      ],
+      "technicalNotes": [
+        "Webhook field name: `phone_number_quality_update` per Meta Cloud API documentation",
+        "FLAGGED status means Meta has imposed a messaging limit downgrade; UNFLAGGED means recovery",
+        "Quality rating is evaluated on a rolling 7-day window by Meta",
+        "Reference: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-910",
+      "title": "Portfolio-level messaging limit consolidation: inherit highest tier across all numbers",
+      "priority": "high",
+      "description": "Effective October 7, 2025, Meta changed messaging limits from per-phone-number to per-portfolio: all numbers in a Business Manager portfolio now share the highest tier held by any single number, and new numbers immediately inherit this limit. Rainbow AI's current per-number tier model in `messaging-limits.ts` is architecturally incorrect post this change, which could cause false low-limit alerts and incorrect rate limiting behavior.",
+      "acceptanceCriteria": [
+        "A new `portfolioMessagingLimit` field in `app_settings` stores the single portfolio-level tier",
+        "On startup, the system reads the portfolio tier from the DB and uses it for all rate-limit checks rather than per-number tiers",
+        "Admin UI displays a single portfolio limit rather than per-number limit fields",
+        "Tier upgrade evaluation logic reflects Meta's 6-hour evaluation cycle (not 24-48h)",
+        "Vitest test asserts that adding a second phone number inherits the portfolio tier, not a baseline 1K"
+      ],
+      "technicalNotes": [
+        "Change effective October 7, 2025 per Meta documentation",
+        "Meta evaluates tier upgrades every 6 hours based on quality metrics and unique recipient counts",
+        "Tier upgrade requires use of at least 50% of current limit within a 7-day window",
+        "Reference: https://convrs.io/blog/whatsapp-messaging-limits-updates/ and https://gallabox.com/whatsapp-business-pricing-october-2025-update"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-911",
+      "title": "PDPA Phase 3: data portability \u2014 transfer personal data to third-party controller on request",
+      "priority": "high",
+      "description": "Malaysia's PDPA Amendment Act 2024 Phase 3 (June 1, 2025) grants data subjects the right to request transfer of their personal data directly to another data controller of their choice, not just a personal download. This is distinct from the existing machine-readable export story: the system must support controller-to-controller transfer via a signed request and technical feasibility check.",
+      "acceptanceCriteria": [
+        "A POST /admin/data-portability/transfer endpoint accepts: requesting_jid, destination_controller_email, data_types[], and a signed authorization token",
+        "The system validates that the request originates from the data subject and records the request with timestamp in the DB",
+        "A portability package (JSON, matching existing export schema) is generated and delivered to the destination email within a configurable SLA (default: 30 days)",
+        "The data subject receives a WhatsApp confirmation message when the transfer is initiated and completed",
+        "Transfer requests and their status are auditable in the admin panel"
+      ],
+      "technicalNotes": [
+        "PDPA Amendment Act 2024 s.33D requires transfer to be technically feasible and in compatible data formats",
+        "The Act does not specify a mandatory timeline for completion; 30-day SLA is a reasonable default pending regulatory guidance",
+        "Distinct from machine-readable export (self-download) \u2014 this is controller-to-controller transfer",
+        "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-912",
+      "title": "WCAG 2.2 AA: enforce 24\u00d724 CSS pixel minimum touch target size in webchat widget",
+      "priority": "high",
+      "description": "WCAG 2.2 Success Criterion 2.5.8 (Target Size Minimum, Level AA, published October 2023) requires all interactive UI elements to be at least 24\u00d724 CSS pixels. The current webchat widget likely has smaller icon buttons (close, send, emoji toggles) that fail this criterion, creating barriers for users with motor impairments or who use touch screens.",
+      "acceptanceCriteria": [
+        "All interactive elements in the webchat widget (send button, close button, quick-reply chips, input area) measure at least 24\u00d724 CSS pixels including padding",
+        "Automated accessibility audit (axe-core or Playwright accessibility snapshot) reports no 2.5.8 violations in the widget",
+        "Inline text links within message bubbles are explicitly exempted per the WCAG exception",
+        "Visual regression test confirms button sizes did not regress after CSS changes"
+      ],
+      "technicalNotes": [
+        "CSS implementation: `min-width: 24px; min-height: 24px; padding: 4px;` on all button elements",
+        "Exception clause: inline links within text runs are excluded from the 24\u00d724 requirement",
+        "Testing tool: axe-core v4.8+ includes a rule for 2.5.8 target size",
+        "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/ and https://testparty.ai/blog/wcag-22-new-success-criteria"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-913",
+      "title": "SSE stream resilience: Last-Event-ID reconnection and token buffer for webchat",
+      "priority": "high",
+      "description": "The webchat widget uses SSE for streaming AI responses but currently does not implement the `Last-Event-ID` header for automatic reconnection, meaning a dropped connection mid-stream forces the user to re-submit their message. Additionally, incomplete SSE frames (split across network packets) are not buffered, causing JSON parse errors on the client.",
+      "acceptanceCriteria": [
+        "Each SSE event is assigned a monotonically increasing `id:` field so browsers can send `Last-Event-ID` on reconnect",
+        "The server resumes streaming from the last acknowledged event ID on reconnect within the same conversation session (max 60 seconds)",
+        "The client-side SSE parser buffers partial messages (lines not ending with `\\n\\n`) before attempting JSON.parse()",
+        "A dedicated `event: error` frame is sent to the client when the upstream LLM call fails, triggering a user-visible error message without leaving an empty assistant bubble",
+        "Playwright test simulates a connection drop mid-stream and asserts the response is completed without user re-submission"
+      ],
+      "technicalNotes": [
+        "SSE `id:` field enables browser-native reconnection via `Last-Event-ID` request header",
+        "Event format: `id: {n}\\nevent: message\\ndata: {json}\\n\\n`",
+        "Buffer pattern on client: `buffer = lines.pop() || ''` retains incomplete final lines between data chunks",
+        "Benchmarks: streaming interfaces feel ~40% faster than buffered even with identical latency",
+        "Reference: https://dev.to/pockit_tools/the-complete-guide-to-streaming-llm-responses-in-web-applications-from-sse-to-real-time-ui-3534"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-914",
+      "title": "RAG grounding: constrain AI responses to verified knowledge base and return 'I don't know' for out-of-scope queries",
+      "priority": "high",
+      "description": "Rainbow AI currently allows the LLM to respond from its general parametric knowledge, which can produce plausible but incorrect answers about hostel policies, pricing, and facilities. Implementing Retrieval-Augmented Generation (RAG) grounding ensures responses are anchored to verified `.rainbow-kb/` content, and the model explicitly declines to answer when the retrieved context does not cover the query.",
+      "acceptanceCriteria": [
+        "For every guest-facing AI response, a retrieval step queries the `.rainbow-kb/` (Pelangi) or `.rainbow-kb-southern/` (Southern) knowledge base and injects the top-3 relevant chunks into the system prompt",
+        "The system prompt instructs the model to answer only from the provided context and to respond with a configurable fallback phrase (e.g., 'I don't have that information \u2014 please contact us directly') when context is insufficient",
+        "Responses that cite a room price, policy, or facility detail must be traceable to a specific KB file in the conversation log",
+        "A Vitest semantic test asserts that a query about a non-existent policy returns the fallback phrase and not a fabricated answer",
+        "The retrieval latency overhead (embedding lookup) does not exceed 500ms p95"
+      ],
+      "technicalNotes": [
+        "RAG is the most effective grounding technique per industry consensus; anchors outputs to verified KB rather than parametric memory",
+        "Embedding model should match the existing provider (OpenRouter/NVIDIA); use cosine similarity with a minimum relevance threshold (e.g., 0.7)",
+        "The `.rainbow-kb/` directory structure is already in place \u2014 this story adds the retrieval pipeline, not KB content",
+        "Reference: https://sendbird.com/blog/ai-hallucination-detection and https://www.k2view.com/blog/grounding-and-hallucinations-in-ai/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-915",
+      "title": "Hallucination detection: flag and quarantine AI responses with unverifiable claims before delivery",
+      "priority": "high",
+      "description": "Production AI customer service systems require real-time hallucination detection to prevent incorrect information (wrong prices, non-existent policies) from reaching guests. A detection layer using SelfCheckGPT-style multi-sample consistency checking or a lightweight judge model should intercept responses before sending, routing low-confidence answers to human review.",
+      "acceptanceCriteria": [
+        "A configurable confidence threshold (default: 0.75) is stored in `app_settings`; responses where the model's self-assessed confidence falls below this threshold are not sent directly",
+        "Flagged responses are stored in a `flagged_responses` table with: message_id, flagged_reason, confidence_score, conversation_id, and timestamp",
+        "Flagged responses trigger a human handoff notification with the flagged content and the original guest message",
+        "Admin dashboard displays a 'Flagged Responses' panel showing unresolved flags with resolution actions (approve, edit, escalate)",
+        "Vitest test asserts that a deliberately low-confidence prompt results in a flag record and handoff notification, not a direct reply"
+      ],
+      "technicalNotes": [
+        "SelfCheckGPT approach: generate 2-3 response samples for the same query and compare consistency; divergence indicates hallucination risk",
+        "Alternative: instruct the LLM to output a confidence field in a structured JSON response before the actual reply text",
+        "Sendbird's production implementation uses near-zero-latency webhook alerts for flagged content",
+        "Reference: https://sendbird.com/blog/ai-hallucination-detection"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-916",
+      "title": "Confidence-score based automatic chatbot-to-human escalation with context bundle",
+      "priority": "high",
+      "description": "Industry best practice requires AI chatbots to automatically escalate to human agents when the model's confidence in its response drops below a configurable threshold, rather than delivering a potentially wrong answer. This complements the existing sentiment-based escalation by adding a model-internal signal, and requires passing a structured context bundle to the receiving agent.",
+      "acceptanceCriteria": [
+        "A confidence score (0.0-1.0) is extracted from each AI response (via structured output or a secondary judge call)",
+        "When confidence falls below a configurable threshold (default: 0.65, stored in `app_settings`), the conversation is escalated to human review instead of auto-replied",
+        "The escalation context bundle includes: last 10 messages, extracted entities (guest name, room, issue type), confidence score, and the draft AI response that was withheld",
+        "The guest receives a holding message ('Connecting you with our team...') within 5 seconds of the escalation trigger",
+        "Repeated low-confidence escalations from the same intent category are logged for KB gap analysis",
+        "Vitest test asserts escalation fires and the withheld draft is included in the context bundle"
+      ],
+      "technicalNotes": [
+        "Threshold configurable per-profile to allow different sensitivity for Pelangi vs Southern",
+        "Context bundle format should be JSON-serializable and storable in `escalation_events` table",
+        "Escalation triggers should include: confidence below threshold, 3+ consecutive misunderstood queries, explicit user request, and sentiment threshold (existing)",
+        "Reference: https://cobbai.com/blog/chatbot-escalation-best-practices and https://www.replicant.com/blog/when-to-hand-off-to-a-human-how-to-set-effective-ai-escalation-rules"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-917",
+      "title": "Meta AI bot compliance: enforce concrete business task scope and reject open-ended AI chat",
+      "priority": "high",
+      "description": "Meta tightened AI chatbot rules in 2026, requiring that bots on WhatsApp Business perform concrete business tasks (answering support questions, booking, purchase advice) and prohibiting open-ended conversational AI without a clear business purpose. Rainbow AI should validate that its system prompt explicitly scopes the bot to defined tasks and reject or redirect queries outside its business domain.",
+      "acceptanceCriteria": [
+        "The system prompt for each profile explicitly lists the permitted task categories (e.g., check-in enquiry, booking status, menu ordering, general property FAQ)",
+        "An out-of-scope classifier (rule-based or LLM-assisted) detects queries that fall outside the permitted task categories and returns a polite redirect rather than attempting to answer",
+        "Out-of-scope query types are logged in `intent_analytics` with a new `out_of_scope` intent category",
+        "Admin UI allows operators to configure the permitted task list per profile",
+        "Vitest test asserts that a clearly off-topic query (e.g., 'write me a poem') triggers the out-of-scope handler"
+      ],
+      "technicalNotes": [
+        "Meta's 2026 policy requires bots to perform 'concrete business tasks' \u2014 open-ended AI chats without a clear goal are disallowed",
+        "Out-of-scope detection can use a lightweight intent classifier before the main LLM call to avoid token cost",
+        "Permitted task categories should be stored in `src/assistant/data/settings.json` and loaded at startup",
+        "Reference: https://chatarmin.com/en/blog/whats-app-business-api-integration"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-918",
+      "title": "Handle `flows` webhook field for WhatsApp Flows endpoint health events",
+      "priority": "medium",
+      "description": "Meta sends `flows` webhook notifications to inform businesses when their WhatsApp Flows endpoint becomes unavailable or recovers, which directly impacts any in-chat form or interactive flow. Without subscribing to this field, Rainbow AI cannot detect Flows endpoint failures and will silently serve broken interactive messages to guests.",
+      "acceptanceCriteria": [
+        "The WABA webhook subscription includes the `flows` field on app startup",
+        "A handler logs the event type (endpoint unavailable / recovered) and updates a `flows_endpoint_healthy` flag in `app_settings`",
+        "When `flows_endpoint_healthy` is false, any route that would trigger a Flow returns a fallback text message instead",
+        "Admin notification is sent when the endpoint transitions from healthy to unhealthy",
+        "Vitest test asserts fallback text is returned when the flag is false"
+      ],
+      "technicalNotes": [
+        "Webhook field name: `flows` per Meta Cloud API documentation",
+        "Flows endpoint health events include the Flow ID and failure reason",
+        "Reference: https://hookdeck.com/webhooks/platforms/guide-to-whatsapp-webhooks-features-and-best-practices"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-919",
+      "title": "WhatsApp Business Calling API: inbound call webhook handler and 24h session trigger",
+      "priority": "medium",
+      "description": "WhatsApp Business Calling API launched July 1, 2025 and any inbound user-initiated call opens a 24-hour customer service conversation window, the same as an inbound text message. Rainbow AI has no handler for call events, meaning missed calls are not tracked as contact events and the 24-hour session window is not opened, causing loss of follow-up messaging eligibility.",
+      "acceptanceCriteria": [
+        "A webhook handler processes incoming call events and opens/extends the 24-hour session window for the calling JID",
+        "Missed calls are recorded in `rainbow_messages` with a `call_missed` message type",
+        "Answered calls are recorded with a `call_answered` message type and duration when available",
+        "An auto-reply text is sent within the session window when a call is missed (configurable per profile)",
+        "Vitest unit test asserts the session window is set and the missed-call record is created"
+      ],
+      "technicalNotes": [
+        "Calling API launched globally July 1, 2025; requires messaging tier of at least 2,000 business-initiated conversations/day",
+        "Business-initiated calls are NOT supported in USA, Canada, Turkey, Nigeria, Vietnam",
+        "Inbound user calls open the 24-hour window same as inbound messages per Meta policy",
+        "Call recording and call transfer are supported features",
+        "Reference: https://respond.io/help/whatsapp/whatsapp-business-calling-api and https://business.whatsapp.com/blog/whatsapp-business-calling-api"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-920",
+      "title": "WCAG 2.2 AA: prevent focused elements from being obscured by sticky webchat header",
+      "priority": "medium",
+      "description": "WCAG 2.2 Success Criterion 2.4.11 (Focus Not Obscured Minimum, Level AA) requires that when a UI component receives keyboard focus, it is not entirely hidden by author-created content such as sticky headers or fixed footers. The webchat widget uses a fixed header bar that can cover keyboard-focused elements in the message list and input area when users navigate by keyboard.",
+      "acceptanceCriteria": [
+        "Keyboard-tabbing through all interactive elements in the webchat widget never leaves a focused element entirely hidden behind the header or footer",
+        "CSS `scroll-padding-top` and `scroll-margin-top` are applied to the scrollable message container to account for the fixed header height",
+        "Playwright keyboard navigation test confirms all focusable elements are at least partially visible after receiving focus",
+        "The fix applies to both desktop and mobile viewport sizes"
+      ],
+      "technicalNotes": [
+        "CSS fix: `scroll-padding-top: [header-height]px` on the scroll container, `scroll-margin-top: [header-height + buffer]px` on focusable items",
+        "WCAG 2.4.11 is Level AA (mandatory); 2.4.12 (Enhanced, AAA) requires zero partial obscuring",
+        "Reference: https://testparty.ai/blog/wcag-22-new-success-criteria and https://www.allaccessible.org/blog/wcag-22-complete-guide-2025"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-921",
+      "title": "WCAG 2.2 A: auto-populate previously collected guest data in multi-step webchat forms",
+      "priority": "medium",
+      "description": "WCAG 2.2 Success Criterion 3.3.7 (Redundant Entry, Level A) requires that information a user has already entered in a process is either auto-populated or available for selection when asked again. When guests provide their name and room number early in a webchat session, subsequent forms (feedback, order confirmation) should not ask for the same information again.",
+      "acceptanceCriteria": [
+        "Guest name and phone/room number collected in one step of a webchat session are automatically populated in subsequent steps without requiring re-entry",
+        "The user can still edit auto-populated values before submission",
+        "Security-sensitive fields (payment codes, PINs) are exempt and always require explicit entry",
+        "Playwright test simulates a two-step flow and asserts the second step has pre-filled values"
+      ],
+      "technicalNotes": [
+        "Session data should be stored in the conversation context object and passed to each step renderer",
+        "WCAG 3.3.7 is Level A (baseline requirement, not just AA/AAA)",
+        "Implementation pattern: store collected entities in conversation state and inject into form pre-fill fields",
+        "Reference: https://testparty.ai/blog/wcag-22-new-success-criteria"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-922",
+      "title": "WhatsApp marketing message user-level frequency cap: enforce 2-message-per-day limit",
+      "priority": "medium",
+      "description": "Meta enforces a cross-brand marketing message frequency cap where individual WhatsApp users can receive a maximum of approximately 2 marketing template messages per day across all businesses. Rainbow AI has no per-user daily marketing send counter, meaning bulk promotional sends (e.g., cafe specials, hostel promotions) may silently fail delivery for users who already received marketing from other businesses that day.",
+      "acceptanceCriteria": [
+        "A per-JID daily marketing send counter is maintained in Redis or the DB, resetting at midnight UTC",
+        "Before dispatching a marketing template, the system checks the counter and skips the send (with a logged reason) if the JID has already received 2 marketing messages that day",
+        "Skipped sends are recorded in a `skipped_sends` table with reason `frequency_cap` for operator review",
+        "A daily summary shows how many sends were skipped due to frequency cap across all profiles",
+        "Vitest test asserts the third marketing send to the same JID within 24 hours is skipped and logged"
+      ],
+      "technicalNotes": [
+        "Meta's frequency cap is ~2 marketing messages per user per day across all businesses; exact cap may vary by region",
+        "Delivery failures due to frequency capping appear as delivery errors rather than explicit cap notifications",
+        "The counter should be separate from the existing per-JID rate limiter (which governs all message types)",
+        "Reference: https://chatarmin.com/en/blog/whats-app-messaging-limits and https://gallabox.com/whatsapp-business-pricing-october-2025-update"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-923",
+      "title": "Webchat widget conversational order flow with delivery status push notifications",
+      "priority": "medium",
+      "description": "Industry best practice for F&B conversational commerce requires automated push notifications for order status updates (confirmed, preparing, out for delivery, delivered) to be sent within the same WhatsApp or webchat session. Makan Moments Cafe currently receives orders but does not send structured status updates back to the customer after confirmation, reducing trust and increasing inbound status enquiry volume.",
+      "acceptanceCriteria": [
+        "After an order is confirmed by the kitchen (via POS webhook), a status message is automatically sent to the customer's webchat/WhatsApp session within 60 seconds",
+        "Status messages cover at minimum: order received, order being prepared, order ready/dispatched",
+        "Each status message includes the order ID and an estimated time where applicable",
+        "Customers can type 'order status' or 'where is my order' to receive the current status without operator intervention",
+        "Status update delivery is logged in `rainbow_messages` with a `order_status_update` message type"
+      ],
+      "technicalNotes": [
+        "WhatsApp 98% open rate and 80% read-within-5-minutes make it the ideal channel for time-sensitive order status updates",
+        "Status push can be triggered by the existing POS webhook receiver (US-876) which already receives KDS confirmations",
+        "Use Utility template category for transactional status messages (lower cost than Marketing)",
+        "Reference: https://reelo.io/blog/whatsapp-marketing-for-restaurants-the-ultimate-guide and https://www.verloop.io/blog/whatsapp-business-restaurants/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-924",
+      "title": "PDPA Phase 3: DPO contact details surfaced in-product within 24 hours of a data processing interaction",
+      "priority": "medium",
+      "description": "Malaysia's PDPA Amendment Act 2024 Phase 3 (June 1, 2025) requires organizations processing personal data of more than 20,000 data subjects (or 10,000 sensitive records) to appoint a Data Protection Officer and make the DPO's contact details available. Rainbow AI processes guest personal data across multiple hospitality properties but does not currently surface DPO contact information to data subjects at the point of data collection.",
+      "acceptanceCriteria": [
+        "A configurable `dpo_contact` field (name, email, phone) is stored in `app_settings` per profile",
+        "Within 24 hours of a guest's first data-processing interaction (check-in enquiry, order placement, registration), a WhatsApp or webchat message includes the DPO contact details and a data protection summary",
+        "The DPO contact message is distinct from the existing consent banner and is delivered as a separate informational message",
+        "Admin UI allows operators to configure DPO contact details and toggle the disclosure feature per profile",
+        "Vitest test asserts the DPO disclosure message is queued on a new guest's first interaction"
+      ],
+      "technicalNotes": [
+        "DPO appointment is mandatory if processing data of 20,000+ data subjects OR sensitive data for 10,000+ data subjects OR conducting systematic monitoring",
+        "PDPA Phase 3 effective June 1, 2025",
+        "DPO contact disclosure should reference the data processing purposes in accordance with PDPA s.6",
+        "Reference: https://hhq.com.my/posts/full-implementation-of-the-personal-data-protection-amendment-act-2024-final-roundup/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-925",
+      "title": "WCAG 2.2 A: render webchat help/support access point in a consistent position across all views",
+      "priority": "low",
+      "description": "WCAG 2.2 Success Criterion 3.2.6 (Consistent Help, Level A) requires that help mechanisms\u2014including chat widgets and support contact links\u2014appear in the same relative position across all pages or views where they are present. If the webchat widget launcher or escalation button moves position between different webchat views (main chat, order form, feedback view), it violates this criterion.",
+      "acceptanceCriteria": [
+        "The 'Talk to a person' / escalation button appears in the same visual position (e.g., bottom-right) across all webchat views",
+        "The position is defined in a shared layout component, not duplicated per-view",
+        "Playwright visual regression test confirms the button position is identical across the main chat, order confirmation, and feedback views",
+        "The fix applies to both desktop and mobile breakpoints"
+      ],
+      "technicalNotes": [
+        "WCAG 3.2.6 is Level A \u2014 baseline mandatory, not optional AAA",
+        "Consistent Help applies when the mechanism is repeated across multiple pages/views \u2014 single-view widgets are unaffected",
+        "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
     }
   ]
 }
