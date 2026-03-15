@@ -25,6 +25,7 @@ import { recordConsent, hasConsent } from '../consent.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
+import { scheduleMediaDownload } from '../../lib/media-downloader.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
@@ -332,7 +333,11 @@ export async function validateAndPrepare(
           const templateKey = getMediaTemplateKey(msg.messageType);
           const mediaAck = getTemplate(templateKey, lang);
           await ctx.sendMessage(phone, mediaAck, msg.instanceId);
-          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType);
+          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, msg.messageId);
+        }
+        // US-893: Download media binary eagerly before the ephemeral URL expires
+        if (msg.rawMessage && msg.messageId) {
+          scheduleMediaDownload(msg.messageId, msg.messageType as 'image' | 'video' | 'document', msg.rawMessage);
         }
         // Fall through — caption text will be processed by the pipeline
       }
@@ -343,7 +348,11 @@ export async function validateAndPrepare(
           const templateKey = getMediaTemplateKey(msg.messageType);
           const mediaAck = getTemplate(templateKey, lang);
           await ctx.sendMessage(phone, mediaAck, msg.instanceId);
-          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType);
+          await logNonTextExchange(phone, msg.pushName, nonTextLabel, mediaAck, msg.instanceId, profileId, msg.bsuid, msg.messageType, msg.messageId);
+        }
+        // US-893: Download media binary eagerly before the ephemeral URL expires
+        if (msg.rawMessage && msg.messageId) {
+          scheduleMediaDownload(msg.messageId, msg.messageType as 'image' | 'video' | 'document', msg.rawMessage);
         }
         return { continue: false, reason: 'media_acknowledged' };
       }

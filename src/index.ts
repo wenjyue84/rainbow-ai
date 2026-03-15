@@ -360,6 +360,18 @@ app.get('/webchat.html', (_req, res) => {
   res.sendFile(join(__dirname_main, 'public', 'webchat.html'));
 });
 
+// US-893: Serve locally-downloaded WhatsApp media files.
+// Admin-only: guarded by the admin auth middleware mounted on /api/admin.
+// Static route is intentionally separate from /api to allow direct browser loads.
+app.use(
+  '/media',
+  express.static(join(process.cwd(), 'media'), {
+    dotfiles: 'deny',
+    index: false,
+    maxAge: '1d',
+  })
+);
+
 // Serve dashboard static files (CSS, JS, images) with no-cache headers.
 // In dev, this MUST come before Vite middleware so that <link> and <script> tags
 // get raw files (correct Content-Type), not Vite's JS-module transforms.

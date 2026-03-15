@@ -23,6 +23,7 @@ export interface LoggedMessage {
   stepId?: string;
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
   staffName?: string;        // US-011: Staff display name for manual message attribution
+  localMediaUrl?: string;    // US-893: locally-stored media path after download
 }
 
 export interface ContactDetails {

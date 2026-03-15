@@ -7990,3 +7990,24 @@ Incomplete: WABA webhook subscription health check on server startup (ID: US-892
 ## Iteration 2 - Sun, Mar 15, 2026  3:38:56 PM
 Completed: WABA webhook subscription health check on server startup (ID: US-892) in 8m
 
+
+## Iteration N - Story: US-893 WhatsApp media auto-download
+
+### What was implemented
+- Added `baileysMessageId` and `localMediaUrl` columns to `rainbowMessages` Drizzle schema
+- Created `src/lib/media-downloader.ts` with `downloadAndSaveMedia()` (3-retry exponential backoff, DLQ logging) and `scheduleMediaDownload()` (fire-and-forget)
+- Files stored to `./media/YYYY-MM-DD/<baileysMessageId>.<ext>` using Baileys `downloadMediaMessage()`
+- Updated `logNonTextExchange()` with optional `baileysMessageId` param (backward-compatible, all existing callers unchanged)
+- Added `localMediaUrl` to `LoggedMessage` type
+- Hooked `scheduleMediaDownload()` in input-validator.ts at both image/video/document branches (with + without caption)
+- Added `/media` static Express route in index.ts (cwd-relative, `index:false`, 1-day cache)
+- 6/6 Vitest tests passing
+
+### Patterns discovered
+- `downloadMediaMessage(rawMessage, 'buffer', {})` from Baileys works without extra context
+- `logNonTextExchange` is the canonical place to log media messages; passing baileysMessageId as optional 9th arg keeps backward compat
+- Static route must use `process.cwd()` not `__dirname` for the media dir (relative to where node is launched)
+
+### Gotchas
+- DB update for `localMediaUrl` uses Drizzle `.where(eq(rainbowMessages.baileysMessageId, id))` — requires `db:push` migration to add columns to Neon before production
+- console.error DLQ line has only 1 argument; test must assert with single-arg form
