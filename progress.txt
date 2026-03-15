@@ -10070,3 +10070,27 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 25/25 PDPA erasure tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+
+
+
+## Iteration [Ralph] - Story: US-977 - Implement webhook event deduplication to prevent double-processing
+### What was implemented
+- **AC1**: Created `src/lib/webhook-dedup.ts` — in-memory TTL cache (300s / 5 min) using a `Map<string, {expiresAt}>`. `isDuplicateMessage(wamid)` deduplicates inbound messages by wamid. First call records the entry; second call returns `true` (duplicate).
+- **AC2**: Duplicates are logged at `console.debug` level in both the message-status handler and the new inbound messages handler. No error is returned to Meta — always 200.
+- **AC3**: `isDuplicateStatus(wamid, status)` deduplicates status updates by `status:wamid:status` composite key. Different status values for the same wamid (e.g., `delivered` then `read`) are NOT treated as duplicates.
+- **AC4**: Pure in-memory `Map` with TTL entry eviction — no NodeCache or Redis dependency needed. Periodic cleanup interval (`setInterval`) runs every 300s and is `unref`'d so it doesn't block process exit.
+- **AC5**: `getDedupStats()` returns `{ dedupHits, cacheSize }` — exposed via `GET /webhooks/meta/dedup-stats` endpoint. `resetDedupHitCount()` allows period resets.
+
+### Files changed
+- `src/lib/webhook-dedup.ts` — NEW: TTL dedup cache with `isDuplicateMessage`, `isDuplicateStatus`, `getDedupStats`, `resetDedupHitCount`
+- `src/routes/webhooks/index.ts` — Added `isDuplicateMessage`/`isDuplicateStatus` import; added dedup check to message-status handler; added new `POST /webhooks/meta/messages` endpoint with wamid dedup; added `GET /webhooks/meta/messages` for Meta webhook verification; added `GET /webhooks/meta/dedup-stats` metrics endpoint
+- `src/routes/webhooks/__tests__/webhook-dedup.test.ts` — NEW: 14 tests covering message dedup, status dedup, namespace isolation, stats, and reset
+
+### Patterns discovered
+- NodeCache is NOT installed — simple `Map<string, {expiresAt}>` pattern is sufficient and avoids a dependency
+- Cleanup interval must be `unref`'d to prevent it from blocking `timeout 10` server startup tests
+- Message and status caches must use different key prefixes (`msg:` vs `status:`) to avoid cross-contamination
+- Meta webhook GET verification requires `META_WEBHOOK_VERIFY_TOKEN` env var; falls back to empty string (403 on mismatch)
+
+### Status
+✅ Build passes (3 pre-existing warnings). 14/14 dedup tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
