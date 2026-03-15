@@ -63,6 +63,7 @@ import {
   chatWithFallback,
   DEFAULT_TIMEOUT_MS,
   TimeoutError,
+  backoffUtils,
 } from '../ai-provider-manager.js';
 import type { AIProvider } from '../schemas.js';
 import { circuitBreakerRegistry } from '../circuit-breaker.js';
@@ -104,6 +105,8 @@ describe('Latency Failover (US-423)', () => {
     circuitBreakerRegistry.resetAll();
     // Reset providers array
     mockProviders.length = 0;
+    // US-938: Mock backoff sleep so timeout retries don't add real delays
+    vi.spyOn(backoffUtils, 'sleep').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -182,7 +185,7 @@ describe('Latency Failover (US-423)', () => {
   });
 
   describe('chatWithFallback — timeout triggers failover', () => {
-    it('fails over to the next provider when the first one times out (within 6.5s)', async () => {
+    it('fails over to the next provider when the first one times out (after retries)', async () => {
       const slowProvider = makeProvider({
         id: 'slow-provider',
         name: 'Slow Provider',
@@ -202,30 +205,28 @@ describe('Latency Failover (US-423)', () => {
       let callCount = 0;
       mockedAxios.post.mockImplementation(() => {
         callCount++;
-        if (callCount === 1) {
-          // First provider: delay 10s (will timeout at 500ms)
+        // US-938: First 4 calls are slow provider (1 initial + 3 retries), all timeout
+        if (callCount <= 4) {
           return delayedResponse(10000, validResponse);
         }
         // Second provider: respond immediately
         return delayedResponse(20, validResponse);
       });
 
-      const start = Date.now();
       const result = await chatWithFallback(
         [{ role: 'user', content: 'hi' }],
         100,
         0.7
       );
-      const elapsed = Date.now() - start;
 
       expect(result.content).toBe('Hello from AI');
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe('fast-provider');
-      // Total time should be well under 6.5s (timeout + fast response)
-      expect(elapsed).toBeLessThan(6500);
+      // US-938: 4 calls to slow provider + 1 to fast provider
+      expect(callCount).toBe(5);
     });
 
-    it('returns slow-response apology when ALL providers time out', async () => {
+    it('returns slow-response apology when ALL providers time out (after retries)', async () => {
       const providers = [
         makeProvider({ id: 'p1', name: 'Provider 1', priority: 0, timeout_ms: 200 }),
         makeProvider({ id: 'p2', name: 'Provider 2', priority: 1, timeout_ms: 200 }),
@@ -233,7 +234,7 @@ describe('Latency Failover (US-423)', () => {
 
       mockProviders.push(...providers);
 
-      // All providers delay 10s (will timeout at 200ms)
+      // All providers delay 10s (will timeout at 200ms), even after retries
       mockedAxios.post.mockImplementation(() => delayedResponse(10000, validResponse));
 
       const result = await chatWithFallback(
@@ -268,15 +269,16 @@ describe('Latency Failover (US-423)', () => {
       let callCount = 0;
       mockedAxios.post.mockImplementation(() => {
         callCount++;
-        if (callCount === 1) return delayedResponse(10000, validResponse);
+        // US-938: First 4 calls are slow provider (retried), all timeout
+        if (callCount <= 4) return delayedResponse(10000, validResponse);
         return delayedResponse(10, validResponse);
       });
 
       await chatWithFallback([{ role: 'user', content: 'hi' }], 100, 0.7);
 
-      // Check the warn log contains the expected structure
+      // Check the warn log contains the expected structure (after retries exhausted)
       const timeoutLog = consoleSpy.mock.calls.find(
-        (call) => typeof call[1] === 'string' && call[1].includes('"action":"failover"')
+        (call) => typeof call[1] === 'string' && call[1].includes('"timeout_ms"') && call[1].includes('"action":"failover"')
       );
       expect(timeoutLog).toBeDefined();
       const logData = JSON.parse(timeoutLog![1] as string);

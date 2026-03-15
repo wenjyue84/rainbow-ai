@@ -239,6 +239,121 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: st
   ]);
 }
 
+// ─── Exponential Backoff with Jitter (US-938) ────────────────────────
+
+/** Maximum retries per provider for transient errors */
+const BACKOFF_MAX_RETRIES = 3;
+/** Base delay in ms (doubles each retry: 1s, 2s, 4s) */
+const BACKOFF_BASE_DELAY_MS = 1000;
+/** Jitter factor: ±20% randomization on each delay */
+const BACKOFF_JITTER_FACTOR = 0.2;
+
+/** HTTP status codes considered transient (retryable) */
+const TRANSIENT_STATUS_CODES = [429, 503];
+/** HTTP status codes considered permanent (immediate failover) */
+const PERMANENT_STATUS_CODES = [400, 401, 422];
+
+/**
+ * Returns true if the error is transient and the same provider should be retried.
+ * Transient: HTTP 429, 503, network timeouts.
+ */
+export function isTransientError(err: any): boolean {
+  if (err instanceof TimeoutError) return true;
+  const msg = err?.message || '';
+  return TRANSIENT_STATUS_CODES.some(code => msg.includes(String(code)));
+}
+
+/**
+ * Returns true if the error is permanent and should immediately fail over.
+ * Permanent: HTTP 400, 401, 422 — retrying won't help.
+ */
+export function isPermanentError(err: any): boolean {
+  const msg = err?.message || '';
+  return PERMANENT_STATUS_CODES.some(code => msg.includes(String(code)));
+}
+
+/**
+ * Calculate backoff delay with ±20% jitter.
+ * attempt=0 → ~1s, attempt=1 → ~2s, attempt=2 → ~4s
+ */
+export function calculateBackoffDelay(attempt: number): number {
+  const baseDelay = BACKOFF_BASE_DELAY_MS * Math.pow(2, attempt);
+  const jitter = baseDelay * BACKOFF_JITTER_FACTOR * (2 * Math.random() - 1);
+  return Math.round(baseDelay + jitter);
+}
+
+/** Backoff utilities — exposed as object methods so tests can spy on them. */
+export const backoffUtils = {
+  sleep(delayMs: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+};
+
+export interface RetryStats {
+  retryAttempts: number;
+  totalLatencyMs: number;
+  finalError?: string;
+}
+
+/**
+ * Retry a providerChat call with exponential backoff + jitter for transient errors.
+ * Permanent errors (400/401/422) skip retry and throw immediately.
+ */
+export async function retryProviderChat(
+  provider: AIProvider,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens: number,
+  temperature: number,
+  jsonMode: boolean = false,
+  tools?: any[]
+): Promise<{ result: { content: string; usage?: any; toolCalls?: any[] } | null; retryStats: RetryStats }> {
+  const startTime = Date.now();
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= BACKOFF_MAX_RETRIES; attempt++) {
+    try {
+      const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools);
+      return {
+        result,
+        retryStats: { retryAttempts: attempt, totalLatencyMs: Date.now() - startTime }
+      };
+    } catch (err: any) {
+      lastError = err;
+
+      // Permanent errors: skip retry, fail over immediately
+      if (isPermanentError(err)) {
+        console.warn(`[AI] ⛔ Permanent error from ${provider.name} (${err.message?.slice(0, 80)}) — skipping retry, failing over`);
+        throw err;
+      }
+
+      // Transient errors: retry with backoff if attempts remain
+      if (isTransientError(err) && attempt < BACKOFF_MAX_RETRIES) {
+        const delay = calculateBackoffDelay(attempt);
+        console.warn(
+          `[AI] 🔄 Transient error from ${provider.name} (attempt ${attempt + 1}/${BACKOFF_MAX_RETRIES + 1}): ` +
+          `${err.message?.slice(0, 80)} — retrying in ${delay}ms`
+        );
+        await backoffUtils.sleep(delay);
+        continue;
+      }
+
+      // Exhausted retries or non-transient error
+      const stats: RetryStats = {
+        retryAttempts: attempt,
+        totalLatencyMs: Date.now() - startTime,
+        finalError: err.message
+      };
+      console.warn(
+        `[AI] ❌ ${provider.name} exhausted ${attempt + 1} attempt(s) in ${stats.totalLatencyMs}ms — failing over`
+      );
+      throw Object.assign(err, { retryStats: stats });
+    }
+  }
+
+  // Should not reach here, but TypeScript safety
+  throw lastError;
+}
+
 // ─── Generic Provider Chat Call ──────────────────────────────────────
 
 export async function providerChat(
@@ -535,7 +650,14 @@ async function _chatWithFallbackInner(
         timestamp: new Date(),
       }).catch(() => {/* swallow */});
 
-      const result = await providerChat(provider, maskedMessages, maxTokens, temperature, jsonMode, tools);
+      // US-938: Use retryProviderChat for exponential backoff on transient errors
+      const { result, retryStats } = await retryProviderChat(provider, maskedMessages, maxTokens, temperature, jsonMode, tools);
+
+      // Log retry stats for observability (AC5)
+      if (retryStats.retryAttempts > 0) {
+        console.log(`[AI] 🔄 ${provider.name} succeeded after ${retryStats.retryAttempts} retry(ies) (${retryStats.totalLatencyMs}ms total)`);
+      }
+
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
@@ -550,7 +672,18 @@ async function _chatWithFallbackInner(
     } catch (err: any) {
       breaker.recordFailure();
 
-      // Handle latency threshold timeout
+      // US-938: Log retry stats from exhausted retries
+      const retryStats: RetryStats | undefined = err.retryStats;
+      if (retryStats) {
+        console.warn(`[AI] 📊 Retry stats for ${provider.name}:`, JSON.stringify({
+          provider: provider.id,
+          retryAttempts: retryStats.retryAttempts,
+          totalLatencyMs: retryStats.totalLatencyMs,
+          action: 'failover'
+        }));
+      }
+
+      // Handle latency threshold timeout (after retries exhausted)
       if (err instanceof TimeoutError) {
         timeoutCount++;
         console.warn(`[AI] ⏱️  Latency failover:`, JSON.stringify({

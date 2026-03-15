@@ -10178,3 +10178,26 @@ Implementation was already complete from a previous iteration but was not marked
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 30/30 identity disclosure tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+
+
+## Iteration [Ralph] - Story: US-938 - LLM reliability: exponential backoff with jitter on AI provider timeouts
+### What was implemented
+- **AC1**: `retryProviderChat` wrapper retries transient errors (HTTP 429, 503, TimeoutError) with exponential backoff: 1s, 2s, 4s (max 3 retries per provider) before failing over
+- **AC2**: Each retry delay includes ±20% random jitter via `calculateBackoffDelay()` to avoid synchronized retries from concurrent conversations
+- **AC3**: After max retries exhausted on a provider, `retryProviderChat` throws and `chatWithFallback` fails over to the next provider in the chain
+- **AC4**: Permanent errors (HTTP 400, 401, 422) bypass retry completely — `isPermanentError()` triggers immediate failover
+- **AC5**: Retry attempt count and total latency logged per conversation via `RetryStats` object. On success after retries: logged at info level. On exhaustion: logged at warn level with retry stats JSON
+- **AC6**: 24 Vitest tests covering: transient/permanent error classification, jitter bounds, retry behavior for 429/503, no-retry for 400/401/422, retry stats logging, and full chatWithFallback integration
+
+### Files changed
+- `src/assistant/ai-provider-manager.ts` — Added `isTransientError`, `isPermanentError`, `calculateBackoffDelay`, `backoffUtils.sleep`, `retryProviderChat`, `RetryStats` type. Replaced direct `providerChat` call in `_chatWithFallbackInner` with `retryProviderChat` + retry stats logging
+- `src/assistant/__tests__/exponential-backoff.test.ts` — NEW: 24 tests for exponential backoff with jitter
+- `src/assistant/__tests__/latency-failover.test.ts` — Updated: mock `backoffUtils.sleep` in existing tests, updated timeout test expectations to account for retries (4 calls per provider instead of 1)
+
+### Patterns discovered
+- ESM module spy limitation: `vi.spyOn(module, 'namedExport')` doesn't intercept internal calls within the module. Fix: use mutable object pattern (`backoffUtils.sleep`) so the spy replaces the method reference
+- `withTimeout` race pattern conflicts with `setTimeout` mocking — must isolate backoff sleep from timeout mechanisms
+- Existing latency-failover tests needed updating since TimeoutError is now transient (retried) instead of immediate failover
+
+### Status
+✅ Build passes (3 pre-existing warnings). 32/32 tests pass (24 new + 8 existing updated). Server starts. All 6 acceptance criteria verified. Story marked passes=true.
