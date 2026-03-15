@@ -7568,3 +7568,38 @@ This technical brief translates the provided Node.js user story into a plan for 
 
 ### Gotchas
 - RTK (`rtk npm run build`) failed on this system — `rtk` command not found for npm. Used `npm run build` directly.
+## Iteration 7 - Sun, Mar 15, 2026  8:33:29 AM
+Completed: Webhook HMAC signature validation for incoming Meta Cloud API events (ID: US-844) in 5m
+
+
+## Pre-analysis for US-845 (Gemini 2.5 Pro)
+Based on the user story, this is a **TypeScript/Node.js** project, not Frappe/Python. The technical brief should be interpreted in that context.
+
+**Project:** WhatsApp Cost Tracker Update
+**Target Language/Framework:** TypeScript/Node.js
+
+**1. Files to Modify:**
+*   `src/routes/admin/whatsapp-cost.ts`: Main file for cost calculation logic and the dashboard's data API.
+*   `src/lib/whatsapp.ts` (or similar service): The message sending function must be intercepted here to record message category and cost.
+*   `src/assistant/__tests__/whatsapp-cost.test.ts`: Unit tests for the cost calculation logic.
+*   A configuration file or service: To manage the new `billing.pricingModel` setting (story mentions `settings.json`, but the project may use a database config).
+
+**2. Involved DocTypes/Hooks (Conceptual Equivalents):**
+*   **Configuration:** A settings entity (in DB or JSON) to hold the per-profile `billing.pricingModel` toggle.
+*   **API Route:** The endpoint defined in `whatsapp-cost.ts` serves the admin dashboard.
+*   **Message Sending Hook:** The core logic change involves "hooking" into the outbound message flow to apply the per-message cost.
+
+**3. Recommended Implementation Approach:**
+1.  Introduce the `billing.pricingModel` setting, defaulting to `'per_conversation'`.
+2.  In `whatsapp-cost.ts`, create a new cost calculation function for the `'per_message'` model. The main export should conditionally call the correct function based on the setting.
+3.  Modify the core message sending function to determine the category (e.g., 'marketing', 'utility') at send-time.
+4.  If the `per_message` model is active, increment a cost counter in the database associated with the message's profile and category.
+5.  Update the `whatsapp-cost.ts` API to return data for both models, allowing the UI to display a comparison.
+6.  Expand `whatsapp-cost.test.ts` to cover the new pricing model with various message types.
+
+**4. Edge Cases & Gotchas:**
+*   **Message Categorization:** The rule for "proactive (marketing) vs. reactive (utility)" must be clearly defined (e.g., based on a 24-hour session window).
+*   **Configuration Source:** Verify whether settings are managed via `settings.json` or a database table, as hinted by `migrate-configs-to-db.ts`.
+*   **Currency:** Use hardcoded or real-time MYR exchange rates for the provided USD costs.
+*   **Performance:** Ensure that recording message costs does not introduce significant latency into the message sending process.
+

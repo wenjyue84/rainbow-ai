@@ -1,24 +1,25 @@
 import { eld } from 'eld/medium';
 
-export type SupportedLanguage = 'en' | 'ms' | 'zh' | 'unknown';
+export type SupportedLanguage = 'en' | 'ms' | 'zh' | 'ta' | 'unknown';
 
-/** Our 3 supported languages — ELD subset improves speed and accuracy for short text */
-const SUPPORTED_CODES: SupportedLanguage[] = ['en', 'ms', 'zh'];
+/** Our 4 supported languages — ELD subset improves speed and accuracy for short text */
+const SUPPORTED_CODES: SupportedLanguage[] = ['en', 'ms', 'zh', 'ta'];
 
-// Restrict ELD to en/ms/zh only (faster + better accuracy for mixed/colloquial)
+// Restrict ELD to supported subset (faster + better accuracy for mixed/colloquial)
 eld.setLanguageSubset(SUPPORTED_CODES);
 
 /**
  * Language Router - Detects message language and routes to appropriate keywords
  *
- * Supports: English (en), Malay (ms), Chinese (zh)
+ * Supports: English (en), Malay (ms), Chinese (zh), Tamil (ta)
  * Uses ELD (Efficient Language Detector) for fast, accurate short-text detection;
- * pattern-based fast path for Chinese script and strong Malay/English signals.
+ * pattern-based fast path for Chinese/Tamil script and strong Malay/English signals.
  */
 export class LanguageRouter {
   // Common patterns for quick detection (fast path; used when ELD is uncertain or text is very short)
   private readonly patterns = {
     zh: /[\u4e00-\u9fff\u3400-\u4dbf]/,  // Chinese characters
+    ta: /[\u0B80-\u0BFF]/,               // Tamil Unicode block
     ms: /\b(saya|anda|adalah|dengan|untuk|dari|yang|ini|itu|ada|tidak|boleh|bole|awal|lewat|nak|berapa|mana|apa|assalamualaikum|selamat|terima|kasih)\b/i,
     en: /\b(the|is|are|was|were|have|has|had|do|does|did|can|will|would|hello|hi|hai|hey|thanks|thank|tq|tqvm|thx|wifi|password|check|world)\b/i,
   };
@@ -68,6 +69,7 @@ export class LanguageRouter {
    */
   private detectByPattern(text: string): SupportedLanguage {
     if (this.patterns.zh.test(text)) return 'zh';
+    if (this.patterns.ta.test(text)) return 'ta';
     if (this.msPhraseOnly.test(text) || this.msColloquial.test(text)) return 'ms';
 
     const malayMatches = (text.match(this.patterns.ms) || []).length;
@@ -88,6 +90,9 @@ export class LanguageRouter {
 
     if (this.patterns.zh.test(cleaned)) {
       return { language: 'zh', confidence: 0.95 };
+    }
+    if (this.patterns.ta.test(cleaned)) {
+      return { language: 'ta', confidence: 0.95 };
     }
 
     try {
@@ -137,6 +142,7 @@ export class LanguageRouter {
       'en': 'English',
       'ms': 'Malay',
       'zh': 'Chinese',
+      'ta': 'Tamil',
       'unknown': 'Unknown'
     };
     return names[code];
@@ -153,6 +159,11 @@ export class LanguageRouter {
     // Check for Chinese
     if (this.patterns.zh.test(text)) {
       detected.add('zh');
+    }
+
+    // Check for Tamil
+    if (this.patterns.ta.test(text)) {
+      detected.add('ta');
     }
 
     // Check for Malay patterns

@@ -22,6 +22,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
   ms: 'Malay',
   zh: 'Chinese',
+  ta: 'Tamil',
 };
 
 /**

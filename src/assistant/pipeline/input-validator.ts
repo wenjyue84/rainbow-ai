@@ -445,14 +445,14 @@ export async function validateAndPrepare(
   const defaultLang = langDetectionSettings?.defaultLanguage ?? 'en';
 
   let detectedLanguageConfidence = 0;
-  let detectedLang: 'en' | 'ms' | 'zh' = defaultLang as 'en' | 'ms' | 'zh';
+  let detectedLang: 'en' | 'ms' | 'zh' | 'ta' = defaultLang as 'en' | 'ms' | 'zh' | 'ta';
 
   if (langDetectionEnabled) {
     const detection = languageRouter.detectWithConfidence(text);
     detectedLanguageConfidence = detection.confidence;
 
     if (detection.language !== 'unknown' && detection.confidence >= confidenceThreshold) {
-      detectedLang = detection.language as 'en' | 'ms' | 'zh';
+      detectedLang = detection.language as 'en' | 'ms' | 'zh' | 'ta';
     }
 
     // US-462: Load stored preference and resolve effective language
@@ -462,12 +462,12 @@ export async function validateAndPrepare(
     ]);
     const effectiveLang = resolveEffectiveLanguage(
       phone,
-      detection.language !== 'unknown' ? detection.language as 'en' | 'ms' | 'zh' : detectedLang,
+      detection.language !== 'unknown' ? detection.language as 'en' | 'ms' | 'zh' | 'ta' : detectedLang,
       detection.confidence,
       storedLang,
       locked,
     );
-    detectedLang = effectiveLang as 'en' | 'ms' | 'zh';
+    detectedLang = effectiveLang as 'en' | 'ms' | 'zh' | 'ta';
 
     console.debug(`[LanguageDetection] "${text.slice(0, 60)}" → detected=${detection.language} (conf=${detection.confidence.toFixed(2)}) stored=${storedLang ?? 'none'} locked=${locked} effective=${detectedLang}`);
   }

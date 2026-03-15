@@ -35,7 +35,7 @@ export interface PipelineState {
   processText: string;
   foreignLang: string | null;
   convo: ConversationState;
-  lang: 'en' | 'ms' | 'zh';
+  lang: 'en' | 'ms' | 'zh' | 'ta';
   diaryEvent: ConversationEvent;
   devMetadata: DevMetadata;
   response: string | null;
@@ -68,7 +68,7 @@ export type StateResult =
  * Context passed to flow implementations during step execution.
  */
 export interface FlowContext {
-  language: 'en' | 'ms' | 'zh';
+  language: 'en' | 'ms' | 'zh' | 'ta';
   phone: string;
   pushName: string;
   instanceId?: string;

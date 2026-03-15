@@ -66,7 +66,7 @@ export async function loadActiveStates(
         phone: row.phone,
         pushName: row.pushName,
         messages: [], // Messages are persisted by conversation-logger, not here
-        language: (row.language || 'en') as 'en' | 'ms' | 'zh',
+        language: (row.language || 'en') as 'en' | 'ms' | 'zh' | 'ta',
         bookingState: row.bookingStateJson ? JSON.parse(row.bookingStateJson) : null,
         workflowState: row.workflowStateJson ? JSON.parse(row.workflowStateJson) : null,
         activeFlow: (row as any).activeFlowJson ? JSON.parse((row as any).activeFlowJson) : null,

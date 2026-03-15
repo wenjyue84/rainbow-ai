@@ -78,7 +78,7 @@ export interface IntentResult {
   source: 'regex' | 'fuzzy' | 'semantic' | 'llm';
   matchedKeyword?: string;  // For fuzzy matches
   matchedExample?: string;  // For semantic matches (Phase 3)
-  detectedLanguage?: 'en' | 'ms' | 'zh' | 'unknown';  // Phase 2: Language detection
+  detectedLanguage?: 'en' | 'ms' | 'zh' | 'ta' | 'unknown';  // Phase 2: Language detection
   usage?: {  // Token usage for LLM tier (US-019)
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -97,7 +97,7 @@ export interface ConversationState {
   phone: string;
   pushName: string;
   messages: ChatMessage[];
-  language: 'en' | 'ms' | 'zh';
+  language: 'en' | 'ms' | 'zh' | 'ta';
   bookingState: BookingState | null;
   workflowState: WorkflowState | null;  // NEW: Workflow execution state
   activeFlow: FlowState | null;         // US-408: Unified flow state for new flow types
