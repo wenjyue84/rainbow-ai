@@ -26,7 +26,10 @@ import {
 import { trackIntentPrediction, markIntentCorrection, markIntentCorrect } from '../intent-tracker.js';
 import { trackFeedback, trackEmergency, trackWorkflowStarted } from '../../lib/activity-tracker.js';
 import { handleRecoveryReply, isWhatsAppSession } from '../cart-idle-recovery.js';
-import { cartIsRecoverySent, cartResetRecovery } from '../cart-store.js';
+import { cartIsRecoverySent, cartResetRecovery, cartAddItem, cartFormatSummary, cartGetItems } from '../cart-store.js';
+import { transitionOrderStage } from '../order-stage-store.js';
+import { fetchMenuItems } from '../../tools/fnb-menu.js';
+import { findMenuItemMatches } from '../menu-matcher.js';
 
 export async function handleActiveStates(
   state: PipelineState, ctx: RouterContext
@@ -48,6 +51,30 @@ export async function handleActiveStates(
       await ctx.sendMessage(phone, recoveryResponse, msg.instanceId);
       return { handled: true };
     }
+  }
+
+  // ─── US-885: PRODUCT CARD BUTTON PRESS ─────────────────────────
+  // Intercept "add_to_cart:CODE" and "view_menu" button presses from
+  // product card interactive messages. Button IDs come through as text.
+  const addToCartMatch = text.match(/^add_to_cart:(.+)$/i);
+  if (addToCartMatch) {
+    const itemCode = addToCartMatch[1];
+    const response = await handleAddToCartButton(phone, itemCode, lang, profileId);
+    addMessage(phone, 'assistant', response, profileId);
+    logMessage(phone, msg.pushName, 'assistant', response, {
+      action: 'product_card_add_to_cart', instanceId: msg.instanceId, profileId,
+      ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+    }).catch(() => { });
+    await ctx.sendMessage(phone, response, msg.instanceId);
+    return { handled: true };
+  }
+
+  if (/^view_menu$/i.test(text) || /^view full menu$/i.test(text)) {
+    // Let the normal pipeline handle "view menu" — it'll match ORDER_BROWSE
+    // Just rewrite the text so intent classification picks it up
+    state.text = 'show me the menu';
+    state.processText = 'show me the menu';
+    // Fall through to classification
   }
 
   // ─── FEEDBACK DETECTION ─────────────────────────────────────────
