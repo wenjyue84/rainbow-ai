@@ -44,6 +44,7 @@ import {
   markConfirmationShown, markCorrected, recordOrderSubmitted,
   recordConfirmationDeclined, clearAccuracyTracking,
 } from '../assistant/order-accuracy-tracker.js';
+import { markCartCompleted } from '../assistant/cart-recovery.js';
 import { orderItemExtractionSchema } from '../assistant/schemas.js';
 import { recordValidationEvent } from '../assistant/llm-validation-metrics.js';
 
@@ -798,6 +799,11 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     transitionOrderStage(sessionId, 'PLACED');
     cartClear(sessionId);
     clearOrderStage(sessionId);
+
+    // US-917: Mark abandoned cart as completed (converted) if applicable
+    markCartCompleted(sessionId).catch(err => {
+      console.error('[CartRecovery] Mark completed failed:', err.message);
+    });
 
     // US-881: Start modification window
     if (modificationWindowMs > 0) {

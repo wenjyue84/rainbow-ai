@@ -14,6 +14,7 @@ import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler } from
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
+import { sendWhatsAppInteractiveMessage } from '../lib/whatsapp/index.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -41,8 +42,8 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   await loadConsentCache();
   initRouter(sendMessage, callAPI);
 
-  // US-882: Abandoned cart recovery for WhatsApp sessions
-  initCartRecovery(sendMessage);
+  // US-882 + US-917: Abandoned cart recovery with interactive buttons
+  initCartRecovery(sendMessage, sendWhatsAppInteractiveMessage);
 
   // Initialize BullMQ message queue (US-405)
   // Worker concurrency from settings, default 3

@@ -9905,3 +9905,32 @@ FAILED quality gates: Support BSUID as primary contact identifier in webhook han
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 45/45 tests pass. Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-917 WhatsApp abandoned-cart recovery message within active service window
+### What was implemented
+- **AC1**: Created `abandoned_carts` Drizzle table (jid, items_json, cart_created_at, abandoned_at, recovery_sent_at, recovered_at, completed_at, cleared_at). Cart state persisted to DB via `persistAbandonedCart()` when idle cart detected.
+- **AC2**: Background job scans every 15 min (was 5 min). Recovery only sent for carts idle 30-120 min (configurable via `max_age_minutes`). Checks 24h session window. Max 1 recovery per cart.
+- **AC3**: Recovery message uses interactive quick-reply buttons via Baileys `buttonsMessage` (Resume Order / Clear Cart). Falls back to plain text when interactive sender unavailable.
+- **AC4**: `handleCartRecoveryReply` restores cart from DB if in-memory cart expired (via `restoreCartFromDb()`). Handles both text replies and button postback IDs.
+- **AC5**: Recovery limited to 1 per abandoned cart (existing from US-882, preserved).
+- **AC6**: `GET /analytics/cart-recovery` admin endpoint returns: totalAbandoned, recoverySent, recovered, completed, cleared, recoveryRate, conversionRate. `markCartCompleted()` called from `order_confirm_submit` to track conversions.
+
+### Files changed
+- `shared/schema-tables.ts` — Added `abandoned_carts` table definition
+- `src/assistant/cart-recovery.ts` — Major rewrite: DB persistence, 15-min scan, 30-120 min window, interactive buttons, analytics tracking, cart restoration from DB
+- `src/assistant/index.ts` — Pass `sendWhatsAppInteractiveMessage` to `initCartRecovery`
+- `src/lib/whatsapp/instance.ts` — Added `buttonsResponseMessage` handler to extract button IDs/text
+- `src/tools/cart.ts` — Added `markCartCompleted()` call on order submission
+- `src/routes/admin/analytics-cart-recovery.ts` — NEW: GET /analytics/cart-recovery endpoint
+- `src/routes/admin/index.ts` — Registered analytics-cart-recovery routes
+- `src/assistant/data/settings.json` — Added `max_age_minutes` to cart_recovery config
+- `src/assistant/__tests__/cart-recovery.test.ts` — Updated for 15-min interval, added 3 new US-917 tests (17 total)
+
+### Patterns discovered
+- US-882 had built most of the recovery logic (in-memory state, scanner, text replies)
+- Interactive buttons in Baileys use `buttonsMessage` format with `buttonId`/`buttonText`
+- Button responses come as `buttonsResponseMessage` with `selectedButtonId`/`selectedDisplayText`
+- DB operations use try/catch fire-and-forget pattern so recovery works even without DB
+
+### Status
+✅ Build passes (3 pre-existing warnings). 17/17 cart recovery tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.

@@ -79,6 +79,7 @@ import chatbotComplianceRoutes from './chatbot-compliance.js';
 import analyticsTopConsumersRoutes from './analytics-top-consumers.js';
 import analyticsLlmValidationRoutes from './analytics-llm-validation.js';
 import analyticsCostRoutes from './analytics-cost.js';
+import analyticsCartRecoveryRoutes from './analytics-cart-recovery.js';
 
 const router = Router();
 
@@ -323,6 +324,7 @@ router.use(chatbotComplianceRoutes);
 router.use(analyticsTopConsumersRoutes);
 router.use(analyticsLlmValidationRoutes);
 router.use(analyticsCostRoutes);
+router.use(analyticsCartRecoveryRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

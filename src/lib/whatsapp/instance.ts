@@ -517,6 +517,12 @@ export class WhatsAppInstance {
           fileSize: m.documentMessage.fileLength ? Number(m.documentMessage.fileLength) : undefined,
           fileName: m.documentMessage.fileName || undefined,
         };
+      } else if (m?.buttonsResponseMessage) {
+        // US-917: User tapped a quick-reply button (e.g. cart recovery Resume/Clear).
+        // Extract the buttonId so the pipeline can match it to cart recovery actions.
+        const btnId = (m.buttonsResponseMessage as any).selectedButtonId || '';
+        const btnText = (m.buttonsResponseMessage as any).selectedDisplayText || '';
+        text = btnId || btnText;
       } else if (m?.listResponseMessage) {
         // US-872: User selected an item from a WhatsApp interactive list message.
         // Extract the selectedRowId as text so the pipeline can process it as a normal message.

@@ -750,3 +750,46 @@ export const llmUsageLog = pgTable("llm_usage_log", {
 
 export type LlmUsageLog = typeof llmUsageLog.$inferSelect;
 export type InsertLlmUsageLog = typeof llmUsageLog.$inferInsert;
+
+// ─── US-917: Abandoned Cart Recovery ──────────────────────────────────
+
+export const abandonedCarts = pgTable("abandoned_carts", {
+  id: serial("id").primaryKey(),
+  jid: varchar("jid", { length: 128 }).notNull(),
+  tenantId: text("tenant_id").notNull().default('makan-moments'),
+  itemsJson: text("items_json").notNull(),
+  cartCreatedAt: timestamp("cart_created_at").notNull(),
+  abandonedAt: timestamp("abandoned_at").notNull(),
+  recoverySentAt: timestamp("recovery_sent_at"),
+  recoveredAt: timestamp("recovered_at"),
+  completedAt: timestamp("completed_at"),
+  clearedAt: timestamp("cleared_at"),
+}, (table) => ([
+  index("idx_abandoned_carts_jid").on(table.jid),
+  index("idx_abandoned_carts_tenant").on(table.tenantId),
+  index("idx_abandoned_carts_abandoned_at").on(table.abandonedAt),
+]));
+
+export type AbandonedCart = typeof abandonedCarts.$inferSelect;
+export type InsertAbandonedCart = typeof abandonedCarts.$inferInsert;
+
+// ─── US-900: WhatsApp Template Status Tracking ───────────────────────
+
+export const whatsappTemplates = pgTable("whatsapp_templates", {
+  id: serial("id").primaryKey(),
+  templateName: text("template_name").notNull(),
+  status: text("status").notNull(),
+  previousStatus: text("previous_status"),
+  rejectedReason: text("rejected_reason"),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  lastCheckedAt: timestamp("last_checked_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_whatsapp_templates_status").on(table.status),
+  index("idx_whatsapp_templates_profile").on(table.profileId),
+  uniqueIndex("idx_whatsapp_templates_name_profile").on(table.templateName, table.profileId),
+]));
+
+export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
+export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
