@@ -74,7 +74,17 @@ async function subscribe(wabaId: string, token: string): Promise<void> {
   const timer = setTimeout(() => controller.abort(), WA_API_TIMEOUT_MS);
 
   try {
-    const res = await fetch(url, {
+    // US-909: Explicitly subscribe to phone_number_quality_update alongside messages
+    const params = new URLSearchParams();
+    params.set('subscribed_fields', [
+      'messages',
+      'phone_number_quality_update',
+      'account_update',
+      'message_template_status_update',
+      'business_capability_update',
+    ].join(','));
+
+    const res = await fetch(`${url}?${params.toString()}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,

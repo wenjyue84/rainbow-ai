@@ -8452,3 +8452,18 @@ Incomplete: Prompt injection input sanitisation layer in message processing pipe
 ### Gotchas
 - The story was already fully implemented but not marked as `passes: true` — verification-only iteration
 
+
+## Iteration [Ralph] - Story: US-909 - Handle phone_number_quality_update webhook to track quality rating changes
+### What was implemented
+- Added explicit `phone_number_quality_update` field to WABA subscription request (waba-subscription-check.ts)
+- Added `persistQualityToAppSettings()` function in webhooks/index.ts that writes quality rating, event type, and timestamp to `app_settings` table
+- Extended notification condition to include YELLOW quality rating (previously only RED/FLAGGED/RESTRICTED triggered alerts)
+- Admin dashboard already had `/analytics/phone-quality` endpoint from US-458
+### Patterns discovered
+- WABA subscription `POST /{WABA_ID}/subscribed_apps` accepts a `subscribed_fields` query param to explicitly list desired webhook fields
+- Quality webhook handler uses fire-and-forget pattern for both in-memory state + app_settings persistence
+- Existing `phone-quality.ts` persists to `rainbow_configs` via config-db; US-909 adds parallel write to `app_settings` for dashboard reads
+### Gotchas
+- The `app_settings` keys are namespaced by profile ID (e.g. `phone_quality_rating_pelangi`) to support multi-instance setups
+### Test results
+- 4 Vitest tests passing: YELLOW persistence+notification, RED persistence+notification, GREEN no-notification, default profile fallback

@@ -37,6 +37,52 @@ import { persistRawEvent, markRawEventProcessed } from '../../lib/webhook-raw-ev
 
 const router = Router();
 
+// ─── US-909: Persist quality rating to app_settings ─────────────────────────
+async function persistQualityToAppSettings(
+  rating: string,
+  eventType: string,
+  profileId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  const updatedBy = 'webhook:phone_number_quality_update';
+
+  await db.insert(appSettings)
+    .values({
+      key: `phone_quality_rating_${profileId}`,
+      value: rating,
+      description: `Phone number quality rating for ${profileId}`,
+      updatedBy,
+    })
+    .onConflictDoUpdate({
+      target: [appSettings.key],
+      set: { value: rating, updatedBy, updatedAt: sql`NOW()` },
+    });
+
+  await db.insert(appSettings)
+    .values({
+      key: `phone_quality_event_${profileId}`,
+      value: eventType,
+      description: `Last phone quality event type for ${profileId}`,
+      updatedBy,
+    })
+    .onConflictDoUpdate({
+      target: [appSettings.key],
+      set: { value: eventType, updatedBy, updatedAt: sql`NOW()` },
+    });
+
+  await db.insert(appSettings)
+    .values({
+      key: `phone_quality_updated_at_${profileId}`,
+      value: now,
+      description: `When phone quality was last updated for ${profileId}`,
+      updatedBy,
+    })
+    .onConflictDoUpdate({
+      target: [appSettings.key],
+      set: { value: now, updatedBy, updatedAt: sql`NOW()` },
+    });
+}
+
 // Load shared secret once at module initialisation so the "secret unset"
 // warning appears at startup rather than on the first request.
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
@@ -172,7 +218,7 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
     `quality=${quality} status=${status} tier=${body.messaging_limit_tier} profile=${profileId}`
   );
 
-  // Update quality state
+  // Update quality state (in-memory + rainbow_configs)
   updateQualityState(profileId, {
     rating: quality,
     status,
@@ -183,8 +229,13 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
     console.error('[webhook:meta:quality] Failed to update quality state:', err.message)
   );
 
-  // Notify admin on degradation (FLAGGED, RESTRICTED, or RED rating)
-  if (status === 'FLAGGED' || status === 'RESTRICTED' || quality === 'RED') {
+  // US-909: Persist quality rating and event type to app_settings for dashboard reads
+  persistQualityToAppSettings(quality, event ?? 'UNKNOWN', profileId).catch(err =>
+    console.error('[webhook:meta:quality] Failed to persist to app_settings:', err.message)
+  );
+
+  // Notify admin on degradation (FLAGGED, RESTRICTED, YELLOW, or RED rating)
+  if (status === 'FLAGGED' || status === 'RESTRICTED' || quality === 'YELLOW' || quality === 'RED') {
     notifyAdminQualityDegradation(profileId, quality, status, phoneNumber ?? 'unknown').catch(() => {});
   }
 });
