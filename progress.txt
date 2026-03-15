@@ -8191,3 +8191,22 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 - Recovery check interval (2 min) must be shorter than the idle threshold (30 min) to catch carts promptly
 - Timer uses `.unref()` to not block process exit
 - The recovery message interception must happen BEFORE sanitization and AI processing in the webchat handler
+
+
+## Iteration - Story: US-883 ARIA live region announcements for new webchat widget messages
+### What was implemented
+- Added `aria-relevant="additions"` to messages container div so screen readers only announce new messages, not re-read entire log
+- Added a visually-hidden `<div id="typingStatus" aria-live="polite" role="status">` for typing indicator announcements ("Assistant is typing...")
+- Updated `showTyping()` to set typingStatus text, `hideTyping()` to clear it — screen readers announce via the separate live region without interrupting
+- Updated `appendMessage()` to postMessage `rainbow-new-message` to parent window for embedded widget badge
+- Updated widget.js badge to track `unreadCount` with dynamic `aria-label` ("1 new message" / "N new messages")
+- Typing indicator remains `aria-hidden="true"` (visual dots only) — announcement handled by separate status div
+
+### Patterns discovered
+- Using a separate visually-hidden live region for status announcements (typing) avoids conflict with the message log's own aria-live
+- The `role="log"` + `aria-live="polite"` + `aria-relevant="additions"` combination on the messages container is the recommended WCAG pattern for chat UIs
+- Widget badge was already created with static aria-label — just needed dynamic count
+
+### Gotchas
+- Must NOT set aria-live on typing indicator div itself — it's inside the messages container which already has aria-live, causing double announcements
+- The `animate` parameter distinguishes history restoration (false) from live messages (true) — only live bot messages should trigger parent postMessage

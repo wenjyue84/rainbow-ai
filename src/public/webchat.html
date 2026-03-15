@@ -399,13 +399,15 @@
       </div>
     </div>
 
-    <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite">
+    <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite" aria-relevant="additions">
       <div class="typing" id="typing" aria-hidden="true">
         <div class="typing-dot"></div>
         <div class="typing-dot"></div>
         <div class="typing-dot"></div>
       </div>
     </div>
+    <!-- US-883: Separate live region for typing status announcements -->
+    <div id="typingStatus" aria-live="polite" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
 
     <div class="input-area">
       <textarea
@@ -618,6 +620,11 @@
 
         // Insert before typing indicator
         messagesEl.insertBefore(div, typingEl);
+
+        // US-883: Notify parent widget of new bot messages for unread badge
+        if (type === 'bot' && animate && window.parent !== window) {
+          window.parent.postMessage({ type: 'rainbow-new-message' }, '*');
+        }
       }
 
       function appendHistoryDivider() {
@@ -633,13 +640,18 @@
         });
       }
 
+      // US-883: Screen reader typing announcements via separate live region
+      var typingStatusEl = document.getElementById('typingStatus');
+
       function showTyping() {
         typingEl.classList.add('visible');
+        typingStatusEl.textContent = 'Assistant is typing...';
         scrollToBottom();
       }
 
       function hideTyping() {
         typingEl.classList.remove('visible');
+        typingStatusEl.textContent = '';
       }
 
       // Create a bot message bubble for streaming (returns the bubble element to append text to)
