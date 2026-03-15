@@ -7692,3 +7692,43 @@ This technical brief is for a Node.js/TypeScript project, based on the user stor
 - esbuild chokes on Chinese quotation marks ("...") inside double-quoted JS strings — use single quotes or avoid
 - IPipelineContext needed `updateActiveFlow` added (was missing from the DI container)
 - `updateActiveFlow` signature: `(phone, FlowState | null, profileId?)` — profileId is optional
+## Iteration 2 - Sun, Mar 15, 2026  9:11:36 AM
+Incomplete: Update WhatsApp cost tracker for per-message pricing model (July 2025) (ID: US-845) — attempt 2/3
+
+
+## Pre-analysis for US-888 (Gemini 2.5 Pro)
+Based on the user story, the request is for a **TypeScript/Vitest** test, not Frappe/Python. Here is the technical brief for that environment:
+
+**Objective:** Implement a Vitest integration test for the `/api/chat/makan-moments/message` endpoint to ensure it gracefully handles AI provider failures and streams valid responses or specific fallback messages.
+
+**Files to Modify:**
+*   **Create:** `src/assistant/__tests__/ai-waiter-connectivity.test.ts`
+*   **Import from:** `src/assistant/chat-stream.ts` (contains `streamChatWithTools`, the function to test).
+*   **Mock:** `src/assistant/lib/ai-provider-manager.ts` (to mock `chatWithFallback`).
+
+**Implementation Approach:**
+1.  Use `vi.mock` to create a mock of the `ai-provider-manager.ts` module.
+2.  Mock the Express `req` and `res` objects (`res.write`, `res.end`, etc.) to spy on the SSE stream output.
+3.  **Test 1 (Happy Path):** Mock `chatWithFallback` to return a successful text response. Assert `res.write` is called with the expected content.
+4.  **Test 2 (Failure Path):** Mock `chatWithFallback` to return a null response. Assert `res.write` is called with the `STREAM_FALLBACK` constant.
+5.  **Test 3 (Tool Call Path):** Mock `chatWithFallback` to return tool calls, then a final text response. Assert tool handlers are triggered and the final text is streamed.
+
+**Gotchas to Watch For:**
+*   Ensure all external dependencies, especially AI providers and HTTP clients, are fully mocked. The test must not make real network calls.
+*   The streamed response must be in the correct Server-Sent Events (SSE) format (e.g., `data: ...\n\n`).
+*   Validate that errors are caught and result in a fallback message stream, not a thrown exception that crashes the process.
+
+
+## Iteration N - Story: US-888 - Vitest AI waiter connectivity regression test
+### What was implemented
+- Created `src/assistant/__tests__/ai-waiter-connectivity.test.ts` with 3 tests:
+  1. Happy path: chatWithFallback returns text → streamed as SSE token
+  2. All-providers-fail: SSE response contains STREAM_FALLBACK text, no crash
+  3. Tool call path: tool handler invoked, final text streamed
+- All 3 tests pass in `npm run test:run`
+### Patterns discovered
+- `streamChatWithTools` does NOT call `setupSSEHeaders` when chatWithFallback returns text directly (no tool calls) — it goes straight to `sseEvent(res, ...)` → `res.write`. Only `streamFromProviders` calls `setupSSEHeaders`.
+- With getProviders() returning [] (mocked), streamFromProviders emits STREAM_FALLBACK immediately.
+- The `toolCalls: []` (empty array) is treated the same as no tool calls — the `!toolCalls || toolCalls.length === 0` check handles both.
+### Gotchas
+- Initial test had incorrect assertion that `res.setHeader` would be called for Content-Type in the happy path — it's only set by `setupSSEHeaders` which is in `streamFromProviders`, not the direct-content path.

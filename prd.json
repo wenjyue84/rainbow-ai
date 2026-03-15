@@ -2208,6 +2208,54 @@
       ],
       "estimatedComplexity": "medium",
       "passes": false
+    },
+    {
+      "id": "US-888",
+      "title": "Vitest: AI waiter connectivity regression test — POST /api/chat/makan-moments/message must not return error message",
+      "priority": "high",
+      "description": "Add a Vitest integration test that catches the 'AI service temporarily unavailable' failure mode. The test mocks chatWithFallback to return a valid AI response and asserts the /api/chat/makan-moments/message endpoint streams a non-error reply. Also test the all-providers-fail path asserts the correct STREAM_FALLBACK message is sent as a streamed SSE token rather than a hard crash.",
+      "acceptanceCriteria": [
+        "Test file: src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Test 1 (happy path): mock chatWithFallback to return { content: 'Welcome to Makan Moments! How can I help?', toolCalls: [] } — assert streamChatWithTools streams that content as an SSE token",
+        "Test 2 (all-providers-fail path): mock chatWithFallback to return { content: null } and streamFromProviders to fail — assert the SSE response contains STREAM_FALLBACK text, NOT a raw thrown exception",
+        "Test 3 (tool call path): mock chatWithFallback to return tool_calls first, then text — assert the tool handlers are invoked and the final text is streamed",
+        "All 3 tests pass in npm run test:run",
+        "No test imports the real AI providers or makes real HTTP calls"
+      ],
+      "technicalNotes": [
+        "Import streamChatWithTools from src/assistant/chat-stream.ts",
+        "Mock chatWithFallback from ai-provider-manager.ts using vi.mock",
+        "Mock the Express Response object with vi.fn() for res.write, res.setHeader, res.end, res.flushHeaders",
+        "The STREAM_FALLBACK constant is: 'AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.'",
+        "streamChatWithTools now streams content directly when chatWithFallback returns text with no toolCalls (no second provider call)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-889",
+      "title": "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text",
+      "priority": "high",
+      "description": "Write a Vitest test that verifies the fix to streamChatWithTools: when chatWithFallback returns text content with no tool calls (e.g. Gemini responds directly), the text is streamed immediately and NO second provider call is made. This prevents the 'double round-trip' that caused AI waiter failures when the second call hit a rate-limited provider.",
+      "acceptanceCriteria": [
+        "Test in src/assistant/__tests__/ai-waiter-connectivity.test.ts",
+        "Mock chatWithFallback to return { content: 'Here are our menu items...', toolCalls: undefined }",
+        "Assert that sseEvent is called with { token: 'Here are our menu items...' }",
+        "Assert that chatWithFallback is called exactly ONCE (not twice)",
+        "Assert that streamFromProviders is NOT called when content is available",
+        "Test passes in npm run test:run"
+      ],
+      "technicalNotes": [
+        "The fix is in src/assistant/chat-stream.ts lines 250-260: if content is truthy when toolCalls is empty, sseEvent(res, { token: content }) and return immediately",
+        "Use vi.spyOn to count how many times chatWithFallback is called",
+        "Confirm streamFromProviders is not called by spying on the internal function"
+      ],
+      "dependencies": [
+        "US-888"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
     }
   ]
 }
