@@ -7,6 +7,7 @@
  *  - Meta Cloud API (phone_number_quality_update events) — US-458
  *  - Meta Cloud API (account_update events) — US-479
  *  - Meta Cloud API (business_capability_update events) — US-908
+ *  - Meta Cloud API (inbound messages with BSUID support) — US-926
  *
  * All routes apply HMAC-SHA256 signature validation via validateWebhookSignature()
  * before any business logic is executed.
@@ -31,6 +32,7 @@ import { sql } from 'drizzle-orm';
 import { appSettings, templateQualityEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
+import { parseCloudApiMessages } from './meta-messages.js';
 
 const router = Router();
 
@@ -461,6 +463,69 @@ router.post('/webhooks/kds/accept', signatureGuard, async (req: Request, res: Re
   // orderId-only: cannot reverse-lookup without a registry, so log and acknowledge
   console.warn(`[webhook:kds:accept] Received orderId=${orderId} without sessionId — cannot mark acceptance (no reverse lookup). Order will expire by timer.`);
   res.status(200).json({ ok: true, accepted: false, reason: 'sessionId required for real-time acceptance', orderId });
+});
+
+// ─── Meta Cloud API: Webhook verification (US-926) ──────────────────────────
+// Meta requires a GET endpoint that echoes back hub.challenge when
+// hub.mode === 'subscribe' and hub.verify_token matches our secret.
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN ?? '';
+
+router.get('/webhooks/meta/messages', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'] as string | undefined;
+  const token = req.query['hub.verify_token'] as string | undefined;
+  const challenge = req.query['hub.challenge'] as string | undefined;
+
+  if (mode === 'subscribe' && token && token === META_VERIFY_TOKEN) {
+    console.log('[webhook:meta:messages] Verification challenge accepted');
+    res.status(200).send(challenge ?? '');
+    return;
+  }
+
+  console.warn('[webhook:meta:messages] Verification failed — token mismatch or missing mode');
+  res.status(403).send('Forbidden');
+});
+
+// ─── Meta Cloud API: Inbound messages with BSUID support (US-926) ───────────
+// Meta POSTs inbound WhatsApp messages via the Cloud API webhook. Starting
+// June 2026, payloads may include a user_id (BSUID) field alongside or
+// instead of wa_id (phone number). This endpoint parses both identifiers
+// and routes them into the existing message pipeline.
+//
+// Payload shape:
+//   entry[].changes[].field = 'messages'
+//   entry[].changes[].value.contacts[].wa_id   = phone (may be absent post-BSUID rollout)
+//   entry[].changes[].value.contacts[].user_id = BSUID (new, present when user has username)
+//   entry[].changes[].value.messages[].from     = phone or BSUID
+router.post('/webhooks/meta/messages', metaSignatureGuard, async (req: Request, res: Response) => {
+  // Acknowledge immediately to prevent Meta retries
+  res.status(200).json({ ok: true });
+
+  try {
+    const incomingMessages = parseCloudApiMessages(req.body);
+
+    if (incomingMessages.length === 0) return;
+
+    // Dynamically import the message handler to avoid circular deps at module load
+    const { whatsappManager } = await import('../../lib/whatsapp/index.js');
+    const handler = (whatsappManager as any).messageHandler;
+
+    if (!handler) {
+      console.warn('[webhook:meta:messages] No message handler registered — messages dropped');
+      return;
+    }
+
+    for (const msg of incomingMessages) {
+      try {
+        await handler(msg);
+      } catch (err: any) {
+        console.error(`[webhook:meta:messages] Handler error for ${msg.from}:`, err.message);
+      }
+    }
+
+    console.log(`[webhook:meta:messages] Processed ${incomingMessages.length} inbound message(s)`);
+  } catch (err: any) {
+    console.error('[webhook:meta:messages] Parse error:', err.message);
+  }
 });
 
 export default router;

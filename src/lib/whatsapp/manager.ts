@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { WhatsAppInstance } from './instance.js';
 import type { WhatsAppInstanceStatus, InstanceConfig, InstancesFile, MessageHandler } from './types.js';
 import { notifyAdminUnlink } from '../admin-notifier.js';
+import { resolveBsuidToPhone } from './bsuid-resolver.js';
 
 // Use process.cwd() (= RainbowAI/) — __dirname is dist/ in esbuild bundle
 const DATA_DIR = process.env.WHATSAPP_DATA_DIR || path.resolve(process.cwd(), 'whatsapp-data');
@@ -191,9 +192,12 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendTypingIndicator(phone: string, instanceId?: string): Promise<void> {
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-926: Resolve BSUID-keyed phone
+    const resolved = await resolveBsuidToPhone(phone);
+    if (!resolved) return; // Silent skip for typing indicators
+    const jid = resolved.includes('@')
+      ? resolved
+      : `${formatPhoneNumber(resolved)}@s.whatsapp.net`;
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
@@ -211,9 +215,12 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendPausedIndicator(phone: string, instanceId?: string): Promise<void> {
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-926: Resolve BSUID-keyed phone
+    const resolved = await resolveBsuidToPhone(phone);
+    if (!resolved) return; // Silent skip for paused indicators
+    const jid = resolved.includes('@')
+      ? resolved
+      : `${formatPhoneNumber(resolved)}@s.whatsapp.net`;
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
@@ -230,11 +237,18 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendMessage(phone: string, text: string, instanceId?: string): Promise<any> {
+    // US-926: Resolve BSUID-keyed phone to real phone number before sending
+    const resolved = await resolveBsuidToPhone(phone);
+    if (!resolved) {
+      console.warn(`[WhatsAppManager] Cannot send to BSUID-only contact (no phone mapping): ${phone}`);
+      throw new Error(`Cannot send message: no phone number mapped for ${phone}`);
+    }
+
     // If it's already a full JID (@s.whatsapp.net, @lid, @g.us), use as-is
     // Otherwise format as @s.whatsapp.net
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    const jid = resolved.includes('@')
+      ? resolved
+      : `${formatPhoneNumber(resolved)}@s.whatsapp.net`;
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
@@ -252,9 +266,15 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendInteractiveMessage(phone: string, content: Record<string, any>, instanceId?: string): Promise<any> {
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-926: Resolve BSUID-keyed phone
+    const resolved = await resolveBsuidToPhone(phone);
+    if (!resolved) {
+      console.warn(`[WhatsAppManager] Cannot send interactive to BSUID-only contact: ${phone}`);
+      throw new Error(`Cannot send message: no phone number mapped for ${phone}`);
+    }
+    const jid = resolved.includes('@')
+      ? resolved
+      : `${formatPhoneNumber(resolved)}@s.whatsapp.net`;
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
@@ -271,9 +291,15 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   async sendMedia(phone: string, buffer: Buffer, mimetype: string, fileName: string, caption?: string, instanceId?: string): Promise<any> {
-    const jid = phone.includes('@')
-      ? phone
-      : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+    // US-926: Resolve BSUID-keyed phone
+    const resolved = await resolveBsuidToPhone(phone);
+    if (!resolved) {
+      console.warn(`[WhatsAppManager] Cannot send media to BSUID-only contact: ${phone}`);
+      throw new Error(`Cannot send message: no phone number mapped for ${phone}`);
+    }
+    const jid = resolved.includes('@')
+      ? resolved
+      : `${formatPhoneNumber(resolved)}@s.whatsapp.net`;
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);
