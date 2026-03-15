@@ -10864,3 +10864,71 @@ This is a TypeScript/Node.js project, not Frappe/Python. Based on the user story
 - Server startup test with dist/index.js fails with pre-existing ERR_AMBIGUOUS_MODULE_SYNTAX (db-url.js CJS/ESM issue)
 - esbuild build passes cleanly — 3 pre-existing warnings only
 - prd.json requires encoding='utf-8' when reading/writing in Python on Windows
+## Iteration 1 - Mon, Mar 16, 2026  4:29:29 AM
+Completed: Enforce Malaysia PDPA 2024 data processor Security Principle obligations (ID: US-968) in 16m
+
+
+## Pre-analysis for US-969 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the WhatsApp double opt-in feature.
+
+**To:** Claude Code Agent
+**From:** Gemini Technical Analyst
+**Re:** User Story US-969: WhatsApp Double Opt-In Flow
+
+### Technical Implementation Brief
+
+This brief outlines the required changes in a Frappe/Python environment to implement a WhatsApp double opt-in workflow. The story context implies a marketing/CRM function, not payroll, so the file paths should be adapted to the relevant custom app.
+
+**1. Python Files to Modify:**
+
+*   `[app_name]/hooks.py`: To define document events, the incoming webhook endpoint, and the scheduled task.
+*   `[app_name]/api.py`: Create this to house the whitelisted `handle_whatsapp_reply` function for processing incoming messages.
+*   `[app_name]/tasks.py`: Create this for the background job logic that handles consent expiration.
+*   `[app_name]/doctype/contact/contact.py`: If extending the standard `Contact` controller.
+*   `[app_name]/utils/whatsapp_messaging.py`: A new utility module to encapsulate logic for sending WhatsApp messages.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocTypes:**
+    *   `Contact`: Add a field `marketing_consent` (Select: Confirmed, Revoked, Pending Initial, Pending Reply).
+    *   `WhatsApp Opt-in Log` (New DocType): Create this to store an immutable audit trail (Contact, Status, Timestamp, Source/IP).
+*   **Hooks:**
+    *   `doc_events`: Use `on_update` for the `Contact` DocType to trigger the initial opt-in message.
+    *   `whitelisted_guest_methods`: To expose `handle_whatsapp_reply` as a public webhook endpoint for Meta.
+    *   `scheduler_events`: A `daily` or `hourly` job to transition `Pending Reply` contacts to `Pending Initial` after 48 hours.
+
+**3. Recommended Implementation Approach:**
+
+1.  **Schema:** Add the `marketing_consent` field to `Contact`. Create the `WhatsApp Opt-in Log` DocType for auditing.
+2.  **Trigger Flow:** On `Contact` update, if a user is added to the marketing list, trigger a function that sends the pre-approved WhatsApp template via `whatsapp_messaging.py` and creates a `Pending Reply` log entry.
+3.  **Webhook Handler:** The `handle_whatsapp_reply` function will parse incoming messages, find the `Contact` by phone number, and update `marketing_consent` based on keyword matching ("YES", "STOP"). It must log every event to the audit DocType.
+4.  **Scheduled Job:** Implement the scheduled function to query for `Pending Reply` logs older than 48 hours and update the `Contact`'s status accordingly.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Keyword Matching:** Handle case-insensitivity and variations (e.g., "stop.", "YES!").
+*   **Idempotency:** The webhook should not create duplicate audit logs or state changes if it receives the same message multiple times.
+*   **Configuration:** Store WhatsApp credentials and template IDs in a custom Settings DocType or `site_config.json`, not hardcoded.
+*   **Error Handling:** Gracefully manage failures in the WhatsApp API call and unsolicited "STOP" messages from numbers not in an active flow.
+
+
+## Iteration 13 - Story: US-969 — Double Opt-In for WhatsApp Marketing Subscriptions
+
+### What was implemented
+- `shared/schema-tables.ts`: Added `marketing_subscriptions` table with consent lifecycle columns (pending/confirmed/revoked/expired), 48h expiry, PDPA audit trail
+- `src/lib/marketing-optin.ts`: Core module with initiateDoubleOptIn(), confirmMarketingOptIn(), revokeMarketingConsent(), isAllowedToReceiveMarketing(), expirePendingConsents(), startConsentExpiryScheduler()
+- `src/assistant/pipeline/input-validator.ts`: Added YES/STOP keyword handling in the message pipeline — YES triggers confirmMarketingOptIn (non-blocking), STOP records marketing-specific revocation
+- `src/routes/admin/marketing-subscriptions.ts`: Admin CRUD API (POST add, GET list/single, DELETE revoke, POST expire, POST confirm)
+- `src/routes/admin/index.ts`: Registered marketing-subscriptions routes
+- `src/index.ts`: Added startConsentExpiryScheduler() on startup
+
+### Patterns discovered
+- The table is created via pool.query() (CREATE TABLE IF NOT EXISTS) rather than Drizzle push — consistent with other runtime-created tables (consent_records, etc.)
+- Pipeline keyword handlers run non-blocking (fire-and-forget .catch) to not delay message processing
+- YES keyword falls through to normal pipeline — might also be a valid answer to a booking question
+- Pre-existing db-url.js module format error is cosmetic (not blocking startup)
+
+### Gotchas
+- YES should NOT stop the pipeline (it may be a reply to other bot questions) — use non-blocking then() not early return
+- Marketing revocation is separate from global STOP opt-out — global handles all messaging, marketing-specific is for campaign targeting only
+- ON CONFLICT logic: revoked contacts cannot be re-added via upsert (preserves audit integrity)

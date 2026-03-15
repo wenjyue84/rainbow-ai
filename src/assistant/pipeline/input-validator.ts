@@ -22,6 +22,7 @@ import { resetSentimentTracking, analyzeSentiment, trackSentiment, isSentimentAn
 import { trackMessageReceived, trackRateLimited } from '../../lib/activity-tracker.js';
 import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn } from '../opt-out.js';
 import { recordConsent, hasConsent } from '../consent.js';
+import { isMarketingConfirmKeyword, isMarketingRevokeKeyword, confirmMarketingOptIn, revokeMarketingConsent } from '../../lib/marketing-optin.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
@@ -262,6 +263,28 @@ export async function validateAndPrepare(
     // Block messages from opted-out numbers
     if (isOptedOut(phone)) {
       return { continue: false, reason: 'opted_out' };
+    }
+
+    // ─── Marketing double opt-in keyword handler (US-969) ─────────
+    // Process YES/STOP replies for marketing consent — non-blocking.
+    // Runs after global opt-out (STOP already handled above for all-messaging),
+    // but we also record marketing-specific revocation for audit trail.
+    if (isMarketingConfirmKeyword(trimmedText)) {
+      confirmMarketingOptIn(phone, profileId).then(confirmed => {
+        if (confirmed) {
+          ctx.sendMessage(phone,
+            `✅ You're now subscribed to ${profileId === 'makan-moments' ? 'Makan Moments Cafe' : 'Pelangi Capsule Hostel'} marketing updates (promotions, offers, event announcements). Reply STOP at any time to unsubscribe.`,
+            msg.instanceId
+          ).catch(() => {});
+        }
+      }).catch(() => {});
+      // Allow the message to continue through the pipeline (YES may also be a valid reply)
+    }
+
+    if (isMarketingRevokeKeyword(trimmedText)) {
+      // Record marketing-specific revocation for audit trail
+      revokeMarketingConsent(phone, profileId).catch(() => {});
+      // Global opt-out is handled separately above; do not duplicate the reply here
     }
   }
 

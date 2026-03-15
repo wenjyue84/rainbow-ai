@@ -687,3 +687,44 @@ export const vectorAccessLogs = pgTable("vector_access_logs", {
 
 export type VectorAccessLog = typeof vectorAccessLogs.$inferSelect;
 export type InsertVectorAccessLog = typeof vectorAccessLogs.$inferInsert;
+
+// ─── Marketing Subscriptions (US-969) ────────────────────────────────────────
+// Double opt-in consent flow for WhatsApp marketing messages.
+// Meta 2025 policy: opt-in must be documented before any proactive marketing send.
+// Malaysia PDPA 2024: consent must be specific, informed, and revocable.
+//
+// Consent lifecycle:
+//   pending   → opt-in template sent; awaiting keyword reply (48h window)
+//   confirmed → guest replied with confirm keyword (YES)
+//   revoked   → guest replied with revoke keyword (STOP) or admin-revoked
+//   expired   → 48h passed without confirmation; excluded from campaigns
+
+export const marketingSubscriptions = pgTable("marketing_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  /** 'pending' | 'confirmed' | 'revoked' | 'expired' */
+  consentStatus: varchar("consent_status", { length: 16 }).notNull().default('pending'),
+  /** How the contact was added: 'checkin' | 'web_form' | 'admin_add' | 'qr_code' */
+  channel: varchar("channel", { length: 32 }).notNull().default('admin_add'),
+  /** IP/source identifier where consent was initiated (for PDPA audit) */
+  collectedVia: text("collected_via"),
+  /** When the opt-in confirmation template was sent */
+  optInSentAt: timestamp("opt_in_sent_at"),
+  /** When consent was confirmed (keyword reply received) */
+  confirmedAt: timestamp("confirmed_at"),
+  /** When consent was revoked (STOP or admin action) */
+  revokedAt: timestamp("revoked_at"),
+  /** 48h deadline — if no confirmation by this time, status → expired */
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_marketing_sub_phone_profile").on(table.phone, table.profileId),
+  index("idx_marketing_sub_status").on(table.consentStatus),
+  index("idx_marketing_sub_expires_at").on(table.expiresAt),
+  index("idx_marketing_sub_profile_status").on(table.profileId, table.consentStatus),
+]));
+
+export type MarketingSubscription = typeof marketingSubscriptions.$inferSelect;
+export type InsertMarketingSubscription = typeof marketingSubscriptions.$inferInsert;

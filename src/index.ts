@@ -72,6 +72,7 @@ import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webho
 import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
 import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
+import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -234,6 +235,9 @@ setInterval(() => {
 
 // US-907: PDPA breach detection scheduler (every 15 min, scans for anomalous bulk access)
 startBreachDetectionScheduler();
+
+// US-969: Start marketing consent expiry scheduler (every 1h, expires 48h-old pending consents)
+startConsentExpiryScheduler();
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {
