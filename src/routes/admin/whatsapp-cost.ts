@@ -1,9 +1,10 @@
 /**
- * WhatsApp Message Cost Admin API (US-495)
+ * WhatsApp Message Cost Admin API (US-495, US-845)
  *
- * Tracks per-message WhatsApp template costs under July 2025 pricing model.
+ * Tracks WhatsApp template costs. Supports both per-message (July 2025+)
+ * and legacy per-conversation pricing models via billing.pricingModel setting.
  *
- * GET  /analytics/whatsapp-cost          — cost summary (daily, by type, top countries)
+ * GET  /analytics/whatsapp-cost          — cost summary with both model estimates
  * GET  /analytics/whatsapp-cost/daily    — detailed daily breakdown
  * GET  /analytics/whatsapp-cost/rate-table — current rate table
  * PUT  /analytics/whatsapp-cost/rate-table — update rate table
@@ -18,6 +19,9 @@ import {
   queryWhatsappCostSummary,
   queryWhatsappDailyCosts,
 } from '../../lib/whatsapp-cost.js';
+import type { PricingModel } from '../../lib/whatsapp-cost.js';
+import { configStore } from '../../assistant/config-store.js';
+import { profileRegistry } from '../../assistant/profile-registry.js';
 
 const router = Router();
 
@@ -37,9 +41,31 @@ router.get('/analytics/whatsapp-cost', async (req: Request, res: Response) => {
 
     const summary = await queryWhatsappCostSummary({ profileId, days });
 
+    // Resolve active pricing model from profile or default settings
+    let activePricingModel: PricingModel = 'per_message';
+    try {
+      if (profileId) {
+        const profile = profileRegistry.getProfile(profileId);
+        const settings = profile?.configStore?.getSettings() as any;
+        activePricingModel = settings?.billing?.pricingModel || 'per_message';
+      } else {
+        const settings = configStore.getSettings() as any;
+        activePricingModel = settings?.billing?.pricingModel || 'per_message';
+      }
+    } catch { /* default to per_message */ }
+
     ok(res, {
       ...summary,
       queryDays: days,
+      activePricingModel,
+      pricingComparison: {
+        perMessageCostUsd: summary.totalEstimatedCostUsd,
+        perConversationCostUsd: summary.conversationEstimateUsd,
+        activeModel: activePricingModel,
+        savingsVsConversation: activePricingModel === 'per_message'
+          ? Number((summary.conversationEstimateUsd - summary.totalEstimatedCostUsd).toFixed(4))
+          : Number((summary.totalEstimatedCostUsd - summary.conversationEstimateUsd).toFixed(4)),
+      },
     });
   } catch (err: any) {
     console.error('[WACost] Summary query failed:', err.message);

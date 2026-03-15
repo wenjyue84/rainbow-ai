@@ -8368,3 +8368,23 @@ Completed: Handle BSUID in inbound webhooks and route conversations by BSUID (ID
 
 ### Gotchas
 - The story was already fully implemented but not marked as `passes: true` — verification-only iteration
+## Iteration 1 - Sun, Mar 15, 2026  5:28:47 PM
+Incomplete: Prompt injection input sanitisation layer in message processing pipeline (ID: US-927) — attempt 1/3
+
+
+
+## Iteration 4 - Sun, Mar 15, 2026 - Story: US-845 Update WhatsApp cost tracker for per-message pricing model (July 2025)
+### What was implemented
+- **`billing.pricingModel` toggle** in `settings.json` (+ data-southern, data-makan): Added `billing: { pricingModel: "per_message" }` with per-profile support via ConfigStore
+- **Per-conversation rate table** (`whatsapp-cost.ts`): Added `DEFAULT_CONVERSATION_RATE_TABLE` with legacy rates for MY, SG, ID, and `estimateConversationCost()` that approximates conversation count (ceil(billableMessages / 3))
+- **API pricing comparison** (`routes/admin/whatsapp-cost.ts`): GET `/analytics/whatsapp-cost` now returns `activePricingModel` and `pricingComparison` object with both model costs and savings delta
+- **10 new unit tests** (`whatsapp-cost.test.ts`): 6 tests for per-conversation estimation + 4 tests for pricing model comparison (total: 28 tests)
+
+### Patterns discovered
+- SPIRAL worker-1 had a complete implementation ready — all changes were validated against worker-1 diff and adapted cleanly
+- `configStore.getSettings()` returns the merged settings (JSON + DB), so `billing.pricingModel` is accessible from any profile's ConfigStore
+- `profileRegistry.getProfile(id)?.configStore` pattern enables per-profile pricing model selection
+
+### Gotchas
+- The conversation cost estimation uses a simplistic 3-messages-per-conversation heuristic — this overestimates for high-volume messaging but is accurate enough for dashboard comparison
+- Conversation rate table rates differ from per-message rates for some countries (e.g., SG marketing: $0.0858/conv vs $0.0516/msg)

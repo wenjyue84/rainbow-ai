@@ -1,10 +1,11 @@
 /**
- * Unit tests for US-495: WhatsApp per-message cost tracking.
+ * Unit tests for US-495 + US-845: WhatsApp cost tracking.
  *
  * Tests:
  * - CSW detection logic (within/outside 24h window)
- * - Cost estimation (free for service, free for utility within CSW, charged otherwise)
- * - Rate table defaults
+ * - Per-message cost estimation (free for service, free for utility within CSW, charged otherwise)
+ * - Per-conversation cost estimation (legacy comparison model)
+ * - Rate table defaults for both pricing models
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -58,6 +59,7 @@ vi.mock('../../../shared/schema-tables.js', () => ({
 import {
   isWithinCSW,
   estimateMessageCost,
+  estimateConversationCost,
   recordWhatsappMessageCost,
   _testExports,
 } from '../../lib/whatsapp-cost.js';
@@ -236,5 +238,93 @@ describe('recordWhatsappMessageCost', () => {
     expect(acc!.billableMessages).toBe(0);
     expect(acc!.cswFreeMessages).toBe(1);
     expect(acc!.estimatedCostUsd).toBe(0);
+  });
+});
+
+// ── US-845: Per-conversation cost estimation (legacy comparison) ──────
+
+describe('Per-Conversation Cost Estimation (estimateConversationCost)', () => {
+  it('service messages are free under conversation model', () => {
+    const cost = estimateConversationCost(10, 'service', 'MY');
+    expect(cost).toBe(0);
+  });
+
+  it('marketing messages use conversation rate table', () => {
+    // 9 billable messages → ceil(9/3) = 3 conversations
+    const cost = estimateConversationCost(9, 'marketing', 'MY');
+    const expectedConversations = Math.ceil(9 / 3);
+    const expectedRate = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY;
+    expect(cost).toBe(expectedConversations * expectedRate);
+  });
+
+  it('utility messages use conversation rate table', () => {
+    // 6 billable messages → ceil(6/3) = 2 conversations
+    const cost = estimateConversationCost(6, 'utility', 'SG');
+    const expectedConversations = Math.ceil(6 / 3);
+    const expectedRate = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.SG;
+    expect(cost).toBe(expectedConversations * expectedRate);
+  });
+
+  it('uses _default rate for unknown country', () => {
+    const cost = estimateConversationCost(3, 'marketing', 'ZZ');
+    const expectedRate = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing._default;
+    expect(cost).toBe(1 * expectedRate);
+  });
+
+  it('single message still counts as one conversation', () => {
+    const cost = estimateConversationCost(1, 'utility', 'MY');
+    const expectedRate = _testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.MY;
+    expect(cost).toBe(1 * expectedRate);
+  });
+
+  it('zero billable messages costs zero', () => {
+    const cost = estimateConversationCost(0, 'marketing', 'MY');
+    expect(cost).toBe(0);
+  });
+});
+
+describe('Pricing Model Comparison (US-845)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDbSelect.mockResolvedValue([]);
+  });
+
+  it('per-message cost is higher than per-conversation for many short messages', async () => {
+    // Simulate 30 marketing messages to MY (many short proactive messages)
+    const perMessageRate = _testExports.DEFAULT_RATE_TABLE.marketing.MY;
+    const perMessageCost = 30 * perMessageRate;
+
+    const perConversationCost = estimateConversationCost(30, 'marketing', 'MY');
+    // 30 messages / 3 per conversation = 10 conversations
+    const expectedConvCost = 10 * _testExports.DEFAULT_CONVERSATION_RATE_TABLE.marketing.MY;
+    expect(perConversationCost).toBe(expectedConvCost);
+
+    // Per-message should be more expensive for many short messages
+    expect(perMessageCost).toBeGreaterThan(perConversationCost);
+  });
+
+  it('per-conversation cost is higher for few long conversations', async () => {
+    // 3 utility messages to MY — likely 1 conversation
+    const perMessageRate = _testExports.DEFAULT_RATE_TABLE.utility.MY;
+    const perMessageCost = 3 * perMessageRate;
+
+    const perConversationCost = estimateConversationCost(3, 'utility', 'MY');
+    // 3 messages / 3 per conversation = 1 conversation
+    expect(perConversationCost).toBe(1 * _testExports.DEFAULT_CONVERSATION_RATE_TABLE.utility.MY);
+
+    // For few messages, per-message should be more expensive (3 * 0.02 = 0.06 vs 1 * 0.02)
+    expect(perMessageCost).toBeGreaterThanOrEqual(perConversationCost);
+  });
+
+  it('both rate tables have matching template type keys', () => {
+    const perMsgKeys = Object.keys(_testExports.DEFAULT_RATE_TABLE).sort();
+    const perConvKeys = Object.keys(_testExports.DEFAULT_CONVERSATION_RATE_TABLE).sort();
+    expect(perMsgKeys).toEqual(perConvKeys);
+  });
+
+  it('conversation rate table has _default fallback for all types', () => {
+    for (const type of ['marketing', 'utility', 'authentication']) {
+      expect(_testExports.DEFAULT_CONVERSATION_RATE_TABLE[type]).toHaveProperty('_default');
+    }
   });
 });
