@@ -11,13 +11,14 @@
  */
 
 import type { IPipelineContext } from '../pipeline-context.js';
-import type { PipelineState } from '../types.js';
+import type { PipelineState, FlowContext } from '../types.js';
 import type { ClassificationResult } from './tier-classification.js';
 import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
 import { buildListMessage, listMessageToText } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
 import { fnbGetMenu, fnbGetDailySpecials } from '../../../tools/fnb-menu.js';
+import { flowRegistry } from '../../flows/index.js';
 
 /**
  * Stage 6: Action Dispatch
@@ -58,6 +59,10 @@ export async function dispatchAction(
 
     case 'workflow':
       await handleWorkflow(state, result, context);
+      break;
+
+    case 'flow':
+      await handleStartFlow(state, result, context);
       break;
 
     case 'llm_reply':
@@ -340,6 +345,70 @@ async function handleWorkflow(
 }
 
 /**
+ * US-871: Start Flow handler
+ *
+ * Starts a registered Flow (e.g., checkin_form) via the unified flow system.
+ * Routes must specify "action": "flow" and "flow_type": "<registered_type>".
+ * The flow state is stored on ConversationState.activeFlow for continuation
+ * by state-executor.ts.
+ */
+async function handleStartFlow(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  const { phone, text, lang, msg, convo, diaryEvent } = state;
+
+  context.resetUnknown(phone);
+
+  const routingConfig = context.getRouting();
+  const route = routingConfig[result.intent];
+  const flowType = route?.flow_type;
+
+  if (!flowType) {
+    console.error(`[Dispatch] Intent "${result.intent}" has action=flow but no flow_type`);
+    context.notifyAdminConfigError(
+      `Intent "${result.intent}" configured with action=flow but flow_type is missing.\n\n` +
+      `Fix in routing.json by adding "flow_type": "flow_name"`
+    ).catch(() => {});
+    state.response = context.getTemplate('escalated', lang);
+    return;
+  }
+
+  const flow = flowRegistry.get(flowType);
+  if (!flow) {
+    console.error(`[Dispatch] Flow "${flowType}" referenced but not registered`);
+    context.notifyAdminConfigError(
+      `Intent "${result.intent}" references flow_type "${flowType}" which is not registered.\n\n` +
+      `Available flows: ${flowRegistry.listTypes().join(', ')}`
+    ).catch(() => {});
+    state.response = context.getTemplate('escalated', lang);
+    return;
+  }
+
+  console.log(`[Dispatch] Starting flow: ${flowType} for ${phone}`);
+
+  const flowContext: FlowContext = {
+    language: lang,
+    phone,
+    pushName: msg.pushName,
+    instanceId: msg.instanceId,
+    messages: convo.messages,
+    profileId: state.profileId,
+    profileConfig: state.profileConfig,
+    sendMessage: context.sendMessage,
+  };
+
+  const flowResult = await flow.start(flowContext, text);
+
+  if (flowResult.newState) {
+    context.updateActiveFlow(phone, { flowType, data: flowResult.newState });
+  }
+
+  state.response = flowResult.response;
+}
+
+/**
  * LLM Reply / Default handler
  *
  * Uses the LLM-generated response directly.
@@ -549,7 +618,7 @@ async function handleMenuSpecials(
  */
 function buildFallbackSuggestionResponse(
   settings: any,
-  lang: 'en' | 'ms' | 'zh'
+  lang: 'en' | 'ms' | 'zh' | 'ta'
 ): string | null {
   const suggestions: Array<{ intent: string; label: Record<string, string> }> =
     settings.fallback?.suggestions;
@@ -584,7 +653,7 @@ function buildFallbackSuggestionResponse(
 /**
  * US-430: Get greeting menu items by language for interactive list message.
  */
-function getGreetingMenuItems(lang: 'en' | 'ms' | 'zh') {
+function getGreetingMenuItems(lang: 'en' | 'ms' | 'zh' | 'ta') {
   const menus: Record<string, {
     title: string; description: string; buttonText: string; sectionTitle: string;
     rows: { rowId: string; title: string; description?: string }[];
@@ -631,8 +700,8 @@ function getGreetingMenuItems(lang: 'en' | 'ms' | 'zh') {
 
 function logLanguageResolution(
   context: string,
-  lang: 'en' | 'ms' | 'zh',
-  responseLang: 'en' | 'ms' | 'zh',
+  lang: 'en' | 'ms' | 'zh' | 'ta',
+  responseLang: 'en' | 'ms' | 'zh' | 'ta',
   result: ClassificationResult
 ): void {
   if (responseLang !== lang && result.detectedLanguage !== 'unknown') {

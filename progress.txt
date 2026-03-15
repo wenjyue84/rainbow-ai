@@ -7603,3 +7603,92 @@ Based on the user story, this is a **TypeScript/Node.js** project, not Frappe/Py
 *   **Currency:** Use hardcoded or real-time MYR exchange rates for the provided USD costs.
 *   **Performance:** Ensure that recording message costs does not introduce significant latency into the message sending process.
 
+
+## Pre-analysis for US-845 (Gemini 2.5 Pro)
+Based on the user story JSON, the request pertains to a TypeScript/Node.js project, not Frappe/Python. The file paths (`.ts`) and configuration (`settings.json`) clearly indicate a JavaScript ecosystem.
+
+Here is the technical brief for the described user story:
+
+**Project:** WhatsApp Cost Tracker Update (TypeScript/Node.js)
+
+**1. Files to Modify:**
+*   `src/routes/admin/whatsapp-cost.ts`: Core logic for cost calculation.
+*   `src/assistant/__tests__/whatsapp-cost.test.ts`: Unit tests for the cost logic.
+*   `settings.json` (or the module managing it): To add the new pricing model toggle.
+*   A message sending service file (e.g., `src/lib/whatsapp.ts` or similar): To intercept outbound messages and apply the new cost logic.
+*   An admin dashboard frontend component (likely a React/Vue file): To display the new cost chart and visual indicator.
+
+**2. Key Modules & Configuration:**
+*   **Settings System:** A new profile-level setting, `billing.pricingModel`, must be added to distinguish between `'per_conversation'` and `'per_message'`.
+*   **Cost Calculation Module:** The logic in `whatsapp-cost.ts` will need to be conditional based on the `pricingModel` setting.
+*   **Message Sending Hook:** The logic that sends outbound messages needs to be augmented to determine the message category (marketing, utility) and trigger the cost increment function.
+
+**3. Recommended Implementation Approach:**
+1.  Extend the settings schema to support `billing.pricingModel`.
+2.  In `whatsapp-cost.ts`, implement a new function, `calculatePerMessageCost`, which takes a message object (including its category) and applies the configurable rate.
+3.  Refactor the main cost calculation entry point to act as a dispatcher, calling either the existing conversation-based logic or the new message-based logic depending on the profile's `pricingModel`.
+4.  At the point of sending an outbound message, determine its category ('marketing' for proactive, 'utility' for reactive replies) and call the new cost-incrementing function.
+5.  Update the dashboard's data endpoint to compute and return costs for both models. The UI should then render both, highlighting the active model.
+6.  In `whatsapp-cost.test.ts`, add new test suites for the `per_message` model using various message sequences and categories.
+
+**4. Edge Cases & Gotchas:**
+*   **Default Behavior:** Profiles missing the new `pricingModel` setting should default to the existing `'per_conversation'` model for backward compatibility.
+*   **Rate Configuration:** Per-message rates (marketing, utility, etc.) should be stored in a configuration file, not hardcoded, to facilitate future adjustments (e.g., using MYR rates).
+*   **Message Categorization:** The logic to determine if a message is 'marketing' vs. 'utility' is critical and must be robust. A simple proactive/reactive check is a starting point but may need refinement.
+*   **UI Clarity:** The admin dashboard must make it obvious which pricing model is active and clearly label the cost estimates to prevent misinterpretation.
+
+## Iteration 1 - Sun, Mar 15, 2026  8:55:40 AM
+Incomplete: Update WhatsApp cost tracker for per-message pricing model (July 2025) (ID: US-845) — attempt 1/3
+
+
+## Pre-analysis for US-845 (Gemini 2.5 Pro)
+This technical brief is for a Node.js/TypeScript project, based on the user story's content.
+
+**Subject: Technical Brief for US-845: WhatsApp Per-Message Cost Tracking**
+
+**1. Primary Files for Modification:**
+*   `src/routes/admin/whatsapp-cost.ts`: Core existing logic for cost calculation and the API endpoint for the admin dashboard.
+*   `src/assistant/assistant.ts` (or equivalent message sending service): To intercept outbound messages, determine their category, and apply the correct cost.
+*   `src/lib/profiles.ts` (or equivalent config loader): To read the new `billing.pricingModel` setting.
+*   `profiles.json`: The configuration file to be updated with the new per-profile setting.
+*   `src/assistant/__tests__/whatsapp-cost.test.ts`: To add unit tests for the new pricing model.
+
+**2. Involved Entities & Data Structures:**
+*   **Config (`profiles.json`):** Introduce a `billing: { pricingModel: 'per_message' }` field for each profile.
+*   **Cost Data Structure:** The data model used for cost tracking needs to be augmented to include `perMessage: { marketing: number, utility: number, authentication: number }`.
+
+**3. Recommended Implementation Approach:**
+1.  Extend the profile configuration to include the `billing.pricingModel` toggle.
+2.  In the primary message sending function, add a step to determine the message category ('marketing' for proactive, 'utility' for reactive replies).
+3.  Based on the active `pricingModel`, increment either the existing conversation counter or the new per-message cost counter using configurable MYR rates.
+4.  Update the API endpoint in `whatsapp-cost.ts` to return calculated costs for both models, plus a flag indicating the active model.
+5.  Write unit tests in `whatsapp-cost.test.ts` simulating message sequences to verify calculations for both pricing models.
+
+**4. Edge Cases & Gotchas:**
+*   **Message Categorization:** The logic to differentiate 'marketing' vs. 'utility' messages is critical. A simple heuristic is to check if the outbound message is a reply to a recent inbound message. This may need refinement.
+*   **Concurrency:** Ensure that concurrent message sends do not cause race conditions when updating cost counters.
+*   **Backwards Compatibility:** The system must default gracefully to the 'per_conversation' model if the new config flag is absent.
+
+
+## Iteration 2 - Sat, Mar 15, 2026 - Story: US-871 WhatsApp Flows: in-chat check-in form
+### What was implemented
+- Created `src/assistant/flows/checkin-form-flow.ts`: Text-based structured check-in form (Baileys fallback for WhatsApp Flows)
+- Collects 5 fields: full name, IC/passport, arrival time, bed preference, emergency contact
+- Supports confirmation step with restart option, cancel at any step, admin notification
+- Multi-language: EN, MS, ZH
+- Added generic `flow` action type to action-dispatch.ts for starting registered flows
+- Added `updateActiveFlow` to IPipelineContext interface
+- Registered checkin_form flow in flows/index.ts
+- Updated routing.json: `check_in_arrival` → `flow` / `checkin_form` (replaces old `workflow` / `checkin_full`)
+
+### Patterns discovered
+- The Flow interface (`start()` / `executeStep()` / `isComplete()`) is the modern pattern for multi-step forms
+- Flows register via FlowRegistry singleton and auto-continue via state-executor.ts
+- New `flow` action type in routing.json enables config-driven flow launching (vs code-driven `start_booking`)
+- Profile isolation is automatic: routing.json is per-profile, so Makan Moments won't see checkin_form
+- Chinese smart quotes inside JS strings break esbuild — use plain text or escaped quotes
+
+### Gotchas
+- esbuild chokes on Chinese quotation marks ("...") inside double-quoted JS strings — use single quotes or avoid
+- IPipelineContext needed `updateActiveFlow` added (was missing from the DI container)
+- `updateActiveFlow` signature: `(phone, FlowState | null, profileId?)` — profileId is optional

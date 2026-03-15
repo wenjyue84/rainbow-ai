@@ -8,11 +8,13 @@ import { flowRegistry } from './registry.js';
 import { bookingFlow } from './booking-flow.js';
 import { workflowFlow } from './workflow-flow.js';
 import { surveyFlow } from './survey-flow.js';
+import { checkinFormFlow } from './checkin-form-flow.js';
 
 export function initFlows(): void {
   flowRegistry.register(bookingFlow);
   flowRegistry.register(workflowFlow);
   flowRegistry.register(surveyFlow);
+  flowRegistry.register(checkinFormFlow);
   console.log(`[Flows] Initialized ${flowRegistry.listTypes().length} flow(s): ${flowRegistry.listTypes().join(', ')}`);
 }
 

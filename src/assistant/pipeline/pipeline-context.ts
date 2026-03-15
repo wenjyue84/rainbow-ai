@@ -10,7 +10,7 @@
  * - Reduced coupling
  */
 
-import type { RouterContext } from './types.js';
+import type { RouterContext, FlowState } from './types.js';
 import type { ConversationState, ChatMessage, BookingState, IntentResult, EscalationReason } from '../types.js';
 import type { WorkflowState, WorkflowContext } from '../workflow-executor.js';
 
@@ -32,9 +32,9 @@ export interface IPipelineContext {
   guessTopicFiles: (text: string) => string[];
   buildSystemPrompt: (basePersona: string, topicFiles: string[]) => string;
   getTimeContext: () => string;
-  getStaticReply: (intent: string, lang: 'en' | 'ms' | 'zh') => string | null;
+  getStaticReply: (intent: string, lang: 'en' | 'ms' | 'zh' | 'ta') => string | null;
   getStaticReplyImageUrl: (intent: string) => string | null;
-  getTemplate: (key: string, lang: 'en' | 'ms' | 'zh') => string;
+  getTemplate: (key: string, lang: 'en' | 'ms' | 'zh' | 'ta') => string;
 
   // ─── Conversation Management ──────────────────────────────────────
 
@@ -42,6 +42,7 @@ export interface IPipelineContext {
   addMessage: (phone: string, role: 'user' | 'assistant', content: string) => void;
   updateBookingState: (phone: string, state: BookingState | null) => void;
   updateWorkflowState: (phone: string, state: WorkflowState | null) => void;
+  updateActiveFlow: (phone: string, flow: FlowState | null) => void;
   incrementUnknown: (phone: string) => number;
   resetUnknown: (phone: string) => void;
   updateLastIntent: (phone: string, intent: string, confidence: number) => void;
@@ -68,7 +69,7 @@ export interface IPipelineContext {
   // ─── Detection & Analysis ─────────────────────────────────────────
 
   detectMessageType: (text: string) => string;
-  detectLanguage: (text: string) => 'en' | 'ms' | 'zh';
+  detectLanguage: (text: string) => 'en' | 'ms' | 'zh' | 'ta';
 
   // ─── Workflows & Booking ──────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export async function createPipelineContext(
   const { getStaticReply, getStaticReplyImageUrl } = await import('../knowledge.js');
   const { getTemplate, detectLanguage } = await import('../formatter.js');
   const {
-    getOrCreate, addMessage, updateBookingState, updateWorkflowState,
+    getOrCreate, addMessage, updateBookingState, updateWorkflowState, updateActiveFlow,
     incrementUnknown, resetUnknown, updateLastIntent, checkRepeatIntent
   } = await import('../conversation.js');
   const { applyConversationSummarization } = await import('../conversation-summarizer.js');
@@ -173,6 +174,7 @@ export async function createPipelineContext(
     addMessage,
     updateBookingState,
     updateWorkflowState,
+    updateActiveFlow,
     incrementUnknown,
     resetUnknown,
     updateLastIntent,
