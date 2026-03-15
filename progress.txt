@@ -10328,3 +10328,27 @@ Incomplete: Real-time out-of-stock sync between chatbot and POS inventory (ID: U
 ### Gotchas
 - The outbound rate limiter (`rate-limiter.ts`) normalises with `phone.replace(/\D/g, '')` which would produce an empty string for BSUID-only keys — using `conversationKey()` upstream fixes this
 - `isStaffPhone()` still uses raw `phone` which is correct — staff phones are always E.164
+## Iteration 1 - Mon, Mar 16, 2026 12:23:47 AM
+Completed: Migrate contact keys to BSUID ahead of WhatsApp June 2026 deadline (ID: US-990) in 15m
+
+
+## Iteration N - Story: US-1011 Manglish normalisation pre-processor
+
+### What was implemented
+- `src/assistant/data/manglish-map.json` — 100+ token map (abbreviations + particles)
+- `src/assistant/manglish-normalizer.ts` — normalizeManglish(), upsertToken(), deleteToken(), saveManglishMap(), reloadManglishMap(), getManglishMap()
+- Injected `normalizeManglish(state.processText)` into `src/assistant/pipeline/intent-classifier.ts` before classifyWithTiers (before T2 fuzzy-match and LLM)
+- `src/routes/admin/manglish.ts` — admin CRUD API (GET/PUT/POST/DELETE /manglish/tokens/:token)
+- Registered route in `src/routes/admin/index.ts`
+- `src/assistant/__tests__/manglish-normalizer.test.ts` — 35 passing tests; 71.4% keyword accuracy improvement on 20-message test set (requirement: ≥15%)
+
+### Patterns discovered
+- Pipeline injection point: `intent-classifier.ts` line 28 — state.processText is the variable to normalise before classifyWithTiers
+- Admin route pattern: import in admin/index.ts + router.use() at bottom of mount block
+- Config data dir for standalone JSON files: `process.cwd()/src/assistant/data/`
+- Particle stripping (empty string replacement) naturally collapses with space normalisation
+
+### Gotchas
+- Word-boundary check must guard both prev and next char — otherwise "u" inside "unit" expands to "you nit"
+- Longest-key-first sort is critical for multi-word tokens like "brp harga" to match before "brp"
+- processText is a const destructure from state — must re-read from state.processText to allow normalised override

@@ -21,11 +21,22 @@ import { applyLayer2Fallback } from './stages/layer2-fallback.js';
 import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
+import { normalizeManglish } from '../manglish-normalizer.js';
 
 export async function classifyAndRoute(
   state: PipelineState, ctx: RouterContext
 ): Promise<void> {
-  const { phone, processText, convo, lang, msg, devMetadata } = state;
+  const { phone, convo, lang, msg, devMetadata } = state;
+
+  // ─── US-1011: Manglish normalisation pre-processor ───────────────
+  // Runs before T2 fuzzy-match and LLM intent classification.
+  // Expands abbreviations (brp→berapa, nk→nak) and strips discourse
+  // particles (la, lah, lor) so downstream classifiers see cleaner text.
+  const rawText = state.processText;
+  const processText = normalizeManglish(rawText);
+  if (processText !== rawText) {
+    console.log(`[ManglishNorm] "${rawText}" → "${processText}"`);
+  }
 
   const context = await createPipelineContext(ctx, state.profileConfig, state.profileKB);
 
