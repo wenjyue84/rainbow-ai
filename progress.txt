@@ -8261,3 +8261,24 @@ Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV
 - menu-items.ts and data-retention.ts write directly to `rainbow_config_audit` without before/after — they'll have NULL for those columns which is fine
 - The `api()` helper in the frontend prepends `/api/rainbow` to all paths, so audit endpoint is called as `/metrics/config-audit`
 
+
+
+## Iteration - Story: US-885 WhatsApp product catalog single-item card for item detail showcase
+### What was implemented
+- **Product card builders** (`formatter.ts`): Added `ProductCardItem` interface, `buildProductCardText()` (multilingual WhatsApp markdown), `buildProductCardButtons()` (Baileys interactive buttons with "Add to cart" + "View full menu"), `productCardToText()` (plain text fallback with hints)
+- **MENU_ITEM_DETAIL intent routing**: Added intent to `data-makan/routing.json`, regex patterns in `data-makan/intents.json`, T2 fuzzy keywords in `data-makan/intent-keywords.json`
+- **handleMenuItemDetail handler** (`action-dispatch.ts`): Extracts item name from message (strips question prefixes in EN/MS/ZH), fuzzy matches against menu items, shows product card for single match or disambiguation list for multiple matches. Fetches rich details via FnB MCP tool for description/allergens/dietary flags.
+- **Button press handling** (`state-executor.ts`): Intercepts `add_to_cart:CODE` button presses, looks up item by code or fuzzy match, adds to cart via `cartAddItem`, transitions order stage to ORDERING, sends multilingual confirmation with cart summary. Also handles `view_menu` button by rewriting to "show me the menu" for normal pipeline processing.
+- **Interactive message response extraction** (`instance.ts`): Added extraction of `buttonsResponseMessage.selectedDisplayText/selectedButtonId` and `listResponseMessage.title/singleSelectReply.selectedRowId` so button taps flow into the text pipeline.
+- **Catalog sync config** (`data-makan/settings.json`): Added `productCatalog` config section with `catalogSource`, `whatsappCatalogId`, `syncMode` fields for future WhatsApp Business API integration. Currently uses `menu_items_store` (Baileys image+button fallback).
+- **34 tests** covering: product card text formatting (EN/MS/ZH), button payload structure, button IDs (code vs name), text fallback with hints, item name extraction from various prefixes, item detail parsing from MCP responses, add_to_cart/view_menu button ID regex patterns
+
+### Patterns discovered
+- esbuild fails on Chinese fullwidth quotation marks (U+201C/U+201D) inside regular double-quoted strings — must use `\u201C`/`\u201D` Unicode escapes or single-quoted strings
+- SPIRAL worker directories (`.spiral-workers/worker-1/`, `worker-2/`) contain modified copies of source files that can mislead reads — always verify actual file on disk
+- `fetchMenuItems()` returns `DisambiguationCandidate[]` from the FnB MCP service, compatible with `findMenuItemMatches()` fuzzy matcher
+
+### Gotchas
+- Baileys does NOT support WhatsApp Business API "Single Product Message" (catalog integration) — the product card uses interactive buttons message as a fallback
+- Button press responses come as `buttonsResponseMessage.selectedDisplayText` (human-readable) or `selectedButtonId` (structured) — state-executor intercepts the structured `add_to_cart:CODE` format
+- The `view_menu` button rewrite approach (changing `state.text` to "show me the menu") allows the normal classification pipeline to handle it without special-casing

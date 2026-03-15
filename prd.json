@@ -2273,7 +2273,7 @@
         "Menu data source"
       ],
       "estimatedComplexity": "large",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_research_output.json",
@@ -3395,6 +3395,372 @@
         "WCAG 3.2.6 is Level A Ã¢â‚¬â€� baseline mandatory, not optional AAA",
         "Consistent Help applies when the mechanism is repeated across multiple pages/views Ã¢â‚¬â€� single-view widgets are unaffected",
         "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-926",
+      "title": "Handle BSUID in inbound webhooks and route conversations by BSUID",
+      "priority": "critical",
+      "description": "Meta will begin rolling out WhatsApp usernames starting June 2026, introducing a Business-Scoped User ID (BSUID) as the primary conversation identifier in webhook payloads. All systems that currently key conversations exclusively by phone number (JID) must also accept and index BSUID so that conversations continue to be routed correctly once a user enables a username and phone numbers become optional. The June 2026 deadline is mandatory for all API integrations.",
+      "acceptanceCriteria": [
+        "Inbound message webhook parser extracts user_id (BSUID) when present alongside or instead of wa_id (phone)",
+        "Conversation lookup accepts either JID/phone or BSUID as a routing key, with a BSUID-to-JID mapping table as a bridge",
+        "Existing conversations opened before BSUID rollout are linked to the BSUID when the first subsequent message arrives",
+        "Outbound replies use the identifier format (phone or username) that the platform returns, not a hardcoded phone assumption",
+        "Integration test simulates a BSUID-only inbound message and verifies response is delivered correctly"
+      ],
+      "technicalNotes": [
+        "Twilio changelog: https://www.twilio.com/en-us/changelog/whatsapp-usernames--new-business-scoped-user-id--bsuid--field-re",
+        "BSUID is unique per WABA (WhatsApp Business Account); the same end-user gets a different BSUID per business",
+        "Add bsuid column (nullable) to rainbow_conversations and create unique index on (waba_id, bsuid)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-927",
+      "title": "Prompt injection input sanitisation layer in message processing pipeline",
+      "priority": "critical",
+      "description": "OWASP LLM01:2025 ranks prompt injection as the top LLM vulnerability. Inbound WhatsApp and webchat messages can contain adversarial instructions designed to override the AI's system prompt, exfiltrate data, or cause unintended tool calls. A dedicated sanitisation layer before the LLM call must detect and neutralise these patterns without blocking legitimate messages.",
+      "acceptanceCriteria": [
+        "A prompt injection detector runs on every inbound message before it reaches the LLM provider; it uses regex and keyword patterns against OWASP LLM01 taxonomy",
+        "Detected injections are logged with the raw message, pattern matched, and JID, then replaced with a sanitised version or routed to human handoff",
+        "System prompt is never returned verbatim in any AI response; automated tests verify this with adversarial prompts",
+        "False-positive rate is below 1% on a corpus of 500 real historical messages",
+        "Admin dashboard shows an Injection Attempts panel with count and trend over 7 days"
+      ],
+      "technicalNotes": [
+        "OWASP LLM Prompt Injection Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html",
+        "Add as an Express-style middleware stage in src/assistant/pipeline/",
+        "3-layer approach: input sanitisation + output validation + access control"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-928",
+      "title": "Ingest pricing_analytics webhook field for per-message cost attribution",
+      "priority": "high",
+      "description": "Since July 1 2025, Meta delivers a pricing_analytics field in outbound message status webhooks containing per-message cost, category, and volume-tier data. Parsing and persisting this field enables accurate spend tracking under the new per-message pricing model, which replaced the previous 24-hour conversation billing. Without this, the existing cost tracker records only approximate costs using the old model.",
+      "acceptanceCriteria": [
+        "Webhook status handler parses pricing_analytics.billable_status, pricing_analytics.pricing_model, and pricing_analytics.category from every delivered/read status event",
+        "Parsed cost data is written to a message_costs table keyed by wamid (WhatsApp message ID)",
+        "Admin dashboard cost tracker displays cost broken down by message category (marketing / utility / authentication / service) per day",
+        "A unit test asserts the parser handles missing pricing_analytics gracefully (pre-July 2025 events)"
+      ],
+      "technicalNotes": [
+        "Meta pricing_analytics field reference: https://developers.facebook.com/docs/whatsapp/pricing/updates-to-pricing/",
+        "The field appears only on status webhooks with status=delivered or status=read for template messages",
+        "Drizzle schema: add message_costs table with columns wamid, category, pricing_model, billable, cost_usd, received_at"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-929",
+      "title": "Implement portfolio pacing feedback monitor and pause/resume send queue",
+      "priority": "high",
+      "description": "Starting Q2 2026, Meta enforces portfolio-level pacing for campaign sends: large batches are released incrementally and paused if quality feedback (blocks, reports) exceeds thresholds. Without a pacing-aware send queue, a bulk broadcast that triggers pacing will silently fail to deliver remaining messages. The system needs to detect pacing-related error codes and automatically retry after the pacing window.",
+      "acceptanceCriteria": [
+        "Outbound message sender detects error code 131056 (message send failed due to pacing) and queues the message for retry with exponential backoff",
+        "Bulk broadcast jobs record pacing_paused_at timestamp and resume after a minimum of 60 seconds",
+        "Admin dashboard shows a pacing health indicator per WABA (green / yellow=paced / red=blocked)",
+        "An alert fires to admin when more than 5% of a batch is paced within a 10-minute window"
+      ],
+      "technicalNotes": [
+        "Portfolio pacing reference: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/",
+        "Meta error code 131056 indicates temporary send rate reduction; back off and retry",
+        "Implement as a Bull/BullMQ queue with exponential retry; store pacing events in a new broadcast_pacing_events table"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-930",
+      "title": "System prompt leakage guard: detect and block system prompt disclosure in LLM responses",
+      "priority": "high",
+      "description": "OWASP LLM07:2025 (System Prompt Leakage) identifies the risk that an LLM may echo back its system prompt, internal instructions, or API keys embedded in the prompt when manipulated by adversarial input. A post-generation output validator must detect potential leakage signatures and block or redact those responses before they reach the end user.",
+      "acceptanceCriteria": [
+        "An output validator scans every LLM response for known system prompt fragments (first 50 chars of each prompt section) before delivery",
+        "Responses containing API key patterns (regex: [A-Za-z0-9]{20,}) or prompt header markers (e.g., '### SYSTEM', 'You are Rainbow') are quarantined",
+        "Quarantined responses trigger an admin alert and are replaced with a fallback message; the incident is logged with full response text",
+        "Unit tests cover at least 10 adversarial prompts from OWASP LLM07 example taxonomy"
+      ],
+      "technicalNotes": [
+        "OWASP LLM07:2025 reference: https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/",
+        "Do not store sensitive credentials (API keys) directly in system prompts; use environment variable injection at runtime",
+        "Implement as a post-processing stage after the LLM call in the provider wrapper"
+      ],
+      "dependencies": [
+        "Prompt injection input sanitisation layer in message processing pipeline"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-931",
+      "title": "Malaysia PDPA cross-border data transfer compliance: Transfer Impact Assessment record",
+      "priority": "high",
+      "description": "Malaysia's Cross-Border Personal Data Transfer Guidelines came into force on 29 April 2025 under the amended PDPA. Any transfer of Malaysian user personal data to overseas processors (Neon/AWS in the US, NVIDIA/OpenRouter AI providers) requires a documented Transfer Impact Assessment (TIA) valid for up to 3 years, plus a record of the transfer purpose, data type, and destination country. Non-compliance carries fines up to RM 1,000,000.",
+      "acceptanceCriteria": [
+        "A data_transfer_records table is created in the database to log each third-party integration (provider name, country, data categories transferred, purpose, TIA expiry date)",
+        "An admin UI page under Settings > PDPA Compliance displays all transfer records and flags any TIA expiring within 90 days",
+        "System startup warns in logs if any transfer record's TIA has expired",
+        "At least one TIA record exists per AI provider endpoint (NVIDIA, OpenRouter) and per database host (Neon) with a documented adequacy justification"
+      ],
+      "technicalNotes": [
+        "CBPDT Guidelines reference: https://www.pdp.gov.my/ppdpv1/wp-content/uploads/2025/08/GP_CBPDT_EN-1.pdf",
+        "Mayer Brown analysis: https://www.mayerbrown.com/en/insights/publications/2025/07/from-legislative-reform-to-practical-guidance-key-amendments-to-malaysias-pdpa-and-the-launch-of-cross-border-transfer-guidelines",
+        "Record fields: id, processor_name, country_iso2, data_categories (JSON), purpose, legal_basis, tia_date, tia_expiry, created_by, notes"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-932",
+      "title": "Malaysia PDPA Security Principle: automated security controls audit log for data processors",
+      "priority": "high",
+      "description": "The PDPA Amendment Act 2024 (Phase 1, effective 1 January 2025) directly obligates data processors to comply with the Security Principle (Section 9), requiring documented evidence of technical and organisational security measures. An automated compliance audit log that records key security events (access grants, config changes, failed auth) satisfies the 'practical steps' evidentiary requirement.",
+      "acceptanceCriteria": [
+        "All admin API authentication events (login, logout, failed attempt) are written to a security_audit_log table with timestamp, actor, IP, and outcome",
+        "All changes to app_settings, intent_configs, and routing.json via admin API are logged with before/after values in the rainbow_config_audit table",
+        "A monthly PDPA Security Report can be exported from the admin dashboard as a CSV covering: access events, config changes, data breach incidents",
+        "The security_audit_log is retained for a minimum of 3 years and is immutable (append-only, no DELETE endpoint)"
+      ],
+      "technicalNotes": [
+        "PDPA Amendment Act 2024 Section 9 Security Principle: https://rajadarrylloh.com/the-personal-data-protection-amendment-act-2024-and-guidelines-on-the-appointment-of-data-protection-officer-and-data-breach-notification/",
+        "Penalties: up to RM 1,000,000 and/or 3 years imprisonment for non-compliance",
+        "TSL Legal Malaysia PDPA summary: https://tsl-legal.com/navigating-the-malaysian-personal-data-protection-amendment-act-2024"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-933",
+      "title": "WhatsApp Flows: in-chat F&B order form with item selection and quantity picker",
+      "priority": "high",
+      "description": "WhatsApp Flows support multi-screen form experiences with quantity selectors, checkboxes, and dropdowns natively inside the chat. Building an order form as a WhatsApp Flow provides a significantly better UX than conversational back-and-forth ordering, reduces miscommunication, and delivers structured JSON order data via the flow completion webhook for direct POS submission.",
+      "acceptanceCriteria": [
+        "A WhatsApp Flow definition is created covering: screen 1 - menu category selection; screen 2 - item selection with quantity picker; screen 3 - special instructions text input; screen 4 - order summary with confirm button",
+        "On flow completion, the flow_response webhook is processed and parsed into the same order object structure used by the conversational order flow",
+        "The flow is triggerable from the main menu reply button 'Order Food' in WhatsApp",
+        "Flow endpoint (data exchange mode) responds within 3 seconds to avoid WhatsApp timeout",
+        "The flow gracefully handles abandonment (no completion webhook) by sending a follow-up message after 10 minutes"
+      ],
+      "technicalNotes": [
+        "Meta Cloud API interactive flow messages: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-flow-messages/",
+        "WhatsApp Flows complete guide: https://sanoflow.io/en/collection/whatsapp-business-api/whatsapp-flows-complete-guide/",
+        "This story covers F&B ordering via Flows; the existing 'WhatsApp Flows: in-chat check-in form for hostel guests' story covers the hostel use case"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-934",
+      "title": "LLM output insecure handling guard: sanitise Markdown and HTML before webchat render",
+      "priority": "high",
+      "description": "OWASP LLM05:2025 (Improper Output Handling) warns that LLM responses rendered without sanitisation can cause XSS or Markdown injection in downstream consumers. The existing bug fix for raw JSON display addresses JSON-format leakage, but does not cover adversarially generated Markdown or HTML tags that could execute JavaScript in the webchat widget's innerHTML renderer.",
+      "acceptanceCriteria": [
+        "All LLM response text passed to the webchat frontend is HTML-entity encoded or sanitised through DOMPurify before insertion into the DOM",
+        "Markdown rendering in the webchat widget uses a safe parser (e.g., marked.js with sanitize:true or rehype-sanitize) that strips script/iframe/object tags",
+        "A test case injects '<script>alert(1)</script>' as an LLM response and asserts it is not executed in the browser",
+        "No innerHTML assignments exist in the webchat widget that receive unsanitised LLM text"
+      ],
+      "technicalNotes": [
+        "OWASP LLM05:2025 Improper Output Handling: https://genai.owasp.org/llmrisk/llm02-insecure-output-handling/",
+        "Use DOMPurify (npm: dompurify) for client-side sanitisation; apply on the WebSocket/SSE message handler",
+        "Server-side: strip or escape HTML entities before sending via SSE stream using he or entities npm packages"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-935",
+      "title": "WCAG 2.2 SC 2.4.11: ensure webchat focused elements are not fully obscured by page-level overlays",
+      "priority": "medium",
+      "description": "WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum), Level AA, requires that no interactive element is completely hidden by sticky or overlay content when it receives keyboard focus. The webchat widget's sticky launcher and message input area may violate this when the host page has overlapping UI elements such as cookie banners or navigation bars.",
+      "acceptanceCriteria": [
+        "Tab through every interactive element in the webchat widget with a sticky page header present; no focused element is fully hidden behind any overlapping content",
+        "Automated axe-core scan reports zero violations for WCAG 2.4.11 on the webchat widget page",
+        "The chat message input, send button, quick-reply chips, and close button are each individually tested for focus visibility",
+        "CSS scroll-padding-top or padding-bottom is applied to the widget scroll container to compensate for any sticky headers"
+      ],
+      "technicalNotes": [
+        "W3C WCAG 2.4.11 understanding document: https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum",
+        "This targets full-page overlap with host page headers/banners; the existing 'prevent focused elements from being obscured by sticky webchat header' story covers the in-widget sticky header case",
+        "Use CSS scroll-margin or dialog/inert for modal overlay handling"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-936",
+      "title": "WCAG 2.2 SC 2.4.13: implement minimum focus appearance in webchat widget (2px perimeter, 3:1 contrast)",
+      "priority": "medium",
+      "description": "WCAG 2.2 SC 2.4.13 Focus Appearance, Level AA, mandates that keyboard focus indicators have a minimum area equal to a 2 CSS-pixel-thick perimeter around the focused component and a contrast ratio of at least 3:1 between focused and unfocused states. The current webchat widget uses browser default outlines that may fail in some themes and are often suppressed by global CSS resets.",
+      "acceptanceCriteria": [
+        "Every interactive element in the webchat widget (buttons, inputs, links, quick replies) has a custom focus indicator with a visible outline of at least 2px",
+        "Contrast ratio between focused and unfocused state is measured to be >= 3:1 using a contrast analyser",
+        "CSS reset rules (outline: none or outline: 0) are removed from widget styles; any remaining outline suppressions are replaced with a compliant custom style",
+        "Focus indicator passes automated checks in both the default light theme and the dark mode theme"
+      ],
+      "technicalNotes": [
+        "W3C WCAG 2.4.13 understanding document: https://www.w3.org/WAI/WCAG22/Understanding/focus-appearance.html",
+        "Minimum area formula: perimeter = 2 * (width + height) * 2px CSS pixels",
+        "Use box-shadow or outline for implementation; Sara Soueidan's focus indicator design guide: https://www.sarasoueidan.com/blog/focus-indicators/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-937",
+      "title": "WCAG 2.2 SC 3.3.8: webchat authentication must not require cognitive function test as sole method",
+      "priority": "medium",
+      "description": "WCAG 2.2 SC 3.3.8 Accessible Authentication (Minimum), Level AA, prohibits requiring users to solve puzzles, transcribe characters, or remember passwords as the sole authentication method. If the webchat widget prompts for an OTP, PIN, or CAPTCHA to identify a returning guest, an alternative path (e.g., browser autofill or paste) must be available.",
+      "acceptanceCriteria": [
+        "Any webchat guest identity verification step (OTP, room number entry) is implemented using autocomplete-attributed input fields so browsers can autofill",
+        "No CAPTCHA image recognition is required at any point in the webchat widget flow",
+        "If a numeric PIN entry is required, a paste mechanism is available and not blocked by JavaScript",
+        "Automated test verifies that input fields for guest identification carry appropriate autocomplete attribute values (e.g., autocomplete=one-time-code)"
+      ],
+      "technicalNotes": [
+        "W3C WCAG 3.3.8 understanding document: https://www.w3.org/WAI/WCAG22/Understanding/accessible-authentication-minimum",
+        "Compliant approaches: browser-managed passwords, magic link email, SMS OTP with autocomplete=one-time-code",
+        "Applies to the hostel check-in flow embedded in the webchat widget"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-938",
+      "title": "Implement OpenTelemetry GenAI semantic conventions for LLM span tracing",
+      "priority": "medium",
+      "description": "The OpenTelemetry GenAI Semantic Conventions (stabilised in 2025) define a standard schema for LLM spans covering prompt tokens, completion tokens, model name, provider, latency, and tool calls. Instrumenting the Rainbow AI LLM provider calls with these conventions allows cost, latency, and quality metrics to be exported to any OTel-compatible backend (Grafana, Datadog) without vendor lock-in.",
+      "acceptanceCriteria": [
+        "Every LLM call emits an OTel span with attributes: gen_ai.system, gen_ai.request.model, gen_ai.usage.prompt_tokens, gen_ai.usage.completion_tokens, gen_ai.response.finish_reasons",
+        "Spans are exported via OTLP to a configurable endpoint (default: stdout in development, OTEL_EXPORTER_OTLP_ENDPOINT in production)",
+        "A Grafana dashboard JSON is included in the repo showing: p50/p95 LLM latency, token throughput, and error rate per provider",
+        "Provider failover events (primary to fallback) are recorded as span events within the parent conversation span"
+      ],
+      "technicalNotes": [
+        "OpenTelemetry AI agent observability blog: https://opentelemetry.io/blog/2025/ai-agent-observability/",
+        "OTel GenAI semantic conventions spec: https://opentelemetry.io/blog/2024/llm-observability/",
+        "Use @opentelemetry/sdk-node + openllmetry-js (Traceloop) for Node.js instrumentation"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-939",
+      "title": "WhatsApp template reclassification guard: detect utility-to-marketing category change via webhook",
+      "priority": "medium",
+      "description": "Starting April 16, 2025, Meta may reclassify approved utility templates as marketing without a 24-hour warning, which immediately changes their billing category and may block delivery if marketing budget is exhausted. The system must subscribe to the message_template_status_update webhook event and alert admins when any template's category changes from UTILITY to MARKETING.",
+      "acceptanceCriteria": [
+        "The webhook router handles message_template_status_update events from Meta",
+        "When a template's category changes from UTILITY to MARKETING, an admin alert is sent via WhatsApp to the admin number and logged in the security_audit_log",
+        "A template registry table (template_id, name, approved_category, current_category, last_checked) is maintained and updated on each status webhook",
+        "A weekly scheduled job fetches the current category of all registered templates from the WhatsApp Business Management API and compares against the stored approved_category"
+      ],
+      "technicalNotes": [
+        "Meta template reclassification policy: https://botbuz.com/whatsapp-business-api-policy-changes/",
+        "Webhook field: message_template_status_update; event sub-field can be APPROVED, REJECTED, PENDING_DELETION, or FLAGGED",
+        "WhatsApp Business Management API: GET /{whatsapp-business-account-id}/message_templates"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-940",
+      "title": "RAG knowledge base tamper detection: SHA-256 manifest for .rainbow-kb files",
+      "priority": "medium",
+      "description": "OWASP LLM04:2025 (Data and Model Poisoning) and LLM08:2025 (Vector and Embedding Weaknesses) identify that RAG knowledge base documents can be tampered with to introduce adversarial content that biases AI responses. The Rainbow AI knowledge base files loaded and embedded at startup need a tamper-detection layer using file hashes to prevent poisoned entries from reaching the retrieval pipeline.",
+      "acceptanceCriteria": [
+        "At startup, SHA-256 hashes of all .md files in .rainbow-kb/ and .rainbow-kb-southern/ are computed and compared against a stored manifest (kb_manifest.json) committed to the repository",
+        "Any file whose hash differs from the manifest is excluded from embedding and logged as a security event",
+        "An admin endpoint GET /admin/kb/integrity returns a JSON report of all checked files with pass/fail status",
+        "The manifest can be updated via an admin command npm run kb:sign that recomputes hashes after an authorised knowledge base update"
+      ],
+      "technicalNotes": [
+        "OWASP LLM04:2025 Data and Model Poisoning: https://genai.owasp.org/llmrisk/llm04-model-denial-of-service/",
+        "OWASP LLM08:2025 Vector and Embedding Weaknesses: https://www.invicti.com/blog/web-security/owasp-top-10-risks-llm-security-2025",
+        "Use Node.js crypto.createHash('sha256') on file content; store manifest as kb_manifest.json in repo root",
+        "This is distinct from the existing RAG grounding and hallucination detection stories; this story addresses data integrity at load time"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-941",
+      "title": "Send WhatsApp poll messages for guest satisfaction and F&B preference surveys",
+      "priority": "low",
+      "description": "The WhatsApp Cloud API supports interactive poll messages (native quick-poll format) that allow users to vote on options without leaving the chat. Using polls for post-checkout satisfaction surveys and menu preference votes is more engaging than text-based prompts and delivers structured, aggregated response data. This is distinct from the emoji-reaction CSAT story, which captures only a single star rating.",
+      "acceptanceCriteria": [
+        "A send_poll() helper is added to the WhatsApp message sender module accepting question (string) and options (string[], max 12) parameters",
+        "Post-checkout flow for Makan Moments sends a poll with question 'How was your experience?' and options: Excellent / Good / Average / Poor",
+        "Poll response webhooks (interactive.type=nfm_reply with poll data) are parsed and the selected option is stored in a poll_responses table keyed by wamid and JID",
+        "Admin dashboard shows a poll results view with bar chart for each active poll"
+      ],
+      "technicalNotes": [
+        "WhatsApp Cloud API interactive message types: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/",
+        "Poll message payload uses type: 'poll' within the interactive message structure; options array max 12 items",
+        "Poll responses use a different webhook field (nfm_reply) from button replies; handle both in the webhook router"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-942",
+      "title": "Sticker message support: send branded stickers as order confirmation and greeting",
+      "priority": "low",
+      "description": "The WhatsApp Business Cloud API supports sending static and animated sticker messages. Sending a branded sticker upon order confirmation or welcome creates a memorable, brand-consistent experience. The system currently has no sticker sending capability; adding it requires a media upload step and the sticker message type.",
+      "acceptanceCriteria": [
+        "A send_sticker(jid, media_id) function is added to the message sender module",
+        "At least one sticker is pre-uploaded to the WhatsApp media library and its media_id stored in app_settings",
+        "Order confirmation messages optionally append a sticker after the confirmation text (configurable via admin settings toggle)",
+        "Sticker delivery failures fall back silently without surfacing an error to the user"
+      ],
+      "technicalNotes": [
+        "WhatsApp sticker message type: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/sticker-messages/",
+        "Static stickers: WebP format, <=100KB, 512x512px; animated stickers: WebP animated, <=500KB",
+        "Media must be uploaded via the /media endpoint; media_id expires after 30 days unless referenced"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-943",
+      "title": "Meta Verified (blue tick) eligibility tracker and application workflow in admin",
+      "priority": "low",
+      "description": "WhatsApp has transitioned from the green tick to a Meta Verified blue tick in 2026, consolidating verification across Facebook, Instagram, and WhatsApp. The current system has no tooling to track verification status, eligibility criteria, or the application process. An admin panel section to display verification status and eligibility checklist improves operational visibility.",
+      "acceptanceCriteria": [
+        "Admin dashboard includes a 'Meta Verified' status card showing: current verification status (verified / pending / unverified), WABA display name, and last checked date",
+        "The card fetches verification status from the WhatsApp Business Management API (GET /{phone-number-id}) and displays quality_rating and account_status fields",
+        "A checklist panel tracks requirements: business verification complete (yes/no), 3-5 organic press articles (count input), active WABA in good standing (derived from quality_rating)",
+        "Clicking 'Apply for Verification' opens a modal with the current Meta Verified application URL"
+      ],
+      "technicalNotes": [
+        "Meta Verified for Business (WhatsApp): https://www.infobip.com/blog/verify-whatsapp-business-account",
+        "Free API route requires organic press coverage (not paid advertorials); paid route available via Meta Verified subscription",
+        "Phone number quality_rating field in WhatsApp Business Management API returns GREEN / YELLOW / RED"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

@@ -15,9 +15,11 @@ import type { PipelineState, FlowContext } from '../types.js';
 import type { ClassificationResult } from './tier-classification.js';
 import type { RoutingResult } from './routing.js';
 import { resolveResponseLanguage } from './routing.js';
-import { buildListMessage, listMessageToText } from '../../formatter.js';
+import { buildListMessage, listMessageToText, buildProductCardButtons, productCardToText } from '../../formatter.js';
+import type { ProductCardItem } from '../../formatter.js';
 import { interpolate, buildInterpolationContext } from '../../interpolate.js';
-import { fnbGetMenu, fnbGetDailySpecials } from '../../../tools/fnb-menu.js';
+import { fnbGetMenu, fnbGetMenuItem, fnbGetDailySpecials, fetchMenuItems } from '../../../tools/fnb-menu.js';
+import { findMenuItemMatches } from '../../menu-matcher.js';
 import { flowRegistry } from '../../flows/index.js';
 
 /**
@@ -441,6 +443,12 @@ async function handleLLMReply(
     return;
   }
 
+  // US-885: Handle MENU_ITEM_DETAIL intent — show product card
+  if (result.intent === 'MENU_ITEM_DETAIL') {
+    await handleMenuItemDetail(state, context);
+    return;
+  }
+
   state.response = result.response;
 
   // Track unknown intents OR low-confidence results for operator escalation
@@ -743,4 +751,171 @@ function logLanguageResolution(
   if (responseLang !== lang && result.detectedLanguage !== 'unknown') {
     console.log(`[Dispatch] Language resolved (${context}): '${lang}' → '${responseLang}'`);
   }
+}
+
+/**
+ * US-885: Handle MENU_ITEM_DETAIL intent — extract item name from message,
+ * look up the item via fuzzy match and FnB MCP, and send a product card.
+ *
+ * Flow:
+ *   1. Extract item name from user's message (strip "tell me about", "what is", etc.)
+ *   2. Fuzzy match against menu items
+ *   3. Single match → build product card with buttons
+ *   4. Multiple matches → show disambiguation list
+ *   5. No match → friendly "item not found" message
+ */
+async function handleMenuItemDetail(
+  state: PipelineState,
+  context: IPipelineContext
+): Promise<void> {
+  context.resetUnknown(state.phone);
+
+  const lang = state.convo.language || 'en';
+  const itemName = extractItemName(state.processText);
+
+  if (!itemName) {
+    const fallbackMessages: Record<string, string> = {
+      en: "I'd be happy to tell you about any menu item! Could you specify which dish you'd like to know about? You can also type \"menu\" to see our full menu.",
+      ms: "Saya dengan senang hati akan ceritakan tentang menu kami! Hidangan mana yang anda ingin tahu? Anda juga boleh taip \"menu\" untuk lihat menu penuh.",
+      zh: '我很乐意为您介绍菜单上的任何菜品！请问您想了解哪道菜？也可以输入\u201C菜单\u201D查看完整菜单。'
+    };
+    state.response = fallbackMessages[lang] || fallbackMessages.en;
+    return;
+  }
+
+  console.log(`[Dispatch] US-885 MENU_ITEM_DETAIL: looking up "${itemName}" for profile=${state.profileId}`);
+
+  // Fetch menu items and fuzzy match
+  const menuItems = await fetchMenuItems();
+  const matches = findMenuItemMatches(itemName, menuItems, { threshold: 4, maxResults: 5 });
+
+  if (matches.length === 0) {
+    const notFoundMessages: Record<string, string> = {
+      en: `I couldn't find "${itemName}" on our menu. Would you like to see the full menu? Just type "menu".`,
+      ms: `Saya tidak jumpa "${itemName}" dalam menu kami. Nak tengok menu penuh? Taip "menu".`,
+      zh: `我在菜单上找不到\u201C${itemName}\u201D。要看完整菜单吗？请输入\u201C菜单\u201D。`
+    };
+    state.response = notFoundMessages[lang] || notFoundMessages.en;
+    return;
+  }
+
+  if (matches.length === 1) {
+    // Single match → product card
+    const match = matches[0];
+    let cardItem: ProductCardItem = {
+      name: match.name,
+      code: match.code,
+      price: match.price,
+      category: match.category,
+    };
+
+    // Try to get full details from FnB MCP for richer data
+    if (match.code) {
+      try {
+        const detailResult = await fnbGetMenuItem({ code: match.code, _profileId: state.profileId });
+        if (!detailResult.isError) {
+          const detailText = detailResult.content[0]?.text || '';
+          const parsed = parseItemDetail(detailText);
+          if (parsed) {
+            cardItem = { ...cardItem, ...parsed };
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Dispatch] US-885: Failed to fetch item detail for ${match.code}:`, err.message);
+      }
+    }
+
+    // Build product card
+    const settings = context.getSettings();
+    const interactiveEnabled = (settings as any).interactiveMessages?.enabled;
+
+    if (interactiveEnabled) {
+      try {
+        state.interactivePayload = buildProductCardButtons(cardItem, lang);
+        state.response = productCardToText(cardItem, lang); // text fallback
+        console.log(`[Dispatch] US-885: Built product card for "${match.name}" with interactive buttons`);
+      } catch (err: any) {
+        console.warn(`[Dispatch] US-885: Failed to build interactive card, using text fallback:`, err.message);
+        state.response = productCardToText(cardItem, lang);
+      }
+    } else {
+      state.response = productCardToText(cardItem, lang);
+    }
+    return;
+  }
+
+  // Multiple matches → disambiguation list
+  const headerMessages: Record<string, string> = {
+    en: `I found several items matching "${itemName}". Which one did you mean?`,
+    ms: `Saya jumpa beberapa item yang sepadan dengan "${itemName}". Yang mana satu?`,
+    zh: `我找到了几个与\u201C${itemName}\u201D匹配的菜品。您指的是哪个？`
+  };
+
+  const lines = [headerMessages[lang] || headerMessages.en, ''];
+  matches.forEach((m, i) => {
+    const priceStr = m.price ? ` — RM ${m.price.toFixed(2)}` : '';
+    const catStr = m.category ? ` (${m.category})` : '';
+    lines.push(`${i + 1}. ${m.name}${catStr}${priceStr}`);
+  });
+
+  const footerMessages: Record<string, string> = {
+    en: '\nReply with a number or the item name for more details.',
+    ms: '\nBalas dengan nombor atau nama item untuk maklumat lanjut.',
+    zh: '\n回复数字或菜品名称了解更多。'
+  };
+  lines.push(footerMessages[lang] || footerMessages.en);
+
+  state.response = lines.join('\n');
+}
+
+/**
+ * US-885: Extract the item name from a user's message about a menu item.
+ * Strips common question prefixes like "tell me about", "what is", etc.
+ */
+function extractItemName(text: string): string | null {
+  const stripped = text
+    .replace(/\b(tell\s+me\s+(more\s+)?about|what\s+is\s+(the\s+)?|what's\s+(the\s+)?|describe\s+(the\s+)?|info\s+(on|about)\s+(the\s+)?|details?\s+(of|on|about|for)\s+(the\s+)?|how\s+is\s+(the\s+)?|is\s+the\s+|what\s+(comes?|does\s+it)\s+(with|include)\s+|ingredients?\s+(of|in)\s+(the\s+)?)/gi, '')
+    .replace(/\b(apa\s+(itu|tu)\s+|ceritakan\s+(tentang\s+)?|maklumat\s+(tentang|pasal)\s+|lebih\s+lanjut\s+tentang\s+|sedap\s+tak\s+)/gi, '')
+    .replace(/(介绍|什么是|告诉我|这个怎么样|有什么|里面有什么)/g, '')
+    .replace(/[?？。.!！]+$/g, '')
+    .trim();
+
+  // Must have at least 2 chars to be a meaningful item name
+  return stripped.length >= 2 ? stripped : null;
+}
+
+/**
+ * US-885: Parse item detail from FnB MCP response text into structured data.
+ */
+function parseItemDetail(text: string): Partial<ProductCardItem> | null {
+  if (!text || text.trim().length === 0) return null;
+
+  const result: Partial<ProductCardItem> = {};
+
+  // Extract description (first paragraph or first few lines)
+  const lines = text.split('\n').filter(l => l.trim());
+  const descLines: string[] = [];
+  for (const line of lines) {
+    if (/^(code|price|category|allergen|dietary|RM\s)/i.test(line.trim())) continue;
+    if (/^[\*_]*(code|price|category|allergen|dietary)/i.test(line.trim())) continue;
+    descLines.push(line.trim());
+    if (descLines.length >= 3) break;
+  }
+  if (descLines.length > 0) result.description = descLines.join('\n');
+
+  // Extract allergens
+  const allergenMatch = text.match(/allergens?:?\s*(.+)/i);
+  if (allergenMatch) {
+    const allergens = allergenMatch[1].split(/[,;]/).map(a => a.trim()).filter(Boolean);
+    if (allergens.length > 0) result.allergens = allergens;
+  }
+
+  // Extract dietary flags
+  const dietaryMatch = text.match(/dietary[_ ]?flags?:?\s*(.+)/i);
+  if (dietaryMatch) {
+    const flags = dietaryMatch[1].split(/[,;]/).map(f => f.trim()).filter(Boolean);
+    if (flags.length > 0) result.dietary_flags = flags;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }

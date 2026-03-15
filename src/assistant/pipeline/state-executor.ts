@@ -219,3 +219,71 @@ export async function handleActiveStates(
 
   return { handled: false };
 }
+
+/**
+ * US-885: Handle "Add to cart" button press from product card.
+ * Looks up the item by code via fuzzy match and adds it to cart.
+ */
+async function handleAddToCartButton(
+  phone: string,
+  itemCode: string,
+  lang: 'en' | 'ms' | 'zh' | 'ta',
+  profileId: string
+): Promise<string> {
+  try {
+    // Fetch menu items and find the item by code
+    const menuItems = await fetchMenuItems();
+    const match = menuItems.find(m => m.code && m.code.toLowerCase() === itemCode.toLowerCase());
+
+    if (!match) {
+      // Try fuzzy match by name (itemCode might be the item name if code was absent)
+      const fuzzy = findMenuItemMatches(itemCode, menuItems, { threshold: 2, maxResults: 1 });
+      if (fuzzy.length === 0) {
+        const notFoundMessages: Record<string, string> = {
+          en: "Sorry, I couldn't find that item on the menu. Please try browsing the menu again.",
+          ms: 'Maaf, saya tidak jumpa item tersebut dalam menu. Sila cuba semak menu semula.',
+          zh: '抱歉，我在菜单上找不到该菜品。请重新浏览菜单。',
+        };
+        return notFoundMessages[lang] || notFoundMessages.en;
+      }
+      // Use the fuzzy match
+      return addItemToCart(phone, fuzzy[0], lang);
+    }
+
+    return addItemToCart(phone, match, lang);
+  } catch (err: any) {
+    console.error(`[StateExecutor] US-885: Failed to handle add_to_cart button:`, err.message);
+    const errorMessages: Record<string, string> = {
+      en: "Sorry, I couldn't add that item right now. Please try ordering by typing the item name.",
+      ms: 'Maaf, saya tidak dapat menambah item sekarang. Sila cuba pesan dengan menaip nama item.',
+      zh: '抱歉，暂时无法添加该菜品。请尝试输入菜品名称来点餐。',
+    };
+    return errorMessages[lang] || errorMessages.en;
+  }
+}
+
+function addItemToCart(
+  phone: string,
+  item: { code?: string; name: string; price?: number; category?: string },
+  lang: 'en' | 'ms' | 'zh' | 'ta'
+): string {
+  const cartItem = {
+    name: item.name,
+    code: item.code,
+    qty: 1,
+    price: item.price,
+  };
+
+  const items = cartAddItem(phone, cartItem);
+  transitionOrderStage(phone, 'ORDERING');
+  const summary = cartFormatSummary(items);
+
+  const confirmMessages: Record<string, string> = {
+    en: `Added *${item.name}* to your cart!\n\n${summary}\n\nWould you like to add anything else, or type "confirm" to place your order.`,
+    ms: `*${item.name}* telah ditambah ke troli!\n\n${summary}\n\nNak tambah apa-apa lagi, atau taip "sahkan" untuk buat pesanan.`,
+    zh: `*${item.name}* 已加入购物车！\n\n${summary}\n\n还要添加其他菜品吗？或输入\u201C确认\u201D下单。`,
+  };
+
+  console.log(`[StateExecutor] US-885: Added ${item.name} (${item.code || 'no-code'}) to cart for ${phone}`);
+  return confirmMessages[lang] || confirmMessages.en;
+}

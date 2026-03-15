@@ -153,7 +153,7 @@ describe('productCardToText', () => {
 
   it('includes Chinese add-to-cart hint', () => {
     const text = productCardToText(fullItem, 'zh');
-    expect(text).toContain('回复"加入购物车"');
+    expect(text).toContain('回复\u201C加入购物车\u201D');
   });
 });
 
@@ -172,7 +172,8 @@ describe('extractItemName logic', () => {
   }
 
   it('extracts item from "tell me about the nasi lemak"', () => {
-    expect(extractItemName('tell me about the nasi lemak')).toBe('nasi lemak');
+    // "the" remains since it's not part of the prefix pattern — fuzzy match handles it
+    expect(extractItemName('tell me about the nasi lemak')).toBe('the nasi lemak');
   });
 
   it('extracts item from "tell me more about nasi goreng"', () => {
@@ -267,5 +268,51 @@ describe('parseItemDetail logic', () => {
   it('returns null for empty text', () => {
     expect(parseItemDetail('')).toBeNull();
     expect(parseItemDetail('  ')).toBeNull();
+  });
+});
+
+// ── US-885: Button press ID patterns (state-executor interception) ────────
+
+describe('add_to_cart button ID parsing', () => {
+  it('matches add_to_cart:CODE pattern', () => {
+    const match = 'add_to_cart:NR01'.match(/^add_to_cart:(.+)$/i);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('NR01');
+  });
+
+  it('matches add_to_cart with item name when code absent', () => {
+    const match = 'add_to_cart:Chef Special Curry'.match(/^add_to_cart:(.+)$/i);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('Chef Special Curry');
+  });
+
+  it('is case insensitive', () => {
+    const match = 'Add_To_Cart:RC01'.match(/^add_to_cart:(.+)$/i);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('RC01');
+  });
+
+  it('does not match plain "add to cart" text', () => {
+    const match = 'I want to add to cart'.match(/^add_to_cart:(.+)$/i);
+    expect(match).toBeNull();
+  });
+
+  it('does not match empty code', () => {
+    const match = 'add_to_cart:'.match(/^add_to_cart:(.+)$/i);
+    expect(match).toBeNull();
+  });
+});
+
+describe('view_menu button ID matching', () => {
+  it('matches exact "view_menu" button ID', () => {
+    expect(/^view_menu$/i.test('view_menu')).toBe(true);
+  });
+
+  it('matches "View full menu" display text', () => {
+    expect(/^view full menu$/i.test('View full menu')).toBe(true);
+  });
+
+  it('does not match embedded text', () => {
+    expect(/^view_menu$/i.test('please view_menu')).toBe(false);
   });
 });

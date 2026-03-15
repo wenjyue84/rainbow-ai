@@ -397,6 +397,14 @@ export class WhatsAppInstance {
       let messageType: MessageType = 'text';
       let mediaMetadata: MediaMetadata | undefined;
 
+      // US-885: Extract button/list response text from interactive message replies
+      if (!text && m?.buttonsResponseMessage) {
+        text = (m.buttonsResponseMessage as any).selectedDisplayText || (m.buttonsResponseMessage as any).selectedButtonId || '';
+      }
+      if (!text && m?.listResponseMessage) {
+        text = (m.listResponseMessage as any).title || (m.listResponseMessage as any).singleSelectReply?.selectedRowId || '';
+      }
+
       // Detect message type and extract media metadata (US-448)
       if (m?.imageMessage) {
         messageType = 'image';
