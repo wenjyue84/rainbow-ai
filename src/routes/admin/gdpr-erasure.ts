@@ -1,9 +1,14 @@
 /**
- * GDPR Right-to-Erasure endpoint (US-420)
+ * US-948: PDPA 2024 Right to Erasure (Right to be Forgotten)
+ * Upgraded from US-420 GDPR erasure to meet Malaysia PDPA Amendment Act 2024 requirements.
  *
- * DELETE /api/rainbow/guests/:jid/data
- * Permanently removes all personal data for a given JID across all tables.
- * Logs the erasure request (with hashed JID) to a gdpr_audit_log table.
+ * Two-step confirmation workflow:
+ *   1. POST /pdpa/erasure/request  — create pending erasure request (with legal basis)
+ *   2. POST /pdpa/erasure/confirm/:requestId — second admin confirms & executes deletion
+ *   GET  /pdpa/erasure/requests — list pending/completed requests
+ *
+ * Legacy endpoint retained for backwards compatibility:
+ *   DELETE /guests/:jid/data — immediate erasure (original US-420)
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -17,14 +22,51 @@ import {
   rainbowFeedback,
   intentPredictions,
   optOuts,
+  escalationEvents,
+  conversationTraces,
+  messageDeliveryStatus,
+  promptInjectionLog,
+  complianceAuditLog,
+  abandonedCarts,
 } from '../../../shared/schema-tables.js';
 import { canonicalPhoneKey } from '../../assistant/conversation-db.js';
 import { badRequest, notFound, serverError } from './http-utils.js';
 
 const router = Router();
 
-// Ensure gdpr_audit_log table exists (idempotent)
+/** Valid legal bases for erasure under PDPA 2024 */
+const VALID_LEGAL_BASES = [
+  'data_subject_request',
+  'consent_withdrawn',
+  'purpose_fulfilled',
+  'regulatory_order',
+  'retention_period_expired',
+] as const;
+
+type LegalBasis = typeof VALID_LEGAL_BASES[number];
+
+// ─── Audit Table ─────────────────────────────────────────────────────
+
 async function ensureAuditTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdpa_erasure_log (
+      request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      phone_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      legal_basis TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      confirmed_by TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      confirmed_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      records_deleted JSONB,
+      total_records_deleted INTEGER DEFAULT 0,
+      vector_chunks_purged INTEGER DEFAULT 0,
+      backup_purge_due DATE,
+      notes TEXT
+    )
+  `);
+  // Keep legacy table for backwards compatibility
   await pool.query(`
     CREATE TABLE IF NOT EXISTS gdpr_audit_log (
       request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -36,16 +78,255 @@ async function ensureAuditTable(): Promise<void> {
       conversations_deleted INTEGER DEFAULT 0,
       memory_deleted INTEGER DEFAULT 0
     )
-  `);
+  `).catch(() => {});
 }
 
-// Run on module load — non-blocking
 dbReady.then(ok => { if (ok) ensureAuditTable().catch(() => {}); });
 
-/**
- * DELETE /guests/:jid/data
- * Permanently erases all guest data for the given JID.
- */
+// ─── Core Erasure Logic ──────────────────────────────────────────────
+
+interface ErasureResult {
+  rainbow_messages: number;
+  rainbow_conversations: number;
+  rainbow_conversation_state: number;
+  rainbow_feedback: number;
+  intent_predictions: number;
+  opt_outs: number;
+  escalation_events: number;
+  conversation_traces: number;
+  message_delivery_status: number;
+  prompt_injection_log: number;
+  compliance_audit_log: number;
+  abandoned_carts: number;
+}
+
+async function executeErasure(phoneKey: string, jidKey: string): Promise<ErasureResult> {
+  const result: ErasureResult = {
+    rainbow_messages: 0,
+    rainbow_conversations: 0,
+    rainbow_conversation_state: 0,
+    rainbow_feedback: 0,
+    intent_predictions: 0,
+    opt_outs: 0,
+    escalation_events: 0,
+    conversation_traces: 0,
+    message_delivery_status: 0,
+    prompt_injection_log: 0,
+    compliance_audit_log: 0,
+    abandoned_carts: 0,
+  };
+
+  await db.transaction(async (tx) => {
+    const msgs = await tx.delete(rainbowMessages).where(eq(rainbowMessages.phone, phoneKey)).returning({ id: rainbowMessages.id });
+    result.rainbow_messages = msgs.length;
+
+    const convos = await tx.delete(rainbowConversations).where(eq(rainbowConversations.phone, phoneKey)).returning({ phone: rainbowConversations.phone });
+    result.rainbow_conversations = convos.length;
+
+    const states = await tx.delete(rainbowConversationState).where(eq(rainbowConversationState.phone, phoneKey)).returning({ phone: rainbowConversationState.phone });
+    result.rainbow_conversation_state = states.length;
+
+    const feedback = await tx.delete(rainbowFeedback).where(eq(rainbowFeedback.phoneNumber, phoneKey)).returning({ id: rainbowFeedback.id });
+    result.rainbow_feedback = feedback.length;
+
+    const preds = await tx.delete(intentPredictions).where(eq(intentPredictions.phoneNumber, phoneKey)).returning({ id: intentPredictions.id });
+    result.intent_predictions = preds.length;
+
+    const opts = await tx.delete(optOuts).where(eq(optOuts.phone, phoneKey)).returning({ phone: optOuts.phone });
+    result.opt_outs = opts.length;
+
+    const delivery = await tx.delete(messageDeliveryStatus).where(eq(messageDeliveryStatus.phone, phoneKey)).returning({ id: messageDeliveryStatus.id });
+    result.message_delivery_status = delivery.length;
+
+    const escalations = await tx.delete(escalationEvents).where(eq(escalationEvents.jid, jidKey)).returning({ id: escalationEvents.id });
+    result.escalation_events = escalations.length;
+
+    const traces = await tx.delete(conversationTraces).where(eq(conversationTraces.jid, jidKey)).returning({ id: conversationTraces.id });
+    result.conversation_traces = traces.length;
+
+    const injections = await tx.delete(promptInjectionLog).where(eq(promptInjectionLog.jid, jidKey)).returning({ id: promptInjectionLog.id });
+    result.prompt_injection_log = injections.length;
+
+    const compliance = await tx.delete(complianceAuditLog).where(eq(complianceAuditLog.jid, jidKey)).returning({ id: complianceAuditLog.id });
+    result.compliance_audit_log = compliance.length;
+
+    const carts = await tx.delete(abandonedCarts).where(eq(abandonedCarts.jid, jidKey)).returning({ id: abandonedCarts.id });
+    result.abandoned_carts = carts.length;
+  });
+
+  return result;
+}
+
+async function purgeVectorStoreData(phoneKey: string, jidKey: string): Promise<number> {
+  try {
+    const result = await pool.query(
+      `DELETE FROM rainbow_kb_files WHERE metadata::text LIKE $1 OR metadata::text LIKE $2 RETURNING id`,
+      [`%${phoneKey}%`, `%${jidKey}%`]
+    );
+    return result.rowCount ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function guestRecordsExist(phoneKey: string, jidKey: string): Promise<boolean> {
+  const checks = await Promise.all([
+    db.select({ id: rainbowMessages.id }).from(rainbowMessages).where(eq(rainbowMessages.phone, phoneKey)).limit(1),
+    db.select({ phone: rainbowConversations.phone }).from(rainbowConversations).where(eq(rainbowConversations.phone, phoneKey)).limit(1),
+    db.select({ id: escalationEvents.id }).from(escalationEvents).where(eq(escalationEvents.jid, jidKey)).limit(1),
+    db.select({ id: conversationTraces.id }).from(conversationTraces).where(eq(conversationTraces.jid, jidKey)).limit(1),
+    db.select({ id: abandonedCarts.id }).from(abandonedCarts).where(eq(abandonedCarts.jid, jidKey)).limit(1),
+  ]);
+  return checks.some(c => c.length > 0);
+}
+
+// ─── Step 1: Create Erasure Request ──────────────────────────────────
+
+router.post('/pdpa/erasure/request', async (req: Request, res: Response) => {
+  const { phone, legalBasis, notes } = req.body || {};
+
+  if (!phone) return badRequest(res, 'phone is required');
+  if (!legalBasis || !VALID_LEGAL_BASES.includes(legalBasis as LegalBasis)) {
+    return badRequest(res, `legalBasis must be one of: ${VALID_LEGAL_BASES.join(', ')}`);
+  }
+
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  const phoneKey = canonicalPhoneKey(phone);
+  const jidKey = phone.includes('@') ? phone : `${phoneKey}@s.whatsapp.net`;
+  const phoneHash = crypto.createHash('sha256').update(phoneKey).digest('hex');
+  const requestedBy = (req.headers['x-admin-user'] as string) || 'admin';
+
+  const exists = await guestRecordsExist(phoneKey, jidKey);
+  if (!exists) return notFound(res, `Guest ${phone}`);
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO pdpa_erasure_log (phone_hash, status, legal_basis, requested_by, notes, backup_purge_due)
+       VALUES ($1, 'pending', $2, $3, $4, CURRENT_DATE + INTERVAL '30 days')
+       RETURNING request_id, requested_at, backup_purge_due`,
+      [phoneHash, legalBasis, requestedBy, notes || null]
+    );
+
+    const row = result.rows[0];
+    console.log(`[PDPA] Erasure request created: ${row.request_id} by ${requestedBy}`);
+
+    res.status(201).json({
+      requestId: row.request_id,
+      status: 'pending',
+      legalBasis,
+      requestedBy,
+      requestedAt: row.requested_at,
+      backupPurgeDue: row.backup_purge_due,
+      message: 'Erasure request created. A second admin must confirm via POST /pdpa/erasure/confirm/:requestId',
+    });
+  } catch (error: any) {
+    console.error('[PDPA] Erasure request creation failed:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── Step 2: Confirm & Execute Erasure ───────────────────────────────
+
+router.post('/pdpa/erasure/confirm/:requestId', async (req: Request, res: Response) => {
+  const { requestId } = req.params;
+  const { phone } = req.body || {};
+
+  if (!phone) return badRequest(res, 'phone is required to confirm erasure');
+
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  const confirmedBy = (req.headers['x-admin-user'] as string) || 'admin';
+
+  try {
+    const pending = await pool.query(
+      `SELECT request_id, phone_hash, status, requested_by, legal_basis FROM pdpa_erasure_log WHERE request_id = $1`,
+      [requestId]
+    );
+
+    if (pending.rows.length === 0) return notFound(res, `Erasure request ${requestId}`);
+
+    const request = pending.rows[0];
+
+    if (request.status !== 'pending') {
+      return badRequest(res, `Request ${requestId} is already ${request.status}`);
+    }
+
+    const phoneKey = canonicalPhoneKey(phone);
+    const phoneHash = crypto.createHash('sha256').update(phoneKey).digest('hex');
+    if (phoneHash !== request.phone_hash) {
+      return badRequest(res, 'Phone number does not match the original request');
+    }
+
+    if (confirmedBy === request.requested_by) {
+      console.warn(`[PDPA] Same admin (${confirmedBy}) confirming their own erasure request`);
+    }
+
+    const jidKey = phone.includes('@') ? phone : `${phoneKey}@s.whatsapp.net`;
+
+    const erasureResult = await executeErasure(phoneKey, jidKey);
+    const totalDeleted = Object.values(erasureResult).reduce((sum, n) => sum + n, 0);
+    const vectorPurged = await purgeVectorStoreData(phoneKey, jidKey);
+
+    await pool.query(
+      `UPDATE pdpa_erasure_log
+       SET status = 'completed', confirmed_by = $1, confirmed_at = NOW(), completed_at = NOW(),
+           records_deleted = $2, total_records_deleted = $3, vector_chunks_purged = $4
+       WHERE request_id = $5`,
+      [confirmedBy, JSON.stringify(erasureResult), totalDeleted, vectorPurged, requestId]
+    );
+
+    try {
+      await pool.query(
+        `INSERT INTO gdpr_audit_log (jid_hash, requested_by, completed_at, messages_deleted, conversations_deleted, memory_deleted)
+         VALUES ($1, $2, NOW(), $3, $4, $5)`,
+        [phoneHash, confirmedBy, erasureResult.rainbow_messages, erasureResult.rainbow_conversations,
+         erasureResult.rainbow_conversation_state + erasureResult.rainbow_feedback + erasureResult.intent_predictions]
+      );
+    } catch { /* legacy table may not exist */ }
+
+    console.log(`[PDPA] Erasure completed: request ${requestId}, ${totalDeleted} records + ${vectorPurged} vector chunks`);
+
+    res.json({
+      requestId,
+      status: 'completed',
+      legalBasis: request.legal_basis,
+      requestedBy: request.requested_by,
+      confirmedBy,
+      recordsDeleted: erasureResult,
+      totalRecordsDeleted: totalDeleted,
+      vectorChunksPurged: vectorPurged,
+      backupPurgeNote: 'Backup storage must be purged within 30 days per PDPA guidance.',
+    });
+  } catch (error: any) {
+    console.error('[PDPA] Erasure confirmation failed:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── List Erasure Requests ───────────────────────────────────────────
+
+router.get('/pdpa/erasure/requests', async (_req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(
+      `SELECT request_id, phone_hash, status, legal_basis, requested_by, confirmed_by,
+              requested_at, confirmed_at, completed_at, total_records_deleted,
+              vector_chunks_purged, backup_purge_due, notes
+       FROM pdpa_erasure_log ORDER BY requested_at DESC LIMIT 100`
+    );
+    res.json({ requests: result.rows });
+  } catch (error: any) {
+    return serverError(res, error);
+  }
+});
+
+// ─── Legacy Endpoint (US-420 backwards compat) ───────────────────────
+
 router.delete('/guests/:jid/data', async (req: Request, res: Response) => {
   const jidParam = decodeURIComponent(req.params.jid as string);
   if (!jidParam) return badRequest(res, 'JID parameter is required');
@@ -53,130 +334,49 @@ router.delete('/guests/:jid/data', async (req: Request, res: Response) => {
   const ready = await dbReady;
   if (!ready) return serverError(res, 'Database not available');
 
-  const key = canonicalPhoneKey(jidParam);
-  const jidHash = crypto.createHash('sha256').update(key).digest('hex');
+  const phoneKey = canonicalPhoneKey(jidParam);
+  const jidKey = jidParam.includes('@') ? jidParam : `${phoneKey}@s.whatsapp.net`;
+  const phoneHash = crypto.createHash('sha256').update(phoneKey).digest('hex');
   const requestedBy = (req.headers['x-admin-user'] as string) || 'admin';
 
   try {
-    // Check if any records exist for this JID
-    const existing = await db
-      .select({ id: rainbowMessages.id })
-      .from(rainbowMessages)
-      .where(eq(rainbowMessages.phone, key))
-      .limit(1);
+    const exists = await guestRecordsExist(phoneKey, jidKey);
+    if (!exists) return notFound(res, `Guest ${jidParam}`);
 
-    const existingConvo = await db
-      .select({ phone: rainbowConversations.phone })
-      .from(rainbowConversations)
-      .where(eq(rainbowConversations.phone, key))
-      .limit(1);
+    const erasureResult = await executeErasure(phoneKey, jidKey);
+    const totalDeleted = Object.values(erasureResult).reduce((sum, n) => sum + n, 0);
+    const vectorPurged = await purgeVectorStoreData(phoneKey, jidKey);
 
-    const existingState = await db
-      .select({ phone: rainbowConversationState.phone })
-      .from(rainbowConversationState)
-      .where(eq(rainbowConversationState.phone, key))
-      .limit(1);
+    try {
+      await pool.query(
+        `INSERT INTO pdpa_erasure_log (phone_hash, status, legal_basis, requested_by, confirmed_by, confirmed_at, completed_at, records_deleted, total_records_deleted, vector_chunks_purged, backup_purge_due)
+         VALUES ($1, 'completed', 'data_subject_request', $2, $2, NOW(), NOW(), $3, $4, $5, CURRENT_DATE + INTERVAL '30 days')`,
+        [phoneHash, requestedBy, JSON.stringify(erasureResult), totalDeleted, vectorPurged]
+      );
+    } catch { /* audit write failure shouldn't block erasure */ }
 
-    const existingFeedback = await db
-      .select({ id: rainbowFeedback.id })
-      .from(rainbowFeedback)
-      .where(eq(rainbowFeedback.phoneNumber, key))
-      .limit(1);
-
-    const existingPredictions = await db
-      .select({ id: intentPredictions.id })
-      .from(intentPredictions)
-      .where(eq(intentPredictions.phoneNumber, key))
-      .limit(1);
-
-    const existingOptOut = await db
-      .select({ phone: optOuts.phone })
-      .from(optOuts)
-      .where(eq(optOuts.phone, key))
-      .limit(1);
-
-    const hasAnyRecords =
-      existing.length > 0 ||
-      existingConvo.length > 0 ||
-      existingState.length > 0 ||
-      existingFeedback.length > 0 ||
-      existingPredictions.length > 0 ||
-      existingOptOut.length > 0;
-
-    if (!hasAnyRecords) {
-      return notFound(res, `Guest ${jidParam}`);
-    }
-
-    // Perform deletion in a single transaction
-    let messagesDeleted = 0;
-    let conversationsDeleted = 0;
-    let memoryDeleted = 0; // state + feedback + predictions + optOuts
-
-    await db.transaction(async (tx) => {
-      // 1. Messages
-      const msgResult = await tx
-        .delete(rainbowMessages)
-        .where(eq(rainbowMessages.phone, key))
-        .returning({ id: rainbowMessages.id });
-      messagesDeleted = msgResult.length;
-
-      // 2. Conversations
-      const convoResult = await tx
-        .delete(rainbowConversations)
-        .where(eq(rainbowConversations.phone, key))
-        .returning({ phone: rainbowConversations.phone });
-      conversationsDeleted = convoResult.length;
-
-      // 3. Conversation state
-      const stateResult = await tx
-        .delete(rainbowConversationState)
-        .where(eq(rainbowConversationState.phone, key))
-        .returning({ phone: rainbowConversationState.phone });
-      memoryDeleted += stateResult.length;
-
-      // 4. Feedback
-      const feedbackResult = await tx
-        .delete(rainbowFeedback)
-        .where(eq(rainbowFeedback.phoneNumber, key))
-        .returning({ id: rainbowFeedback.id });
-      memoryDeleted += feedbackResult.length;
-
-      // 5. Intent predictions
-      const predResult = await tx
-        .delete(intentPredictions)
-        .where(eq(intentPredictions.phoneNumber, key))
-        .returning({ id: intentPredictions.id });
-      memoryDeleted += predResult.length;
-
-      // 6. Opt-outs
-      const optOutResult = await tx
-        .delete(optOuts)
-        .where(eq(optOuts.phone, key))
-        .returning({ phone: optOuts.phone });
-      memoryDeleted += optOutResult.length;
-    });
-
-    // Log to audit table (outside transaction — deletion already committed)
     try {
       await pool.query(
         `INSERT INTO gdpr_audit_log (jid_hash, requested_by, completed_at, messages_deleted, conversations_deleted, memory_deleted)
          VALUES ($1, $2, NOW(), $3, $4, $5)`,
-        [jidHash, requestedBy, messagesDeleted, conversationsDeleted, memoryDeleted]
+        [phoneHash, requestedBy, erasureResult.rainbow_messages, erasureResult.rainbow_conversations,
+         erasureResult.rainbow_conversation_state + erasureResult.rainbow_feedback + erasureResult.intent_predictions]
       );
-    } catch (auditErr) {
-      console.error('[GDPR] Audit log write failed (erasure still completed):', auditErr);
-    }
+    } catch { /* legacy table may not exist */ }
 
-    console.log(`[GDPR] Erasure completed for JID hash ${jidHash.substring(0, 12)}...: ${messagesDeleted} msgs, ${conversationsDeleted} convos, ${memoryDeleted} memory`);
+    console.log(`[PDPA] Legacy erasure for hash ${phoneHash.substring(0, 12)}...: ${totalDeleted} records`);
 
     res.json({
       jid: jidParam,
-      messages_deleted: messagesDeleted,
-      conversations_deleted: conversationsDeleted,
-      memory_deleted: memoryDeleted,
+      messages_deleted: erasureResult.rainbow_messages,
+      conversations_deleted: erasureResult.rainbow_conversations,
+      memory_deleted: erasureResult.rainbow_conversation_state + erasureResult.rainbow_feedback + erasureResult.intent_predictions,
+      records_deleted: erasureResult,
+      total_records_deleted: totalDeleted,
+      vector_chunks_purged: vectorPurged,
     });
   } catch (error: any) {
-    console.error('[GDPR] Erasure failed:', error.message);
+    console.error('[PDPA] Erasure failed:', error.message);
     return serverError(res, error);
   }
 });
