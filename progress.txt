@@ -9686,3 +9686,29 @@ Completed: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat wid
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 17/17 new tests pass. Full suite: 85 passing (up from 84 before), 7 failing (down from 8 — my new tests added). Story marked passes=true.
+
+## Iteration [Ralph] - Story: US-945 Implement OWASP LLM10 unbounded consumption rate limiting per user
+### What was implemented
+- **AC1**: Already fully implemented — `jid-rate-limiter.ts` provides per-JID sliding window rate limiting (default 10 msg/60s), configurable via `settings.rateLimiting.perUserWindowMs` and `perUserMaxMessages`. Checked in `input-validator.ts` Phase 1 for non-staff senders.
+- **AC2 (NEW)**: Made input truncation limit configurable via `settings.rateLimiting.maxInputTokens` (default 2000). When a message exceeds the limit, it is truncated AND the user receives a notification: "Your message was quite long, so I've read the first part." Previously was a hardcoded 2000-char limit with no notification.
+- **AC3**: Already implemented — on first rate-limit violation, sends "Too many messages — please wait a moment before sending more." via `shouldSendReply` flag in jid-rate-limiter.
+- **AC4 (NEW)**: Added global hard timeout (default 30s) wrapping the entire `chatWithFallback` provider chain. Configurable via `settings.rateLimiting.llmHardTimeoutMs`. Previously only per-provider timeouts (6s each) existed; with 7+ providers the total could exceed 30s. Global timeout returns the slow-response apology message.
+- **AC5 (NEW)**: Created `GET /analytics/top-consumers` admin endpoint. Returns top senders ranked by total LLM token consumption with: phone, totalTokens, promptTokens, completionTokens, messageCount, avgResponseTimeMs, lastActive. Supports profileId, days (1-90), and limit (1-100) query params.
+
+### Files changed
+- `src/assistant/pipeline/input-validator.ts` — Configurable `maxInputTokens` + user notification on truncation
+- `src/assistant/ai-provider-manager.ts` — Global hard timeout wrapping `chatWithFallback` via `_chatWithFallbackInner` refactor
+- `src/assistant/data/settings.json` — Added `rateLimiting.maxInputTokens` (2000) and `rateLimiting.llmHardTimeoutMs` (30000)
+- `src/routes/admin/analytics-top-consumers.ts` — New admin endpoint for top consumers by token usage
+- `src/routes/admin/index.ts` — Registered new route + added to semi-stable cache paths
+
+### Patterns discovered
+- `chatWithFallback` already had per-provider timeout via `withTimeout()` — reused same utility for global timeout
+- The `_chatWithFallbackInner` refactor pattern (separate inner function for timeout wrapping) avoids modifying the complex provider loop
+- `rlSettings` variable name was already used in input-validator.ts (line 405), so used `rlCfg` for the new truncation block to avoid shadowing
+
+### Status
+✅ Build passes (3 pre-existing warnings). 8/8 latency-failover tests pass. Story marked passes=true.
+## Iteration 20 - Sun, Mar 15, 2026  9:36:51 PM
+FAILED quality gates: WCAG 2.2 SC 3.3.8: Allow credential paste and autofill in webchat widget authentication (ID: US-926) — attempt 1/3
+

@@ -372,11 +372,14 @@ export async function validateAndPrepare(
   let text = msg.text.trim();
   if (!text) return { continue: false, reason: 'empty' };
 
-  // Truncate very long messages to prevent timeout (max 2000 chars)
-  const MAX_MESSAGE_LENGTH = 2000;
-  if (text.length > MAX_MESSAGE_LENGTH) {
-    console.log(`[Router] Message truncated from ${text.length} to ${MAX_MESSAGE_LENGTH} chars`);
-    text = text.slice(0, MAX_MESSAGE_LENGTH) + '...';
+  // US-945 AC2: Truncate messages exceeding configurable token limit (default 2000 chars ≈ tokens)
+  const rlSettings = (profileConfig.getSettings() as any).rateLimiting;
+  const maxInputTokens = rlSettings?.maxInputTokens ?? 2000;
+  if (text.length > maxInputTokens) {
+    console.log(`[Router] Message truncated from ${text.length} to ${maxInputTokens} chars (maxInputTokens=${maxInputTokens})`);
+    text = text.slice(0, maxInputTokens) + '...';
+    // Notify user their message was truncated
+    await ctx.sendMessage(phone, 'Your message was quite long, so I\'ve read the first part. Please send the rest in a follow-up if needed.', msg.instanceId);
   }
 
   const requestId = randomUUID().slice(0, 8);
