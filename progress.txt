@@ -10094,3 +10094,29 @@ Incomplete: Support BSUID as primary contact identifier in webhook handling (ID:
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 14/14 dedup tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
+## Iteration 2 - Sun, Mar 15, 2026 11:22:35 PM
+FAILED quality gates: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-948) — attempt 1/3
+
+
+
+## Iteration [Ralph] - Story: US-921 WCAG 2.2 SC 3.3.7 Redundant Entry prevention in webchat order flow
+### What was implemented
+- **AC1**: Customer name provided during conversation is saved via `session_save_info` tool and persists across order cycles. System prompt tells AI not to re-ask.
+- **AC2**: Table/seat number entered at session start is saved to both cart-store AND session-data-store. When cart is cleared (order placed), table info auto-restores from session data in `buildMakanMomentsContext`.
+- **AC3**: Delivery address saved via `session_save_info` persists across cart clears. System prompt shows saved address with "offer as default, allow edit" instruction.
+- **AC4**: `formatSessionDataPrompt()` renders all saved fields with "do NOT ask again" labels. AI is instructed to auto-apply saved data and accept updates via `session_save_info`.
+- **AC5**: 16 automated tests cover all redundant entry scenarios: name persistence, table persistence across cart clears, takeaway persistence, delivery address pre-fill, multi-order flow, field updates, and edge cases.
+
+### Files changed
+- `src/assistant/session-data-store.ts` — NEW: In-memory session data store with 2-hour TTL. Stores customerName, tableNumber, orderType, deliveryAddress. Includes `formatSessionDataPrompt()` for system prompt integration.
+- `src/tools/cart.ts` — Added `session_save_info` tool definition + handler. Updated `cart_set_table` handler to also persist to session data store.
+- `src/routes/public/webchat-api.ts` — Added session data prompt to system prompt suffix. Auto-restores table info from session data after cart clear. Added redundant entry prevention instructions.
+- `src/assistant/__tests__/redundant-entry.test.ts` — NEW: 16 tests across 5 AC groups.
+
+### Patterns discovered
+- `cartClear()` deletes the entire cart session (items + tableInfo), so any data that should survive order cycles needs a separate store
+- The system prompt already had "already captured — do NOT ask again" for cart table info, which served as the pattern for session data
+- Auto-restoring table info in `buildMakanMomentsContext` avoids contradictory prompts (cart says "not captured" but session data says "already provided")
+
+### Status
+✅ Build passes (3 pre-existing warnings). 16/16 redundant entry tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.

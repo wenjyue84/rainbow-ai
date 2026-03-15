@@ -14,7 +14,7 @@ import { sanitizeInput, validateInputSafety, processChat } from '../../assistant
 import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
-import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assistant/cart-store.js';
+import { cartGetItems, cartFormatSummary, cartGetTableInfo, cartSetTableInfo } from '../../assistant/cart-store.js';
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
@@ -25,6 +25,7 @@ import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-i
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
 import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
+import { getSessionData, formatSessionDataPrompt } from '../../assistant/session-data-store.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
 import { getVapidPublicKey, saveSubscription, removeSubscription, updateFrequency, sendPushNotification } from '../../assistant/push-notifications.js';
 import type { PushSubscriptionData } from '../../assistant/push-notifications.js';
@@ -287,8 +288,20 @@ function buildMakanMomentsContext(sessionId: string) {
   const currentStage = getOrderStage(sessionId);
   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
   const pendingDisambig = getDisambiguation(sessionId);
-  const tableInfo = cartGetTableInfo(sessionId);
+  let tableInfo = cartGetTableInfo(sessionId);
   const lastOrderId = getSessionOrderId(sessionId);
+
+  // US-921: Auto-restore table info from session data if cart was cleared (e.g. after order placed)
+  if (!tableInfo) {
+    const sessionData = getSessionData(sessionId);
+    if (sessionData.tableNumber || sessionData.orderType) {
+      const restored: import('../../assistant/cart-store.js').TableInfo = {};
+      if (sessionData.tableNumber) restored.tableNumber = sessionData.tableNumber;
+      if (sessionData.orderType) restored.orderType = sessionData.orderType;
+      cartSetTableInfo(sessionId, restored);
+      tableInfo = restored;
+    }
+  }
 
   const disambigSection = pendingDisambig
     ? [
@@ -422,6 +435,14 @@ function buildMakanMomentsContext(sessionId: string) {
     isModificationAllowed(sessionId).allowed
       ? `Modification window is OPEN — ${getModificationTimeRemaining(sessionId)} seconds remaining. If guest wants to change their order, call order_modify_request.`
       : 'No active modification window.',
+    // US-921: WCAG 2.2 SC 3.3.7 — Redundant Entry Prevention
+    formatSessionDataPrompt(getSessionData(sessionId)),
+    '',
+    '## Redundant Entry Prevention (US-921, WCAG 2.2 SC 3.3.7)',
+    'NEVER re-ask for information the guest has already provided in this session.',
+    'When the guest provides their name, table, order type, or address, call session_save_info to persist it.',
+    'For subsequent orders in the same session, auto-apply saved info (table, order type) and greet by name if known.',
+    'If saved data needs updating, accept the new value and call session_save_info again.',
   ].join('\n');
 
   return { allTools, allHandlers, systemPromptSuffix };

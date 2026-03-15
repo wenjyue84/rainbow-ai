@@ -47,6 +47,7 @@ import {
 import { markCartCompleted } from '../assistant/cart-recovery.js';
 import { orderItemExtractionSchema } from '../assistant/schemas.js';
 import { recordValidationEvent } from '../assistant/llm-validation-metrics.js';
+import { saveSessionData } from '../assistant/session-data-store.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -329,6 +330,27 @@ export const cartTools: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {}
+    },
+    allowedProfiles: ['makan-moments']
+  },
+  // ─── Session Data Tool (US-921: WCAG 2.2 SC 3.3.7 Redundant Entry) ──────
+  {
+    name: 'session_save_info',
+    description: [
+      'Save customer-provided information to the session so it is not asked again (WCAG 2.2 SC 3.3.7).',
+      'Call this whenever the guest provides their name, table number, order type, or delivery address.',
+      'This data persists across order cycles within the same session.',
+      'Fields: customerName (string), tableNumber (string), orderType ("dine-in"/"takeaway"), deliveryAddress (string).',
+      'Only pass the fields that the guest just provided — existing fields are preserved.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        customerName: { type: 'string', description: 'Guest\'s name (e.g. "Sarah", "Ahmad")' },
+        tableNumber: { type: 'string', description: 'Table number (e.g. "5", "T5")' },
+        orderType: { type: 'string', enum: ['dine-in', 'takeaway'], description: 'Order type' },
+        deliveryAddress: { type: 'string', description: 'Delivery address if provided' }
+      }
     },
     allowedProfiles: ['makan-moments']
   }
@@ -641,10 +663,47 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     const saved = cartSetTableInfo(sessionId, info);
+
+    // US-921: Persist table/order type to session data store (survives cart clears)
+    saveSessionData(sessionId, {
+      tableNumber: saved.tableNumber,
+      orderType: saved.orderType,
+    });
+
     const desc = saved.orderType === 'takeaway'
       ? 'Takeaway order noted!'
       : `Table ${saved.tableNumber || ''} noted!`.trim();
     return { content: [{ type: 'text', text: desc }] };
+  });
+
+  // ─── US-921: Session Data Handler (WCAG 2.2 SC 3.3.7) ──────────────────
+  handlers.set('session_save_info', async (args: any) => {
+    const update: Record<string, string> = {};
+    if (args.customerName && typeof args.customerName === 'string') {
+      update.customerName = args.customerName.trim();
+    }
+    if (args.tableNumber && typeof args.tableNumber === 'string') {
+      update.tableNumber = args.tableNumber.trim();
+    }
+    if (args.orderType && typeof args.orderType === 'string') {
+      const ot = args.orderType.trim().toLowerCase();
+      if (ot === 'dine-in' || ot === 'takeaway') {
+        update.orderType = ot;
+      }
+    }
+    if (args.deliveryAddress && typeof args.deliveryAddress === 'string') {
+      update.deliveryAddress = args.deliveryAddress.trim();
+    }
+
+    if (Object.keys(update).length === 0) {
+      return { content: [{ type: 'text', text: 'No information provided to save.' }] };
+    }
+
+    const saved = saveSessionData(sessionId, update);
+    const fields = Object.keys(update).join(', ');
+    return {
+      content: [{ type: 'text', text: `Saved: ${fields}. This info will be used automatically for future orders in this session.` }]
+    };
   });
 
   // ─── Order Stage Handlers ────────────────────────────────────────
