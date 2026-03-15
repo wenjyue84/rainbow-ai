@@ -1,13 +1,22 @@
 /**
- * PDPA Breach Notification Workflow (US-839)
+ * PDPA Breach Notification Workflow (US-839 + US-907)
  *
+ * --- US-839 (legacy) ---
  * POST   /api/rainbow/security/breach-report     — Create a new breach record
  * GET    /api/rainbow/security/breach-report      — List all breach records with deadline status
  * PATCH  /api/rainbow/security/breach-report/:id  — Update commissioner/subject notification timestamps
  *
+ * --- US-907 (Phase 3 compliance) ---
+ * POST   /api/rainbow/breach-incidents            — Log breach with discovery_time, data_types_affected, likely_harm
+ * GET    /api/rainbow/breach-incidents             — List incidents with 72-hour countdown
+ * PATCH  /api/rainbow/breach-incidents/:id         — Mark PDPC/subject notified
+ * GET    /api/rainbow/breach-incidents/:id/export  — JSON export for PDPC submission
+ * GET    /api/rainbow/breach-incidents/:id/export/pdf — HTML report for PDF printing
+ *
  * Malaysia's amended PDPA (Phase 3, June 2025) mandates:
- * - Commissioner notification within 72 hours of breach discovery
- * - Affected data subject notification within 7 days
+ * - Commissioner (PDPC) notification within 72 hours of breach discovery
+ * - Affected data subject notification within 7 calendar days
+ * - Breach records retained minimum 2 years
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -30,25 +39,41 @@ async function ensureBreachTable(): Promise<void> {
       subject_deadline TIMESTAMPTZ NOT NULL,
       commissioner_notified_at TIMESTAMPTZ,
       subjects_notified_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      data_types_affected TEXT,
+      likely_harm TEXT,
+      retention_until TIMESTAMPTZ
     )
   `);
+  // US-907: Add new columns if upgrading from US-839 schema
+  await pool.query(`
+    ALTER TABLE pdpa_breach_log
+      ADD COLUMN IF NOT EXISTS data_types_affected TEXT,
+      ADD COLUMN IF NOT EXISTS likely_harm TEXT,
+      ADD COLUMN IF NOT EXISTS retention_until TIMESTAMPTZ
+  `).catch(() => {});
 }
 
 // Run on module load — non-blocking
 dbReady.then(ok => { if (ok) ensureBreachTable().catch(() => {}); });
 
+// ─── Constants ────────────────────────────────────────────────────────
+const PDPC_DEADLINE_HOURS = 72;
+const SUBJECT_DEADLINE_DAYS = 7;
+const RETENTION_YEARS = 2; // PDPA minimum retention for breach records
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function deadlineStatus(deadline: Date, notifiedAt: Date | null): { status: string; color: string } {
+function deadlineStatus(deadline: Date, notifiedAt: Date | null): { status: string; color: string; remaining_hours?: number } {
   if (notifiedAt) return { status: 'completed', color: 'green' };
   const now = Date.now();
   const remaining = deadline.getTime() - now;
+  const remainingHours = Math.round((remaining / (1000 * 60 * 60)) * 10) / 10; // 1 decimal
   const sixHours = 6 * 60 * 60 * 1000;
-  if (remaining <= 0) return { status: 'overdue', color: 'red' };
-  if (remaining <= sixHours) return { status: 'urgent', color: 'red' };
-  if (remaining <= 24 * 60 * 60 * 1000) return { status: 'approaching', color: 'amber' };
-  return { status: 'on_track', color: 'green' };
+  if (remaining <= 0) return { status: 'overdue', color: 'red', remaining_hours: remainingHours };
+  if (remaining <= sixHours) return { status: 'urgent', color: 'red', remaining_hours: remainingHours };
+  if (remaining <= 24 * 60 * 60 * 1000) return { status: 'approaching', color: 'amber', remaining_hours: remainingHours };
+  return { status: 'on_track', color: 'green', remaining_hours: remainingHours };
 }
 
 function formatRow(row: any) {
@@ -66,6 +91,9 @@ function formatRow(row: any) {
     subject_deadline: row.subject_deadline,
     subjects_notified_at: row.subjects_notified_at,
     subject_status: deadlineStatus(subjDeadline, row.subjects_notified_at),
+    data_types_affected: row.data_types_affected ? JSON.parse(row.data_types_affected) : null,
+    likely_harm: row.likely_harm || null,
+    retention_until: row.retention_until || null,
     created_at: row.created_at,
   };
 }
@@ -171,6 +199,275 @@ router.patch('/security/breach-report/:id', async (req: Request, res: Response) 
     res.json(formatRow(result.rows[0]));
   } catch (error: any) {
     console.error('[PDPA] Failed to update breach record:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// US-907: /breach-incidents — Phase 3 PDPA compliance endpoints
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─── POST /breach-incidents — Log breach with AC-specified fields ─────
+router.post('/breach-incidents', async (req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  const { discovery_time, affected_records_count, data_types_affected, likely_harm, description, reported_by } = req.body;
+
+  // Validate required fields per AC
+  if (!likely_harm || typeof likely_harm !== 'string' || likely_harm.trim().length === 0) {
+    return badRequest(res, 'likely_harm is required');
+  }
+  if (affected_records_count === undefined || typeof affected_records_count !== 'number' || affected_records_count < 0) {
+    return badRequest(res, 'affected_records_count must be a non-negative number');
+  }
+  if (!data_types_affected || !Array.isArray(data_types_affected) || data_types_affected.length === 0) {
+    return badRequest(res, 'data_types_affected must be a non-empty array of strings');
+  }
+
+  const reporter = reported_by || (req.headers['x-admin-user'] as string) || 'admin';
+  const desc = (description || likely_harm).trim();
+  const discoveredAt = discovery_time ? new Date(discovery_time) : new Date();
+
+  if (isNaN(discoveredAt.getTime())) {
+    return badRequest(res, 'discovery_time must be a valid ISO 8601 date');
+  }
+
+  const commDeadline = new Date(discoveredAt.getTime() + PDPC_DEADLINE_HOURS * 60 * 60 * 1000);
+  const subjDeadline = new Date(discoveredAt.getTime() + SUBJECT_DEADLINE_DAYS * 24 * 60 * 60 * 1000);
+  const retentionUntil = new Date(discoveredAt.getTime() + RETENTION_YEARS * 365.25 * 24 * 60 * 60 * 1000);
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO pdpa_breach_log
+         (reported_by, description, affected_count_estimate, discovered_at,
+          commissioner_deadline, subject_deadline, data_types_affected, likely_harm, retention_until)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [reporter, desc, affected_records_count, discoveredAt,
+       commDeadline, subjDeadline, JSON.stringify(data_types_affected), likely_harm.trim(), retentionUntil]
+    );
+
+    const record = formatRow(result.rows[0]);
+
+    // Fire-and-forget WhatsApp admin notification
+    notifyAdminBreachReport(desc, affected_records_count, commDeadline, subjDeadline).catch(() => {});
+
+    console.log(`[PDPA] Breach incident created: ${record.id} by ${reporter} — ${data_types_affected.join(', ')}`);
+    res.status(201).json(record);
+  } catch (error: any) {
+    console.error('[PDPA] Failed to create breach incident:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── GET /breach-incidents — List with 72-hour countdown ─────────────
+router.get('/breach-incidents', async (_req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM pdpa_breach_log ORDER BY created_at DESC`
+    );
+    res.json(result.rows.map(formatRow));
+  } catch (error: any) {
+    console.error('[PDPA] Failed to list breach incidents:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── PATCH /breach-incidents/:id — Mark PDPC/subject notified ────────
+router.patch('/breach-incidents/:id', async (req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  const { id } = req.params;
+  const { commissioner_notified_at, subjects_notified_at } = req.body;
+
+  if (!commissioner_notified_at && !subjects_notified_at) {
+    return badRequest(res, 'commissioner_notified_at or subjects_notified_at required');
+  }
+
+  try {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    let idx = 1;
+
+    if (commissioner_notified_at) {
+      sets.push(`commissioner_notified_at = COALESCE(commissioner_notified_at, $${idx})`);
+      vals.push(new Date(commissioner_notified_at));
+      idx++;
+    }
+    if (subjects_notified_at) {
+      sets.push(`subjects_notified_at = COALESCE(subjects_notified_at, $${idx})`);
+      vals.push(new Date(subjects_notified_at));
+      idx++;
+    }
+
+    vals.push(id);
+    const result = await pool.query(
+      `UPDATE pdpa_breach_log SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      vals
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Breach incident not found' });
+    }
+
+    res.json(formatRow(result.rows[0]));
+  } catch (error: any) {
+    console.error('[PDPA] Failed to update breach incident:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── GET /breach-incidents/:id/export — JSON report for PDPC submission
+router.get('/breach-incidents/:id/export', async (req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(`SELECT * FROM pdpa_breach_log WHERE id = $1`, [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Breach incident not found' });
+    }
+
+    const row = result.rows[0];
+    const commDeadline = new Date(row.commissioner_deadline);
+    const subjDeadline = new Date(row.subject_deadline);
+    const dataTypes = row.data_types_affected ? JSON.parse(row.data_types_affected) : [];
+
+    const report = {
+      report_type: 'PDPA Breach Notification — PDPC Submission',
+      reference: `BREACH-${row.id}`,
+      generated_at: new Date().toISOString(),
+      legal_basis: 'Personal Data Protection (Amendment) Act 2024, Section 12B',
+      data_controller: {
+        organization: 'Pelangi Capsule Hostel',
+        reported_by: row.reported_by,
+      },
+      breach_details: {
+        description: row.description,
+        discovery_time: row.discovered_at,
+        affected_records_count: row.affected_count_estimate,
+        data_types_affected: dataTypes,
+        likely_harm: row.likely_harm || 'Not specified',
+      },
+      notification_status: {
+        commissioner: {
+          deadline: row.commissioner_deadline,
+          deadline_status: deadlineStatus(commDeadline, row.commissioner_notified_at),
+          notified_at: row.commissioner_notified_at,
+        },
+        data_subjects: {
+          deadline: row.subject_deadline,
+          deadline_status: deadlineStatus(subjDeadline, row.subjects_notified_at),
+          notified_at: row.subjects_notified_at,
+        },
+      },
+      retention: {
+        retain_until: row.retention_until,
+        minimum_years: RETENTION_YEARS,
+      },
+      record_created_at: row.created_at,
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="breach-report-${row.id}.json"`);
+    res.json(report);
+  } catch (error: any) {
+    console.error('[PDPA] Failed to export breach report:', error.message);
+    return serverError(res, error);
+  }
+});
+
+// ─── GET /breach-incidents/:id/export/pdf — HTML report for print-to-PDF
+router.get('/breach-incidents/:id/export/pdf', async (req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(`SELECT * FROM pdpa_breach_log WHERE id = $1`, [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Breach incident not found' });
+    }
+
+    const row = result.rows[0];
+    const fmtDate = (d: string | Date | null) => d ? new Date(d).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' }) : 'N/A';
+    const commDeadline = new Date(row.commissioner_deadline);
+    const commStatus = deadlineStatus(commDeadline, row.commissioner_notified_at);
+    const subjDeadline = new Date(row.subject_deadline);
+    const subjStatus = deadlineStatus(subjDeadline, row.subjects_notified_at);
+    const dataTypes: string[] = row.data_types_affected ? JSON.parse(row.data_types_affected) : [];
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PDPA Breach Report — BREACH-${row.id}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; color: #333; line-height: 1.6; }
+  h1 { color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 8px; }
+  h2 { color: #1e3a5f; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+  th { background-color: #f3f4f6; font-weight: 600; width: 35%; }
+  .status-overdue { color: #b91c1c; font-weight: bold; }
+  .status-urgent { color: #b91c1c; }
+  .status-approaching { color: #d97706; }
+  .status-completed { color: #059669; }
+  .status-on_track { color: #059669; }
+  .footer { margin-top: 40px; font-size: 0.85em; color: #666; border-top: 1px solid #ddd; padding-top: 12px; }
+  @media print { body { margin: 20px; } }
+</style>
+</head>
+<body>
+<h1>PDPA Data Breach Notification Report</h1>
+<p><strong>Reference:</strong> BREACH-${row.id}<br>
+<strong>Legal Basis:</strong> Personal Data Protection (Amendment) Act 2024, Section 12B<br>
+<strong>Generated:</strong> ${fmtDate(new Date())}</p>
+
+<h2>1. Data Controller</h2>
+<table>
+<tr><th>Organization</th><td>Pelangi Capsule Hostel</td></tr>
+<tr><th>Reported By</th><td>${row.reported_by}</td></tr>
+</table>
+
+<h2>2. Breach Details</h2>
+<table>
+<tr><th>Description</th><td>${row.description}</td></tr>
+<tr><th>Discovery Time</th><td>${fmtDate(row.discovered_at)}</td></tr>
+<tr><th>Affected Records</th><td>${row.affected_count_estimate}</td></tr>
+<tr><th>Data Types Affected</th><td>${dataTypes.length > 0 ? dataTypes.join(', ') : 'Not specified'}</td></tr>
+<tr><th>Likely Harm</th><td>${row.likely_harm || 'Not specified'}</td></tr>
+</table>
+
+<h2>3. Notification Status</h2>
+<table>
+<tr><th>PDPC Deadline (72h)</th><td>${fmtDate(row.commissioner_deadline)} <span class="status-${commStatus.status}">[${commStatus.status.toUpperCase()}${commStatus.remaining_hours !== undefined ? ` — ${commStatus.remaining_hours}h remaining` : ''}]</span></td></tr>
+<tr><th>PDPC Notified At</th><td>${fmtDate(row.commissioner_notified_at)}</td></tr>
+<tr><th>Subject Deadline (7d)</th><td>${fmtDate(row.subject_deadline)} <span class="status-${subjStatus.status}">[${subjStatus.status.toUpperCase()}${subjStatus.remaining_hours !== undefined ? ` — ${subjStatus.remaining_hours}h remaining` : ''}]</span></td></tr>
+<tr><th>Subjects Notified At</th><td>${fmtDate(row.subjects_notified_at)}</td></tr>
+</table>
+
+<h2>4. Retention</h2>
+<table>
+<tr><th>Minimum Retention</th><td>${RETENTION_YEARS} years (per PDPA requirement)</td></tr>
+<tr><th>Retain Until</th><td>${fmtDate(row.retention_until)}</td></tr>
+</table>
+
+<div class="footer">
+<p>This report was generated by Rainbow AI for submission to the Personal Data Protection Commissioner (PDPC) of Malaysia.
+Record created: ${fmtDate(row.created_at)}.</p>
+</div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `inline; filename="breach-report-${row.id}.html"`);
+    res.send(html);
+  } catch (error: any) {
+    console.error('[PDPA] Failed to export breach PDF report:', error.message);
     return serverError(res, error);
   }
 });

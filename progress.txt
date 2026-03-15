@@ -8044,3 +8044,30 @@ Completed: WhatsApp media auto-download: save incoming images/documents before U
 ### Gotchas
 - `vi.resetModules()` + re-apply all mocks needed for in-memory state isolation between test groups
 - DB persistence uses `drizzle-orm` eq/sql — must mock both `drizzle-orm` and `shared/schema.js` in tests
+## Iteration 4 - Sun, Mar 15, 2026  3:57:52 PM
+Incomplete: PDPA 2024 Phase 3: machine-readable data portability export with CSV and self-service OTP (ID: US-894) — attempt 1/3
+
+
+## Iteration 14 - Story: US-907 - PDPA Malaysia Phase 3: 72-hour breach notification pipeline to PDPC
+### What was implemented
+- Extended `src/routes/admin/breach-report.ts` with US-907 Phase 3 compliance endpoints
+- Added `POST /breach-incidents` with fields: `discovery_time`, `affected_records_count`, `data_types_affected`, `likely_harm`
+- Added `GET /breach-incidents` listing all breach records with 72-hour countdown (`remaining_hours` in commissioner_status/subject_status)
+- Added `PATCH /breach-incidents/:id` to mark PDPC/subject notified (append-only timestamps)
+- Added `GET /breach-incidents/:id/export` — structured JSON report for PDPC submission with legal references
+- Added `GET /breach-incidents/:id/export/pdf` — HTML report with print-ready styling for PDF generation
+- Added DB columns: `data_types_affected` (TEXT/JSON), `likely_harm` (TEXT), `retention_until` (TIMESTAMPTZ)
+- Schema migration is automatic via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` on startup
+- 2-year minimum retention computed and stored in `retention_until` per PDPA requirement
+- Overdue escalation handled by existing `checkBreachDeadlines()` function which sends WhatsApp alerts
+
+### Patterns discovered
+- Existing US-839 breach-report.ts used raw pg queries (not Drizzle) — consistent with other raw pg tables pattern
+- `ensureBreachTable()` handles schema creation + migration in one function
+- `deadlineStatus()` helper extended with `remaining_hours` for countdown display
+- All US-907 endpoints share the same `pdpa_breach_log` table as US-839 (backward compatible)
+
+### Gotchas
+- `data_types_affected` stored as JSON string in TEXT column (parsed on read)
+- HTML export uses template literals with inline styles for print-to-PDF compatibility
+- `retention_until` is computed at breach creation time, not enforced by automated deletion
