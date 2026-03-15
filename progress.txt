@@ -10228,3 +10228,30 @@ Implementation was already complete from a previous iteration but was not marked
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 19/19 SST receipt tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+## Iteration 3 - Sun, Mar 15, 2026 11:46:33 PM
+Incomplete: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-948) — attempt 1/3
+
+
+## Iteration 4 - Story: US-948 PDPA 2024 Right to Erasure
+
+### What was implemented
+The implementation was already complete in `src/routes/admin/gdpr-erasure.ts` from a prior session (upgraded from US-420 GDPR erasure). The story just needed verification, tests run, and the `passes` flag set.
+
+### Files already in place
+- `src/routes/admin/gdpr-erasure.ts` — Full PDPA two-step erasure workflow:
+  - POST /pdpa/erasure/request — creates pending request with legal basis
+  - POST /pdpa/erasure/confirm/:requestId — second admin confirms and executes
+  - GET /pdpa/erasure/requests — audit list of all erasure requests
+  - DELETE /guests/:jid/data — legacy backwards-compat endpoint
+- `src/assistant/__tests__/pdpa-erasure.test.ts` — 25 unit tests (all passing)
+- Route registered in `src/routes/admin/index.ts` at line 294
+
+### Patterns discovered
+- Cascading deletion covers 12 tables in a single DB transaction
+- phone_hash (SHA-256) used in audit log to avoid storing raw PII
+- backup_purge_due = CURRENT_DATE + 30 days stored per PDPA guidance
+- Legacy gdpr_audit_log table retained for backwards compatibility
+- purgeVectorStoreData targets rainbow_kb_files with phone/JID metadata match
+
+### Status
+✅ All 25 tests pass. Build passes. Story was pre-implemented; marked passes=true.
