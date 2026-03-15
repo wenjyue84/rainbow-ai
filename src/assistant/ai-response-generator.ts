@@ -13,7 +13,8 @@ import {
 } from './ai-provider-manager.js';
 import type { SupportedLanguage } from './language-router.js';
 import { z } from 'zod';
-import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
+import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse, orderItemExtractionSchema } from './schemas.js';
+import { recordValidationEvent } from './llm-validation-metrics.js';
 import type { AIAction, AIResponse as ZodAIResponse } from './schemas.js';
 import { validateToolArgs } from './pipeline/prompt-injection-guard.js';
 import {
@@ -440,6 +441,8 @@ export async function classifyAndRespond(
     // Validation failed even after retry — fall back to parseAIResponse partial recovery
     if (raw) {
       const result = parseAIResponse(raw);
+      // US-933: Record recovered validation
+      recordValidationEvent('classifyAndRespond', false, true, 'Partial recovery via parseAIResponse');
       result.model = provider?.name || provider?.model || 'unknown';
       result.responseTime = responseTime;
       result.usage = usage;
@@ -670,6 +673,8 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
         ? Math.min(1, Math.max(0, parsed.confidence))
         : 0.7;
       const responseText = typeof parsed.response === 'string' ? parsed.response.trim() : '';
+      // US-933: Record recovered validation
+      recordValidationEvent('generateReplyOnly', false, true, 'Partial recovery from raw JSON');
       return {
         response: responseText,
         confidence,

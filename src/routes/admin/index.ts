@@ -77,6 +77,7 @@ import waTemplatesRoutes from './wa-templates.js';
 import hallucinationReportRoutes from './hallucination-report.js';
 import chatbotComplianceRoutes from './chatbot-compliance.js';
 import analyticsTopConsumersRoutes from './analytics-top-consumers.js';
+import analyticsLlmValidationRoutes from './analytics-llm-validation.js';
 
 const router = Router();
 
@@ -216,6 +217,7 @@ const SEMI_STABLE_PATHS = [
   '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis', '/analytics/kpis/containment',
   '/analytics/hallucination-report',
   '/analytics/top-consumers',
+  '/analytics/llm-validation',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -317,6 +319,7 @@ router.use(waTemplatesRoutes);
 router.use(hallucinationReportRoutes);
 router.use(chatbotComplianceRoutes);
 router.use(analyticsTopConsumersRoutes);
+router.use(analyticsLlmValidationRoutes);
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

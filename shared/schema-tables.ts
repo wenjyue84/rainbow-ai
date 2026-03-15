@@ -699,3 +699,29 @@ export const complianceAuditLog = pgTable("compliance_audit_log", {
 
 export type ComplianceAuditLog = typeof complianceAuditLog.$inferSelect;
 export type InsertComplianceAuditLog = typeof complianceAuditLog.$inferInsert;
+
+// ─── WhatsApp Pricing Events (US-943) ─────────────────────────────────
+// Captures per-message pricing_analytics from Meta Cloud API status webhooks.
+// Stores actual (not estimated) per-message cost data from Meta.
+
+export const whatsappPricingEvents = pgTable("whatsapp_pricing_events", {
+  id: serial("id").primaryKey(),
+  messageId: varchar("message_id", { length: 128 }).notNull(), // Meta wamid
+  phone: text("phone"),                                         // recipient phone
+  category: varchar("category", { length: 64 }).notNull(),      // marketing, utility, authentication, service
+  currency: varchar("currency", { length: 8 }).notNull().default('USD'),
+  price: real("price").notNull().default(0),                    // actual per-message price from Meta
+  billable: boolean("billable").notNull().default(true),
+  cswFree: boolean("csw_free").notNull().default(false),        // true if utility within CSW (free)
+  volumeTier: varchar("volume_tier", { length: 32 }),           // standard, tier1, tier2
+  profileId: text("profile_id").notNull().default('pelangi'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_wa_pricing_events_message_id").on(table.messageId),
+  index("idx_wa_pricing_events_category").on(table.category),
+  index("idx_wa_pricing_events_profile").on(table.profileId),
+  index("idx_wa_pricing_events_created_at").on(table.createdAt),
+]));
+
+export type WhatsappPricingEvent = typeof whatsappPricingEvents.$inferSelect;
+export type InsertWhatsappPricingEvent = typeof whatsappPricingEvents.$inferInsert;

@@ -3868,7 +3868,7 @@
         "Fix and test: streamChatWithTools avoids redundant second provider call when first call returns text"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-934",
@@ -4469,6 +4469,389 @@
         "The existing SC 3.3.8 story (Minimum) already prohibits CAPTCHAs without alternatives; this enhanced criterion removes the alternatives clause entirely",
         "Reference: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/",
         "autocomplete='current-password' on password fields per HTML spec"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-960",
+      "title": "Support BSUID as primary contact identifier in webhook handling",
+      "priority": "critical",
+      "description": "From June 2026, WhatsApp is rolling out usernames that allow users to hide phone numbers. When a user adopts a username, their phone number may no longer appear in webhook payloads — instead a Business-Scoped User ID (BSUID, up to 128 alphanumeric chars, prefixed `whatsapp:CC.BSUID`) is delivered in the `from`, `to`, and new `ExternalUserId` fields. All conversation-tracking, CRM mapping, and message dispatch logic that assumes `from`/`to` are always E.164 phone numbers will break for those users.",
+      "acceptanceCriteria": [
+        "Webhook handler accepts and stores BSUID from `ExternalUserId` field on every inbound message, regardless of whether the user has a username",
+        "Conversation-lookup logic falls back gracefully when `from` is a BSUID rather than a phone number",
+        "Outbound messaging supports BSUID as the `to` address when a phone number is unavailable",
+        "Existing conversations previously keyed on phone number are migrated/linked to the corresponding BSUID in the database",
+        "BSUID ↔ phone-number mapping is preserved for the rolling 30-day window where both are returned",
+        "Authentication templates (one-tap, zero-tap, copy-code) continue to use phone number as they cannot use BSUID"
+      ],
+      "technicalNotes": [
+        "BSUID format: `whatsapp:CC.BSUID`, max 140 chars including prefix",
+        "Both phone number and BSUID are returned for 30 days after any interaction; BSUID is always present in `ExternalUserId`",
+        "Contact Book feature launches April 2026 and automatically stores phone↔BSUID pairs for known contacts",
+        "Reference: Twilio changelog — https://www.twilio.com/en-us/changelog/whatsapp-usernames--new-business-scoped-user-id--bsuid--field-re"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-961",
+      "title": "Migrate Graph API calls to v21.0+ before deprecated version removal",
+      "priority": "critical",
+      "description": "Meta deprecated Marketing API v19.0 on February 4, 2025, and v20.0 on May 6, 2025. Graph API v21.0 is now the current stable version. Any Rainbow AI code making calls to v19 or v20 endpoints will receive errors. Beyond the immediate risk, Meta follows a rolling 2-version deprecation schedule, so all API calls must target a version no more than 2 major releases behind the current stable to remain within support.",
+      "acceptanceCriteria": [
+        "All outbound Cloud API calls (send message, upload media, get templates, webhook registration) use Graph API v21.0 or later",
+        "A version-audit script or CI check fails the build if any hardcoded API version strings below v21 are found",
+        "The target API version is configurable via an environment variable, not hardcoded throughout the codebase",
+        "After version upgrade, a smoke-test suite validates that message send, webhook receipt, and template fetch all succeed end-to-end"
+      ],
+      "technicalNotes": [
+        "Meta follows a quarterly major release cycle; v19 was deprecated Feb 2025, v20 deprecated May 2025",
+        "On-Premises API sunset completed October 23, 2025 — Cloud API is now the only supported path",
+        "Reference: https://developers.facebook.com/docs/whatsapp/business-platform/changelog/ and https://ppc.land/meta-releases-graph-api-v21-0-and-marketing-api-v21-0/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-962",
+      "title": "Detect and handle portfolio pacing pause signals for batch sends",
+      "priority": "high",
+      "description": "WhatsApp now batches large template campaigns and monitors quality signals (blocks, reports, engagement) before releasing subsequent batches. If negative signals appear, remaining messages in the batch may not be sent without warning. The system currently has no mechanism to detect pacing pauses, alert operators, or retry/requeue affected messages — meaning silent delivery failures during campaign sends.",
+      "acceptanceCriteria": [
+        "Webhook handler processes the `message_status: failed` event with error code 131049 (frequency-cap saturation) and distinguishes it from hard delivery failures",
+        "Admin dashboard shows a 'Pacing Pause' alert when more than 5% of a batch is held, including the affected batch ID and message count",
+        "Operator receives a notification (webhook or email) when a campaign send is paused by portfolio pacing",
+        "Held messages are not silently discarded; they are queued for operator review with a re-send or cancel action",
+        "System exposes a pacing health metric in the analytics dashboard (messages held vs delivered per campaign)"
+      ],
+      "technicalNotes": [
+        "Error 131049 = frequency-cap / pacing pause; Error 130429 or 131057 = throughput/speed issues",
+        "Portfolio pacing applies to accounts with <500K messages/year or showing suspicious quality signals",
+        "Reference: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/ and https://sanuker.com/whatsapp-api-2026_updates-pacing-limits-usernames/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-963",
+      "title": "Implement per-message cost model with free CSW utility window tracking",
+      "priority": "high",
+      "description": "Since July 1, 2025, WhatsApp shifted from conversation-based to per-template-message pricing. Utility template messages sent within an active 24-hour Customer Service Window (CSW) are now free; the same templates sent outside the window are charged the utility rate. The existing per-message cost capture story captures cost per message, but does not implement the CSW-window logic to correctly categorize and zero-cost utility messages sent within the window — leading to overstated cost estimates.",
+      "acceptanceCriteria": [
+        "System tracks the start time of each customer's active CSW (triggered by any inbound user message)",
+        "Utility template messages dispatched within the CSW are tagged `cost: 0` in the message cost ledger",
+        "Utility templates sent after CSW expiry are charged at the standard utility rate for the user's country",
+        "Marketing templates are always charged regardless of CSW status",
+        "Authentication templates are always charged individually regardless of CSW status",
+        "Cost dashboard correctly displays zero-cost utility messages as a separate line from charged utility messages",
+        "Volume-tier discounts (Utility and Authentication only) are applied correctly once monthly thresholds are reached"
+      ],
+      "technicalNotes": [
+        "CSW starts on the last inbound message from the user and expires 24 hours later",
+        "Free utility window only applies to template messages, not service (freeform) messages — those are always free",
+        "Volume tiers apply per WABA per country; reference: https://www.eesel.ai/blog/whatsapp-business-api-latest-pricing-and-policy-changes",
+        "Marketing templates are never free regardless of CSW; utility upsells/cross-sells risk reclassification as Marketing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-964",
+      "title": "Enforce marketing message frequency cap and surface error 131049",
+      "priority": "high",
+      "description": "Meta enforces a user-level frequency cap: each WhatsApp user can receive at most approximately 2 marketing template messages per 10-day rolling period from all businesses combined. When this cap is exceeded, the Cloud API returns error code 131049 and the message is silently undelivered. The current system does not surface this error distinctly to operators, who may incorrectly attribute the failure to connectivity or QoS issues.",
+      "acceptanceCriteria": [
+        "On receiving error 131049 from the Cloud API, the message is marked `status: undelivered_frequency_cap` rather than a generic failure",
+        "Admin dashboard shows a distinct 'Frequency Cap Reached' failure reason in the message log",
+        "Campaign analytics display frequency-cap failures as a separate metric from network failures or policy violations",
+        "When >10% of a campaign batch fails with 131049, an operator alert fires within 5 minutes",
+        "Re-send logic does not automatically retry messages that failed with 131049 within the same 10-day window"
+      ],
+      "technicalNotes": [
+        "Cap is approximately 2 marketing templates per user per 10-day window from ALL businesses, not just yours",
+        "Click-to-WhatsApp ads are exempt from frequency capping",
+        "Error 131049 is returned as a standard Cloud API delivery webhook status",
+        "Reference: https://www.wappbiz.com/blogs/frequency-capping/ and https://crmsupport.freshworks.com/support/solutions/articles/50000009847"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-965",
+      "title": "Implement OWASP LLM04 — RAG knowledge base integrity validation pipeline",
+      "priority": "high",
+      "description": "OWASP LLM04:2025 (Data and Model Poisoning) identifies RAG knowledge bases as a primary attack surface: a single adversarially crafted document injected into the knowledge base can dominate retrieval and systematically manipulate responses. The current .rainbow-kb/ and .rainbow-kb-southern/ pipelines ingest markdown files without cryptographic integrity checks, source authentication, or anomaly detection, leaving the hostel assistant vulnerable to poisoned KB content.",
+      "acceptanceCriteria": [
+        "Each KB file is hashed (SHA-256) on ingest; the hash is stored in `rainbow_kb_files`; re-ingestion fails if content hash changes without explicit operator approval",
+        "KB ingest pipeline rejects documents from unverified sources (only files from the local filesystem path or an allowlisted S3 prefix are accepted)",
+        "An automated audit runs nightly comparing current KB embeddings against a signed baseline snapshot and alerts the operator on anomalies",
+        "Embedding anomaly detection flags KB documents whose cosine similarity to the centroid of their topic cluster falls below a configurable threshold (default: 2 standard deviations)",
+        "All KB ingest events (add, update, delete) are written to the `rainbow_config_audit` table with the operator identity and file hash"
+      ],
+      "technicalNotes": [
+        "CycloneDX ML-BOM format recommended for tracking data provenance — https://cyclonedx.org/",
+        "Embedding anomaly detection: store per-document centroid distance at ingest time; alert on significant drift",
+        "Defence-in-depth: combine semantic validation, output sanitization, and vector DB integrity checks",
+        "Reference: https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-966",
+      "title": "Implement OWASP LLM06 — vector store access control and embedding partitioning",
+      "priority": "high",
+      "description": "OWASP LLM06:2025 (Vector and Embedding Weaknesses) requires fine-grained access controls on vector databases to prevent cross-tenant data leakage, embedding inversion attacks, and similarity attacks that retrieve unintended content. Rainbow AI serves two properties (Pelangi and Southern) with separate knowledge bases but potentially shared vector infrastructure — without logical partitioning, a query for one property could retrieve embeddings from the other.",
+      "acceptanceCriteria": [
+        "Vector store queries are scoped by a `property_id` (or `namespace`) tag so Pelangi KB embeddings are never returned in response to Southern queries and vice versa",
+        "Embedding retrieval requires an authenticated service identity; unauthenticated or cross-tenant queries return a 403 and are logged",
+        "Vector DB access logs (query, retrieved doc IDs, scores) are retained for 90 days and accessible in the admin audit trail",
+        "Routine quarterly audit script verifies no cross-namespace vectors exist in the store",
+        "Similarity attack mitigation: queries returning unusually high-score matches to out-of-namespace documents trigger an alert"
+      ],
+      "technicalNotes": [
+        "Applies to pgvector (Neon) namespace/metadata filtering or any future dedicated vector store",
+        "OWASP recommends 'logical and access-based partitioning of vector datasets to prohibit unauthorized access between user groups'",
+        "Embedding inversion risk: do not expose raw embedding vectors in API responses",
+        "Reference: https://genai.owasp.org/llmrisk/llm062025-vector-and-embedding-weaknesses/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-967",
+      "title": "Display SST-compliant receipt with tax line item in WhatsApp order confirmation",
+      "priority": "high",
+      "description": "Malaysian restaurants with annual F&B revenue exceeding RM1.5 million must be SST-registered and charge 6% service tax on all taxable F&B services. Royal Malaysian Customs requires that invoices/receipts show SST as a separate line item with the vendor's SST registration number. The current order-confirmation message does not break out SST, exposing Makan Moments Cafe to non-compliance penalties that became fully enforceable from January 1, 2026.",
+      "acceptanceCriteria": [
+        "Order confirmation WhatsApp message displays a dedicated `SST (6%): RM X.XX` line item when the operator's SST registration flag is enabled",
+        "The operator's SST registration number (format: `W12-1234-12345678`) is displayed on the receipt message",
+        "Subtotal (pre-SST), SST amount, and Grand Total are shown as distinct values",
+        "When the cafe is below the SST threshold (flag disabled), no SST line is shown",
+        "A sequential invoice number (format: `INV-YYYYMMDD-NNNN`) is included in every receipt for customs record-keeping",
+        "Receipts are stored in the database for a minimum of 7 years in accordance with Malaysian records retention requirements"
+      ],
+      "technicalNotes": [
+        "SST rate for F&B services: 6% service tax; registration threshold: RM1.5 million/12 months",
+        "Required invoice fields (Royal Malaysian Customs): vendor name, SST registration number, date, unique sequential number, description, net value, SST amount",
+        "Enforcement began January 1, 2026 (grace period was July–December 2025)",
+        "Reference: https://mysst.customs.gov.my/assets/document/Industry%20Guides/GI/Guide%20on%20FnB_20230626-V5.pdf and https://blog.menuviel.com/what-are-the-current-sst-rates-for-restaurants-in-malaysia/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-968",
+      "title": "Enforce Malaysia PDPA 2024 data processor Security Principle obligations",
+      "priority": "high",
+      "description": "The Malaysia Personal Data Protection (Amendment) Act 2024, Phase 3 (effective June 2025), directly obliges data processors (including SaaS/chatbot platforms) to comply with the Security Principle: taking practical steps to protect personal data from loss, misuse, modification, unauthorized access, and destruction. Non-compliance carries fines up to RM1 million and/or 3 years imprisonment. Rainbow AI processes guest PII (names, phone numbers, booking data) as both a data controller and processor and must formally document its technical and organizational security measures.",
+      "acceptanceCriteria": [
+        "A Data Processing Agreement (DPA) document exists describing Rainbow AI's technical and organizational security measures, aligned with PDPA Section 9",
+        "All PII fields in the database (guest names, phone numbers, booking data) are encrypted at rest using AES-256 or equivalent",
+        "Access to PII is gated by role-based access control; only roles explicitly requiring PII access can query those fields",
+        "A data processing inventory document lists every category of personal data processed, the legal basis, retention period, and security measure applied",
+        "Automated data-retention enforcement deletes or anonymizes guest PII after the configured retention period (default: 2 years post-checkout)",
+        "Security measures are reviewed annually and the review is recorded in the audit log"
+      ],
+      "technicalNotes": [
+        "PDPA Amendment 2024 Phase 3 effective June 2025 — data processors now directly liable under Security Principle",
+        "Maximum penalty: RM1 million fine and/or 3 years imprisonment per breach",
+        "Data processors must provide 'sufficient guarantees' to data controllers via contractual or technical evidence",
+        "Reference: https://tsl-legal.com/navigating-the-malaysian-personal-data-protection-amendment-act-2024-key-changes-implications-and-implications-for-businesses/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-969",
+      "title": "Add double opt-in confirmation flow for WhatsApp marketing subscriptions",
+      "priority": "high",
+      "description": "WhatsApp Business Policy requires documented opt-in before sending any proactive marketing message, and Meta's 2025 updated opt-in policy requires that the opt-in specifies the business name and message types, is collected before the first proactive send, and informs users they can opt out. A double opt-in flow (initial confirmation template + keyword reply) provides legally defensible evidence of consent under both WhatsApp policy and Malaysia PDPA 2024, which requires consent to be specific, informed, and revocable.",
+      "acceptanceCriteria": [
+        "When a guest is added to the marketing list (via check-in, web form, or admin add), a pre-approved opt-in confirmation template is sent before any promotional messages",
+        "The template names the business, lists the types of messages (promotions, offers, event announcements), and instructs the user to reply with a keyword (e.g., 'YES') to confirm",
+        "A keyword-reply handler processes confirmation replies and updates the contact's `marketing_consent` flag to `confirmed` with a timestamp",
+        "Contacts who do not reply within 48 hours are automatically flagged as `consent_pending` and excluded from marketing campaigns",
+        "An opt-out keyword (e.g., 'STOP') immediately sets `marketing_consent` to `revoked` and halts all marketing sends to that number",
+        "Consent audit trail records: opt-in timestamp, confirmation timestamp, opt-out timestamp, and the IP/channel through which consent was collected"
+      ],
+      "technicalNotes": [
+        "Step 1: send a Meta pre-approved template (because it is business-initiated)",
+        "Step 2: when user replies with keyword, send a free-form service message as confirmation (no template approval required)",
+        "Storing opt-in evidence is mandatory: 'maintain good records of opt-ins, templates, data policies and audit trails'",
+        "WhatsApp policy: 'you may only contact people if they have given you their mobile number and opt-in permission'",
+        "Reference: https://business.whatsapp.com/policy"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-970",
+      "title": "Implement AI chatbot identity disclosure and anti-impersonation guard",
+      "priority": "high",
+      "description": "WhatsApp's January 2026 task-specific chatbot policy and Malaysia's AIGE transparency principle both require that users know they are interacting with an AI, not a human. Chatbot accessibility research from W3C and industry sources in 2025 further highlights that using a human name and avatar 'may erode trust, especially for vulnerable users'. The AI must proactively disclose its automated nature at the start of each conversation and when a user asks directly.",
+      "acceptanceCriteria": [
+        "The first outbound message in every new conversation includes a disclosure that the user is speaking with an AI assistant (e.g., 'Hi, I'm Rainbow, an AI assistant for Pelangi Capsule.')",
+        "If a user asks 'Are you a bot?', 'Are you human?', 'Who am I talking to?' or similar, the AI responds truthfully and immediately without deflecting",
+        "The AI never claims to be human, uses a person's name, or implies human agency in its responses",
+        "After 3 consecutive failed intents (AI cannot resolve the query), the AI automatically offers human escalation ('Would you like me to connect you to our team member?')",
+        "Disclosure text is configurable per property in the admin settings panel",
+        "Operator audit log records whether each conversation disclosed AI identity in the opening message"
+      ],
+      "technicalNotes": [
+        "WhatsApp January 2026 policy: general-purpose AI is banned; task-specific bots must clearly identify their scope",
+        "Malaysia AIGE Transparency Principle: 'disclose when AI systems make decisions affecting individuals'",
+        "W3C chatbot accessibility guidance: 'calling a chatbot by a human name and using a human avatar may erode trust for vulnerable users'",
+        "Reference: https://mitre.github.io/chatbot-accessibility-playbook/docs/4_2_22.html and https://www.imbrace.co/whatsapps-2026-ai-policy-what-businesses-need-to-know-and-how-to-adapt-blog/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-971",
+      "title": "Implement PDPA 2024 automated-decision transparency disclosure for AI responses",
+      "priority": "medium",
+      "description": "Malaysia's National Guidelines on AI Governance and Ethics (AIGE, September 2024) and the PDPA 2024 transparency principles require that when AI systems make decisions or recommendations affecting individuals, businesses must disclose that AI is being used, what data informs the decision, and provide a mechanism for human review or appeal. While AIGE compliance is currently voluntary, it aligns with PDPA transparency obligations that are legally binding, and hostel guests must be informed when automated AI determines booking advice, pricing, or room availability.",
+      "acceptanceCriteria": [
+        "Every outbound AI-generated message includes a configurable disclosure footer (e.g., 'This response was generated by Rainbow AI') that can be toggled per-property",
+        "When the AI provides a recommendation based on personal data (e.g., room suggestions based on previous stay), the disclosure notes which data category was used",
+        "Guests can type a designated keyword (e.g., 'SPEAK HUMAN') to request escalation to a human agent at any point in the conversation",
+        "The admin dashboard shows each automated decision event with the intent classification, AI provider used, and data categories accessed",
+        "Privacy notice (accessible via 'PRIVACY' keyword) explains that responses are AI-generated and that human review is available",
+        "Audit log records the AI provider, model version, and intent classification for every outbound message for a minimum of 1 year"
+      ],
+      "technicalNotes": [
+        "Malaysia AIGE (September 2024) — transparency principle requires disclosure of AI use, training data categories, and decision criteria",
+        "PDPA 2024 transparency obligations are legally binding; AIGE guidelines are voluntary but recommended",
+        "Human escalation path is also required under WhatsApp's January 2026 task-specific chatbot policy",
+        "Reference: https://fpf.org/blog/malaysia-charts-its-digital-course-a-guide-to-the-new-frameworks-for-data-protection-and-ai-ethics/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-972",
+      "title": "Implement one-tap authentication template with App Signing Key Hash handshake",
+      "priority": "medium",
+      "description": "WhatsApp supports one-tap and zero-tap authentication templates that allow Android users to receive OTPs without leaving the app. These require a handshake between the business app and WhatsApp using the App Signing Key Hash, and the handshake must complete within 10 minutes of the template send. The current webchat authentication flow uses a plain copy-code template; upgrading to one-tap would reduce friction for Android users (who are the majority in Malaysia) and improve OTP conversion rates.",
+      "acceptanceCriteria": [
+        "An authentication template is created with a one-tap autofill button including the app's package name and signing key hash in the `components` array",
+        "The mobile app initiates the handshake with WhatsApp before requesting the OTP template send",
+        "The template send is made within 10 minutes of handshake initiation; a timeout guard retries the handshake if the window expires",
+        "On non-Android devices (iOS, desktop), the template automatically falls back to a copy-code button without error",
+        "Zero-tap variant is available as an optional configuration for fully automated OTP capture; it requires the Android broadcast receiver integration",
+        "Template is categorized as `AUTHENTICATION` and charged per message (not as marketing)"
+      ],
+      "technicalNotes": [
+        "One-tap requires: package name, app signing key hash in template components; handshake via `GET /v1/whatsapp/handshake`",
+        "Handshake window: 10 minutes; if it expires before template send, the autofill button will degrade to copy-code",
+        "Zero-tap: Android-only; uses BroadcastReceiver to auto-capture the OTP; also requires App Signing Key Hash",
+        "Authentication templates cannot use BSUID as recipient — must use E.164 phone number",
+        "Reference: https://developer.8x8.com/connect/docs/guide-whatsapp-one-tap-or-zero-tap-authentication/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-973",
+      "title": "Implement utility template reclassification guard to prevent marketing mischarge",
+      "priority": "medium",
+      "description": "Under WhatsApp's July 2025 per-message pricing rules, utility templates that include any promotional content (upsells, cross-sells, or content that appears 'even slightly promotional') are automatically reclassified as marketing templates by Meta and charged at the higher marketing rate. This reclassification is applied post-send by Meta, not at approval time, and can cause unexpected cost spikes. The current AI-generated order confirmation and booking confirmation messages may include upsell language that triggers reclassification.",
+      "acceptanceCriteria": [
+        "A pre-send lint check scans outbound utility templates for promotional language patterns (discount words, offer language, upsell phrases) and blocks send with a warning if detected",
+        "Operator UI shows a 'Utility Template Risk' badge when a template draft contains any of the flagged promotional patterns",
+        "Webhook handler for message status events detects when a message sent as utility is confirmed delivered as marketing (Meta returns a category in delivery receipts) and logs a reclassification event",
+        "Admin dashboard includes a 'Reclassification Events' report showing affected messages, original category, reclassified category, and cost delta",
+        "Monthly cost reconciliation report flags any month where reclassification events account for >5% of utility message spend"
+      ],
+      "technicalNotes": [
+        "Meta reclassifies during delivery, not at template approval — businesses can be charged marketing rate retroactively",
+        "Prohibited utility content: promotional language, discount offers, upsells, cross-sells, non-transactional CTAs",
+        "Free CSW window only applies to utility templates — reclassification to marketing negates the free window benefit",
+        "Reference: https://www.eesel.ai/blog/whatsapp-business-api-latest-pricing-and-policy-changes"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-974",
+      "title": "Implement cross-session conversation memory with summarisation for long-term guests",
+      "priority": "medium",
+      "description": "Industry best practice for AI chatbots in 2025 is a hierarchical memory architecture: short-term (verbatim recent turns), medium-term (compressed session summaries), and long-term (key facts and preferences extracted from historical interactions). For returning hostel guests, this means the AI can recall a guest's past room preferences, dietary restrictions, or recurring issues without requiring the guest to re-state them each visit, improving service quality and reducing conversation length.",
+      "acceptanceCriteria": [
+        "After each conversation ends (session timeout or checkout), a summary of key facts (room preference, dietary needs, complaints, special requests) is extracted and stored in a per-guest memory record",
+        "On the next conversation with a returning guest (matched by phone number or BSUID), relevant memory facts are injected into the system prompt context",
+        "Memory records are stored in a dedicated `guest_memory` table with a TTL of 2 years (aligned with PDPA retention policy)",
+        "Guest can request deletion of their memory record by sending 'FORGET ME', which purges the `guest_memory` record and logs the deletion in the audit trail",
+        "Memory injection is capped at a configurable token budget (default: 500 tokens) to prevent context window overflow",
+        "Admin dashboard allows operators to view and manually edit a guest's memory record"
+      ],
+      "technicalNotes": [
+        "Short-term: last 10 conversation turns in context; Medium-term: LLM-generated summary of current session; Long-term: extracted key facts in structured JSON",
+        "Summarisation prompt should extract: preferences, complaints, special requests, room history, dietary restrictions",
+        "Memory deletion is required for PDPA right to erasure (already covered) and GDPR equivalents",
+        "Reference: https://medium.com/@nomannayeem/building-ai-agents-that-actually-remember-a-developers-guide-to-memory-management-in-2025-062fd0be80a1"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-975",
+      "title": "Surface KB source attribution in AI responses for transparency and trust",
+      "priority": "low",
+      "description": "Industry best practice for RAG-based chatbots in 2025 is to surface the source document or section that informed the AI's answer, enabling users to verify information and operators to identify outdated KB content. This is especially relevant for hostel policy answers (check-in times, room rates, cancellation policy) where guests may need to verify the accuracy of the information provided. Source attribution also directly supports OWASP LLM09 (misinformation) and AIGE transparency requirements.",
+      "acceptanceCriteria": [
+        "When the AI's response is grounded in a KB document retrieved via RAG, the response optionally appends a citation (e.g., 'Source: Pelangi House Rules, last updated 2025-03-01')",
+        "Citation display is configurable per property: 'always', 'on request', or 'never' (default: 'on request')",
+        "When a user sends 'SOURCE' or 'WHERE DID YOU GET THAT?' after an AI response, the bot sends a follow-up with the KB filename, section heading, and last-updated date",
+        "KB files in `rainbow_kb_files` store a `last_updated_date` and `section_title` field that are included in the retrieval metadata",
+        "Operator UI shows which KB document was retrieved for each AI response in the conversation debug panel",
+        "When no KB document was retrieved (pure LLM response), the disclosure reads 'Based on general knowledge — please verify with our team'"
+      ],
+      "technicalNotes": [
+        "Retrieve source metadata alongside embedding chunks: filename, section heading, last_updated timestamp",
+        "RAG grounding with citations is explicitly recommended in OWASP LLM04 mitigations ('integrate RAG and grounding techniques')",
+        "Reference: https://customgpt.ai/faqs-customgpt-citation-qa/ and https://thenewstack.io/stop-ai-lies-smarter-answers-with-trusted-sources/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-976",
+      "title": "Implement portfolio-level 100K messaging limit inheritance for new phone numbers",
+      "priority": "low",
+      "description": "From Q1/Q2 2026, WhatsApp is removing the 2K and 10K daily limit tiers. Once a Business Manager portfolio completes Business Verification or quality-based scaling, all phone numbers in the portfolio immediately inherit the 100K daily limit — including newly registered numbers. This eliminates the historical warm-up ramp for new numbers. The current system's messaging-limits tracking is per-phone-number and will over-restrict new numbers that should inherit the portfolio limit.",
+      "acceptanceCriteria": [
+        "On WhatsApp phone number registration, the system queries the Cloud API `GET /v1/{phone-number-id}` to retrieve the current `messaging_limit_tier` rather than defaulting to 250",
+        "Messaging limit checks reference the portfolio-inherited tier, not a locally stored ramp schedule",
+        "When a new number is added to a verified Business Manager portfolio, the admin UI confirms the inherited limit within 60 seconds of registration",
+        "Rate limiter uses the API-reported tier as the authoritative daily cap, refreshed every 24 hours",
+        "If the API returns no tier (new account without verification), the system defaults to 250 and displays an on-boarding prompt to complete Business Verification"
+      ],
+      "technicalNotes": [
+        "Rollout timeline: select partners Q1 2026, full removal of 2K/10K tiers in Q2 2026",
+        "API endpoint to check messaging limit: `GET /{phone-number-id}` returns `messaging_limit_tier` in the response",
+        "Portfolio-level limits mean all WABA numbers share the highest tier achieved — no per-number warm-up needed",
+        "Reference: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

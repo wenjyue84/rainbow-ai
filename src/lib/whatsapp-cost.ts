@@ -561,6 +561,149 @@ export function startWhatsappCostDailyJob(): void {
   }, 24 * 60 * 60 * 1000);
 }
 
+// ─── Volume Tier Detection (US-943) ──────────────────────────────────
+// Meta applies volume discounts at certain monthly message thresholds.
+// standard: 0–1,000 messages/month
+// tier1: 1,001–10,000 messages/month
+// tier2: 10,001+ messages/month
+
+export type VolumeTier = 'standard' | 'tier1' | 'tier2';
+
+export function detectVolumeTier(monthlyMessages: number): VolumeTier {
+  if (monthlyMessages > 10_000) return 'tier2';
+  if (monthlyMessages > 1_000) return 'tier1';
+  return 'standard';
+}
+
+/**
+ * Get volume tier status for the current month.
+ */
+export async function getVolumeTierStatus(profileId?: string): Promise<{
+  tier: VolumeTier;
+  monthlyMessages: number;
+  billableMessages: number;
+  cswFreeMessages: number;
+  month: string;
+  nextTierThreshold: number | null;
+  messagesUntilNextTier: number | null;
+}> {
+  const now = new Date();
+  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  const firstOfMonth = `${month}-01`;
+
+  const profileFilter = profileId ? sql`AND profile_id = ${profileId}` : sql``;
+
+  const result = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(total_messages), 0)::int AS total_messages,
+      COALESCE(SUM(billable_messages), 0)::int AS billable_messages,
+      COALESCE(SUM(csw_free_messages), 0)::int AS csw_free_messages
+    FROM whatsapp_cost_daily
+    WHERE date >= ${firstOfMonth} ${profileFilter}
+  `);
+
+  const row = (result as any).rows[0] ?? {};
+  const monthlyMessages = Number(row.total_messages ?? 0);
+  const billableMessages = Number(row.billable_messages ?? 0);
+  const cswFreeMessages = Number(row.csw_free_messages ?? 0);
+  const tier = detectVolumeTier(monthlyMessages);
+
+  let nextTierThreshold: number | null = null;
+  let messagesUntilNextTier: number | null = null;
+  if (tier === 'standard') {
+    nextTierThreshold = 1_001;
+    messagesUntilNextTier = Math.max(0, 1_001 - monthlyMessages);
+  } else if (tier === 'tier1') {
+    nextTierThreshold = 10_001;
+    messagesUntilNextTier = Math.max(0, 10_001 - monthlyMessages);
+  }
+
+  return { tier, monthlyMessages, billableMessages, cswFreeMessages, month, nextTierThreshold, messagesUntilNextTier };
+}
+
+// ─── Monthly Cost Report (US-943) ────────────────────────────────────
+
+/**
+ * Get monthly cost report distinguishing free CSW from billable messages.
+ */
+export async function queryMonthlyCostReport(options: {
+  profileId?: string;
+  months?: number;
+}): Promise<Array<{
+  month: string;
+  totalMessages: number;
+  billableMessages: number;
+  cswFreeMessages: number;
+  estimatedCostUsd: number;
+  byCategory: Array<{ category: string; messages: number; billable: number; cswFree: number; costUsd: number }>;
+  volumeTier: VolumeTier;
+}>> {
+  const months = options.months || 3;
+  const cutoffDate = new Date();
+  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - months);
+  const since = cutoffDate.toISOString().slice(0, 10);
+  const profileFilter = options.profileId ? sql`AND profile_id = ${options.profileId}` : sql``;
+
+  // Monthly aggregation
+  const monthlyResult = await db.execute(sql`
+    SELECT
+      SUBSTRING(date, 1, 7) AS month,
+      SUM(total_messages)::int AS total_messages,
+      SUM(billable_messages)::int AS billable_messages,
+      SUM(csw_free_messages)::int AS csw_free_messages,
+      COALESCE(SUM(estimated_cost_usd), 0)::real AS estimated_cost_usd
+    FROM whatsapp_cost_daily
+    WHERE date >= ${since} ${profileFilter}
+    GROUP BY SUBSTRING(date, 1, 7)
+    ORDER BY month DESC
+  `);
+
+  // Per-month category breakdown
+  const categoryResult = await db.execute(sql`
+    SELECT
+      SUBSTRING(date, 1, 7) AS month,
+      template_type AS category,
+      SUM(total_messages)::int AS messages,
+      SUM(billable_messages)::int AS billable,
+      SUM(csw_free_messages)::int AS csw_free,
+      COALESCE(SUM(estimated_cost_usd), 0)::real AS cost_usd
+    FROM whatsapp_cost_daily
+    WHERE date >= ${since} ${profileFilter}
+    GROUP BY SUBSTRING(date, 1, 7), template_type
+    ORDER BY month DESC, cost_usd DESC
+  `);
+
+  const monthlyRows = (monthlyResult as any).rows ?? [];
+  const categoryRows = (categoryResult as any).rows ?? [];
+
+  // Group categories by month
+  const categoryByMonth = new Map<string, Array<{ category: string; messages: number; billable: number; cswFree: number; costUsd: number }>>();
+  for (const r of categoryRows) {
+    const m = r.month;
+    if (!categoryByMonth.has(m)) categoryByMonth.set(m, []);
+    categoryByMonth.get(m)!.push({
+      category: r.category,
+      messages: Number(r.messages),
+      billable: Number(r.billable),
+      cswFree: Number(r.csw_free),
+      costUsd: Number(r.cost_usd),
+    });
+  }
+
+  return monthlyRows.map((r: any) => {
+    const totalMessages = Number(r.total_messages);
+    return {
+      month: r.month,
+      totalMessages,
+      billableMessages: Number(r.billable_messages),
+      cswFreeMessages: Number(r.csw_free_messages),
+      estimatedCostUsd: Number(r.estimated_cost_usd),
+      byCategory: categoryByMonth.get(r.month) ?? [],
+      volumeTier: detectVolumeTier(totalMessages),
+    };
+  });
+}
+
 // ─── Exports for testing ────────────────────────────────────────────
 
 export const _testExports = {

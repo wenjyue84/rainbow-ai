@@ -44,6 +44,8 @@ import {
   markConfirmationShown, markCorrected, recordOrderSubmitted,
   recordConfirmationDeclined, clearAccuracyTracking,
 } from '../assistant/order-accuracy-tracker.js';
+import { orderItemExtractionSchema } from '../assistant/schemas.js';
+import { recordValidationEvent } from '../assistant/llm-validation-metrics.js';
 
 // ─── Tool Definitions ──────────────────────────────────────────────
 
@@ -425,6 +427,23 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   const handlers = new Map<string, (args: any) => Promise<MCPToolResult>>();
 
   handlers.set('cart_add_item', async (args: any) => {
+    // US-933 AC3: Validate order extraction output against schema before cart mutation
+    const validation = orderItemExtractionSchema.safeParse(args);
+    if (!validation.success) {
+      const errors = validation.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+      console.warn(`[Cart] cart_add_item schema validation failed: ${errors}`, JSON.stringify(args));
+      recordValidationEvent('cart_add_item', false, false, errors);
+      // Attempt graceful recovery with coerced values
+      if (!args.name || typeof args.name !== 'string' || args.name.trim().length === 0) {
+        return {
+          content: [{ type: 'text', text: 'Could not add item: item name is missing or invalid.' }],
+          isError: true
+        };
+      }
+    } else {
+      recordValidationEvent('cart_add_item', true);
+    }
+
     const item: CartItem = {
       name: args.name,
       qty: typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1,

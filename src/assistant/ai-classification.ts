@@ -7,7 +7,8 @@ import { configStore } from './config-store.js';
 import { getContextWindows } from './context-windows.js';
 import { isAIAvailable, getAISettings, chatWithFallback, getProviders } from './ai-provider-manager.js';
 import { getLLMSettings } from './llm-settings-loader.js';
-import { classifyResultSchema, safeParseLLMResponse } from './schemas.js';
+import { classifyResultSchema, safeParseLLMResponse, validateKnownIntent } from './schemas.js';
+import { recordValidationEvent } from './llm-validation-metrics.js';
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -184,12 +185,19 @@ export async function classifyIntent(
     const validated = safeParseLLMResponse(content, classifyResultSchema, 'classifyIntent');
     if (validated.success) {
       const result = parseClassifyResult(validated.data);
-      return { ...result, usage };
+      // US-933 AC4: Validate category is a known enum value
+      const intentCheck = validateKnownIntent(result.category, VALID_CATEGORIES);
+      if (!intentCheck.valid) {
+        console.warn(`[AI] classifyIntent: unknown category "${result.category}", corrected to "${intentCheck.corrected}"`);
+      }
+      return { ...result, category: intentCheck.corrected, usage };
     }
     // Zod validation failed — try partial recovery from raw JSON
     try {
       const parsed = JSON.parse(content);
       const result = parseClassifyResult(parsed);
+      // US-933: Record recovered validation
+      recordValidationEvent('classifyIntent', false, true, 'Partial recovery from raw JSON');
       return { ...result, usage };
     } catch {
       console.error('[AI] Failed to parse classify result:', content);
@@ -280,6 +288,8 @@ export async function classifyOnly(
         ? Math.min(1, Math.max(0, parsed.confidence))
         : 0.5;
 
+      // US-933: Record recovered validation
+      recordValidationEvent('classifyOnly', false, true, 'Partial recovery from raw JSON');
       return {
         intent,
         confidence,

@@ -9,6 +9,7 @@
  * - On setter: safeParse() with throw (admin writes must be strict)
  */
 import { z } from 'zod';
+import { recordValidationEvent } from './llm-validation-metrics.js';
 
 // ─── Shared ─────────────────────────────────────────────────────────
 
@@ -319,6 +320,39 @@ export const bookingExtractionSchema = z.object({
 });
 export type BookingExtraction = z.infer<typeof bookingExtractionSchema>;
 
+// ─── Order Extraction Schema (US-933) ─────────────────────────────
+// Validates LLM-generated cart item data before cart mutation.
+
+export const orderItemExtractionSchema = z.object({
+  name: z.string().min(1, 'Item name is required'),
+  qty: z.number().int().positive().default(1),
+  code: z.string().optional(),
+  price: z.number().nonnegative().optional(),
+  notes: z.string().optional(),
+});
+export type OrderItemExtraction = z.infer<typeof orderItemExtractionSchema>;
+
+// ─── Strict Classification Schema (US-933: AC4) ──────────────────
+// Intent classification with known category enum validation.
+// Used as a post-parse check; the base classifyResultSchema stays loose
+// for Zod parsing, then we validate category against known intents.
+
+export function validateKnownIntent(
+  category: string,
+  knownCategories: string[]
+): { valid: boolean; corrected: string } {
+  if (knownCategories.includes(category)) {
+    return { valid: true, corrected: category };
+  }
+  // Try case-insensitive match
+  const lower = category.toLowerCase();
+  const match = knownCategories.find(k => k.toLowerCase() === lower);
+  if (match) {
+    return { valid: true, corrected: match };
+  }
+  return { valid: false, corrected: 'unknown' };
+}
+
 // ─── Safe LLM Response Parser ──────────────────────────────────────
 
 export interface LLMParseSuccess<T> {
@@ -364,6 +398,8 @@ export function safeParseLLMResponse<T>(
 
   const result = schema.safeParse(parsed);
   if (result.success) {
+    // US-933: Record successful validation
+    recordValidationEvent(context, true);
     return { success: true, data: result.data };
   }
 
@@ -373,12 +409,16 @@ export function safeParseLLMResponse<T>(
     message: issue.message,
     received: issue.path.reduce((obj: any, key) => obj?.[key], parsed),
   }));
+  const errorSummary = issues.map(i => `${i.path}: ${i.message}`).join(', ');
   console.warn(
     `[LLMValidation:${context}] Schema validation failed:`,
     JSON.stringify(issues)
   );
 
-  return { success: false, error: `Validation failed: ${issues.map(i => `${i.path}: ${i.message}`).join(', ')}` };
+  // US-933: Record failed validation
+  recordValidationEvent(context, false, false, errorSummary);
+
+  return { success: false, error: `Validation failed: ${errorSummary}` };
 }
 
 // ─── KDS Order Webhook Payload (US-876) ─────────────────────────────

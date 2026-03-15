@@ -25,7 +25,7 @@ import {
   notifyAdminTemplatePaused,
 } from '../../lib/admin-notifier.js';
 import { db } from '../../lib/db.js';
-import { templateQualityEvents } from '../../../shared/schema.js';
+import { templateQualityEvents, whatsappPricingEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 
@@ -308,6 +308,87 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
       // Notify admin on PAUSED or DISABLED
       if (newStatus === 'PAUSED' || newStatus === 'DISABLED') {
         notifyAdminTemplatePaused(templateName, newStatus, reason).catch(() => {});
+      }
+    }
+  }
+});
+
+// ─── Meta Cloud API: message status with pricing_analytics (US-943) ────────
+// Meta POSTs message status updates (sent, delivered, read, failed) for outbound
+// template messages. The pricing_analytics field (released July 1, 2025) provides
+// per-message cost breakdowns by category.
+//
+// Payload shape (inside entry[].changes[]):
+//   field = 'messages'
+//   value.statuses[].pricing_analytics = { billable, pricing_model, category }
+//   value.statuses[].id = wamid (message ID)
+//   value.statuses[].recipient_id = phone number
+router.post('/webhooks/meta/message-status', metaSignatureGuard, (req: Request, res: Response) => {
+  // Acknowledge receipt immediately so Meta does not retry.
+  res.status(200).json({ ok: true });
+
+  const body = req.body as {
+    entry?: Array<{
+      changes?: Array<{
+        field?: string;
+        value?: {
+          statuses?: Array<{
+            id?: string;
+            recipient_id?: string;
+            status?: string;
+            pricing_analytics?: {
+              billable?: boolean;
+              pricing_model?: string;
+              category?: string;
+              price?: number;
+              currency?: string;
+            };
+          }>;
+          metadata?: { display_phone_number?: string };
+        };
+      }>;
+    }>;
+    [key: string]: unknown;
+  };
+
+  const entries = body.entry ?? [];
+  for (const entry of entries) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== 'messages') continue;
+
+      const statuses = change.value?.statuses ?? [];
+      for (const status of statuses) {
+        const pricing = status.pricing_analytics;
+        if (!pricing) continue;
+
+        const messageId = status.id ?? 'unknown';
+        const phone = status.recipient_id ?? null;
+        const category = (pricing.category ?? 'unknown').toLowerCase();
+        const billable = pricing.billable ?? true;
+        const price = pricing.price ?? 0;
+        const currency = pricing.currency ?? 'USD';
+
+        // Determine if this is a free CSW message
+        const cswFree = !billable && category === 'utility';
+
+        console.log(
+          `[webhook:meta:message-status] pricing_analytics: msg=${messageId} category=${category} ` +
+          `price=${price} ${currency} billable=${billable} csw_free=${cswFree}`
+        );
+
+        // Persist to whatsapp_pricing_events
+        db.insert(whatsappPricingEvents).values({
+          messageId,
+          phone,
+          category,
+          currency,
+          price,
+          billable,
+          cswFree,
+          profileId: 'pelangi',
+        }).catch(err =>
+          console.error('[webhook:meta:message-status] Failed to persist pricing event:', err.message)
+        );
       }
     }
   }
