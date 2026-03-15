@@ -217,6 +217,111 @@
       height: 18px;
     }
 
+    /* US-931: WCAG 2.2 SC 2.5.7 — Attach button (pointer alternative to drag-and-drop) */
+    .attach-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .attach-btn:hover {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--primary);
+    }
+
+    .attach-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .attach-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* US-931: Drag-and-drop overlay (supplemental — click attach is the pointer alternative) */
+    .drop-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      background: rgba(37, 99, 235, 0.08);
+      border: 2px dashed var(--primary);
+      border-radius: 8px;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .drop-overlay.visible {
+      display: flex;
+    }
+
+    .drop-overlay-text {
+      background: var(--surface);
+      color: var(--primary);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    /* US-931: File preview bar */
+    .file-preview {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text);
+      flex-shrink: 0;
+    }
+
+    .file-preview.visible {
+      display: flex;
+    }
+
+    .file-preview-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-preview-remove {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .file-preview-remove:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    .file-preview-remove:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
     /* Powered by footer */
     .powered-by {
       text-align: center;
@@ -533,6 +638,11 @@
         flex-direction: column;
       }
     }
+
+    /* US-931: chat-container needs relative positioning for drop overlay */
+    .chat-container {
+      position: relative;
+    }
   </style>
 </head>
 <body>
@@ -575,6 +685,11 @@
     <!-- US-846: Offline hours banner -->
     <div class="offline-banner" id="offlineBanner" role="status" aria-live="polite"></div>
 
+    <!-- US-931: Drag-and-drop overlay (pointer alternative: attach button below) -->
+    <div class="drop-overlay" id="dropOverlay" aria-hidden="true">
+      <span class="drop-overlay-text">Drop file to attach</span>
+    </div>
+
     <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite" aria-relevant="additions">
       <div class="typing" id="typing" aria-hidden="true">
         <div class="typing-dot"></div>
@@ -585,7 +700,21 @@
     <!-- SR-only live region for typing status announcements (WCAG 4.1.3) -->
     <div id="typingStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
+    <!-- US-931: File preview bar (shown when a file is selected via click or drag) -->
+    <div class="file-preview" id="filePreview" role="status" aria-live="polite">
+      <span class="file-preview-name" id="filePreviewName"></span>
+      <button class="file-preview-remove" id="filePreviewRemove" type="button" aria-label="Remove attached file">&times;</button>
+    </div>
+
     <div class="input-area">
+      <!-- US-931: Hidden file input (used by both attach button click AND drag-and-drop) -->
+      <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx" style="display:none" aria-label="Select file to attach" />
+      <!-- US-931: WCAG 2.2 SC 2.5.7 — Visible click-to-select button (pointer alternative to drag-and-drop) -->
+      <button class="attach-btn" id="attachBtn" type="button" aria-label="Attach file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+        </svg>
+      </button>
       <textarea
         id="input"
         rows="1"
@@ -819,6 +948,85 @@
       });
 
       sendBtn.addEventListener('click', sendMessage);
+
+      // ─── US-931: WCAG 2.2 SC 2.5.7 — File attachment with pointer alternatives ──
+      var fileInput = document.getElementById('fileInput');
+      var attachBtn = document.getElementById('attachBtn');
+      var dropOverlay = document.getElementById('dropOverlay');
+      var filePreview = document.getElementById('filePreview');
+      var filePreviewName = document.getElementById('filePreviewName');
+      var filePreviewRemove = document.getElementById('filePreviewRemove');
+      var pendingFile = null;
+      var dragCounter = 0;
+
+      // Pointer alternative: click-to-select via attach button
+      if (attachBtn && fileInput) {
+        attachBtn.addEventListener('click', function() {
+          fileInput.click();
+        });
+      }
+
+      if (fileInput) {
+        fileInput.addEventListener('change', function() {
+          if (fileInput.files && fileInput.files.length > 0) {
+            setAttachedFile(fileInput.files[0]);
+          }
+        });
+      }
+
+      function setAttachedFile(file) {
+        if (!file) return;
+        pendingFile = file;
+        if (filePreviewName) {
+          var sizeKB = Math.round(file.size / 1024);
+          filePreviewName.textContent = file.name + ' (' + sizeKB + ' KB)';
+        }
+        if (filePreview) filePreview.classList.add('visible');
+      }
+
+      function clearAttachedFile() {
+        pendingFile = null;
+        if (fileInput) fileInput.value = '';
+        if (filePreview) filePreview.classList.remove('visible');
+        if (filePreviewName) filePreviewName.textContent = '';
+      }
+
+      if (filePreviewRemove) {
+        filePreviewRemove.addEventListener('click', clearAttachedFile);
+      }
+
+      // Drag-and-drop (supplemental — click attach is the SC 2.5.7 pointer alternative)
+      var chatContainer = document.querySelector('.chat-container');
+      if (chatContainer) {
+        chatContainer.addEventListener('dragenter', function(e) {
+          e.preventDefault();
+          dragCounter++;
+          if (dropOverlay) dropOverlay.classList.add('visible');
+        });
+
+        chatContainer.addEventListener('dragleave', function(e) {
+          e.preventDefault();
+          dragCounter--;
+          if (dragCounter <= 0) {
+            dragCounter = 0;
+            if (dropOverlay) dropOverlay.classList.remove('visible');
+          }
+        });
+
+        chatContainer.addEventListener('dragover', function(e) {
+          e.preventDefault();
+        });
+
+        chatContainer.addEventListener('drop', function(e) {
+          e.preventDefault();
+          dragCounter = 0;
+          if (dropOverlay) dropOverlay.classList.remove('visible');
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            setAttachedFile(e.dataTransfer.files[0]);
+          }
+        });
+      }
+      // ─── End US-931 ──────────────────────────────────────────────────────────
 
       function appendMessage(type, text, animate, timestamp) {
         if (animate === undefined) animate = true;

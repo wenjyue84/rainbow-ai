@@ -10709,3 +10709,54 @@ Here is the technical brief for implementing the user story in a Frappe/Python c
 - Runtime migration pattern: fire-and-forget pool.query with .catch() warn — same as opt-out.ts processedAt migration
 ### Status
 ✅ Build passes (3 pre-existing warnings). Server starts. Pre-existing test failures unchanged. All 5 acceptance criteria implemented.
+## Iteration 1 - Mon, Mar 16, 2026  3:28:51 AM
+Incomplete: Implement OWASP LLM06 â€” vector store access control and embedding partitioning (ID: US-966) — attempt 1/3
+
+
+## Pre-analysis for US-966 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for implementing vector store access control within the specified Frappe/Python context.
+
+**Project:** `lhdn_payroll_integration`
+**Objective:** Implement OWASP LLM06 multi-tenant access control for the vector knowledge base.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/api/search.py` (or similar endpoint): The main entry point for KB queries. This file will be modified to retrieve the user's `property_id` and pass it down.
+*   `lhdn_payroll_integration/utils/vector_store.py`: A new or existing file responsible for all `pgvector` interactions. This is where the core query filtering logic will be added.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/vector_query_log/vector_query_log.py`: The controller for a new DocType to handle audit logging.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes Involved:**
+    *   `User` or `Company`: To resolve the current user's `property_id` (tenant).
+    *   A new DocType `Vector Query Log` for audit trails, with fields for `user`, `query_text`, `retrieved_ids`, and `property_id`.
+*   **Hooks (`hooks.py`):**
+    *   A new `scheduler_events` entry to run a quarterly audit script (`"cron"`: `"0 0 1 */3 *"`).
+
+**3. Implementation Approach:**
+1.  The primary search function (in `.../utils/vector_store.py`) must be updated to accept a `property_id`.
+2.  It will then apply a metadata filter in the `pgvector` query (e.g., `WHERE metadata_->>'property_id' = '...'`) to ensure queries only return results for that tenant.
+3.  The API endpoint (`.../api/search.py`) will enforce authentication and retrieve the user's `property_id` from their session/profile to pass to the search function.
+4.  Log every query by creating and inserting a new `Vector Query Log` document.
+5.  Create the scheduled script to verify that no cross-tenant vectors are retrievable.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the `property_id` is consistently passed through the entire call stack for every query.
+*   Queries from system-level users or users without a `property_id` must be handled gracefully, likely by rejecting the request.
+*   The audit script must not disrupt live services; run it on a replica or during off-peak hours if performance is a concern.
+*   Do not expose raw embedding vectors in any API responses to mitigate embedding inversion attacks.
+
+
+## Iteration [Ralph] - Story: US-931 - WCAG 2.2 SC 2.5.7 Pointer alternatives to drag operations
+### What was implemented
+- **AC1 (File upload click alternative)**: Added visible attach button (`#attachBtn`) with paperclip icon next to textarea as click-to-select pointer alternative. Hidden `<input type="file">` is triggered by attach button click. Drag-and-drop overlay (`#dropOverlay`) on chat container is the supplemental drag method.
+- **AC2 (No drag resize)**: Widget panel is fixed 380x580px, textarea has `resize: none` — no drag resize operations exist, so no alternatives needed.
+- **AC3 (No swipe/drag custom controls)**: No swipe-to-dismiss or drag-to-scroll custom controls exist. Widget close uses click button or Escape key.
+- **AC4 (Test verification)**: 16-test Vitest suite in `src/assistant/__tests__/pointer-alternatives.test.ts` validates all pointer alternatives exist and drag operations have click equivalents.
+### Files changed
+- `src/public/webchat.html` — Added attach-btn CSS, drop-overlay CSS, file-preview CSS, attach button HTML, hidden file input, drop overlay div, file preview bar, and JS handlers for click-to-select + drag-and-drop + file preview
+- `src/assistant/__tests__/pointer-alternatives.test.ts` — NEW: 16-test suite verifying SC 2.5.7 compliance
+### Patterns discovered
+- chat-container needs `position: relative` for absolute-positioned drop overlay
+- dragCounter pattern prevents overlay flicker from child element drag events
+- Both drag-drop and click paths converge on `setAttachedFile()` for consistent behavior
+### Status
+All 16 tests pass. Build passes (3 pre-existing warnings). Server starts. All 4 acceptance criteria implemented.
