@@ -18,7 +18,6 @@
  *   data-subtitle  — subtitle shown under title in chat header
  *   data-whatsapp  — phone number for WhatsApp CTA in header (e.g. "601234567890")
  *   data-position  — "right" or "left" (default: "right")
- *   data-theme     — "light", "dark", or "auto" (default: "auto") — controls webchat color scheme
  *
  * Initialization: Deferred to requestIdleCallback (or 3s timeout) to avoid blocking LCP/INP.
  */
@@ -41,7 +40,6 @@
     var subtitle    = scriptConfig.subtitle  || (script && script.getAttribute('data-subtitle'))  || '';
     var whatsapp    = scriptConfig.whatsapp  || (script && script.getAttribute('data-whatsapp'))  || '';
     var position    = scriptConfig.position  || (script && script.getAttribute('data-position'))  || 'right';
-    var theme       = scriptConfig.theme     || (script && script.getAttribute('data-theme'))     || 'auto';
 
     var positionProp = position === 'left' ? 'left: 24px;' : 'right: 24px;';
 
@@ -187,7 +185,6 @@
         });
         if (subtitle) iframeParams.set('subtitle', subtitle);
         if (whatsapp) iframeParams.set('whatsapp', whatsapp);
-        if (theme && theme !== 'auto') iframeParams.set('theme', theme);
 
         var src = BASE_URL + '/chat/' + encodeURIComponent(profileId) + '?' + iframeParams.toString();
         var iframe = document.createElement('iframe');

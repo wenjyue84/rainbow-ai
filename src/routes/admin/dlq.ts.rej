@@ -1,0 +1,36 @@
+diff a/src/routes/admin/dlq.ts b/src/routes/admin/dlq.ts	(rejected hunks)
+@@ -25,34 +24,6 @@ router.get('/dlq', async (_req: Request, res: Response) => {
+   }
+ });
+ 
+-// US-895: GET /dlq/:jobId — return DLQ job with associated raw webhook payload
+-router.get('/dlq/:jobId', async (req: Request, res: Response) => {
+-  const jobId = req.params.jobId as string;
+-  if (!jobId) {
+-    res.status(400).json({ error: 'jobId is required' });
+-    return;
+-  }
+-
+-  try {
+-    const jobs = await getDLQJobs();
+-    const job = jobs.find(j => j.id === jobId);
+-    if (!job) {
+-      res.status(404).json({ error: `DLQ job ${jobId} not found` });
+-      return;
+-    }
+-
+-    // Fetch associated raw event if available
+-    let rawEvent = null;
+-    if (job.rawEventId) {
+-      rawEvent = await getRawEventById(job.rawEventId);
+-    }
+-
+-    res.json({ job, rawEvent });
+-  } catch (err: any) {
+-    res.status(500).json({ error: err.message });
+-  }
+-});
+-
+ router.post('/dlq/:jobId/retry', async (req: Request, res: Response) => {
+   const jobId = req.params.jobId as string;
+   if (!jobId) {

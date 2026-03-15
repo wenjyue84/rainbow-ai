@@ -1,0 +1,397 @@
+diff a/src/routes/webhooks/index.ts b/src/routes/webhooks/index.ts	(rejected hunks)
+@@ -6,8 +6,6 @@
+  *  - DIGIMAN API    (booking/checkin/checkout callback notifications)
+  *  - Meta Cloud API (phone_number_quality_update events) — US-458
+  *  - Meta Cloud API (account_update events) — US-479
+- *  - Meta Cloud API (business_capability_update events) — US-908
+- *  - Meta Cloud API (inbound messages with BSUID support) — US-926
+  *
+  * All routes apply HMAC-SHA256 signature validation via validateWebhookSignature()
+  * before any business logic is executed.
+@@ -25,64 +23,14 @@ import {
+   notifyAdminAccountViolation,
+   notifyAdminAccountRestriction,
+   notifyAdminTemplatePaused,
+-  notifyAdminCapabilityUpdate,
+ } from '../../lib/admin-notifier.js';
+ import { db } from '../../lib/db.js';
+-import { sql } from 'drizzle-orm';
+-import { appSettings, templateQualityEvents } from '../../../shared/schema.js';
++import { templateQualityEvents } from '../../../shared/schema.js';
+ import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
+ import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
+-import { parseCloudApiMessages } from './meta-messages.js';
+-import { persistRawEvent, markRawEventProcessed } from '../../lib/webhook-raw-events.js';
+ 
+ const router = Router();
+ 
+-// ─── US-909: Persist quality rating to app_settings ─────────────────────────
+-async function persistQualityToAppSettings(
+-  rating: string,
+-  eventType: string,
+-  profileId: string
+-): Promise<void> {
+-  const now = new Date().toISOString();
+-  const updatedBy = 'webhook:phone_number_quality_update';
+-
+-  await db.insert(appSettings)
+-    .values({
+-      key: `phone_quality_rating_${profileId}`,
+-      value: rating,
+-      description: `Phone number quality rating for ${profileId}`,
+-      updatedBy,
+-    })
+-    .onConflictDoUpdate({
+-      target: [appSettings.key],
+-      set: { value: rating, updatedBy, updatedAt: sql`NOW()` },
+-    });
+-
+-  await db.insert(appSettings)
+-    .values({
+-      key: `phone_quality_event_${profileId}`,
+-      value: eventType,
+-      description: `Last phone quality event type for ${profileId}`,
+-      updatedBy,
+-    })
+-    .onConflictDoUpdate({
+-      target: [appSettings.key],
+-      set: { value: eventType, updatedBy, updatedAt: sql`NOW()` },
+-    });
+-
+-  await db.insert(appSettings)
+-    .values({
+-      key: `phone_quality_updated_at_${profileId}`,
+-      value: now,
+-      description: `When phone quality was last updated for ${profileId}`,
+-      updatedBy,
+-    })
+-    .onConflictDoUpdate({
+-      target: [appSettings.key],
+-      set: { value: now, updatedBy, updatedAt: sql`NOW()` },
+-    });
+-}
+-
+ // Load shared secret once at module initialisation so the "secret unset"
+ // warning appears at startup rather than on the first request.
+ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
+@@ -99,9 +47,6 @@ router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response)
+   // Acknowledge receipt immediately so Evolution does not retry.
+   res.status(200).json({ ok: true });
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('evolution', req.body).catch(() => {});
+-
+   // TODO: route event types (message.upsert, message.update, connection.update)
+   // into the message pipeline once Evolution API integration is enabled.
+   // For now we log the event so it can be observed in production logs.
+@@ -118,9 +63,6 @@ router.post('/webhooks/digiman', signatureGuard, (req: Request, res: Response) =
+   // Acknowledge receipt immediately so DIGIMAN does not retry.
+   res.status(200).json({ ok: true });
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('digiman', req.body).catch(() => {});
+-
+   const event = req.body as { type?: string; [key: string]: unknown };
+   const eventType = event?.type ?? '';
+ 
+@@ -159,9 +101,6 @@ router.post('/webhooks/events', signatureGuard, async (req: Request, res: Respon
+     return;
+   }
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('events', req.body).catch(() => {});
+-
+   try {
+     await dispatchWebhookEvent({ ...event, type: eventType });
+     res.status(200).json({ ok: true, event: eventType });
+@@ -185,9 +124,6 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
+   // Acknowledge receipt immediately so Meta does not retry.
+   res.status(200).json({ ok: true });
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('meta:quality', req.body).catch(() => {});
+-
+   const body = req.body as {
+     phone_number?: string;
+     event?: string;        // FLAGGED, UNFLAGGED, QUALITY_SCORE_CHANGE
+@@ -218,7 +154,7 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
+     `quality=${quality} status=${status} tier=${body.messaging_limit_tier} profile=${profileId}`
+   );
+ 
+-  // Update quality state (in-memory + rainbow_configs)
++  // Update quality state
+   updateQualityState(profileId, {
+     rating: quality,
+     status,
+@@ -229,13 +165,8 @@ router.post('/webhooks/meta/quality', metaSignatureGuard, (req: Request, res: Re
+     console.error('[webhook:meta:quality] Failed to update quality state:', err.message)
+   );
+ 
+-  // US-909: Persist quality rating and event type to app_settings for dashboard reads
+-  persistQualityToAppSettings(quality, event ?? 'UNKNOWN', profileId).catch(err =>
+-    console.error('[webhook:meta:quality] Failed to persist to app_settings:', err.message)
+-  );
+-
+-  // Notify admin on degradation (FLAGGED, RESTRICTED, YELLOW, or RED rating)
+-  if (status === 'FLAGGED' || status === 'RESTRICTED' || quality === 'YELLOW' || quality === 'RED') {
++  // Notify admin on degradation (FLAGGED, RESTRICTED, or RED rating)
++  if (status === 'FLAGGED' || status === 'RESTRICTED' || quality === 'RED') {
+     notifyAdminQualityDegradation(profileId, quality, status, phoneNumber ?? 'unknown').catch(() => {});
+   }
+ });
+@@ -254,9 +185,6 @@ router.post('/webhooks/meta/account', metaSignatureGuard, (req: Request, res: Re
+   // Acknowledge receipt immediately so Meta does not retry.
+   res.status(200).json({ ok: true });
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('meta:account', req.body).catch(() => {});
+-
+   const body = req.body as {
+     entry?: Array<{
+       changes?: Array<{
+@@ -334,9 +262,6 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
+   // Acknowledge receipt immediately so Meta does not retry.
+   res.status(200).json({ ok: true });
+ 
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('meta:template-status', req.body).catch(() => {});
+-
+   const body = req.body as {
+     entry?: Array<{
+       changes?: Array<{
+@@ -388,235 +313,4 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
+   }
+ });
+ 
+-// ─── Meta Cloud API: business_capability_update webhook (US-908) ─────────
+-// Meta POSTs business_capability_update when the portfolio messaging tier limit
+-// or max phone numbers changes. Must be subscribed in the Meta App Dashboard.
+-//
+-// Payload shape (inside entry[].changes[]):
+-//   field = 'business_capability_update'
+-//   value.max_daily_conversation_per_phone = <number>  (the new tier limit)
+-//   value.max_phone_numbers_per_business   = <number>
+-router.post('/webhooks/meta/capability', metaSignatureGuard, async (req: Request, res: Response) => {
+-  // Acknowledge receipt immediately so Meta does not retry.
+-  res.status(200).json({ ok: true });
+-
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('meta:capability', req.body).catch(() => {});
+-
+-  const body = req.body as {
+-    entry?: Array<{
+-      changes?: Array<{
+-        field?: string;
+-        value?: {
+-          max_daily_conversation_per_phone?: number;
+-          max_phone_numbers_per_business?: number;
+-        };
+-      }>;
+-    }>;
+-    [key: string]: unknown;
+-  };
+-
+-  const entries = body.entry ?? [];
+-  for (const entry of entries) {
+-    for (const change of entry.changes ?? []) {
+-      if (change.field !== 'business_capability_update') continue;
+-
+-      const value = change.value;
+-      if (!value) continue;
+-
+-      const maxDaily = value.max_daily_conversation_per_phone;
+-      const maxPhones = value.max_phone_numbers_per_business ?? null;
+-
+-      // Map max_daily_conversation_per_phone to a tier string
+-      const newTier = maxDaily != null ? String(maxDaily) : 'unknown';
+-
+-      console.warn(
+-        `[webhook:meta:capability] business_capability_update: tier=${newTier} maxPhones=${maxPhones}`
+-      );
+-
+-      // Read current tier before updating
+-      let previousTier: string | null = null;
+-      try {
+-        const { getCurrentTier } = await import('../admin/messaging-limits.js');
+-        previousTier = await getCurrentTier();
+-      } catch {
+-        // Non-critical — previousTier stays null
+-      }
+-
+-      // Update messaging tier in app_settings DB
+-      if (maxDaily != null) {
+-        try {
+-          const tierStr = String(maxDaily);
+-          const now = new Date().toISOString();
+-
+-          await db.insert(appSettings)
+-            .values({
+-              key: 'rainbow_portfolio_tier',
+-              value: tierStr,
+-              description: 'WhatsApp Business Portfolio messaging tier',
+-              updatedBy: 'webhook:business_capability_update',
+-            })
+-            .onConflictDoUpdate({
+-              target: [appSettings.key],
+-              set: { value: tierStr, updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+-            });
+-
+-          await db.insert(appSettings)
+-            .values({
+-              key: 'rainbow_portfolio_tier_updated_at',
+-              value: now,
+-              description: 'When the portfolio tier was last updated',
+-              updatedBy: 'webhook:business_capability_update',
+-            })
+-            .onConflictDoUpdate({
+-              target: [appSettings.key],
+-              set: { value: now, updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+-            });
+-
+-          console.log(`[webhook:meta:capability] Updated portfolio tier to '${tierStr}' in app_settings`);
+-        } catch (err: any) {
+-          console.error('[webhook:meta:capability] Failed to update tier in DB:', err.message);
+-        }
+-      }
+-
+-      // Store max phone numbers if provided
+-      if (maxPhones != null) {
+-        try {
+-          await db.insert(appSettings)
+-            .values({
+-              key: 'rainbow_max_phone_numbers',
+-              value: String(maxPhones),
+-              description: 'Max phone numbers allowed per WABA portfolio',
+-              updatedBy: 'webhook:business_capability_update',
+-            })
+-            .onConflictDoUpdate({
+-              target: [appSettings.key],
+-              set: { value: String(maxPhones), updatedBy: 'webhook:business_capability_update', updatedAt: sql`NOW()` },
+-            });
+-        } catch (err: any) {
+-          console.error('[webhook:meta:capability] Failed to update max phone numbers in DB:', err.message);
+-        }
+-      }
+-
+-      // Notify admin of the capability change
+-      notifyAdminCapabilityUpdate(newTier, maxPhones, previousTier).catch(() => {});
+-    }
+-  }
+-});
+-
+-// ─── KDS/POS kitchen acceptance webhook (US-881) ──────────────────────────
+-// The KDS/POS system POSTs back when the kitchen accepts an order.
+-// This closes the modification window so customers can no longer change it.
+-//
+-//   POST /webhooks/kds/accept
+-//   Body: { "orderId": "<order-id>", "sessionId": "<webchat-session-id>" }
+-//
+-// At least one of orderId or sessionId is required. If sessionId is provided,
+-// it is used directly to mark kitchen acceptance. If only orderId is provided,
+-// a reverse lookup finds the session (best-effort).
+-router.post('/webhooks/kds/accept', signatureGuard, async (req: Request, res: Response) => {
+-  // US-895: Persist raw payload before any processing (fire-and-forget)
+-  persistRawEvent('kds', req.body).catch(() => {});
+-
+-  const { markKitchenAccepted } = await import('../../assistant/order-modification-store.js');
+-
+-  const body = req.body as { orderId?: string; sessionId?: string };
+-  const sessionId = body.sessionId?.trim();
+-  const orderId = body.orderId?.trim();
+-
+-  if (!sessionId && !orderId) {
+-    res.status(400).json({ error: 'Missing required field: sessionId or orderId' });
+-    return;
+-  }
+-
+-  if (sessionId) {
+-    const accepted = markKitchenAccepted(sessionId);
+-    console.log(`[webhook:kds:accept] Kitchen accepted order for session=${sessionId} result=${accepted}`);
+-    res.status(200).json({ ok: true, accepted, sessionId });
+-    return;
+-  }
+-
+-  // orderId-only: cannot reverse-lookup without a registry, so log and acknowledge
+-  console.warn(`[webhook:kds:accept] Received orderId=${orderId} without sessionId — cannot mark acceptance (no reverse lookup). Order will expire by timer.`);
+-  res.status(200).json({ ok: true, accepted: false, reason: 'sessionId required for real-time acceptance', orderId });
+-});
+-
+-// ─── Meta Cloud API: Webhook verification (US-926) ──────────────────────────
+-// Meta requires a GET endpoint that echoes back hub.challenge when
+-// hub.mode === 'subscribe' and hub.verify_token matches our secret.
+-const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN ?? '';
+-
+-router.get('/webhooks/meta/messages', (req: Request, res: Response) => {
+-  const mode = req.query['hub.mode'] as string | undefined;
+-  const token = req.query['hub.verify_token'] as string | undefined;
+-  const challenge = req.query['hub.challenge'] as string | undefined;
+-
+-  if (mode === 'subscribe' && token && token === META_VERIFY_TOKEN) {
+-    console.log('[webhook:meta:messages] Verification challenge accepted');
+-    res.status(200).send(challenge ?? '');
+-    return;
+-  }
+-
+-  console.warn('[webhook:meta:messages] Verification failed — token mismatch or missing mode');
+-  res.status(403).send('Forbidden');
+-});
+-
+-// ─── Meta Cloud API: Inbound messages with BSUID support (US-926) ───────────
+-// Meta POSTs inbound WhatsApp messages via the Cloud API webhook. Starting
+-// June 2026, payloads may include a user_id (BSUID) field alongside or
+-// instead of wa_id (phone number). This endpoint parses both identifiers
+-// and routes them into the existing message pipeline.
+-//
+-// Payload shape:
+-//   entry[].changes[].field = 'messages'
+-//   entry[].changes[].value.contacts[].wa_id   = phone (may be absent post-BSUID rollout)
+-//   entry[].changes[].value.contacts[].user_id = BSUID (new, present when user has username)
+-//   entry[].changes[].value.messages[].from     = phone or BSUID
+-router.post('/webhooks/meta/messages', metaSignatureGuard, async (req: Request, res: Response) => {
+-  // Acknowledge immediately to prevent Meta retries
+-  res.status(200).json({ ok: true });
+-
+-  // US-895: Persist raw payload BEFORE any processing (fire-and-forget)
+-  const rawEventId = await persistRawEvent('meta:messages', req.body).catch(() => null);
+-
+-  try {
+-    const incomingMessages = parseCloudApiMessages(req.body);
+-
+-    if (incomingMessages.length === 0) return;
+-
+-    // Attach rawEventId so DLQ entries can reference the original payload
+-    if (rawEventId) {
+-      for (const msg of incomingMessages) {
+-        msg.rawEventId = rawEventId;
+-      }
+-    }
+-
+-    // Dynamically import the message handler to avoid circular deps at module load
+-    const { whatsappManager } = await import('../../lib/whatsapp/index.js');
+-    const handler = (whatsappManager as any).messageHandler;
+-
+-    if (!handler) {
+-      console.warn('[webhook:meta:messages] No message handler registered — messages dropped');
+-      return;
+-    }
+-
+-    for (const msg of incomingMessages) {
+-      try {
+-        await handler(msg);
+-      } catch (err: any) {
+-        console.error(`[webhook:meta:messages] Handler error for ${msg.from}:`, err.message);
+-      }
+-    }
+-
+-    // Mark raw event as processed after all messages handled successfully
+-    if (rawEventId) {
+-      markRawEventProcessed(rawEventId).catch(() => {});
+-    }
+-
+-    console.log(`[webhook:meta:messages] Processed ${incomingMessages.length} inbound message(s)`);
+-  } catch (err: any) {
+-    console.error('[webhook:meta:messages] Parse error:', err.message);
+-  }
+-});
+-
+ export default router;

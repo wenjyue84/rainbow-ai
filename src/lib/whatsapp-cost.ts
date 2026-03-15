@@ -1,17 +1,11 @@
 /**
- * whatsapp-cost.ts — WhatsApp cost tracking (US-495, US-845)
+ * whatsapp-cost.ts — WhatsApp per-message cost tracking (US-495)
  *
- * Supports two pricing models selectable via billing.pricingModel in settings.json:
- *
- * 1. per_message (July 2025+): each outbound message is billed individually.
- *    - Template types: marketing, utility, authentication, service
- *    - Utility templates within Customer Service Window (CSW) are FREE
- *    - Cost varies by template_type + recipient country
- *
- * 2. per_conversation (legacy): opening a 24-hour conversation window costs a flat fee.
- *    - One charge per conversation (first business-initiated message opens the window)
- *    - Subsequent messages within the 24h window are free
- *    - Retained for comparison display on the admin dashboard
+ * Tracks outbound message costs under the Meta July 2025 pricing model:
+ * - Per-message pricing (not conversation-based)
+ * - Template types: marketing, utility, authentication, service
+ * - Utility templates within Customer Service Window (CSW) are FREE
+ * - Cost varies by template_type + recipient country
  *
  * Architecture mirrors llm-cost-budget.ts: in-memory accumulator + async DB flush.
  */
@@ -23,7 +17,6 @@ import { sql, eq, and } from 'drizzle-orm';
 // ─── Types ──────────────────────────────────────────────────────────
 
 export type TemplateType = 'marketing' | 'utility' | 'authentication' | 'service';
-export type PricingModel = 'per_message' | 'per_conversation';
 
 export interface WhatsappMessageCostInput {
   phone: string;
@@ -78,35 +71,6 @@ const DEFAULT_RATE_TABLE: Record<string, Record<string, number>> = {
   },
   service: {
     _default: 0.0000, // Service (session) messages are free
-  },
-};
-
-// ─── Legacy Conversation Rate Table (pre-July 2025) ─────────────────
-// Under the old model, Meta charged per 24-hour conversation window.
-// One conversation = one fee regardless of how many messages were exchanged.
-// Retained for dashboard comparison only.
-
-const DEFAULT_CONVERSATION_RATE_TABLE: Record<string, Record<string, number>> = {
-  marketing: {
-    MY: 0.0732,
-    SG: 0.0858,
-    ID: 0.0411,
-    _default: 0.0600,
-  },
-  utility: {
-    MY: 0.0200,
-    SG: 0.0318,
-    ID: 0.0150,
-    _default: 0.0200,
-  },
-  authentication: {
-    MY: 0.0315,
-    SG: 0.0453,
-    ID: 0.0240,
-    _default: 0.0300,
-  },
-  service: {
-    _default: 0.0000,
   },
 };
 
@@ -205,32 +169,6 @@ export async function estimateMessageCost(
   const typeRates = rateTable[templateType] || rateTable['marketing'] || {};
   const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
   return rate;
-}
-
-// ─── Per-Conversation Cost Estimation (legacy comparison) ────────────
-
-/**
- * Estimate what a batch of messages would have cost under the legacy
- * per-conversation pricing model.
- *
- * Under the old model, each unique phone number opening a conversation
- * in a 24h window is charged once. So cost = uniqueConversations * conversationRate.
- *
- * For dashboard comparison we approximate: billableMessages grouped by templateType
- * represent rough conversation counts (overestimates slightly since one phone may
- * send multiple message types, but accurate enough for comparison).
- */
-export function estimateConversationCost(
-  billableMessages: number,
-  templateType: TemplateType,
-  countryCode: string,
-): number {
-  if (templateType === 'service') return 0;
-  const typeRates = DEFAULT_CONVERSATION_RATE_TABLE[templateType] || DEFAULT_CONVERSATION_RATE_TABLE['marketing'] || {};
-  const rate = typeRates[countryCode] ?? typeRates['_default'] ?? 0.05;
-  // Under conversation model, assume ~3 messages per conversation on average
-  const estimatedConversations = Math.ceil(billableMessages / 3);
-  return estimatedConversations * rate;
 }
 
 // ─── Public API: Record Outbound Message Cost ───────────────────────
@@ -362,7 +300,6 @@ export async function queryWhatsappCostSummary(options: {
   byTemplateType: Array<{ templateType: string; totalMessages: number; billableMessages: number; estimatedCostUsd: number }>;
   topCountries: Array<{ countryCode: string; totalMessages: number; estimatedCostUsd: number }>;
   totalEstimatedCostUsd: number;
-  conversationEstimateUsd: number;
 }> {
   const days = options.days || 7;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -431,13 +368,7 @@ export async function queryWhatsappCostSummary(options: {
 
   const totalEstimatedCostUsd = daily.reduce((sum: number, d: any) => sum + d.estimatedCostUsd, 0);
 
-  // Calculate legacy per-conversation comparison estimate
-  const conversationEstimateUsd = byTemplateType.reduce((sum: number, t: any) => {
-    // Use the most common country (MY) for the comparison estimate
-    return sum + estimateConversationCost(t.billableMessages, t.templateType as TemplateType, 'MY');
-  }, 0);
-
-  return { daily, byTemplateType, topCountries, totalEstimatedCostUsd, conversationEstimateUsd };
+  return { daily, byTemplateType, topCountries, totalEstimatedCostUsd };
 }
 
 // ─── Daily Aggregation Job ───────────────────────────────────────────
@@ -493,7 +424,6 @@ export function startWhatsappCostDailyJob(): void {
 
 export const _testExports = {
   DEFAULT_RATE_TABLE,
-  DEFAULT_CONVERSATION_RATE_TABLE,
   accumulators,
   todayUTC,
 };

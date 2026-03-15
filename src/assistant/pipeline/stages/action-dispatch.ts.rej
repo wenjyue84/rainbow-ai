@@ -1,0 +1,393 @@
+diff a/src/assistant/pipeline/stages/action-dispatch.ts b/src/assistant/pipeline/stages/action-dispatch.ts	(rejected hunks)
+@@ -15,11 +15,9 @@ import type { PipelineState, FlowContext } from '../types.js';
+ import type { ClassificationResult } from './tier-classification.js';
+ import type { RoutingResult } from './routing.js';
+ import { resolveResponseLanguage } from './routing.js';
+-import { buildListMessage, listMessageToText, buildProductCardButtons, productCardToText } from '../../formatter.js';
+-import type { ProductCardItem } from '../../formatter.js';
++import { buildListMessage, listMessageToText } from '../../formatter.js';
+ import { interpolate, buildInterpolationContext } from '../../interpolate.js';
+-import { fnbGetMenu, fnbGetMenuItem, fnbGetDailySpecials, fnbGetPopularItems, fetchMenuItems } from '../../../tools/fnb-menu.js';
+-import { findMenuItemMatches } from '../../menu-matcher.js';
++import { fnbGetMenu, fnbGetDailySpecials } from '../../../tools/fnb-menu.js';
+ import { flowRegistry } from '../../flows/index.js';
+ 
+ /**
+@@ -415,14 +413,11 @@ async function handleStartFlow(
+  *
+  * Uses the LLM-generated response directly.
+  * If confidence is very low (<0.4), increments unknown counter and
+- * applies tiered progressive escalation.
++ * may escalate if threshold is reached.
+  *
+- * US-880: 3-tier confidence-based fallback with progressive escalation:
+- *   Tier 1 (1st failure): Ask user to rephrase in a friendly tone
+- *   Tier 2 (2nd failure): Present quick-reply list of 4-5 core capabilities
+- *   Tier 3 (3rd failure): Human handoff message + staff notification
+- * Counter resets on successful intent classification.
+- * All fallback events logged in intent_analytics with failure_tier (1, 2, or 3).
++ * US-428: Consecutive fallback escalation — after N consecutive T4 LLM-fallback
++ * unknowns (configurable via settings.json consecutive_fallback_threshold),
++ * automatically trigger human handoff and log to escalation_events table.
+  */
+ async function handleLLMReply(
+   state: PipelineState,
+@@ -443,18 +438,6 @@ async function handleLLMReply(
+     return;
+   }
+ 
+-  // US-885: Handle MENU_ITEM_DETAIL intent — show product card
+-  if (result.intent === 'MENU_ITEM_DETAIL') {
+-    await handleMenuItemDetail(state, context);
+-    return;
+-  }
+-
+-  // US-870: Handle food_recommendation intent — show popular items
+-  if (result.intent === 'food_recommendation') {
+-    await handlePopularItems(state, context);
+-    return;
+-  }
+-
+   state.response = result.response;
+ 
+   // Track unknown intents OR low-confidence results for operator escalation
+@@ -462,23 +445,21 @@ async function handleLLMReply(
+   if (isUnknownIntent || result.confidence < 0.4) {
+     const unknownCount = context.incrementUnknown(phone);
+ 
+-    // US-880: 3-tier confidence-based fallback with progressive escalation
++    // US-428: Check consecutive fallback threshold (settings.json, per-profile)
+     const settings = context.getSettings();
+-    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 2;
++    const fallbackThreshold = settings.consecutive_fallback_threshold ?? 1;
+     const shouldEscalateConsecutive = unknownCount > fallbackThreshold;
+-    const lang = convo.language || 'en';
+ 
+     if (shouldEscalateConsecutive) {
+-      // ─── Tier 3: Human handoff (US-880) ─────────────────────────────
++      // ─── Stage 2: Escalation (US-428 + US-445) ──────────────────────
+       diaryEvent.escalated = true;
+ 
+-      // Log escalation event to DB (fire-and-forget)
++      // Log escalation event to DB (fire-and-forget) + trigger summary (US-429)
+       context.logEscalationEvent({
+         jid: phone,
+         profileId: state.profileId,
+         trigger: 'consecutive_fallback',
+         count: unknownCount,
+-        metadata: { failure_tier: 3 },
+         summaryContext: {
+           guestName: msg.pushName,
+           recentMessages: convo.messages.slice(-10).map(m => `${m.role}: ${m.content}`),
+@@ -486,14 +467,8 @@ async function handleLLMReply(
+         },
+       });
+ 
+-      // Log failure_tier to intent_analytics
+-      const conversationId = `${phone}-${Date.now()}`;
+-      context.trackIntentPrediction(
+-        conversationId, phone, text, 'unknown', result.confidence,
+-        'failure_tier_3', result.model
+-      ).catch(() => {});
+-
+       // Send customer-facing message about operator handoff
++      const lang = convo.language || 'en';
+       const handoffMessages: Record<string, string> = {
+         en: "I'm connecting you with our team for better assistance. A staff member will reply to you shortly.",
+         ms: "Saya menghubungkan anda dengan pasukan kami untuk bantuan yang lebih baik. Staf akan membalas anda tidak lama lagi.",
+@@ -505,43 +480,18 @@ async function handleLLMReply(
+         recentMessages: convo.messages.map(m => `${m.role}: ${m.content}`),
+         originalMessage: text, instanceId: msg.instanceId,
+         profileId: state.profileId,
+-        triggerDetail: `Consecutive fallback tier 3 (${unknownCount}x unmatched)`,
++        triggerDetail: `Consecutive fallback (${unknownCount}x unmatched)`,
+       });
+       context.resetUnknown(phone);
+-      console.log(`[Dispatch] Tier 3 handoff (US-880): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
+-    } else if (unknownCount === 2) {
+-      // ─── Tier 2: Suggestion list (US-880) ───────────────────────────
++      console.log(`[Dispatch] Stage 2 escalation (US-445): ${unknownCount} unknowns (threshold: ${fallbackThreshold}) → forwarded to operator`);
++    } else if (unknownCount === 1) {
++      // ─── Stage 1: Suggestion response (US-445) ──────────────────────
++      const lang = convo.language || 'en';
+       const suggestionResponse = buildFallbackSuggestionResponse(settings, lang);
+       if (suggestionResponse) {
+         state.response = suggestionResponse;
++        console.log(`[Dispatch] Stage 1 suggestion (US-445): showing ${(settings.fallback?.suggestions || []).length} options`);
+       }
+-
+-      // Log failure_tier to intent_analytics
+-      const conversationId = `${phone}-${Date.now()}`;
+-      context.trackIntentPrediction(
+-        conversationId, phone, text, 'unknown', result.confidence,
+-        'failure_tier_2', result.model
+-      ).catch(() => {});
+-
+-      console.log(`[Dispatch] Tier 2 suggestions (US-880): showing ${(settings.fallback?.suggestions || []).length} options`);
+-    } else if (unknownCount === 1) {
+-      // ─── Tier 1: Rephrase request (US-880) ──────────────────────────
+-      const rephraseMessages: Record<string, string> = {
+-        en: "I'm sorry, I didn't quite understand that. Could you please rephrase your question?",
+-        ms: "Maaf, saya kurang faham. Bolehkah anda ulangi soalan anda dengan cara lain?",
+-        zh: "抱歉，我没太明白您的意思。您能换个方式再说一遍吗？",
+-        ta: "மன்னிக்கவும், எனக்கு புரியவில்லை. தயவுசெய்து உங்கள் கேள்வியை வேறு விதமாக கேளுங்கள்.",
+-      };
+-      state.response = rephraseMessages[lang] || rephraseMessages.en;
+-
+-      // Log failure_tier to intent_analytics
+-      const conversationId = `${phone}-${Date.now()}`;
+-      context.trackIntentPrediction(
+-        conversationId, phone, text, 'unknown', result.confidence,
+-        'failure_tier_1', result.model
+-      ).catch(() => {});
+-
+-      console.log(`[Dispatch] Tier 1 rephrase (US-880): asking user to rephrase`);
+     }
+   } else {
+     context.resetUnknown(phone);
+@@ -758,245 +708,3 @@ function logLanguageResolution(
+     console.log(`[Dispatch] Language resolved (${context}): '${lang}' → '${responseLang}'`);
+   }
+ }
+-
+-/**
+- * US-870: Handle food_recommendation / popular items intent.
+- *
+- * Flow:
+- *   1. Call fnbGetPopularItems for top-ordered dishes (limit 5)
+- *   2. Format response with name, price, and one-line description per item
+- *   3. Fall back to featured/bestseller items if popularity data unavailable
+- *   4. Guest can pick any item directly from the recommendation list
+- */
+-async function handlePopularItems(
+-  state: PipelineState,
+-  context: IPipelineContext
+-): Promise<void> {
+-  context.resetUnknown(state.phone);
+-
+-  const lang = state.convo.language || 'en';
+-
+-  console.log(`[Dispatch] US-870 POPULAR_ITEMS: fetching popular items for profile=${state.profileId}`);
+-
+-  const result = await fnbGetPopularItems({ _profileId: state.profileId, limit: 5 });
+-
+-  if (result.isError) {
+-    const errorMessages: Record<string, string> = {
+-      en: "I'm unable to check our popular items right now. Would you like to see the full menu instead? Just type \"menu\".",
+-      ms: "Maaf, saya tidak dapat menyemak hidangan popular buat masa ini. Nak tengok menu penuh? Taip \"menu\".",
+-      zh: "抱歉，我现在无法查看热门菜品。要看完整菜单吗？请输入\"菜单\"。"
+-    };
+-    state.response = errorMessages[lang] || errorMessages.en;
+-    return;
+-  }
+-
+-  const text = result.content[0]?.text || '';
+-
+-  if (!text || text.trim().length === 0) {
+-    // No popularity data — offer full menu
+-    const noDataMessages: Record<string, string> = {
+-      en: "I don't have popularity data right now, but our menu is full of great choices! Would you like to see the full menu? Just type \"menu\".",
+-      ms: "Saya tiada data populariti buat masa ini, tetapi menu kami penuh dengan pilihan hebat! Nak tengok menu penuh? Taip \"menu\".",
+-      zh: "我暂时没有人气数据，但我们的菜单有很多好选择！要看完整菜单吗？请输入\"菜单\"。"
+-    };
+-    state.response = noDataMessages[lang] || noDataMessages.en;
+-    return;
+-  }
+-
+-  // Format popular items response
+-  state.response = formatPopularItemsResponse(text, lang);
+-}
+-
+-/**
+- * US-870: Format popular items into a friendly recommendation message.
+- * Each item line is expected as "CODE Name - RM X.XX" or "Name - RM X.XX".
+- */
+-function formatPopularItemsResponse(itemsText: string, lang: string): string {
+-  const headerMessages: Record<string, string> = {
+-    en: "Here are our most popular dishes, loved by most guests!",
+-    ms: "Ini hidangan paling popular kami, kegemaran ramai tetamu!",
+-    zh: "这些是我们最受欢迎的菜品，深受大多数客人喜爱！"
+-  };
+-
+-  const footerMessages: Record<string, string> = {
+-    en: "\nJust tell me the name or number of any item to add it to your order!",
+-    ms: "\nBeritahu saya nama atau nombor item untuk menambahnya ke pesanan anda!",
+-    zh: "\n告诉我菜品名称或编号即可加入您的订单！"
+-  };
+-
+-  const header = headerMessages[lang] || headerMessages.en;
+-  const footer = footerMessages[lang] || footerMessages.en;
+-
+-  // Number the items for easy selection
+-  const lines = itemsText.split('\n').filter(l => l.trim());
+-  const numbered = lines.map((line, i) => `${i + 1}. ${line.trim()}`);
+-
+-  return `${header}\n\n${numbered.join('\n')}${footer}`;
+-}
+-
+-/**
+- * US-885: Handle MENU_ITEM_DETAIL intent — extract item name from message,
+- * look up the item via fuzzy match and FnB MCP, and send a product card.
+- *
+- * Flow:
+- *   1. Extract item name from user's message (strip "tell me about", "what is", etc.)
+- *   2. Fuzzy match against menu items
+- *   3. Single match → build product card with buttons
+- *   4. Multiple matches → show disambiguation list
+- *   5. No match → friendly "item not found" message
+- */
+-async function handleMenuItemDetail(
+-  state: PipelineState,
+-  context: IPipelineContext
+-): Promise<void> {
+-  context.resetUnknown(state.phone);
+-
+-  const lang = state.convo.language || 'en';
+-  const itemName = extractItemName(state.processText);
+-
+-  if (!itemName) {
+-    const fallbackMessages: Record<string, string> = {
+-      en: "I'd be happy to tell you about any menu item! Could you specify which dish you'd like to know about? You can also type \"menu\" to see our full menu.",
+-      ms: "Saya dengan senang hati akan ceritakan tentang menu kami! Hidangan mana yang anda ingin tahu? Anda juga boleh taip \"menu\" untuk lihat menu penuh.",
+-      zh: '我很乐意为您介绍菜单上的任何菜品！请问您想了解哪道菜？也可以输入\u201C菜单\u201D查看完整菜单。'
+-    };
+-    state.response = fallbackMessages[lang] || fallbackMessages.en;
+-    return;
+-  }
+-
+-  console.log(`[Dispatch] US-885 MENU_ITEM_DETAIL: looking up "${itemName}" for profile=${state.profileId}`);
+-
+-  // Fetch menu items and fuzzy match
+-  const menuItems = await fetchMenuItems();
+-  const matches = findMenuItemMatches(itemName, menuItems, { threshold: 4, maxResults: 5 });
+-
+-  if (matches.length === 0) {
+-    const notFoundMessages: Record<string, string> = {
+-      en: `I couldn't find "${itemName}" on our menu. Would you like to see the full menu? Just type "menu".`,
+-      ms: `Saya tidak jumpa "${itemName}" dalam menu kami. Nak tengok menu penuh? Taip "menu".`,
+-      zh: `我在菜单上找不到\u201C${itemName}\u201D。要看完整菜单吗？请输入\u201C菜单\u201D。`
+-    };
+-    state.response = notFoundMessages[lang] || notFoundMessages.en;
+-    return;
+-  }
+-
+-  if (matches.length === 1) {
+-    // Single match → product card
+-    const match = matches[0];
+-    let cardItem: ProductCardItem = {
+-      name: match.name,
+-      code: match.code,
+-      price: match.price,
+-      category: match.category,
+-    };
+-
+-    // Try to get full details from FnB MCP for richer data
+-    if (match.code) {
+-      try {
+-        const detailResult = await fnbGetMenuItem({ code: match.code, _profileId: state.profileId });
+-        if (!detailResult.isError) {
+-          const detailText = detailResult.content[0]?.text || '';
+-          const parsed = parseItemDetail(detailText);
+-          if (parsed) {
+-            cardItem = { ...cardItem, ...parsed };
+-          }
+-        }
+-      } catch (err: any) {
+-        console.warn(`[Dispatch] US-885: Failed to fetch item detail for ${match.code}:`, err.message);
+-      }
+-    }
+-
+-    // Build product card
+-    const settings = context.getSettings();
+-    const interactiveEnabled = (settings as any).interactiveMessages?.enabled;
+-
+-    if (interactiveEnabled) {
+-      try {
+-        state.interactivePayload = buildProductCardButtons(cardItem, lang);
+-        state.response = productCardToText(cardItem, lang); // text fallback
+-        console.log(`[Dispatch] US-885: Built product card for "${match.name}" with interactive buttons`);
+-      } catch (err: any) {
+-        console.warn(`[Dispatch] US-885: Failed to build interactive card, using text fallback:`, err.message);
+-        state.response = productCardToText(cardItem, lang);
+-      }
+-    } else {
+-      state.response = productCardToText(cardItem, lang);
+-    }
+-    return;
+-  }
+-
+-  // Multiple matches → disambiguation list
+-  const headerMessages: Record<string, string> = {
+-    en: `I found several items matching "${itemName}". Which one did you mean?`,
+-    ms: `Saya jumpa beberapa item yang sepadan dengan "${itemName}". Yang mana satu?`,
+-    zh: `我找到了几个与\u201C${itemName}\u201D匹配的菜品。您指的是哪个？`
+-  };
+-
+-  const lines = [headerMessages[lang] || headerMessages.en, ''];
+-  matches.forEach((m, i) => {
+-    const priceStr = m.price ? ` — RM ${m.price.toFixed(2)}` : '';
+-    const catStr = m.category ? ` (${m.category})` : '';
+-    lines.push(`${i + 1}. ${m.name}${catStr}${priceStr}`);
+-  });
+-
+-  const footerMessages: Record<string, string> = {
+-    en: '\nReply with a number or the item name for more details.',
+-    ms: '\nBalas dengan nombor atau nama item untuk maklumat lanjut.',
+-    zh: '\n回复数字或菜品名称了解更多。'
+-  };
+-  lines.push(footerMessages[lang] || footerMessages.en);
+-
+-  state.response = lines.join('\n');
+-}
+-
+-/**
+- * US-885: Extract the item name from a user's message about a menu item.
+- * Strips common question prefixes like "tell me about", "what is", etc.
+- */
+-function extractItemName(text: string): string | null {
+-  const stripped = text
+-    .replace(/\b(tell\s+me\s+(more\s+)?about|what\s+is\s+(the\s+)?|what's\s+(the\s+)?|describe\s+(the\s+)?|info\s+(on|about)\s+(the\s+)?|details?\s+(of|on|about|for)\s+(the\s+)?|how\s+is\s+(the\s+)?|is\s+the\s+|what\s+(comes?|does\s+it)\s+(with|include)\s+|ingredients?\s+(of|in)\s+(the\s+)?)/gi, '')
+-    .replace(/\b(apa\s+(itu|tu)\s+|ceritakan\s+(tentang\s+)?|maklumat\s+(tentang|pasal)\s+|lebih\s+lanjut\s+tentang\s+|sedap\s+tak\s+)/gi, '')
+-    .replace(/(介绍|什么是|告诉我|这个怎么样|有什么|里面有什么)/g, '')
+-    .replace(/[?？。.!！]+$/g, '')
+-    .trim();
+-
+-  // Must have at least 2 chars to be a meaningful item name
+-  return stripped.length >= 2 ? stripped : null;
+-}
+-
+-/**
+- * US-885: Parse item detail from FnB MCP response text into structured data.
+- */
+-function parseItemDetail(text: string): Partial<ProductCardItem> | null {
+-  if (!text || text.trim().length === 0) return null;
+-
+-  const result: Partial<ProductCardItem> = {};
+-
+-  // Extract description (first paragraph or first few lines)
+-  const lines = text.split('\n').filter(l => l.trim());
+-  const descLines: string[] = [];
+-  for (const line of lines) {
+-    if (/^(code|price|category|allergen|dietary|RM\s)/i.test(line.trim())) continue;
+-    if (/^[\*_]*(code|price|category|allergen|dietary)/i.test(line.trim())) continue;
+-    descLines.push(line.trim());
+-    if (descLines.length >= 3) break;
+-  }
+-  if (descLines.length > 0) result.description = descLines.join('\n');
+-
+-  // Extract allergens
+-  const allergenMatch = text.match(/allergens?:?\s*(.+)/i);
+-  if (allergenMatch) {
+-    const allergens = allergenMatch[1].split(/[,;]/).map(a => a.trim()).filter(Boolean);
+-    if (allergens.length > 0) result.allergens = allergens;
+-  }
+-
+-  // Extract dietary flags
+-  const dietaryMatch = text.match(/dietary[_ ]?flags?:?\s*(.+)/i);
+-  if (dietaryMatch) {
+-    const flags = dietaryMatch[1].split(/[,;]/).map(f => f.trim()).filter(Boolean);
+-    if (flags.length > 0) result.dietary_flags = flags;
+-  }
+-
+-  return Object.keys(result).length > 0 ? result : null;
+-}

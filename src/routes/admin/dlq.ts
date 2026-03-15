@@ -10,7 +10,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDLQJobs, retryDLQJob } from '../../lib/message-queue.js';
-import { getRawEventById } from '../../lib/webhook-raw-events.js';
 
 const router = Router();
 
