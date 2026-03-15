@@ -8507,3 +8507,31 @@ Incomplete: Prompt injection input sanitisation layer in message processing pipe
 - Regex patterns only run when using default patterns (not custom), to avoid double-matching when users configure their own patterns
 - The "act as" substring pattern is very broad — could match legitimate messages like "act as soon as possible". Kept for backwards compatibility but OWASP regex provides more targeted detection
 - System prompt leakage check requires prompt >= 80 chars to use sliding window; short prompts rely solely on self-disclosure pattern matching
+## Iteration 1 - Sun, Mar 15, 2026  6:02:00 PM
+Completed: Prompt injection input sanitisation layer in message processing pipeline (ID: US-927) in 12m
+
+
+## Iteration - Story: US-927 Prompt injection input sanitisation layer in message processing pipeline
+### What was implemented
+- **All core infrastructure was already in place** from prior iterations:
+  - `src/assistant/pipeline/prompt-injection-guard.ts`: Multi-layer detection — Layer 1a substring matching (30 patterns), Layer 1b OWASP LLM01 regex patterns (7 categories: instruction_override, role_hijack, prompt_extraction, delimiter_injection, encoded_injection, multi_turn_manipulation, jailbreak_attempt), Layer 2 output leakage detection via `detectSystemPromptLeakage()`
+  - `src/assistant/pipeline/input-validator.ts`: Calls `detectPromptInjection()` + `logPromptInjection()` on every inbound message before LLM
+  - `src/assistant/pipeline/response-processor.ts`: Calls `detectSystemPromptLeakage()` on every LLM response, replaces with fallback if system prompt leakage detected
+  - `src/lib/prompt-injection-log.ts`: Fire-and-forget DB logging with `logPromptInjection()`, `getInjectionAttemptStats()` for analytics
+  - `shared/schema-tables.ts`: `promptInjectionLog` table with jid, profile_id, raw_message, matched_pattern, action, created_at
+  - `src/routes/admin/injection-attempts.ts`: GET /injection-attempts admin endpoint with count, 7-day trend, recent attempts
+  - `src/routes/admin/index.ts`: Route registered as `router.use(injectionAttemptsRoutes)`
+- **Added missing tests** to `src/assistant/__tests__/prompt-injection-guard.test.ts`:
+  - 5 tests for OWASP LLM01 regex patterns (instruction_override, delimiter_injection, encoded_injection, jailbreak, prompt_extraction)
+  - 6 tests for `detectSystemPromptLeakage` (verbatim, chunk, normal response, self-disclosure, empty, short prompt)
+  - 1 test for AC4 false-positive rate: 50-message safe corpus verifies 0% FP (< 1% threshold)
+  - Total: 47 tests, all passing
+
+### Patterns discovered
+- Substring matching runs before regex — test inputs for regex-specific tests must NOT contain any DEFAULT_PATTERNS substrings
+- The 80-char sliding window in `detectSystemPromptLeakage` only activates for system prompts ≥ 80 chars (short prompts like "Be helpful." won't trigger it)
+- `logPromptInjection()` is fire-and-forget — it doesn't block the 200 response
+
+### Gotchas
+- test for "delimiter injection" initially failed because "You are now" in the test message triggered substring matching first — fixed by using "Please comply" instead
+- test for "prompt extraction" initially failed because "system prompt" in the test message triggered substring matching — fixed by using "your persona configuration" (matches regex but no DEFAULT_PATTERN substring)
