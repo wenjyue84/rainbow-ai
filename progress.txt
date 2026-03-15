@@ -10120,3 +10120,33 @@ FAILED quality gates: Implement PDPA 2024 right to erasure (right to be forgotte
 
 ### Status
 ✅ Build passes (3 pre-existing warnings). 16/16 redundant entry tests pass. Server starts. All 5 acceptance criteria verified. Story marked passes=true.
+## Iteration 26 - Sun, Mar 15, 2026 11:25:45 PM
+Incomplete: Implement PDPA 2024 right to erasure (right to be forgotten) (ID: US-948) — attempt 2/3
+
+
+
+## Iteration [Ralph] - Story: US-970 - Implement AI chatbot identity disclosure and anti-impersonation guard
+### What was implemented
+- **AC1**: First outbound message in every new conversation includes AI disclosure. Implemented via `!convo.aiDisclosed` check in input-validator.ts after `getOrCreate`. Disclosure sent before user message is processed; `convo.aiDisclosed = true` prevents repeat disclosure in same session. Sent as a prepended message before the pipeline continues.
+- **AC2**: Direct identity questions ("are you a bot?", "who am I talking to?", etc.) are intercepted in input-validator before pipeline runs. 12 regex patterns in 4 languages (EN/MS/ZH/TA). Returns truthful response and `{ continue: false }`.
+- **AC3**: AI never claims to be human — default `getIdentityTruthResponse()` text explicitly states "not a human". System prompt already enforces this for LLM responses.
+- **AC4**: After 3 consecutive failed intents → human escalation — already implemented by the `unknownCount` tiered escalation system (consecutive_fallback_threshold=2, escalateAt=3).
+- **AC5**: Disclosure text is configurable per property via `PATCH /api/rainbow/settings` with `identity_disclosure.disclosure_text` and `identity_disclosure.identity_truth` objects per language. Defaults in `settings.json` for both Pelangi and Southern.
+- **AC6**: `logDisclosureAudit()` writes to `compliance_audit_log` table with intent `ai_identity_disclosure_opening` or `ai_identity_disclosure_query`. Fire-and-forget pattern consistent with other compliance logging.
+
+### Files changed
+- `src/assistant/identity-disclosure.ts` — NEW: `isIdentityQuestion()` regex engine (12 patterns, 4 languages), `getDisclosureText()`, `getIdentityTruthResponse()`, `logDisclosureAudit()`
+- `src/assistant/types.ts` — Added `aiDisclosed: boolean` to `ConversationState` interface
+- `src/assistant/conversation.ts` — Added `aiDisclosed: false` to initial state factory
+- `src/assistant/pipeline/input-validator.ts` — Added US-970 disclosure block after `getOrCreate()`: identity question short-circuit + first-message disclosure
+- `src/assistant/data/settings.json` — Added `identity_disclosure` config block with 4-language disclosure and truth texts
+- `src/assistant/__tests__/identity-disclosure.test.ts` — NEW: 30 tests covering all patterns, language fallbacks, custom config, and truth response content
+
+### Patterns discovered
+- Chinese CJK regex must NOT use `\b` word boundaries — they don't match at CJK character positions; just remove `\b` around Chinese patterns
+- `input-validator.ts` is the right insertion point for identity disclosure: it runs before all intent classification and before the user message is logged, allowing the disclosure to be sent as the first message
+- `convo.aiDisclosed` persists for the session TTL (1 hour), preventing repeated disclosures in the same session
+- `compliance_audit_log` accepts `intent` as free text — use descriptive intent strings like `ai_identity_disclosure_opening`
+
+### Status
+✅ Build passes (3 pre-existing warnings). 30/30 identity-disclosure tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.

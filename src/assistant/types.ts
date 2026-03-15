@@ -126,6 +126,7 @@ export interface ConversationState {
   slots: Record<string, any>;             // { checkInDate: "tomorrow", guests: 2 }
   repeatCount: number;                     // consecutive times same intent classified
   lastUserMessageAt: number | null;        // Timestamp (ms) of last inbound user message (US-407: 24h window)
+  aiDisclosed: boolean;                    // US-970: true after AI identity disclosure sent in this session
 }
 
 // ─── Booking State Machine ──────────────────────────────────────────

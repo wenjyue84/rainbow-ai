@@ -75,7 +75,8 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
     lastIntentTimestamp: null,
     slots: {},
     repeatCount: 0,
-    lastUserMessageAt: null
+    lastUserMessageAt: null,
+    aiDisclosed: false,                    // US-970: will be set true after first disclosure sent
   }));
 }
 

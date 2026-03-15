@@ -31,6 +31,7 @@ import { clearConversation } from '../conversation.js';
 import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from '../language-preference.js';
 import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
 import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
+import { isIdentityQuestion, getDisclosureText, getIdentityTruthResponse, logDisclosureAudit } from '../identity-disclosure.js';
 
 // Start per-JID rate limiter cleanup (default 60s window)
 startJidRateLimiterCleanup(60_000);
@@ -540,6 +541,46 @@ export async function validateAndPrepare(
   // Update conversation language from detection (US-418)
   if (langDetectionEnabled && detectedLang !== convo.language) {
     convo.language = detectedLang;
+  }
+
+  // ─── US-970: AI Identity Disclosure ──────────────────────────────────
+  // AC1: First outbound message of every new conversation includes AI disclosure.
+  // AC2: Direct identity questions ("are you a bot?") get an immediate truthful reply.
+  const profileSettings970 = profileConfig.getSettings();
+  const disclosureEnabled = (profileSettings970 as any)?.identity_disclosure?.enabled !== false;
+
+  if (disclosureEnabled) {
+    const disclosureLang = (detectedLang !== 'en' && detectedLang !== 'ms' && detectedLang !== 'zh' && detectedLang !== 'ta')
+      ? 'en'
+      : detectedLang as 'en' | 'ms' | 'zh' | 'ta';
+
+    // AC2: Direct identity question — respond truthfully and stop pipeline
+    if (isIdentityQuestion(text)) {
+      const truthResponse = getIdentityTruthResponse(profileSettings970, disclosureLang);
+      await ctx.sendMessage(phone, truthResponse, msg.instanceId);
+      logMessage(phone, msg.pushName, 'assistant', truthResponse, {
+        action: 'ai_identity_disclosure',
+        instanceId: msg.instanceId,
+        profileId,
+      }).catch(() => {});
+      logDisclosureAudit(phone, profileId, 'direct_query');
+      console.log(`[IdentityDisclosure][US-970] Answered identity question from ${phone}`);
+      return { continue: false, reason: 'identity_question_answered' };
+    }
+
+    // AC1: First message in a new conversation — send disclosure before processing
+    if (!convo.aiDisclosed) {
+      const disclosureText = getDisclosureText(profileSettings970, disclosureLang);
+      await ctx.sendMessage(phone, disclosureText, msg.instanceId);
+      logMessage(phone, msg.pushName, 'assistant', disclosureText, {
+        action: 'ai_identity_disclosure',
+        instanceId: msg.instanceId,
+        profileId,
+      }).catch(() => {});
+      logDisclosureAudit(phone, profileId, 'opening');
+      convo.aiDisclosed = true;
+      console.log(`[IdentityDisclosure][US-970] Sent opening disclosure to ${phone}`);
+    }
   }
 
   addMessage(phone, 'user', text, profileId);
