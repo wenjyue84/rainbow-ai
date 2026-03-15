@@ -12,7 +12,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
 import { appSettings } from '../../../shared/schema.js';
-import { sql, eq } from 'drizzle-orm';
+import { sql, eq, and } from 'drizzle-orm';
 import { ok, badRequest, serverError } from './http-utils.js';
 import {
   queryWhatsappCostSummary,

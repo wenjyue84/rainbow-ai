@@ -28,6 +28,7 @@ import { db } from '../../lib/db.js';
 import { templateQualityEvents, whatsappPricingEvents } from '../../../shared/schema.js';
 import { recordAccountViolation, recordAccountRestriction } from '../../lib/account-status.js';
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
+import { getVolumeTierStatus } from '../../lib/whatsapp-cost.js';
 
 const router = Router();
 
@@ -376,16 +377,19 @@ router.post('/webhooks/meta/message-status', metaSignatureGuard, (req: Request, 
           `price=${price} ${currency} billable=${billable} csw_free=${cswFree}`
         );
 
-        // Persist to whatsapp_pricing_events
-        db.insert(whatsappPricingEvents).values({
-          messageId,
-          phone,
-          category,
-          currency,
-          price,
-          billable,
-          cswFree,
-          profileId: 'pelangi',
+        // Persist to whatsapp_pricing_events (with volume tier for AC4 display)
+        getVolumeTierStatus('pelangi').then(tierStatus => {
+          return db.insert(whatsappPricingEvents).values({
+            messageId,
+            phone,
+            category,
+            currency,
+            price,
+            billable,
+            cswFree,
+            volumeTier: tierStatus.tier,
+            profileId: 'pelangi',
+          });
         }).catch(err =>
           console.error('[webhook:meta:message-status] Failed to persist pricing event:', err.message)
         );

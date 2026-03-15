@@ -9883,3 +9883,25 @@ Completed: Support BSUID as primary contact identifier in webhook handling (ID: 
 
 ### Status
 ✅ Build passes. 12/12 BSUID tests pass. Server starts. All 6 acceptance criteria verified. Story marked passes=true.
+## Iteration 1 - Sun, Mar 15, 2026 10:21:26 PM
+FAILED quality gates: Support BSUID as primary contact identifier in webhook handling (ID: US-960) — attempt 1/3
+
+
+## Iteration [Ralph] - Story: US-943 Capture per-message cost via pricing_analytics webhook field
+### What was implemented
+- **AC1**: `/webhooks/meta/message-status` endpoint already captured pricing_analytics (category, price, currency, billable). Updated to also resolve and store `volumeTier` from `getVolumeTierStatus()` per-message event.
+- **AC2**: `GET /analytics/whatsapp-cost` returns `byTemplateType` breakdown (marketing vs utility vs authentication vs service) with per-message costs from `whatsapp_cost_daily` table. `GET /analytics/whatsapp-cost/pricing-events` returns actual pricing events from `whatsapp_pricing_events` table with per-message cost summary by category.
+- **AC3**: `cswFree` flag set in webhook handler when `!billable && category === 'utility'`. Events tagged in `whatsapp_pricing_events.csw_free` column. 
+- **AC4**: `GET /analytics/whatsapp-cost/volume-tier` returns current month's tier (standard/tier1/tier2) with threshold info. Volume tier now also stored per pricing event.
+- **AC5**: `GET /analytics/whatsapp-cost/monthly` returns monthly report with `billableMessages`, `cswFreeMessages`, and `byCategory` breakdown with per-type free/billable counts.
+
+### Bug fixed
+- `and` was not imported from `drizzle-orm` in `src/routes/admin/whatsapp-cost.ts` — would cause runtime crash in pricing-events endpoint. Fixed.
+
+### Files changed
+- `src/routes/admin/whatsapp-cost.ts` — Added `and` to drizzle-orm imports (bug fix)
+- `src/routes/webhooks/index.ts` — Import `getVolumeTierStatus`; populate `volumeTier` column in pricing event insert
+- `src/assistant/__tests__/whatsapp-cost.test.ts` — Added 10 tests for `detectVolumeTier` and `getVolumeTierStatus` (US-943 AC4)
+
+### Status
+✅ Build passes (3 pre-existing warnings). 45/45 tests pass. Story marked passes=true.

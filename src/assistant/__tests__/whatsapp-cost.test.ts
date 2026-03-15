@@ -74,6 +74,8 @@ import {
   computeBothModelCosts,
   getPricingModel,
   recordWhatsappMessageCost,
+  detectVolumeTier,
+  getVolumeTierStatus,
   _testExports,
 } from '../../lib/whatsapp-cost.js';
 
@@ -387,5 +389,81 @@ describe('getPricingModel', () => {
   it('returns global model for unknown profileId', async () => {
     const model = await getPricingModel('unknown-profile');
     expect(model).toBe('per_message');
+  });
+});
+
+// ── Volume Tier Detection (US-943) ────────────────────────────────────────
+
+describe('detectVolumeTier (US-943)', () => {
+  it('returns standard for 0 messages', () => {
+    expect(detectVolumeTier(0)).toBe('standard');
+  });
+
+  it('returns standard for exactly 1000 messages', () => {
+    expect(detectVolumeTier(1_000)).toBe('standard');
+  });
+
+  it('returns tier1 for 1001 messages', () => {
+    expect(detectVolumeTier(1_001)).toBe('tier1');
+  });
+
+  it('returns tier1 for exactly 10000 messages', () => {
+    expect(detectVolumeTier(10_000)).toBe('tier1');
+  });
+
+  it('returns tier2 for 10001 messages', () => {
+    expect(detectVolumeTier(10_001)).toBe('tier2');
+  });
+
+  it('returns tier2 for very large counts', () => {
+    expect(detectVolumeTier(1_000_000)).toBe('tier2');
+  });
+});
+
+describe('getVolumeTierStatus (US-943)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns standard tier with zero messages', async () => {
+    mockDbExecute.mockResolvedValueOnce({
+      rows: [{ total_messages: 0, billable_messages: 0, csw_free_messages: 0 }],
+    });
+    const status = await getVolumeTierStatus('pelangi');
+    expect(status.tier).toBe('standard');
+    expect(status.monthlyMessages).toBe(0);
+    expect(status.nextTierThreshold).toBe(1_001);
+    expect(status.messagesUntilNextTier).toBe(1_001);
+  });
+
+  it('returns tier1 with 5000 messages and correct next-tier info', async () => {
+    mockDbExecute.mockResolvedValueOnce({
+      rows: [{ total_messages: 5000, billable_messages: 4800, csw_free_messages: 200 }],
+    });
+    const status = await getVolumeTierStatus('pelangi');
+    expect(status.tier).toBe('tier1');
+    expect(status.monthlyMessages).toBe(5_000);
+    expect(status.billableMessages).toBe(4_800);
+    expect(status.cswFreeMessages).toBe(200);
+    expect(status.nextTierThreshold).toBe(10_001);
+    expect(status.messagesUntilNextTier).toBe(5_001);
+  });
+
+  it('returns tier2 with 15000 messages and no next tier', async () => {
+    mockDbExecute.mockResolvedValueOnce({
+      rows: [{ total_messages: 15000, billable_messages: 15000, csw_free_messages: 0 }],
+    });
+    const status = await getVolumeTierStatus('pelangi');
+    expect(status.tier).toBe('tier2');
+    expect(status.nextTierThreshold).toBeNull();
+    expect(status.messagesUntilNextTier).toBeNull();
+  });
+
+  it('returns month in YYYY-MM format', async () => {
+    mockDbExecute.mockResolvedValueOnce({
+      rows: [{ total_messages: 0, billable_messages: 0, csw_free_messages: 0 }],
+    });
+    const status = await getVolumeTierStatus();
+    expect(status.month).toMatch(/^\d{4}-\d{2}$/);
   });
 });
