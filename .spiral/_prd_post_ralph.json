@@ -2775,7 +2775,7 @@
         "US-851"
       ],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_prd_post_ralph.json",
@@ -2848,7 +2848,7 @@
         "US-855"
       ],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_prd_post_ralph.json",
@@ -2919,7 +2919,7 @@
         "CSAT and resolution rate analytics (already implemented)"
       ],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral-workers/worker-1",
         ".spiral/_checkpoint.json",
@@ -3367,7 +3367,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".claude/scheduled_tasks.lock",
         ".spiral-workers/worker-1",
@@ -3476,7 +3476,7 @@
         "Click-to-WhatsApp ad referral attribution tracking"
       ],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".spiral/_checkpoint.json",
         ".spiral/_research_output.json",
@@ -3552,7 +3552,7 @@
         "WCAG 2.2 Level AA compliance upgrade for webchat widget"
       ],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         ".claude/scheduled_tasks.lock",
         ".spiral-workers/worker-1",
@@ -3992,7 +3992,7 @@
         "chatWithToolsLoop graceful fallback: answer without tools if all tool calls fail"
       ],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-939",
@@ -4197,7 +4197,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "large",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-948",
@@ -4221,7 +4221,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-949",
@@ -4495,7 +4495,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "large",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-961",
@@ -4582,7 +4582,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-965",
@@ -4649,7 +4649,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-968",
@@ -4719,7 +4719,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-971",
@@ -4852,6 +4852,295 @@
         "API endpoint to check messaging limit: `GET /{phone-number-id}` returns `messaging_limit_tier` in the response",
         "Portfolio-level limits mean all WABA numbers share the highest tier achieved â€” no per-number warm-up needed",
         "Reference: https://woztell.com/whatsapp-api-2026-updates-pacing-limits-usernames/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-977",
+      "title": "Implement webhook event deduplication to prevent double-processing",
+      "priority": "high",
+      "description": "WhatsApp Cloud API webhooks can deliver the same event more than once under network retry conditions. Without deduplication, Rainbow AI may process duplicate messages — sending two AI replies to one user message, charging twice for the same send, or creating duplicate order records. A lightweight deduplication layer using WhatsApp message IDs (wamid) at the webhook entry point prevents these issues.",
+      "acceptanceCriteria": [
+        "Incoming webhook messages are deduplicated by `messages[].id` (wamid) using a 5-minute TTL cache before any processing begins",
+        "Duplicate events are logged at DEBUG level and silently dropped — no error response to Meta",
+        "Status update events (delivered, read, failed) are also deduplicated by wamid + status pair",
+        "Deduplication cache uses Redis or in-memory NodeCache with 300-second expiry",
+        "A dedup_hit counter metric is tracked so operators can see how often duplicates arrive"
+      ],
+      "technicalNotes": [
+        "wamid format: `wamid.HBgL...` — unique per message, stable across retries from Meta",
+        "Use NodeCache (already likely installed) with `SET wamid 1 EX 300` semantics",
+        "Do NOT deduplicate on conversation ID alone — same conversation has many valid messages",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
+      "id": "US-978",
+      "title": "Implement in-session LLM context window management with sliding summarisation",
+      "priority": "high",
+      "description": "Long conversations gradually consume the LLM context window. When a session exceeds ~20 messages, older turns overflow the model's context limit and are silently dropped, causing the AI to lose important context agreed earlier in the conversation (e.g., order items, room preferences, guest name). A sliding-window strategy that periodically summarises older turns maintains coherence for long sessions without exceeding token limits or incurring high costs.",
+      "acceptanceCriteria": [
+        "Conversation history sent to the LLM is capped at a configurable max_messages (default: 20 turns)",
+        "When truncation is required, the oldest messages beyond the window are replaced by a 2-3 sentence LLM-generated summary injected as a synthetic system message",
+        "Summary generation uses a cheap model (e.g., claude-haiku-4-5) to minimise cost overhead",
+        "Summaries are stored in rainbow_conversations.context_summary and prepended to history on subsequent turns",
+        "Total token count for each LLM call is logged; an alert fires when a single call approaches 80% of the model's context window"
+      ],
+      "technicalNotes": [
+        "Summarisation prompt should preserve: user name, items ordered/requested, any commitments made, outstanding questions",
+        "Migration: ALTER TABLE rainbow_conversations ADD COLUMN context_summary TEXT",
+        "Anthropic claude-haiku-4-5 context window: 200K tokens; summarise when message history exceeds ~15K tokens",
+        "Reference: https://docs.anthropic.com/en/docs/build-with-claude/context-windows"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-979",
+      "title": "Enforce WhatsApp marketing opt-in audit trail for all contact records",
+      "priority": "high",
+      "description": "Meta's Messaging Policy requires documented opt-in consent — including the method, timestamp, and business name stated — for every contact before marketing templates are sent. Currently Rainbow AI has no structured per-contact opt-in record (only opt-out tracking and a double opt-in flow for new subscribers). Adding the audit record closes the compliance gap for contacts that existed before the double opt-in flow was implemented and enables audit-trail export during Meta account reviews.",
+      "acceptanceCriteria": [
+        "rainbow_conversations table gains opt_in_method, opt_in_at, opt_in_channel columns (nullable to preserve legacy records)",
+        "Inbound-initiated conversations are automatically recorded with opt_in_method = 'inbound' and opt_in_at = first-message timestamp",
+        "Double opt-in completions (keyword reply confirming consent) update opt_in_method = 'double_optin' and opt_in_at = confirmation timestamp",
+        "Template broadcast sends are blocked with a logged reason for contacts with opt_in_at = NULL",
+        "Admin can export an opt-in audit CSV: JID, method, timestamp, channel, business name for compliance review"
+      ],
+      "technicalNotes": [
+        "Meta opt-in policy: https://developers.facebook.com/docs/whatsapp/overview/getting-opt-in",
+        "Opt-in methods enum: inbound, double_optin, web_form, ctwa_ad, qr_code, in_person",
+        "Migration: ALTER TABLE rainbow_conversations ADD COLUMN opt_in_method TEXT, ADD COLUMN opt_in_at TIMESTAMPTZ, ADD COLUMN opt_in_channel TEXT",
+        "Complements the double opt-in flow story (pending) which handles new subscriber consent capture"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-980",
+      "title": "Support WhatsApp in-app webview for CTA links and checkout pages",
+      "priority": "medium",
+      "description": "Meta is rolling out an in-app webview experience where CTA links open inside WhatsApp rather than launching an external browser. By end-2025 this is the default for most users. The webchat widget and any external URLs sent by Rainbow AI must be optimised for the WhatsApp webview — fast load, no browser-back dependency, prefilled checkout data — to avoid broken UX when the default behaviour changes.",
+      "acceptanceCriteria": [
+        "All URLs sent by Rainbow AI use HTTPS and render correctly at 390px width (WhatsApp webview default)",
+        "Pages load within 2 seconds inside WhatsApp webview (LCP < 2s measured via Lighthouse on throttled mobile)",
+        "Pages do not rely on browser back-button for navigation — explicit close/back UI controls are present",
+        "Checkout and order confirmation pages prefill customer context (name, order ID) from URL params",
+        "Session continuity: user can minimise webview and resume from same position on re-open"
+      ],
+      "technicalNotes": [
+        "WhatsApp webview uses gesture-based navigation; avoid relying on history.back()",
+        "Compress images and defer non-critical JS; target < 150KB initial bundle for webview load",
+        "Test with WhatsApp beta on Android/iOS to verify in-app webview behaviour before release",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-981",
+      "title": "Add limited-time offer (LTO) template support for time-sensitive promotions",
+      "priority": "medium",
+      "description": "Meta introduced a Limited-Time Offer template category that adds a countdown timer to marketing messages, increasing conversion rates for flash sales and expiring promotions. Makan Moments and Pelangi can use LTO templates for happy-hour specials, room flash deals, and event promotions. Rainbow AI's template builder should support creating and sending LTO templates with configurable expiry timestamps.",
+      "acceptanceCriteria": [
+        "Template builder has a 'Limited-Time Offer' type with an expiry datetime field (UTC)",
+        "Countdown timer is rendered natively in the WhatsApp message (hours/minutes remaining shown to user)",
+        "LTO templates are only available under the Marketing category — billing classification is enforced",
+        "Admin can preview the LTO template with a sample countdown before submitting to Meta for approval",
+        "Expiry timestamp validation: must be a future UTC timestamp at least 1 hour from the send time",
+        "Sent LTO templates are tracked in analytics with an lto_expiry field for conversion window analysis"
+      ],
+      "technicalNotes": [
+        "Meta LTO component type: `limited_time_offer` with `expiration_time_ms` field (epoch ms)",
+        "WhatsApp renders countdown natively — no client-side JS needed on the recipient's device",
+        "Reference: https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/",
+        "LTO templates must be re-approved by Meta each time the expiry changes — document this in the UI"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-982",
+      "title": "Chatbot response latency SLA monitoring with P95 alerting",
+      "priority": "medium",
+      "description": "Industry benchmarks for AI chatbots set < 3s P95 end-to-end response time as the target for acceptable UX — responses slower than this correlate with session abandonment. Rainbow AI has no structured latency tracking. Adding P95 monitoring and automated breach alerts enables proactive performance management before users experience degraded service.",
+      "acceptanceCriteria": [
+        "Every AI response records end-to-end latency: webhook receipt timestamp to WhatsApp messages.send API call completion",
+        "Admin performance dashboard shows P50, P95, and P99 latency over 1h / 24h / 7d rolling windows",
+        "Alert fires when P95 latency exceeds 5 seconds over any 15-minute rolling window",
+        "Latency breakdown by AI provider (NVIDIA, Ollama, OpenRouter) is shown to identify slow providers",
+        "High-latency responses (> 10s) are flagged with a warning badge in the conversation list view in admin"
+      ],
+      "technicalNotes": [
+        "Migration: ALTER TABLE rainbow_messages ADD COLUMN processing_latency_ms INTEGER",
+        "P95 query: SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY processing_latency_ms) FROM rainbow_messages WHERE created_at > NOW() - INTERVAL '1 hour'",
+        "Latency = time from webhook messages[].timestamp field to WhatsApp send API HTTP response",
+        "Reference benchmarks: < 3s P95 per Gartner 2024 conversational AI performance standard"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-983",
+      "title": "WhatsApp Business catalog product sync from external data source",
+      "priority": "medium",
+      "description": "WhatsApp conversational commerce requires an up-to-date product catalog in Meta Commerce Manager to power product cards, catalog browsing, and in-chat shopping. Makan Moments menus and Pelangi room listings should be synchronised from an external source (CSV or REST API) to the WhatsApp Business catalog automatically. This is distinct from the internal menu sync (which updates the AI's knowledge base) — this targets the WhatsApp-native catalog used for product card messages and catalog browsing.",
+      "acceptanceCriteria": [
+        "Admin panel has a 'WhatsApp Catalog Sync' page with configurable data source URL (CSV or REST API endpoint)",
+        "Sync runs on a configurable schedule (default: every 30 minutes) and can be triggered manually",
+        "Sync updates product title, description, price, image URL, and availability in the Meta Commerce Manager catalog",
+        "Products removed from source are marked unavailable (not deleted) in the WhatsApp catalog",
+        "Last sync timestamp and counts of updated / created / marked-unavailable items are shown in admin",
+        "Sync failure after 3 consecutive attempts triggers an admin alert notification"
+      ],
+      "technicalNotes": [
+        "Meta Catalog batch update API: POST /{catalog-id}/items_batch with UPSERT method",
+        "Use retailer_id as stable idempotent product identifier across syncs to avoid duplicates",
+        "Hash product fields (title + price + availability); only call API when hash changes to minimise rate use",
+        "Reference: https://developers.facebook.com/docs/commerce-platform/catalog/"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-984",
+      "title": "Add Malaysian local payment gateway links (Billplz/iPay88) for WhatsApp orders",
+      "priority": "medium",
+      "description": "WhatsApp Pay is not available in Malaysia. Makan Moments and Pelangi need a Malaysia-compatible in-chat payment experience supporting FPX online banking and local e-wallets (Touch 'n Go, GrabPay). Rainbow AI should generate dynamic payment links from a Malaysian gateway (Billplz or iPay88) and send them via WhatsApp CTA button template after order confirmation. This is distinct from the Stripe hostel booking story (which targets international card payments).",
+      "acceptanceCriteria": [
+        "Admin can configure a Malaysian payment gateway (Billplz or iPay88) with API key and merchant ID per property",
+        "After order/booking confirmation, a payment link is auto-generated and sent as a WhatsApp CTA button template ('Pay Now')",
+        "Payment link supports FPX online banking, Touch 'n Go eWallet, and GrabPay as offered by the chosen gateway",
+        "Payment status webhook from the gateway updates order status in the database (pending → paid / failed)",
+        "Paid orders trigger a WhatsApp confirmation message with receipt reference and payment amount",
+        "Payment links expire after configurable TTL (default: 24 hours); a renewal message is sent 1 hour before expiry"
+      ],
+      "technicalNotes": [
+        "Billplz API v3: https://www.billplz.com/api — create bill, payment webhook callback",
+        "iPay88 Online Payment API: https://www.ipay88.com.my/epayment/V2/ — supports FPX, eWallet",
+        "Store payment_link_id and gateway_reference in the orders table for webhook reconciliation",
+        "Use WhatsApp CTA URL button template; link should open in-app webview for seamless checkout"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "large",
+      "passes": false
+    },
+    {
+      "id": "US-985",
+      "title": "WhatsApp Business verification status health check with admin alert",
+      "priority": "medium",
+      "description": "An unverified or suspended WhatsApp Business Account (WABA) silently blocks all outbound messaging. Meta can change account status due to policy violations, incomplete verification, or payment failures. Rainbow AI currently has no automated polling of WABA status — a status degradation can cause silent delivery failures with no admin notification until users report missing replies.",
+      "acceptanceCriteria": [
+        "Server startup check queries Meta Business API for WABA account_review_status and business_verification_status and logs the result",
+        "Scheduled health check (every 6 hours) verifies WABA status and phone number quality rating",
+        "Admin alert fires immediately when WABA status changes from VERIFIED to PENDING or FLAGGED",
+        "Admin dashboard shows a WABA verification status badge (green / amber / red) with last-checked timestamp",
+        "Phone number quality rating (GREEN / YELLOW / RED) is polled hourly and displayed alongside message volume"
+      ],
+      "technicalNotes": [
+        "WABA status query: GET /{waba-id}?fields=account_review_status,business_verification_status",
+        "Phone number quality: GET /{phone-number-id}?fields=quality_rating,display_phone_number",
+        "Also subscribe to `account_update` webhook event for real-time status change push notifications",
+        "Reference: https://developers.facebook.com/docs/whatsapp/business-management-api/whatsapp-business-accounts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-986",
+      "title": "Template quick-reply and CTA button click analytics in admin dashboard",
+      "priority": "medium",
+      "description": "WhatsApp message templates often include quick-reply buttons (e.g., 'Confirm Order', 'Cancel', 'See Menu') and CTA buttons. Currently Rainbow AI processes button responses as intents but does not aggregate button click rates. Button analytics helps operators optimise template CTAs, identify drop-off points in conversion funnels, and measure campaign engagement beyond delivery receipts.",
+      "acceptanceCriteria": [
+        "Incoming button-reply events (type: 'interactive', interactive.type: 'button_reply') are logged with button_id and button_title per conversation",
+        "Admin analytics dashboard shows per-template button click rates (clicks / messages delivered for that template)",
+        "Funnel view shows click sequences for multi-step flows (e.g., confirm order → pay now → receipt acknowledged)",
+        "Button analytics are filterable by date range and template name",
+        "Click data is subject to the configured data retention policy (default: 90 days)"
+      ],
+      "technicalNotes": [
+        "Button reply webhook field: messages[].interactive.button_reply.id and .title",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/components#messages-object",
+        "New table: template_button_events(id, conversation_id, template_name, button_id, button_title, clicked_at)",
+        "Click rate = COUNT(button_events for template) / COUNT(delivered status events for same template in same window)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-987",
+      "title": "Implement Malaysia PDPA data minimisation controls in AI prompt construction",
+      "priority": "medium",
+      "description": "Malaysia's PDPA Section 6 (Collection Principle) requires that personal data collected and processed be adequate but not excessive relative to the stated purpose. Rainbow AI currently passes full guest profiles and conversation histories to AI providers for every intent, including unrelated fields. Implementing a per-intent PII allowlist that strips irrelevant data before LLM calls reduces compliance exposure and shrinks the blast radius of any AI provider data incident.",
+      "acceptanceCriteria": [
+        "A per-intent PII allowlist config (JSON file) specifies which data fields may be included in prompts for each intent class",
+        "AI prompt construction strips fields not in the allowlist for the current intent (e.g., passport number is not sent for a menu enquiry)",
+        "Prohibited PII fields (NRIC, passport numbers, full bank account numbers) are replaced with [REDACTED] in all prompts regardless of intent",
+        "An audit log records which PII fields were included in each AI provider call",
+        "Unit tests verify that minimisation rules are applied correctly per intent with no regression"
+      ],
+      "technicalNotes": [
+        "PDPA Section 6 Collection Principle: data must be adequate, relevant, and not excessive for the stated purpose",
+        "Config location: src/assistant/data/pii-allowlist.json (intent -> allowed fields mapping)",
+        "Reference: https://www.pdp.gov.my/jpdpv2/assets/2019/09/Personal-Data-Protection-Act-2010.pdf",
+        "Cross-reference with OWASP LLM02 sensitive information disclosure story (already completed) for overlap"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-988",
+      "title": "Add tappable image header support to marketing template builder",
+      "priority": "low",
+      "description": "WhatsApp marketing templates support a tappable image header that shows a preview of the CTA destination before the user clicks, improving engagement rates. Rainbow AI's template builder should support setting an image header with an associated URL on marketing templates so operators can visually showcase promotions.",
+      "acceptanceCriteria": [
+        "Template builder UI has an optional 'Image Header' field (HTTPS URL or uploaded media handle) available for Marketing category templates only",
+        "Sent templates render with image header visible in WhatsApp — verified via test send to a staging number",
+        "Image header URL is validated: HTTPS, JPEG/PNG, max 5MB, 800x418px recommended aspect ratio",
+        "Template preview in admin shows image header with a tap indicator overlay",
+        "Non-marketing template categories show no image header option (field is hidden/disabled)"
+      ],
+      "technicalNotes": [
+        "Use `header.type: IMAGE` with `header.image.link` in the template components payload",
+        "Image must be publicly accessible at send time — not a local filesystem path",
+        "Reference: https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/",
+        "Test with the WhatsApp template preview API endpoint before submitting to Meta for approval"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-989",
+      "title": "WhatsApp location request message for hostel navigation assistance",
+      "priority": "low",
+      "description": "WhatsApp Cloud API supports a Location Request interactive message that prompts users to share their current GPS location with a single tap. For hostel guests who are lost or arriving for the first time, Rainbow AI can detect navigation-related intents and send a Location Request — then use the returned coordinates to provide personalised walking or driving directions to the hostel.",
+      "acceptanceCriteria": [
+        "Intent classifier detects navigation/directions phrases ('where is the hostel', 'how to get there', 'I am lost', 'directions')",
+        "On a navigation intent, Rainbow AI sends a WhatsApp Location Request interactive message",
+        "When the guest shares their location, the system calculates the approximate distance and travel time to the hostel's stored coordinates",
+        "AI responds with a Google Maps deep-link (directions URL) and plain-text turn-by-turn hint",
+        "Guest-shared location data is used only for this response and is not stored after the conversation ends (PDPA data minimisation)"
+      ],
+      "technicalNotes": [
+        "Location Request message: type='interactive', interactive.type='location_request_message'",
+        "Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/location-request-messages",
+        "Incoming location webhook: messages[].type = 'location' with latitude and longitude fields",
+        "Hostel coordinates stored in app_settings as hostel_lat / hostel_lng per property"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
