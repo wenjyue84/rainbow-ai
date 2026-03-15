@@ -81,6 +81,7 @@ import festiveStickersRoutes from './festive-stickers.js';
 import manglishRoutes from './manglish.js';
 import inventoryRoutes from './inventory.js';
 import campaignPacingRoutes from './campaign-pacing.js';
+import vectorAccessLogsRoutes from './vector-access-logs.js';
 
 const router = Router();
 
@@ -326,6 +327,7 @@ router.use(festiveStickersRoutes);
 router.use(manglishRoutes);
 router.use(inventoryRoutes);
 router.use(campaignPacingRoutes);
+router.use(vectorAccessLogsRoutes); // US-966: OWASP LLM06 vector access audit
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

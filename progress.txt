@@ -10621,3 +10621,37 @@ Previous 2 attempts created `kb-integrity.ts` and `kb-embedding-audit.ts` that i
 - All DB functions follow fail-open pattern (return safe defaults when DATABASE_URL not set)
 ### Status
 ✅ Build passes (3 pre-existing warnings). 15/15 tests pass. Server starts. All 5 acceptance criteria verified.
+## Iteration 3 - Mon, Mar 16, 2026  2:53:24 AM
+Completed: Implement OWASP LLM04 â€” RAG knowledge base integrity validation pipeline (ID: US-965) in 9m
+
+
+## Pre-analysis for US-966 (Gemini 2.5 Pro)
+**Technical Brief: US-966 Vector Store Access Control**
+
+This brief outlines the implementation of OWASP LLM06 principles within the Frappe/Python environment, translating the user story's requirements for multi-tenancy and security.
+
+**1. Python Files to Modify:**
+*   `[app_name]/api.py`: The primary file for exposing the vector search endpoint. All search logic should be gated here.
+*   `[app_name]/vector_store/client.py` (or similar): A new or existing module to abstract the vector database interactions (e.g., pgvector, Pinecone, Chroma). This module will handle adding the mandatory tenant filter to all queries.
+*   `[app_name]/hooks.py`: To define a daily or weekly scheduled job for the audit script and potentially `on_save` hooks for DocTypes that are indexed.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   A new DocType `Vector Query Log` should be created to store audit trail information (user, query, tenant ID, retrieved doc IDs).
+    *   The `Company` DocType will likely serve as the logical partition key (`property_id` in the story).
+*   **Hooks:**
+    *   `doc_events`: An `on_save` hook for any knowledge base DocType to trigger re-embedding and indexing, ensuring the `company` field is passed as metadata.
+    *   `scheduler_events`: A `daily` or `weekly` event to trigger the `run_partition_audit` script.
+
+**3. Implementation Approach:**
+1.  All vector search functions in `client.py` must be modified to require a `company` argument.
+2.  This `company` argument will be used to apply a mandatory metadata filter on every vector database query.
+3.  The main `@frappe.whitelist()` search endpoint in `api.py` will retrieve the user's session company and pass it to the search function. It must reject requests where the user's company is not set.
+4.  Upon every query, create a new `Vector Query Log` document to satisfy the audit requirement.
+5.  Implement the scheduled audit script to fetch sample vectors from different companies and verify no cross-tenant results are returned.
+
+**4. Edge Cases & Gotchas:**
+*   **Data Backfill:** A migration script is required to update all existing embeddings in the vector store with the correct `company` metadata field.
+*   **Permissions:** Ensure API endpoints strictly enforce permissions, as users may have access to multiple companies. The query must be scoped to only one company at a time.
+*   **Raw Embeddings:** Do not expose the raw embedding vectors in any API response to mitigate embedding inversion attacks.
+

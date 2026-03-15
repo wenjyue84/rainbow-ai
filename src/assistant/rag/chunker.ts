@@ -15,6 +15,12 @@ export interface KBChunk {
   text: string;
   /** Token count (whitespace-based approximation) */
   tokenCount: number;
+  /**
+   * US-966: Property namespace tag for vector store access control.
+   * Prevents cross-tenant data leakage (OWASP LLM06:2025).
+   * Set to the profileId of the KnowledgeBaseInstance that owns this chunk.
+   */
+  propertyId?: string;
 }
 
 const TARGET_TOKENS = 300;
@@ -80,9 +86,10 @@ function findSplitPoint(words: string[], targetIdx: number, text: string): numbe
  *
  * @param filename - KB filename (e.g., "pricing.md")
  * @param content - Raw markdown content
+ * @param propertyId - US-966: Property namespace tag for access control
  * @returns Array of chunks
  */
-export function chunkFile(filename: string, content: string): KBChunk[] {
+export function chunkFile(filename: string, content: string, propertyId?: string): KBChunk[] {
   const trimmed = content.trim();
   if (!trimmed) return [];
 
@@ -95,6 +102,7 @@ export function chunkFile(filename: string, content: string): KBChunk[] {
       source: filename,
       text: trimmed,
       tokenCount: totalTokens,
+      propertyId,
     }];
   }
 
@@ -122,6 +130,7 @@ export function chunkFile(filename: string, content: string): KBChunk[] {
       source: filename,
       text: chunkText,
       tokenCount: chunkWords.length,
+      propertyId,
     });
 
     // Move forward with overlap
@@ -140,11 +149,13 @@ export function chunkFile(filename: string, content: string): KBChunk[] {
  *
  * @param kbCache - Map of filename → content
  * @param excludeFiles - Files to exclude from chunking (e.g., core files like AGENTS.md)
+ * @param propertyId - US-966: Property namespace tag for access control
  * @returns All chunks across all files
  */
 export function chunkAllFiles(
   kbCache: Map<string, string>,
-  excludeFiles: Set<string> = new Set()
+  excludeFiles: Set<string> = new Set(),
+  propertyId?: string
 ): KBChunk[] {
   const allChunks: KBChunk[] = [];
 
@@ -154,10 +165,11 @@ export function chunkAllFiles(
     if (!filename.endsWith('.md')) continue;
     if (filename.startsWith('memory/')) continue;
 
-    const chunks = chunkFile(filename, content);
+    const chunks = chunkFile(filename, content, propertyId);
     allChunks.push(...chunks);
   }
 
-  console.log(`[RAG:Chunker] Chunked ${kbCache.size} files into ${allChunks.length} chunks`);
+  console.log(`[RAG:Chunker] Chunked ${kbCache.size} files into ${allChunks.length} chunks` +
+    (propertyId ? ` [namespace: ${propertyId}]` : ''));
   return allChunks;
 }

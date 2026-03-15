@@ -11,6 +11,8 @@ import { join, resolve } from 'path';
 import type { ConfigStore } from './config-store.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
+import { HybridRetriever } from './rag/hybrid-retriever.js';
+import type { RetrievalResult } from './rag/hybrid-retriever.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -80,6 +82,11 @@ export class KnowledgeBaseInstance {
   private kbCache: Map<string, string> = new Map();
   private kbPatternsConfig: KBPatternsConfig | null = null;
   private compiledTopicPatterns: Array<{ pattern: RegExp; files: string[] }> | null = null;
+
+  // US-912/US-966: Hybrid RAG retriever (BM25 + vector + cross-encoder)
+  // Scoped to this property via propertyId for namespace isolation (OWASP LLM06)
+  private hybridRetriever = new HybridRetriever();
+  private ragInitPromise: Promise<void> | null = null;
 
   // System prompt cache
   private systemPromptCacheVersion = 0;
@@ -306,7 +313,8 @@ export class KnowledgeBaseInstance {
     const coreFiles = new Set(this.getCoreFiles());
     coreFiles.add(DURABLE_MEMORY_FILE);
     coreFiles.add('README.md');
-    this.ragInitPromise = this.hybridRetriever.initialize(this.kbCache, coreFiles);
+    // US-966: Pass profileId as namespace for OWASP LLM06 chunk tagging
+    this.ragInitPromise = this.hybridRetriever.initialize(this.kbCache, coreFiles, this.profileId);
     return this.ragInitPromise;
   }
 
@@ -327,6 +335,14 @@ export class KnowledgeBaseInstance {
   /** Whether the hybrid retriever is initialized and ready */
   get ragReady(): boolean {
     return this.hybridRetriever.isReady;
+  }
+
+  /**
+   * US-966: Expose the retriever for namespace audit (ns-audit.ts).
+   * Returns the internal HybridRetriever so the audit can inspect indexed chunks.
+   */
+  getHybridRetriever(): HybridRetriever {
+    return this.hybridRetriever;
   }
 
   /**

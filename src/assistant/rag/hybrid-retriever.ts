@@ -66,18 +66,34 @@ export class HybridRetriever {
   private chunkEmbeddings: Float32Array[] = [];
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  /**
+   * US-966: Property namespace for this retriever instance.
+   * Set during initialization; used to tag all chunks and enforce namespace isolation.
+   */
+  private propertyId: string | undefined = undefined;
+
+  /**
+   * US-966: Expose all indexed chunks for namespace audit (ns-audit.ts).
+   * Returns a read-only snapshot — modifications do not affect the index.
+   */
+  getAllChunks(): KBChunk[] {
+    return [...this.chunks];
+  }
 
   /**
    * Initialize the retriever: chunk KB files, build BM25 index, compute embeddings.
    *
    * @param kbCache - Map of filename → content from KnowledgeBaseInstance
    * @param excludeFiles - Files to exclude (e.g., core files always in system prompt)
+   * @param propertyId - US-966: Property namespace tag for all indexed chunks
    */
   async initialize(
     kbCache: Map<string, string>,
-    excludeFiles: Set<string> = new Set()
+    excludeFiles: Set<string> = new Set(),
+    propertyId?: string
   ): Promise<void> {
     if (this.initPromise) return this.initPromise;
+    this.propertyId = propertyId;
     this.initPromise = this._initialize(kbCache, excludeFiles);
     return this.initPromise;
   }
@@ -89,8 +105,8 @@ export class HybridRetriever {
     const start = Date.now();
     console.log('[RAG:Hybrid] Initializing hybrid retriever...');
 
-    // Step 1: Chunk all KB files
-    this.chunks = chunkAllFiles(kbCache, excludeFiles);
+    // Step 1: Chunk all KB files (US-966: tag with propertyId namespace)
+    this.chunks = chunkAllFiles(kbCache, excludeFiles, this.propertyId);
     if (this.chunks.length === 0) {
       console.warn('[RAG:Hybrid] No chunks to index — retriever will be inactive');
       this.initialized = true;
@@ -200,7 +216,7 @@ export class HybridRetriever {
    */
   async rebuild(kbCache: Map<string, string>, excludeFiles: Set<string> = new Set()): Promise<void> {
     console.log('[RAG:Hybrid] Rebuilding index...');
-    this.chunks = chunkAllFiles(kbCache, excludeFiles);
+    this.chunks = chunkAllFiles(kbCache, excludeFiles, this.propertyId);
     this.bm25.index(this.chunks);
 
     // Recompute embeddings

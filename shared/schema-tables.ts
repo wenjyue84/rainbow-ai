@@ -647,3 +647,39 @@ export const campaignPacingEvents = pgTable("campaign_pacing_events", {
 
 export type CampaignPacingEvent = typeof campaignPacingEvents.$inferSelect;
 export type InsertCampaignPacingEvent = typeof campaignPacingEvents.$inferInsert;
+
+// ─── Vector Access Logs (US-966) ──────────────────────────────────────────────
+// OWASP LLM06:2025 — Vector and Embedding Weaknesses.
+// Logs every RAG retrieval call for 90-day audit trail.
+// Enables cross-namespace contamination detection and similarity attack alerting.
+
+export const vectorAccessLogs = pgTable("vector_access_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Property that made the query (e.g., "pelangi", "southern") */
+  propertyId: text("property_id").notNull(),
+  /** Hashed query text (SHA-256 truncated to 16 hex chars for privacy) */
+  queryHash: varchar("query_hash", { length: 16 }).notNull(),
+  /** Number of chunks returned */
+  chunksReturned: integer("chunks_returned").notNull().default(0),
+  /** Source filenames of returned chunks (JSON array) */
+  retrievedSources: text("retrieved_sources").notNull().default('[]'),
+  /** Top similarity score (0-1) of returned chunks */
+  topScore: real("top_score"),
+  /** Whether any returned chunk had a mismatched propertyId (cross-namespace leak) */
+  crossNamespaceDetected: boolean("cross_namespace_detected").notNull().default(false),
+  /** Whether a similarity attack was suspected (anomalously high score) */
+  similarityAttackSuspected: boolean("similarity_attack_suspected").notNull().default(false),
+  /** Retrieval latency in ms */
+  latencyMs: integer("latency_ms"),
+  /** Service identity that performed the retrieval */
+  serviceIdentity: text("service_identity").notNull().default('rainbow-ai'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_val_property_created").on(table.propertyId, table.createdAt),
+  index("idx_val_cross_namespace").on(table.crossNamespaceDetected),
+  index("idx_val_attack_suspected").on(table.similarityAttackSuspected),
+  index("idx_val_created_at").on(table.createdAt),
+]));
+
+export type VectorAccessLog = typeof vectorAccessLogs.$inferSelect;
+export type InsertVectorAccessLog = typeof vectorAccessLogs.$inferInsert;
