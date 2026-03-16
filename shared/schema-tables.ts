@@ -852,3 +852,41 @@ export const tiaRecords = pgTable("tia_records", {
 
 export type TiaRecord = typeof tiaRecords.$inferSelect;
 export type InsertTiaRecord = typeof tiaRecords.$inferInsert;
+
+// ─── AI Decision Audit (US-1010) ─────────────────────────────────────────────
+// Audit log for automated AI decisions under Malaysia PDPA 2025 (PCP 3/2025)
+// Records decision type, confidence, human review requests, and outcomes.
+
+export const aiDecisionAudit = pgTable("ai_decision_audit", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  /** Category of automated decision: booking | escalation | order_confirmation | menu_recommendation */
+  decisionType: varchar("decision_type", { length: 64 }).notNull(),
+  /** Intent that triggered this decision */
+  intent: text("intent"),
+  /** AI confidence score (0-1) at time of decision */
+  confidenceScore: real("confidence_score"),
+  /** AI provider that produced the decision */
+  aiProvider: text("ai_provider"),
+  /** Whether the guest requested human review */
+  humanReviewRequested: boolean("human_review_requested").notNull().default(false),
+  /** Final outcome: accepted | human_review | escalated | cancelled */
+  outcome: varchar("outcome", { length: 64 }),
+  /** When the disclosure message was sent to the guest */
+  disclosureSentAt: timestamp("disclosure_sent_at"),
+  /** When the guest requested human review (null if not requested) */
+  reviewRequestedAt: timestamp("review_requested_at"),
+  /** When the decision was resolved */
+  resolvedAt: timestamp("resolved_at"),
+  /** Additional context (JSON string) */
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_aidecision_profile_phone").on(table.profileId, table.phone),
+  index("idx_aidecision_created_at").on(table.createdAt),
+  index("idx_aidecision_human_review").on(table.humanReviewRequested),
+]));
+
+export type AiDecisionAuditRecord = typeof aiDecisionAudit.$inferSelect;
+export type InsertAiDecisionAuditRecord = typeof aiDecisionAudit.$inferInsert;

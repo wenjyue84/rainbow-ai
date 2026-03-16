@@ -1,14 +1,18 @@
 /**
- * Admin API: PDPA Compliance (US-915, US-1009)
+ * Admin API: PDPA Compliance (US-915, US-1009, US-1010)
  *
- * GET /compliance/dpia                 — Get DPIA for a profile
- * POST /compliance/dpia                — Create/update DPIA
- * GET /compliance/dpia-status-widget   — DPIA status widget for admin dashboard
- * GET /compliance/tia                  — Transfer Impact Assessment status per provider
- * GET /compliance/tia-records          — Get TIA records from database
- * POST /compliance/tia-records         — Create/update TIA in database
- * GET /compliance/data-flows           — AI provider data flow summary
- * GET /compliance/security-events      — Security event audit log
+ * GET /compliance/dpia                     — Get DPIA for a profile
+ * POST /compliance/dpia                    — Create/update DPIA
+ * GET /compliance/dpia-status-widget       — DPIA status widget for admin dashboard
+ * GET /compliance/tia                      — Transfer Impact Assessment status per provider
+ * GET /compliance/tia-records              — Get TIA records from database
+ * POST /compliance/tia-records             — Create/update TIA in database
+ * GET /compliance/data-flows               — AI provider data flow summary
+ * GET /compliance/security-events          — Security event audit log
+ * GET /compliance/ai-decision-disclosure   — Get AI decision disclosure template (US-1010)
+ * PUT /compliance/ai-decision-disclosure   — Update AI decision disclosure template (US-1010)
+ * GET /compliance/ai-decision-audit        — Get AI decision audit log (US-1010)
+ * GET /compliance/ai-decision-stats        — Get AI decision stats widget (US-1010)
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -18,6 +22,14 @@ import { getSecurityEvents, logSecurityEvent } from '../../lib/security-event-lo
 import { db } from '../../lib/db.js';
 import { dpiaRecords, tiaRecords } from '../../../shared/schema-tables.js';
 import { eq } from 'drizzle-orm';
+import {
+  getDisclosureTemplate,
+  saveDisclosureTemplate,
+  getAiDecisionAuditLog,
+  getAiDecisionStats,
+  DEFAULT_DISCLOSURE_TEMPLATE,
+  MATERIAL_DECISION_TYPES,
+} from '../../lib/ai-decision-disclosure.js';
 
 const router = Router();
 
@@ -413,6 +425,79 @@ router.get('/compliance/security-events', async (req: Request, res: Response) =>
   });
 
   res.json({ events, limit, offset });
+});
+
+// ─── US-1010: AI Decision Disclosure (PDPA 2025 PCP 3/2025) ─────────────────
+
+// GET /compliance/ai-decision-disclosure — Retrieve disclosure template for a profile
+router.get('/compliance/ai-decision-disclosure', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || 'pelangi';
+  const template = await getDisclosureTemplate(profileId);
+  res.json({
+    profileId,
+    template,
+    defaultTemplate: DEFAULT_DISCLOSURE_TEMPLATE,
+    materialDecisionTypes: [...MATERIAL_DECISION_TYPES],
+    description: 'PDPA 2025 PCP 3/2025 — Disclosure message shown to guests when Rainbow AI makes a material automated decision.',
+  });
+});
+
+// PUT /compliance/ai-decision-disclosure — Update disclosure template for a profile
+router.put('/compliance/ai-decision-disclosure', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || 'pelangi';
+  const { template } = req.body as { template?: string };
+
+  if (!template || typeof template !== 'string' || template.trim().length === 0) {
+    res.status(400).json({ error: 'template is required and must be a non-empty string' });
+    return;
+  }
+  if (template.length > 1000) {
+    res.status(400).json({ error: 'template must not exceed 1000 characters' });
+    return;
+  }
+
+  await saveDisclosureTemplate(profileId, template.trim());
+
+  logSecurityEvent({
+    adminUser: (req as any).user?.username || 'unknown',
+    action: 'update',
+    resourceType: 'ai_disclosure_template',
+    resourceId: profileId,
+    ipAddress: req.ip || req.socket.remoteAddress,
+    userAgent: req.headers['user-agent'],
+    profileId,
+    details: { templateLength: template.length },
+  }).catch(() => {});
+
+  res.json({ ok: true, profileId, template: template.trim() });
+});
+
+// GET /compliance/ai-decision-audit — AI decision audit log
+router.get('/compliance/ai-decision-audit', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || undefined;
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const offset = parseInt(req.query.offset as string) || 0;
+  const humanReviewOnly = req.query.human_review === 'true';
+  const decisionType = req.query.decision_type as string | undefined;
+  const phone = req.query.phone as string | undefined;
+
+  const records = await getAiDecisionAuditLog({
+    profileId,
+    phone,
+    decisionType,
+    humanReviewOnly,
+    limit,
+    offset,
+  });
+
+  res.json({ records, limit, offset, total: records.length });
+});
+
+// GET /compliance/ai-decision-stats — AI decision audit stats widget
+router.get('/compliance/ai-decision-stats', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || 'pelangi';
+  const stats = await getAiDecisionStats(profileId);
+  res.json({ profileId, ...stats });
 });
 
 export default router;
