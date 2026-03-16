@@ -11347,3 +11347,46 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 ✅ 13/13 tests pass
 ✅ Server startup succeeds
 
+
+## Iteration [Ralph-1] - Story: US-1009 Malaysia PDPA 2025 DPIA for AI Processing
+
+### What was implemented
+- Added DPIA (Data Protection Impact Assessment) schema table to shared/schema-tables.ts
+  - Stores DPIA document, processing scope, risk summary, mitigations
+  - Tracks review cycle (max 3 years per CBPDT Guidelines)
+  - Includes reviewer metadata
+
+- Added TIA (Transfer Impact Assessment) schema table to shared/schema-tables.ts
+  - Stores per-provider transfer records (NVIDIA, OpenRouter, Ollama, etc.)
+  - Tracks destination jurisdiction, equivalence level, transfer mechanism
+  - Maintains data categories and controls documentation
+  - 3-year validity window per CBPDT
+
+- Enhanced src/routes/admin/compliance.ts with new endpoints:
+  - GET /compliance/dpia — retrieve DPIA for active profile
+  - POST /compliance/dpia — create/update DPIA (3-year review cycle auto-set)
+  - GET /compliance/dpia-status-widget — status widget for admin dashboard
+  - GET /compliance/tia-records — retrieve TIA records from DB
+  - POST /compliance/tia-records — create/update TIA records (3-year validity auto-set)
+  - All endpoints log to security_event_log for audit trail
+
+- Updated system prompts in both profiles to include Malaysia PDPA 2025 data notice:
+  - src/assistant/data/settings.json (Pelangi Capsule hostel)
+  - src/assistant/data-makan/settings.json (Makan Moments Cafe)
+  - Notice informs users conversations may be processed by external AI providers in different jurisdictions
+
+### Patterns discovered
+- Drizzle ORM table definitions use pgTable with index definitions
+- Admin routes use res.locals.tenantId (from middleware) for multi-profile support
+- Security events automatically logged to security_event_log table for compliance audit
+- JSON fields in Drizzle stored as text, accepting both string and object on POST
+
+### Gotchas
+- esbuild build succeeded despite pre-existing TypeScript errors (documented in CLAUDE.md as expected)
+- db-url.js has known ESM/CommonJS mixing issue - not blocking since esbuild handles it
+- Pre-existing ts errors: 17+ type mismatches in chat-engine, escalation, feedback, etc. (not in scope)
+
+### Build verification
+- npm run build: SUCCESS (esbuild 223ms, 1.9MB bundle)
+- dist/index.js created with all data files copied
+- No new type errors introduced by schema changes
