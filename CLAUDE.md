@@ -11,7 +11,7 @@ WhatsApp AI assistant for Pelangi Capsule Hostel & Southern Homestay. Extracted 
 | Build | esbuild (NOT tsc — tsc has pre-existing type errors) |
 | Server | Express 4 |
 | Database | PostgreSQL (Neon) — Drizzle ORM + raw pg |
-| WhatsApp | Baileys (direct connection) |
+| WhatsApp | Baileys (direct WebSocket — **unofficial, ToS risk**, see [architecture doc](docs/architecture/whatsapp-transport-layer.md)) |
 | AI | NVIDIA Kimi K2.5 / Ollama / OpenRouter (multi-provider fallback) |
 | Testing | Vitest (unit/integration/semantic) + Promptfoo (eval) |
 | Deploy | AWS Lightsail + PM2 |
@@ -106,3 +106,9 @@ bash deploy.sh --skip-build  # Skip build step
 - **Zod schemas** in `src/assistant/schemas.ts` are source of truth for config types
 - **Import paths** use `.js` extensions (NodeNext module resolution)
 - Build copies `src/assistant/data/` and `src/public/` to `dist/` (static assets)
+
+## Architecture Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| `docs/architecture/whatsapp-transport-layer.md` | Baileys vs Cloud API analysis, ToS risk, migration plan |
