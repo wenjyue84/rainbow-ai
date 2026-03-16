@@ -11590,3 +11590,22 @@ Completed: Enforce WhatsApp business-purpose-only AI policy (no general-purpose 
 ### Gotchas
 - Express 5 `parseExtendedQueryString` still has `allowPrototypes: true` — never use `app.set('query parser', 'extended')` or `true`
 - The sanitization middleware runs for ALL routes, adds negligible overhead since req.query is typically small
+## Iteration 3 - Mon, Mar 16, 2026 10:02:39 AM
+Completed: Express CVE-2024-51999: patch query parser prototype pollution vulnerability (ID: US-1027) in 6m
+
+
+## Iteration 4 - Story: US-1028 npm supply chain: pin dependency versions and enable integrity verification
+### What was implemented
+- Removed all `^` and `~` semver range prefixes from package.json (57 dependencies now exactly pinned)
+- Versions extracted from package-lock.json resolved values (exact installed versions)
+- Added `npm audit --audit-level=high` step to CI workflow — fails on high/critical findings
+- Added lockfile sync verification step in CI (git diff --exit-code on package-lock.json)
+- Updated dependabot.yml: versioning-strategy lockfile-only, rebase-strategy disabled (PRs require manual review)
+- CI already used `npm ci` — this enforces reproducible installs from lockfile
+### Patterns discovered
+- package-lock.json `packages[""]` node has the root dependency lists; `packages["node_modules/X"]` has resolved versions
+- Windows Python requires `encoding='utf-8'` for json.load/dump on UTF-8 files with non-ASCII characters in prd.json
+- `versioning-strategy: lockfile-only` in Dependabot keeps package.json exact pins, only updates lockfile on PRs
+### Gotchas
+- The "MFA for npm accounts" criterion is a policy/operational item — cannot be enforced via code
+- `rebase-strategy: disabled` prevents Dependabot from auto-rebasing PRs (good — requires human review)
