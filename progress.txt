@@ -1,0 +1,33 @@
+## Codebase Patterns
+
+- Data JSON files in `src/assistant/data/` are the source of truth for intent routing, knowledge, settings, and templates
+- Build uses esbuild (NOT tsc) — pre-existing type errors are expected
+- `shared/schema-tables.ts` contains ALL Drizzle table exports — restoring from master breaks worker-added tables
+- Worker branches can lose files during parallel merge — always restore from the latest worker commit, not master
+- The `9b7bd6c` commit (worker 1 parallel implementation) is the most complete source for restored files on this branch
+- `.rej` files from Spiral workers are typically reversion patches (worker 2 trying to undo worker 1 additions) — don't blindly apply
+
+---
+
+# Ralph Progress Log - Tue Mar 17 00:42:16 MPST 2026
+Started autonomous agent loop for PRD completion
+
+## Iteration 1 - Story: US-005 - Fix .rej rejected patch files from previous Spiral run
+### What was implemented
+- Analyzed 127 .rej files across the repo
+- Found that most .rej changes to data JSON files were either already applied or were reversion attempts from worker 2 conflicting with worker 1
+- All 6 target JSON files (intent-keywords, knowledge, routing, settings, templates, workflows) were already valid and had the correct content
+- Deleted all 127 .rej files
+- Restored 8 critical source files deleted during Spiral worker merges (package.json, src/index.ts, shared/schema-tables.ts, src/lib/admin-notifier.ts, src/lib/baileys-supervisor.ts, src/routes/admin/index.ts, src/lib/einvoice-queue.ts, src/lib/myinvois-client.ts, src/lib/myinvois.ts, src/routes/admin/einvoice.ts, constitution.md, scripts/*)
+- Files restored from commit 9b7bd6c (worker 1) rather than master, since master versions lacked new exports
+
+### Patterns discovered
+- The Spiral parallel worker system creates .rej files when patches from one worker conflict with another worker's changes
+- Worker 2 patches were based on pre-worker-1 state, causing most to be "revert" patches that shouldn't be applied
+- The d7aafdc HEAD commit accidentally deleted critical source files that existed in 9b7bd6c
+
+### Gotchas
+- Restoring files from master instead of the latest worker commit causes build errors (missing exports)
+- Some .rej files are in dist/ (build artifacts) — these are always safe to delete
+- The package.json was deleted from the branch, causing npm commands to fail
+
