@@ -500,4 +500,76 @@ router.get('/compliance/ai-decision-stats', async (req: Request, res: Response) 
   res.json({ profileId, ...stats });
 });
 
+// ─── US-1026: Business Scope Compliance Mode ─────────────────────────────────
+
+// GET /compliance/business-scope — Get business scope policy status
+router.get('/compliance/business-scope', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || 'pelangi';
+
+  // Load profile config to get current settings
+  const { profileRegistry } = await import('../../assistant/profile-registry.js');
+  const profile = profileRegistry.isInitialized()
+    ? profileRegistry.getProfile(profileId)
+    : null;
+  const settings = profile?.configStore?.getSettings() ?? {};
+  const scopePolicy = (settings as any).business_scope_policy ?? { enabled: true };
+
+  // Query off-scope rejection count from intent_predictions
+  const { sql: sqlTag } = await import('drizzle-orm');
+  const offScopeCount = await db.execute(
+    sqlTag`SELECT COUNT(*) as count FROM intent_predictions WHERE predicted_intent = 'off_scope' AND created_at > NOW() - INTERVAL '30 days'`
+  );
+
+  res.json({
+    profileId,
+    complianceMode: scopePolicy.enabled !== false,
+    allowedIntents: scopePolicy.allowedIntents ?? [],
+    offScopeBlocksLast30Days: Number((offScopeCount as any).rows?.[0]?.count ?? 0),
+    description: 'Meta WhatsApp Business Platform policy enforcement. When enabled, off-scope queries are blocked and redirected to business topics.',
+  });
+});
+
+// PUT /compliance/business-scope — Toggle business scope compliance mode
+router.put('/compliance/business-scope', async (req: Request, res: Response) => {
+  const profileId = (res.locals.tenantId as string) || 'pelangi';
+  const { enabled } = req.body as { enabled?: boolean };
+
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled must be a boolean' });
+    return;
+  }
+
+  // Load profile config and update
+  const { profileRegistry } = await import('../../assistant/profile-registry.js');
+  const profile = profileRegistry.isInitialized()
+    ? profileRegistry.getProfile(profileId)
+    : null;
+
+  if (profile?.configStore) {
+    const settings = profile.configStore.getSettings() as any;
+    if (!settings.business_scope_policy) {
+      settings.business_scope_policy = { enabled };
+    } else {
+      settings.business_scope_policy.enabled = enabled;
+    }
+    // Persist via config store's save mechanism
+    profile.configStore.setSettings(settings);
+  }
+
+  logSecurityEvent({
+    adminUser: (req as any).user?.username || 'unknown',
+    action: enabled ? 'enable' : 'disable',
+    resourceType: 'business_scope_policy',
+    resourceId: profileId,
+    ipAddress: req.ip || req.socket.remoteAddress,
+    userAgent: req.headers['user-agent'],
+    profileId,
+    details: { enabled, overrideBy: (req as any).user?.username || 'unknown' },
+  }).catch(() => {});
+
+  console.log(`[Compliance] Business scope policy ${enabled ? 'ENABLED' : 'DISABLED'} for ${profileId} by ${(req as any).user?.username || 'unknown'}`);
+
+  res.json({ ok: true, profileId, complianceMode: enabled });
+});
+
 export default router;

@@ -11541,3 +11541,35 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 ### Gotchas
 - The merge-by-push-name strategy is heuristic; in production, BSUIDs arrive via webhook dual-delivery
   so the real-time upsertConversation() path handles most cases automatically
+## Iteration 1 - Mon, Mar 16, 2026  9:41:00 AM
+Completed: BSUID: migrate contact identity to Business-Scoped User ID by June 2026 (ID: US-1025) in 11m
+
+
+## Iteration [Ralph] - Story: US-1026 Enforce WhatsApp business-purpose-only AI policy
+### What was implemented
+- Created `src/assistant/pipeline/off-scope-guard.ts`: keyword-based off-scope detection module
+  - 70+ off-scope patterns across 6 categories: creative_writing, academic, coding, personal_advice, entertainment, general_knowledge
+  - Business allowlist with word-boundary matching to prevent false positives (e.g. 'ok' in 'joke')
+  - Multi-language redirect messages (EN, MS, ZH, TA)
+- Wired off-scope guard into `src/assistant/pipeline/input-validator.ts` after prompt-injection guard, before LLM call
+- Added `business_scope_policy` section to `src/assistant/data/settings.json` with:
+  - `enabled` toggle (compliance mode), `allowedIntents` list, `redirectMessage` per language
+- Updated system prompt with US-1026 WhatsApp Business Compliance instruction:
+  - Explicitly lists allowed topics (bookings, check-in/out, room info, pricing, cafe menu, etc.)
+  - Instructs AI to NEVER answer general knowledge, creative writing, coding, personal advice
+- Added admin API routes in `src/routes/admin/compliance.ts`:
+  - `GET /compliance/business-scope` — status + 30-day off-scope block count
+  - `PUT /compliance/business-scope` — toggle compliance mode with audit logging
+- Off-scope rejections logged to `intent_predictions` table with `predicted_intent: 'off_scope'` and category as model
+- Created `src/assistant/__tests__/off-scope-guard.test.ts`: 54 tests covering all ACs
+
+### Patterns discovered
+- Business allowlist must use word-boundary regex (`\b`) not substring matching — short keywords like 'ok', 'hi', 'no' match inside unrelated words ('joke', 'this', 'know')
+- Generic words like 'help' should NOT be in the allowlist — they appear in off-scope queries ("help me with homework")
+- Off-scope guard follows same pattern as prompt-injection-guard: pre-LLM check in input-validator, configurable via settings.json
+- ConfigStore uses `setSettings()` not `updateSettings()`, and ProfileRegistry uses `getProfile()` not `resolveProfileById()`
+
+### Build & Quality
+- esbuild: SUCCESS (1.9MB bundle, 3 pre-existing warnings only)
+- Tests: 54/54 pass (off-scope-guard.test.ts)
+- All 5 acceptance criteria verified

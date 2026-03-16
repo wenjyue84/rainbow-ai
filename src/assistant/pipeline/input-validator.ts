@@ -24,6 +24,7 @@ import { isOptedOut, isOptOutCommand, isOptInCommand, recordOptOut, recordOptIn 
 import { recordConsent, hasConsent } from '../consent.js';
 import { isMarketingConfirmKeyword, isMarketingRevokeKeyword, confirmMarketingOptIn, revokeMarketingConsent } from '../../lib/marketing-optin.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
+import { detectOffScope, OFF_SCOPE_REDIRECT } from './off-scope-guard.js';
 import { redactPii } from '../pii-redactor.js';
 import { logPromptInjectionEvent } from '../../lib/prompt-injection-logger.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
@@ -504,6 +505,38 @@ export async function validateAndPrepare(
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };
+    }
+  }
+
+  // ─── US-1026: Off-Scope Guard (WhatsApp Business compliance) ────
+  // Meta bans general-purpose AI assistants on WhatsApp Business Platform.
+  // Block off-topic queries and redirect to business topics.
+  const scopeSettings = (profileConfig.getSettings() as any).business_scope_policy;
+  if (scopeSettings?.enabled !== false) {
+    const offScopeResult = detectOffScope(
+      text,
+      scopeSettings?.customPatterns,
+      scopeSettings?.customAllowlist,
+    );
+    if (offScopeResult.blocked) {
+      const lang = detectLanguage(text);
+      console.warn(`[OffScope] Blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${offScopeResult.matchedPattern}", category: ${offScopeResult.category})`);
+
+      // Log to intent_predictions for compliance audit trail (fire-and-forget)
+      import('../intent-tracker.js').then(({ trackIntentPrediction }) => {
+        trackIntentPrediction(
+          phone, phone, text,
+          'off_scope', 1.0, 'off_scope_guard',
+          offScopeResult.category || undefined,
+        );
+      }).catch(() => {});
+
+      const redirectMsg = scopeSettings?.redirectMessage?.[lang]
+        || scopeSettings?.redirectMessage?.en
+        || OFF_SCOPE_REDIRECT[lang]
+        || OFF_SCOPE_REDIRECT.en;
+      await ctx.sendMessage(phone, redirectMsg, msg.instanceId);
+      return { continue: false, reason: 'off_scope' };
     }
   }
 
