@@ -9,7 +9,9 @@
     "Add better fallback responses when AI confidence is low",
     "Improve the booking workflow steps in workflows.json",
     "Fix any failing tests",
-    "Prioritize reliability and response quality over new features"
+    "Prioritize reliability and response quality over new features",
+    "Enforce strict business profile separation — each profile's data files must only contain content specific to that business, with zero contamination from other profiles",
+    "Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
   ],
   "epics": [
     {
@@ -36,6 +38,11 @@
       "id": "E-5",
       "title": "Test Suite Reliability",
       "description": "Fix failing tests and improve test coverage for core intent and conversation logic."
+    },
+    {
+      "id": "E-6",
+      "title": "Business Profile Separation",
+      "description": "Ensure strict data isolation between all business profiles. Each profile's data files (knowledge.json, intents.json, intent-keywords.json, routing.json, templates.json, workflows.json) must contain ONLY content specific to that business. No profile may contain identifiers, addresses, credentials, pricing, or intents belonging to a different business."
     }
   ],
   "userStories": [
@@ -293,6 +300,430 @@
         "reset"
       ],
       "epicId": "E-2"
+    },
+    {
+      "id": "US-011",
+      "title": "Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hostel content",
+      "description": "The file src/assistant/data-makan/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content including WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', hostel address '26A Jalan Perang Taman Pelangi', capsule facilities, and hostel check-in/out info. Remove ALL Pelangi-specific content and replace with Makan Moments Cafe-appropriate responses: cafe opening hours, menu info, ordering process, and table/takeaway options. The cafe does not have WiFi-for-guests, capsules, or room check-ins.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "data-makan/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'Taman Pelangi', 'capsule', or 'youtube.com/watch?v=6Ux11oBZaQQ'",
+        "Cafe-specific intents (menu, ordering, allergens, feedback) have meaningful response templates",
+        "Responses are in English/Malay/Chinese mixed style consistent with cafe tone",
+        "knowledge.json remains valid JSON with the same schema structure"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/assistant/data-makan/knowledge.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "profile-separation",
+        "makan-moments",
+        "data-quality"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-012",
+      "title": "Fix Southern Homestay knowledge.json — remove Pelangi Capsule content",
+      "description": "The file src/assistant/data-southern/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content: WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', Pelangi address, Pelangi YouTube video link, and capsule-specific facilities. Remove ALL Pelangi-specific identifiers and replace with Southern Homestay-appropriate placeholder responses. Southern Homestay is a separate property and must have its own identity.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "data-southern/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'youtube.com/watch?v=6Ux11oBZaQQ', or 'Taman Pelangi'",
+        "Responses reference 'Southern Homestay' or use neutral placeholders like '[Southern Homestay WiFi]' where actual values are unknown",
+        "Hostel-specific responses (check-in, directions) use Southern-specific framing",
+        "knowledge.json remains valid JSON with the same schema structure"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": [
+        "src/assistant/data-southern/knowledge.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "profile-separation",
+        "southern-homestay",
+        "data-quality"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-013",
+      "title": "Fix Makan Moments intents.json — remove hostel-specific intents",
+      "description": "Audit src/assistant/data-makan/intents.json for any intents that are hostel-specific (e.g., check_in, checkout_info, capsule_facilities, locker, room_types, dorm). These must not exist in a cafe profile. Remove or replace them with cafe-appropriate intents. The cafe profile should only have food/beverage-relevant intents.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "data-makan/intents.json contains no hostel-only intents (check_in, checkout_info, facilities referring to capsules, locker, dorm, room_booking)",
+        "All remaining intents are relevant to a food & beverage cafe",
+        "Cafe-specific intents (menu_query, order_placement, allergen_query, table_reservation, operating_hours) are present",
+        "intents.json remains valid JSON with the correct schema structure"
+      ],
+      "dependencies": [
+        "US-011"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/assistant/data-makan/intents.json"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "profile-separation",
+        "makan-moments",
+        "intents"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-014",
+      "title": "Fix Makan Moments intent-keywords.json — remove hostel keywords from cafe profile",
+      "description": "Audit src/assistant/data-makan/intent-keywords.json for any keywords that are hostel-specific (booking a room, check-in, check-out, capsule, dorm, locker, hostel, overnight stay). These must be removed. The cafe profile should only have food/beverage keywords (order, menu, table, food, drink, takeaway, dine-in, halal, vegetarian, price).",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "data-makan/intent-keywords.json contains no hostel-specific keywords (capsule, dorm, locker, room, overnight, check-in, check-out in accommodation context)",
+        "Cafe-relevant keywords are present for ordering, menu, table booking, allergens, and operating hours",
+        "No duplicate keywords introduced",
+        "intent-keywords.json remains valid JSON"
+      ],
+      "dependencies": [
+        "US-011"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/assistant/data-makan/intent-keywords.json"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "profile-separation",
+        "makan-moments",
+        "keywords"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-015",
+      "title": "Add profile contamination unit tests",
+      "description": "Write Vitest unit tests that programmatically verify no profile's data files contain identifiers belonging to a different business. Tests should load each profile's knowledge.json, intent-keywords.json, and intents.json and assert that Pelangi-specific strings do not appear in non-Pelangi profiles, and cafe-specific strings do not appear in hostel profiles.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Test file exists at src/tests/profile-contamination.test.ts (or similar)",
+        "Tests verify data-makan/* files contain none of: 'pelangi capsule', 'ilovestaycapsule', '1270#', 'Taman Pelangi'",
+        "Tests verify data-southern/* files contain none of: 'pelangi capsule', 'ilovestaycapsule', '1270#'",
+        "Tests run as part of npm run test:run and pass",
+        "Tests are fast (file-read only, no network calls)"
+      ],
+      "dependencies": [
+        "US-011",
+        "US-012"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/tests/"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "profile-separation",
+        "testing",
+        "quality-gate"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-016",
+      "title": "Fix Makan Moments routing.json — remove hostel intent routes",
+      "description": "Audit src/assistant/data-makan/routing.json for routing entries that map hostel-only intents (check_in, checkout_info, capsule_facilities, room_booking). These routes must not exist in the cafe profile. Add or verify routing entries for cafe-specific intents (menu_query, order_placement, allergen_query, table_reservation).",
+      "priority": "medium",
+      "acceptanceCriteria": [
+        "data-makan/routing.json has no routes for hostel-only intents",
+        "Routing entries for cafe intents (menu, ordering, allergens, operating hours) exist and are correctly configured",
+        "routing.json remains valid JSON with the correct schema",
+        "No existing cafe routing entries are broken"
+      ],
+      "dependencies": [
+        "US-013"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/assistant/data-makan/routing.json"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "profile-separation",
+        "makan-moments",
+        "routing"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-017",
+      "title": "Add emergency/SOS intent with immediate staff escalation",
+      "priority": "critical",
+      "description": "Guests may message in emergencies (medical, fire, security incident). The current intents.json has no emergency/SOS category. An unrecognized emergency message hitting the fallback pipeline introduces unacceptable delay. A dedicated T1 regex-matched intent should bypass all queues and immediately alert all staff phones.",
+      "acceptanceCriteria": [
+        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '救命', '急救'",
+        "Emergency intent bypasses confidence thresholds and routes directly to immediate escalation workflow",
+        "All staff phones in settings.json receive a WhatsApp alert within 10 seconds of the trigger",
+        "routing.json maps the emergency intent to a new 'emergency_escalate' workflow",
+        "A unit test verifies that emergency keywords always resolve to the emergency intent regardless of LLM confidence"
+      ],
+      "technicalNotes": [
+        "Add 'emergency' category to GENERAL_SUPPORT phase in intents.json with min_confidence: 0.0 and time_sensitive: true",
+        "Add 'emergency_escalate' workflow in workflows.json that sends multi-staff notification before any other step",
+        "The T1 regex check should run before rate-limiting and prompt injection guards"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-018",
+      "title": "Add post-stay review request workflow triggered on checkout completion",
+      "priority": "high",
+      "description": "Industry data shows WhatsApp review request messages have 90%+ open rates vs. <20% for email, and review likelihood increases significantly when the message arrives while the experience is fresh. Rainbow AI has no automated post-checkout outreach workflow. A time-delayed WhatsApp message after checkout with a Google Review link would directly improve the hostel's online reputation.",
+      "acceptanceCriteria": [
+        "A new 'post_stay_review' workflow exists in workflows.json triggered by checkout_full workflow completion",
+        "The review request message is sent 2 hours after checkout (configurable delay in settings.json under 'post_stay_review')",
+        "The message includes the hostel's Google Maps review link personalised with the guest's name",
+        "Message is only sent once per guest per stay — stored flag in DB prevents duplicates",
+        "The review request uses only utility template language (no marketing phrases) to avoid billing reclassification under July 2025 per-message pricing",
+        "Admin can toggle the feature on/off in settings.json"
+      ],
+      "technicalNotes": [
+        "Trigger: add a post-workflow hook in checkout_full that schedules a delayed BullMQ job",
+        "Template must pass templateLinter marketingKeywords check before sending",
+        "Store sent status in rainbow_conversations or a new post_stay_jobs table to prevent duplicates",
+        "Reference: settings.json 'cart_recovery' pattern for idle-triggered message scheduling"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-019",
+      "title": "Add guest data portability export endpoint for PDPA 2025 compliance",
+      "priority": "high",
+      "description": "Malaysia PDPA Phase 3 (June 2025) introduced data portability rights, giving data subjects the right to receive their personal data in a machine-readable format. The existing gdpr-erasure.ts handles deletion but there is no endpoint for guests to request their conversation and profile data export. This is now a legal obligation under the PDPA Amendment Act 2024.",
+      "acceptanceCriteria": [
+        "A new admin route GET /admin/pdpa/data-export/:phone returns all data held for a given phone number as structured JSON",
+        "The export includes: all rainbow_messages, rainbow_conversations, intent_analytics entries, and stored guest profile fields",
+        "A guest-facing trigger path exists: guest sends 'request my data' → Rainbow acknowledges and creates an admin notification to fulfil within 7 days",
+        "The admin notification includes the guest's phone, request timestamp, and a direct link to the export endpoint",
+        "The endpoint requires admin authentication",
+        "Unit test verifies the endpoint returns all expected data categories for a test phone number"
+      ],
+      "technicalNotes": [
+        "PDPA Amendment Act 2024 Phase 3 (June 2025): data portability right is enforceable",
+        "See existing gdpr-erasure.ts and gdpr-data-export.ts for route patterns to extend",
+        "Response format should be structured JSON with a clear schema (phone, messages[], conversations[], analytics[])",
+        "7-day fulfilment window per PDPA guidelines — the admin notification should include a due date"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-020",
+      "title": "Implement automated 72-hour data breach notification pipeline to DPO",
+      "priority": "high",
+      "description": "Malaysia PDPA Amendment Act 2024 (effective June 2025) mandates that data controllers notify the PDPC Commissioner within 72 hours of becoming aware of a breach affecting significant harm or >1,000 individuals. Currently breach_detection scans for anomalous access but has no automated DPO notification pipeline. Non-compliance carries fines up to RM1,000,000.",
+      "acceptanceCriteria": [
+        "When breach_detection triggers a breach event, an automated email notification is sent to settings.json pdpa.dpo_email within 15 minutes containing: timestamp, breach type, estimated affected subjects, and data categories",
+        "A 72-hour countdown timer is logged as a breach_incident record in the DB with fields: detected_at, dpo_notified_at, acknowledged_at",
+        "If 60 hours pass without acknowledgement, a second escalation alert is sent to all staff phones",
+        "The admin breach report dashboard shows active incidents with countdown timers",
+        "A unit test simulates a breach event and verifies the notification pipeline fires within 15 minutes (mocked time)"
+      ],
+      "technicalNotes": [
+        "PDPA 2024 Amendment: 72-hour timeline starts from when the data controller becomes aware of the incident",
+        "Notification to affected individuals must follow within 7 days of notifying the Commissioner",
+        "Commissioner notification requires manual filing via PDPC Malaysia portal — implement as a checklist prompt in admin UI rather than automated external API call",
+        "See existing breach-report.ts and pdpa-dpo.ts admin routes for integration points"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-021",
+      "title": "Add stay extension request intent and admin-forwarding workflow",
+      "priority": "medium",
+      "description": "Guests commonly want to extend their current booking by additional days. This is distinct from making a new booking (handled by 'booking' intent). Without a dedicated intent, guests saying 'can I stay 2 more nights?' fall through to LLM fallback and may receive confusing responses. A dedicated intent and forwarding workflow routes these to admin for availability confirmation.",
+      "acceptanceCriteria": [
+        "A 'stay_extension' intent exists in intents.json with patterns: 'extend my stay', 'stay longer', 'more nights', 'extend booking', 'tambah malam', '延长住宿', '多住'",
+        "routing.json maps 'stay_extension' to a new 'extension_request' workflow",
+        "The extension_request workflow collects the guest's desired new check-out date and forwards the request to admin via WhatsApp notification",
+        "The bot confirms the request has been forwarded and sets expectations: 'We'll confirm availability within 30 minutes'",
+        "Unit test verifies 'stay 2 more nights' messages route to stay_extension and not the booking intent"
+      ],
+      "technicalNotes": [
+        "Add 'stay_extension' to a new or existing IN_STAY phase in intents.json",
+        "Pattern design: use 'extend' and 'more nights' as primary discriminators vs. 'book' in booking intent",
+        "Workflow can optionally check PMS availability via MCP if pms2-pelangi MCP server is connected",
+        "Reference: booking_payment_handler workflow for the admin-forwarding step pattern"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-022",
+      "title": "Add luggage storage and late checkout intent handlers with static replies",
+      "priority": "medium",
+      "description": "Luggage storage after checkout and late checkout requests are among the most common hostel guest queries globally. The current intents.json has no handlers for either, so these route to the LLM unnecessarily for questions that have fixed policy answers. Adding dedicated intents with static replies eliminates LLM cost and latency for these high-frequency requests.",
+      "acceptanceCriteria": [
+        "A 'luggage_storage' intent exists in intents.json with T1/T2 patterns: 'luggage storage', 'store bags', 'leave bags', 'store my bags', 'simpan beg', '寄存行李'",
+        "A 'late_checkout' intent exists in intents.json with patterns: 'late checkout', 'check out late', 'extend checkout time', 'lambat checkout', '晚退房'",
+        "knowledge.json has a 'luggage_storage' entry with the hostel's current policy",
+        "knowledge.json 'late_checkout' entry reflects the existing policy (free, subject to availability)",
+        "routing.json maps both intents to 'static_reply'",
+        "Unit tests confirm both intents resolve at T2 tier without reaching the LLM"
+      ],
+      "technicalNotes": [
+        "Late checkout policy already exists in the checkout_info static response — extract into its own intent entry",
+        "Luggage storage: confirm with hostel management whether free or paid before writing the knowledge.json entry",
+        "Both intents should be added to a POST_STAY or GENERAL_SUPPORT phase in intents.json",
+        "No new routing logic needed — static_reply action already exists"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-023",
+      "title": "Add per-message cost optimization by preventing duplicate concurrent sends",
+      "priority": "medium",
+      "description": "WhatsApp switched to per-message billing on July 1, 2025. Every outbound message is now individually metered. A race condition exists in intent-classifier.ts: the 3-second 'thinking' ack timer and the main LLM response can both send messages within the same request. If the LLM responds in 2.8s, both the ack and the answer are sent. The ack should be cancelled if the main response arrives before the timer fires. Each unnecessary message is a billing charge.",
+      "acceptanceCriteria": [
+        "The ackTimer in intent-classifier.ts is cleared before any response is sent from the LLM pipeline — not just after",
+        "A test with a mock LLM response time of 2.9 seconds confirms only one message is sent (the actual answer, not the ack)",
+        "A 'messages_sent_per_conversation' counter is tracked and exposed in the analytics dashboard",
+        "The admin billing dashboard adds a 'avg messages per conversation' KPI alongside cost metrics",
+        "settings.json adds documentation comment on the July 2025 per-message pricing model in the billing section"
+      ],
+      "technicalNotes": [
+        "Current code: ackTimer is a setTimeout at 3000ms in intent-classifier.ts — clearTimeout must be called at the start of sendResponse, not after",
+        "Reference: intent-classifier.ts lines around the ackTimer declaration and clearTimeout calls",
+        "WhatsApp utility messages in an open 24h service window are free; only proactive outbound marketing messages are charged outside the window",
+        "Source: https://www.ycloud.com/blog/whatsapp-api-pricing-update"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-024",
+      "title": "Add Tamil (ta) language intent patterns for common guest queries",
+      "priority": "medium",
+      "description": "Malaysia's Tamil-speaking Indian population (~7%) is an underserved guest segment. The system already has Tamil ('ta') translations in tiered_fallback and language detection supports 'ta', but intents.json has zero Tamil script patterns. Tamil-speaking guests always fall through to LLM classification with no T1/T2 acceleration. Adding Tamil script patterns for the five most common intents (greeting, thanks, wifi, pricing, directions) would improve quality for this segment.",
+      "acceptanceCriteria": [
+        "The 'greeting' intent in intents.json includes Tamil patterns: வணக்கம் (vanakkam), நமஸ்கார (namaskaram), ஹலோ (hello in Tamil script)",
+        "The 'thanks' intent includes Tamil: நன்றி (nandri), மிக்க நன்றி (mikka nandri)",
+        "The 'wifi' intent includes Tamil patterns for wifi/password queries: வைஃபை, கடவுச்சொல்",
+        "The 'pricing' intent includes Tamil patterns: விலை, எவ்வளவு",
+        "The 'directions' intent includes Tamil patterns: முகவரி, எப்படி போவது",
+        "Unit tests verify that Tamil-script messages for each intent resolve correctly without LLM"
+      ],
+      "technicalNotes": [
+        "Tamil script Unicode range: U+0B80–U+0BFF — use this range for regex character class",
+        "The languageDetection module uses ELD library — test Tamil detection accuracy with sample messages before relying on it",
+        "Most Malaysian Tamil speakers also code-switch to English/Malay, so Tamil patterns are additive quality improvements",
+        "Have patterns verified by a native Tamil speaker before release"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false
+    },
+    {
+      "id": "US-025",
+      "title": "Add PDPA cross-border transfer impact assessment report endpoint",
+      "priority": "medium",
+      "description": "Malaysia's Cross-Border Personal Data Transfer Guidelines (April 29, 2025) require Transfer Impact Assessments (TIAs) before sending personal data to jurisdictions without PDPA-equivalent protections. Rainbow AI routes guest conversation data through Google (US), NVIDIA/Groq (US), and Moonshot AI (China). A TIA summary report in the admin panel supports compliance documentation and audit obligations.",
+      "acceptanceCriteria": [
+        "A new admin endpoint GET /admin/pdpa/transfer-impact-report returns a structured report listing each enabled AI provider",
+        "Each provider entry includes: provider name, data centre jurisdiction, personal data categories transmitted (conversation text, inferred phone context), legal basis for transfer, and last review date",
+        "The report is auto-generated from the providers array in settings.json",
+        "A 'last_reviewed' and 'next_review_due' (default 12-month cycle) field appears on each provider entry",
+        "Admin can download the report as PDF or JSON for filing with PDPC Malaysia",
+        "A warning indicator appears for any provider in a jurisdiction without PDPA adequacy recognition"
+      ],
+      "technicalNotes": [
+        "USA-based providers (Groq, NVIDIA): no federal data protection law — flag as 'requires Standard Contractual Clauses review'",
+        "PDPA CBPDT Guidelines (April 2025): transfer allowed if destination has law 'substantially similar' to PDPA or 'adequate level of protection'",
+        "See existing compliance.ts and pdpa-security.ts for admin route placement",
+        "The report itself is a read-only documentation aid — no new external API calls to providers needed"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-026",
+      "title": "Add portfolio-level WABA messaging limit tracking across phone numbers",
+      "priority": "medium",
+      "description": "Meta changed WhatsApp messaging limits from per-phone-number to portfolio-level (WABA-level) on October 7, 2025. Rainbow AI manages two WhatsApp numbers (Pelangi + Southern Homestay) potentially under the same WABA. The current rateLimiting only tracks per-user message rates. If both numbers share a WABA, they share a conversation pool. A webhook handler for the business_capability_update event and a portfolio-level counter is needed to prevent silent limit violations.",
+      "acceptanceCriteria": [
+        "A webhook handler processes the 'business_capability_update' Meta webhook event and stores the updated max_daily_conversation_per_phone value in settings",
+        "The admin panel displays current portfolio-level usage: conversations started in last 24h vs. portfolio limit",
+        "An admin alert is triggered when portfolio usage reaches the alertThreshold (default 80%, per costBudget.alertThreshold pattern)",
+        "settings.json adds a 'waba_messaging_limits' object with: current_limit, alert_threshold, and last_updated fields",
+        "The feature is gracefully disabled if only one phone number is active"
+      ],
+      "technicalNotes": [
+        "Meta docs: business_capability_update webhook fires with max_daily_conversation_per_phone property (now portfolio-level as of Oct 7, 2025)",
+        "Source: https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
+        "Only relevant if Pelangi and Southern Homestay share a WABA — confirm in Meta Business Manager",
+        "Existing rateLimiting.perUserMaxMessages is unaffected; this is a portfolio-level additive control"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-027",
+      "title": "Add booking date input normalization for Malaysian date formats",
+      "priority": "medium",
+      "description": "The booking workflow's wait_booking_dates step accepts free-text date input with no normalization. Malaysian guests provide dates in varied formats: '15/3', '15-3-26', 'March 15', '15 Mac', 'esok' (tomorrow in Malay), '明天' (tomorrow in Chinese). Without normalization, unparseable dates cause downstream processing failures or require staff manual interpretation. A date normalization utility should convert all variants to ISO 8601.",
+      "acceptanceCriteria": [
+        "A date normalization utility at src/lib/date-normalizer.ts parses: DD/MM, DD/MM/YY, DD/MM/YYYY, 'DD MonthName' in English and Malay, relative terms: 'today', 'tomorrow', 'esok', 'lusa', '今天', '明天', '后天'",
+        "Malay month names are correctly parsed: Jan, Feb, Mac, Apr, Mei, Jun, Jul, Ogo, Sep, Okt, Nov, Dis",
+        "Check-out date is validated to be after check-in date; invalid sequences prompt clarification",
+        "Past dates trigger a re-prompt with a helpful message",
+        "The normalized ISO date is stored as 'booking_dates_normalized' in workflow state alongside the raw input",
+        "Unit tests cover all 15+ input format variants including Malay month abbreviations"
+      ],
+      "technicalNotes": [
+        "Use dayjs with locale/plugin support for parsing (already a common dependency in Node.js stacks)",
+        "Relative dates must resolve in Asia/Kuala_Lumpur timezone from settings.json businessHours.timezone",
+        "Malay month abbreviations differ from English: Mac=March, Ogo=August, Okt=October, Dis=December",
+        "Integration point: wait_booking_dates node in booking_payment_handler workflow (workflows.json)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
+    },
+    {
+      "id": "US-028",
+      "title": "Add in-stay amenity upsell intent with post-check-in suggestion",
+      "priority": "low",
+      "description": "Hotels using WhatsApp chatbots report 20-30% upsell revenue uplift by prompting guests with relevant add-on offers during their stay. Rainbow AI has no upsell-oriented intent or proactive suggestion capability for in-stay guests. Adding an upsell intent and an optional post-check-in suggestion message would enable this revenue pathway while staying within Meta's business-purpose-only policy.",
+      "acceptanceCriteria": [
+        "A 'upsell_suggest' intent exists in intents.json with patterns: 'anything to do', 'what can I order', 'do you have food', 'ada makanan' (in an in-stay context)",
+        "A static knowledge.json entry for 'upsell_suggest' lists available add-ons: cafe menu, laundry service, local recommendations",
+        "An optional post-check-in message is sent 30 minutes after check-in completion (configurable, disabled by default in settings.json under 'upsell.post_checkin_message')",
+        "Upsell messages use utility template language only (no marketing phrases) to avoid billing reclassification",
+        "Admin can enable/disable the post-check-in message in settings.json",
+        "The feature only activates for guests who have completed the check-in workflow"
+      ],
+      "technicalNotes": [
+        "Only activate for in-stay guests — check conversation state to avoid sending to pre-arrival guests",
+        "The cafe menu already has handling via menu-flow.json — upsell_suggest links to existing menu intent",
+        "Use BullMQ delayed job (same pattern as cart_recovery in settings.json) for the post-check-in message",
+        "Mark messages as utility template to avoid marketing billing charges under July 2025 per-message pricing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false
     }
   ]
 }
