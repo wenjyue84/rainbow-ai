@@ -43,6 +43,9 @@ export const DEFAULT_DISCLOSURE_TEMPLATE =
 
 let _tableEnsured = false;
 
+/** Test-only: reset table-ensured flag so each test starts fresh. */
+export function _resetTableEnsured(): void { _tableEnsured = false; }
+
 async function ensureTable(): Promise<void> {
   if (_tableEnsured) return;
   try {

@@ -38,6 +38,7 @@ import {
   getAiDecisionStats,
   MATERIAL_DECISION_TYPES,
   DEFAULT_DISCLOSURE_TEMPLATE,
+  _resetTableEnsured,
 } from '../../lib/ai-decision-disclosure.js';
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ import {
 describe('US-1010: AI Decision Disclosure', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetTableEnsured(); // Reset cached flag so ensureTable runs fresh each test
     // Default: table ensure queries succeed
     mockQuery.mockResolvedValue({ rows: [] });
   });
@@ -209,7 +211,7 @@ describe('US-1010: AI Decision Disclosure', () => {
       expect(updateCall).toBeDefined();
       const params = updateCall![1] as unknown[];
       expect(params[0]).toBe('accepted');
-      expect(params[1]).toBeUndefined(); // humanReviewRequested not passed
+      expect(params[1]).toBeNull(); // humanReviewRequested defaults to null via ?? null
     });
 
     it('is a no-op when id is 0', async () => {
@@ -311,6 +313,12 @@ describe('US-1010: AI Decision Disclosure', () => {
   describe('getAiDecisionStats()', () => {
     it('calculates human review rate correctly', async () => {
       mockQuery
+        // ensureTable: CREATE TABLE + 3 CREATE INDEX
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        // actual stats queries
         .mockResolvedValueOnce({ rows: [{ total: '10', human_review: '3' }] })
         .mockResolvedValueOnce({ rows: [
           { decision_type: 'booking', count: '6' },

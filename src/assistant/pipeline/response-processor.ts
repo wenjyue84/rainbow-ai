@@ -38,8 +38,25 @@ import {
 import {
   evaluateEscalationRules, resetEscalationTracking,
 } from '../escalation-rules.js';
+import {
+  MATERIAL_DECISION_TYPES, logAiDecision, getDisclosureTemplate,
+} from '../../lib/ai-decision-disclosure.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
+
+/**
+ * US-1010: Map pipeline intent to material decision type for PDPA disclosure.
+ * Returns the decision type string if the intent is material, null otherwise.
+ */
+function getMaterialDecisionType(intent: string, action: string): string | null {
+  // Direct intent-to-decision-type mapping
+  if (intent === 'booking' || intent === 'booking_inquiry') return 'booking';
+  if (intent === 'ORDER_CONFIRM') return 'order_confirmation';
+  if (intent === 'MENU_RECOMMEND') return 'menu_recommendation';
+  // Escalation is logged separately when triggered; check action for workflow-based escalation
+  if (action === 'escalate' || intent === 'contact_staff') return 'escalation';
+  return null;
+}
 
 export async function processAndSend(
   state: PipelineState, ctx: RouterContext
@@ -246,6 +263,31 @@ export async function processAndSend(
       response += notice;
       console.log(`[ResponseProcessor] Data notice appended for first-contact JID ${phone} (DPO: ${dpoEmail})`);
     }
+  }
+
+  // ─── US-1010: AI Decision Disclosure (PDPA 2025 PCP 3/2025) ────────────
+  // When the AI makes a material automated decision, append disclosure and log audit.
+  const materialType = getMaterialDecisionType(diaryEvent.intent, diaryEvent.action);
+  if (materialType && MATERIAL_DECISION_TYPES.has(materialType)) {
+    const disclosureTemplate = await getDisclosureTemplate(profileId);
+    response += '\n\n' + disclosureTemplate;
+    console.log(`[AiDisclosure] Material decision "${materialType}" for ${phone} — disclosure appended`);
+
+    // Fire-and-forget audit log (AC3: decision type, confidence, human review, outcome)
+    logAiDecision({
+      profileId,
+      phone,
+      decisionType: materialType,
+      intent: diaryEvent.intent,
+      confidenceScore: diaryEvent.confidence,
+      aiProvider: devMetadata.model,
+      disclosureSent: true,
+      metadata: {
+        action: diaryEvent.action,
+        requestId,
+        source: devMetadata.source,
+      },
+    }).catch(() => {});
   }
 
   // ─── Sentiment-based escalation (US-822: per-profile, reason='sentiment') ──

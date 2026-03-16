@@ -11410,3 +11410,37 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 ### Gotchas
 - Pre-existing server crash unrelated to this story (gdpr-portability.ts ValidationError for ipKeyGenerator)
 - ai-bom.json must be committed to repo per acceptance criteria (OWASP LLM03:2025 supply chain tracking)
+## Iteration 1 - Mon, Mar 16, 2026  8:24:25 AM
+Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-1010 - Malaysia PDPA 2025: Right to refuse automated AI decisions and request human review
+
+### What was implemented
+- **Pipeline integration for AI decision disclosure** — wired existing `src/lib/ai-decision-disclosure.ts` into the message processing pipeline:
+  - **Response processor** (`src/assistant/pipeline/response-processor.ts`):
+    - Added `getMaterialDecisionType()` helper mapping intents (booking, ORDER_CONFIRM, MENU_RECOMMEND, contact_staff) to material decision types
+    - After response generation, checks if intent is a material decision → appends per-profile disclosure template + logs audit record (fire-and-forget)
+  - **Input validator** (`src/assistant/pipeline/input-validator.ts`):
+    - Added human review request detection (via `isHumanReviewRequest()`) before rate limiting, so guests can always type "human"/"staff"/"agent" to request human review
+    - Logs audit record with `human_review_request` decision type and triggers escalation to staff
+- **Test fixes** — fixed 5 pre-existing test failures in `ai-decision-disclosure.test.ts`:
+  - Added `_resetTableEnsured()` export for test isolation (cached `_tableEnsured` flag was leaking across tests)
+  - Fixed `updateAiDecisionOutcome` test expecting `undefined` where code returns `null` (via `?? null`)
+  - Added ensureTable mock responses to `getAiDecisionStats` test
+
+### Acceptance Criteria verified
+- AC1: Material decisions (booking, order_confirmation, menu_recommendation, escalation) trigger disclosure message append ✅
+- AC2: "human"/"staff"/"agent"/"person"/"manusia"/"orang" + REQUEST_HUMAN_REVIEW quick-reply detected and routed to escalation ✅
+- AC3: Audit log records decision_type, confidence_score, human_review_requested, outcome via `ai_decision_audit` table ✅
+- AC4: Disclosure template editable per profile via GET/PUT `/compliance/ai-decision-disclosure` admin endpoints ✅
+
+### Build & Quality
+✅ esbuild passes (no new errors, only pre-existing warnings)
+✅ 32/32 tests pass for ai-decision-disclosure.test.ts
+✅ All acceptance criteria met
+
+### Patterns discovered
+- Pipeline integration points: response-processor.ts for post-response hooks, input-validator.ts for pre-processing interceptors
+- The `_tableEnsured` flag in ai-decision-disclosure.ts needs per-test reset — added `_resetTableEnsured()` test helper
+- Material decision types are defined in the library but intent mapping lives in the pipeline (clean separation)

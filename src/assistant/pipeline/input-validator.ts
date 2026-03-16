@@ -32,6 +32,7 @@ import { getPreferredLanguage, isLanguageLocked, resolveEffectiveLanguage } from
 import { checkJidRate, startJidRateLimiterCleanup } from '../jid-rate-limiter.js';
 import { conversationKey } from '../conversation-db.js';
 import { downloadAndSaveMedia } from '../../lib/media-downloader.js';
+import { isHumanReviewRequest, logAiDecision, updateAiDecisionOutcome } from '../../lib/ai-decision-disclosure.js';
 
 // Start per-JID rate limiter cleanup (default 60s window)
 startJidRateLimiterCleanup(60_000);
@@ -424,6 +425,36 @@ export async function validateAndPrepare(
       await handleStaffCommand(phone, text, msg.instanceId, ctx);
       return { continue: false, reason: 'staff_command' };
     }
+  }
+
+  // ─── US-1010: Human review request detection (PDPA 2025 PCP 3/2025) ──
+  // Guests can type "human", "staff", "agent", etc. to request human review.
+  // This bypasses rate limiting so it always works.
+  if (!isStaffPhone(phone, ctx, profileConfig) && isHumanReviewRequest(text)) {
+    console.log(`[AiDisclosure] Human review requested by ${phone}: "${text.slice(0, 60)}"`);
+
+    // Log the human review request to audit trail
+    const auditId = await logAiDecision({
+      profileId,
+      phone,
+      decisionType: 'human_review_request',
+      intent: 'human_request',
+      disclosureSent: false,
+    });
+    updateAiDecisionOutcome(auditId, 'human_review', true).catch(() => {});
+
+    // Trigger escalation to human staff
+    await escalateToStaff({
+      phone,
+      pushName: msg.pushName,
+      reason: 'human_request',
+      recentMessages: [],
+      originalMessage: text,
+      instanceId: msg.instanceId,
+      profileId,
+    });
+
+    return { continue: false, reason: 'human_review_requested' };
   }
 
   // ─── Per-JID inbound rate limit (US-833) ─────────────────────────
