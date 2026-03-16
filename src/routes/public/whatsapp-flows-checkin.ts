@@ -26,6 +26,7 @@ import { pool } from '../../lib/db.js';
 import { callAPI } from '../../lib/http-client.js';
 import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
 import { loadAdminNotificationSettings } from '../../lib/admin-notification-settings.js';
+import { recordFlowSuccess, recordFlowError } from '../../lib/whatsapp-flows-health.js';
 
 const router = Router();
 
@@ -729,6 +730,9 @@ router.post('/whatsapp-flows/checkin-exchange', async (req: Request, res: Respon
     const elapsed = Date.now() - requestStart;
     console.log(`[WA Flows Checkin] Responded in ${elapsed}ms`);
 
+    // US-934: Record successful flow request
+    recordFlowSuccess('checkin', elapsed, currentScreen || action);
+
     // Warn if approaching Meta's 15-second limit
     if (elapsed > 12000) {
       console.warn(`[WA Flows Checkin] Slow response: ${elapsed}ms (limit: 15000ms)`);
@@ -742,6 +746,8 @@ router.post('/whatsapp-flows/checkin-exchange', async (req: Request, res: Respon
     }
   } catch (err: any) {
     const elapsed = Date.now() - requestStart;
+    // US-934: Record flow endpoint failure
+    recordFlowError('checkin', 'ENDPOINT_ERROR', err.message, elapsed);
     console.error(`[WA Flows Checkin] Error after ${elapsed}ms:`, err.message);
     res.status(500).json({ error: 'Internal server error' });
   }

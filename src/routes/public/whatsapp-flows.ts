@@ -18,6 +18,7 @@ import { join } from 'path';
 import { decryptRequest, encryptResponse } from '../../lib/whatsapp-flows-crypto.js';
 import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
 import { pool } from '../../lib/db.js';
+import { recordFlowSuccess, recordFlowError } from '../../lib/whatsapp-flows-health.js';
 
 const router = Router();
 
@@ -390,12 +391,14 @@ router.get('/whatsapp-flows/health', (_req: Request, res: Response) => {
 // Meta POSTs encrypted payloads here during Flow execution.
 // The endpoint decrypts, processes the action, then returns an encrypted response.
 router.post('/whatsapp-flows/data-exchange', async (req: Request, res: Response) => {
+  const startTime = Date.now();
   const privateKey = getPrivateKey();
 
   // If no private key is configured, return a plaintext error
   // (in dev mode, also support unencrypted payloads for testing)
   if (!privateKey && process.env.NODE_ENV === 'production') {
     console.error('[WhatsApp Flows] No private key configured — cannot process encrypted request');
+    recordFlowError('reservation', 'CONFIG_ERROR', 'No private key configured', Date.now() - startTime);
     res.status(500).json({ error: 'Flow endpoint not configured' });
     return;
   }
@@ -426,6 +429,7 @@ router.post('/whatsapp-flows/data-exchange', async (req: Request, res: Response)
     // Validate flow token if configured
     if (FLOW_TOKEN && flowToken && flowToken !== FLOW_TOKEN) {
       console.warn('[WhatsApp Flows] Invalid flow_token received');
+      recordFlowError('reservation', 'INVALID_TOKEN', 'Invalid flow_token', Date.now() - startTime);
       res.status(421).end(); // Signal to Meta that token is invalid
       return;
     }
@@ -433,6 +437,7 @@ router.post('/whatsapp-flows/data-exchange', async (req: Request, res: Response)
     // Handle PING health check (sent as encrypted action)
     if (action === 'ping' || action === 'PING') {
       const pingResponse = { data: { status: 'active' } };
+      recordFlowSuccess('reservation', Date.now() - startTime, 'ping');
       if (aesKeyBuffer && initialVectorBuffer) {
         res.send(encryptResponse(pingResponse, aesKeyBuffer, initialVectorBuffer));
       } else {
@@ -465,6 +470,9 @@ router.post('/whatsapp-flows/data-exchange', async (req: Request, res: Response)
         flowResponse = await handleInit(); // Fall back to init
     }
 
+    // US-934: Record successful request
+    recordFlowSuccess('reservation', Date.now() - startTime, action);
+
     // Return response (encrypted or plain depending on mode)
     const responseBody = flowResponse;
     if (aesKeyBuffer && initialVectorBuffer) {
@@ -473,6 +481,8 @@ router.post('/whatsapp-flows/data-exchange', async (req: Request, res: Response)
       res.json(responseBody);
     }
   } catch (err: any) {
+    // US-934: Record endpoint failure
+    recordFlowError('reservation', 'ENDPOINT_ERROR', err.message, Date.now() - startTime);
     console.error('[WhatsApp Flows] Data exchange error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }

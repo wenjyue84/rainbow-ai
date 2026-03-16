@@ -11791,3 +11791,32 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 ### Gotchas
 - Must wait for server to fully bind before testing endpoints (profile/KB loading is slow)
 
+
+
+## Iteration - Story: US-934 - WhatsApp Flows health and error monitoring with automated recovery alerts
+### What was implemented
+- `src/lib/whatsapp-flows-health.ts`: Core health monitoring service with:
+  - In-memory rolling 1-hour window metrics per flow (requests, errors, response times)
+  - `recordFlowSuccess()` and `recordFlowError()` functions called by flow route handlers
+  - `runFlowHealthCheck()` evaluates all flows: healthy/degraded/broken status based on error rates
+  - `isFlowInFallback()` check for text-based alternative when flow is broken
+  - `flow_health_events` DB table for persistent error logging with flow_id, screen_id, error_code
+  - `startFlowHealthScheduler()` — cron every 15 minutes to evaluate health and trigger alerts
+  - Auto-recovery: fallback deactivated when error rate drops below 5% with 3+ requests
+- `src/routes/admin/whatsapp-flows-health.ts`: Admin API endpoints:
+  - GET /analytics/flows-health — per-flow health dashboard with traffic-light status
+  - GET /analytics/flows-health/errors — recent endpoint failures with filtering
+  - POST /analytics/flows-health/check — trigger immediate health evaluation
+- `src/lib/admin-notifier.ts`: Added `notifyAdminFlowHealth()` — WhatsApp alert when error rate >5% over 1h, throttled to 30min per flow
+- `src/routes/public/whatsapp-flows.ts`: Instrumented reservation flow data-exchange with success/error recording
+- `src/routes/public/whatsapp-flows-checkin.ts`: Instrumented check-in flow with success/error recording
+- `src/routes/admin/index.ts`: Registered whatsapp-flows-health routes
+- `src/lib/baileys-supervisor.ts`: Added startFlowHealthScheduler() to server startup
+- `src/assistant/__tests__/whatsapp-flows-health.test.ts`: 10 tests all passing
+### Patterns discovered
+- Flow health can be monitored via our own endpoint metrics since Baileys doesn't have access to Meta's Flow Health API
+- Two known flows tracked: 'reservation' (room booking) and 'checkin' (guest digital check-in)
+- Fallback activation at >20% error rate, recovery at <5% error rate with sufficient samples
+### Gotchas
+- esbuild memory allocation can fail on low-memory systems — use `node node_modules/esbuild/lib/main.js` directly instead of `npm run build`
+- Pre-existing ValidationError in gdpr-portability.ts (express-rate-limit IPv6) is non-fatal

@@ -912,6 +912,65 @@ export async function notifyAdminDpaExpiry(
   }
 }
 
+// ─── WhatsApp Flow Health Alert (US-934) ─────────────────────────────
+const FLOW_HEALTH_COOLDOWN_MS = 30 * 60 * 1000; // 30 min per flow
+const lastFlowHealthNotifyAt = new Map<string, number>();
+
+/**
+ * Send alert when a WhatsApp Flow's error rate exceeds 5% over 1 hour.
+ */
+export async function notifyAdminFlowHealth(
+  flowId: string,
+  flowName: string,
+  status: string,
+  errorRate: number,
+  errorCount: number,
+  totalRequests: number,
+  lastFailureReason: string | null
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send flow health notification');
+    return;
+  }
+
+  const now = Date.now();
+  const lastAt = lastFlowHealthNotifyAt.get(flowId) ?? 0;
+  if (now - lastAt < FLOW_HEALTH_COOLDOWN_MS) {
+    logger.info('Flow health notification skipped (cooldown)', { flowId });
+    return;
+  }
+  lastFlowHealthNotifyAt.set(flowId, now);
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const statusEmoji = status === 'broken' ? '🔴' : '🟡';
+  const fallbackNote = status === 'broken'
+    ? `\n⚡ *Text-based fallback activated.* Guests will receive text replies instead of Flow screens until the issue is resolved.\n`
+    : '';
+
+  const message = `${statusEmoji} *WhatsApp Flow Health Alert*\n\n` +
+    `Flow: *${flowName}* (${flowId})\n` +
+    `Status: *${status.toUpperCase()}*\n` +
+    `Error Rate: *${(errorRate * 100).toFixed(1)}%* (threshold: 5%)\n` +
+    `Errors: ${errorCount} / ${totalRequests} requests (last hour)\n` +
+    (lastFailureReason ? `Last Error: ${lastFailureReason}\n` : '') +
+    fallbackNote +
+    `\n**Actions:**\n` +
+    `1. Check flow endpoint logs for errors\n` +
+    `2. Verify flow private key is valid\n` +
+    `3. Test flow health: GET /whatsapp-flows/health\n` +
+    `4. Monitor: GET /api/rainbow/analytics/flows-health\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent flow health alert', { flowId, status, errorRate });
+  } catch (err: any) {
+    logger.error('Failed to send flow health notification', { error: err.message });
+  }
+}
+
 export async function notifyAdminBreachReport(
   description: string,
   affectedCount: number,

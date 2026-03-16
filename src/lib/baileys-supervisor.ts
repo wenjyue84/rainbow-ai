@@ -16,6 +16,7 @@ import { initAssistant } from '../assistant/index.js';
 import { callAPI } from './http-client.js';
 import { startDailyReportScheduler } from './daily-report.js';
 import { startRetentionScheduler } from './data-retention.js';
+import { startFlowHealthScheduler } from './whatsapp-flows-health.js';
 import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
 import { initCartRecovery } from '../assistant/cart-recovery.js';
 import { configStore } from '../assistant/config-store.js';
@@ -116,6 +117,9 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
 
     // Start data retention scheduler (nightly 3:00 AM MYT)
     startRetentionScheduler();
+
+    // US-934: Start WhatsApp Flows health monitoring (every 15 minutes)
+    startFlowHealthScheduler();
 
     // Notify system admin of server startup (after a delay to allow WhatsApp to connect)
     setTimeout(() => {
