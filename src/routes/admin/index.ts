@@ -94,6 +94,7 @@ import securityEventsRoutes from './security-events.js';
 import supplyChainIntegrityRoutes from './supply-chain-integrity.js';
 import dpaRegistryRoutes from './dpa-registry.js';
 import whatsappFlowsHealthRoutes from './whatsapp-flows-health.js';
+import providerSloRoutes from './provider-slo.js';
 
 const router = Router();
 
@@ -233,7 +234,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/latency/high-latency', '/analytics/kpis', '/analytics/kpis/containment',
+  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/latency/high-latency', '/analytics/kpis', '/analytics/kpis/containment', '/analytics/provider-slo',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
@@ -352,6 +353,7 @@ router.use(securityEventsRoutes);          // US-998: Prompt injection audit log
 router.use(supplyChainIntegrityRoutes);    // US-1031: OWASP LLM03:2025 canary probe + integrity API
 router.use(dpaRegistryRoutes);             // US-958: Vendor DPA registry for PDPA compliance
 router.use(whatsappFlowsHealthRoutes);    // US-934: WhatsApp Flows health monitoring
+router.use(providerSloRoutes);            // US-996: LLM provider latency SLO tracker
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

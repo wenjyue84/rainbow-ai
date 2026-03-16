@@ -13,6 +13,7 @@ import { notifyAdminRateLimit } from '../lib/admin-notifier.js';
 import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
 import { logDataFlow } from '../lib/ai-data-flow-log.js';
 import { checkContextWindowUsage } from './context-window-monitor.js';
+import { latencySLOTracker } from './latency-slo-tracker.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -28,13 +29,26 @@ export function getAISettings() {
   return configStore.getSettings().ai;
 }
 
-/** Get enabled providers sorted by priority (lowest first = highest priority) */
+/** Get enabled providers sorted by priority (lowest first = highest priority).
+ *  US-996: Demoted providers (P95 > SLO threshold) are pushed below all healthy providers. */
 export function getProviders(): AIProvider[] {
   const ai = getAISettings();
   const providers = ai.providers || [];
-  return providers
-    .filter(p => p.enabled)
-    .sort((a, b) => a.priority - b.priority);
+  const enabled = providers.filter(p => p.enabled).sort((a, b) => a.priority - b.priority);
+
+  // Separate healthy vs demoted providers
+  const healthy: AIProvider[] = [];
+  const demoted: AIProvider[] = [];
+  for (const p of enabled) {
+    if (latencySLOTracker.isDemoted(p.id)) {
+      demoted.push(p);
+    } else {
+      healthy.push(p);
+    }
+  }
+
+  // Healthy providers first (in their configured priority), then demoted
+  return [...healthy, ...demoted];
 }
 
 /** Resolve API key for a provider: direct value > env var > null. Trims whitespace to avoid 401s. */
@@ -489,11 +503,14 @@ export async function chatWithFallback(
       continue;
     }
 
+    const callStartTime = Date.now();
     try {
       const result = await providerChat(provider, messages, maxTokens, temperature, jsonMode, tools, jsonSchema);
       if (result && (result.content || result.toolCalls?.length)) {
         breaker.recordSuccess();
         rateLimitManager.recordSuccess(provider.id);
+        // US-996: Record latency for SLO tracking & automatic demotion
+        latencySLOTracker.recordLatency(provider.id, Date.now() - callStartTime);
         // Record token usage for cost tracking (US-433)
         recordLLMUsage(provider.id, provider.model, result.usage);
         // US-978: Log total token count and alert when approaching 80% of context window

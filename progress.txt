@@ -11820,3 +11820,32 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 ### Gotchas
 - esbuild memory allocation can fail on low-memory systems — use `node node_modules/esbuild/lib/main.js` directly instead of `npm run build`
 - Pre-existing ValidationError in gdpr-portability.ts (express-rate-limit IPv6) is non-fatal
+
+
+
+## Iteration 41 - Story: US-996 - LLM provider latency SLO tracker with automatic provider demotion
+### What was implemented
+- `src/assistant/latency-slo-tracker.ts`: Core SLO tracking module with:
+  - Rolling P95 window (configurable, default 20 calls) per provider
+  - Automatic demotion when P95 exceeds configurable threshold (default 3000ms)
+  - Recovery after N consecutive fast calls (default 5) below threshold
+  - Minimum 3 samples before demotion to avoid false positives
+  - Admin-visible status including demoted flag, P95, sample count, recovery progress
+- `src/assistant/ai-provider-manager.ts`: Integrated latency tracking:
+  - `getProviders()` now separates healthy vs demoted providers, healthy first
+  - `chatWithFallback()` records latency after each successful provider call
+- `src/routes/admin/provider-slo.ts`: Admin API endpoints:
+  - GET /analytics/provider-slo — current priority order with SLO status per provider
+  - POST /analytics/provider-slo/reset — reset tracking for one or all providers
+- `src/routes/admin/index.ts`: Registered provider-slo routes + cache header
+- `src/assistant/__tests__/latency-slo-tracker.property.test.ts`: 11 tests passing including:
+  - Demotion on P95 threshold breach
+  - Recovery after consecutive fast calls
+  - Property test: slow provider always ranked below fast provider (100 runs via fast-check)
+  - Rolling window eviction, P95 calculation, reset behavior
+### Patterns discovered
+- esbuild CLI (`node node_modules/esbuild/lib/main.js`) silently succeeds but may not output files; programmatic API via `require('esbuild').buildSync()` is more reliable
+- System memory is often constrained; vitest needs `--pool threads` or explicit `node --max-old-space-size=2048` to run
+### Gotchas
+- esbuild CLI mode may silently fail to write output files; use programmatic buildSync for reliable builds
+- Memory-constrained environments need careful management of parallel processes
