@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "productName": "rainbow-ai",
+  "branchName": "spiral-worker-1-1773549790",
+  "overview": "Rainbow AI is a WhatsApp AI assistant for Pelangi Capsule Hostel & Southern Homestay. It handles guest inquiries, booking workflows, and multi-turn conversations via Baileys WebSocket. The focus is on reliability, response quality, and intent classification accuracy.",
+  "goals": [
+    "Improve intent classification accuracy for booking and inquiry intents",
+    "Enhance conversation context handling for multi-turn dialogues",
+    "Add better fallback responses when AI confidence is low",
+    "Improve the booking workflow steps in workflows.json",
+    "Fix any failing tests",
+    "Prioritize reliability and response quality over new features"
+  ],
+  "epics": [
+    {
+      "id": "E-1",
+      "title": "Intent Classification Accuracy",
+      "description": "Improve how the system classifies incoming messages into the correct intent categories, especially for booking and inquiry intents."
+    },
+    {
+      "id": "E-2",
+      "title": "Multi-Turn Conversation Context",
+      "description": "Enhance the system's ability to track and use conversation context across multiple turns of dialogue."
+    },
+    {
+      "id": "E-3",
+      "title": "Fallback & Confidence Handling",
+      "description": "Improve responses when the AI has low confidence or cannot classify an intent reliably."
+    },
+    {
+      "id": "E-4",
+      "title": "Booking Workflow Improvements",
+      "description": "Improve the booking workflow steps, transitions, and validation logic in workflows.json and related pipeline code."
+    },
+    {
+      "id": "E-5",
+      "title": "Test Suite Reliability",
+      "description": "Fix failing tests and improve test coverage for core intent and conversation logic."
+    }
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Improve booking intent keyword coverage in intent-keywords.json",
+      "description": "Expand the booking intent keywords to cover more natural language variations that guests use when asking about or making bookings (e.g. 'book a room', 'reserve', 'check availability', 'room for tonight').",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "intent-keywords.json has at least 15 booking-related keyword entries",
+        "Keywords cover common Manglish variations (e.g. 'nak book', 'boleh book')",
+        "No duplicate keywords introduced",
+        "Existing keywords are preserved"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/assistant/data/intent-keywords.json"],
+      "estimatedComplexity": "small",
+      "tags": ["intent-classification", "keywords"],
+      "epicId": "E-1"
+    },
+    {
+      "id": "US-002",
+      "title": "Add confidence threshold gating before fallback escalation",
+      "description": "When the intent classifier returns a confidence score below a configurable threshold, route the message to a graceful fallback handler instead of attempting a low-confidence action. The threshold should be configurable in settings.json.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "A confidence threshold field exists in settings.json (default 0.5)",
+        "Messages with confidence below threshold are routed to fallback intent",
+        "Low-confidence routing is logged with the actual confidence score",
+        "Unit tests verify the threshold gating logic"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/assistant/data/settings.json", "src/assistant/pipeline/"],
+      "estimatedComplexity": "medium",
+      "tags": ["fallback", "confidence", "reliability"],
+      "epicId": "E-3"
+    },
+    {
+      "id": "US-003",
+      "title": "Improve fallback response templates with helpful suggestions",
+      "description": "Replace generic 'I don't understand' fallback responses with helpful suggestions that guide the guest toward common actions (e.g. check-in info, room availability, pricing, contact staff).",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "knowledge.json has at least 3 distinct fallback response templates",
+        "Fallback responses include 2-3 suggested follow-up options",
+        "Responses are in friendly Manglish/English mixed style matching existing tone",
+        "No breaking changes to existing knowledge.json structure"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/assistant/data/knowledge.json"],
+      "estimatedComplexity": "small",
+      "tags": ["fallback", "response-quality", "ux"],
+      "epicId": "E-3"
+    },
+    {
+      "id": "US-004",
+      "title": "Add conversation context window tracking for multi-turn dialogues",
+      "description": "Track the last N messages in a conversation to provide context to the AI provider when generating responses. This allows the AI to refer back to previous messages in the same conversation session.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Conversation history is tracked per phone number with a configurable window size (default 5)",
+        "History is passed to AI provider calls as context",
+        "History is cleared/reset after a configurable inactivity timeout",
+        "Memory footprint is bounded — old entries are pruned"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/assistant/", "src/lib/"],
+      "estimatedComplexity": "medium",
+      "tags": ["conversation-context", "multi-turn", "ai-quality"],
+      "epicId": "E-2"
+    },
+    {
+      "id": "US-005",
+      "title": "Fix .rej rejected patch files from previous Spiral run",
+      "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "All .rej files are removed from the repository",
+        "Changes from the .rej files are correctly applied to the target files",
+        "All target JSON files remain valid JSON after applying changes",
+        "No data loss — all intended additions from .rej files are preserved"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": [
+        "src/assistant/data/intent-keywords.json",
+        "src/assistant/data/knowledge.json",
+        "src/assistant/data/routing.json",
+        "src/assistant/data/settings.json",
+        "src/assistant/data/templates.json",
+        "src/assistant/data/workflows.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": ["bug-fix", "rej-files", "cleanup"],
+      "epicId": "E-5"
+    },
+    {
+      "id": "US-006",
+      "title": "Improve booking workflow check-in steps in workflows.json",
+      "description": "Enhance the check-in booking workflow steps to include proper validation of guest name, check-in date, check-out date, and number of guests before confirming a booking. Add clear error messages for missing or invalid inputs.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Booking workflow has distinct steps for: collect name, collect dates, collect guest count, confirm",
+        "Each step has clear prompt text for the guest",
+        "Invalid date inputs trigger a re-prompt with a helpful error message",
+        "Workflow structure follows existing workflows.json schema"
+      ],
+      "dependencies": ["US-005"],
+      "passes": false,
+      "filesTouch": ["src/assistant/data/workflows.json"],
+      "estimatedComplexity": "medium",
+      "tags": ["booking-workflow", "ux", "validation"],
+      "epicId": "E-4"
+    },
+    {
+      "id": "US-007",
+      "title": "Add intent classification logging for debugging misclassifications",
+      "description": "Log each intent classification result (intent name, confidence score, matched keywords, tier used) to help identify patterns of misclassification over time. Log entries should be structured JSON for easy analysis.",
+      "priority": "medium",
+      "acceptanceCriteria": [
+        "Each classification result is logged with: timestamp, phone (masked), raw input hash, detected intent, confidence score, tier used",
+        "Logs use the existing logger instance (no new logger required)",
+        "Sensitive data (phone numbers) is masked in logs",
+        "Log level is DEBUG so it doesn't pollute production INFO logs"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/assistant/pipeline/"],
+      "estimatedComplexity": "small",
+      "tags": ["logging", "debugging", "intent-classification"],
+      "epicId": "E-1"
+    },
+    {
+      "id": "US-008",
+      "title": "Fix failing unit tests in the test suite",
+      "description": "Run the test suite and fix any tests that are currently failing. Focus on tests related to intent classification, conversation handling, and pipeline logic.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "npm run test:run exits with code 0",
+        "All previously passing tests continue to pass",
+        "No test files are deleted as a fix — tests must pass legitimately",
+        "Test failure root causes are addressed in the implementation code"
+      ],
+      "dependencies": [],
+      "passes": false,
+      "filesTouch": ["src/", "shared/"],
+      "estimatedComplexity": "medium",
+      "tags": ["testing", "bug-fix"],
+      "epicId": "E-5"
+    },
+    {
+      "id": "US-009",
+      "title": "Add inquiry intent variants for room type and pricing questions",
+      "description": "Expand the inquiry intent to handle specific question types: room type questions (capsule vs private), pricing questions (per night, weekly rates), and availability questions. Map these to appropriate knowledge.json responses.",
+      "priority": "medium",
+      "acceptanceCriteria": [
+        "routing.json maps room-type and pricing inquiry sub-intents",
+        "knowledge.json has response templates for room types and pricing",
+        "Intent keywords include price/rate/room-type trigger words",
+        "Existing inquiry routing is not broken"
+      ],
+      "dependencies": ["US-005"],
+      "passes": false,
+      "filesTouch": ["src/assistant/data/routing.json", "src/assistant/data/knowledge.json", "src/assistant/data/intent-keywords.json"],
+      "estimatedComplexity": "medium",
+      "tags": ["intent-classification", "inquiry", "response-quality"],
+      "epicId": "E-1"
+    },
+    {
+      "id": "US-010",
+      "title": "Add conversation reset command handling",
+      "description": "Allow guests to reset their conversation context by sending keywords like 'restart', 'start over', or 'menu'. This clears the conversation state and returns the guest to the main menu.",
+      "priority": "medium",
+      "acceptanceCriteria": [
+        "Messages matching reset keywords clear the conversation state for that phone number",
+        "After reset, a welcome/menu message is sent",
+        "Reset keywords are configurable in settings.json or intent-keywords.json",
+        "Reset action is logged"
+      ],
+      "dependencies": ["US-004"],
+      "passes": false,
+      "filesTouch": ["src/assistant/pipeline/", "src/assistant/data/intent-keywords.json"],
+      "estimatedComplexity": "small",
+      "tags": ["conversation-context", "ux", "reset"],
+      "epicId": "E-2"
+    }
+  ]
+}
