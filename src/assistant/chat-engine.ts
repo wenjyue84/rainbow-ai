@@ -236,6 +236,16 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     intentResult = await classifyMessage(message, conversationHistory);
   }
 
+  // US-002: Confidence threshold gating — route low-confidence intents to fallback
+  const confidenceGateThreshold = store.getSettings().confidence_threshold ?? 0.5;
+  if (intentResult.confidence < confidenceGateThreshold && intentResult.category !== 'unknown') {
+    console.log(
+      `[ConfidenceGate] Intent "${intentResult.category}" confidence ${intentResult.confidence.toFixed(2)} ` +
+      `below threshold ${confidenceGateThreshold.toFixed(2)} → routing to fallback`
+    );
+    intentResult = { ...intentResult, category: 'unknown' };
+  }
+
   const routingConfig = store.getRouting() || {};
   const route = routingConfig[intentResult.category];
 

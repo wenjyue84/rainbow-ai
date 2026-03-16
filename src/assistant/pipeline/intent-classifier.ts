@@ -99,6 +99,17 @@ export async function classifyAndRoute(
     processText, devMetadata, context, lang
   );
 
+  // ─── US-002: Confidence threshold gating before fallback escalation ─
+  const settings = context.getSettings();
+  const confidenceGateThreshold = settings.confidence_threshold ?? 0.5;
+  if (result.confidence < confidenceGateThreshold && result.intent !== 'unknown') {
+    console.log(
+      `[ConfidenceGate] Intent "${result.intent}" confidence ${result.confidence.toFixed(2)} ` +
+      `below threshold ${confidenceGateThreshold.toFixed(2)} → routing to fallback`
+    );
+    result = { ...result, intent: 'unknown', action: 'llm_reply' };
+  }
+
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
   if (isIntentGap(devMetadata.source, result.confidence)) {
     recordUtteranceGap(state.profileId, processText, devMetadata.source || 'unknown')
