@@ -832,6 +832,49 @@ export async function notifyAdminAuthStateCorruption(
 /**
  * Send PDPA breach report notification to system admin (US-839).
  */
+// ─── Prompt Injection Burst Alert (US-998) ───────────────────────────
+const lastInjectionBurstAt = new Map<string, number>();
+const INJECTION_BURST_COOLDOWN = 30 * 60 * 1000; // 30 minutes per JID
+
+/**
+ * Send alert when 3+ prompt injection attempts detected from the same JID within 1 hour.
+ */
+export async function notifyAdminInjectionBurst(
+  jid: string,
+  profileId: string,
+  attemptCount: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send injection burst notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  // Throttle: max once per 30 minutes per JID
+  const now = Date.now();
+  const lastSent = lastInjectionBurstAt.get(jid) ?? 0;
+  if (now - lastSent < INJECTION_BURST_COOLDOWN) return;
+  lastInjectionBurstAt.set(jid, now);
+
+  const fmtDate = (d: Date) => d.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+
+  const message = `🛡️ *Prompt Injection Alert*\n\n` +
+    `*${attemptCount}* injection attempts from the same sender in the last hour.\n\n` +
+    `JID: ${jid}\n` +
+    `Profile: ${profileId}\n` +
+    `Time: ${fmtDate(new Date())}\n\n` +
+    `📋 View all: GET /api/rainbow/security/injection-events`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent injection burst alert', { jid, attemptCount });
+  } catch (err: any) {
+    logger.error('Failed to send injection burst notification', { error: err.message });
+  }
+}
+
 export async function notifyAdminBreachReport(
   description: string,
   affectedCount: number,

@@ -12,7 +12,7 @@
 
 import cron from 'node-cron';
 import { db, pool, dbReady } from './db.js';
-import { rainbowMessages, rainbowConversations } from '../../shared/schema-tables.js';
+import { rainbowMessages, rainbowConversations, promptInjectionEvents } from '../../shared/schema-tables.js';
 import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { configStore } from '../assistant/config-store.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
@@ -244,6 +244,21 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
     .delete(rainbowConversations)
     .where(and(isNotNull(rainbowConversations.deletedAt), lt(rainbowConversations.deletedAt, hardCutoffDate)))
     .returning({ phone: rainbowConversations.phone });
+
+  // 6. US-998: Purge prompt injection events older than retention_days
+  let injectionEventsPurged = 0;
+  try {
+    const purgedInjections = await db
+      .delete(promptInjectionEvents)
+      .where(lt(promptInjectionEvents.createdAt, cutoffDate))
+      .returning({ id: promptInjectionEvents.id });
+    injectionEventsPurged = purgedInjections.length;
+    if (injectionEventsPurged > 0) {
+      console.log(`[DataRetention] Purged ${injectionEventsPurged} prompt injection events older than ${cutoffDate.toISOString()}`);
+    }
+  } catch (err: any) {
+    console.error('[DataRetention] Failed to purge injection events:', err.message);
+  }
 
   const result: PurgeResult = {
     profile,

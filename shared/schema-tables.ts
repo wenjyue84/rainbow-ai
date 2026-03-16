@@ -890,3 +890,22 @@ export const aiDecisionAudit = pgTable("ai_decision_audit", {
 
 export type AiDecisionAuditRecord = typeof aiDecisionAudit.$inferSelect;
 export type InsertAiDecisionAuditRecord = typeof aiDecisionAudit.$inferInsert;
+
+// ─── Prompt Injection Events (US-998) ────────────────────────────────
+
+export const promptInjectionEvents = pgTable("prompt_injection_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jid: text("jid").notNull(),
+  profileId: text("profile_id").notNull().default("pelangi"),
+  originalMessageText: text("original_message_text").notNull(),
+  matchedPattern: text("matched_pattern").notNull(),
+  actionTaken: varchar("action_taken", { length: 64 }).notNull().default("blocked"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_injection_events_jid").on(table.jid),
+  index("idx_injection_events_profile").on(table.profileId),
+  index("idx_injection_events_created_at").on(table.createdAt),
+]));
+
+export type PromptInjectionEvent = typeof promptInjectionEvents.$inferSelect;
+export type InsertPromptInjectionEvent = typeof promptInjectionEvents.$inferInsert;

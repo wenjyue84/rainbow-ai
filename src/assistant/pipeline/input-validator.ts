@@ -25,6 +25,7 @@ import { recordConsent, hasConsent } from '../consent.js';
 import { isMarketingConfirmKeyword, isMarketingRevokeKeyword, confirmMarketingOptIn, revokeMarketingConsent } from '../../lib/marketing-optin.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { redactPii } from '../pii-redactor.js';
+import { logPromptInjectionEvent } from '../../lib/prompt-injection-logger.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
@@ -498,6 +499,8 @@ export async function validateAndPrepare(
     const injectionResult = detectPromptInjection(text, customPatterns);
     if (injectionResult.blocked) {
       console.warn(`[Router] Prompt injection blocked from ${phone}: "${text.slice(0, 200)}" (matched: "${injectionResult.matchedPattern}")`);
+      // US-998: Log injection event (PII-redacted, with burst alert check)
+      logPromptInjectionEvent(phone, profileId, text, injectionResult.matchedPattern!, 'blocked').catch(() => {});
       const safeResponse = injectionSettings?.safeResponse || 'I can only help with hostel-related questions.';
       await ctx.sendMessage(phone, safeResponse, msg.instanceId);
       return { continue: false, reason: 'prompt_injection' };
