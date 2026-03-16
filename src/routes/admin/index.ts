@@ -88,6 +88,7 @@ import optInAuditRoutes from './opt-in-audit.js';
 import marketingSubscriptionsRoutes from './marketing-subscriptions.js';
 import mmLiteRoutes from './mm-lite.js';
 import aiBomRoutes from './ai-bom.js';
+import rlsStatusRoutes from './rls-status.js';
 
 const router = Router();
 
@@ -340,6 +341,7 @@ router.use(optInAuditRoutes);      // US-979: WhatsApp marketing opt-in audit tr
 router.use(marketingSubscriptionsRoutes); // US-969: Double opt-in for marketing subscriptions
 router.use(mmLiteRoutes);          // US-1007: MM Lite API with TTL for time-sensitive promotions
 router.use(aiBomRoutes);           // US-952: AI-BOM supply chain tracking (OWASP LLM03:2025)
+router.use(rlsStatusRoutes);       // US-1001: RLS status endpoint
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
