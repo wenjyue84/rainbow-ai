@@ -11457,3 +11457,27 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 - Test pattern: minimal Express app mirroring production Helmet config, node http for requests (no supertest needed).
 ### Gotchas
 - `frameguard: false` was set to allow iframe embedding; re-enabling it is safe because the CSP frame-ancestors directive supersedes X-Frame-Options in all browsers that support CSP Level 2+.
+## Iteration 3 - Mon, Mar 16, 2026  8:41:43 AM
+Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 2/3
+
+
+## Iteration [Ralph] - Story: US-982 Chatbot response latency SLA monitoring with P95 alerting
+### What was implemented
+- Extended `src/routes/admin/analytics-latency.ts` with full US-982 acceptance criteria:
+  - **AC1**: `response_time_ms` already recorded per assistant message in `rainbow_messages` (pre-existing)
+  - **AC2**: Added 1h rolling window to overall + byProfile percentiles (was only 24h/7d)
+  - **AC3**: Added 15-minute rolling P95 SLA alert with default 5000ms threshold (was 24h with 8000ms)
+  - **AC4**: Added `byProvider` breakdown grouping by `model` column (NVIDIA, Ollama, OpenRouter)
+  - **AC5**: Added `GET /analytics/latency/high-latency` endpoint returning >10s responses with warning badge
+- Registered high-latency path in semi-stable paths list in `src/routes/admin/index.ts`
+- Created `src/assistant/__tests__/latency-sla.test.ts` with 9 tests covering all acceptance criteria
+
+### Patterns discovered
+- `rainbow_messages.model` column stores AI provider name — useful for per-provider analytics
+- `parsePercentileRow()` helper reduces code duplication across multiple window queries
+- Semi-stable paths list in admin index.ts controls caching behavior for analytics endpoints
+
+### Build & Quality
+- esbuild: SUCCESS (1.9MB bundle, only pre-existing warnings)
+- Tests: 9/9 pass (latency-sla.test.ts)
+- All acceptance criteria verified

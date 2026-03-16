@@ -227,7 +227,7 @@ const STABLE_PATHS = [
 const SEMI_STABLE_PATHS = [
   '/feedback/stats', '/intent/accuracy',
   '/conversations/stats', '/intent-manager/stats', '/analytics/llm-cost', '/analytics/messaging-limits',
-  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/kpis', '/analytics/kpis/containment',
+  '/analytics/phone-quality', '/analytics/template-quality', '/analytics/latency', '/analytics/latency/high-latency', '/analytics/kpis', '/analytics/kpis/containment',
 ];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
