@@ -90,6 +90,7 @@ import mmLiteRoutes from './mm-lite.js';
 import aiBomRoutes from './ai-bom.js';
 import rlsStatusRoutes from './rls-status.js';
 import securityEventsRoutes from './security-events.js';
+import supplyChainIntegrityRoutes from './supply-chain-integrity.js';
 
 const router = Router();
 
@@ -341,9 +342,10 @@ router.use(vectorAccessLogsRoutes); // US-966: OWASP LLM06 vector access audit
 router.use(optInAuditRoutes);      // US-979: WhatsApp marketing opt-in audit trail
 router.use(marketingSubscriptionsRoutes); // US-969: Double opt-in for marketing subscriptions
 router.use(mmLiteRoutes);          // US-1007: MM Lite API with TTL for time-sensitive promotions
-router.use(aiBomRoutes);           // US-952: AI-BOM supply chain tracking (OWASP LLM03:2025)
-router.use(rlsStatusRoutes);       // US-1001: RLS status endpoint
-router.use(securityEventsRoutes);  // US-998: Prompt injection audit log
+router.use(aiBomRoutes);                    // US-952: AI-BOM supply chain tracking (OWASP LLM03:2025)
+router.use(rlsStatusRoutes);               // US-1001: RLS status endpoint
+router.use(securityEventsRoutes);          // US-998: Prompt injection audit log
+router.use(supplyChainIntegrityRoutes);    // US-1031: OWASP LLM03:2025 canary probe + integrity API
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

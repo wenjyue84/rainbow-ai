@@ -73,6 +73,7 @@ import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
 import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
+import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -245,6 +246,12 @@ setInterval(() => {
     console.error('[messaging-limits] Periodic volume check failed:', err.message)
   );
 }, 15 * 60 * 1000);
+
+// US-1031: OWASP LLM03:2025 — run deployment-time canary probes and start daily scheduler
+runCanaryProbesOnStartup().catch(err =>
+  console.warn('[canary-probe] Startup probe failed (non-fatal):', err.message)
+);
+startCanaryScheduler(); // daily at 03:00 MY time
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

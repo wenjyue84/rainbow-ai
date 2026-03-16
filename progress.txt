@@ -11661,3 +11661,36 @@ Completed: On-Premises API sunset: audit and remove all on-premises API referenc
 ## Iteration 6 - Mon, Mar 16, 2026 10:25:45 AM
 Completed: WhatsApp 100K messaging tier: monitor daily volume limits and surface upgrade eligibility (ID: US-1030) in 9m
 
+
+## Iteration 19 - Story: US-1031 OWASP LLM03:2025 AI model supply chain integrity verification
+
+### What was implemented
+- `src/assistant/canary-probe.ts`: Full canary probe engine
+  - 5 fixed canary prompts (math, Malaysia context, jailbreak/refusal, JSON format, Malay multilingual)
+  - `validateCanaryResponse()`: pure function checks expected keywords (AND/OR groups), forbidden patterns, over-length
+  - `verifyOllamaFallback()`: tests Ollama local provider as verified safe fallback
+  - `runCanarySuite()`: probes highest-priority + all Ollama providers; stores results in-memory + DB
+  - `runCanaryProbesOnStartup()`: deployment-time check, non-fatal, logs SUPPLY CHAIN ALERT on deviation
+  - `startCanaryScheduler()`: daily check at 03:00 MY time (minute-level setInterval)
+  - `canary_probe_runs` DB table for audit history
+- `src/routes/admin/supply-chain-integrity.ts`: Admin API
+  - GET /supply-chain/status — live status + Ollama health + risk level
+  - POST /supply-chain/probe — manual trigger (full or single-provider)
+  - GET /supply-chain/history — last 10 in-memory runs
+  - GET /supply-chain/probes — canary prompt definitions
+  - GET /supply-chain/db-history — last 30 runs from DB
+- `src/routes/admin/index.ts`: Mounted `supplyChainIntegrityRoutes`
+- `src/index.ts`: Added startup probe + daily scheduler calls
+
+### Tests
+- 20 unit tests in `src/assistant/__tests__/supply-chain-integrity.test.ts` — all pass
+- Tests cover: keyword matching, forbidden patterns, empty/over-length responses,
+  multi-group AND/OR logic, probe suite definitions
+
+### Patterns discovered
+- Canary prompts must use `chatWithFallback` with explicit `providerIds` to target specific providers
+- DB table auto-created on first run via `ensureCanaryTable()` — no migration needed
+
+### Gotchas
+- Pre-existing startup errors (rate-limiter IPv6, webhook secrets) are unrelated to this story
+- Build uses esbuild — tsc errors are pre-existing and do not block build
