@@ -11518,3 +11518,26 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 ## Iteration 5 - Mon, Mar 16, 2026  9:05:17 AM
 Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 2/3
 
+
+## Iteration [Ralph] - Story: US-1025 BSUID migrate contact identity to Business-Scoped User ID
+### What was implemented
+- Created `scripts/migrate-bsuid-backfill.ts` migration script (AC #4) that:
+  - Ensures bsuid column and unique index exist (idempotent DDL)
+  - Finds phone-keyed conversations without BSUID
+  - Merges BSUID-only records into phone-keyed records by push_name matching
+  - Supports --dry-run flag for safe testing
+  - Transactional per-merge with rollback on failure
+- Verified all other acceptance criteria were already implemented by US-477 and US-990:
+  - Schema: bsuid column + unique index on rainbow_conversations (US-477)
+  - BSUID extraction: extractBsuid() in instance.ts (US-477)
+  - Contact lookup fallback: lookupPhoneByBsuid() + conversationKey() (US-477)
+  - Merge logic: mergeBsuidConversation() in conversation-db.ts (US-477)
+  - Pipeline integration: bsuid passed through input-validator, state-executor, conversation-logger
+  - Unit tests: bsuid-routing.test.ts (12 tests) + bsuid-contact-resolution.test.ts (8 tests)
+### Patterns discovered
+- US-477 already built comprehensive BSUID support; US-1025 was mainly about the migration script
+- conversationKey() is the central BSUID-aware key resolver used across the entire pipeline
+- BSUID-only records use "bsuid:CC.ID" prefix as the phone column value
+### Gotchas
+- The merge-by-push-name strategy is heuristic; in production, BSUIDs arrive via webhook dual-delivery
+  so the real-time upsertConversation() path handles most cases automatically
