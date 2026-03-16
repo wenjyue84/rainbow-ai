@@ -11766,3 +11766,27 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 - Data retention nightly job is the right place for periodic compliance checks
 ### Gotchas
 - Pre-existing build warnings unchanged (db-url.js, logger.ts)
+
+
+## Iteration 40 - Story: US-920 - WhatsApp Flows encrypted data-exchange endpoint for guest digital check-in
+### What was implemented
+- Story was already implemented in `src/routes/public/whatsapp-flows-checkin.ts` (prior iteration)
+- Verified all 7 acceptance criteria are met:
+  1. Handles INIT, data_exchange, and BACK action types with screen routing
+  2. Correctly decrypts RSA-OAEP + AES-128-GCM payloads via `lib/whatsapp-flows-crypto.js`
+  3. Health check responds to both GET `/checkin-health` and encrypted `ping` action
+  4. INIT looks up booking by phone (wa_flow_reservations + DIGIMAN PMS API) and pre-fills name, dates, room type
+  5. IC/passport validation against booking record with format check
+  6. Check-in data persisted to `wa_flow_checkins` table with timing verification
+  7. Response time monitoring with 12s warning threshold (under 15s Meta requirement)
+- Route registered in `src/index.ts` at line 728 (`app.use(whatsappFlowsCheckinRoutes)`)
+- Build passes (esbuild, 3 pre-existing warnings)
+- Server starts and all endpoints respond correctly
+
+### Patterns discovered
+- Server takes ~30s to fully initialize (loading 5 profiles, KB, RAG embeddings)
+- Pre-existing `express-rate-limit` ValidationError in `gdpr-portability.ts` is non-fatal (thrown during import but doesn't crash)
+- Pre-existing malformed JSON in makan-moments knowledge.json (non-fatal)
+
+### Gotchas
+- Must wait for server to fully bind before testing endpoints (profile/KB loading is slow)
