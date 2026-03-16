@@ -11393,3 +11393,20 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 ## Iteration 6 - Mon, Mar 16, 2026  8:05:52 AM
 Incomplete: WhatsApp sticker response for Malaysian festive season engagement (ID: US-923) — attempt 1/3
 
+
+## Iteration 17 - Story: US-952 AI-BOM Supply Chain Tracking
+### What was implemented
+- Created `ai-bom.json` (CycloneDX 1.6 ML extension format) at project root listing all 16 AI providers
+- Created `src/routes/admin/ai-bom.ts` with 4 endpoints:
+  - `GET /ai-bom` — machine-readable CycloneDX JSON (for automated tools)
+  - `GET /ai-bom/dashboard` — admin view with last-verified timestamps + stale/mismatch alerts
+  - `POST /ai-bom/verify/:id` — mark provider as verified (updates ai-bom.json)
+  - `POST /ai-bom/alert` — called when response header version differs from pinned (logs OWASP LLM03 alert)
+- Registered route in `src/routes/admin/index.ts`
+### Patterns discovered
+- AIProvider type uses `base_url` (snake_case) not `baseUrl` (camelCase)
+- Server startup fails at `gdpr-portability.ts:55` due to pre-existing `express-rate-limit` IPv6 issue — this is NOT related to AI-BOM changes
+- esbuild build continues to succeed despite server startup issue
+### Gotchas
+- Pre-existing server crash unrelated to this story (gdpr-portability.ts ValidationError for ipKeyGenerator)
+- ai-bom.json must be committed to repo per acceptance criteria (OWASP LLM03:2025 supply chain tracking)
