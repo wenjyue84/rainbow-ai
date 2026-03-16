@@ -777,3 +777,78 @@ export const mmLiteSends = pgTable("mm_lite_sends", {
 
 export type MmLiteSend = typeof mmLiteSends.$inferSelect;
 export type InsertMmLiteSend = typeof mmLiteSends.$inferInsert;
+
+// ─── DPIA and TIA (US-1009) ──────────────────────────────────────────────────
+// Malaysia PDPA 2025 Data Protection Impact Assessment (DPIA) and
+// Transfer Impact Assessment (TIA) for cross-border AI data transfers.
+// DPIA is mandatory for processing >10,000 data subjects with AI decisions.
+// TIA is required for each external AI provider per CBPDT Guidelines.
+
+export const dpiaRecords = pgTable("dpia_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Profile this DPIA applies to ('pelangi', 'makan-moments', etc.) */
+  profileId: text("profile_id").notNull(),
+  /** DPIA title/description */
+  title: text("title").notNull(),
+  /** Structured DPIA document as JSON */
+  documentJson: text("document_json").notNull(),
+  /** Processing scope: high-level description of what data is processed */
+  processingScope: text("processing_scope").notNull(),
+  /** Risk assessment summary */
+  riskSummary: text("risk_summary").notNull(),
+  /** Mitigation measures documented */
+  mitigations: text("mitigations").notNull(),
+  /** Last review date */
+  lastReviewedAt: timestamp("last_reviewed_at").notNull().defaultNow(),
+  /** Next review due (must be within 3 years per CBPDT Guidelines) */
+  nextReviewDue: timestamp("next_review_due").notNull(),
+  /** Reviewer name/email */
+  reviewedBy: text("reviewed_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_dpia_profile_id").on(table.profileId),
+  index("idx_dpia_next_review_due").on(table.nextReviewDue),
+]));
+
+export type DpiaRecord = typeof dpiaRecords.$inferSelect;
+export type InsertDpiaRecord = typeof dpiaRecords.$inferInsert;
+
+export const tiaRecords = pgTable("tia_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Profile this TIA applies to */
+  profileId: text("profile_id").notNull(),
+  /** AI provider name ('NVIDIA', 'OpenRouter', 'Ollama', etc.) */
+  aiProvider: text("ai_provider").notNull(),
+  /** Destination jurisdiction code (e.g. 'US', 'SG') */
+  destinationJurisdiction: text("destination_jurisdiction").notNull(),
+  /** Data protection equivalence assessment */
+  equivalenceLevel: varchar("equivalence_level", { length: 16 }).notNull(), // 'adequate' | 'similar' | 'assessed'
+  /** API endpoint URL for this provider */
+  apiEndpoint: text("api_endpoint").notNull(),
+  /** Transfer mechanism (e.g. 'standard_contractual_clauses', 'adequacy_decision') */
+  transferMechanism: text("transfer_mechanism").notNull(),
+  /** TIA document as JSON */
+  documentJson: text("document_json").notNull(),
+  /** Data transferred (e.g. 'guest_phone,name,conversation_context') */
+  dataTransferred: text("data_transferred").notNull(),
+  /** Risk assessment for this transfer */
+  riskAssessment: text("risk_assessment").notNull(),
+  /** Controls in place */
+  controls: text("controls").notNull(),
+  /** Last review date */
+  lastReviewedAt: timestamp("last_reviewed_at").notNull().defaultNow(),
+  /** Valid until (max 3 years per CBPDT) */
+  validUntil: timestamp("valid_until").notNull(),
+  /** Reviewed by */
+  reviewedBy: text("reviewed_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_tia_profile_provider").on(table.profileId, table.aiProvider),
+  index("idx_tia_valid_until").on(table.validUntil),
+  index("idx_tia_created_at").on(table.createdAt),
+]));
+
+export type TiaRecord = typeof tiaRecords.$inferSelect;
+export type InsertTiaRecord = typeof tiaRecords.$inferInsert;

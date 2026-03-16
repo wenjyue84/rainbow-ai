@@ -1,15 +1,23 @@
 /**
- * Admin API: PDPA Compliance (US-915)
+ * Admin API: PDPA Compliance (US-915, US-1009)
  *
- * GET /compliance/tia              — Transfer Impact Assessment status per provider
- * GET /compliance/data-flows       — AI provider data flow summary
- * GET /compliance/security-events  — Security event audit log
+ * GET /compliance/dpia                 — Get DPIA for a profile
+ * POST /compliance/dpia                — Create/update DPIA
+ * GET /compliance/dpia-status-widget   — DPIA status widget for admin dashboard
+ * GET /compliance/tia                  — Transfer Impact Assessment status per provider
+ * GET /compliance/tia-records          — Get TIA records from database
+ * POST /compliance/tia-records         — Create/update TIA in database
+ * GET /compliance/data-flows           — AI provider data flow summary
+ * GET /compliance/security-events      — Security event audit log
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getProviders } from '../../assistant/ai-provider-manager.js';
 import { getDataFlowSummary } from '../../lib/ai-data-flow-log.js';
 import { getSecurityEvents, logSecurityEvent } from '../../lib/security-event-log.js';
+import { db } from '../../lib/db.js';
+import { dpiaRecords, tiaRecords } from '../../../shared/schema-tables.js';
+import { eq } from 'drizzle-orm';
 
 const router = Router();
 
@@ -104,7 +112,238 @@ function getTransferImpactAssessments(): TIARecord[] {
   return tiaRecords;
 }
 
+// ─── DPIA Routes ────────────────────────────────────────────────────────
+
+// GET /compliance/dpia — Get DPIA for a profile (US-1009)
+router.get('/compliance/dpia', async (req: Request, res: Response) => {
+  const profileId = res.locals.tenantId || 'pelangi';
+
+  try {
+    const dpia = await db.select().from(dpiaRecords).where(eq(dpiaRecords.profileId, profileId));
+
+    if (dpia.length === 0) {
+      return res.status(404).json({ error: 'DPIA not found for this profile' });
+    }
+
+    logSecurityEvent({
+      adminUser: (req as any).user?.username || 'unknown',
+      action: 'view',
+      resourceType: 'dpia_record',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      profileId,
+    }).catch(() => {});
+
+    res.json(dpia[0]);
+  } catch (error) {
+    console.error('Error fetching DPIA:', error);
+    res.status(500).json({ error: 'Failed to fetch DPIA' });
+  }
+});
+
+// POST /compliance/dpia — Create or update DPIA (US-1009)
+router.post('/compliance/dpia', async (req: Request, res: Response) => {
+  const profileId = res.locals.tenantId || 'pelangi';
+  const { title, documentJson, processingScope, riskSummary, mitigations, reviewedBy } = req.body;
+
+  if (!title || !documentJson || !processingScope || !riskSummary || !mitigations) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    // Check if DPIA already exists
+    const existing = await db.select().from(dpiaRecords).where(eq(dpiaRecords.profileId, profileId));
+
+    const nextReviewDue = new Date();
+    nextReviewDue.setFullYear(nextReviewDue.getFullYear() + 3); // 3-year review cycle per CBPDT
+
+    if (existing.length > 0) {
+      // Update existing
+      await db.update(dpiaRecords)
+        .set({
+          title,
+          documentJson: typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson),
+          processingScope,
+          riskSummary,
+          mitigations,
+          lastReviewedAt: new Date(),
+          nextReviewDue,
+          reviewedBy: reviewedBy || (req as any).user?.username || 'unknown',
+          updatedAt: new Date(),
+        })
+        .where(eq(dpiaRecords.profileId, profileId));
+    } else {
+      // Create new
+      await db.insert(dpiaRecords).values({
+        profileId,
+        title,
+        documentJson: typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson),
+        processingScope,
+        riskSummary,
+        mitigations,
+        lastReviewedAt: new Date(),
+        nextReviewDue,
+        reviewedBy: reviewedBy || (req as any).user?.username || 'unknown',
+      });
+    }
+
+    logSecurityEvent({
+      adminUser: (req as any).user?.username || 'unknown',
+      action: 'update',
+      resourceType: 'dpia_record',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      profileId,
+    }).catch(() => {});
+
+    res.json({ success: true, profileId });
+  } catch (error) {
+    console.error('Error saving DPIA:', error);
+    res.status(500).json({ error: 'Failed to save DPIA' });
+  }
+});
+
+// GET /compliance/dpia-status-widget — DPIA status for admin dashboard widget (US-1009)
+router.get('/compliance/dpia-status-widget', async (req: Request, res: Response) => {
+  const profileId = res.locals.tenantId || 'pelangi';
+
+  try {
+    const dpia = await db.select().from(dpiaRecords).where(eq(dpiaRecords.profileId, profileId));
+
+    if (dpia.length === 0) {
+      return res.json({
+        status: 'not_started',
+        profileId,
+        message: 'DPIA not yet created for this profile',
+      });
+    }
+
+    const record = dpia[0];
+    const now = new Date();
+    const isOverdue = record.nextReviewDue < now;
+
+    res.json({
+      status: isOverdue ? 'overdue' : 'active',
+      profileId,
+      lastReviewedAt: record.lastReviewedAt,
+      nextReviewDue: record.nextReviewDue,
+      reviewedBy: record.reviewedBy,
+      daysUntilReview: Math.ceil((record.nextReviewDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+    });
+  } catch (error) {
+    console.error('Error fetching DPIA status:', error);
+    res.status(500).json({ error: 'Failed to fetch DPIA status' });
+  }
+});
+
 // ─── Routes ─────────────────────────────────────────────────────────
+
+// GET /compliance/tia-records — Get TIA records from database (US-1009)
+router.get('/compliance/tia-records', async (req: Request, res: Response) => {
+  const profileId = res.locals.tenantId || 'pelangi';
+
+  try {
+    const records = await db.select().from(tiaRecords).where(eq(tiaRecords.profileId, profileId));
+
+    logSecurityEvent({
+      adminUser: (req as any).user?.username || 'unknown',
+      action: 'view',
+      resourceType: 'tia_record',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      profileId,
+    }).catch(() => {});
+
+    res.json({ profileId, records });
+  } catch (error) {
+    console.error('Error fetching TIA records:', error);
+    res.status(500).json({ error: 'Failed to fetch TIA records' });
+  }
+});
+
+// POST /compliance/tia-records — Create/update TIA (US-1009)
+router.post('/compliance/tia-records', async (req: Request, res: Response) => {
+  const profileId = res.locals.tenantId || 'pelangi';
+  const {
+    aiProvider,
+    destinationJurisdiction,
+    equivalenceLevel,
+    apiEndpoint,
+    transferMechanism,
+    documentJson,
+    dataTransferred,
+    riskAssessment,
+    controls,
+    reviewedBy,
+  } = req.body;
+
+  if (!aiProvider || !destinationJurisdiction || !equivalenceLevel || !apiEndpoint) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    // Check if TIA already exists for this provider
+    const existing = await db.select()
+      .from(tiaRecords)
+      .where(
+        (row: any) => row.profileId === profileId && row.aiProvider === aiProvider,
+      );
+
+    const validUntil = new Date();
+    validUntil.setFullYear(validUntil.getFullYear() + 3); // 3-year validity per CBPDT
+
+    if (existing.length > 0) {
+      // Update existing
+      await db.update(tiaRecords)
+        .set({
+          destinationJurisdiction,
+          equivalenceLevel,
+          apiEndpoint,
+          transferMechanism,
+          documentJson: typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson),
+          dataTransferred,
+          riskAssessment,
+          controls,
+          lastReviewedAt: new Date(),
+          validUntil,
+          reviewedBy: reviewedBy || (req as any).user?.username || 'unknown',
+          updatedAt: new Date(),
+        })
+        .where((row: any) => row.profileId === profileId && row.aiProvider === aiProvider);
+    } else {
+      // Create new
+      await db.insert(tiaRecords).values({
+        profileId,
+        aiProvider,
+        destinationJurisdiction,
+        equivalenceLevel,
+        apiEndpoint,
+        transferMechanism,
+        documentJson: typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson),
+        dataTransferred,
+        riskAssessment,
+        controls,
+        lastReviewedAt: new Date(),
+        validUntil,
+        reviewedBy: reviewedBy || (req as any).user?.username || 'unknown',
+      });
+    }
+
+    logSecurityEvent({
+      adminUser: (req as any).user?.username || 'unknown',
+      action: 'update',
+      resourceType: 'tia_record',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      profileId,
+    }).catch(() => {});
+
+    res.json({ success: true, profileId, aiProvider });
+  } catch (error) {
+    console.error('Error saving TIA:', error);
+    res.status(500).json({ error: 'Failed to save TIA' });
+  }
+});
 
 // GET /compliance/tia — Transfer Impact Assessment status
 router.get('/compliance/tia', async (req: Request, res: Response) => {
