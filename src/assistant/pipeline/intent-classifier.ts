@@ -53,6 +53,10 @@ export async function classifyAndRoute(
   // ─── Stage 2: Knowledge Base Loading ─────────────────────────────
   const kb = await loadKnowledgeBase(state, context);
 
+  // US-955: Propagate RAG metadata to PipelineState for misinformation guardrail
+  state.ragUsed = kb.ragUsed ?? false;
+  state.ragTopicFiles = kb.topicFiles;
+
   // ─── Ack Timer: send "thinking" message if LLM takes >3s ────────
   let ackSent = false;
   const ackTimer = setTimeout(async () => {

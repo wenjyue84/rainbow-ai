@@ -41,6 +41,10 @@ import {
 import {
   MATERIAL_DECISION_TYPES, logAiDecision, getDisclosureTemplate,
 } from '../../lib/ai-decision-disclosure.js';
+import {
+  checkMisinformationRisk, getMisinformationFallback, logMisinformationEvent,
+  type MisinformationCheckResult,
+} from '../misinformation-guardrail.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -148,6 +152,37 @@ export async function processAndSend(
         rules: ruleResult.rules.map(r => r.trigger),
       },
     });
+  }
+
+  // ─── US-955: OWASP LLM09 Misinformation Guardrail (pre-send) ────────
+  // Blocks factual responses that have no KB grounding (no topic files found).
+  let misinformationResult: MisinformationCheckResult | undefined;
+  const misinfoSettings = (profileConfig.getSettings() as any).misinformation_guardrail;
+  if (misinfoSettings?.enabled !== false && diaryEvent.action !== 'static_reply') {
+    misinformationResult = checkMisinformationRisk(
+      text,
+      diaryEvent.intent || '',
+      state.ragUsed ?? false,
+      state.ragTopicFiles ?? [],
+      misinfoSettings
+    );
+
+    if (misinformationResult.blocked) {
+      console.warn(
+        `[MisinformationGuardrail] Blocked factual response for ${phone} — ` +
+        `intent=${diaryEvent.intent}, ragUsed=${state.ragUsed}, ` +
+        `topicFiles=${(state.ragTopicFiles ?? []).length}, reason=${misinformationResult.blockReason}`
+      );
+      response = getMisinformationFallback(lang);
+      diaryEvent.escalated = true;
+    }
+
+    // Log misinformation event (fire-and-forget) — only for factual queries
+    if (misinformationResult.isFactualQuery) {
+      logMisinformationEvent(
+        phone, profileId, text, diaryEvent.intent || '', misinformationResult
+      ).catch(() => {});
+    }
   }
 
   // ─── US-899 + US-913: Faithfulness + Hallucination Detection (post-generation, pre-send) ──
@@ -369,6 +404,14 @@ export async function processAndSend(
       hallucinationMaxSeverity: hallucinationResult.maxSeverity,
       hallucinationAction: hallucinationResult.action,
       hallucinationLatencyMs: hallucinationResult.latencyMs,
+    } : {}),
+    // US-955: Misinformation guardrail metadata
+    ...(misinformationResult ? {
+      retrievalUsed: misinformationResult.retrievalUsed,
+      sourceDocuments: misinformationResult.sourceDocuments.length > 0
+        ? misinformationResult.sourceDocuments : undefined,
+      groundingConfidence: misinformationResult.groundingConfidence,
+      misinformationBlocked: misinformationResult.blocked || undefined,
     } : {}),
   };
 

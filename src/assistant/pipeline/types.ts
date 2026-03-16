@@ -52,6 +52,10 @@ export interface PipelineState {
   traceStart: number;
   /** US-843: True when this JID has no prior consent record (first-ever interaction) */
   isFirstContact?: boolean;
+  /** US-955: Whether RAG retrieval found relevant KB context for this query */
+  ragUsed?: boolean;
+  /** US-955: Topic files selected by RAG or regex (excludes core files like AGENTS.md) */
+  ragTopicFiles?: string[];
 }
 
 export type ValidationResult =

@@ -11694,3 +11694,44 @@ Completed: WhatsApp 100K messaging tier: monitor daily volume limits and surface
 ### Gotchas
 - Pre-existing startup errors (rate-limiter IPv6, webhook secrets) are unrelated to this story
 - Build uses esbuild — tsc errors are pre-existing and do not block build
+## Iteration 1 - Mon, Mar 16, 2026 10:41:45 AM
+Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID: US-1031) in 11m
+
+
+
+## Iteration 20 - Story: US-955 OWASP LLM09 misinformation guardrail
+
+### What was implemented
+- `src/assistant/misinformation-guardrail.ts`: Core guardrail module
+  - `isFactualIntent()`: Maps 25+ intent names to "factual" category (pricing, availability, policy, hours, contact, etc.)
+  - `checkMisinformationRisk()`: Checks if factual queries have KB grounding; blocks if no topic files found
+  - `getMisinformationFallback()`: Multilingual fallback messages (EN/MS/ZH/TA) with contact number
+  - `logMisinformationEvent()`: Fire-and-forget DB logging to `misinformation_events` table
+  - `getMisinformationStats()`: Analytics with daily breakdown and top blocked intents
+- `src/assistant/pipeline/types.ts`: Added `ragUsed` and `ragTopicFiles` fields to PipelineState
+- `src/assistant/pipeline/intent-classifier.ts`: Propagates KB loading RAG metadata to PipelineState
+- `src/assistant/pipeline/stages/kb-loading.ts`: Added FACTUAL ACCURACY RULE to system prompt instructing model to say "I don't have that information" instead of guessing
+- `src/assistant/pipeline/response-processor.ts`: 
+  - Pre-send misinformation guardrail check (runs before hallucination/groundedness detection)
+  - Blocks factual responses with no KB topic files; replaces with safe fallback
+  - Adds `retrievalUsed`, `sourceDocuments`, `groundingConfidence`, `misinformationBlocked` to log metadata
+- `src/routes/admin/misinformation-report.ts`: Admin API endpoints
+  - GET /analytics/misinformation-report — Summary stats + daily breakdown
+  - GET /analytics/misinformation-report/events — Paginated blocked events
+- `evals/us955-misinformation-factual.yaml`: Promptfoo eval with 20 factual questions
+  - 17 KB-grounded questions (pricing, check-in/out, facilities, rules, location, payment, contact, refund, availability)
+  - 3 "unknown fact" questions that should trigger fallback
+
+### Tests
+- 20 unit tests in `src/assistant/__tests__/misinformation-guardrail.test.ts` — all pass
+- Tests cover: factual intent detection, RAG+topic file passing, blocking logic, config overrides, multilingual detection, fallback messages
+
+### Patterns discovered
+- Existing hallucination detector already has `isFactualQuery()` function with regex patterns — reused via import
+- Pipeline had no way to pass RAG metadata (ragUsed) from kb-loading to response-processor — added via PipelineState fields
+- `\b` word boundary doesn't work with CJK characters in JavaScript regex — factual detection for Chinese relies on explicit character patterns
+- Guardrail runs BEFORE hallucination/groundedness checks — catches the "no KB at all" case that those modules can't detect (they require kbFiles.length > 0)
+
+### Gotchas
+- Core KB files (AGENTS.md, soul.md, memory.md) are always loaded — misinformation guardrail only checks topicFiles (domain-specific KB), not core files
+- Pre-existing build warnings (db-url.js, logger.ts) unchanged
