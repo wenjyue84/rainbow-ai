@@ -36,5 +36,8 @@ SPIRAL_FOCUS="Improve the core preordering process via AI waiter: enhance the co
 # ── Firecrawl MCP for web research ─────────────────────────────────
 SPIRAL_FIRECRAWL_ENABLED=1
 
+# ── Constitution: enforce visible UX focus ───────────────────────────
+SPIRAL_SPECKIT_CONSTITUTION="constitution.md"
+
 # ── Parallel worker settings ─────────────────────────────────────────
 SPIRAL_PATCH_DIRS="src/"

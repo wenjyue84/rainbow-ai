@@ -95,6 +95,7 @@ import supplyChainIntegrityRoutes from './supply-chain-integrity.js';
 import dpaRegistryRoutes from './dpa-registry.js';
 import whatsappFlowsHealthRoutes from './whatsapp-flows-health.js';
 import providerSloRoutes from './provider-slo.js';
+import einvoiceRoutes from './einvoice.js';
 
 const router = Router();
 
@@ -354,6 +355,7 @@ router.use(supplyChainIntegrityRoutes);    // US-1031: OWASP LLM03:2025 canary p
 router.use(dpaRegistryRoutes);             // US-958: Vendor DPA registry for PDPA compliance
 router.use(whatsappFlowsHealthRoutes);    // US-934: WhatsApp Flows health monitoring
 router.use(providerSloRoutes);            // US-996: LLM provider latency SLO tracker
+router.use(einvoiceRoutes);               // US-1039: MyInvois e-invoice queue + dashboard
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

@@ -72,6 +72,7 @@ import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.
 import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
 import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
 import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
+import { startEinvoiceQueueProcessor } from './lib/einvoice-queue.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
@@ -206,6 +207,9 @@ startWebhookHealthCheck();
 
 // US-884: Start booking sequence processor (60s polling for pre-arrival messages)
 startBookingSequenceProcessor();
+
+// US-1039: Start MyInvois e-invoice queue processor (30s polling, 72h retry window)
+startEinvoiceQueueProcessor();
 
 // US-433: Load today's LLM cost accumulators from DB
 loadTodayCosts().catch(err => console.warn('[Startup] Failed to load LLM cost data:', err.message));
@@ -434,11 +438,14 @@ app.get('/public/widget.js', _serveWidgetJs);
 // US-522 + US-523: webchat.html — CORS for cross-origin loads, CSP frame-ancestors
 // to allow the iframe to render inside fnb-online-ordering and pms-capsule (Vercel).
 // Helmet sets frameguard: false globally but we explicitly override CSP here.
+// US-1040: PCI DSS 4.0 Req 6.4.3 — payment-adjacent page. Script inventory enforced
+// at build time (scripts/validate-sri.mjs). CSP restricts script sources; inline scripts
+// use 'unsafe-inline' for this legacy route (nonce injection pending migration).
 app.get('/webchat.html', (_req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set(
     'Content-Security-Policy',
-    "frame-ancestors 'self' https://*.vercel.app https://admin.pelangicapsulehostel.com https://pelangicapsulehostel.com",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self' https://*.vercel.app https://admin.pelangicapsulehostel.com https://pelangicapsulehostel.com; report-uri /csp-report",
   );
   res.sendFile(join(__dirname_main, 'public', 'webchat.html'));
 });
@@ -779,9 +786,16 @@ app.get('/chat/:profileId', (req, res) => {
       onboarding,
     });
     const nonce = res.locals.cspNonce;
-    const injected = html.replace(
+    // US-1040: Inject nonce into both the profile config script and the main webchat IIFE
+    // to comply with Helmet's script-src 'self' 'nonce-xxx' CSP policy.
+    let injected = html.replace(
       '<head>',
       `<head>\n  <script nonce="${nonce}">window.__WEBCHAT_PROFILE__=${profileData};</script>`
+    );
+    // Add nonce to the main inline <script> in the body (webchat IIFE)
+    injected = injected.replace(
+      /(<script>)\s*\n(\s*\(function\(\)\s*\{)/,
+      `<script nonce="${nonce}">\n$2`
     );
     res.type('html').send(injected);
   } catch {

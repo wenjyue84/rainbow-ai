@@ -5,7 +5,7 @@
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
@@ -934,3 +934,55 @@ export const dpaRegistry = pgTable("dpa_registry", {
 
 export type DpaRegistryEntry = typeof dpaRegistry.$inferSelect;
 export type InsertDpaRegistryEntry = typeof dpaRegistry.$inferInsert;
+
+// ─── E-Invoice Queue (US-1039) ──────────────────────────────────────
+// Malaysia LHDN MyInvois e-invoice submission queue with retry tracking.
+
+export const einvoiceQueue = pgTable("einvoice_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Source transaction: 'order' or 'booking' */
+  transactionType: varchar("transaction_type", { length: 32 }).notNull(),
+  /** External reference ID (order ID or booking ID) */
+  transactionId: text("transaction_id").notNull(),
+  /** Profile/tenant that owns this invoice */
+  profileId: text("profile_id").notNull().default("pelangi"),
+  /** Customer phone (for WhatsApp delivery) */
+  customerPhone: text("customer_phone"),
+  /** Customer name */
+  customerName: text("customer_name"),
+  /** Customer NRIC or passport number (LHDN mandatory) */
+  customerIdNumber: text("customer_id_number"),
+  /** Supplier TIN (Tax Identification Number) */
+  supplierTin: text("supplier_tin").notNull(),
+  /** Line items JSON: [{description, qty, unitPrice, taxAmount, total}] */
+  lineItems: text("line_items").notNull(),
+  /** Total amount (MYR) */
+  totalAmount: real("total_amount").notNull(),
+  /** SST amount */
+  sstAmount: real("sst_amount").notNull().default(0),
+  /** Queue status: pending | submitted | validated | delivered | failed | expired */
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  /** MyInvois Unique Identification Number (set after validation) */
+  uin: text("uin"),
+  /** Number of submission attempts */
+  attempts: integer("attempts").notNull().default(0),
+  /** Last error message from MyInvois API */
+  lastError: text("last_error"),
+  /** When the invoice was successfully submitted to MyInvois */
+  submittedAt: timestamp("submitted_at"),
+  /** When the PDF was delivered via WhatsApp */
+  deliveredAt: timestamp("delivered_at"),
+  /** Next scheduled retry time */
+  nextRetryAt: timestamp("next_retry_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_einvoice_queue_status").on(table.status),
+  index("idx_einvoice_queue_profile").on(table.profileId),
+  index("idx_einvoice_queue_transaction").on(table.transactionType, table.transactionId),
+  index("idx_einvoice_queue_next_retry").on(table.nextRetryAt),
+  index("idx_einvoice_queue_created_at").on(table.createdAt),
+]));
+
+export type EinvoiceQueueEntry = typeof einvoiceQueue.$inferSelect;
+export type InsertEinvoiceQueueEntry = typeof einvoiceQueue.$inferInsert;
