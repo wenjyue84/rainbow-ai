@@ -875,6 +875,43 @@ export async function notifyAdminInjectionBurst(
   }
 }
 
+// ─── DPA Expiry Alert (US-958) ────────────────────────────────────────
+
+/**
+ * Send alert when vendor DPAs are expiring within 30 days.
+ */
+export async function notifyAdminDpaExpiry(
+  vendorName: string,
+  expiryDate: Date,
+  daysRemaining: number
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send DPA expiry notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const fmtDate = (d: Date) => d.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+
+  const urgency = daysRemaining <= 7 ? '🔴' : '🟡';
+  const message = `${urgency} *DPA Expiry Alert*\n\n` +
+    `Vendor: *${vendorName}*\n` +
+    `DPA expires: ${fmtDate(expiryDate)}\n` +
+    `Days remaining: *${daysRemaining}*\n\n` +
+    `PDPA 2024 requires signed DPAs with all data processors.\n` +
+    `Penalty: Up to RM1,000,000 fine.\n\n` +
+    `📋 View registry: GET /api/rainbow/pdpa/dpa-registry`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent DPA expiry alert', { vendorName, daysRemaining });
+  } catch (err: any) {
+    logger.error('Failed to send DPA expiry notification', { error: err.message });
+  }
+}
+
 export async function notifyAdminBreachReport(
   description: string,
   affectedCount: number,

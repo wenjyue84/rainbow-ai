@@ -92,6 +92,7 @@ import aiBomRoutes from './ai-bom.js';
 import rlsStatusRoutes from './rls-status.js';
 import securityEventsRoutes from './security-events.js';
 import supplyChainIntegrityRoutes from './supply-chain-integrity.js';
+import dpaRegistryRoutes from './dpa-registry.js';
 
 const router = Router();
 
@@ -348,6 +349,7 @@ router.use(aiBomRoutes);                    // US-952: AI-BOM supply chain track
 router.use(rlsStatusRoutes);               // US-1001: RLS status endpoint
 router.use(securityEventsRoutes);          // US-998: Prompt injection audit log
 router.use(supplyChainIntegrityRoutes);    // US-1031: OWASP LLM03:2025 canary probe + integrity API
+router.use(dpaRegistryRoutes);             // US-958: Vendor DPA registry for PDPA compliance
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

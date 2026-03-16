@@ -909,3 +909,28 @@ export const promptInjectionEvents = pgTable("prompt_injection_events", {
 
 export type PromptInjectionEvent = typeof promptInjectionEvents.$inferSelect;
 export type InsertPromptInjectionEvent = typeof promptInjectionEvents.$inferInsert;
+
+// ─── Vendor DPA Registry (US-958) ───────────────────────────────────
+
+export const dpaRegistry = pgTable("dpa_registry", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorName: text("vendor_name").notNull(),
+  registeredAddress: text("registered_address").notNull().default(""),
+  dataCategories: text("data_categories").notNull(),
+  processingPurpose: text("processing_purpose").notNull(),
+  retentionPeriod: text("retention_period").notNull().default(""),
+  subProcessors: text("sub_processors").notNull().default("[]"),
+  dpaStatus: varchar("dpa_status", { length: 32 }).notNull().default("pending"),
+  dpaExpiryDate: timestamp("dpa_expiry_date"),
+  dpaSigned: timestamp("dpa_signed"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_dpa_registry_vendor").on(table.vendorName),
+  index("idx_dpa_registry_status").on(table.dpaStatus),
+  index("idx_dpa_registry_expiry").on(table.dpaExpiryDate),
+]));
+
+export type DpaRegistryEntry = typeof dpaRegistry.$inferSelect;
+export type InsertDpaRegistryEntry = typeof dpaRegistry.$inferInsert;

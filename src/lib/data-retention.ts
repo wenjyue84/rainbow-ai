@@ -12,11 +12,12 @@
 
 import cron from 'node-cron';
 import { db, pool, dbReady } from './db.js';
-import { rainbowMessages, rainbowConversations, promptInjectionEvents } from '../../shared/schema-tables.js';
-import { lt, isNull, isNotNull, and, sql } from 'drizzle-orm';
+import { rainbowMessages, rainbowConversations, promptInjectionEvents, dpaRegistry } from '../../shared/schema-tables.js';
+import { lt, lte, gt, eq, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { configStore } from '../assistant/config-store.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
 import { pruneRawEvents } from './webhook-raw-events.js';
+import { notifyAdminDpaExpiry } from './admin-notifier.js';
 
 // ─── Config ──────────────────────────────────────────────────────────
 
@@ -280,6 +281,35 @@ export async function runRetentionPurge(profileId?: string): Promise<PurgeResult
   return result;
 }
 
+// ─── DPA Expiry Check (US-958) ───────────────────────────────────────
+
+async function checkDpaExpiry(): Promise<void> {
+  const ready = await dbReady;
+  if (!ready) return;
+
+  const now = new Date();
+  const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const expiring = await db.select()
+    .from(dpaRegistry)
+    .where(and(
+      eq(dpaRegistry.dpaStatus, 'signed'),
+      lte(dpaRegistry.dpaExpiryDate, thirtyDaysFromNow),
+      gt(dpaRegistry.dpaExpiryDate, now)
+    ));
+
+  for (const entry of expiring) {
+    if (!entry.dpaExpiryDate) continue;
+    const daysRemaining = Math.ceil((entry.dpaExpiryDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+    console.log(`[DataRetention] DPA expiring soon: ${entry.vendorName} (${daysRemaining} days remaining)`);
+    await notifyAdminDpaExpiry(entry.vendorName, entry.dpaExpiryDate, daysRemaining);
+  }
+
+  if (expiring.length > 0) {
+    console.log(`[DataRetention] ${expiring.length} vendor DPA(s) expiring within 30 days`);
+  }
+}
+
 // ─── Scheduler ───────────────────────────────────────────────────────
 
 export function startRetentionScheduler(): void {
@@ -300,6 +330,12 @@ export function startRetentionScheduler(): void {
       }
     } catch (err: any) {
       console.error('[DataRetention] Raw event prune failed:', err.message);
+    }
+    // US-958: Check for DPA expiry within 30 days and alert admin
+    try {
+      await checkDpaExpiry();
+    } catch (err: any) {
+      console.error('[DataRetention] DPA expiry check failed:', err.message);
     }
   }, {
     timezone: 'Asia/Kuala_Lumpur',

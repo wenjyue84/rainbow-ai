@@ -11752,3 +11752,17 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 - Story was fully implemented across prior iterations but never marked as passes: true
 ### Gotchas
 - Pre-existing Node v24 ERR_AMBIGUOUS_MODULE_SYNTAX with db-url.js in dist/ — not related to this story
+
+## Iteration - Story: US-958 - Vendor Data Processing Agreement (DPA) registry for PDPA compliance
+### What was implemented
+- `shared/schema-tables.ts`: Added `dpa_registry` table with vendor_name, registered_address, data_categories, processing_purpose, retention_period, sub_processors (JSON), dpa_status, dpa_expiry_date, dpa_signed, notes, timestamps
+- `src/routes/admin/dpa-registry.ts`: Full CRUD admin API with GET list, GET single, POST create, PUT update, DELETE soft-delete (marks inactive), plus GET alerts/expiring endpoint for DPAs expiring within 30 days
+- `src/routes/admin/index.ts`: Registered dpa-registry routes
+- `src/lib/admin-notifier.ts`: Added `notifyAdminDpaExpiry()` function for WhatsApp alerts with vendor name, expiry date, days remaining
+- `src/lib/data-retention.ts`: Added `checkDpaExpiry()` to nightly cron job (3:00 AM MYT) — queries for signed DPAs expiring within 30 days and sends admin alerts
+- `src/assistant/__tests__/dpa-registry.test.ts`: 10 tests all passing
+### Patterns discovered
+- Admin routes follow consistent pattern: import from http-utils.js, use checkRole middleware, snake_case request body, camelCase internal
+- Data retention nightly job is the right place for periodic compliance checks
+### Gotchas
+- Pre-existing build warnings unchanged (db-url.js, logger.ts)
