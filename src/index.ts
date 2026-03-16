@@ -66,7 +66,7 @@ import { computeAvailability } from './assistant/business-hours.js';
 import type { BusinessHoursConfig } from './assistant/business-hours.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
-import { migrateObsoleteTiers } from './routes/admin/messaging-limits.js';
+import { migrateObsoleteTiers, checkMessagingVolumeLimits } from './routes/admin/messaging-limits.js';
 import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
 import { startWebhookHealthCheck, getWebhookHealthState } from './lib/waba-webhook-health.js';
 import { MEDIA_BASE_DIR } from './lib/media-downloader.js';
@@ -238,6 +238,13 @@ startBreachDetectionScheduler();
 
 // US-969: Start marketing consent expiry scheduler (every 1h, expires 48h-old pending consents)
 startConsentExpiryScheduler();
+
+// US-1030: Periodic messaging volume limit check (every 15 min) — fires 80%/95% alerts
+setInterval(() => {
+  checkMessagingVolumeLimits().catch(err =>
+    console.error('[messaging-limits] Periodic volume check failed:', err.message)
+  );
+}, 15 * 60 * 1000);
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

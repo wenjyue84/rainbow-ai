@@ -11633,3 +11633,28 @@ Completed: npm supply chain: pin dependency versions and enable integrity verifi
 
 ### Gotchas
 - Story was purely docs/audit — no code changes needed, build still passes
+## Iteration 5 - Mon, Mar 16, 2026 10:15:32 AM
+Completed: On-Premises API sunset: audit and remove all on-premises API references from codebase (ID: US-1029) in 6m
+
+
+## Iteration N - Story: US-1030 WhatsApp 100K messaging tier monitoring
+
+### What was implemented
+- Added `checkVolumeAlerts()` in messaging-limits.ts: fires `notifyAdminMessagingLimit` at 80% and 95% thresholds (1hr cooldown per threshold level)
+- Added `_queuePausedAt` state: set when 100% cap is reached, cleared when new 24h window begins. Exposed via `isVolumePaused()` / `getVolumePausedAt()`
+- Added `META_UPGRADE_URL` constant pointing to Meta Business Manager; returned in GET response as `upgradeUrl`
+- Added `logTierChange()`: writes to `rainbow_config_audit` on every tier change via PUT endpoint
+- Added `getTierHistory()`: reads tier change log from `rainbow_config_audit`
+- Added `GET /analytics/messaging-limits/tier-history` endpoint
+- Added `checkMessagingVolumeLimits()` exported function for scheduled polling
+- index.ts: wired up `checkMessagingVolumeLimits` in a 15-minute `setInterval` scheduler
+
+### Patterns discovered
+- `notifyAdminMessagingLimit` already existed in admin-notifier.ts but was never called
+- `pool` is exported from `src/lib/db.ts` — can use raw pg queries directly
+- Functions exported with `export function` cannot also appear in a named `export { }` block (duplicate export error)
+- `rainbow_config_audit` is already used for audit trail — reused for tier history with `config_key = 'rainbow_portfolio_tier'` and `action = 'tier_change'`
+
+### Gotchas
+- esbuild treats pre-existing warnings (logger.ts, db-url.js) as non-fatal; build still succeeds
+- The GET handler fires `checkVolumeAlerts` non-blocking on every uncached request (good for real-time alerting without a separate poll)
