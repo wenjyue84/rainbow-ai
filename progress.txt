@@ -11735,3 +11735,20 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 ### Gotchas
 - Core KB files (AGENTS.md, soul.md, memory.md) are always loaded — misinformation guardrail only checks topicFiles (domain-specific KB), not core files
 - Pre-existing build warnings (db-url.js, logger.ts) unchanged
+
+
+## Iteration - Story: US-998 - Structured prompt injection audit log with admin review queue
+### What was implemented
+- Verified all components already exist from prior iterations:
+  - `shared/schema-tables.ts`: `prompt_injection_events` table with jid, profile_id, original_message_text, matched_pattern, action_taken, created_at
+  - `src/lib/prompt-injection-logger.ts`: logPromptInjectionEvent with PII redaction + burst alert check
+  - `src/assistant/pipeline/input-validator.ts`: wired to call logPromptInjectionEvent on detected injection
+  - `src/routes/admin/security-events.ts`: paginated list + stats endpoints with date/profile filtering
+  - `src/lib/data-retention.ts`: retention purge for injection events older than configured retention_days
+  - `src/lib/admin-notifier.ts`: notifyAdminInjectionBurst for 3+ attempts from same JID in 1 hour
+  - `src/assistant/__tests__/prompt-injection-audit.test.ts`: 10 tests all passing
+- All 5 acceptance criteria verified met
+### Patterns discovered
+- Story was fully implemented across prior iterations but never marked as passes: true
+### Gotchas
+- Pre-existing Node v24 ERR_AMBIGUOUS_MODULE_SYNTAX with db-url.js in dist/ — not related to this story
