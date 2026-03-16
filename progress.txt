@@ -1,4 +1,23 @@
 ## Worker 1 progress
+## Iteration 6 - Story: US-1041 - PCI DSS 4.0 Req 11.6.1: HTTP security header tamper detection
+### What was implemented
+- Created `src/assistant/data/pci-header-baseline.json`: Version-controlled approved baseline for 6 security headers (CSP, X-Frame-Options, HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) on 5 payment-adjacent paths, with match modes (exact/directive-check/hsts-check), PCI justification, and 5-minute alert cooldown
+- Created `src/lib/pci-header-tamper-detection.ts`: Express middleware that intercepts res.end on payment-adjacent routes, reads outgoing headers after Helmet, normalizes CSP (strips per-request nonces), detects drift against baseline, logs structured diff, and fires admin alert (throttled per path)
+- Added `notifyAdminHeaderTamper` to `src/lib/admin-notifier.ts`: WhatsApp alert with diff details, PCI reference, and remediation steps
+- Wired `setPciHeaderAlertFn` in `src/lib/baileys-supervisor.ts` after `initAdminNotifier` so the alert function is available once WhatsApp is ready
+- Added `pciHeaderTamperDetectionMiddleware` to `src/index.ts` after Helmet+Permissions-Policy
+- Created `scripts/pci-header-monthly-scan.mjs`: Fetches each payment-adjacent path from a live server, detects header drift, outputs JSON report to reports/ directory, exits 1 on drift (CI-compatible)
+- Added `pci:header-scan` npm script
+### Patterns discovered
+- CSP nonce is per-request (randomBytes(16)) — normalize by replacing `'nonce-...'` → `'nonce-DYNAMIC'` before diff
+- res.end() interception is the correct post-Helmet hook (res.on('finish') fires too late to read headers reliably)
+- HSTS check is skip-in-development (Helmet disables it when NODE_ENV != 'production')
+- Alert fn is initialized lazily via setPciHeaderAlertFn to avoid circular dep between admin-notifier and pci-header-tamper-detection
+### Gotchas
+- prd.json had 7 merge conflicts from prior worker runs — resolved by taking "ours" (more complete filesTouch version) before updating passes field
+- esbuild copies src/assistant/data/ to dist/assistant/data/ — baseline JSON is accessible at runtime via path candidates in loadBaseline()
+- Build passes with 3 pre-existing warnings (no new errors)
+
 ## Iteration 5 - Story: US-1039 - PASSED (verification)
 - Build passes, all wiring confirmed, all 4 acceptance criteria verified
 - Marked US-1039 as passes=true

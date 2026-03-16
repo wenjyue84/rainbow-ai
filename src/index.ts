@@ -76,6 +76,7 @@ import { startEinvoiceQueueProcessor } from './lib/einvoice-queue.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
+import { pciHeaderTamperDetectionMiddleware, setPciHeaderAlertFn } from './lib/pci-header-tamper-detection.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -348,6 +349,10 @@ app.use((_req, res, next) => {
   res.setHeader('Permissions-Policy', 'microphone=(), camera=(), geolocation=()');
   next();
 });
+
+// US-1041: PCI DSS 4.0 Req 11.6.1 — Security header tamper detection for payment-adjacent routes.
+// Runs after Helmet + Permissions-Policy so all security headers are already set.
+app.use(pciHeaderTamperDetectionMiddleware);
 
 // CORS — restrict to explicit allowlist (US-464)
 const allowedOrigins = process.env.ALLOWED_ORIGINS

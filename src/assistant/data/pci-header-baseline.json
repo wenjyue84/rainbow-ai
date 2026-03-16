@@ -1,0 +1,56 @@
+{
+  "_comment": "PCI DSS 4.0 Req 11.6.1 — Approved security header baseline for payment-adjacent webchat routes.",
+  "_version": "1.0.0",
+  "_reviewer": "system-admin",
+  "_reviewDate": "2026-03-16",
+  "_nextReviewDate": "2026-06-16",
+  "paymentAdjacentPaths": [
+    "/webchat.html",
+    "/chat/",
+    "/payment/checkout/",
+    "/payment/create-session",
+    "/api/chat/"
+  ],
+  "requiredHeaders": {
+    "x-content-type-options": {
+      "expected": "nosniff",
+      "matchMode": "exact",
+      "pciRequirement": "Prevents MIME-type sniffing attacks on payment page scripts"
+    },
+    "x-frame-options": {
+      "expected": "DENY",
+      "matchMode": "exact",
+      "pciRequirement": "Prevents clickjacking on payment pages (fallback for legacy browsers)"
+    },
+    "referrer-policy": {
+      "expected": "strict-origin-when-cross-origin",
+      "matchMode": "exact",
+      "pciRequirement": "Prevents referrer leakage of payment page URLs"
+    },
+    "permissions-policy": {
+      "expected": "microphone=(), camera=(), geolocation=()",
+      "matchMode": "exact",
+      "pciRequirement": "Restricts sensitive API access on payment pages"
+    },
+    "content-security-policy": {
+      "requiredDirectives": [
+        "default-src",
+        "script-src",
+        "object-src"
+      ],
+      "forbiddenValues": [
+        "unsafe-eval"
+      ],
+      "matchMode": "directive-check",
+      "pciRequirement": "CSP must restrict script execution; unsafe-eval is forbidden on payment pages"
+    },
+    "strict-transport-security": {
+      "requiredInProduction": true,
+      "minMaxAge": 31536000,
+      "matchMode": "hsts-check",
+      "pciRequirement": "HSTS required in production to enforce TLS for payment pages"
+    }
+  },
+  "alertCooldownMs": 300000,
+  "monthlyScanEnabled": true
+}

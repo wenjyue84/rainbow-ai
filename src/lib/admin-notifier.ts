@@ -1005,3 +1005,52 @@ export async function notifyAdminBreachReport(
     logger.error('Failed to send breach report notification', { error: err.message });
   }
 }
+
+// ─── PCI DSS 11.6.1: Security Header Tamper Detection Alert (US-1041) ─
+
+import type { HeaderDiff } from './pci-header-tamper-detection.js';
+
+/**
+ * Send PCI DSS 11.6.1 header tamper alert to system admin.
+ * Fires when security headers on payment-adjacent routes deviate from approved baseline.
+ * Caller is responsible for cooldown throttling (pci-header-tamper-detection.ts handles it).
+ */
+export async function notifyAdminHeaderTamper(
+  diffs: HeaderDiff[],
+  path: string
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send header tamper notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const diffLines = diffs.map(d => {
+    if (d.actual !== undefined) {
+      return `  • ${d.header}: ${d.issue}\n    Expected: ${d.expected ?? '(see baseline)'}\n    Got: ${d.actual ?? '(missing)'}`;
+    }
+    return `  • ${d.header}: ${d.issue}${d.expected ? ` (expected: ${d.expected})` : ''}`;
+  }).join('\n');
+
+  const message = `🚨 *PCI DSS 11.6.1 — Security Header Tamper Detected*\n\n` +
+    `Path: *${path}*\n` +
+    `Deviations: *${diffs.length}*\n\n` +
+    `*Header Issues:*\n${diffLines}\n\n` +
+    `*PCI DSS 4.0 Req 11.6.1* requires detection and alerting of unauthorized\n` +
+    `modifications to HTTP security headers on payment-adjacent pages.\n\n` +
+    `*Immediate Actions:*\n` +
+    `1. Review recent deployments for header configuration changes\n` +
+    `2. Check Helmet.js config in src/index.ts\n` +
+    `3. Update pci-header-baseline.json if change is approved\n` +
+    `4. Run monthly scan: npm run pci:header-scan\n\n` +
+    `Time: ${new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent PCI header tamper alert', { path, diffCount: diffs.length });
+  } catch (err: any) {
+    logger.error('Failed to send PCI header tamper notification', { error: err.message });
+  }
+}

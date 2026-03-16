@@ -17,7 +17,8 @@ import { callAPI } from './http-client.js';
 import { startDailyReportScheduler } from './daily-report.js';
 import { startRetentionScheduler } from './data-retention.js';
 import { startFlowHealthScheduler } from './whatsapp-flows-health.js';
-import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption } from './admin-notifier.js';
+import { initAdminNotifier, notifyAdminServerStartup, notifyAdminConfigCorruption, notifyAdminHeaderTamper } from './admin-notifier.js';
+import { setPciHeaderAlertFn } from './pci-header-tamper-detection.js';
 import { initCartRecovery } from '../assistant/cart-recovery.js';
 import { configStore } from '../assistant/config-store.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
@@ -78,6 +79,9 @@ async function attemptStart(config: SupervisorConfig): Promise<void> {
     initAdminNotifier({
       sendMessage: sendWhatsAppMessage
     });
+
+    // US-1041: Wire PCI DSS 11.6.1 header tamper alert to admin notifier
+    setPciHeaderAlertFn((diffs, path) => notifyAdminHeaderTamper(diffs, path));
 
     // Initialize AI Assistant (auto-reply to WhatsApp messages)
     try {
