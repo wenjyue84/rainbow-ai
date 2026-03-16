@@ -132,7 +132,7 @@ describe('generateWithValidation (US-471)', () => {
     const retryMessages = retryCall[0] as Array<{ role: string; content: string }>;
     const lastMsg = retryMessages[retryMessages.length - 1];
     expect(lastMsg.role).toBe('user');
-    expect(lastMsg.content).toContain('Previous response failed validation');
+    expect(lastMsg.content).toContain('Your previous response did not conform to the required JSON schema');
   });
 
   test('both attempts fail validation → returns null data with raw content', async () => {

@@ -423,6 +423,28 @@ export const templateQualityEvents = pgTable("template_quality_events", {
 export type TemplateQualityEvent = typeof templateQualityEvents.$inferSelect;
 export type InsertTemplateQualityEvent = typeof templateQualityEvents.$inferInsert;
 
+// ─── WhatsApp Templates (US-900) ─────────────────────────────────────
+// Stores current status of WhatsApp message templates per profile.
+// Used by template-rejection-monitor to detect APPROVED → REJECTED/PAUSED transitions.
+export const whatsappTemplates = pgTable("whatsapp_templates", {
+  id: serial("id").primaryKey(),
+  templateName: text("template_name").notNull(),
+  status: text("status").notNull(),
+  previousStatus: text("previous_status"),
+  rejectedReason: text("rejected_reason"),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  lastCheckedAt: timestamp("last_checked_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_whatsapp_templates_name_profile").on(table.templateName, table.profileId),
+  index("idx_whatsapp_templates_status").on(table.status),
+  index("idx_whatsapp_templates_profile").on(table.profileId),
+]));
+
+export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
+export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
+
 // ─── Experiment Metrics (US-837) ─────────────────────────────────────
 // Tracks per-variant metrics for A/B experiment framework.
 // Aggregated daily by experiment + variant + phone hash.

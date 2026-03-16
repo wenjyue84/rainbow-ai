@@ -4,6 +4,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    fileParallelism: false,
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        maxForks: 1,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
@@ -16,6 +23,13 @@ export default defineConfig({
           name: 'unit',
           globals: true,
           environment: 'node',
+          fileParallelism: false,
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              maxForks: 1,
+            },
+          },
           include: ['src/**/*.{test,spec}.{ts,tsx}'],
           exclude: ['node_modules', 'dist', 'src/**/*.integration.test.ts', 'src/**/*.semantic.test.ts'],
         },
@@ -25,6 +39,13 @@ export default defineConfig({
           name: 'integration',
           globals: true,
           environment: 'node',
+          fileParallelism: false,
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              maxForks: 1,
+            },
+          },
           include: ['src/**/*.integration.test.ts'],
           exclude: ['node_modules', 'dist'],
         },
@@ -34,6 +55,13 @@ export default defineConfig({
           name: 'semantic',
           globals: true,
           environment: 'node',
+          fileParallelism: false,
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              maxForks: 1,
+            },
+          },
           include: ['src/**/*.semantic.test.ts'],
           exclude: ['node_modules', 'dist'],
         },

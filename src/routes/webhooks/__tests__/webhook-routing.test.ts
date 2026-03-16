@@ -19,6 +19,7 @@ import { Router } from 'express';
 // Mock webhook-signature to bypass HMAC checks in tests
 vi.mock('../../../lib/webhook-signature.js', () => ({
   validateWebhookSignature: () => (_req: any, _res: any, next: any) => next(),
+  validateMetaSignature: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 // Mock logger so tests stay quiet

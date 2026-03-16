@@ -243,6 +243,7 @@ vi.mock('../conversation.js', () => {
     addMessage: vi.fn(),
     updateBookingState: vi.fn(),
     updateWorkflowState: vi.fn(),
+    updateActiveFlow: vi.fn(),
     incrementUnknown: vi.fn(() => 1),
     resetUnknown: vi.fn(),
     updateLastIntent: vi.fn(),

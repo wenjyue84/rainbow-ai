@@ -405,3 +405,9 @@ export async function fetchMenuItems(category?: string): Promise<DisambiguationC
     return [];
   }
 }
+
+/** Reset all module-level caches. Exported for test isolation. */
+export function resetMenuCaches(): void {
+  menuCache.clear();
+  specialsCache.clear();
+}

@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
-import { fnbGetMenu, fnbGetMenuItem } from '../../tools/fnb-menu.js';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { fnbGetMenu, fnbGetMenuItem, resetMenuCaches } from '../../tools/fnb-menu.js';
 import { fnbGetOrderStatus, fnbCreateOrder } from '../../tools/fnb-orders.js';
 
 describe('FnB Tool Handlers - MCPToolResult Shape', () => {
   beforeAll(() => {
     process.env.FNB_MCP_URL = 'http://test-mock/api/mcp';
     process.env.FNB_MCP_SECRET = 'test-secret';
+  });
+
+  beforeEach(() => {
+    resetMenuCaches();
   });
 
   afterEach(() => {
