@@ -263,6 +263,30 @@ app.disable('x-powered-by');
 // Disable ETags to prevent stale cache on normal refresh
 app.set('etag', false);
 
+// US-1027: CVE-2024-51999 — Explicitly lock query parser to 'simple' (Node.js built-in querystring.parse).
+// Express 5 defaults to 'simple', but we pin it explicitly so any future config change
+// cannot accidentally enable the 'extended' parser (qs with allowPrototypes: true).
+app.set('query parser', 'simple');
+
+// US-1027: Prototype-pollution guard — strip __proto__, constructor, prototype keys from
+// req.query before any route handler runs. Defense-in-depth even if parser changes.
+app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  const BLOCKED = new Set(['__proto__', 'constructor', 'prototype']);
+  function sanitize(obj: Record<string, unknown>): void {
+    for (const key of Object.keys(obj)) {
+      if (BLOCKED.has(key)) {
+        delete obj[key];
+      } else if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+        sanitize(obj[key] as Record<string, unknown>);
+      }
+    }
+  }
+  if (_req.query && typeof _req.query === 'object') {
+    sanitize(_req.query as Record<string, unknown>);
+  }
+  next();
+});
+
 // ── US-464: CSP nonce middleware ─────────────────────────────────────
 // Generate a unique nonce per request for inline scripts.
 app.use((_req, res, next) => {

@@ -11573,3 +11573,20 @@ Completed: BSUID: migrate contact identity to Business-Scoped User ID by June 20
 - esbuild: SUCCESS (1.9MB bundle, 3 pre-existing warnings only)
 - Tests: 54/54 pass (off-scope-guard.test.ts)
 - All 5 acceptance criteria verified
+## Iteration 2 - Mon, Mar 16, 2026  9:55:25 AM
+Completed: Enforce WhatsApp business-purpose-only AI policy (no general-purpose assistant mode) (ID: US-1026) in 13m
+
+
+## Iteration 18 - Story: US-1027 Express CVE-2024-51999 query parser prototype pollution
+### What was implemented
+- Added `app.set('query parser', 'simple')` explicitly in src/index.ts after etag/x-powered-by settings
+- Added prototype-pollution sanitization middleware that strips __proto__, constructor, prototype keys from req.query before any route handler runs
+- Created .github/dependabot.yml to auto-raise PRs for Express, qs, helmet, express-rate-limit, cors dependency updates
+### Patterns discovered
+- Express 5.2.1 defaults to 'simple' query parser (Node.js querystring.parse), NOT 'extended'
+- The 'extended' parser uses `qs.parse(str, { allowPrototypes: true })` which is the vulnerable code path in express/lib/utils.js
+- Since default is already 'simple', explicit pin + middleware is defense-in-depth
+- npm audit shows no Express CVE-2024-51999 for Express 5.2.1 (it's the latest patched version)
+### Gotchas
+- Express 5 `parseExtendedQueryString` still has `allowPrototypes: true` — never use `app.set('query parser', 'extended')` or `true`
+- The sanitization middleware runs for ALL routes, adds negligible overhead since req.query is typically small
