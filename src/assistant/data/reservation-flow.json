@@ -1,0 +1,211 @@
+{
+  "version": "7.1",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "RESERVATION_DATES": ["RESERVATION_DETAILS", "RESERVATION_DATES"],
+    "RESERVATION_DETAILS": ["RESERVATION_CONFIRM", "RESERVATION_DATES"],
+    "RESERVATION_CONFIRM": ["RESERVATION_DETAILS"]
+  },
+  "screens": [
+    {
+      "id": "RESERVATION_DATES",
+      "title": "Select Dates",
+      "data": {
+        "error_message": { "type": "string", "__example__": "" }
+      },
+      "terminal": false,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "dates_form",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "Please select your check-in and check-out dates for your stay."
+              },
+              {
+                "type": "EmbeddedLink",
+                "text": "View our room types and pricing",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": { "type": "screen", "name": "RESERVATION_DETAILS" }
+                }
+              },
+              {
+                "type": "DatePicker",
+                "name": "check_in_date",
+                "label": "Check-in Date",
+                "required": true,
+                "helper-text": "Select your arrival date",
+                "min-date": "${data.today}",
+                "max-date": "${data.max_date}",
+                "on-select-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "validate_dates",
+                    "check_in_date": "${form.check_in_date}",
+                    "check_out_date": "${form.check_out_date}"
+                  }
+                }
+              },
+              {
+                "type": "DatePicker",
+                "name": "check_out_date",
+                "label": "Check-out Date",
+                "required": true,
+                "helper-text": "Select your departure date"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.error_message}",
+                "visible": "${data.error_message}"
+              },
+              {
+                "type": "Footer",
+                "label": "Next",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "check_availability",
+                    "check_in_date": "${form.check_in_date}",
+                    "check_out_date": "${form.check_out_date}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "RESERVATION_DETAILS",
+      "title": "Guest Details",
+      "data": {
+        "room_options": { "type": "array", "items": { "type": "object" }, "__example__": [] },
+        "room_carousel": {
+          "type": "object",
+          "__example__": {
+            "type": "ImageCarousel",
+            "aspect-ratio": "4:3",
+            "images": []
+          }
+        },
+        "room_carousel_fallback": { "type": "string", "__example__": "" },
+        "check_in_date": { "type": "string", "__example__": "" },
+        "check_out_date": { "type": "string", "__example__": "" },
+        "error_message": { "type": "string", "__example__": "" }
+      },
+      "terminal": false,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "details_form",
+            "children": [
+              {
+                "type": "TextBody",
+                "text": "Dates: ${data.check_in_date} to ${data.check_out_date}"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Our Room Types"
+              },
+              {
+                "type": "ImageCarousel",
+                "aspect-ratio": "4:3",
+                "images": "${data.room_carousel.images}"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.room_carousel_fallback}",
+                "visible": "${data.room_carousel_fallback}"
+              },
+              {
+                "type": "Dropdown",
+                "name": "room_type",
+                "label": "Room / Bed Type",
+                "required": true,
+                "data-source": "${data.room_options}"
+              },
+              {
+                "type": "TextInput",
+                "name": "guest_count",
+                "label": "Number of Guests",
+                "required": true,
+                "input-type": "number",
+                "helper-text": "Enter number of guests (1-20)"
+              },
+              {
+                "type": "TextArea",
+                "name": "special_requests",
+                "label": "Special Requests",
+                "required": false,
+                "max-length": 600,
+                "helper-text": "Any special requirements? (optional, max 600 chars)"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.error_message}",
+                "visible": "${data.error_message}"
+              },
+              {
+                "type": "Footer",
+                "label": "Review Booking",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "submit_reservation",
+                    "check_in_date": "${data.check_in_date}",
+                    "check_out_date": "${data.check_out_date}",
+                    "room_type": "${form.room_type}",
+                    "guest_count": "${form.guest_count}",
+                    "special_requests": "${form.special_requests}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "RESERVATION_CONFIRM",
+      "title": "Booking Confirmed",
+      "data": {
+        "booking_ref": { "type": "string", "__example__": "PEL-240101-0001" },
+        "summary": { "type": "string", "__example__": "" }
+      },
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Booking Confirmed!"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "TextCaption",
+            "text": "Reference: ${data.booking_ref}"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "booking_ref": "${data.booking_ref}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

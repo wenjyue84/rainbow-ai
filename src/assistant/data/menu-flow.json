@@ -1,0 +1,179 @@
+{
+  "version": "7.1",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "MENU_BROWSE": ["ORDER_DETAILS", "MENU_BROWSE"],
+    "ORDER_DETAILS": ["ORDER_CONFIRM", "MENU_BROWSE"],
+    "ORDER_CONFIRM": ["MENU_BROWSE"]
+  },
+  "screens": [
+    {
+      "id": "MENU_BROWSE",
+      "title": "Our Menu",
+      "data": {
+        "menu_carousel": {
+          "type": "object",
+          "__example__": {
+            "type": "ImageCarousel",
+            "aspect-ratio": "16:9",
+            "images": []
+          }
+        },
+        "menu_carousel_fallback": { "type": "string", "__example__": "" },
+        "menu_items": { "type": "array", "items": { "type": "object" }, "__example__": [] },
+        "error_message": { "type": "string", "__example__": "" }
+      },
+      "terminal": false,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "menu_form",
+            "children": [
+              {
+                "type": "TextSubheading",
+                "text": "Featured Items"
+              },
+              {
+                "type": "ImageCarousel",
+                "aspect-ratio": "16:9",
+                "images": "${data.menu_carousel.images}"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.menu_carousel_fallback}",
+                "visible": "${data.menu_carousel_fallback}"
+              },
+              {
+                "type": "Dropdown",
+                "name": "selected_item",
+                "label": "Select an item to order",
+                "required": true,
+                "data-source": "${data.menu_items}"
+              },
+              {
+                "type": "TextInput",
+                "name": "quantity",
+                "label": "Quantity",
+                "required": true,
+                "input-type": "number",
+                "helper-text": "Enter quantity (1-10)"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.error_message}",
+                "visible": "${data.error_message}"
+              },
+              {
+                "type": "Footer",
+                "label": "Add to Order",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "add_to_order",
+                    "selected_item": "${form.selected_item}",
+                    "quantity": "${form.quantity}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ORDER_DETAILS",
+      "title": "Order Summary",
+      "data": {
+        "order_summary": { "type": "string", "__example__": "" },
+        "total": { "type": "string", "__example__": "RM0.00" },
+        "error_message": { "type": "string", "__example__": "" }
+      },
+      "terminal": false,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "order_form",
+            "children": [
+              {
+                "type": "TextSubheading",
+                "text": "Your Order"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.order_summary}"
+              },
+              {
+                "type": "TextBody",
+                "text": "Total: ${data.total}"
+              },
+              {
+                "type": "TextArea",
+                "name": "special_notes",
+                "label": "Special Notes",
+                "required": false,
+                "max-length": 300,
+                "helper-text": "Any dietary requirements or preferences? (optional)"
+              },
+              {
+                "type": "TextBody",
+                "text": "${data.error_message}",
+                "visible": "${data.error_message}"
+              },
+              {
+                "type": "Footer",
+                "label": "Place Order",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "submit_order",
+                    "special_notes": "${form.special_notes}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ORDER_CONFIRM",
+      "title": "Order Placed",
+      "data": {
+        "order_ref": { "type": "string", "__example__": "MM-240101-0001" },
+        "summary": { "type": "string", "__example__": "" }
+      },
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Order Placed!"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
+          {
+            "type": "TextCaption",
+            "text": "Order #${data.order_ref}"
+          },
+          {
+            "type": "Footer",
+            "label": "Done",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "order_ref": "${data.order_ref}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

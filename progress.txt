@@ -11870,3 +11870,30 @@ Completed: OWASP LLM03:2025 — AI model supply chain integrity verification (ID
 
 ### Gotchas
 - Server startup test fails on this machine due to memory constraints and Windows spawn issues — build+test validation is sufficient
+
+
+## Iteration 43 - Story: US-932 - WhatsApp Flows Image Carousel for room and menu visual browsing
+### What was implemented
+- `src/lib/flow-image-carousel.ts`: Core helper module with:
+  - `buildImageCarousel()`: Builds ImageCarousel component with size validation (<100KB per image), max 3 images, fallback TextBody if no valid images
+  - `buildRoomCarousel()`: Loads room-images.json and builds 4:3 carousel for hostel rooms
+  - `buildMenuCarousel()`: Loads menu-images.json and builds 16:9 carousel for menu items
+  - `estimateBase64Size()`: Validates base64 image size constraints
+  - `loadImageConfig()`: Loads image configs from src/assistant/data/ or dist/assistant/data/
+- `src/assistant/data/room-images.json`: Room type image config with 3 entries (mixed dorm, female dorm, private room) — placeholder base64 images with descriptive alt-text
+- `src/assistant/data/menu-images.json`: Menu item image config with 3 entries (nasi lemak, roti canai, teh tarik) — placeholder base64 images with descriptive alt-text
+- `src/assistant/data/reservation-flow.json`: Updated to v7.1 with ImageCarousel component on RESERVATION_DETAILS screen + fallback text
+- `src/assistant/data/menu-flow.json`: New Makan Moments ordering flow with ImageCarousel on MENU_BROWSE screen, ORDER_DETAILS, ORDER_CONFIRM screens
+- `src/routes/public/whatsapp-flows-menu.ts`: Menu ordering flow data-exchange handler with INIT, add_to_order, submit_order actions
+- `src/routes/public/whatsapp-flows.ts`: Updated to include room carousel data in handleCheckAvailability and error returns
+- `src/index.ts`: Registered whatsapp-flows-menu routes
+- `src/assistant/__tests__/image-carousel.test.ts`: 23 tests all passing — validates flow JSON structure, image configs, carousel building, size validation, fallback behavior
+
+### Patterns discovered
+- WhatsApp Flows v7.1 ImageCarousel requires base64-encoded images in the data payload, not in the static flow JSON
+- Fallback text is shown via a conditional TextBody with `visible: "${data.xxx_fallback}"` pattern
+- Maximum 2 carousels per screen, 3 images per carousel — room flow uses 1 carousel (4:3), menu flow uses 1 carousel (16:9)
+
+### Gotchas
+- Placeholder images are 1x1 pixel PNGs — need to be replaced with actual room/menu photos before production use
+- The in-memory order session in whatsapp-flows-menu.ts should be migrated to Redis/DB for production multi-instance support

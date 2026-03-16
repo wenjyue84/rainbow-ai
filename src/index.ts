@@ -30,6 +30,7 @@ import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import whatsappFlowsRoutes from './routes/public/whatsapp-flows.js';
 import whatsappFlowsCheckinRoutes from './routes/public/whatsapp-flows-checkin.js';
+import whatsappFlowsMenuRoutes from './routes/public/whatsapp-flows-menu.js';
 import paymentWebviewRoutes from './routes/public/payment-webview.js';
 import pushApiRoutes from './routes/public/push-api.js';
 import { captureRawBody } from './lib/webhook-signature.js';
@@ -726,6 +727,9 @@ app.use(whatsappFlowsRoutes);
 
 // US-920: WhatsApp Flows digital check-in endpoint (public, Meta-encrypted)
 app.use(whatsappFlowsCheckinRoutes);
+
+// US-932: WhatsApp Flows menu ordering endpoint with Image Carousel (Makan Moments)
+app.use(whatsappFlowsMenuRoutes);
 
 // US-911: WhatsApp in-chat webview for mobile payment page
 app.use(paymentWebviewRoutes);

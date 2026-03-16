@@ -19,6 +19,7 @@ import { decryptRequest, encryptResponse } from '../../lib/whatsapp-flows-crypto
 import { sendWhatsAppMessage } from '../../lib/baileys-client.js';
 import { pool } from '../../lib/db.js';
 import { recordFlowSuccess, recordFlowError } from '../../lib/whatsapp-flows-health.js';
+import { buildRoomCarousel } from '../../lib/flow-image-carousel.js';
 
 const router = Router();
 
@@ -191,15 +192,35 @@ async function handleCheckAvailability(payload: Record<string, any>): Promise<Fl
     };
   }
 
+  // US-932: Build room image carousel for visual browsing
+  const carousel = buildRoomCarousel();
+  const isCarousel = carousel.type === 'ImageCarousel';
+
   // Dates valid and rooms available — advance to details screen
   return {
     screen: 'RESERVATION_DETAILS',
     data: {
       room_options: DEFAULT_ROOM_OPTIONS,
+      room_carousel: isCarousel ? carousel : { type: 'ImageCarousel', 'aspect-ratio': '4:3', images: [] },
+      room_carousel_fallback: isCarousel ? '' : (carousel as any).text || '',
       check_in_date,
       check_out_date,
       error_message: '',
     },
+  };
+}
+
+// US-932: Build details screen data with carousel for error returns
+function buildDetailsData(checkIn: string, checkOut: string, errorMessage: string) {
+  const carousel = buildRoomCarousel();
+  const isCarousel = carousel.type === 'ImageCarousel';
+  return {
+    room_options: DEFAULT_ROOM_OPTIONS,
+    room_carousel: isCarousel ? carousel : { type: 'ImageCarousel', 'aspect-ratio': '4:3', images: [] },
+    room_carousel_fallback: isCarousel ? '' : (carousel as any).text || '',
+    check_in_date: checkIn,
+    check_out_date: checkOut,
+    error_message: errorMessage,
   };
 }
 
@@ -212,56 +233,24 @@ async function handleSubmitReservation(
   // Validate dates again (defense in depth)
   const dateError = validateDates(check_in_date, check_out_date);
   if (dateError) {
-    return {
-      screen: 'RESERVATION_DETAILS',
-      data: {
-        room_options: DEFAULT_ROOM_OPTIONS,
-        check_in_date,
-        check_out_date,
-        error_message: dateError,
-      },
-    };
+    return { screen: 'RESERVATION_DETAILS', data: buildDetailsData(check_in_date, check_out_date, dateError) };
   }
 
   // Validate guest count
   const guestError = validateGuestCount(guest_count);
   if (guestError) {
-    return {
-      screen: 'RESERVATION_DETAILS',
-      data: {
-        room_options: DEFAULT_ROOM_OPTIONS,
-        check_in_date,
-        check_out_date,
-        error_message: guestError,
-      },
-    };
+    return { screen: 'RESERVATION_DETAILS', data: buildDetailsData(check_in_date, check_out_date, guestError) };
   }
 
   // Validate special requests length
   if (special_requests && String(special_requests).length > 600) {
-    return {
-      screen: 'RESERVATION_DETAILS',
-      data: {
-        room_options: DEFAULT_ROOM_OPTIONS,
-        check_in_date,
-        check_out_date,
-        error_message: 'Special requests must be 600 characters or less.',
-      },
-    };
+    return { screen: 'RESERVATION_DETAILS', data: buildDetailsData(check_in_date, check_out_date, 'Special requests must be 600 characters or less.') };
   }
 
   // Final availability check
   const avail = await checkAvailability(check_in_date, check_out_date, room_type);
   if (!avail.available) {
-    return {
-      screen: 'RESERVATION_DETAILS',
-      data: {
-        room_options: DEFAULT_ROOM_OPTIONS,
-        check_in_date,
-        check_out_date,
-        error_message: avail.message || 'Selected room is no longer available. Please choose another.',
-      },
-    };
+    return { screen: 'RESERVATION_DETAILS', data: buildDetailsData(check_in_date, check_out_date, avail.message || 'Selected room is no longer available. Please choose another.') };
   }
 
   // Generate booking reference
