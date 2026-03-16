@@ -11444,3 +11444,16 @@ Incomplete: WhatsApp sticker response for Malaysian festive season engagement (I
 - Pipeline integration points: response-processor.ts for post-response hooks, input-validator.ts for pre-processing interceptors
 - The `_tableEnsured` flag in ai-decision-disclosure.ts needs per-test reset — added `_resetTableEnsured()` test helper
 - Material decision types are defined in the library but intent mapping lives in the pipeline (clean separation)
+
+
+## Iteration N - Story: US-1006 HTTP security headers hardening
+### What was implemented
+- Updated Helmet config in `src/index.ts`: re-enabled `frameguard: { action: 'deny' }` (was `false`), added `referrerPolicy: { policy: 'strict-origin-when-cross-origin' }` (was missing), added custom `Permissions-Policy: microphone=(), camera=(), geolocation=()` middleware (Helmet v8 does not include this natively).
+- Created `src/assistant/__tests__/security-headers.test.ts`: 13 tests asserting all 4 required headers on /health, /admin, /webchat routes, plus a test verifying CSP frame-ancestors remains permissive for webchat iframe embedding.
+### Patterns discovered
+- Helmet v8.1.0 does NOT have a `permissionsPolicy` option — must be set with `res.setHeader()` in custom middleware.
+- Helmet v8 default referrerPolicy is `no-referrer`; must explicitly override to `strict-origin-when-cross-origin`.
+- CSP `frame-ancestors: ["*"]` takes precedence over `X-Frame-Options: DENY` in modern browsers, so both can coexist — DENY for legacy fallback, frame-ancestors for actual policy.
+- Test pattern: minimal Express app mirroring production Helmet config, node http for requests (no supertest needed).
+### Gotchas
+- `frameguard: false` was set to allow iframe embedding; re-enabling it is safe because the CSP frame-ancestors directive supersedes X-Frame-Options in all browsers that support CSP Level 2+.

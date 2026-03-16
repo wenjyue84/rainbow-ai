@@ -270,7 +270,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Security headers (US-464 + US-835: CSP connect-src whitelist for AI providers)
+// Security headers (US-464 + US-835: CSP connect-src whitelist for AI providers + US-1006: headers hardening)
 const isProd = process.env.NODE_ENV === 'production';
 app.use(helmet({
   contentSecurityPolicy: {
@@ -283,16 +283,28 @@ app.use(helmet({
       connectSrc: buildConnectSrc(),
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      frameAncestors: ["*"],  // allow any site to embed via iframe (widget support)
+      frameAncestors: ["*"],  // allow any site to embed via iframe (widget support); takes precedence over X-Frame-Options in modern browsers
       baseUri: ["'self'"],
       formAction: ["'self'"],
       reportUri: '/csp-report',
     },
   },
   crossOriginEmbedderPolicy: false,
-  frameguard: false, // Allow embedding in iframes (e.g. from makanmoments.cafe admin)
+  // US-1006: X-Frame-Options: DENY. CSP frame-ancestors: ["*"] takes precedence in modern browsers,
+  // so iframe embedding for webchat widget continues to work. X-Frame-Options acts as a fallback for
+  // legacy browsers that do not support CSP frame-ancestors.
+  frameguard: { action: 'deny' },
+  // US-1006: Referrer-Policy — Helmet default is no-referrer; override to strict-origin-when-cross-origin
+  // to send origin on same-site requests and stripped referrer on cross-site.
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
+
+// US-1006: Permissions-Policy — restrict sensitive browser APIs (Helmet v8 does not include this header natively)
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'microphone=(), camera=(), geolocation=()');
+  next();
+});
 
 // CORS — restrict to explicit allowlist (US-464)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
