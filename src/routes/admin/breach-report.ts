@@ -1,21 +1,28 @@
 /**
- * PDPA Breach Notification Workflow (US-839)
+ * PDPA Breach Notification Workflow (US-839 / US-020)
  *
- * POST   /api/rainbow/security/breach-report     — Create a new breach record
- * GET    /api/rainbow/security/breach-report      — List all breach records with deadline status
- * PATCH  /api/rainbow/security/breach-report/:id  — Update commissioner/subject notification timestamps
+ * POST   /api/rainbow/security/breach-report                  — Create a new breach record
+ * GET    /api/rainbow/security/breach-report                   — List all breach records with deadline status
+ * PATCH  /api/rainbow/security/breach-report/:id               — Update commissioner/subject notification timestamps
+ * GET    /api/rainbow/security/breach-incidents                 — Active incidents with 72-hour countdown timers
+ * PATCH  /api/rainbow/security/breach-incidents/:id/acknowledge — DPO acknowledgement
  *
  * Malaysia's amended PDPA (Phase 3, June 2025) mandates:
  * - Commissioner notification within 72 hours of breach discovery
  * - Affected data subject notification within 7 days
+ * - 60-hour escalation alert if DPO has not acknowledged
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { pool, dbReady } from '../../lib/db.js';
 import { badRequest, serverError } from './http-utils.js';
 import { notifyAdminBreachReport } from '../../lib/admin-notifier.js';
+import { sendDpoBreachEmail } from '../../lib/dpo-email.js';
+import { configStore } from '../../assistant/config-store.js';
+import { createModuleLogger } from '../../lib/logger.js';
 
 const router = Router();
+const logger = createModuleLogger('BreachReport');
 
 // ─── Table Setup ─────────────────────────────────────────────────────
 async function ensureBreachTable(): Promise<void> {
@@ -35,8 +42,30 @@ async function ensureBreachTable(): Promise<void> {
   `);
 }
 
+async function ensureIncidentsTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS breach_incidents (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      breach_log_id UUID REFERENCES pdpa_breach_log(id) ON DELETE CASCADE,
+      breach_type TEXT NOT NULL DEFAULT 'manual_report',
+      data_categories TEXT[] NOT NULL DEFAULT '{}',
+      estimated_affected INTEGER NOT NULL DEFAULT 0,
+      detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      dpo_notified_at TIMESTAMPTZ,
+      acknowledged_at TIMESTAMPTZ,
+      escalated_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
 // Run on module load — non-blocking
-dbReady.then(ok => { if (ok) ensureBreachTable().catch(() => {}); });
+dbReady.then(ok => {
+  if (ok) {
+    ensureBreachTable().catch(() => {});
+    ensureIncidentsTable().catch(() => {});
+  }
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -70,18 +99,55 @@ function formatRow(row: any) {
   };
 }
 
+function countdownHours(from: Date, base: Date): number {
+  return Math.max(0, Math.round((from.getTime() - base.getTime()) / 3_600_000));
+}
+
+function formatIncident(row: any) {
+  const detectedAt = new Date(row.detected_at);
+  const commissionerDeadline = new Date(detectedAt.getTime() + 72 * 60 * 60 * 1000);
+  const now = new Date();
+  return {
+    id: row.id,
+    breach_log_id: row.breach_log_id,
+    breach_type: row.breach_type,
+    data_categories: row.data_categories,
+    estimated_affected: row.estimated_affected,
+    detected_at: row.detected_at,
+    dpo_notified_at: row.dpo_notified_at,
+    acknowledged_at: row.acknowledged_at,
+    escalated_at: row.escalated_at,
+    created_at: row.created_at,
+    countdown: {
+      commissioner_deadline: commissionerDeadline,
+      hours_remaining: countdownHours(commissionerDeadline, now),
+      status: deadlineStatus(commissionerDeadline, row.acknowledged_at),
+      escalation_threshold_hours: 60,
+      hours_since_detection: Math.round((now.getTime() - detectedAt.getTime()) / 3_600_000),
+    },
+  };
+}
+
+/** Read DPO email from settings — used when creating notifications */
+function getDpoEmail(): string {
+  const settings = configStore.getSettings() as any;
+  return settings?.pdpa?.dpo_email ?? '';
+}
+
 // ─── POST: Create breach record ──────────────────────────────────────
 router.post('/security/breach-report', async (req: Request, res: Response) => {
   const ready = await dbReady;
   if (!ready) return serverError(res, 'Database not available');
 
-  const { description, affected_count_estimate, reported_by } = req.body;
+  const { description, affected_count_estimate, reported_by, breach_type, data_categories } = req.body;
   if (!description || typeof description !== 'string' || description.trim().length === 0) {
     return badRequest(res, 'description is required');
   }
 
   const reporter = reported_by || (req.headers['x-admin-user'] as string) || 'admin';
   const estimate = typeof affected_count_estimate === 'number' ? affected_count_estimate : 0;
+  const categories: string[] = Array.isArray(data_categories) ? data_categories : [];
+  const bType: string = typeof breach_type === 'string' ? breach_type : 'manual_report';
   const discoveredAt = new Date();
   const commDeadline = new Date(discoveredAt.getTime() + 72 * 60 * 60 * 1000); // +72h
   const subjDeadline = new Date(discoveredAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7d
@@ -97,6 +163,38 @@ router.post('/security/breach-report', async (req: Request, res: Response) => {
 
     const record = formatRow(result.rows[0]);
 
+    // Create breach_incident record for US-020 pipeline
+    const incidentResult = await pool.query(
+      `INSERT INTO breach_incidents
+         (breach_log_id, breach_type, data_categories, estimated_affected, detected_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [record.id, bType, categories, estimate, discoveredAt]
+    );
+    const incidentId: string = incidentResult.rows[0].id;
+
+    // Send DPO email notification (US-020 — within 15 minutes of breach)
+    const dpoEmail = getDpoEmail();
+    if (dpoEmail) {
+      sendDpoBreachEmail({
+        incidentId,
+        breachType: bType,
+        detectedAt: discoveredAt,
+        estimatedAffected: estimate,
+        dataCategories: categories,
+        description: description.trim(),
+        dpoEmail,
+        commissionerDeadline: commDeadline,
+      }).then(sent => {
+        if (sent) {
+          pool.query(
+            `UPDATE breach_incidents SET dpo_notified_at = NOW() WHERE id = $1`,
+            [incidentId]
+          ).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
     // Fire-and-forget WhatsApp admin notification
     notifyAdminBreachReport(
       description.trim(),
@@ -105,10 +203,10 @@ router.post('/security/breach-report', async (req: Request, res: Response) => {
       subjDeadline
     ).catch(() => {});
 
-    console.log(`[PDPA] Breach record created: ${record.id} by ${reporter}`);
-    res.status(201).json(record);
+    logger.info('Breach record created', { id: record.id, reporter });
+    res.status(201).json({ ...record, incident_id: incidentId });
   } catch (error: any) {
-    console.error('[PDPA] Failed to create breach record:', error.message);
+    logger.error('Failed to create breach record', { error: error.message });
     return serverError(res, error);
   }
 });
@@ -124,7 +222,7 @@ router.get('/security/breach-report', async (_req: Request, res: Response) => {
     );
     res.json(result.rows.map(formatRow));
   } catch (error: any) {
-    console.error('[PDPA] Failed to list breach records:', error.message);
+    logger.error('Failed to list breach records', { error: error.message });
     return serverError(res, error);
   }
 });
@@ -170,7 +268,62 @@ router.patch('/security/breach-report/:id', async (req: Request, res: Response) 
 
     res.json(formatRow(result.rows[0]));
   } catch (error: any) {
-    console.error('[PDPA] Failed to update breach record:', error.message);
+    logger.error('Failed to update breach record', { error: error.message });
+    return serverError(res, error);
+  }
+});
+
+// ─── GET: Active breach incidents with countdown timers ──────────────
+router.get('/security/breach-incidents', async (_req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM breach_incidents
+       WHERE acknowledged_at IS NULL
+       ORDER BY detected_at ASC`
+    );
+    const allResult = await pool.query(
+      `SELECT * FROM breach_incidents
+       WHERE acknowledged_at IS NOT NULL
+       ORDER BY detected_at DESC
+       LIMIT 20`
+    );
+    res.json({
+      active: result.rows.map(formatIncident),
+      recent_resolved: allResult.rows.map(formatIncident),
+    });
+  } catch (error: any) {
+    logger.error('Failed to list breach incidents', { error: error.message });
+    return serverError(res, error);
+  }
+});
+
+// ─── PATCH: Acknowledge breach incident ─────────────────────────────
+router.patch('/security/breach-incidents/:id/acknowledge', async (req: Request, res: Response) => {
+  const ready = await dbReady;
+  if (!ready) return serverError(res, 'Database not available');
+
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `UPDATE breach_incidents
+       SET acknowledged_at = COALESCE(acknowledged_at, NOW())
+       WHERE id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Breach incident not found' });
+    }
+
+    logger.info('Breach incident acknowledged', { id });
+    res.json(formatIncident(result.rows[0]));
+  } catch (error: any) {
+    logger.error('Failed to acknowledge breach incident', { error: error.message });
     return serverError(res, error);
   }
 });
@@ -224,7 +377,73 @@ export async function checkBreachDeadlines(): Promise<void> {
       }
     }
   } catch (err: any) {
-    console.error('[PDPA] Deadline check failed:', err.message);
+    logger.error('Deadline check failed', { error: err.message });
+  }
+}
+
+/**
+ * Check breach_incidents for the 60-hour escalation rule.
+ * Sends escalation alerts to all staff phones if DPO has not acknowledged within 60h.
+ * Exported so it can be called from a scheduled interval.
+ */
+export async function checkBreachEscalations(): Promise<void> {
+  try {
+    const ready = await dbReady;
+    if (!ready) return;
+
+    const sixtyHoursAgo = new Date(Date.now() - 60 * 60 * 60 * 1000);
+
+    // Find incidents: unacknowledged, not yet escalated, detected > 60h ago
+    const result = await pool.query(
+      `SELECT * FROM breach_incidents
+       WHERE acknowledged_at IS NULL
+         AND escalated_at IS NULL
+         AND detected_at <= $1`,
+      [sixtyHoursAgo]
+    );
+
+    for (const row of result.rows) {
+      const detectedAt = new Date(row.detected_at);
+      const hoursSince = Math.round((Date.now() - detectedAt.getTime()) / 3_600_000);
+      const remaining = Math.max(0, 72 - hoursSince);
+
+      const message =
+        `🚨 *PDPA BREACH ESCALATION — ${remaining}h REMAINING*\n\n` +
+        `Incident: ${row.id}\n` +
+        `Breach Type: ${row.breach_type}\n` +
+        `Detected: ${detectedAt.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT\n` +
+        `Affected: ~${row.estimated_affected} individuals\n\n` +
+        `⚠️ DPO has NOT acknowledged this breach after 60 hours.\n` +
+        `Commissioner notification deadline is in ${remaining} hours.\n\n` +
+        `Acknowledge: PATCH /api/rainbow/security/breach-incidents/${row.id}/acknowledge`;
+
+      try {
+        // Mark escalated before sending to prevent duplicate sends on next tick
+        await pool.query(
+          `UPDATE breach_incidents SET escalated_at = NOW() WHERE id = $1`,
+          [row.id]
+        );
+
+        // Notify via WhatsApp (all admin phones via existing notifier)
+        await notifyAdminBreachReport(
+          message,
+          row.estimated_affected,
+          new Date(detectedAt.getTime() + 72 * 60 * 60 * 1000),
+          new Date(detectedAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+        );
+
+        logger.warn('Breach escalation sent', { incidentId: row.id, hoursSince });
+      } catch (err: any) {
+        // Reset escalated_at on failure so it retries next run
+        await pool.query(
+          `UPDATE breach_incidents SET escalated_at = NULL WHERE id = $1`,
+          [row.id]
+        ).catch(() => {});
+        logger.error('Failed to send breach escalation', { id: row.id, error: err.message });
+      }
+    }
+  } catch (err: any) {
+    logger.error('Breach escalation check failed', { error: err.message });
   }
 }
 

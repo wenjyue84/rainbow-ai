@@ -13,6 +13,7 @@
 import { pool, dbReady } from './db.js';
 import { configStore } from '../assistant/config-store.js';
 import { notifyAdminBreachReport } from './admin-notifier.js';
+import { sendDpoBreachEmail } from './dpo-email.js';
 import { createModuleLogger } from './logger.js';
 
 const logger = createModuleLogger('BreachDetection');
@@ -158,12 +159,47 @@ export async function runBreachDetection(): Promise<void> {
       const subjDeadline = new Date(discoveredAt.getTime() + 7 * 24 * 60 * 60 * 1000); // +7d
 
       try {
-        await pool.query(
+        const logResult = await pool.query(
           `INSERT INTO pdpa_breach_log
              (reported_by, description, affected_count_estimate, discovered_at, commissioner_deadline, subject_deadline)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id`,
           ['system:breach-detection', description, anomaly.total_records, discoveredAt, commDeadline, subjDeadline]
         );
+        const breachLogId: string = logResult.rows[0].id;
+
+        // Create breach_incident record (US-020 pipeline)
+        const dataCategories = ['access_logs', 'guest_records'];
+        const incResult = await pool.query(
+          `INSERT INTO breach_incidents
+             (breach_log_id, breach_type, data_categories, estimated_affected, detected_at)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
+          [breachLogId, 'bulk_access', dataCategories, anomaly.total_records, discoveredAt]
+        ).catch(() => null);
+
+        // Send DPO email notification (US-020)
+        const dpoEmail = (settings.pdpa?.dpo_email as string) ?? '';
+        if (dpoEmail && incResult) {
+          const incidentId: string = incResult.rows[0].id;
+          sendDpoBreachEmail({
+            incidentId,
+            breachType: 'bulk_access',
+            detectedAt: discoveredAt,
+            estimatedAffected: anomaly.total_records,
+            dataCategories,
+            description,
+            dpoEmail,
+            commissionerDeadline: commDeadline,
+          }).then(sent => {
+            if (sent && incidentId) {
+              pool.query(
+                `UPDATE breach_incidents SET dpo_notified_at = NOW() WHERE id = $1`,
+                [incidentId]
+              ).catch(() => {});
+            }
+          }).catch(() => {});
+        }
 
         // Alert admin via WhatsApp
         notifyAdminBreachReport(

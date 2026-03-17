@@ -362,3 +362,25 @@ Incomplete: Add guest data portability export endpoint for PDPA 2025 compliance 
 ### Gotchas
 - intent-keywords.json uses `{ "intents": [...] }` structure (array under "intents" key), not a flat dict
 - The route path is /pdpa/data-export/:phone (under the admin router, so full path is /api/rainbow/pdpa/data-export/:phone)
+## Iteration 11 - Tue, Mar 17, 2026 11:02:22 AM
+Completed: Add guest data portability export endpoint for PDPA 2025 compliance (ID: US-019) in 4m
+
+
+
+## Iteration 12 - Story: US-020 - Implement automated 72-hour PDPA breach notification pipeline to DPO
+### What was implemented
+- Created `src/lib/dpo-email.ts` — email notification to DPO with 3-tier transport: SMTP (via nodemailer dynamic import), HTTP webhook relay, fallback to structured log. Returns bool for whether delivery was attempted.
+- Added `breach_incidents` table to `breach-report.ts` with fields: id, breach_log_id, breach_type, data_categories, estimated_affected, detected_at, dpo_notified_at, acknowledged_at, escalated_at
+- Added GET `/security/breach-incidents` endpoint: returns active (unacknowledged) incidents with countdown timer (hours_remaining, commissioner_deadline, escalation_threshold_hours)
+- Added PATCH `/security/breach-incidents/:id/acknowledge` endpoint for DPO acknowledgement
+- Exported `checkBreachEscalations()` from breach-report.ts: fires 60h after detection if not acknowledged, marks escalated_at before sending to prevent duplicate sends
+- Updated `runBreachDetection()` in breach-detection.ts to create breach_incidents records and call sendDpoBreachEmail after auto-detection
+- Created `src/tests/breach-notification.test.ts` with 10 tests covering: email transport fallback, webhook delivery, email body content, escalation logic, countdown math
+
+### Patterns discovered
+- Vitest `vi.clearAllMocks()` does NOT clear mockResolvedValueOnce queues (only call history). Use `mockReset()` in beforeEach when tests in same describe block share the same mock to prevent queue contamination between tests
+- `vi.hoisted()` must be used for variables referenced inside `vi.mock()` factories to avoid "Cannot access X before initialization" errors
+
+### Gotchas
+- The config-integration.integration.test.ts failure (data_portability_request not in validActions) is pre-existing from US-019, not introduced by US-020
+- nodemailer is a dynamic import (`await import('nodemailer')`) so it can be mocked with `vi.doMock` in tests without affecting static module graph
