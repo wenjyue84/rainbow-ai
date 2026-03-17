@@ -7,10 +7,32 @@ import {
   schedulePersist, deletePersistedState
 } from './state-persistence.js';
 import { softInvariant } from '../lib/invariant.js';
+import { getIntentConfig } from './intent-config.js';
 
-const TTL_MS = 3_600_000; // 1 hour
-const MAX_MESSAGES = 20;
+const TTL_MS = 3_600_000; // 1 hour (session TTL — separate from context inactivity TTL)
+const DEFAULT_MAX_MESSAGES = 20;
 const CLEANUP_INTERVAL_MS = 300_000; // 5 minutes
+
+/** Read configurable max message window from intent config (default 20). */
+function getMaxMessages(): number {
+  return getIntentConfig().conversationState.maxHistoryMessages ?? DEFAULT_MAX_MESSAGES;
+}
+
+/** Read configurable context inactivity TTL in ms from intent config (default 30 min). */
+function getContextInactivityTTLMs(): number {
+  const ttlMinutes = getIntentConfig().conversationState.contextTTL ?? 30;
+  return ttlMinutes * 60 * 1000;
+}
+
+/**
+ * Return the current context window configuration for introspection/testing.
+ */
+export function getContextWindowConfig(): { maxMessages: number; inactivityTTLMs: number } {
+  return {
+    maxMessages: getMaxMessages(),
+    inactivityTTLMs: getContextInactivityTTLMs(),
+  };
+}
 
 // Use generic StateManager to handle TTL, cleanup, and lastActiveAt tracking
 // StateManager adds 'lastActiveAt' automatically, so we omit it from the type
@@ -81,17 +103,33 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
 
 export function addMessage(phone: string, role: 'user' | 'assistant', content: string, profileId?: string): void {
   const key = convoKey(phone, profileId);
+  const maxMessages = getMaxMessages();
+  const inactivityTTLMs = getContextInactivityTTLMs();
+
   // StateManager.update() automatically updates lastActiveAt
   conversationManager.update(key, (convo) => {
+    // US-004: Reset context window after inactivity timeout
+    // If a new user message arrives after configurable inactivity period, clear history
+    if (role === 'user' && convo.lastUserMessageAt !== null) {
+      const idleMs = Date.now() - convo.lastUserMessageAt;
+      if (idleMs > inactivityTTLMs) {
+        console.log(
+          `[Conversation] Context reset for ${phone} after ${Math.round(idleMs / 60000)}m inactivity ` +
+          `(TTL: ${Math.round(inactivityTTLMs / 60000)}m)`
+        );
+        convo.messages = [];
+      }
+    }
+
     convo.messages.push({
       role,
       content,
       timestamp: Math.floor(Date.now() / 1000)
     });
 
-    // Trim to max messages
-    if (convo.messages.length > MAX_MESSAGES) {
-      convo.messages = convo.messages.slice(-MAX_MESSAGES);
+    // US-004: Prune using configurable window size from intent config
+    if (convo.messages.length > maxMessages) {
+      convo.messages = convo.messages.slice(-maxMessages);
     }
 
     // Update language detection and last user message timestamp
@@ -111,9 +149,9 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
       { phone, unknownCount: state.unknownCount }
     );
     softInvariant(
-      state.messages.length <= MAX_MESSAGES,
-      'messages exceed MAX_MESSAGES',
-      { phone, count: state.messages.length, max: MAX_MESSAGES }
+      state.messages.length <= maxMessages,
+      'messages exceed maxMessages',
+      { phone, count: state.messages.length, max: maxMessages }
     );
     schedulePersist(key, state as ConversationState);
   }

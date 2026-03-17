@@ -199,3 +199,28 @@ Completed: Add confidence threshold gating before fallback escalation (ID: US-00
 
 ## Iteration 6 - Completed
 Completed: Improve fallback response templates with helpful suggestions (ID: US-003)
+## Iteration 3 - Tue, Mar 17, 2026  9:52:07 AM
+Completed: Improve fallback response templates with helpful suggestions (ID: US-003) in 9m
+
+
+## Iteration 7 - Story: US-004 - Add conversation context window tracking for multi-turn dialogues
+### What was implemented
+- Imported `getIntentConfig` into `conversation.ts` (was not previously used there)
+- Replaced hardcoded `MAX_MESSAGES = 20` with `getMaxMessages()` that reads `conversationState.maxHistoryMessages` from intent config dynamically
+- Added `getContextInactivityTTLMs()` that reads `conversationState.contextTTL` (minutes) from intent config
+- Added US-004 inactivity reset logic in `addMessage`: if a new *user* message arrives after idle > contextTTL, history is cleared first (multi-turn context restart)
+- Only user messages trigger the reset check (assistant async notifications don't clear context)
+- Added exported `getContextWindowConfig()` function for introspection/testing
+- Created `src/assistant/__tests__/context-window-tracking.test.ts` with 10 tests covering all 4 acceptance criteria
+
+### Patterns discovered
+- `StateManager` TTL (1 hour session) and `contextTTL` (30 min context window) are two separate concepts: session lifetime vs conversation memory reset
+- Tests using `vi.advanceTimersByTime(60m)` would expire the StateManager entry entirely — use <1h advances to test context TTL without killing the session
+- `StateManager.update()` silently returns `false` if the entry has expired (TTL exceeded) — no error, just a no-op
+
+### Gotchas
+- The hardcoded `const MAX_MESSAGES = 20` invariant check reference had to be updated to use the dynamic value — the invariant still passes because default is 20
+- contextTTL in intent-config.ts defaults to 30 minutes, which matches the PRD requirement of "configurable inactivity timeout"
+
+## Iteration 7 - Completed
+Completed: Add conversation context window tracking for multi-turn dialogues (ID: US-004)
