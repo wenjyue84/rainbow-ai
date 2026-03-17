@@ -84,6 +84,10 @@ export async function dispatchAction(
       await handleOrderFeedback(state, result, context);
       break;
 
+    case 'data_portability_request':
+      await handleDataPortabilityRequest(state, result, context);
+      break;
+
     case 'llm_reply':
     case 'reply':
     default:
@@ -1178,6 +1182,44 @@ function getGreetingMenuItems(lang: 'en' | 'ms' | 'zh' | 'ta') {
     },
   };
   return menus[lang] || menus.en;
+}
+
+/**
+ * PDPA Data Portability Request handler (US-019)
+ *
+ * When a guest sends "request my data" (or similar), Rainbow:
+ * 1. Sends the guest an acknowledgment in their language (from knowledge.json)
+ * 2. Notifies admin via WhatsApp with the guest's phone, request timestamp,
+ *    a direct link to the export endpoint, and the 7-day PDPA due date
+ */
+async function handleDataPortabilityRequest(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  const { phone, lang, msg } = state;
+
+  context.resetUnknown(phone);
+
+  // 1. Acknowledge to guest using static reply from knowledge.json
+  const staticReply = context.getStaticReply('data_portability_request', lang);
+  state.response = staticReply || result.response;
+
+  console.log(`[Dispatch] US-019: Data portability request from ${phone}`);
+
+  // 2. Notify admin — fire-and-forget, do not block guest response
+  try {
+    const { notifyAdminDataPortabilityRequest } = await import('../../../lib/admin-notifier.js');
+    notifyAdminDataPortabilityRequest(
+      phone,
+      msg.pushName ?? null,
+      new Date()
+    ).catch((err: any) => {
+      console.error('[Dispatch] US-019: Failed to notify admin of data portability request:', err.message);
+    });
+  } catch (err: any) {
+    console.error('[Dispatch] US-019: Failed to import admin-notifier:', err.message);
+  }
 }
 
 function logLanguageResolution(

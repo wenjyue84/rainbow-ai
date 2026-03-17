@@ -971,6 +971,48 @@ export async function notifyAdminFlowHealth(
   }
 }
 
+/**
+ * Send PDPA data portability request alert to system admin (US-019).
+ * Fires when a guest sends "request my data" to Rainbow AI.
+ * Includes the export link and 7-day fulfilment deadline.
+ */
+export async function notifyAdminDataPortabilityRequest(
+  guestPhone: string,
+  pushName: string | null,
+  requestedAt: Date,
+): Promise<void> {
+  if (!notificationContext) {
+    logger.warn('Not initialized — cannot send data portability notification');
+    return;
+  }
+
+  const settings = await loadAdminNotificationSettings();
+  if (!settings.enabled) return;
+
+  const dueDate = new Date(requestedAt);
+  dueDate.setDate(dueDate.getDate() + 7);
+
+  const fmtDate = (d: Date) => d.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+  const guestLabel = pushName ? `${pushName} (${guestPhone})` : guestPhone;
+  const exportUrl = `/api/rainbow/pdpa/data-export/${encodeURIComponent(guestPhone)}`;
+
+  const message = `📋 *PDPA Data Portability Request*\n\n` +
+    `Guest: *${guestLabel}*\n` +
+    `Requested: ${fmtDate(requestedAt)}\n` +
+    `PDPA Deadline: *${fmtDate(dueDate)}* (7 days)\n\n` +
+    `Export the guest data via:\n` +
+    `GET ${exportUrl}\n\n` +
+    `(Requires admin key header: x-admin-key)\n\n` +
+    `Per PDPA Amendment Act 2024 Phase 3, data must be provided within 7 days.`;
+
+  try {
+    await notificationContext.sendMessage(settings.systemAdminPhone, message);
+    logger.info('Sent data portability request notification', { guestPhone });
+  } catch (err: any) {
+    logger.error('Failed to send data portability notification', { error: err.message });
+  }
+}
+
 export async function notifyAdminBreachReport(
   description: string,
   affectedCount: number,

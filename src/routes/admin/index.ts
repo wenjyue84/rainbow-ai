@@ -75,6 +75,7 @@ import bookingSequenceRoutes from './booking-sequence.js';
 import waTemplatesRoutes from './wa-templates.js';
 import pdpaDpoRoutes from './pdpa-dpo.js';
 import pdpaSecurityRoutes from './pdpa-security.js';
+import pdpaPortabilityRoutes from './pdpa-portability.js';
 import referralAttributionRoutes from './referral-attribution.js';
 import hallucinationReportRoutes from './hallucination-report.js';
 import groundednessReportRoutes from './groundedness-report.js';
@@ -335,6 +336,7 @@ router.use(bookingSequenceRoutes);
 router.use(waTemplatesRoutes);
 router.use(pdpaDpoRoutes);
 router.use(pdpaSecurityRoutes);
+router.use(pdpaPortabilityRoutes);    // US-019: PDPA Phase 3 data portability endpoint
 router.use(referralAttributionRoutes);
 router.use(hallucinationReportRoutes);
 router.use(groundednessReportRoutes); // US-993: Groundedness score histogram
