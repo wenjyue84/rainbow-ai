@@ -1635,6 +1635,67 @@
       ]
     },
     {
+      "id": "extension_request",
+      "name": "Stay Extension Request",
+      "description": "US-021: Guest wants to extend their current booking by additional nights. Collects new check-out date and forwards to admin for availability confirmation.",
+      "format": "nodes",
+      "startNodeId": "ext_ask_date",
+      "nodes": [
+        {
+          "id": "ext_ask_date",
+          "type": "message",
+          "label": "Ask for new check-out date",
+          "config": {
+            "message": {
+              "en": "Sure! I can help with extending your stay 😊\n\nWhat would be your new check-out date? (e.g. 20 March 2026)",
+              "ms": "Boleh! Saya boleh bantu untuk lanjutkan penginapan anda 😊\n\nApakah tarikh daftar keluar baru anda? (cth. 20 Mac 2026)",
+              "zh": "没问题！我可以帮您延长住宿 😊\n\n您新的退房日期是哪天？（例如：2026年3月20日）"
+            },
+            "waitForReply": true
+          },
+          "next": "ext_collect_date"
+        },
+        {
+          "id": "ext_collect_date",
+          "type": "collect_input",
+          "label": "Collect new check-out date",
+          "config": {
+            "variable": "new_checkout_date",
+            "validation": "date_like"
+          },
+          "next": "ext_notify_admin"
+        },
+        {
+          "id": "ext_notify_admin",
+          "type": "whatsapp_send",
+          "label": "Forward extension request to admin",
+          "config": {
+            "receiver": "{{system.admin_phone}}",
+            "content": {
+              "en": "🏨 *Stay Extension Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nRequested new check-out: {{workflow.data.new_checkout_date}}\n\nPlease check availability and confirm with the guest.",
+              "ms": "🏨 *Permintaan Lanjut Penginapan*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nTarikh daftar keluar baru: {{workflow.data.new_checkout_date}}\n\nSila semak ketersediaan dan sahkan dengan tetamu.",
+              "zh": "🏨 *延长住宿请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n新退房日期：{{workflow.data.new_checkout_date}}\n\n请核对空房情况并与客人确认。"
+            },
+            "urgency": "normal"
+          },
+          "next": "ext_confirm_guest"
+        },
+        {
+          "id": "ext_confirm_guest",
+          "type": "message",
+          "label": "Confirm request forwarded to guest",
+          "config": {
+            "message": {
+              "en": "✅ Your extension request has been forwarded to our team. We'll confirm availability within 30 minutes. Thank you for your patience!",
+              "ms": "✅ Permintaan lanjutan anda telah dihantar ke pasukan kami. Kami akan sahkan ketersediaan dalam masa 30 minit. Terima kasih atas kesabaran anda!",
+              "zh": "✅ 您的延长住宿请求已转交给我们的团队。我们将在30分钟内确认空房情况。感谢您的耐心等待！"
+            },
+            "waitForReply": false
+          }
+        }
+      ]
+    },
+    {
       "id": "post_stay_review",
       "name": "Post-Stay Review Request",
       "trigger": "post_workflow:checkout_full",
