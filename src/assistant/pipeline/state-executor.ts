@@ -13,8 +13,9 @@
 import axios from 'axios';
 import type { RouterContext, PipelineState, StateResult, FlowContext } from './types.js';
 import { ensureResponseText } from './input-validator.js';
-import { addMessage, updateBookingState, updateWorkflowState, updateActiveFlow } from '../conversation.js';
+import { addMessage, updateBookingState, updateWorkflowState, updateActiveFlow, clearConversation } from '../conversation.js';
 import { logMessage } from '../conversation-logger.js';
+import { getTemplate } from '../formatter.js';
 import { getEmergencyIntent } from '../intents.js';
 import { escalateToStaff } from '../escalation.js';
 import { createWorkflowState, type WorkflowContext } from '../workflow-executor.js';
@@ -26,10 +27,39 @@ import {
 import { trackIntentPrediction, markIntentCorrection, markIntentCorrect } from '../intent-tracker.js';
 import { trackFeedback, trackEmergency, trackWorkflowStarted } from '../../lib/activity-tracker.js';
 
+// ─── US-010: Conversation Reset Keyword Detection ───────────────────────────
+const DEFAULT_RESET_KEYWORDS = [
+  'restart', 'reset', 'start over', 'start fresh', 'begin again',
+  'new conversation', '/start', '/reset', '/restart', 'clear chat',
+  'mula semula', 'mulakan semula', '/mula',
+  '重新开始', '重置', '/重置',
+];
+
+function isConversationResetCommand(text: string, customKeywords?: string[]): boolean {
+  const keywords = customKeywords && customKeywords.length > 0 ? customKeywords : DEFAULT_RESET_KEYWORDS;
+  const normalized = text.toLowerCase().trim();
+  return keywords.some(kw => normalized === kw.toLowerCase());
+}
+
 export async function handleActiveStates(
   state: PipelineState, ctx: RouterContext
 ): Promise<StateResult> {
   const { requestId, phone, processText, convo, lang, text, msg, profileConfig, profileId } = state;
+
+  // ─── US-010: CONVERSATION RESET COMMAND (pre-empts all active flows) ────
+  const resetCfg = (profileConfig.getSettings() as any).conversation_reset;
+  if (resetCfg?.enabled !== false && isConversationResetCommand(processText, resetCfg?.keywords)) {
+    console.log(`[Router] [${requestId}] RESET command from ${phone} — clearing conversation state`);
+    clearConversation(phone, profileId);
+    const welcomeBack = getTemplate('conversation_reset', lang);
+    addMessage(phone, 'assistant', welcomeBack, profileId);
+    logMessage(phone, msg.pushName, 'assistant', welcomeBack, {
+      action: 'conversation_reset', instanceId: msg.instanceId, profileId,
+      ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+    }).catch(() => {});
+    await ctx.sendMessage(phone, welcomeBack, msg.instanceId);
+    return { handled: true };
+  }
 
   // ─── FEEDBACK DETECTION ─────────────────────────────────────────
   if (isAwaitingFeedback(phone)) {

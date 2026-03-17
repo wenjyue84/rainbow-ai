@@ -464,3 +464,27 @@ Completed: Add in-stay amenity upsell intent with post-check-in suggestion (ID: 
 ### Gotchas
 - Python on Windows defaults to cp1252 encoding — always open files with `encoding='utf-8'`
 - Build has 3 pre-existing warnings (not errors), so build passing = 3 warnings is expected
+## Iteration 16 - Tue, Mar 17, 2026 11:53:34 AM
+Completed: Add inquiry intent variants for room type and pricing questions (ID: US-009) in 8m
+
+
+
+## Iteration N - Story: US-010 - Add conversation reset command handling
+### What was implemented
+- Added `conversation_reset` template to `templates.json` with EN/MS/ZH welcome-back messages
+- Added `conversation_reset` settings to `settings.json` with `enabled: true` and configurable keywords list (EN/MS/ZH reset phrases)
+- Added `conversation_reset` intent to `intent-keywords.json` with EN/MS/ZH keywords (restart, reset, start over, /start, mula semula, 重新开始, etc.)
+- Added `conversation_reset` -> `reset_conversation` route to `routing.json`
+- Added `isConversationResetCommand()` helper and reset guard in `state-executor.ts` — fires BEFORE feedback detection and active flow dispatch, ensuring reset works even during active booking/workflow flows
+- Added `clearConversation` and `getTemplate` imports to `state-executor.ts`
+- Reset logs via `logMessage` with action `conversation_reset` for audit trail
+- Fixed pre-existing `config-integration.integration.test.ts` failure by adding `data_portability_request` and `reset_conversation` to `validActions` list
+- Created 29-test suite in `src/assistant/__tests__/conversation-reset.test.ts`
+
+### Patterns discovered
+- Reset must be detected in `state-executor.ts` BEFORE the active flow check to interrupt in-progress booking/workflow flows
+- Exact match (not substring) prevents false positives like "please restart my order" triggering a reset
+- The `config-integration.integration.test.ts` maintains a `validActions` allowlist — any new routing action type must be added there
+
+### Gotchas
+- `profile-contamination.test.ts` failure ("must not contain makan moments") is pre-existing from US-028 (upsell_suggest knowledge entry mentions Makan Moments cafe) — not introduced by US-010
