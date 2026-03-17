@@ -153,3 +153,26 @@ Completed: Fix Southern Homestay knowledge.json (ID: US-012)
 
 ## Iteration 4 - Completed
 Completed: Add emergency/SOS intent with immediate staff escalation (ID: US-017)
+## Iteration 1 - Tue, Mar 17, 2026  9:33:30 AM
+Completed: Add emergency/SOS intent with immediate staff escalation (ID: US-017) in 7m
+
+
+## Iteration 5 - Story: US-002 - Add confidence threshold gating before fallback escalation
+### What was implemented
+- The core logic was already implemented in `intent-classifier.ts` (lines 102-111) and `settings.json` had `confidence_threshold: 0.5`
+- The test file `confidence-threshold-gating.test.ts` existed but ALL 6 tests were failing due to using `vi.doMock` inside test bodies (doesn't work for already-imported ESM modules)
+- Rewrote test file to use top-level `vi.mock` for all pipeline stage dependencies (pipeline-context, summarization, kb-loading, tier-classification, layer2-fallback, routing, action-dispatch)
+- Used module-level `_mockContext` variable updated per-test to control mock context without re-importing
+- Added `vi.clearAllMocks()` in `beforeEach` to prevent consoleSpy call accumulation across tests
+- All 6 tests now pass
+
+### Patterns discovered
+- `vi.doMock` inside test bodies does NOT work for already-imported ESM modules — Vitest hoists `vi.mock` before imports but `vi.doMock` runs at the call site after the module is loaded
+- Pattern for per-test context control: module-level `let _mockContext = null` + `vi.mock(module, () => ({ fn: vi.fn(async () => _mockContext) }))` — set `_mockContext` per test
+- `vi.clearAllMocks()` in `beforeEach` is essential when using `vi.spyOn` across multiple tests — prevents call accumulation
+
+### Gotchas
+- Must mock ALL pipeline stages that `classifyAndRoute` calls, not just `pipeline-context` — otherwise real implementations run and fail due to missing DB/config setup
+
+## Iteration 5 - Completed
+Completed: Add confidence threshold gating before fallback escalation (ID: US-002)

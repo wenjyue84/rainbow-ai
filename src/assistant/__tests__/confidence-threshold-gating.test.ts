@@ -7,6 +7,8 @@
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
+// ─── Top-level mocks (must be before any imports) ───────────────────────────
+
 vi.mock('../../lib/db.js', () => ({
   pool: { query: vi.fn(() => Promise.resolve()) },
   db: {
@@ -23,12 +25,70 @@ vi.mock('../../lib/handoff-summary.js', () => ({
 vi.mock('../manglish-normalizer.js', () => ({
   normalizeManglish: (text: string) => text,
 }));
+vi.mock('./utterance-gap-recorder.js', () => ({
+  isIntentGap: () => false,
+  recordUtteranceGap: vi.fn(async () => {}),
+}));
+
+// Module-level context factory — updated per-test before calling classifyAndRoute
+let _mockContext: IPipelineContext | null = null;
+
+vi.mock('../pipeline/pipeline-context.js', () => ({
+  createPipelineContext: vi.fn(async () => _mockContext),
+}));
+
+// Stage mocks — delegate all classification/routing to the mock context
+vi.mock('../pipeline/stages/summarization.js', () => ({
+  applySummarization: vi.fn(async (_state: any, ctx: any) => ({
+    contextMessages: [],
+    wasSummarized: false,
+  })),
+}));
+vi.mock('../pipeline/stages/kb-loading.js', () => ({
+  loadKnowledgeBase: vi.fn(async () => ({
+    systemPrompt: 'mock system prompt',
+    topicFiles: [],
+    ragUsed: false,
+  })),
+}));
+vi.mock('../pipeline/stages/tier-classification.js', () => ({
+  classifyWithTiers: vi.fn(async (input: any, ctx: any) => {
+    const r = await ctx.classifyMessageWithContext(input.processText);
+    return {
+      intent: r.category,
+      confidence: r.confidence,
+      action: 'static_reply',
+      response: null,
+      model: 'mock-model',
+      responseTime: 0,
+      usage: null,
+      source: r.source,
+    };
+  }),
+}));
+vi.mock('../pipeline/stages/layer2-fallback.js', () => ({
+  applyLayer2Fallback: vi.fn(async (result: any) => result),
+}));
+vi.mock('../pipeline/stages/routing.js', () => ({
+  resolveRouting: vi.fn(async (_state: any, result: any, _ackSent: any, ctx: any) => ({
+    action: result.action ?? 'static_reply',
+    intent: result.intent,
+    response: null,
+  })),
+}));
+vi.mock('../pipeline/stages/action-dispatch.js', () => ({
+  dispatchAction: vi.fn(async () => {}),
+}));
+vi.mock('../utterance-gap-recorder.js', () => ({
+  isIntentGap: () => false,
+  recordUtteranceGap: vi.fn(async () => {}),
+}));
 
 import { classifyAndRoute } from '../pipeline/intent-classifier.js';
 import type { IPipelineContext } from '../pipeline/pipeline-context.js';
 import type { PipelineState, RouterContext } from '../pipeline/types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function createMockContext(
   classifyConfidence: number,
@@ -204,30 +264,24 @@ function createMockRouterContext(): RouterContext {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────
+// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('US-002: Confidence threshold gating', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   test('routes to fallback when confidence below default threshold (0.5)', async () => {
-    // Classify returns "pricing" with 0.3 confidence (below 0.5 threshold)
-    const context = createMockContext(0.3, 'pricing');
+    _mockContext = createMockContext(0.3, 'pricing');
     const state = createMockState();
     const routerCtx = createMockRouterContext();
 
-    // Mock pipeline context creation
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
-
     await classifyAndRoute(state, routerCtx);
 
-    // Should have logged the confidence gating
     const gateLog = consoleSpy.mock.calls.find(
       call => typeof call[0] === 'string' && call[0].includes('[ConfidenceGate]')
     );
@@ -238,18 +292,12 @@ describe('US-002: Confidence threshold gating', () => {
   });
 
   test('does NOT gate when confidence meets threshold', async () => {
-    // Classify returns "pricing" with 0.8 confidence (above 0.5 threshold)
-    const context = createMockContext(0.8, 'pricing');
+    _mockContext = createMockContext(0.8, 'pricing');
     const state = createMockState();
     const routerCtx = createMockRouterContext();
 
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
-
     await classifyAndRoute(state, routerCtx);
 
-    // Should NOT have logged confidence gating
     const gateLog = consoleSpy.mock.calls.find(
       call => typeof call[0] === 'string' && call[0].includes('[ConfidenceGate]')
     );
@@ -257,17 +305,10 @@ describe('US-002: Confidence threshold gating', () => {
   });
 
   test('respects custom confidence_threshold from settings', async () => {
-    // Classify returns "pricing" with 0.7 confidence
-    // Custom threshold is 0.8 → should gate
-    const context = createMockContext(0.7, 'pricing', {
-      confidence_threshold: 0.8,
-    });
+    // confidence 0.7, custom threshold 0.8 → should gate
+    _mockContext = createMockContext(0.7, 'pricing', { confidence_threshold: 0.8 });
     const state = createMockState();
     const routerCtx = createMockRouterContext();
-
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
 
     await classifyAndRoute(state, routerCtx);
 
@@ -275,18 +316,14 @@ describe('US-002: Confidence threshold gating', () => {
       call => typeof call[0] === 'string' && call[0].includes('[ConfidenceGate]')
     );
     expect(gateLog).toBeTruthy();
-    expect(gateLog![0]).toContain('0.80'); // custom threshold
+    expect(gateLog![0]).toContain('0.80');
   });
 
   test('does not double-gate already unknown intents', async () => {
-    // Classify returns "unknown" with 0.2 confidence → should NOT gate again
-    const context = createMockContext(0.2, 'unknown');
+    // intent is already "unknown" with low confidence — should NOT gate again
+    _mockContext = createMockContext(0.2, 'unknown');
     const state = createMockState();
     const routerCtx = createMockRouterContext();
-
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
 
     await classifyAndRoute(state, routerCtx);
 
@@ -297,14 +334,10 @@ describe('US-002: Confidence threshold gating', () => {
   });
 
   test('confidence at exact threshold is NOT gated', async () => {
-    // Confidence exactly 0.5 with threshold 0.5 → NOT below threshold → keep
-    const context = createMockContext(0.5, 'pricing');
+    // confidence exactly 0.5 with threshold 0.5 → NOT below → keep
+    _mockContext = createMockContext(0.5, 'pricing');
     const state = createMockState();
     const routerCtx = createMockRouterContext();
-
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
 
     await classifyAndRoute(state, routerCtx);
 
@@ -315,13 +348,9 @@ describe('US-002: Confidence threshold gating', () => {
   });
 
   test('logs actual confidence score when gating', async () => {
-    const context = createMockContext(0.42, 'booking');
+    _mockContext = createMockContext(0.42, 'booking');
     const state = createMockState();
     const routerCtx = createMockRouterContext();
-
-    vi.doMock('../pipeline/pipeline-context.js', () => ({
-      createPipelineContext: vi.fn(async () => context),
-    }));
 
     await classifyAndRoute(state, routerCtx);
 
@@ -329,7 +358,6 @@ describe('US-002: Confidence threshold gating', () => {
       call => typeof call[0] === 'string' && call[0].includes('[ConfidenceGate]')
     );
     expect(gateLog).toBeTruthy();
-    // Should contain the actual confidence value
     expect(gateLog![0]).toContain('0.42');
     expect(gateLog![0]).toContain('booking');
   });
