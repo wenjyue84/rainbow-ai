@@ -176,3 +176,26 @@ Completed: Add emergency/SOS intent with immediate staff escalation (ID: US-017)
 
 ## Iteration 5 - Completed
 Completed: Add confidence threshold gating before fallback escalation (ID: US-002)
+## Iteration 2 - Tue, Mar 17, 2026  9:42:13 AM
+Completed: Add confidence threshold gating before fallback escalation (ID: US-002) in 8m
+
+
+## Iteration 6 - Story: US-003 - Improve fallback response templates with helpful suggestions
+### What was implemented
+- Updated existing `unknown` intent in knowledge.json with friendly Manglish-style response + 5 suggested follow-up options (check-in, pricing, facilities, directions, contact staff) in EN/MS/ZH
+- Added `fallback_options` intent: numbered capability list (6 options) with "Tak tahu nak tanya apa?" opening in Manglish style — for use as Tier 2 fallback
+- Added `fallback_escalate` intent: warm handoff message "Sorry ah, Rainbow can't quite help with that one!" — for use as Tier 3 pre-escalation message
+- All 3 templates are in EN/MS/ZH with Manglish mixed style matching existing tone
+- Build passes (3 pre-existing warnings only), all 1732 tests pass
+
+### Patterns discovered
+- knowledge.json static entries are looked up by `getStaticReply(intent, lang)` in knowledge.ts — any intent name in the array can be retrieved by the pipeline
+- The tiered fallback system (US-880 in action-dispatch.ts) uses `buildTier1RephraseMessage`/`buildTier2DefaultCapabilities` which read from settings.json `tiered_fallback.tier1` and `fallback.suggestions` — knowledge.json entries are for static_reply routing
+- New fallback intents in knowledge.json can be wired into routing.json as `static_reply` targets in future stories
+
+### Gotchas
+- python3 on Windows defaults to cp1252 encoding — always use `encoding='utf-8'` when reading/writing JSON files
+- NODE_OPTIONS syntax differs on Windows — use `npx vitest run` directly instead of `npm run test:run`
+
+## Iteration 6 - Completed
+Completed: Improve fallback response templates with helpful suggestions (ID: US-003)
