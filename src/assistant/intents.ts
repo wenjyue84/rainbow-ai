@@ -28,7 +28,7 @@ function initFuzzyMatcher(): void {
       keywordIntents.push({
         intent: intent.intent,
         keywords: keywords as string[],
-        language: lang as 'en' | 'ms' | 'zh'
+        language: lang as 'en' | 'ms' | 'zh' | 'ta'
       });
     }
   }

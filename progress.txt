@@ -548,3 +548,30 @@ Completed: Add luggage storage and late checkout intent handlers with static rep
 ### Gotchas
 - profile-contamination.test.ts was already failing before this PR — pre-existing issue, not caused by US-023
 - The `db.execute(sql\`...\`)` result shape varies by Drizzle version — handled via `rows?.[0] ?? [0]` fallback
+## Iteration 20 - Tue, Mar 17, 2026 12:42:26 PM
+Completed: Add per-message cost optimization by preventing duplicate concurrent sends (ID: US-023) in 16m
+
+
+
+## Iteration N - Story: US-024 - Add Tamil (ta) language intent patterns for common guest queries
+### What was implemented
+- Added Tamil script regex patterns to `intents.json` for 5 intents: greeting, thanks, wifi, pricing, directions
+  - greeting: (வணக்கம்|நமஸ்கார|ஹலோ)
+  - thanks: (நன்றி|மிக்க\s*நன்றி)
+  - wifi: (வைஃபை|கடவுச்சொல்)
+  - pricing: (விலை|எவ்வளவு)
+  - directions: (முகவரி|எப்படி\s*போவது)
+- Added Tamil (ta) keyword lists to `intent-keywords.json` for all 5 intents (T2 fuzzy matching)
+- Updated `intents.ts` initFuzzyMatcher type cast: `'en' | 'ms' | 'zh'` → `'en' | 'ms' | 'zh' | 'ta'`
+- Created 31-test suite in `src/assistant/__tests__/tamil-intent-patterns.test.ts`
+
+### Patterns discovered
+- fuzzy-matcher.ts already had 'ta' in its type definition (KeywordIntent.language) — just needed intents.ts cast to be updated
+- language-router.ts already detects Tamil via U+0B80-U+0BFF regex pattern and returns 'ta'
+- intents.json patterns use `category` key (not `intent`), and patterns are a flat array of regex strings
+
+### Gotchas
+- Python SyntaxWarning for \s in raw string literals — use raw strings (r'\s') or double backslash in f-strings
+- profile-contamination.test.ts failure is pre-existing (US-028) — not introduced by US-024
+## Iteration 21 - Tue, Mar 17, 2026 12:51:00 PM
+Completed: Add Tamil (ta) language intent patterns for common guest queries (ID: US-024) in 9m
