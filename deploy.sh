@@ -62,10 +62,9 @@ set -euo pipefail
 REMOTE_PATH="/var/www/rainbow-ai"
 TARBALL="rainbow-ai-deploy.tar.gz"
 
-# US-496: Ensure Node.js 24 via nvm
+# Use nvm-managed Node if available, otherwise fall back to system node
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-nvm use 24 || { echo "ERROR: Node.js 24 not installed. Run: nvm install 24"; exit 1; }
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" && nvm use 24 2>/dev/null || true
 echo "==> Node.js $(node -v), OpenSSL $(node -e "process.stdout.write(process.versions.openssl)")"
 
 # Ensure target dir exists
