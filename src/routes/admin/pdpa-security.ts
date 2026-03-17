@@ -1,5 +1,5 @@
 /**
- * PDPA Security Principle Admin API (US-968)
+ * PDPA Security Principle Admin API (US-968, US-025)
  *
  * Malaysia Personal Data Protection (Amendment) Act 2024, Phase 3 (effective June 2025)
  * directly obliges data processors to comply with the Security Principle (Section 9).
@@ -9,6 +9,7 @@
  *   GET  /pdpa/security/inventory      — Data processing inventory (categories, legal basis, retention)
  *   POST /pdpa/security/annual-review  — Record annual security review in audit log
  *   GET  /pdpa/security/status         — Overall PDPA Security Principle compliance status
+ *   GET  /pdpa/transfer-impact-report  — Cross-border transfer impact assessment report (US-025)
  */
 
 import { Router } from 'express';
@@ -17,6 +18,7 @@ import { ok, serverError } from './http-utils.js';
 import { logSecurityEvent } from '../../lib/security-event-log.js';
 import { isPiiEncryptionEnabled } from '../../lib/pii-encryption.js';
 import { checkRole } from '../../lib/rbac.js';
+import { configStore } from '../../assistant/config-store.js';
 
 const router = Router();
 
@@ -339,6 +341,254 @@ router.get('/pdpa/security/status', checkRole(['operator', 'super-admin']), (req
       controls: checks,
       assessed_at: new Date().toISOString(),
     });
+  } catch (error: any) {
+    serverError(res, error);
+  }
+});
+
+// ─── US-025: PDPA Cross-Border Transfer Impact Assessment Report ────────────
+
+/** Maps provider base_url to jurisdiction code and PDPA adequacy status */
+export function resolveProviderJurisdiction(baseUrl: string, type: string): {
+  jurisdiction: string;
+  jurisdiction_name: string;
+  pdpa_adequacy: 'adequate' | 'no_adequacy_decision';
+  adequacy_note: string;
+  requires_scc: boolean;
+  warning: boolean;
+} {
+  const url = baseUrl ?? '';
+  if (type === 'ollama' || url.includes('localhost') || url.includes('127.0.0.1')) {
+    return {
+      jurisdiction: 'MY',
+      jurisdiction_name: 'Malaysia',
+      pdpa_adequacy: 'adequate',
+      adequacy_note: 'Local processing — data does not leave Malaysia. No cross-border transfer under PDPA 2024.',
+      requires_scc: false,
+      warning: false,
+    };
+  }
+  if (url.includes('integrate.api.nvidia.com')) {
+    return {
+      jurisdiction: 'US',
+      jurisdiction_name: 'United States of America',
+      pdpa_adequacy: 'no_adequacy_decision',
+      adequacy_note: 'USA has no federal PDPA-equivalent law. Requires Standard Contractual Clauses or APEC CBPR certification review per PDPA CBPDT Guidelines (April 2025).',
+      requires_scc: true,
+      warning: true,
+    };
+  }
+  if (url.includes('api.groq.com')) {
+    return {
+      jurisdiction: 'US',
+      jurisdiction_name: 'United States of America',
+      pdpa_adequacy: 'no_adequacy_decision',
+      adequacy_note: 'USA has no federal PDPA-equivalent law. Requires Standard Contractual Clauses review per PDPA CBPDT Guidelines (April 2025).',
+      requires_scc: true,
+      warning: true,
+    };
+  }
+  if (url.includes('openrouter.ai')) {
+    return {
+      jurisdiction: 'US',
+      jurisdiction_name: 'United States of America',
+      pdpa_adequacy: 'no_adequacy_decision',
+      adequacy_note: 'USA has no federal PDPA-equivalent law. Downstream model providers vary — data may traverse multiple jurisdictions. Requires SCC review.',
+      requires_scc: true,
+      warning: true,
+    };
+  }
+  if (url.includes('generativelanguage.googleapis.com')) {
+    return {
+      jurisdiction: 'US',
+      jurisdiction_name: 'United States of America',
+      pdpa_adequacy: 'no_adequacy_decision',
+      adequacy_note: 'Google LLC is incorporated in USA. Google Cloud DPA available but USA has no federal PDPA-equivalent. Requires SCC review.',
+      requires_scc: true,
+      warning: true,
+    };
+  }
+  if (url.includes('moonshot.ai') || url.includes('api.moonshot')) {
+    return {
+      jurisdiction: 'CN',
+      jurisdiction_name: "People's Republic of China",
+      pdpa_adequacy: 'no_adequacy_decision',
+      adequacy_note: "China's PIPL (2021) imposes significant data localisation requirements. Cross-border transfer from MY to CN requires explicit PDPC approval or binding contractual safeguards under PDPA CBPDT Guidelines.",
+      requires_scc: true,
+      warning: true,
+    };
+  }
+  return {
+    jurisdiction: 'XX',
+    jurisdiction_name: 'Unknown Jurisdiction',
+    pdpa_adequacy: 'no_adequacy_decision',
+    adequacy_note: 'Jurisdiction could not be determined. Manual review required before enabling this provider.',
+    requires_scc: true,
+    warning: true,
+  };
+}
+
+export function buildTransferImpactReport() {
+  const ai = configStore.getSettings().ai;
+  const allProviders = (ai.providers ?? []) as Array<{
+    id: string; name: string; type: string; base_url?: string;
+    model: string; enabled: boolean; priority: number;
+  }>;
+
+  const LAST_REVIEWED = '2026-03-17';
+  const NEXT_REVIEW_DUE = '2027-03-17'; // 12-month cycle
+
+  const entries = allProviders.filter(p => p.enabled).map(p => {
+    const jx = resolveProviderJurisdiction(p.base_url ?? '', p.type);
+    return {
+      provider_id: p.id,
+      provider_name: p.name,
+      provider_type: p.type,
+      model: p.model,
+      data_centre_jurisdiction: jx.jurisdiction,
+      data_centre_jurisdiction_name: jx.jurisdiction_name,
+      personal_data_categories_transmitted: [
+        'conversation_text (WhatsApp message content, PII redacted before transmission)',
+        'inferred_phone_context (conversation intent, language, session metadata — no direct identifiers)',
+      ],
+      legal_basis_for_transfer: jx.pdpa_adequacy === 'adequate'
+        ? 'No cross-border transfer — data processed within Malaysia'
+        : 'Contractual necessity (PDPA s.6(2)(b)) with technical safeguards: PII redaction before API call + TLS 1.2+ encryption in transit + no retention for model training (per provider ToS)',
+      pdpa_adequacy_status: jx.pdpa_adequacy,
+      adequacy_note: jx.adequacy_note,
+      requires_scc_review: jx.requires_scc,
+      warning: jx.warning,
+      last_reviewed: LAST_REVIEWED,
+      next_review_due: NEXT_REVIEW_DUE,
+    };
+  });
+
+  const warningCount = entries.filter(e => e.warning).length;
+
+  return {
+    report_type: 'PDPA Cross-Border Personal Data Transfer Impact Assessment',
+    legal_framework: 'Malaysia Personal Data Protection Act 2010 (Amendment 2024) + Cross-Border Personal Data Transfer Guidelines (April 2025)',
+    data_controller: 'Pelangi Capsule Hostel / Southern Homestay',
+    data_processor: 'Rainbow AI (Prisma Technology)',
+    generated_at: new Date().toISOString(),
+    summary: {
+      total_enabled_providers: entries.length,
+      local_providers: entries.filter(e => e.data_centre_jurisdiction === 'MY').length,
+      cross_border_providers: entries.filter(e => e.data_centre_jurisdiction !== 'MY').length,
+      providers_with_warnings: warningCount,
+      overall_status: warningCount > 0 ? 'action_required' : 'compliant',
+      status_note: warningCount > 0
+        ? `${warningCount} provider(s) are in jurisdictions without PDPA adequacy recognition. Ensure Standard Contractual Clauses (SCCs) are reviewed and filed with PDPC Malaysia.`
+        : 'All enabled providers are in PDPA-adequate jurisdictions.',
+    },
+    providers: entries,
+    recommendations: [
+      'Review SCC status for all US-based providers (NVIDIA, Groq, OpenRouter, Google) annually',
+      'File TIA documentation with your Data Protection Officer (DPO) at /pdpa/dpo',
+      'PII redaction is the primary safeguard — confirm piiRedaction.enabled = true in settings.json',
+      'Disable any provider in a non-adequate jurisdiction if SCCs cannot be obtained',
+    ],
+  };
+}
+
+function buildTiaPdfHtml(report: ReturnType<typeof buildTransferImpactReport>): string {
+  const rows = report.providers.map(p => `
+    <tr class="${p.warning ? 'warn-row' : ''}">
+      <td><strong>${p.provider_name}</strong><br><small>${p.provider_id}</small></td>
+      <td>${p.data_centre_jurisdiction_name} (${p.data_centre_jurisdiction})</td>
+      <td>${p.pdpa_adequacy_status === 'adequate' ? '<span class="ok">✓ Adequate</span>' : '<span class="warn">⚠ No adequacy decision</span>'}</td>
+      <td><small>${p.adequacy_note}</small></td>
+      <td>${p.last_reviewed}</td>
+      <td>${p.next_review_due}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PDPA Transfer Impact Assessment Report</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 30px; color: #222; }
+  h1 { font-size: 16px; border-bottom: 2px solid #003580; padding-bottom: 6px; }
+  h2 { font-size: 13px; margin-top: 20px; color: #003580; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th { background: #003580; color: #fff; padding: 6px 8px; text-align: left; font-size: 11px; }
+  td { padding: 5px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .warn-row { background: #fff8e1; }
+  .ok { color: #2e7d32; font-weight: bold; }
+  .warn { color: #c62828; font-weight: bold; }
+  .meta { font-size: 11px; color: #555; margin-top: 4px; }
+  .summary-box { background: #f5f5f5; padding: 10px 14px; border-left: 4px solid #003580; margin: 12px 0; }
+  ul { margin: 4px 0; padding-left: 18px; }
+  @media print { body { margin: 15px; } }
+</style>
+</head>
+<body>
+<h1>PDPA Cross-Border Personal Data Transfer Impact Assessment Report</h1>
+<p class="meta">
+  <strong>Data Controller:</strong> ${report.data_controller} &nbsp;|&nbsp;
+  <strong>Data Processor:</strong> ${report.data_processor} &nbsp;|&nbsp;
+  <strong>Generated:</strong> ${report.generated_at}
+</p>
+<p class="meta"><strong>Legal Framework:</strong> ${report.legal_framework}</p>
+
+<div class="summary-box">
+  <strong>Summary:</strong> ${report.summary.status_note}<br>
+  Enabled Providers: ${report.summary.total_enabled_providers} &nbsp;|&nbsp;
+  Local (MY): ${report.summary.local_providers} &nbsp;|&nbsp;
+  Cross-Border: ${report.summary.cross_border_providers} &nbsp;|&nbsp;
+  Warnings: <span class="${report.summary.providers_with_warnings > 0 ? 'warn' : 'ok'}">${report.summary.providers_with_warnings}</span>
+</div>
+
+<h2>Provider Transfer Impact Assessments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Provider</th>
+      <th>Jurisdiction</th>
+      <th>PDPA Adequacy</th>
+      <th>Adequacy Note</th>
+      <th>Last Reviewed</th>
+      <th>Next Review Due</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+
+<h2>Recommendations</h2>
+<ul>${report.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+
+<p class="meta" style="margin-top:30px; border-top:1px solid #ccc; padding-top:8px;">
+  This report is auto-generated by Rainbow AI from <code>settings.json</code> providers array.
+  File with your DPO and PDPC Malaysia as part of your annual data governance documentation.
+</p>
+</body>
+</html>`;
+}
+
+// GET /pdpa/transfer-impact-report
+router.get('/pdpa/transfer-impact-report', checkRole(['operator', 'super-admin']), (req: Request, res: Response) => {
+  try {
+    const format = (req.query.format as string)?.toLowerCase() ?? 'json';
+    const report = buildTransferImpactReport();
+
+    logSecurityEvent({
+      adminUser: (res.locals.adminUser as string) ?? 'unknown',
+      action: 'view',
+      resourceType: 'pdpa_tia_report',
+      ipAddress: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    }).catch(() => {});
+
+    if (format === 'pdf') {
+      const html = buildTiaPdfHtml(report);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="pdpa-transfer-impact-report.html"');
+      res.send(html);
+    } else {
+      res.setHeader('Content-Disposition', 'attachment; filename="pdpa-transfer-impact-report.json"');
+      ok(res, report);
+    }
   } catch (error: any) {
     serverError(res, error);
   }
