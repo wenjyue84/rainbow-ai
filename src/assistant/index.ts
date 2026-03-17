@@ -15,6 +15,7 @@ import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
 import { initPostStayReview, destroyPostStayReview } from './post-stay-review.js';
+import { initPostCheckinUpsell, destroyPostCheckinUpsell } from './post-checkin-upsell.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -48,6 +49,9 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   // US-018: Post-stay review request (scheduled 2h after checkout_full completes)
   initPostStayReview(sendMessage);
 
+  // US-028: Post-checkin upsell suggestion (disabled by default, 30min after checkin_full)
+  initPostCheckinUpsell(sendMessage);
+
   // Initialize BullMQ message queue (US-405)
   // Worker concurrency from settings, default 3
   const settings = configStore.getSettings() as any;
@@ -80,6 +84,7 @@ export async function destroyAssistant(): Promise<void> {
   await closeQueue();
   destroyCartRecovery();
   destroyPostStayReview();
+  destroyPostCheckinUpsell();
   destroyRateLimiter();
   destroyConversations();
   destroyKnowledge();

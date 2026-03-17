@@ -110,12 +110,19 @@ export async function handleActiveStates(
     }
 
     // US-018: Schedule post-stay review request when checkout_full completes
+    // US-028: Schedule post-checkin upsell message when checkin_full completes
     if (flowType === 'workflow' && !result.newState) {
       const completedWorkflowId = (flowState as any)?.workflowId;
       if (completedWorkflowId === 'checkout_full') {
         const { schedulePostStayReview } = await import('../post-stay-review.js');
         schedulePostStayReview(phone, msg.pushName ?? '', msg.instanceId).catch((err: any) => {
           console.error('[PostStayReview] Failed to schedule review:', err.message);
+        });
+      }
+      if (completedWorkflowId === 'checkin_full') {
+        const { schedulePostCheckinUpsell } = await import('../post-checkin-upsell.js');
+        schedulePostCheckinUpsell(phone, msg.pushName ?? '', msg.instanceId).catch((err: any) => {
+          console.error('[PostCheckinUpsell] Failed to schedule upsell:', err.message);
         });
       }
     }

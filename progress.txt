@@ -420,3 +420,28 @@ Completed: Implement automated 72-hour data breach notification pipeline to DPO 
 
 ### Gotchas
 - The `tier-classification.js` mock always returns confidence 0.85 regardless of context setup, so last test asserts 0.85 not the context value
+## Iteration 14 - Tue, Mar 17, 2026 11:35:30 AM
+Incomplete: Add in-stay amenity upsell intent with post-check-in suggestion (ID: US-028) — attempt 1/3
+
+
+## Iteration N - Story: US-028 - Add in-stay amenity upsell intent with post-check-in suggestion
+### What was implemented
+- Added `upsell_suggest` intent to `intents.json` under DURING_STAY phase with patterns for "anything to do", "what can I order", "do you have food", "ada makanan", "ada laundry", etc. (EN/MS/ZH)
+- Added `upsell_suggest` static knowledge entry to `knowledge.json` listing: cafe menu (Makan Moments), laundry (RM5/load), local recommendations (tourist guide). Utility-only language.
+- Added `upsell_suggest` route to `routing.json` with `action: "static_reply"`
+- Added `upsell.post_checkin_message` config block to `settings.json` (enabled: false by default, delay_minutes: 30)
+- Added `upsell_suggest` to `IntentCategory` union type in `types.ts`
+- Created `src/assistant/post-checkin-upsell.ts` — setTimeout-based scheduler following post-stay-review.ts pattern. Disabled by default. Admin can enable via settings.json.
+- Integrated into `state-executor.ts`: triggers `schedulePostCheckinUpsell()` when `checkin_full` workflow completes (alongside existing checkout_full → post-stay review trigger)
+- Initialized and destroyed in `src/assistant/index.ts`
+
+### Patterns discovered
+- The post-stay-review.ts setTimeout pattern (no BullMQ needed) is the right pattern for simple delayed messages
+- The `intents.json` structure uses `categories[].phase` to group intents by guest journey phase — new in-stay intents go in DURING_STAY
+- `routing.json` uses `action: "static_reply"` for intents that return from knowledge.json
+- Settings default to `enabled: false` for opt-in features, `enabled: true` for opt-out
+
+### Gotchas
+- `upsell.post_checkin_message.enabled` defaults to `false` — must explicitly enable in settings.json to activate post-checkin messages
+- The `configStore.getSettings()` loaded from DB at runtime, so settings.json changes apply after restart or DB config reload
+- Build uses esbuild (not tsc), so pre-existing type errors don't block — but types.ts IntentCategory union still should be kept updated for DX

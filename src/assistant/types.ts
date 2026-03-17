@@ -72,6 +72,7 @@ export type IntentCategory =
   | 'noise_complaint'
   | 'cleanliness_complaint'
   | 'extra_amenity_request'
+  | 'upsell_suggest'
   | 'tourist_guide'
   | 'late_checkout_request'
   | 'luggage_storage'
