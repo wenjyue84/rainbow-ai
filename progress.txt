@@ -445,3 +445,22 @@ Incomplete: Add in-stay amenity upsell intent with post-check-in suggestion (ID:
 - `upsell.post_checkin_message.enabled` defaults to `false` — must explicitly enable in settings.json to activate post-checkin messages
 - The `configStore.getSettings()` loaded from DB at runtime, so settings.json changes apply after restart or DB config reload
 - Build uses esbuild (not tsc), so pre-existing type errors don't block — but types.ts IntentCategory union still should be kept updated for DX
+## Iteration 15 - Tue, Mar 17, 2026 11:44:47 AM
+Completed: Add in-stay amenity upsell intent with post-check-in suggestion (ID: US-028) in 8m
+
+
+## Iteration N - Story: US-009 - Add inquiry intent variants for room type and pricing questions
+### What was implemented
+- Added `room_type_inquiry` intent to `src/assistant/data/intent-keywords.json` with EN/MS/ZH keywords covering capsule vs private room questions, pod descriptions, bed types, and dorm types
+- Added `room_type_inquiry` -> `static_reply` route to `src/assistant/data/routing.json`
+- Added `room_type_inquiry` knowledge entry to `src/assistant/data/knowledge.json` static array with trilingual responses describing capsule pods, pricing, and video tour link
+- Existing `pricing`, `availability`, and all other routes remain intact
+
+### Patterns discovered
+- knowledge.json uses a `{"static": [...], "dynamic": [...]}` structure where static is an array of `{intent, response: {en, ms, zh}}` objects
+- intent-keywords.json uses `{"intents": [{intent, keywords: {en, ms, zh}}]}` structure
+- All data-only stories (no code changes) just need JSON validation + build check
+
+### Gotchas
+- Python on Windows defaults to cp1252 encoding — always open files with `encoding='utf-8'`
+- Build has 3 pre-existing warnings (not errors), so build passing = 3 warnings is expected
