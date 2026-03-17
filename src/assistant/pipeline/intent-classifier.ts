@@ -12,6 +12,7 @@
  * Mutates state.response, state.diaryEvent, state.devMetadata.
  */
 
+import { createHash } from 'crypto';
 import type { RouterContext, PipelineState } from './types.js';
 import { createPipelineContext } from './pipeline-context.js';
 import { applySummarization } from './stages/summarization.js';
@@ -22,6 +23,17 @@ import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
+import { createModuleLogger } from '../../lib/logger.js';
+
+const logger = createModuleLogger('IntentClassifier');
+
+function maskPhone(phone: string): string {
+  return phone.length > 4 ? phone.slice(0, -4) + 'xxxx' : 'xxxx';
+}
+
+function hashInput(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
 
 export async function classifyAndRoute(
   state: PipelineState, ctx: RouterContext
@@ -109,6 +121,15 @@ export async function classifyAndRoute(
     );
     result = { ...result, intent: 'unknown', action: 'llm_reply' };
   }
+
+  // ─── US-007: Intent classification debug log ─────────────────────
+  logger.debug('classification', {
+    phone: maskPhone(phone),
+    inputHash: hashInput(processText),
+    intent: result.intent,
+    confidence: result.confidence,
+    tier: devMetadata.source ?? 'unknown',
+  });
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
   if (isIntentGap(devMetadata.source, result.confidence)) {
