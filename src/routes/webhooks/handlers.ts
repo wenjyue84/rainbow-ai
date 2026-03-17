@@ -17,6 +17,7 @@ import { db } from '../../lib/db.js';
 import { rainbowFeedback, insertRainbowFeedbackSchema } from '../../../shared/schema.js';
 import { sendPushNotification } from '../../lib/push-notifications.js';
 import { schedulePostCheckoutReview } from '../../assistant/post-checkout-review.js';
+import { configStore } from '../../assistant/config-store.js';
 
 const logger = createModuleLogger('WebhookHandlers');
 
@@ -264,6 +265,39 @@ async function handleReaction(event: WebhookEvent): Promise<void> {
   }
 }
 
+/**
+ * Handle business_capability_update events (US-026).
+ * Meta fires this webhook when the WABA portfolio messaging limit changes.
+ * As of October 7, 2025, limits are portfolio-level (not per-phone-number).
+ * Payload: { type: "business_capability_update", max_daily_conversation_per_phone: N }
+ */
+async function handleBusinessCapabilityUpdate(event: WebhookEvent): Promise<void> {
+  const { max_daily_conversation_per_phone } = event as {
+    max_daily_conversation_per_phone?: number;
+    [key: string]: unknown;
+  };
+
+  if (typeof max_daily_conversation_per_phone !== 'number' || max_daily_conversation_per_phone <= 0) {
+    logger.warn('business_capability_update missing or invalid max_daily_conversation_per_phone', { event });
+    return;
+  }
+
+  const current = configStore.getSettings() as any;
+  const updated = {
+    ...current,
+    waba_messaging_limits: {
+      ...(current.waba_messaging_limits ?? {}),
+      current_limit: max_daily_conversation_per_phone,
+      last_updated: new Date().toISOString(),
+    },
+  };
+  configStore.setSettings(updated);
+
+  logger.info('business_capability_update: WABA portfolio limit updated', {
+    new_limit: max_daily_conversation_per_phone,
+  });
+}
+
 // ─── Handler Registry ────────────────────────────────────────────────────────
 
 /**
@@ -278,6 +312,7 @@ export const handlerRegistry: Record<string, WebhookHandler> = {
   kitchen_accepted: handleKitchenAccepted,
   order_served: handleOrderServed,
   reaction: handleReaction,
+  business_capability_update: handleBusinessCapabilityUpdate, // US-026
 };
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────

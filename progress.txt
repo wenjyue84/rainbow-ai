@@ -600,3 +600,27 @@ FAILED quality gates: Add Tamil (ta) language intent patterns for common guest q
 ### Gotchas
 - profile-contamination.test.ts failure is pre-existing (US-028) — not introduced by US-025
 - message-pipeline.test.ts times out in full suite but passes in isolation (resource contention) — pre-existing flakiness
+## Iteration 22 - Tue, Mar 17, 2026  1:18:56 PM
+Completed: Add Tamil (ta) language intent patterns for common guest queries (ID: US-024) in 22m
+
+
+
+## Iteration N - Story: US-026 - Add portfolio-level WABA messaging limit tracking across phone numbers
+### What was implemented
+- Added `business_capability_update` handler to `handlers.ts` that reads `max_daily_conversation_per_phone` from the event and updates `settings.json` `waba_messaging_limits.current_limit` + `last_updated` via `configStore.setSettings()`
+- Created `src/routes/admin/waba-portfolio.ts` with:
+  - `GET /analytics/waba-portfolio` — returns portfolio usage: conversations started in last 24h vs limit, percentUsed, alertThreshold, activePhones, multiPhoneActive, featureEnabled, atRisk
+  - `POST /webhooks/business-capability` — processes Meta's business_capability_update webhook envelope (both flat and nested format)
+- Registered `wabaPortfolioRoutes` in `src/routes/admin/index.ts`
+- `settings.json` already had `waba_messaging_limits` with `current_limit`, `alert_threshold`, `last_updated` from prior spiral work
+- Alert fires via `notifyAdminMessagingLimit` when `percentUsed >= alertThreshold` (default 80%), throttled 1/hour
+- Feature flag: `featureEnabled = multiPhoneActive` — gracefully disabled when only one phone number is active
+- Created 10-test suite in `src/tests/waba-portfolio.test.ts`
+
+### Patterns discovered
+- Test files in `src/tests/` use `../routes/...` and `../lib/...` relative imports (not `../../`)
+- `configStore.setSettings()` is the pattern to update settings.json from outside config-store.ts
+
+### Gotchas
+- profile-contamination.test.ts failure is pre-existing (US-028) — not caused by US-026
+- prd.json has encoding issues on Windows — must open with `encoding='utf-8'` in Python
