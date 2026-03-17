@@ -224,3 +224,31 @@ Completed: Improve fallback response templates with helpful suggestions (ID: US-
 
 ## Iteration 7 - Completed
 Completed: Add conversation context window tracking for multi-turn dialogues (ID: US-004)
+## Iteration 4 - Tue, Mar 17, 2026 10:06:07 AM
+Completed: Add conversation context window tracking for multi-turn dialogues (ID: US-004) in 13m
+
+
+## Iteration 8 - Story: US-006 - Improve booking workflow check-in steps in workflows.json
+### What was implemented
+- Restructured `booking_payment_handler` workflow in `workflows.json` with 4 distinct steps:
+  - `wait_guest_name` (new): collect guest's full name
+  - `wait_guest_count`: collect number of guests
+  - `wait_booking_dates`: collect check-in and check-out dates
+  - `confirm_booking_msg`: show collected details summary before forwarding to admin
+- Added `validate_dates` condition node with new `regex` operator to validate date format
+- Added `date_error_reprompt` wait_reply node with helpful error message including format examples on invalid dates
+- Extended `workflow-nodes.ts` ConditionNodeConfig to include `'regex'` operator
+- Extended `workflow-executor.ts` condition evaluation to handle `'regex'` operator via `new RegExp(value, 'i').test(fieldValue)`
+- Created `src/assistant/__tests__/booking-workflow.test.ts` with 12 tests covering all 4 acceptance criteria
+
+### Patterns discovered
+- The `validate_dates` condition node reuses `trueNext`/`falseNext` pattern from existing conditions
+- Regex must target specific month keywords (not generic `\w+`) to avoid false positives like "3 nights"
+- The `date_error_reprompt` node is a `wait_reply` with `storeAs: 'booking_dates'` — it overwrites the original bad input so the confirm step always shows the latest value
+
+### Gotchas
+- Overly broad regex (`\d{1,2}\s+\w+`) matches "3 nights", "2 days" etc. — must require explicit month names or slash-separated digit triplets
+- The regex operator is safe: invalid regex patterns are caught with try/catch and default to `false`
+
+## Iteration 8 - Completed
+Completed: Improve booking workflow check-in steps in workflows.json (ID: US-006)

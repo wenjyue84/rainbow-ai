@@ -623,6 +623,13 @@ async function executeNodeWorkflowStep(
           case 'empty':
             conditionMet = !fieldValue || fieldValue === '';
             break;
+          case 'regex':
+            try {
+              conditionMet = new RegExp(String(config.value), 'i').test(fieldValue);
+            } catch {
+              conditionMet = false;
+            }
+            break;
         }
 
         console.log(`[NodeExecutor] Condition: ${config.field} ${config.operator} ${config.value} → ${conditionMet}`);
