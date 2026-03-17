@@ -272,3 +272,25 @@ Completed: Improve booking workflow check-in steps in workflows.json (ID: US-006
 
 ### Gotchas
 - Python json.load requires encoding='utf-8' on Windows (default codec cp1252 fails on multilingual content)
+## Iteration 6 - Tue, Mar 17, 2026 10:26:10 AM
+Completed: Fix Makan Moments intents.json — remove hostel-specific intents (ID: US-013) in 4m
+
+
+## Iteration 7 - Story: US-014 - Fix Makan Moments intent-keywords.json — remove hostel keywords from cafe profile
+### What was implemented
+- Audited src/assistant/data-makan/intent-keywords.json: found 31 hostel-specific intents out of 50 total, plus hostel keyword contamination in 5 remaining intents
+- Removed 31 hostel intents entirely: checkin_info, check_in_arrival, checkout_info, late_checkout_request, availability, booking, post_checkout_complaint, facilities, rules, theft, theft_report, card_locked, tourist_guide, lower_deck_preference, facility_orientation, billing_dispute, general_complaint_in_stay, climate_control_complaint, noise_complaint, cleanliness_complaint, facility_malfunction, extra_amenity_request, forgot_item_post_checkout, luggage_storage, checkout_now, checkout_procedure, billing_inquiry, payment_made, capsule_conflict, extend_stay
+- Merged duplicate `complaint` intent into a single entry (there were 2 complaint intents)
+- Cleaned hostel keywords from remaining intents: pricing (removed "room rate", "harga capsule", "harga bilik", etc.), complaint (removed "about my room", "room problem", etc.), review_feedback (removed "amazing stay", "worst hotel"), accessibility (removed hostel-specific accessibility questions)
+- Added cafe-specific keywords: pricing (meal prices, set lunch), review_feedback (cafe experience), accessibility (cafe entrance/ramp)
+- Final result: 19 cafe-appropriate intents with no hostel contamination
+- Build passes cleanly (3 pre-existing warnings)
+
+### Patterns discovered
+- The makan data files were cloned from Pelangi Capsule Hostel — over 60% of intents were hostel-specific
+- There were two duplicate complaint intent objects in the JSON; merged them with deduplication
+- The `facilities` intent (hostel bunk beds, lockers) is different from `facilities_info` (generic amenities query) — keep the latter
+
+### Gotchas
+- Chinese keyword '一晚多少' means "how much per night" (hostel) vs '一天多少' means "how much per day" — both removed as hostel context
+- '房价' means "room price" — removed from pricing intent
