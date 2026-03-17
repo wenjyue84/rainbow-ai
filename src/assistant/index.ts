@@ -14,6 +14,7 @@ import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler, setDe
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
+import { initPostStayReview, destroyPostStayReview } from './post-stay-review.js';
 
 export async function initAssistant(deps: AssistantDependencies): Promise<void> {
   const { registerMessageHandler, sendMessage, callAPI, getWhatsAppStatus } = deps;
@@ -43,6 +44,9 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
 
   // US-882: Abandoned cart recovery for WhatsApp sessions
   initCartRecovery(sendMessage);
+
+  // US-018: Post-stay review request (scheduled 2h after checkout_full completes)
+  initPostStayReview(sendMessage);
 
   // Initialize BullMQ message queue (US-405)
   // Worker concurrency from settings, default 3
@@ -75,6 +79,7 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
 export async function destroyAssistant(): Promise<void> {
   await closeQueue();
   destroyCartRecovery();
+  destroyPostStayReview();
   destroyRateLimiter();
   destroyConversations();
   destroyKnowledge();

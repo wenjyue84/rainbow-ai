@@ -109,6 +109,17 @@ export async function handleActiveStates(
       updateActiveFlow(phone, result.newState ? { flowType, data: result.newState } : null, profileId);
     }
 
+    // US-018: Schedule post-stay review request when checkout_full completes
+    if (flowType === 'workflow' && !result.newState) {
+      const completedWorkflowId = (flowState as any)?.workflowId;
+      if (completedWorkflowId === 'checkout_full') {
+        const { schedulePostStayReview } = await import('../post-stay-review.js');
+        schedulePostStayReview(phone, msg.pushName ?? '', msg.instanceId).catch((err: any) => {
+          console.error('[PostStayReview] Failed to schedule review:', err.message);
+        });
+      }
+    }
+
     addMessage(phone, 'assistant', result.response, profileId);
     logMessage(phone, msg.pushName, 'assistant', result.response, {
       action, instanceId: msg.instanceId, profileId,

@@ -315,3 +315,26 @@ Completed: Fix Makan Moments intent-keywords.json — remove hostel keywords fro
 ### Gotchas
 - `continue` is not valid inside esbuild-transformed for...of loops that contain `describe()` blocks — use a helper function that returns early instead
 - The `test.poolOptions` deprecation warnings are pre-existing in vitest.config.ts (Vitest 4 migration) — not introduced by this story
+## Iteration 8 - Tue, Mar 17, 2026 10:36:17 AM
+Completed: Add profile contamination unit tests (ID: US-015) in 4m
+
+
+## Iteration 5 - Story: US-018 - Add post-stay review request workflow triggered on checkout completion
+### What was implemented
+- Created `src/assistant/post-stay-review.ts` — setTimeout-based scheduler that sends a personalized review request 2h after checkout_full completes
+- Added `post_stay_review` settings key to `settings.json` with enabled flag, delay_hours, and google_review_url
+- Added `post_stay_review` workflow entry to `workflows.json` with trigger documentation and message templates (EN/MS/ZH)
+- Updated `src/assistant/index.ts` to call initPostStayReview(sendMessage) and destroyPostStayReview()
+- Updated `src/assistant/pipeline/state-executor.ts` to hook into checkout_full completion and call schedulePostStayReview
+- DB table `post_stay_review_sent` with UNIQUE(jid, DATE(scheduled_at)) prevents duplicate sends per guest per day
+- Review message uses utility-only language (no marketing phrases) to avoid WhatsApp billing reclassification
+
+### Patterns discovered
+- Workflow completions detected in state-executor.ts when `flowType === 'workflow' && !result.newState`
+- The workflowId is available on the flowState object as `(flowState as any).workflowId`
+- Initialization follows cart-recovery.ts pattern: init in src/assistant/index.ts after all other modules
+- The pre-existing ValidationError from express-rate-limit in gdpr-portability.ts is not related to our changes
+
+### Gotchas
+- Dynamic import (`await import('../post-stay-review.js')`) used in state-executor to avoid circular dependency
+- settings.json keys need encoding='utf-8' when reading via Python to avoid cp1252 codec errors
