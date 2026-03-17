@@ -527,3 +527,24 @@ Completed: Fix Makan Moments routing.json — remove hostel intent routes (ID: U
 ### Gotchas
 - 'store bags' fails `store\s?(bag|suitcase)` because `bags` != `bag` (no plural wildcard)
 - 'store my suitcase' fails because `my` is not part of the pattern (no wildcard between verb and object)
+## Iteration 19 - Tue, Mar 17, 2026 12:25:46 PM
+Completed: Add luggage storage and late checkout intent handlers with static replies (ID: US-022) in 5m
+
+
+## Iteration N - Story: US-023 - Add per-message cost optimization by preventing duplicate concurrent sends
+### What was implemented
+- Added `ackCancelled` boolean flag in `intent-classifier.ts` to prevent duplicate ack+answer sends
+- Inside ackTimer callback: checks `if (ackCancelled) return` BEFORE and AFTER `sendWhatsAppTypingIndicator` await
+- Renamed `clearAckTimer` callback to `cancelAck` helper that sets the flag AND calls `clearTimeout`
+- Added explicit `cancelAck()` call just before `dispatchAction` in Stage 6 (belt-and-suspenders guard)
+- Added `ack-timer-dedup.test.ts` with 2 tests: 2.9s LLM (ack cancelled before firing) and 3.1s LLM (ack aborted mid-async via flag)
+- Added `avgMsgsPerConversation` KPI to `/analytics/kpis` endpoint (query 7 in Promise.all) counting assistant messages per conversation
+- Added `_pricing_note` comment to `settings.json` billing section documenting July 2025 per-message pricing and ack timer
+
+### Patterns discovered
+- With vi.useFakeTimers(), async mocks (vi.fn(async()=>{})) resolve immediately — need configurable delay to test ackCancelled interception
+- The cancel flag + check pattern is standard for async cleanup in JS: clearTimeout alone doesn't help if timer already fired and async chain is in progress
+
+### Gotchas
+- profile-contamination.test.ts was already failing before this PR — pre-existing issue, not caused by US-023
+- The `db.execute(sql\`...\`)` result shape varies by Drizzle version — handled via `rows?.[0] ?? [0]` fallback

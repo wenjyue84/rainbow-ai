@@ -41,7 +41,7 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
     since.setDate(since.getDate() - days);
 
     // Run all six KPI queries in parallel
-    const [csatResult, conversationCount, escalationCount, fallbackResult, faithfulnessResult, orderAccuracyResult] = await Promise.all([
+    const [csatResult, conversationCount, escalationCount, fallbackResult, faithfulnessResult, orderAccuracyResult, msgPerConvoResult] = await Promise.all([
       // 1. CSAT — from rainbow_feedback
       db
         .select({
@@ -115,6 +115,23 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           gte(orderAccuracyEvents.createdAt, since),
           profileId ? eq(orderAccuracyEvents.profileId, profileId) : sql`true`,
         )),
+
+      // 7. US-023: Avg assistant messages per conversation (billing KPI — per-message pricing)
+      // Counts outbound assistant messages grouped by phone, then averages across distinct phones.
+      db.execute(sql`
+        SELECT COALESCE(AVG(msg_count), 0)::float AS avg_msgs_per_convo,
+               COALESCE(SUM(msg_count), 0)::int   AS total_assistant_msgs,
+               COUNT(*)::int                       AS distinct_conversations
+        FROM (
+          SELECT phone, COUNT(*) AS msg_count
+          FROM rainbow_messages
+          WHERE role = 'assistant'
+            AND deleted_at IS NULL
+            AND timestamp >= ${since}
+            ${profileId ? sql`AND profile_id = ${profileId}` : sql``}
+          GROUP BY phone
+        ) sub
+      `),
     ]);
 
     const csat = csatResult[0];
@@ -123,6 +140,10 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
     const fallback = fallbackResult[0];
     const faithfulness = faithfulnessResult[0];
     const orderAccuracy = orderAccuracyResult[0];
+    const msgPerConvoRow = (msgPerConvoResult as any).rows?.[0] ?? (msgPerConvoResult as any)[0] ?? {};
+    const avgMsgsPerConvo: number | null = msgPerConvoRow.avg_msgs_per_convo != null
+      ? parseFloat(Number(msgPerConvoRow.avg_msgs_per_convo).toFixed(2))
+      : null;
 
     // Calculate rates
     const csatScore = csat.total > 0 ? (csat.thumbsUp / csat.total) * 100 : null;
@@ -238,6 +259,13 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           threshold: ALERT_THRESHOLDS.orderAccuracy,
           alert: orderAccuracyRate !== null && orderAccuracyRate < ALERT_THRESHOLDS.orderAccuracy,
         },
+        // US-023: Avg messages per conversation — billing KPI for per-message pricing (July 2025+)
+        avgMsgsPerConversation: {
+          avg: avgMsgsPerConvo,
+          totalAssistantMessages: Number(msgPerConvoRow.total_assistant_msgs ?? 0),
+          distinctConversations: Number(msgPerConvoRow.distinct_conversations ?? 0),
+          note: 'Outbound assistant messages only. Each message billed individually under WhatsApp July 2025+ per-message pricing.',
+        },
       },
       alerts,
     });
@@ -256,6 +284,7 @@ function emptyKpis() {
     fallbackRate: { rate: null, totalUserMessages: 0, unknownMessages: 0 },
     faithfulness: { lowFaithfulnessRate: null, avgScore: null, totalChecked: 0, lowFaithfulnessCount: 0 },
     orderAccuracyRate: { rate: null, totalConfirmedOrders: 0, correctedOrders: 0, accurateOrders: 0, sentToKitchen: 0, threshold: 90, alert: false },
+    avgMsgsPerConversation: { avg: null, totalAssistantMessages: 0, distinctConversations: 0, note: 'Outbound assistant messages only.' },
   };
 }
 

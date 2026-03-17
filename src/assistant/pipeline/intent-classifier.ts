@@ -70,11 +70,16 @@ export async function classifyAndRoute(
   state.ragTopicFiles = kb.topicFiles;
 
   // ─── Ack Timer: send "thinking" message if LLM takes >3s ────────
+  // US-023: ackCancelled flag prevents duplicate sends when LLM responds
+  // just after the 3s timer fires (WhatsApp per-message billing since July 2025).
   let ackSent = false;
+  let ackCancelled = false;
   const ackTimer = setTimeout(async () => {
+    if (ackCancelled) return; // US-023: main response already in flight
     ackSent = true;
     try {
       await context.sendWhatsAppTypingIndicator(phone, msg.instanceId);
+      if (ackCancelled) return; // US-023: check again after first await
       const ackText = context.getTemplate('thinking', lang);
       await ctx.sendMessage(phone, ackText, msg.instanceId);
       context.logMessage(phone, msg.pushName ?? 'Guest', 'assistant', ackText, {
@@ -84,6 +89,9 @@ export async function classifyAndRoute(
       console.log(`[Router] Sent thinking ack to ${phone} (LLM taking >3s)`);
     } catch { /* non-fatal */ }
   }, 3000);
+
+  // US-023: cancel helper — clears timer AND sets flag to abort any in-flight ack
+  const cancelAck = () => { ackCancelled = true; clearTimeout(ackTimer); };
 
   // ─── Stage 3: Tier Classification ─────────────────────────────────
   let result = await classifyWithTiers(
@@ -98,7 +106,7 @@ export async function classifyAndRoute(
       detectedLanguage: lang,
     },
     context,
-    () => clearTimeout(ackTimer)
+    cancelAck
   );
 
   devMetadata.model = result.model;
@@ -139,6 +147,9 @@ export async function classifyAndRoute(
 
   // ─── Stage 5: Routing ─────────────────────────────────────────────
   const routing = await resolveRouting(state, result, ackSent, context);
+
+  // ─── US-023: Cancel ack before main response — prevents duplicate billing ──
+  cancelAck();
 
   // ─── Stage 6: Action Dispatch ─────────────────────────────────────
   await dispatchAction(state, result, routing, context);
