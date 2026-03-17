@@ -488,3 +488,23 @@ Completed: Add inquiry intent variants for room type and pricing questions (ID: 
 
 ### Gotchas
 - `profile-contamination.test.ts` failure ("must not contain makan moments") is pre-existing from US-028 (upsell_suggest knowledge entry mentions Makan Moments cafe) — not introduced by US-010
+## Iteration 17 - Tue, Mar 17, 2026 12:13:41 PM
+Completed: Add conversation reset command handling (ID: US-010) in 19m
+
+
+
+## Iteration N - Story: US-016 - Fix Makan Moments routing.json — remove hostel intent routes
+### What was implemented
+- Audited `src/assistant/data-makan/routing.json` for hostel-only intent routes
+- Removed 38 hostel-specific routes: availability, booking, facilities_info, rules_policy, payment_info, payment_made, checkin_info, checkout_info, checkout_now, check_in_arrival, lower_deck_preference, wifi, facility_orientation, climate_control_complaint, noise_complaint, cleanliness_complaint, facility_malfunction, card_locked, theft_report, general_complaint_in_stay, extra_amenity_request, tourist_guide, checkout_procedure, late_checkout_request, luggage_storage, billing_inquiry, forgot_item_post_checkout, post_checkout_complaint, billing_dispute, theft, payment, facilities, capsule_conflict, extend_stay, local_services + others
+- Kept 23 cafe-relevant routes: menu_query, menu_browse_category, order_placement, order_status, operating_hours, vegetarian_query, menu_filter_dietary, budget_query, specials_query, food_recommendation, menu_item_detail, order_feedback_rating, pricing, directions, complaint, positive_review, review_feedback, accessibility, cancel_workflow, greeting, thanks, contact_staff, unknown
+- Added 2 missing cafe-specific routes: `allergen_query` (llm_reply) and `table_reservation` (workflow/table_reservation)
+- Build passes, 1871/1872 tests pass (1 pre-existing failure from US-028 knowledge.json contamination)
+
+### Patterns discovered
+- data-makan/ is a parallel profile directory for Makan Moments Cafe — it should only contain cafe-specific intents
+- The hostel routing.json had leaked into data-makan/ as a copy-paste during earlier Spiral work
+- allergen_query and table_reservation are the two cafe-specific intents mandated by the PRD but were missing
+
+### Gotchas
+- profile-contamination.test.ts failure is pre-existing (US-028 upsell_suggest knowledge entry mentions Makan Moments in Pelangi knowledge.json) — not related to US-016
