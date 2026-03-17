@@ -130,3 +130,26 @@ Completed: Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hoste
 
 ## Iteration 3 - Completed
 Completed: Fix Southern Homestay knowledge.json (ID: US-012)
+
+
+## Iteration 4 - Story: US-017 - Add emergency/SOS intent with immediate staff escalation
+### What was implemented
+- Added `emergency` to `EmergencyType` union in `emergency-patterns.ts`
+- Updated `loadEmergencyPatternsFromFile()` normalization to preserve `emergencyType: "emergency"` from JSON (was falling through to `complaint`)
+- Added 4 new regex patterns at TOP of `regex-patterns.json` covering EN/MS/ZH SOS keywords ('emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '求救', '紧急', 'sos')
+- Added `emergency` intent to `GENERAL_SUPPORT` phase in `intents.json` with `min_confidence: 0.0`, `time_sensitive: true`
+- Added `emergency_escalate` workflow in `workflows.json` with 3 sequential `whatsapp_send` nodes notifying all 3 staff phones (60167620815, 60127088789, 60103084289) before confirmation message
+- Mapped `emergency` → `emergency_escalate` workflow in `routing.json` (placed FIRST in the map)
+- Created unit test `emergency-intent.test.ts` — 28 tests, all passing
+
+### Patterns discovered
+- `regex-patterns.json` entries are iterated in order — placing emergency patterns at the TOP ensures they match before any conflicting lower-priority patterns
+- The `EmergencyType` normalization code in `loadEmergencyPatternsFromFile()` must explicitly whitelist each valid type; unknown types fall back to 'complaint'
+- The benign fire override (`FIRE_BENIGN_OVERRIDES`) applies ONLY when `isFire: true` (set from `description.includes('fire emergency')`) — new patterns with different descriptions won't trigger it
+
+### Gotchas
+- The new SOS patterns intentionally overlap with the existing fire/medical patterns. Since they're first in the JSON array, they take priority and return `emergency` intent. The downstream patterns for 'fire' → 'complaint' still exist but are never reached for those keywords.
+- All 3 staff phone numbers are hardcoded in the `sos_notify_staff_3` node since `{{system.staff_phones}}` array expansion is not supported in the workflow engine
+
+## Iteration 4 - Completed
+Completed: Add emergency/SOS intent with immediate staff escalation (ID: US-017)

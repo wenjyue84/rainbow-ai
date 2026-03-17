@@ -3,7 +3,7 @@ import { join } from 'path';
 
 // ─── Emergency patterns (regex, critical patterns for immediate escalation) ─────────
 
-type EmergencyType = 'theft_report' | 'card_locked' | 'complaint';
+type EmergencyType = 'theft_report' | 'card_locked' | 'complaint' | 'emergency';
 
 interface LoadedEmergencyRule {
   re: RegExp;
@@ -68,7 +68,7 @@ export async function loadEmergencyPatternsFromFile(): Promise<void> {
       const re = parseRegexPattern(patternStr);
       if (!re) continue;
 
-      const emergencyType: EmergencyType = (item.emergencyType === 'theft_report' || item.emergencyType === 'card_locked')
+      const emergencyType: EmergencyType = (item.emergencyType === 'theft_report' || item.emergencyType === 'card_locked' || item.emergencyType === 'emergency')
         ? item.emergencyType
         : (item.emergencyType === 'theft' ? 'theft_report' : 'complaint');
       const desc = (item.description || '').toLowerCase();
