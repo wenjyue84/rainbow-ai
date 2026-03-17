@@ -294,3 +294,24 @@ Completed: Fix Makan Moments intents.json — remove hostel-specific intents (ID
 ### Gotchas
 - Chinese keyword '一晚多少' means "how much per night" (hostel) vs '一天多少' means "how much per day" — both removed as hostel context
 - '房价' means "room price" — removed from pricing intent
+## Iteration 7 - Tue, Mar 17, 2026 10:31:16 AM
+Completed: Fix Makan Moments intent-keywords.json — remove hostel keywords from cafe profile (ID: US-014) in 4m
+
+
+
+## Iteration 8 - Story: US-015 - Add profile contamination unit tests
+### What was implemented
+- Created `src/tests/profile-contamination.test.ts` with 27 tests across 3 profiles
+- Tests verify data-makan/* files contain none of: 'pelangi capsule', 'ilovestaycapsule', '1270#', 'taman pelangi'
+- Tests verify data-southern/* files contain none of: 'pelangi capsule', 'ilovestaycapsule', '1270#', 'taman pelangi'
+- Tests verify main data/* (Pelangi Capsule) files contain none of: 'makan moments'
+- Helper `checkProfileFiles()` dynamically generates describe/it blocks per file per forbidden term
+- All 27 tests pass, build clean (3 pre-existing warnings only)
+
+### Patterns discovered
+- `import.meta.url` on Windows returns URL-encoded paths (spaces as %20) — must use `fileURLToPath()` not raw `.pathname` for `existsSync`/`readFileSync` to work correctly
+- Nested `describe()` calls inside a helper function work fine in Vitest 4 — called synchronously during module load
+
+### Gotchas
+- `continue` is not valid inside esbuild-transformed for...of loops that contain `describe()` blocks — use a helper function that returns early instead
+- The `test.poolOptions` deprecation warnings are pre-existing in vitest.config.ts (Vitest 4 migration) — not introduced by this story
