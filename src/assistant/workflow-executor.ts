@@ -410,6 +410,17 @@ async function executeNodeWorkflowStep(
     if (currentNode?.type === 'wait_reply') {
       const config = currentNode.config as WaitReplyNodeConfig;
       state.collectedData[config.storeAs] = userMessage;
+      // US-027: Normalize booking dates to ISO 8601 alongside raw input
+      if (config.storeAs === 'booking_dates') {
+        const { normalizeDates } = await import('../lib/date-normalizer.js');
+        const normalized = normalizeDates(userMessage);
+        if (normalized.ok) {
+          state.collectedData['booking_dates_normalized'] = JSON.stringify({
+            checkIn: normalized.checkIn,
+            checkOut: normalized.checkOut,
+          });
+        }
+      }
       // US-089: Sync collected data to contact details
       syncWorkflowDataToContact(phone, state.workflowId, state.collectedData, nodeOutputs);
       // Advance to next node after wait_reply

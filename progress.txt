@@ -624,3 +624,33 @@ Completed: Add Tamil (ta) language intent patterns for common guest queries (ID:
 ### Gotchas
 - profile-contamination.test.ts failure is pre-existing (US-028) — not caused by US-026
 - prd.json has encoding issues on Windows — must open with `encoding='utf-8'` in Python
+## Iteration 23 - Tue, Mar 17, 2026  1:30:36 PM
+Completed: Add portfolio-level WABA messaging limit tracking across phone numbers (ID: US-026) in 11m
+
+
+## Iteration N - Story: US-027 - Add booking date input normalization for Malaysian date formats
+### What was implemented
+- Created `src/lib/date-normalizer.ts` with:
+  - `parseSingleDate(token, today)` — parses a single date token to UTC midnight Date
+  - `normalizeDates(rawInput, referenceDate?)` — full round-trip from free-text to ISO 8601
+  - `extractDateTokens(raw)` — splits combined check-in/check-out input by labeled/keyword/separator patterns
+  - `todayMYT(now?)` — returns today in Asia/Kuala_Lumpur (UTC+8, no DST) as UTC midnight
+  - Handles: DD/MM, DD/MM/YY, DD/MM/YYYY, DD-MM-YYYY, DD MonthName, MonthName DD, DD MonthName YYYY
+  - Relative: today, tomorrow, esok, lusa, 今天, 明天, 后天/後天
+  - Malay months: Mac=3, Mei=5, Ogo=8, Okt=10, Dis=12
+  - Year-less dates auto-advance to next year if in the past
+  - Error types: past_date, invalid_sequence, unparseable
+- Integrated into `src/assistant/workflow-executor.ts` — when storeAs === 'booking_dates', normalizeDates is called and result stored in `booking_dates_normalized` as JSON {checkIn, checkOut}
+- Created 48-test suite in `src/tests/date-normalizer.test.ts` (all pass)
+
+### Patterns discovered
+- No dayjs dependency — pure TS implementation avoids adding a new dependency
+- todayMYT() uses UTC+8 offset (no DST) for deterministic timezone handling
+- Year-less dates use the reference date to decide current vs next year
+
+### Gotchas
+- Malay "Mac" conflicts with English "mar" abbreviation — MS_MONTHS spread after EN_MONTHS so Malay wins
+- Chinese characters in relative sets must use Unicode escapes for Windows terminal safety
+Tue, Mar 17, 2026  1:39:05 PM
+## Iteration 24 - Tue, Mar 17, 2026  1:39:05 PM
+Completed: Add booking date input normalization for Malaysian date formats (ID: US-027)
