@@ -84,10 +84,11 @@ export function switchSettingsTab(tabId, updateHash = true) {
   // Update button styles
   document.querySelectorAll('.settings-tab-btn').forEach(btn => {
     const isMatched = btn.dataset.settingsTab === tabId;
-    btn.classList.toggle('text-primary-600', isMatched);
-    btn.classList.toggle('border-primary-500', isMatched);
-    btn.classList.toggle('text-neutral-500', !isMatched);
-    btn.classList.toggle('border-transparent', !isMatched);
+    btn.classList.toggle('bg-indigo-50', isMatched);
+    btn.classList.toggle('text-indigo-700', isMatched);
+    btn.classList.toggle('font-medium', isMatched);
+    btn.classList.toggle('text-neutral-600', !isMatched);
+    btn.classList.toggle('hover:bg-neutral-100', !isMatched);
   });
 
   // Render tab content

@@ -135,7 +135,31 @@
             : externalLinkHtml)
           + '</button>';
       }
+      // Add Business Profile button at the bottom
+      html += '<div class="border-t border-neutral-100 mt-1 pt-1">'
+        + '<button onclick="window.profileSwitcher.showAddWizard()" '
+        + 'class="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 text-primary-600 hover:bg-primary-50 transition font-medium">'
+        + '<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+        + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>'
+        + '</svg>'
+        + '<span>Add Business Profile</span>'
+        + '</button>'
+        + '</div>';
+
       dd.innerHTML = html;
+    },
+
+    /** Show add-business-profile wizard */
+    showAddWizard: function () {
+      this.close();
+      wizardState.step = 1;
+      wizardState.name = '';
+      wizardState.profileId = '';
+      wizardState.sourceId = defaultProfileId;
+      var modal = document.getElementById('add-profile-wizard-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      renderWizardStep();
     },
 
     /** Load profiles from API and initialize */
@@ -153,9 +177,9 @@
           }
           self.renderLabel();
           self.renderDropdown();
-          // Hide switcher if only 1 profile
+          // Always show switcher (has "Add Business Profile" action)
           var el = document.getElementById('profile-switcher');
-          if (el && profiles.length <= 1) el.style.display = 'none';
+          if (el) el.style.display = '';
 
           // US-809: Expose known profile IDs for URL parsing in tabs.js
           window.KNOWN_PROFILE_IDS = profiles.map(function (p) { return p.id; });
@@ -180,6 +204,166 @@
           if (label) label.textContent = 'Pelangi Capsule Hostel';
         });
     }
+  };
+
+  // ─── Add-Business-Profile Wizard ────────────────────────────────────
+  var wizardState = { step: 1, name: '', profileId: '', sourceId: '' };
+
+  function slugify(str) {
+    return str.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/[\s]+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 40);
+  }
+
+  function renderWizardStep() {
+    var s1 = document.getElementById('wizard-step-1');
+    var s2 = document.getElementById('wizard-step-2');
+    var s3 = document.getElementById('wizard-step-3');
+    var s4 = document.getElementById('wizard-step-4');
+    [s1, s2, s3, s4].forEach(function (el) { if (el) el.classList.add('hidden'); });
+
+    var stepEl = document.getElementById('wizard-step-' + wizardState.step);
+    if (stepEl) stepEl.classList.remove('hidden');
+
+    // Update step indicators
+    for (var i = 1; i <= 3; i++) {
+      var dot = document.getElementById('wizard-dot-' + i);
+      if (!dot) continue;
+      dot.className = 'w-2.5 h-2.5 rounded-full transition-colors ' + (i === wizardState.step ? 'bg-primary-500' : (i < wizardState.step ? 'bg-primary-300' : 'bg-neutral-300'));
+    }
+
+    if (wizardState.step === 1) {
+      var nameEl = document.getElementById('wizard-name');
+      var idEl = document.getElementById('wizard-id');
+      if (nameEl) nameEl.value = wizardState.name;
+      if (idEl) idEl.value = wizardState.profileId;
+    }
+    if (wizardState.step === 2) {
+      renderWizardTemplates();
+    }
+    if (wizardState.step === 3) {
+      renderWizardReview();
+    }
+  }
+
+  function renderWizardTemplates() {
+    var container = document.getElementById('wizard-templates');
+    if (!container) return;
+    var html = '';
+    for (var i = 0; i < profiles.length; i++) {
+      var p = profiles[i];
+      var isSelected = wizardState.sourceId === p.id;
+      html += '<label class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition '
+        + (isSelected ? 'border-primary-400 bg-primary-50' : 'border-neutral-200 hover:border-neutral-300 bg-white')
+        + '">'
+        + '<input type="radio" name="wizard-source" value="' + escHtml(p.id) + '" '
+        + (isSelected ? 'checked' : '')
+        + ' onchange="window.profileSwitcher._wizardSelectSource(\'' + escHtml(p.id) + '\')" class="text-primary-500">'
+        + '<div class="min-w-0">'
+        + '<div class="text-sm font-medium text-neutral-800">' + escHtml(p.name) + '</div>'
+        + '<div class="text-xs text-neutral-500">Clone from ' + escHtml(p.id) + '</div>'
+        + '</div>'
+        + '</label>';
+    }
+    container.innerHTML = html;
+  }
+
+  function renderWizardReview() {
+    var el = document.getElementById('wizard-review');
+    if (!el) return;
+    var sourceName = '';
+    var found = profiles.find(function (p) { return p.id === wizardState.sourceId; });
+    if (found) sourceName = found.name;
+    el.innerHTML = '<dl class="space-y-3 text-sm">'
+      + '<div class="flex justify-between"><dt class="text-neutral-500">Business Name</dt><dd class="font-semibold text-neutral-800">' + escHtml(wizardState.name) + '</dd></div>'
+      + '<div class="flex justify-between"><dt class="text-neutral-500">Profile ID</dt><dd class="font-mono text-xs bg-neutral-100 px-2 py-0.5 rounded text-neutral-700">' + escHtml(wizardState.profileId) + '</dd></div>'
+      + '<div class="flex justify-between"><dt class="text-neutral-500">Template</dt><dd class="font-semibold text-neutral-800">' + escHtml(sourceName || wizardState.sourceId) + '</dd></div>'
+      + '</dl>'
+      + '<p class="mt-4 text-xs text-neutral-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">The new profile will be created but requires a server restart to become active.</p>';
+  }
+
+  // Expose for inline onchange
+  switcher._wizardSelectSource = function (id) {
+    wizardState.sourceId = id;
+    renderWizardTemplates();
+  };
+
+  switcher.wizardNext = function () {
+    if (wizardState.step === 1) {
+      var nameEl = document.getElementById('wizard-name');
+      var idEl = document.getElementById('wizard-id');
+      var name = nameEl ? nameEl.value.trim() : '';
+      var profileId = idEl ? idEl.value.trim() : '';
+      if (!name) { var err = document.getElementById('wizard-name-error'); if (err) { err.textContent = 'Business name is required'; err.classList.remove('hidden'); } return; }
+      if (!profileId || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(profileId) && !/^[a-z0-9]$/.test(profileId)) {
+        var err2 = document.getElementById('wizard-id-error'); if (err2) { err2.textContent = 'Profile ID must be lowercase letters, numbers, and hyphens'; err2.classList.remove('hidden'); } return;
+      }
+      wizardState.name = name;
+      wizardState.profileId = profileId;
+    }
+    wizardState.step = Math.min(wizardState.step + 1, 3);
+    renderWizardStep();
+  };
+
+  switcher.wizardBack = function () {
+    wizardState.step = Math.max(wizardState.step - 1, 1);
+    renderWizardStep();
+  };
+
+  switcher.wizardCreate = function () {
+    var btn = document.getElementById('wizard-create-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+
+    fetch(API + '/profiles/' + encodeURIComponent(wizardState.sourceId) + '/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newProfileId: wizardState.profileId, displayName: wizardState.name })
+    })
+      .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+      .then(function (result) {
+        wizardState.step = 4;
+        var s1 = document.getElementById('wizard-step-1');
+        var s2 = document.getElementById('wizard-step-2');
+        var s3 = document.getElementById('wizard-step-3');
+        var s4 = document.getElementById('wizard-step-4');
+        [s1, s2, s3].forEach(function (el) { if (el) el.classList.add('hidden'); });
+        if (s4) s4.classList.remove('hidden');
+        var resultEl = document.getElementById('wizard-result');
+        if (resultEl) {
+          if (result.ok) {
+            resultEl.innerHTML = '<div class="text-center py-4">'
+              + '<div class="text-4xl mb-3">🎉</div>'
+              + '<p class="font-semibold text-neutral-800 mb-1">Profile created!</p>'
+              + '<p class="text-sm text-neutral-500 mb-4">Restart the server to activate <span class="font-mono bg-neutral-100 px-1 rounded">' + escHtml(wizardState.profileId) + '</span>.</p>'
+              + '<p class="text-xs text-neutral-400">Cloned from: ' + escHtml(wizardState.sourceId) + ' (' + (result.data.copied || []).length + ' config files)</p>'
+              + '</div>';
+          } else {
+            resultEl.innerHTML = '<div class="text-center py-4">'
+              + '<div class="text-4xl mb-3">⚠️</div>'
+              + '<p class="font-semibold text-danger-600 mb-1">Creation failed</p>'
+              + '<p class="text-sm text-neutral-500">' + escHtml(result.data.error || 'Unknown error') + '</p>'
+              + '</div>';
+          }
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Profile'; }
+      })
+      .catch(function (err) {
+        var s3 = document.getElementById('wizard-step-3');
+        var s4 = document.getElementById('wizard-step-4');
+        if (s3) s3.classList.add('hidden');
+        if (s4) s4.classList.remove('hidden');
+        var resultEl = document.getElementById('wizard-result');
+        if (resultEl) resultEl.innerHTML = '<div class="text-center py-4"><div class="text-4xl mb-3">⚠️</div><p class="font-semibold text-danger-600 mb-1">Request failed</p><p class="text-sm text-neutral-500">' + escHtml(err.message) + '</p></div>';
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Profile'; }
+      });
+  };
+
+  switcher.wizardClose = function () {
+    var modal = document.getElementById('add-profile-wizard-modal');
+    if (modal) modal.classList.add('hidden');
   };
 
   function escHtml(s) {
