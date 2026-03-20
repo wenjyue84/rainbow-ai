@@ -16,6 +16,9 @@ SPIRAL_GATE_MODE="proceed"
 # Workers
 SPIRAL_RALPH_WORKERS=1
 
+# Auto-stash uncommitted changes before Phase I
+SPIRAL_AUTO_STASH=true
+
 # Max iterations
 MAX_SPIRAL_ITERS=20
 
