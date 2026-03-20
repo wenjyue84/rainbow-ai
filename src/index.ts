@@ -642,12 +642,14 @@ async function getDashboardHtml(_url: string, nonce: string): Promise<string> {
     // (HTML already uses absolute /public/... paths, and Vite prepends base again).
     // Vite's middleware still serves files correctly (strips base from requests).
     let html = readFileSync(DASHBOARD_HTML_PATH, 'utf-8');
+    html = html.replace(/__CSP_NONCE__/g, nonce);
     const adminKeyDev = process.env.RAINBOW_ADMIN_KEY || '';
     html = html.replace('<head>', `<head>\n  <script nonce="${nonce}">window.__ADMIN_KEY__=${JSON.stringify(adminKeyDev)};</script>\n  <script type="module" src="/public/@vite/client"></script>`);
     return html;
   }
   // Prod: use cached HTML with cache-bust
   let html = _dashboardHtmlCache ?? loadDashboardHtml();
+  html = html.replace(/__CSP_NONCE__/g, nonce);
   const v = Date.now();
   html = html.replace(/(src|href)="(\/public\/[^"]+\.(js|css))"/g, `$1="$2?v=${v}"`);
   // Inject admin key + fetch interceptor for remote browser access.
