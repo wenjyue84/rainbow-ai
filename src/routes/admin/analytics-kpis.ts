@@ -40,7 +40,8 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    // Run all six KPI queries in parallel
+    // Run core KPI queries in parallel; wrap optional tables in individual try-catch
+    // so missing tables/columns don't crash the entire endpoint
     const [csatResult, conversationCount, escalationCount, fallbackResult, faithfulnessResult, orderAccuracyResult, msgPerConvoResult] = await Promise.all([
       // 1. CSAT — from rainbow_feedback
       db
@@ -89,7 +90,7 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           profileId ? eq(rainbowMessages.profileId, profileId) : sql`true`,
         )),
 
-      // 5. US-899: Faithfulness rate — % of checked responses flagged as low faithfulness
+      // 5. US-899: Faithfulness rate — table/column may not exist yet
       db
         .select({
           totalChecked: sql<number>`count(*) filter (where faithfulness_score is not null)::int`,
@@ -101,9 +102,10 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
           gte(rainbowMessages.timestamp, since),
           eq(rainbowMessages.role, 'assistant'),
           profileId ? eq(rainbowMessages.profileId, profileId) : sql`true`,
-        )),
+        ))
+        .catch(() => [{ totalChecked: 0, lowFaithfulness: 0, avgScore: null }]),
 
-      // 6. US-902: Order accuracy — confirmed orders vs corrected orders
+      // 6. US-902: Order accuracy — table may not exist yet (graceful fallback)
       db
         .select({
           totalConfirmed: sql<number>`count(*) filter (where event_type = 'order_confirmed')::int`,
@@ -114,7 +116,8 @@ router.get('/analytics/kpis', async (req: Request, res: Response) => {
         .where(and(
           gte(orderAccuracyEvents.createdAt, since),
           profileId ? eq(orderAccuracyEvents.profileId, profileId) : sql`true`,
-        )),
+        ))
+        .catch(() => [{ totalConfirmed: 0, totalCorrected: 0, totalSentToKitchen: 0 }]),
 
       // 7. US-023: Avg assistant messages per conversation (billing KPI — per-message pricing)
       // Counts outbound assistant messages grouped by phone, then averages across distinct phones.
