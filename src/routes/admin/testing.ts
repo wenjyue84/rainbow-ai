@@ -246,6 +246,7 @@ router.post('/tests/run', async (_req: Request, res: Response) => {
         cwd: mcpRoot,
         env: { ...process.env, FORCE_COLOR: '0' },
         timeout: 120_000,
+        shell: true,
       });
       child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
       child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
@@ -320,6 +321,7 @@ router.post('/tests/coverage', async (_req: Request, res: Response) => {
         cwd: mcpRoot,
         env: { ...process.env, FORCE_COLOR: '0' },
         timeout: 120_000,
+        shell: true,
       });
       child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
       child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
