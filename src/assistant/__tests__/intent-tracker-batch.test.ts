@@ -283,7 +283,7 @@ describe('US-034: Intent prediction batch insert queue', () => {
 
 // ─── US-056: Room Availability Validation ────────────────────────────────────
 
-import { getOccupiedRoomsForDateRange } from '../../shared/schema-tables.js';
+import { getOccupiedRoomsForDateRange } from '../../../shared/schema-tables.js';
 
 describe('US-056: Room availability validation during booking confirmation', () => {
   test('getOccupiedRoomsForDateRange returns query params for date overlap check', () => {

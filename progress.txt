@@ -1486,3 +1486,61 @@ Here is the technical brief for user story US-055.
 - All files created and committed
 
 Status: PASSING - US-055 completed successfully
+## Iteration 2 - Mon, Mar 23, 2026  2:45:38 AM
+FAILED diagnosis-block gate: Add dead-letter queue admin endpoint with manual message retry capability (ID: US-055) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-055 (Gemini 2.5 Pro)
+This technical brief is based on the project's file structure (Node.js/TypeScript) rather than the initial prompt's mention of Frappe/Python.
+
+**Subject: Technical Brief for US-055 DLQ Admin Endpoint**
+
+**1. Python/Frappe Files to Modify:**
+Based on the project's TypeScript structure and the story's acceptance criteria, no Frappe or Python files are relevant. The implementation will be in Node.js/TypeScript.
+
+**2. Core Components Involved:**
+*   **Routing Framework:** An Express.js or similar router is used to define API endpoints.
+*   **Data/Schema:** A new or existing schema for DLQ messages, likely defined in a file like `shared/schema.ts`.
+*   **Message Queue Service:** A service (e.g., using a library like BullMQ or a custom implementation) that manages the main and dead-letter message queues.
+
+**3. Recommended Implementation Approach:**
+1.  Create a new route file at `src/routes/admin/dlq.ts`.
+2.  Define a `GET /admin/dlq` endpoint that queries the database/store for DLQ messages, paginates the result, and sorts by `failed_at` descending.
+3.  Define a `POST /admin/dlq/:messageId/retry` endpoint that finds the message and calls a queue service method to move it back to the main processing queue.
+4.  Protect both endpoints using an existing admin authentication middleware.
+5.  Create the test file `src/routes/admin/__tests__/dlq.test.ts` to validate endpoint functionality.
+
+**4. Edge Cases & Gotchas:**
+*   **Authentication:** Ensure the new endpoints are strictly guarded and accessible only by administrators.
+*   **Re-failure:** A retried message that fails again should re-enter the DLQ, potentially with an updated `retry_count`.
+*   **Atomicity:** The operation to move a message from the DLQ to the main queue must be atomic to prevent message loss.
+*   **Expired Messages:** The logic should clarify whether messages past their `expires_at` timestamp are still eligible for retry.
+
+
+## Iteration [19] - Story: US-056 - Add real-time room availability validation during booking confirmation
+### What was implemented
+- Fixed merge conflicts in `src/assistant/data/workflows.json` (validate_past_dates and past_dates_msg nodes)
+- Added `check_room_availability` node (type: condition, operator: dbAvailabilityCheck) between date-conflict check and booking confirmation
+- `check_booking_conflict.trueNext` changed from `confirm_booking_msg` to `check_room_availability`
+- Added `room_unavailable_msg` node with alternative date suggestions and loop back to `wait_booking_dates`
+- Added `roomReservations` table to `shared/schema-tables.ts` with DB indexes on check_in, check_out, profile, status, room_id
+- Added `getOccupiedRoomsForDateRange(checkIn, checkOut, profile)` helper function
+- Added 4 tests to `intent-tracker-batch.test.ts` covering: query params, overbooking rejection routing, default profile, node ordering
+
+### Patterns discovered
+- Type imports (import type {...}) don't trigger runtime module resolution — value imports need correct path
+- From `src/assistant/__tests__/`, shared module is at `../../../shared/` (3 levels up, not 2)
+- Vitest has no path aliases — relative paths must be exact
+
+### Gotchas
+- Merge conflict in workflows.json was a 3-way conflict (2x upstream + 1x stash) — needed careful manual resolution
+- The `require('fs')` + `require('path')` pattern works in Vitest for reading JSON fixtures from tests
+- JSON must be read with utf-8 encoding on Windows (default cp1252 fails on CJK characters)
+
+### Quality Checks Passed
+- JSON valid (python3 -c "json.loads(...)")
+- Build: esbuild successful
+- Tests: 11/11 passed in intent-tracker-batch.test.ts
+- Server startup: clean
+
+Status: PASSING - US-056 completed successfully

@@ -47,40 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-053",
-      "title": "Add intent keyword variants for Malaysian English and common local hospitality terms",
-      "priority": "high",
-      "description": "Expand intent keyword matching to recognize Malaysian English spellings and local hospitality vocabulary. This improves booking intent accuracy for guests using regional terms (e.g., 'flat' vs 'apartment', 'nites' vs 'nights', 'toilet' vs 'bathroom').",
-      "acceptanceCriteria": [
-        "File `src/assistant/data/intent-keywords.json` adds 'regional_variants' object under 'booking' intent with minimum 20 Malaysian English variants including spelling differences and local terms",
-        "Intent classifier in `src/assistant/intent-classifier.ts` checks both standard and regional variants when calculating intent match scores",
-        "Test `src/assistant/__tests__/intent-regional-variants.test.ts` verifies Malaysian English phrases like 'how much for 3 nites' and 'can stay in flat near airport' match booking intent with score >= 0.75"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-054",
-      "title": "Add profile ownership validation to prevent workflows from executing with wrong business profile",
-      "priority": "high",
-      "description": "Enforce that workflows execute only within their designated profile (Pelangi/Makan/Southern). Prevents the ongoing data contamination issue where Pelangi workflows mistakenly run for Makan or Southern guests, causing incorrect responses.",
-      "acceptanceCriteria": [
-        "Workflow schema in `src/assistant/schemas.ts` adds required `profileId` field with enum constraint ('pelangi' | 'makan' | 'southern')",
-        "Workflow executor in `src/assistant/pipeline/workflow-executor.ts` validates `workflow.profileId === currentConversation.profileId` before executing any workflow step; throws ProfileMismatchError if profiles differ",
-        "Test `src/assistant/__tests__/profile-workflow-isolation.test.ts` verifies Makan workflow cannot execute for Pelangi conversation and error message includes both profile IDs for debugging"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-055",
       "title": "Add dead-letter queue admin endpoint with manual message retry capability",
       "priority": "high",
@@ -93,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-22T18:40:35Z"
     },
     {
       "id": "US-056",
@@ -467,6 +434,159 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-102",
+      "title": "Implement context pruning for multi-turn conversations exceeding 10 messages",
+      "priority": "high",
+      "description": "Automatically prune conversation messages older than 30 minutes from context before sending to AI, unless they contain keywords matching the current user intent. Prevents stale context from polluting AI inference in long conversations.",
+      "acceptanceCriteria": [
+        "Add `contextPruningWindowMinutes: 30` to `src/assistant/data/settings.json`",
+        "Implement `pruneStaleContext(messages, currentIntent)` in `src/lib/conversation-context.ts` that removes messages older than window unless they contain keywords from `intent-keywords.json` for currentIntent",
+        "Add integration test in `tests/integration/context-pruning.test.ts` asserting old messages removed but keyword-matched messages retained in context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-103",
+      "title": "Build intent routing cross-contamination detector CLI tool",
+      "priority": "high",
+      "description": "Create a pre-deployment CLI that validates each profile's routing.json only contains intents belonging to that profile. Catches profile contamination before it reaches production.",
+      "acceptanceCriteria": [
+        "Create `bin/validate-intent-routing.js` that loads routing.json and intent-keywords.json for each profile and checks for orphaned intents",
+        "CLI command `npm run validate:routing` exits with code 1 and clear error message if profile A's routing contains intents not in profile A's intent-keywords.json",
+        "Add validation to GitHub Actions CI pipeline to run before merge"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-104",
+      "title": "Add precondition validation for booking workflow step execution",
+      "priority": "high",
+      "description": "Before executing each booking workflow step, validate required context exists (room_id, check-in date, guest_id). Returns actionable error messages that guide guests to complete previous steps.",
+      "acceptanceCriteria": [
+        "Add `preconditions` array to each booking step in `src/assistant/data/workflows.json` with required fields (e.g., `{field: \"room_id\", required: true}`)",
+        "Implement `validateStepPreconditions(step, conversation)` in `src/assistant/pipeline/workflow-executor.ts` that checks preconditions before step execution",
+        "Add unit test asserting missing room_id returns error message 'Please select a room type before confirming your booking' instead of executing step"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-106",
+      "title": "Add Intent Classification Confidence Threshold Optimizer CLI",
+      "priority": "high",
+      "description": "Create CLI tool that analyzes historical misclassification patterns and recommends optimal confidence thresholds per intent per profile using false positive/negative rates from past 30 days.",
+      "acceptanceCriteria": [
+        "npx ts-node src/tools/optimize-intent-thresholds.ts --profile pelangi --intent booking outputs JSON with recommended confidence threshold and F1 scores at different threshold values",
+        "Tool queries rainbow_messages and intent_analytics tables to compute precision-recall curves and flags intents where current threshold is suboptimal",
+        "Successfully tuned thresholds update src/assistant/data/settings.json per-intent-per-profile confidence_threshold field"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-107",
+      "title": "Build Multi-Turn Conversation Context Coherence Unit Test Suite",
+      "priority": "high",
+      "description": "Add comprehensive tests validating multi-turn conversation context remains logically coherent across 5+ message exchanges, detecting temporal contradictions and entity consistency violations.",
+      "acceptanceCriteria": [
+        "Test suite at src/tests/conversation-coherence.test.ts validates: guest states arrival_date=Tuesday but AI responds to Monday check-in question (temporal conflict), guest mentions room_type=single then asks about double occupancy (entity inconsistency)",
+        "Tests verify AI responses in message positions 5+ correctly reference earlier message context without contradictions, using embedding similarity to validate semantic coherence",
+        "Failed coherence tests trigger conversation_feedback entries with coherence_score <= 0.5 and coherence_issues array containing violation reasons"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-108",
+      "title": "Add Concurrent Booking Modification Safety Unit Tests",
+      "priority": "high",
+      "description": "Comprehensive unit tests validating that concurrent booking modifications (date/room/guest changes) execute atomically without data race conditions, lost updates, or partial state corruption.",
+      "acceptanceCriteria": [
+        "Test suite at src/tests/booking-concurrent-modifications.test.ts covers: two simultaneous check-in date change requests, concurrent room upgrade + date change on same booking, double cancellation attempts with refund calculation",
+        "Tests use database transaction mocking to verify atomicity; assert final booking state matches exactly one of the concurrent modification requests with no partial updates",
+        "All concurrency tests validate transaction isolation level and explicit conflict detection, with assertions on conflict_resolution_strategy field in booking_modifications table"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-110",
+      "title": "Build Data Validation Regression Test Suite for Profile Isolation",
+      "priority": "high",
+      "description": "Add comprehensive regression tests to prevent re-contamination of data-makan and data-southern profiles with Pelangi Capsule content. Tests run on every commit to catch profile isolation violations early.",
+      "acceptanceCriteria": [
+        "New test file `src/__tests__/profile-isolation-regression.test.ts` with ≥8 assertions per profile checking for hostel-specific keywords (dorm room, WiFi amenity, guest arrival, etc.) in cafe and homestay profiles",
+        "Test assertions fail if data-makan contains 'dorm' or 'hostel', if data-southern contains 'capsule pod', or if data-pelangi contains 'cafe menu' or 'food order'",
+        "CI/CD pipeline runs test suite on every push to master branch and blocks merge if any profile isolation assertions fail"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-111",
+      "title": "Implement Intent Keyword Optimization Analyzer CLI",
+      "priority": "high",
+      "description": "CLI tool to analyze which keywords are most effective for each intent by measuring precision/recall against the benchmark dataset. Identifies keywords to add or remove to improve classification accuracy.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:keyword-effectiveness -- --intent=booking --profile=data-pelangi` outputs CSV format with columns: keyword, precision (%), recall (%), f1_score, usage_count, recommendation (add/remove/keep)",
+        "Tool uses existing `src/assistant/__tests__/datasets/intent-accuracy-benchmark.json` (or creates it if missing) to calculate metrics for each keyword's contribution to classification performance",
+        "Analyzer identifies keywords with <25% precision as candidates for removal and flags high-value keywords missing from intent-keywords.json with note: 'This keyword appears in 5 positive examples but not in intent-keywords.json'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-112",
+      "title": "Build Intent Misclassification Root Cause Analyzer Dashboard",
+      "priority": "high",
+      "description": "Analyze patterns in misclassified utterances to identify root causes (keyword collision, confidence confusion, language variant) and provide actionable recommendations for improving classifier.",
+      "acceptanceCriteria": [
+        "New admin endpoint `GET /admin/analytics/misclassification-analysis?days=7&profile=data-pelangi` returns JSON with: { misclassification_count, top_causes: [{cause: 'keyword_collision', count: 12, examples: ['room booking vs order']}, ...], recommended_fixes: [{priority: 'high', action: 'Add keyword variant \"book a room\"'}] }",
+        "Root cause analyzer in `src/assistant/analyzers/misclassification-analyzer.ts` identifies: keyword_collision (predicted_intent and actual_intent share ≥3 keywords), confidence_too_close (top-2 predictions diff <0.08), language_variant (detected non-English keywords), cross_profile (utterance triggers keyword from different profile)",
+        "Unit test `src/assistant/__tests__/misclassification-analyzer.test.ts` verifies analyzer correctly identifies causes on synthetic misclassifications: booking vs inquiry (keyword collision), 'book room' vs 'book a room' (language variant), 'order food' on data-pelangi (cross_profile)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -989,6 +1109,74 @@
       "model": "haiku"
     },
     {
+      "id": "US-105",
+      "title": "Add profile-specific fallback response pools to settings.json",
+      "priority": "medium",
+      "description": "Store fallback responses per-profile to enforce business separation. Makan Moments uses cafe-specific responses while Pelangi Capsule uses hostel-specific responses, eliminating cross-contamination in customer-facing text.",
+      "acceptanceCriteria": [
+        "Add `fallbackResponses` object to `src/assistant/data/settings.json` with keys for each profile (pelangi, makan, southern) containing 3-5 profile-specific fallback strings",
+        "Update fallback handler to use `settings.fallbackResponses[currentProfile]` instead of global pool",
+        "Add test in `tests/unit/profile-separation.test.ts` verifying Makan profile never returns Pelangi phrases like 'check-in' or 'room key'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-109",
+      "title": "Implement Fallback Response Variant A/B Testing Framework",
+      "priority": "medium",
+      "description": "Enable creation of fallback response variants and track escalation rates per variant to identify highest-performing fallback text for low-confidence AI scenarios.",
+      "acceptanceCriteria": [
+        "FallbackResponse schema in src/assistant/schemas.ts adds variant_id, variant_group, and tracking_enabled fields; POST /admin/fallback-responses/:id/variants endpoint creates variants with alternative text",
+        "GET /admin/fallback-responses/:id/variants/analysis returns {variant_id, escalation_rate, response_count, avg_time_to_escalation_seconds} aggregated from rainbow_conversations where fallback_variant_id = variant_id",
+        "Booking workflow fallback selection routes to highest-performing variant (lowest escalation_rate) when tracking_enabled=true"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-113",
+      "title": "Create Conversation Summarization Strategy Comparison Test Suite",
+      "priority": "medium",
+      "description": "Evaluate multiple conversation summarization approaches (extractive, key-facts-only, semantic compression) to find optimal balance between token savings and classification accuracy. Automatically recommend best strategy.",
+      "acceptanceCriteria": [
+        "New test file `src/assistant/__tests__/context-summarization-strategies.test.ts` implements 3 strategies in separate modules: extractive (keep first N/last M messages), key-facts (extract dates/names/room-types), semantic (remove repetition via embedding similarity)",
+        "Each strategy measured on metrics: context_tokens_saved (%), intent_classification_accuracy_change (%), summary_coherence_score (1-5 scale); test compares metrics and recommends strategy with best token_saved/accuracy_loss ratio",
+        "CLI command `npm run analyze:summarization-strategies -- --dataset=benchmark` outputs recommendation: 'Use key-facts strategy: saves 65% tokens with 0% accuracy loss' and logs performance table"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-114",
+      "title": "Generate and Enforce Per-Intent Classification Confidence Baselines",
+      "priority": "medium",
+      "description": "Analyze intent classification performance to determine optimal confidence thresholds per intent. High-accuracy intents use stricter thresholds, low-accuracy intents use relaxed thresholds to reduce misclassifications.",
+      "acceptanceCriteria": [
+        "Tool in `src/assistant/tools/confidence-baseline-generator.ts` processes benchmark dataset to output JSON file `src/assistant/data/confidence-baselines.json` with structure: { intent_name, recommended_threshold, confidence_p50, confidence_p75, accuracy_at_threshold, sample_count }",
+        "Confidence baseline validator integrated into `src/assistant/pipeline/intent-classifier.ts` line where intent is selected: if predicted_confidence < baseline_for_intent, trigger fallback instead of executing intent (with log: `WARN: booking confidence 0.72 below baseline 0.75, escalating`)",
+        "CLI command `npm run generate:confidence-baselines -- --profile=data-pelangi` generates baselines and unit test `src/assistant/__tests__/confidence-baselines.test.ts` verifies: intents with higher recommended thresholds have ≥5% higher accuracy when threshold is enforced"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-086",
       "title": "Add guest communication preference detection from conversation history",
       "priority": "low",
@@ -1131,6 +1319,40 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-054",
+      "title": "Add profile ownership validation to prevent workflows from executing with wrong business profile",
+      "priority": "high",
+      "description": "Enforce that workflows execute only within their designated profile (Pelangi/Makan/Southern). Prevents the ongoing data contamination issue where Pelangi workflows mistakenly run for Makan or Southern guests, causing incorrect responses.",
+      "acceptanceCriteria": [
+        "Workflow schema in `src/assistant/schemas.ts` adds required `profileId` field with enum constraint ('pelangi' | 'makan' | 'southern')",
+        "Workflow executor in `src/assistant/pipeline/workflow-executor.ts` validates `workflow.profileId === currentConversation.profileId` before executing any workflow step; throws ProfileMismatchError if profiles differ",
+        "Test `src/assistant/__tests__/profile-workflow-isolation.test.ts` verifies Makan workflow cannot execute for Pelangi conversation and error message includes both profile IDs for debugging"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-053",
+      "title": "Add intent keyword variants for Malaysian English and common local hospitality terms",
+      "priority": "high",
+      "description": "Expand intent keyword matching to recognize Malaysian English spellings and local hospitality vocabulary. This improves booking intent accuracy for guests using regional terms (e.g., 'flat' vs 'apartment', 'nites' vs 'nights', 'toilet' vs 'bathroom').",
+      "acceptanceCriteria": [
+        "File `src/assistant/data/intent-keywords.json` adds 'regional_variants' object under 'booking' intent with minimum 20 Malaysian English variants including spelling differences and local terms",
+        "Intent classifier in `src/assistant/intent-classifier.ts` checks both standard and regional variants when calculating intent match scores",
+        "Test `src/assistant/__tests__/intent-regional-variants.test.ts` verifies Malaysian English phrases like 'how much for 3 nites' and 'can stay in flat near airport' match booking intent with score >= 0.75"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-048",

@@ -10,7 +10,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
 import { deadLetterQueue } from '../../../shared/schema.js';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, count } from 'drizzle-orm';
 
 const router = Router();
 
@@ -23,7 +23,7 @@ router.get('/dlq', async (req: Request, res: Response) => {
 
     // Get total count
     const countResult = await db
-      .select({ count: db.$count })
+      .select({ count: count() })
       .from(deadLetterQueue);
     const total = countResult[0]?.count || 0;
 
