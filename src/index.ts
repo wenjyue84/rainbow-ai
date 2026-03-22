@@ -78,6 +78,7 @@ import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
+import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -110,6 +111,20 @@ try {
 } catch (err: any) {
   console.error(err.message);
   process.exit(1);
+}
+
+// US-044: Profile data schema validation.
+// Checks that each profile's data files contain only profile-appropriate content.
+// Blocks startup when STRICT_PROFILE_VALIDATION=true; otherwise logs a warning.
+{
+  const profileReport = validateAllProfiles(join(__dirname_main, '..'));
+  if (!profileReport.isClean) {
+    console.warn('[Startup] WARNING: Profile data contamination detected:\n' + formatReport(profileReport));
+    if (process.env.STRICT_PROFILE_VALIDATION === 'true') {
+      console.error('[Startup] FATAL: Aborting startup due to profile data contamination (STRICT_PROFILE_VALIDATION=true)');
+      process.exit(1);
+    }
+  }
 }
 
 // US-499: Initialize DB pool now that secrets/env are loaded.

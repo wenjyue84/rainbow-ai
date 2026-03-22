@@ -1010,6 +1010,7 @@ This plan outlines the implementation of a prompt injection detection mechanism 
 - RTK hook blocks vitest/tsc when not prefixed with rtk - use node_modules/.bin/vitest directly
 - chat-engine.ts has pre-existing TypeScript errors (lines 264, 267, 377) unrelated to this story
 
+<<<<<<< Updated upstream
 ## Iteration N - Story: US-043 - Add intent classification confidence metrics and per-profile baselines
 
 ### What was implemented
@@ -1104,4 +1105,35 @@ Based on the user story and project structure, here is a technical brief for the
 *   The definition of `success_rate` is ambiguous. The implementation will need to assume "success" means a confidence score above a set threshold (e.g., >0.8) or requires a follow-up mechanism to be defined.
 *   The `intent_analytics` table will grow quickly. Ensure `(profile, intent_type)` is indexed to maintain query performance.
 *   The metrics endpoint must gracefully handle cases where no data is available for a given profile, returning an empty set or `0` values instead of erroring.
+=======
+## Pre-analysis for US-043 (Gemini 2.5 Pro)
+This technical brief is for a TypeScript/Node.js project, as the user story's details (file paths, technologies) conflict with the Frappe/Python context provided.
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**User Story:** US-043: Add intent classification confidence metrics and per-profile baselines.
+
+**Technical Brief:**
+
+1.  **Files to Modify:**
+    *   `src/assistant/intent-classifier.ts` (or similar): To add confidence and latency logging after a classification occurs.
+    *   `shared/schema.ts`: To define a new `intent_analytics` table using the Drizzle ORM for the Neon (Postgres) database.
+    *   `src/routes/admin/metrics.ts` (new or existing file): To create the new `GET /admin/metrics/intent-classification` endpoint.
+    *   `src/assistant/__tests__/intent-classification.test.ts`: To implement the new unit test for Spearman correlation.
+
+2.  **Key Components (DocType/Hooks Analogues):**
+    *   **Drizzle Schema:** A new table, `intent_analytics`, is required. Columns should include `id`, `profile_id`, `intent_type`, `confidence_score` (float), `latency_ms` (integer), and `created_at`.
+    *   **API Route:** A new admin-level API endpoint for exposing the aggregated metrics.
+
+3.  **Implementation Approach:**
+    *   In `shared/schema.ts`, define the `intent_analytics` table.
+    *   In the core intent classification logic, after a prediction is made, asynchronously insert the result (confidence, latency, etc.) into this new table.
+    *   Implement the `/admin/metrics/intent-classification` endpoint. Use Drizzle's aggregate functions to query the `intent_analytics` table, grouping by `intent_type` and `profile`. Use `PERCENTILE_CONT(0.95)` for p95 latency.
+    *   For the unit test, use a labeled dataset to compare predictions against ground truth. Install a statistics library (`spearman-rank-correlation` or similar) to calculate the correlation between confidence scores and correctness.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Latency Metric:** Ensure the database insert is non-blocking to avoid adding significant latency to the classification itself.
+    *   **Success Rate Definition:** The acceptance criteria require a `success_rate`, but the logging mechanism doesn't track correctness. The metric may need to be defined as "confidence > threshold" unless a feedback mechanism exists.
+    *   **p95 Latency Calculation:** This requires a specific Postgres function; ensure Drizzle can express it or fall back to a raw SQL query.
+    *   **Test Data:** The correlation test requires a high-quality, labeled dataset where the "correct" intent is known.
+>>>>>>> Stashed changes
 
