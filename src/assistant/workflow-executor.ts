@@ -52,6 +52,7 @@ export interface WorkflowContext {
   phone?: string;
   pushName?: string;
   instanceId?: string;
+  profileId?: string;  // US-054: Current profile for workflow ownership validation
 }
 
 let sendMessageFn: SendMessageFn | null = null;
@@ -166,6 +167,20 @@ export async function executeWorkflowStep(
   if (!workflow) {
     return {
       response: 'Workflow not found. Please contact support.',
+      newState: null
+    };
+  }
+
+  // ─── US-054: Profile Ownership Validation ────────────────────────────
+  // Prevent workflows from executing with wrong business profile
+  const workflowProfile = (workflow as any).profileId;
+  const currentProfile = context.profileId;
+
+  if (workflowProfile && currentProfile && workflowProfile !== currentProfile) {
+    const errorMessage = `ProfileMismatchError: workflow "${state.workflowId}" (profile: ${workflowProfile}) cannot execute for conversation profile: ${currentProfile}`;
+    console.error(`[WorkflowExecutor] ${errorMessage}`);
+    return {
+      response: 'Workflow configuration error. Please contact support.',
       newState: null
     };
   }

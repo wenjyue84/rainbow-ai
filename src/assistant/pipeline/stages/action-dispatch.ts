@@ -351,7 +351,7 @@ async function handleWorkflow(
   context.trackWorkflowStarted(phone, msg.pushName, workflow.name);
   const workflowState = context.createWorkflowState(workflowId);
   const workflowResult = await context.executeWorkflowStep(
-    workflowState, null, { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId }
+    workflowState, null, { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId, profileId: state.profileId }
   );
 
   if (workflowResult.newState) {
