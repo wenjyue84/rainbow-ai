@@ -110,3 +110,63 @@ Here is a technical brief for the Claude agent.
 - prd.json had merge conflicts; used `git checkout --ours` to resolve
 - The workflow displays static credit messages; actual credit processing happens via staff notification
 
+
+## Iteration - Story: US-072 Booking Cancellation Workflow
+
+### What was implemented
+1. **Credit Calculation Function** (`src/tools/bookings.ts`):
+   - `calculateCancellationCredit(checkInDate: string | Date): string`
+   - Returns "100% credit applied" for cancellations >48 hours before check-in
+   - Returns "50% credit applied" for cancellations <=48 hours before check-in
+   - Includes error handling for invalid date formats
+
+2. **Booking Cancellation Workflow** (`src/assistant/data/workflows.json`):
+   - New workflow ID: `process_booking_cancellation` 
+   - 10-node workflow with the following flow:
+     - Confirmation prompt (confirm_cancellation)
+     - Condition node to check confirmation (check_cancellation_intent)
+     - Option to decline (cancellation_declined)
+     - Check-in date input node (ask_checkin_date)
+     - Date format validation (validate_checkin_date)
+     - Invalid date error handling with reprompt (invalid_date_error)
+     - Credit calculation via function call (calculate_credit)
+     - Display credit result (display_credit_message)
+     - Admin notification via WhatsApp (notify_admin_cancellation)
+     - Final confirmation message (cancellation_complete)
+   - Full i18n support with EN/MS/ZH text
+
+3. **Test Coverage** (2 test files):
+   - `src/assistant/__tests__/booking-cancellation-credit.test.ts`:
+     - 7 tests covering credit calculation logic
+     - Tests for 72-hour boundary (100% credit)
+     - Tests for 24-hour cancellation (50% credit)
+     - Tests for 48-hour boundary edge case
+     - Tests for ISO date string handling
+     - Tests for invalid date graceful handling
+   - `src/assistant/__tests__/booking-cancellation-workflow.test.ts`:
+     - 9 tests verifying workflow structure
+     - Validates all required nodes exist and are properly connected
+     - Verifies i18n text completeness in all prompts
+
+### Acceptance Criteria Met
+✅ New workflow step 'process_booking_cancellation' in `src/assistant/data/workflows.json` includes confirmation prompt and credit tier logic
+✅ Credit calculation function in `src/tools/bookings.ts` returns guest credit message with amount based on cancellation timing
+✅ Test assertions pass:
+   - Cancellation 72 hours before check-in returns '100% credit applied' ✅
+   - Cancellation 24 hours before check-in returns '50% credit applied' ✅
+
+### Patterns Discovered
+- Workflows use node-based format with function-type nodes for business logic integration
+- Credit messages are returned as strings and inserted into workflow templates via {{workflow.data.credit_result}}
+- Function nodes call TypeScript functions directly using function name and inputs mapping
+
+### Gotchas
+- Date boundary is exactly 48 hours: >48h = 100%, <=48h = 50%
+- Workflow uses regex-based date validation for user input - more flexible than strict YYYY-MM-DD
+- Admin notifications in workflow use {{system.admin_phone}} placeholder which needs runtime substitution
+
+### Build & Test Results
+- All 16 tests pass (7 credit calculation + 9 workflow structure)
+- Build succeeds with no errors (pre-existing warning in logger.ts)
+- Server initialization validates successfully (fails on missing DATABASE_URL as expected)
+
