@@ -61,9 +61,7 @@
       "estimatedComplexity": "medium",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-22T17:49:02Z"
+      "model": "haiku"
     },
     {
       "id": "US-044",
@@ -321,6 +319,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-072",
+      "title": "Add booking cancellation workflow with automatic guest credit calculation",
+      "priority": "high",
+      "description": "Handle guest-initiated cancellation intents with automated credit calculation based on days-until-check-in. New workflow step routes cancellations through confirmation and credit issuance, supporting refund policies (100% if >48h, 50% if <48h).",
+      "acceptanceCriteria": [
+        "New workflow step 'process_booking_cancellation' in `src/assistant/data/workflows.json` includes confirmation prompt and credit tier logic",
+        "Credit calculation function in `src/tools/booking-tools.ts` returns guest credit message with amount based on cancellation timing",
+        "Test assertion: cancellation 72 hours before check-in returns '100% credit applied'; cancellation 24 hours before returns '50% credit applied'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-073",
+      "title": "Build intent classifier uncertainty analyzer for low-confidence prediction debugging",
+      "priority": "high",
+      "description": "When intent classification confidence falls below 0.65, analyze and log which features (matched keywords, context signals, embedding similarity) contributed to the uncertain prediction. Provide admin visibility into frequently confused intent pairs.",
+      "acceptanceCriteria": [
+        "New analyzer function `analyzeClassificationUncertainty()` in `src/assistant/schemas.ts` returns per-feature confidence contributions for low-confidence predictions (e.g., '{\"booking_keywords\": 0.4, \"inquiry_keywords\": 0.35, \"context_signal\": 0.25}')",
+        "Admin CLI command `npm run analyze-intent-confusion --threshold 0.65 --days 7` outputs top 5 confused intent pairs with a confusion matrix and common triggering keywords",
+        "Test assertion: low-confidence 'booking' intent containing word 'room' correctly identifies 'booking_keywords' and 'inquiry_keywords' as competing signals with near-equal weights"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-035",
       "title": "Add DLQ overflow alert and webhook notification for message queue",
       "priority": "medium",
@@ -561,6 +593,57 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-074",
+      "title": "Implement conversation message summarization for threads exceeding 12 messages",
+      "priority": "medium",
+      "description": "Compress older conversation history into a brief factual summary to reduce AI context window size while preserving key details (booking dates, room types, guest names). Helps maintain conversation coherence in long multi-turn dialogues without losing critical information.",
+      "acceptanceCriteria": [
+        "Summarization middleware in `src/assistant/pipeline/context-summarizer.ts` triggers when conversation message count > 12, generating a 3-5 sentence factual summary of prior messages",
+        "Summary is prepended to system prompt in `src/assistant/engines/ai-engine.ts` with clear delimiter '**Conversation Summary**: [facts]'",
+        "Integration test with 15-message booking conversation shows context token reduction >50% while preserving all booking-critical details (dates, room counts, guest name)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-075",
+      "title": "Implement fallback response effectiveness metric tracking and admin analytics",
+      "priority": "medium",
+      "description": "Track which fallback response templates are most effective by measuring user follow-up actions (subsequent intents, escalations). Enable data-driven fallback response selection to improve resolution rates when AI confidence is low.",
+      "acceptanceCriteria": [
+        "Add `fallback_template_id` and `follow_up_action` columns to `rainbow_messages` table via Drizzle migration in `shared/schema-tables.ts`",
+        "Admin API endpoint `GET /admin/analytics/fallback-effectiveness?profile=data-pelangi` returns follow-up success rate per fallback template (e.g., 'suggest_escalation': 0.65)",
+        "Test assertion: fallback response with >70% follow-up success rate is identified and ranked higher than <40% success variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-076",
+      "title": "Add multi-turn conversation contradiction detector for data quality monitoring",
+      "priority": "medium",
+      "description": "Detect when guests make contradictory statements across conversation turns (e.g., 'I arrive on 2026-03-25' followed by 'I checked in 2026-03-20'). Log contradictions to identify potential user confusion or data entry errors.",
+      "acceptanceCriteria": [
+        "New validator function `detectStatementContradictions()` in `src/assistant/pipeline/validators.ts` analyzes last 4 messages for conflicting dates, room numbers, or guest identifiers",
+        "Detected contradictions logged to `conversation_feedback` table with type ('date_conflict', 'room_conflict', 'guest_identity_mismatch') and message pair IDs",
+        "Unit test: conversation with 'check-in: 2026-03-25' then 'checked in 2026-03-20' correctly flagged as date_conflict contradiction"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

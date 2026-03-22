@@ -1074,3 +1074,34 @@ FAILED diagnosis-block gate: Add intent classification confidence metrics and pe
 
 ## Iteration N - Completed
 Completed: Add intent classification confidence metrics and per-profile baselines (ID: US-043)
+
+## Pre-analysis for US-043 (Gemini 2.5 Pro)
+Based on the user story and project structure, here is a technical brief for the Claude agent.
+
+***
+
+**Project:** Rainbow AI (Node.js/TypeScript), not Frappe/Python.
+
+**Objective:** Implement metrics for intent classification accuracy and latency.
+
+**1. Python Files to Modify (TypeScript Equivalents):**
+*   `src/assistant/intent-classifier.ts`: To add logging for confidence scores and latency after a classification is made.
+*   `src/routes/admin.ts` or `src/routes/metrics.ts` (new): To create the new `GET /admin/metrics/intent-classification` endpoint.
+*   `src/lib/db/schema.ts` or `shared/schema.ts`: To define or verify the schema for the `intent_analytics` table.
+*   `src/assistant/__tests__/intent-classification.test.ts`: To add the new validation unit test.
+
+**2. Frappe DocTypes/Hooks (Project Equivalents):**
+*   **Database Table:** `intent_analytics`. The core component where raw data (confidence, latency, profile, intent type) will be stored in the Neon PostgreSQL database.
+*   **API Route:** A new `GET` route, likely `/admin/metrics/intent-classification`, will be registered in the Hono/Express router.
+
+**3. Recommended Implementation Approach:**
+1.  Modify the main intent classification function to wrap the core logic with a high-resolution timer (e.g., `performance.now()`) to capture `latency_ms`.
+2.  After getting a result, use the Drizzle ORM client to perform an async `insert` into the `intent_analytics` table with the classification result, confidence score, and latency.
+3.  Create a new route handler that uses Drizzle to query `intent_analytics`. The query should use `avg()`, `percentileCont(0.95)`, and `count()` grouped by `intent_type` and `profile`.
+4.  For the unit test, create a dataset of test phrases and their correct intents. Calculate the Spearman correlation between the model's confidence scores and the actual correctness (1 for correct, 0 for incorrect) to validate the metric's reliability.
+
+**4. Edge Cases & Gotchas:**
+*   The definition of `success_rate` is ambiguous. The implementation will need to assume "success" means a confidence score above a set threshold (e.g., >0.8) or requires a follow-up mechanism to be defined.
+*   The `intent_analytics` table will grow quickly. Ensure `(profile, intent_type)` is indexed to maintain query performance.
+*   The metrics endpoint must gracefully handle cases where no data is available for a given profile, returning an empty set or `0` values instead of erroring.
+
