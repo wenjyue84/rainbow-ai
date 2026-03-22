@@ -1982,3 +1982,44 @@ Based on the user story, here is a technical brief for the Frappe/Python impleme
 *   The recommendation logic ("Suggest room X") requires a separate query to find suitable, available rooms, adding scope.
 *   The front-end currently cannot consume structured warnings from `frappe.throw`. The "actionable" part might need a custom client script to interpret the message.
 
+
+## Iteration 5 - Story: US-068 - Add pre-confirmation booking business rule validator with actionable conflict warnings
+### What was implemented
+- Added `validatePreConfirmationRules()` function to `src/assistant/pipeline/booking-validators.ts`
+  - Function signature: `validatePreConfirmationRules(guestId, roomId, checkInDate, nightCount, profile)`
+  - Returns structured result with `isValid`, `warnings` array, and `recommendations` array
+  - Validates 4 business rules:
+    1. Guest has not exceeded max_stay_nights (queries database for guest booking history)
+    2. Room capacity >= guest_count
+    3. Check-in within advance_booking_window days (default: 90)
+    4. Check-out not in the past
+- Added config keys to `src/assistant/data/settings.json`:
+  - `maxStayDays`: 30 (max consecutive nights a guest can book)
+  - `advanceBookingWindow`: 90 (max days in advance a booking can be made)
+  - `stayCeiling`: 45 (threshold days for stay warnings)
+- Created comprehensive test suite in `tests/unit/booking-validators.test.ts` with 8 tests:
+  1. Valid booking with all rules met (isValid=true)
+  2. Max stay exceeded warning
+  3. Room capacity exceeded warning
+  4. Past checkout date rejection
+  5. Advance booking window exceeded warning
+  6. Multiple concurrent violations
+  7. Graceful DB error handling (fail-open)
+  8. Case-insensitive guest name matching
+
+### Patterns discovered
+- Database queries use scheduled_messages table with JSON variables field
+- Guest lookup is name-based string matching (case-insensitive)
+- Fail-open pattern allows graceful degradation when DB is unavailable
+- Settings follow snake_case in JSON, camelCase in TypeScript interfaces
+
+### Gotchas
+- Guest history lookup depends on guest name matching; ID-based lookup would be more reliable
+- Room capacity info comes from profile object; no dedicated room table in Rainbow schema
+- Database errors are logged but don't block booking (intentional fail-open behavior)
+- Settings config keys use camelCase (maxStayDays) not snake_case
+
+### Test Results
+- All 8 new tests pass ✓
+- Build succeeds with 0 new errors ✓
+- Pre-existing type errors in drizzle-orm definitions are unaffected ✓
