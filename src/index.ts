@@ -79,6 +79,7 @@ import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
+import { validateProfileIntents } from './lib/config.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -203,6 +204,16 @@ ensureStockEventsTable().catch(err => {
 try {
   await configStore.init();
   console.log('[Startup] Default ConfigStore initialized successfully');
+
+  // US-057: Validate that default profile intents match expected profile type
+  // Prevents cross-contamination where cafe profiles accidentally load hostel intents
+  try {
+    validateProfileIntents(configStore.profileId, configStore.getIntents());
+    console.log(`[Startup] Profile intent validation passed for ${configStore.profileId}`);
+  } catch (validationErr: any) {
+    console.error(validationErr.message);
+    process.exit(1);
+  }
 } catch (err: any) {
   console.error('[Startup] Failed to initialize ConfigStore:', err.message);
   console.error('[Startup] Admin API may not function correctly until config files are fixed');

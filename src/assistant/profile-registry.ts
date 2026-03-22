@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { ConfigStore } from './config-store.js';
 import { KnowledgeBaseInstance } from './knowledge-base-instance.js';
+import { validateProfileIntents } from '../lib/config.js';
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -117,6 +118,13 @@ class ProfileRegistryClass {
       try {
         await profile.configStore.init();
         console.log(`[ProfileRegistry] ConfigStore initialized for profile: ${id}`);
+
+        // US-057: Validate profile intents at startup to prevent cross-contamination
+        try {
+          validateProfileIntents(id, profile.configStore.getIntents());
+        } catch (validationErr: any) {
+          throw new Error(`[Startup] Profile intent validation failed for "${id}": ${validationErr.message}`);
+        }
       } catch (err: any) {
         console.error(`[ProfileRegistry] ConfigStore init failed for ${id}:`, err.message);
       }
