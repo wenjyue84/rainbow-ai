@@ -452,3 +452,50 @@ Here is the technical brief for user story US-082.
 - Metrics include startTime for calculating duration independently (not just relying on endTime - startTime)
 - Slow transaction warning threshold is 5000ms (configurable in logTransactionMetrics)
 - Error object is stored in metrics for monitoring purposes (not just boolean success flag)
+## Iteration 1 - Mon, Mar 23, 2026  5:25:38 AM
+FAILED diagnosis-block gate: Add database transaction wrapping for booking workflow execution with automatic rollback (ID: US-082) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-082 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-082.
+
+**Note:** The user story refers to TypeScript files (`.ts`), not Python. This brief is based on the provided story's content.
+
+**Technical Brief: US-082 - Transactional Workflow Execution**
+
+1.  **Files to Modify:**
+    *   `src/assistant/pipeline/workflow-executor.ts`: The primary logic for workflow execution resides here.
+    *   `tests/workflow-transactions.test.ts`: A new or existing test file for verifying the transaction logic.
+
+2.  **Core Components Involved (Node.js/TypeScript Context):**
+    *   The `executeWorkflow()` function in `workflow-executor.ts` is the main entry point.
+    *   The underlying database client (e.g., Drizzle, Prisma, node-postgres) will be used to create and manage the transaction.
+
+3.  **Recommended Implementation Approach:**
+    *   Modify `executeWorkflow()` to wrap the entire sequence of step executions in a database transaction block (e.g., `db.transaction(async (tx) => { ... })`).
+    *   Pass the transactional database client instance (`tx`) to each executing step, ensuring all database operations within the workflow share the same transaction.
+    *   Use a `try...catch` block within the transaction. If any step throws an error, the `catch` block should re-throw it to ensure the transaction manager initiates a `ROLLBACK`.
+    *   If the block completes without errors, the transaction will be automatically `COMMIT`ted.
+    *   Add logging for the transaction's start, end, and total duration to help identify potential deadlocks or performance issues.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Transaction Isolation:** Ensure the database connection is configured for `READ_COMMITTED` isolation level as required.
+    *   **Nested Transactions:** Individual workflow steps should not start their own transactions. They must use the transactional client provided by `executeWorkflow`.
+    *   **Async Operations:** All promises within the transaction must be correctly `await`ed to prevent operations from executing outside the transaction scope.
+    *   **Test Design:** The new unit test must explicitly check for the *absence* of data from a successful first step after a second step intentionally fails.
+
+
+## Iteration 2 - Story: US-082 - Add database transaction wrapping for booking workflow execution
+### What was implemented
+- Implementation files already existed from a previous iteration (attempt 1 was blocked by diagnosis gate, not implementation failure)
+- `src/assistant/pipeline/workflow-transaction-handler.ts`: Transaction handler wrapping workflow steps in BEGIN/ROLLBACK/COMMIT
+- `tests/unit/workflow-transactions.test.ts`: 9 tests covering success, rollback, metrics, slow tx detection
+
+### Quality checks (re-verified)
+- ✅ All 9 tests passing (npx vitest run)
+- ✅ Build succeeded (esbuild, 1 pre-existing warning)
+- ✅ prd.json updated: passes = true
+
+### Gotchas
+- Windows does not support `NODE_OPTIONS='...'` inline env syntax — use `npx vitest run` directly instead of `npm run test:run`
+- Python json.load needs `encoding='utf-8'` on Windows (default cp1252 chokes on unicode chars in prd.json)
