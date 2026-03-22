@@ -1073,3 +1073,91 @@ FAILED diagnosis-block gate: Implement multi-profile conversation isolation unit
 ### Gotchas
 - The outer SPIRAL loop requires a diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) to be output as plain text BEFORE any file modifications
 - This is a gate check, not a code issue — the code was working from attempt 1
+
+## Iteration [17] - Story: US-155 Implement WhatsApp opt-in consent tracking and enforcement
+
+### What was implemented
+
+**Schema Changes:**
+- Added `whatsappOptedIn` boolean field (default true for backward compatibility)
+- Added `whatsappOptedInAt` timestamp field to track when opt-in was established
+- Both fields added to `rainbow_conversations` table in `shared/schema-tables.ts`
+
+**Consent Enforcement Module (`src/lib/whatsapp/consent-enforcement.ts`):**
+- `checkWhatsAppConsent(phone, profileId?)` - Returns consent status before sending messages
+- `recordWhatsAppOptIn(phone, profileId?)` - Records opt-in event and updates conversation record
+- `recordWhatsAppOptOut(phone, profileId?)` - Records opt-out event (blocks future sends)
+- Fail-open behavior: all checks pass if database unavailable
+- Extracts phone numbers from JID format automatically
+
+**WhatsApp Manager Integration (`src/lib/whatsapp/manager.ts`):**
+- Integrated consent checks into all outbound message methods:
+  - `sendMessage()` - checks consent before text delivery
+  - `sendMedia()` - checks consent before media delivery
+  - `sendInteractiveMessage()` - checks consent before interactive message delivery
+- Throws error with code 'CONSENT_VIOLATION' when consent check fails
+- Error prevents message from being sent
+
+**Message Queue Integration (`src/lib/message-queue.ts`):**
+- Automatically calls `recordWhatsAppOptIn()` for all inbound messages
+- Implements auto opt-in requirement: "Inbound messages automatically set opted_in=true"
+- Runs asynchronously to avoid blocking message processing
+
+**Admin API Routes (`src/routes/admin/whatsapp-consent.ts`):**
+- `GET /api/admin/whatsapp-consent/:phone` - View opt-in status and details for a contact
+- `PATCH /api/admin/whatsapp-consent/:phone` - Update opt-in status (requires x-admin-key)
+- `GET /api/admin/whatsapp-consent` - List all opt-in records with pagination
+  - Query params: `?limit=50&offset=0&optedIn=true&profile=pelangi`
+  - Returns phone, pushName, profileId, whatsappOptedIn, whatsappOptedInAt, optInMethod, optInAt, updatedAt
+- Registered in `src/routes/admin/index.ts`
+
+**Test Coverage (`src/lib/whatsapp/consent-enforcement.test.ts`):**
+- 6 tests covering:
+  - Fail-open behavior when DB unavailable
+  - Phone number extraction from JID format
+  - Graceful error handling
+  - Return type validation
+  - Error reason messages
+
+### Patterns discovered
+
+1. **Fail-Open Philosophy**: All consent checks gracefully handle database unavailability and default to allowing messages rather than blocking them
+2. **Phone Number Normalization**: Phone numbers can come in multiple formats (@s.whatsapp.net JID or plain digits); extract using regex
+3. **Audit Trail Integration**: Consent enforcement leverages existing optInMethod/optInAt fields for cross-story audit compatibility
+4. **Admin API Pattern**: Used established http-utils (badRequest, notFound, ok, serverError) for consistent error responses
+5. **Async Event Recording**: Non-blocking opt-in recording for inbound messages prevents performance impact
+
+### Gotchas
+
+1. **Pre-existing compliance field**: Table already had optInAt/optInMethod from US-979 (marketing opt-in audit trail). US-155 adds whatsappOptedIn as an explicit enforcement field separate from marketing opt-in
+2. **Windows path handling**: Build succeeded with bash commands; esbuild handled new .ts files correctly
+3. **Fail-open design**: By design, if consent check fails (DB error), message sends anyway. This prevents outages but requires monitoring
+
+### Acceptance Criteria Verification
+
+✅ **AC1: Guest table has 'whatsapp_opted_in' boolean field with timestamp**
+- Added whatsappOptedIn (boolean, not null, default true)
+- Added whatsappOptedInAt (timestamp, nullable)
+
+✅ **AC2: baileys-client refuses to send outbound messages when opted_in=false, logs violation**
+- checkWhatsAppConsent() called in all send methods
+- Throws CONSENT_VIOLATION error with reason logged
+- Message not sent if consent check fails
+
+✅ **AC3: Admin can view/manage opt-in status per guest via API**
+- GET /api/admin/whatsapp-consent/:phone returns full consent details
+- PATCH /api/admin/whatsapp-consent/:phone allows toggling opted_in status
+- GET /api/admin/whatsapp-consent lists paginated records with filtering
+
+✅ **AC4: Inbound messages automatically set opted_in=true with audit log**
+- enqueueMessage() calls recordWhatsAppOptIn() for every inbound message
+- Updates whatsappOptedIn=true and whatsappOptedInAt
+- Logger records event with metadata
+
+### Quality Checks Results
+
+✅ Build: Successful (1 pre-existing warning only)
+✅ Tests: 6/6 passing
+✅ TypeScript: No new errors introduced
+✅ Integration: Registered in admin routes, compatible with existing code
+
