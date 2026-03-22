@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-048",
-      "title": "Add past-date check-in validation with alternative date suggestions",
-      "priority": "high",
-      "description": "Booking workflow validation should reject check-in dates in the past and automatically suggest the next available date (tomorrow or 1 month ahead). Improves booking workflow reliability.",
-      "acceptanceCriteria": [
-        "Booking workflow steps in workflows.json include date validation before confirmation step",
-        "Past-date rejections suggest next valid date (tomorrow if today is check-in, next available if past)",
-        "Unit tests verify past dates rejected, future dates accepted, month/year rollover handled correctly"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-053",
       "title": "Add intent keyword variants for Malaysian English and common local hospitality terms",
       "priority": "high",
@@ -446,6 +429,40 @@
         "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
         "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
         "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-097",
+      "title": "Integrate contamination detection into GitHub Actions CI pipeline",
+      "priority": "high",
+      "description": "Automate the existing profile contamination detection CLI by adding GitHub Actions workflow that blocks PRs with cross-profile intent routing violations, enforcing profile separation at merge time",
+      "acceptanceCriteria": [
+        "Create .github/workflows/data-validation.yml that triggers on every PR to main/master and executes npm run check:contamination",
+        "Workflow posts PR comment listing any cross-profile intent routing violations found (profile_id mismatch in routing.json mappings)",
+        "CI check fails with exit code 1 and blocks merge if violations detected in any profile's data files"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-098",
+      "title": "Build per-profile intent classifier baseline accuracy tracker",
+      "priority": "high",
+      "description": "Track intent classification accuracy separately for each business profile (Pelangi, Southern, Makan) to detect profile-specific classifier degradation and performance regressions",
+      "acceptanceCriteria": [
+        "Create intent_classifier_baselines table with columns: profile_id, intent_type, accuracy_pct, sample_count, baseline_date",
+        "New CLI command npm run analytics:classifier-baseline compares current accuracy vs stored baseline per intent per profile and outputs delta report",
+        "Unit test validates accuracy calculation on 100-message test set with ground-truth labels, verifying per-profile isolation (Pelangi accuracy independent from Southern)"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -921,6 +938,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-099",
+      "title": "Implement booking workflow step execution timeline tracer",
+      "priority": "medium",
+      "description": "Add step-by-step execution timing to booking workflows to identify bottlenecks and slow state transitions during guest reservation flow",
+      "acceptanceCriteria": [
+        "New file src/assistant/workflows/booking-tracer.ts exports traceBookingWorkflow(workflowId, steps) wrapping each step with entry timestamp, exit timestamp, duration_ms, and result",
+        "Admin endpoint GET /api/admin/bookings/:id/execution-timeline returns {steps: [{name, duration_ms, status, output}], total_duration_ms} for chronological step analysis",
+        "Integration test in test/workflows/booking-tracer.test.ts simulates 5-step flow (check-in, room-assign, payment, confirm, receipt) and verifies timing accuracy within 50ms"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-100",
+      "title": "Add per-conversation message deduplication scope isolation",
+      "priority": "medium",
+      "description": "Confine message deduplication to per-conversation scope instead of global 30-second window to prevent false-positive deduplication across different guest conversations",
+      "acceptanceCriteria": [
+        "Modify src/lib/deduplication.ts isDuplicate(message, conversation_id) to check duplicates only within same conversation_id within 30-second window",
+        "Update src/routes/webhook.ts WhatsApp message handler to pass conversation_id to isDuplicate check",
+        "Integration test verifies identical message sent to conversation_A and conversation_B (both within 30s) are NOT marked as duplicates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-101",
+      "title": "Build fallback escalation path validator CLI tool",
+      "priority": "medium",
+      "description": "Validate fallback escalation logic in settings.json for syntactic correctness and reachability, detecting unreachable targets and circular reference cycles",
+      "acceptanceCriteria": [
+        "New file src/tools/validators/escalation-validator.ts exports validateEscalationPaths(settings) detecting circular references (A→B→A) and missing escalation_group targets",
+        "CLI command npm run validate:escalation-logic validates src/assistant/data/settings.json and outputs detailed error report with file paths and line numbers",
+        "Unit test in test/validators/escalation-validator.test.ts verifies detection of circular reference loop and reference to non-existent escalation_group in fallback_escalation section"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-086",
       "title": "Add guest communication preference detection from conversation history",
       "priority": "low",
@@ -1063,6 +1131,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-048",
+      "title": "Add past-date check-in validation with alternative date suggestions",
+      "priority": "high",
+      "description": "Booking workflow validation should reject check-in dates in the past and automatically suggest the next available date (tomorrow or 1 month ahead). Improves booking workflow reliability.",
+      "acceptanceCriteria": [
+        "Booking workflow steps in workflows.json include date validation before confirmation step",
+        "Past-date rejections suggest next valid date (tomorrow if today is check-in, next available if past)",
+        "Unit tests verify past dates rejected, future dates accepted, month/year rollover handled correctly"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-044",

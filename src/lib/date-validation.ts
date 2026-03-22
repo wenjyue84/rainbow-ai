@@ -137,6 +137,9 @@ export function getDateOneMonthLater(fromDate: string): string {
   future.setMonth(actualMonth);
   future.setDate(day);
 
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
   return formatToISO(future);
 }

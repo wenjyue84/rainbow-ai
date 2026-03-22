@@ -1308,3 +1308,28 @@ FAILED diagnosis-block gate: Add past-date check-in validation with alternative 
 - Attempt 1 failed the diagnosis-block gate (a pre-commit hook check), not due to implementation error
 - The workflows.json update was not persisted in attempt 1; the date-validation.ts and tests were already in place
 - Always output the diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) BEFORE any file edits
+
+## Iteration [N] - Story: US-053 - Add intent keyword variants for Malaysian English and common local hospitality terms
+### What was implemented
+- Verified booking intent has regional_variants object with 22 Malaysian English variants (exceeds minimum of 20)
+- Regional variants include spelling differences: "nites" (nights), "nite" (night)
+- Regional variants include local hospitality terms: "flat" (apartment), "cupboard" (storage room)
+- Multi-word regional variants: "how much for 3 nites", "can stay in flat near airport", "flat for rent"
+- Intent classifier already properly implemented: intents.ts loads regional_variants into FuzzyIntentMatcher (lines 35-44)
+- Fuzzy matcher checks both standard keywords AND regional_variants during matching
+- Existing test file src/assistant/__tests__/intent-regional-variants.test.ts passes all 16 tests
+- Test verifies Malaysian English phrases match booking intent with score >= 0.75 threshold
+- Build passes successfully (esbuild with pre-existing warnings)
+- All tests pass: intent-regional-variants.test.ts (16/16), fuzzy-matcher.test.ts (27/27)
+
+### Patterns discovered
+- Regional variants are loaded alongside standard keywords by the FuzzyIntentMatcher initialization
+- The fuzzy matcher doesn't differentiate between standard and regional variants during matching — all are treated equally
+- Threshold score of 0.75 ensures Malaysian English spelling variants still match booking intent with high confidence
+- Multi-word regional variants (18+ chars, 4+ words) match via substring fallback in FuzzyIntentMatcher.substringMatch()
+
+### Gotchas
+- None identified — implementation was already complete and functional
+
+## Iteration [N] - Completed
+Completed: Add intent keyword variants for Malaysian English and common local hospitality terms (ID: US-053)
