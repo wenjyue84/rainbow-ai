@@ -5,7 +5,7 @@
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
@@ -196,6 +196,8 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   index("idx_rainbow_messages_role").on(table.role),
   index("idx_rainbow_messages_timestamp").on(table.timestamp),
   index("idx_rainbow_messages_phone_role_ts").on(table.phone, table.role, table.timestamp),
+  // US-061: profile_id must be a non-empty string — application sets it before insert
+  check("chk_rainbow_messages_profile_not_empty", sql`profile_id IS NOT NULL AND profile_id <> ''`),
 ]));
 
 // ─── Message Delivery Status (US-426) ────────────────────────────────

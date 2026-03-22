@@ -1695,3 +1695,24 @@ Status: PASSING - US-058 confirmed complete, prd.json updated
 ## Iteration 2 - Mon, Mar 23, 2026  3:18:18 AM
 FAILED diagnosis-block gate: Create data file contamination detection CLI tool with pre-deployment report (ID: US-058) — no diagnosis block found — attempt 2/3
 
+
+## Iteration 24 - Story: US-061 - Add conversation message profile isolation enforcement
+### What was implemented
+- shared/schema-tables.ts: Added `check` import and `chk_rainbow_messages_profile_not_empty` check constraint on rainbowMessages table (enforces profile_id IS NOT NULL AND profile_id <> '')
+- src/lib/conversation.ts (NEW): ProfileMismatchError class + validateMessageProfiles() pure validator + getConversationMessages() DB wrapper
+- tests/unit/conversation-profile-isolation.test.ts (NEW): 11 unit tests covering all pass/fail scenarios
+
+### Patterns discovered
+- Drizzle `check()` imported from `drizzle-orm/pg-core` — supports arbitrary SQL expressions
+- Pure validator function (validateMessageProfiles) is key for unit testability without DB mocking
+- Null profile_id is treated as legacy/unknown — skipped in validation (not treated as a violation)
+
+### Gotchas
+- DB-level check constraint won't reject existing null rows — it only applies to future inserts
+- getConversationMessages() requires a real DB; unit tests cover validateMessageProfiles() instead
+
+### Quality Checks Passed
+- Build: esbuild successful (2.1mb bundle, pre-existing warnings only)
+- Tests: 11/11 passing in conversation-profile-isolation.test.ts
+
+Status: PASSING - US-061 completed successfully
