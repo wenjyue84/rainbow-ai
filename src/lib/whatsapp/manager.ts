@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { WhatsAppInstance } from './instance.js';
 import type { WhatsAppInstanceStatus, InstanceConfig, InstancesFile, MessageHandler } from './types.js';
 import { notifyAdminUnlink } from '../admin-notifier.js';
+import { checkWhatsAppConsent } from './consent-enforcement.js';
 
 // Use process.cwd() (= RainbowAI/) — __dirname is dist/ in esbuild bundle
 const DATA_DIR = process.env.WHATSAPP_DATA_DIR || path.resolve(process.cwd(), 'whatsapp-data');
@@ -235,6 +236,14 @@ export class WhatsAppManager extends EventEmitter {
     const jid = phone.includes('@')
       ? phone
       : `${formatPhoneNumber(phone)}@s.whatsapp.net`;
+
+    // US-155: Check WhatsApp opt-in consent before sending
+    const cleanPhone = phone.replace(/[@a-z.]/g, '');
+    const consent = await checkWhatsAppConsent(cleanPhone);
+    if (!consent.allowed) {
+      console.warn(`[US-155] Consent violation for ${cleanPhone}: ${consent.reason}`);
+      throw new Error(`WhatsApp consent violation: ${consent.reason}`);
+    }
 
     if (instanceId) {
       const instance = this.instances.get(instanceId);

@@ -154,6 +154,9 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   optInMethod: text("opt_in_method"),                         // 'inbound' | 'double_optin' | 'web_form' | 'ctwa_ad' | 'qr_code' | 'in_person'
   optInAt: timestamp("opt_in_at"),                            // Timestamp of confirmed opt-in
   optInChannel: text("opt_in_channel"),                       // Channel where opt-in occurred
+  // US-155: WhatsApp message sending consent (Meta Cloud API requirement)
+  whatsappOptedIn: boolean("whatsapp_opted_in").notNull().default(false), // Explicit consent to receive WhatsApp messages
+  whatsappOptedInAt: timestamp("whatsapp_opted_in_at"),       // Timestamp when consent was given
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),

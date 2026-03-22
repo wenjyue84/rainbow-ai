@@ -100,6 +100,7 @@ import einvoiceRoutes from './einvoice.js';
 import wabaPortfolioRoutes from './waba-portfolio.js'; // US-026
 import fallbackMetricsRoutes from './fallback-metrics.js'; // US-077
 import bookingConfirmRoutes from '../booking-confirm.js'; // US-149
+import whatsappConsentRoutes from './whatsapp-consent.js'; // US-155: WhatsApp opt-in consent
 
 const router = Router();
 
@@ -351,6 +352,7 @@ router.use(inventoryRoutes);
 router.use(campaignPacingRoutes);
 router.use(vectorAccessLogsRoutes); // US-966: OWASP LLM06 vector access audit
 router.use(optInAuditRoutes);      // US-979: WhatsApp marketing opt-in audit trail
+router.use(whatsappConsentRoutes); // US-155: WhatsApp message sending consent tracking
 router.use(marketingSubscriptionsRoutes); // US-969: Double opt-in for marketing subscriptions
 router.use(mmLiteRoutes);          // US-1007: MM Lite API with TTL for time-sensitive promotions
 router.use(aiBomRoutes);                    // US-952: AI-BOM supply chain tracking (OWASP LLM03:2025)

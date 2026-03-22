@@ -73,6 +73,11 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
 
   const rid = state.requestId;
 
+  // US-155: Auto opt-in on inbound message (implicit consent)
+  setImplicitWhatsAppOptIn(phone, state.profileId).catch(err => {
+    console.error(`[US-155] Failed to set implicit opt-in for ${phone}:`, err);
+  });
+
   // US-882: Intercept cart recovery replies ("Resume order" / "Clear cart")
   const recoveryAction = parseCartRecoveryReply(text);
   if (recoveryAction) {
@@ -173,5 +178,21 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
     if (typingEnabled) {
       sendWhatsAppPausedIndicator(phone, msg.instanceId).catch(() => {});
     }
+  }
+}
+
+/**
+ * US-155: Auto opt-in on inbound message
+ * When a guest sends a message to the WhatsApp Business account,
+ * they implicitly give consent to receive messages.
+ */
+async function setImplicitWhatsAppOptIn(phone: string, profileId: string): Promise<void> {
+  try {
+    // Dynamic import to avoid circular dependencies
+    const { recordWhatsAppOptIn } = await import('../lib/whatsapp/consent-enforcement.js');
+    await recordWhatsAppOptIn(phone, profileId);
+  } catch (error) {
+    // Don't throw — this is best-effort background task
+    console.error(`[US-155] Error setting implicit opt-in for ${phone}:`, error);
   }
 }
