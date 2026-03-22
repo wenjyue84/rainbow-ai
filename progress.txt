@@ -789,3 +789,31 @@ This is a TypeScript/Node.js user story. The "Frappe/Python" context will be ign
 *   The validation must run before any other code that might depend on `process.env`.
 *   Remember that all `process.env` values are strings; use Zod's coercion features for numeric validation.
 
+
+## Iteration 7 - Story: US-033 - Add startup environment validation with clear error messages
+### What was implemented
+- Created src/lib/env-validator.ts with Zod-based validation logic:
+  - Validates required vars: DATABASE_URL (postgres://), MCP_SERVER_PORT (1024-65535), NODE_ENV (development/production)
+  - Warns about optional vars: DIGIMAN_API_URL, DIGIMAN_API_TOKEN
+  - Throws consolidated error with all failures listed if any required var is missing/invalid
+- Updated src/index.ts to import and call validateEnvironment():
+  - Added call after Secrets Manager init (line ~110) and before DB pool init
+  - Wrapped in try-catch that exits with code 1 on validation failure
+- Created tests/unit/env-validator.test.ts with 17 comprehensive unit tests:
+  - Tests for each missing required var (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)
+  - Tests for malformed values (invalid URL format, non-numeric port, out-of-range ports)
+  - Tests for valid configurations with boundary values (1024, 65535)
+  - Tests for optional var warnings
+  - Test for multiple concurrent failures in single error message
+
+### Patterns discovered
+- Vitest unit test config in vitest.config.ts includes both src/**/*.test.ts and tests/unit/**/*.test.ts patterns
+- Sparse-checkout issue requires --sparse flag when adding files outside main src/ directory
+- Test failures with .toThrow(regex) can happen when error is caught unexpectedly — safer to use try-catch and assert message properties
+
+### Gotchas
+- vitest.config.ts has deprecated test.poolOptions in Vitest 4 — warnings are expected but harmless
+- Files outside src/ require git add --sparse flag to bypass sparse-checkout restrictions
+
+## Iteration 7 - Completed
+Completed: Add startup environment validation with clear error messages (ID: US-033)
