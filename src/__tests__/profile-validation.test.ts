@@ -234,7 +234,9 @@ describe('formatReport', () => {
     // Find a profile with matches
     const contaminatedProfile = report.profiles.find((p) => p.matches.length > 0);
     expect(contaminatedProfile).toBeDefined();
-    expect(contaminatedProfile?.matches[0].lineNumber).toBe(1);
+    if (contaminatedProfile && contaminatedProfile.matches.length > 0) {
+      expect(contaminatedProfile.matches[0].lineNumber).toBe(1);
+    }
   });
 });
 
