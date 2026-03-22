@@ -47,48 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-061",
-      "title": "Add conversation message profile isolation enforcement in database queries",
-      "priority": "high",
-      "description": "Enforce database and application-level checks that conversation messages can only be accessed within their own profile context. Prevents cross-profile data leakage where Pelangi messages could be retrieved during Makan Moments conversations.",
-      "acceptanceCriteria": [
-        "Add database constraint in Drizzle schema (shared/schema-tables.ts) that enforces rainbow_messages.profile_id must match conversation's profile_id on insert",
-        "Implement profile_id check in src/lib/conversation.ts getConversationMessages() that validates all fetched messages belong to expected profile_id, throws ProfileMismatchError if violation detected",
-        "Add unit test in tests/unit/conversation-profile-isolation.test.ts asserting queries for messages with mismatched profile_id are rejected"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-22T19:21:14Z",
-      "_decomposed": true,
-      "_decomposedInto": [
-        "US-103",
-        "US-104",
-        "US-105"
-      ],
-      "_skipped": true
-    },
-    {
-      "id": "US-062",
-      "title": "Add Mandarin Chinese keyword variants for booking and inquiry intents",
-      "priority": "high",
-      "description": "Expand intent classification to support non-English guests by adding Mandarin (zh) keyword variants. Enables accurate booking and inquiry detection for Mandarin-speaking guests at international hostels.",
-      "acceptanceCriteria": [
-        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '订房', '预订', '房间价格', '入住时间')",
-        "Detect guest language from message text in src/assistant/engine/classifier.ts and trigger Mandarin classifier when zh language detected",
-        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving ≥80% classification accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-063",
       "title": "Implement conversation quality scoring system with per-intent accuracy tracking",
       "priority": "high",
@@ -431,58 +389,6 @@
       "_decomposedFrom": "US-061"
     },
     {
-      "id": "US-105",
-      "title": "Add context-aware fallback response selection based on confidence and conversation history",
-      "priority": "high",
-      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
-        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
-        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-106",
-      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
-      "priority": "high",
-      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
-        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
-        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-107",
-      "title": "Add booking workflow confirmation step validation with required template placeholders",
-      "priority": "medium",
-      "description": "Validate booking workflow send_confirmation steps include required email/SMS templates with all necessary placeholder fields (guest name, dates, confirmation number) before workflow execution.",
-      "acceptanceCriteria": [
-        "Add validateConfirmationStep(step) function in src/assistant/pipeline/booking-validator.ts checking: step.type === 'send_confirmation' requires fields [email_template, sms_template, booking_reference]; verifies placeholders {{guest_name}}, {{check_in_date}}, {{check_out_date}} exist in at least one template; throws ActionableError with step path and missing field list",
-        "Add test in tests/booking-validator.test.ts that loads workflows.json and asserts all send_confirmation steps in booking workflows contain required placeholders; test also verifies invalid workflow (missing email_template) throws error with clear message",
-        "Call validateAllWorkflows() in src/index.ts startup sequence; log 'Booking confirmation validation: 4/4 workflows valid' or exit with error listing which workflow and which step requires repair"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-005",
       "title": "Fix .rej rejected patch files from previous Spiral run",
       "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
@@ -608,6 +514,48 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-061",
+      "title": "Add conversation message profile isolation enforcement in database queries",
+      "priority": "high",
+      "description": "Enforce database and application-level checks that conversation messages can only be accessed within their own profile context. Prevents cross-profile data leakage where Pelangi messages could be retrieved during Makan Moments conversations.",
+      "acceptanceCriteria": [
+        "Add database constraint in Drizzle schema (shared/schema-tables.ts) that enforces rainbow_messages.profile_id must match conversation's profile_id on insert",
+        "Implement profile_id check in src/lib/conversation.ts getConversationMessages() that validates all fetched messages belong to expected profile_id, throws ProfileMismatchError if violation detected",
+        "Add unit test in tests/unit/conversation-profile-isolation.test.ts asserting queries for messages with mismatched profile_id are rejected"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-22T19:21:14Z",
+      "_decomposed": true,
+      "_decomposedInto": [
+        "US-103",
+        "US-104",
+        "US-105"
+      ],
+      "_skipped": true
+    },
+    {
+      "id": "US-062",
+      "title": "Add Mandarin Chinese keyword variants for booking and inquiry intents",
+      "priority": "high",
+      "description": "Expand intent classification to support non-English guests by adding Mandarin (zh) keyword variants. Enables accurate booking and inquiry detection for Mandarin-speaking guests at international hostels.",
+      "acceptanceCriteria": [
+        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '订房', '预订', '房间价格', '入住时间')",
+        "Detect guest language from message text in src/assistant/engine/classifier.ts and trigger Mandarin classifier when zh language detected",
+        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving ≥80% classification accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-058",
