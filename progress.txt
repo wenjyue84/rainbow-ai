@@ -1547,3 +1547,44 @@ Status: PASSING - US-056 completed successfully
 ## Iteration 1 - Mon, Mar 23, 2026  2:58:01 AM
 FAILED diagnosis-block gate: Add real-time room availability validation during booking confirmation (ID: US-056) — no diagnosis block found — attempt 1/3
 
+
+## Iteration [20] - Story: US-057 - Implement startup profile-aware intent validation to prevent cross-contamination
+### What was implemented
+- validateProfileIntents() function in src/lib/config.ts (lines 67-100)
+  * Defines HOSTEL_INTENT_CATEGORIES set with 45 hostel-specific intent IDs
+  * Defines PROFILE_TYPES mapping (pelangi, southern = hostel; makan-moments = cafe)
+  * For cafe profiles, checks that no hostel intents are present in loaded intents data
+  * Throws Error with profile name and list of contaminated intents if mismatch detected
+  * Skips validation for hostel profiles and unknown profiles
+- Startup validation check in src/index.ts (lines 208-216)
+  * Called after configStore.init() but BEFORE admin routes mount at line 852
+  * Catches validation errors, logs message, and exits with code 1 on contamination
+  * Provides clear startup logging for both success and failure paths
+- Comprehensive unit test suite in tests/unit/profile-contamination.test.ts
+  * 17 tests covering: cafe profile contamination detection, clean cafe profiles, hostel profiles, unknown profiles
+  * Tests error message clarity and deduplication of contaminated intents
+  * All tests passing (17/17)
+
+### Acceptance Criteria Met
+[x] validateProfileIntents() function added to src/lib/config.ts
+[x] Startup check throws Error with profile name and conflicting intents before routes initialize
+[x] Unit test in tests/unit/profile-contamination.test.ts detects 'check_in_arrival' in makan profile
+
+### Patterns discovered
+- Cafe profiles are identified via PROFILE_TYPES mapping (not env var RAINBOW_PROFILE)
+- Validation runs on configStore intents via configStore.getIntents()
+- hostel intent list is curated set (45 categories), not auto-detected
+- Error early at startup prevents silent cross-contamination (critical for data isolation)
+- Set-based lookups provide O(1) contamination checks at scale
+
+### Gotchas
+- Pre-existing DATABASE_URL env validation expects postgres:// but Neon provides postgresql://
+- esbuild build succeeds even with DATABASE_URL mismatch (validation only at startup)
+- Windows NODE_OPTIONS env syntax requires npx vitest directly (not via npm script wrapper)
+
+### Quality Checks Passed
+- Tests: 17/17 passing in profile-contamination.test.ts
+- Build: esbuild successful with pre-existing warnings only
+- Validation: Function callable, error thrown for contaminated cafe profiles, exit on startup failure
+
+Status: PASSING - US-057 completed successfully
