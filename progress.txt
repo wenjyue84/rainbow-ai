@@ -170,3 +170,85 @@ Here is a technical brief for the Claude agent.
 - Build succeeds with no errors (pre-existing warning in logger.ts)
 - Server initialization validates successfully (fails on missing DATABASE_URL as expected)
 
+## Iteration 1 - Mon, Mar 23, 2026  4:23:42 AM
+FAILED diagnosis-block gate: Add booking cancellation workflow with automatic guest credit calculation (ID: US-072) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-072 (Gemini 2.5 Pro)
+### Technical Brief for Claude: User Story US-072
+
+This brief translates story US-072 into a plan for a Frappe/Python environment. The core task is to implement a booking cancellation workflow with automated credit calculation.
+
+**1. Primary Files to Modify:**
+*   **`[app_name]/[doctype]/booking/booking.py`**: The controller for the `Booking` DocType. This will house the main cancellation logic, credit calculation, and state-change methods.
+*   **`[app_name]/config/docs.py`**: If the workflow is defined in code.
+*   **`[app_name]/hooks.py`**: To trigger the cancellation logic on a DocType event if not using a standard Workflow Action.
+
+**2. Frappe Components Involved:**
+*   **DocType: `Booking`**: This is the central document. It requires status fields like 'Confirmed' and 'Cancelled' to integrate with the workflow.
+*   **DocType: `Workflow`**: A new workflow for the `Booking` DocType should be created or an existing one modified to include a "Request Cancellation" action and a "Cancelled" state.
+*   **DocType: `Guest` / `Customer`**: The entity to whom the credit will be issued.
+*   **DocType: `Journal Entry` / `Credit Note`**: To record the calculated credit against the guest's account.
+
+**3. Recommended Implementation Approach:**
+1.  Define a "Cancelled" state and a "Process Cancellation" workflow action for the `Booking` DocType.
+2.  Implement a `process_cancellation` method in `booking.py`. This method will be the target of the workflow action.
+3.  Inside the method, calculate the time until check-in by comparing `frappe.utils.now_datetime()` with the booking's check-in field.
+4.  Apply the credit logic (100% if >48h, 50% if <48h) to the paid amount.
+5.  Generate a new `Credit Note` or `Journal Entry` crediting the guest's account.
+6.  Finally, set the `Booking` docstatus to Cancelled (2).
+
+**4. Edge Cases & Gotchas:**
+*   **Timezones:** All datetime comparisons must be timezone-aware to correctly enforce the 48-hour rule.
+*   **Partial Payments:** The credit calculation must be based on the actual amount paid by the guest, not the total booking value.
+*   **Idempotency:** The cancellation action must be idempotent; check the booking's current status to prevent issuing multiple credits for a single cancellation.
+*   **Permissions:** Ensure only authorized users (e.g., the guest themselves or an admin) can trigger the cancellation action.
+
+## Iteration 1 - Mon, Mar 23, 2026  4:25:40 AM
+FAILED diagnosis-block gate: Add booking cancellation workflow with automatic guest credit calculation (ID: US-072) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-072 (Gemini 2.5 Pro)
+### Technical Brief for Claude: US-072 Cancellation Workflow
+
+This brief outlines the implementation plan for a booking cancellation feature within a TypeScript-based AI assistant, correcting the initial context from Frappe/Python to align with the story's details.
+
+**1. Core Files to Modify:**
+*   `src/assistant/data/workflows.json`: To define the new `process_booking_cancellation` workflow step.
+*   `src/tools/booking-tools.ts`: To add the core credit calculation logic.
+*   `src/tools/__tests__/booking-tools.test.ts` (or similar): To add unit tests for the new credit logic.
+
+**2. Involved Framework Components:**
+*   This is a TypeScript/Node.js project, not Frappe.
+*   **Workflow Engine:** The primary integration point is the custom workflow defined in `workflows.json`, which orchestrates assistant actions.
+*   **Tool Function:** A new function will be registered as a tool for the AI assistant to call.
+
+**3. Recommended Implementation Approach:**
+1.  In `workflows.json`, add a `process_booking_cancellation` step. This step should first confirm the user's intent to cancel.
+2.  Upon confirmation, the workflow should call a new tool function, `calculateCancellationCredit`, in `booking-tools.ts`.
+3.  This new function will calculate the hours until the check-in date.
+4.  It will apply the policy: return a message for 100% credit if >48 hours, and 50% if <=48 hours.
+
+**4. Edge Cases to Consider:**
+*   **Timezone:** Ensure all date calculations are normalized (e.g., to UTC) to prevent errors across different timezones.
+*   **Booking State:** The logic should handle attempts to cancel a booking that is already cancelled, completed, or a no-show.
+*   **Date Format:** Verify robust parsing of the check-in date.
+
+## Iteration 3 - Mon, Mar 23, 2026 - Story: US-072 (Attempt 3 - PASSED)
+
+### What was implemented
+Implementation was already complete from prior iterations (attempts 1 & 2). Both prior attempts failed only due to the diagnosis-block gate — the actual code was correct and working.
+
+### Verification performed
+- `npm run build` — passes (1 pre-existing logger.ts warning)
+- 25/25 tests pass across 3 test files:
+  - `src/tools/bookings.test.ts` (9 tests) — credit calculation with fake timers
+  - `src/assistant/__tests__/booking-cancellation-credit.test.ts` (7 tests) — credit calculation with relative dates
+  - `src/assistant/__tests__/booking-cancellation-workflow.test.ts` (9 tests) — workflow structure validation
+- `process_booking_cancellation` workflow exists in `src/assistant/data/workflows.json` (line 1862)
+- `calculateCancellationCredit()` exported from `src/tools/bookings.ts`
+
+### Gotchas
+- The diagnosis-block gate requires plaintext output with specific headers BEFORE any tool calls that modify files
+- Previous attempts implemented everything correctly but were rejected by the gate check
+
