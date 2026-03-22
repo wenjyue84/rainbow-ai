@@ -1896,3 +1896,52 @@ FAILED diagnosis-block gate: Implement conversation quality scoring system with 
 
 ## Iteration 20 - Completed
 Completed: Add per-profile intent whitelist validator to block cross-contaminated intents at startup (ID: US-067)
+
+## Pre-analysis for US-068 (Gemini 2.5 Pro)
+### **Technical Brief: US-068 Booking Pre-Confirmation Validator**
+
+**Project:** `lhdn_payroll_integration`
+
+**Objective:** Implement a business rule validator that runs before booking confirmation, returning structured warnings for actionable feedback within the UI or workflow.
+
+---
+
+**1. Files to Modify/Create:**
+
+*   **`lhdn_payroll_integration/hooks.py`**: To register the validation function against the appropriate DocType event.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/booking.py`**: The controller file for the 'Booking' DocType is the ideal place to add the core validation logic. If it gets complex, consider a dedicated module `lhdn_payroll_integration/utils/booking_validators.py`.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/test_booking.py`**: To add server-side unit tests for the new validation rules.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocTypes Involved**:
+    *   `Booking`: The primary document to be validated. Assumed to have fields for guest, room, check-in/out dates, and status.
+    *   `Guest`: To calculate total stay history (`max_stay_nights`).
+    *   `Room`: To check `room_capacity`.
+    *   `LHDN Payroll Settings` (or a new 'Booking Settings' DocType): A Singleton DocType to store configurable rules like `max_stay_days`, `advance_booking_window`, etc.
+*   **Hook**:
+    *   Use the `validate` document event in `hooks.py`:
+        ```python
+        doc_events = {
+            "Booking": {
+                "validate": "lhdn_payroll_integration.lhdn_payroll_integration.doctype.booking.booking.validate_pre_confirmation_rules"
+            }
+        }
+        ```
+
+**3. Implementation Approach:**
+
+1.  In the `Booking.py` controller, create the `validate_pre_confirmation_rules(self, method)` function.
+2.  The function should only run if `self.status` is transitioning to a 'Confirmed' state.
+3.  Fetch validation parameters (e.g., `max_stay_days`) from the singleton Settings DocType using `frappe.get_single(...)`.
+4.  Implement the validation logic: stay limits, room capacity, and date checks.
+5.  Instead of immediately throwing an exception with `frappe.throw`, collect warnings into a list of dictionaries.
+6.  If any warnings are generated, use `frappe.msgprint` to display them to the user. To provide structured data back to the client-side for advanced handling, consider adding a custom (non-saved) field on the DocType and populating it with the JSON of the warnings.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Settings Not Found**: The code must handle cases where the settings DocType has not been configured, using sensible defaults.
+*   **Guest Stay Calculation**: Ensure the query for a guest's total nights correctly sums up only *confirmed* past and future bookings to avoid double-counting.
+*   **Past Dates**: The check for past-date bookings should be timezone-aware, using Frappe's date utilities.
+*   **Workflow vs. Validate Hook**: The `validate` hook fires on every save. Ensure the logic is conditional on the booking's status to prevent it from running unnecessarily (e.g., on a draft save).
+
