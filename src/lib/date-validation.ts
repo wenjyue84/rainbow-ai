@@ -13,11 +13,35 @@ export interface DateValidationResult {
 }
 
 /**
- * Parse ISO date string to Date object
+ * Parse ISO date string to Date object with validation
+ * Returns null if the date is invalid or doesn't match expected format
  */
 function parseISODate(dateStr: string): Date | null {
-  const parsed = new Date(dateStr);
-  return !isNaN(parsed.getTime()) ? parsed : null;
+  // Validate ISO format: YYYY-MM-DD
+  const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return null;
+
+  const year = parseInt(isoMatch[1], 10);
+  const month = parseInt(isoMatch[2], 10);
+  const day = parseInt(isoMatch[3], 10);
+
+  // Validate ranges
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day);
+
+  // Check if the parsed date matches the input (e.g., Feb 30 -> invalid)
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
 }
 
 /**
@@ -40,7 +64,8 @@ function getTodayUTC(): Date {
 }
 
 /**
- * Check if a date is in the past (before today at 00:00 UTC)
+ * Check if a date is in the past or today (on or before today at 00:00 UTC)
+ * Check-in cannot be today; earliest is tomorrow
  */
 export function isDateInPast(dateStr: string): boolean {
   const parsed = parseISODate(dateStr);
@@ -50,7 +75,7 @@ export function isDateInPast(dateStr: string): boolean {
   parsed.setHours(0, 0, 0, 0);
 
   const today = getTodayUTC();
-  return parsed < today;
+  return parsed <= today;
 }
 
 /**
@@ -67,7 +92,8 @@ export function getNextAvailableDate(fromDate?: string): string {
 }
 
 /**
- * Get a date 1 month from a given date
+ * Get a date 1 month from a given date, handling month-end edge cases
+ * Example: Jan 31 + 1 month = Feb 28 (last day of Feb in non-leap year)
  */
 export function getDateOneMonthLater(fromDate: string): string {
   const parsed = parseISODate(fromDate);
@@ -79,8 +105,23 @@ export function getDateOneMonthLater(fromDate: string): string {
     return formatToISO(tomorrow);
   }
 
-  const future = new Date(parsed);
-  future.setMonth(future.getMonth() + 1);
+  const year = parsed.getFullYear();
+  const month = parsed.getMonth();
+  const day = parsed.getDate();
+
+  // Calculate target month/year
+  let targetMonth = month + 1;
+  let targetYear = year;
+  if (targetMonth > 11) {
+    targetMonth = 0;
+    targetYear += 1;
+  }
+
+  // Get the last day of the target month
+  const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const targetDay = Math.min(day, lastDay);
+
+  const future = new Date(targetYear, targetMonth, targetDay);
   return formatToISO(future);
 }
 
@@ -131,23 +172,27 @@ export function validateBookingDates(
     finalCheckIn = suggestedCheckIn;
   }
 
-  // Check if check-out is after check-in
-  if (checkOutTime <= checkInTime) {
+  // Check if check-out is after the (potentially adjusted) check-in
+  const finalCheckInTime = new Date(parseISODate(finalCheckIn)!);
+  finalCheckInTime.setHours(0, 0, 0, 0);
+
+  if (checkOutTime <= finalCheckInTime) {
     // Suggest check-out as 1 month after the (potentially adjusted) check-in
     suggestedCheckOut = getDateOneMonthLater(finalCheckIn);
     finalCheckOut = suggestedCheckOut;
   }
 
+  const hasErrors = !!suggestedCheckIn || !!suggestedCheckOut;
+
   return {
-    isValid: !suggestedCheckIn && !suggestedCheckOut,
+    isValid: !hasErrors,
     checkInDate: finalCheckIn,
     checkOutDate: finalCheckOut,
     suggestedCheckIn,
     suggestedCheckOut,
-    reason:
-      suggestedCheckIn || suggestedCheckOut
-        ? 'Check-in date is today or earlier. Suggesting next available dates.'
-        : undefined
+    reason: hasErrors
+      ? 'Check-in date is today or earlier. Suggesting next available dates.'
+      : undefined
   };
 }
 
