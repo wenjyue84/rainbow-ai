@@ -47,28 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-155",
-      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
-      "priority": "critical",
-      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
-      "acceptanceCriteria": [
-        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
-        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
-        "Admin can view/manage opt-in status per guest via API",
-        "Inbound messages automatically set opted_in=true with audit log"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
-        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
-        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
       "id": "US-156",
       "title": "Implement conversation audit trail logging for PDPA compliance",
       "priority": "critical",
@@ -86,9 +64,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "research",
-      "model": "haiku"
+      "model": "haiku",
+      "_scopeCreep": true
     },
     {
       "id": "US-157",
@@ -110,7 +89,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "research",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-22T23:22:32Z"
     },
     {
       "id": "US-092",
@@ -439,350 +419,27 @@
       "model": "haiku"
     },
     {
-      "id": "US-150",
-      "title": "Add guest conversation inactivity timeout with automatic context reset",
-      "priority": "high",
-      "description": "Prevent stale conversation context from poisoning subsequent queries by resetting context after inactivity windows. Addresses multi-turn dialogue quality and prevents context drift in long-running conversations.",
+      "id": "US-155",
+      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
+      "priority": "critical",
+      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
       "acceptanceCriteria": [
-        "Add `last_message_at` and `context_reset_at` timestamp columns to `rainbow_conversations` table in `shared/schema-tables.ts` Drizzle schema",
-        "Implement context reset logic in `src/assistant/pipeline/context-builder.ts` that returns empty history if last message > 60 minutes ago, with configurable timeout in `settings.json`",
-        "Unit test in `test/pipeline/context-builder.test.ts` verifies context is reset for conversations inactive > 60m but preserved for active conversations within window"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-151",
-      "title": "Add intent classification calibration tracking with real booking outcomes",
-      "priority": "high",
-      "description": "Track which intents actually lead to successful bookings to continuously improve classification confidence scores and identify misclassifications in production data.",
-      "acceptanceCriteria": [
-        "Add `booking_success` boolean and `booking_success_at` timestamp fields to `intent_analytics` table in `shared/schema-tables.ts`, linked by conversation_id",
-        "Create admin endpoint GET `/admin/analytics/intent-calibration/{profile}` that returns per-intent success rate (e.g., \"book-room: 0.92, 95 samples\") in `src/routes/admin/analytics.ts`",
-        "Implement callback in booking confirmation workflow that updates intent_analytics.booking_success = true when checkout workflow completes successfully"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-158",
-      "title": "Add warm escalation handoff with auto-generated conversation summary",
-      "priority": "high",
-      "description": "When escalating to human agents, automatically generate a summary of conversation history and pass it to the agent, reducing repetition and improving customer satisfaction during handoff.",
-      "acceptanceCriteria": [
-        "Escalation endpoint generates 3-4 sentence summary of last 10 messages before handoff",
-        "Agent receives summary with guest name, issue category, and context in handoff payload",
-        "Summary preserves intent, guest sentiment, and failed resolution attempts",
-        "Test: escalation endpoint with 15-message history produces valid summary"
+        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
+        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
+        "Admin can view/manage opt-in status per guest via API",
+        "Inbound messages automatically set opted_in=true with audit log"
       ],
       "technicalNotes": [
-        "File to edit: src/routes/admin/escalation-router.ts (add summary generation before escalation)",
-        "File to edit: src/assistant/pipeline/index.ts (export getConversationContext helper)",
-        "Test command: npm run test -- src/routes/admin/escalation-router.test.ts -t 'handoff summary'"
+        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
+        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
+        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
       ],
       "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
+      "estimatedComplexity": "small",
+      "passes": true,
       "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-159",
-      "title": "Build NPS survey workflow triggered after guest checkout",
-      "priority": "high",
-      "description": "Send Net Promoter Score (NPS) survey 1 hour after checkout to measure guest satisfaction and identify detractors for proactive recovery.",
-      "acceptanceCriteria": [
-        "Workflow sends NPS survey (0-10 scale) via WhatsApp 1 hour after checkout",
-        "Responses stored in nps_responses table with score, timestamp, guest_id",
-        "Admin dashboard calculates NPS = %promoters - %detractors",
-        "Test: guest checkout triggers NPS workflow, survey sends after 1 hour"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/data/workflows.json (add nps_survey workflow step)",
-        "File to edit: shared/schema-tables.ts (add nps_responses table)",
-        "Test command: npm run test -- src/assistant/data/workflows.test.ts -t 'nps'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-160",
-      "title": "Implement smart escalation routing by issue category",
-      "priority": "high",
-      "description": "Route escalations to specialized teams based on issue type (complaints→retention, booking issues→reservations, facility issues→operations) to reduce resolution time and improve handling quality.",
-      "acceptanceCriteria": [
-        "Escalation endpoint detects issue_type from conversation intent",
-        "Routes to correct team_id based on routing configuration",
-        "Fallback to general queue if issue_type unknown",
-        "Test: complaint intent routes to retention team, booking issue routes to reservations"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/data/routing.json (add team routing rules per issue type)",
-        "File to edit: src/routes/admin/escalation-router.ts (implement smart routing logic)",
-        "Test command: npm run test -- src/routes/admin/escalation-router.test.ts -t 'routing'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-161",
-      "title": "Implement Automated Profile Data Contamination Cleanup with Validation",
-      "priority": "high",
-      "description": "Build automated cleanup utility that identifies and removes cross-profile contamination from makan and southern profile data files, with pre-cleanup validation and rollback capability. Fixes data-makan and data-southern profiles containing copy-pasted Pelangi Capsule content.",
-      "acceptanceCriteria": [
-        "Create src/tools/cleanup-profile-contamination.ts that scans intent-keywords.json, intents.json, knowledge.json in each profile, identifies duplicates with source profile, and generates removal plan (JSON with item, reason, file_path, line_range)",
-        "Cleanup command `npm run cleanup:profiles -- --profile=makan --dry-run` previews removals without modifying; `npm run cleanup:profiles -- --profile=makan` removes contaminated entries, creates backup of original file, and validates result using existing contamination detector",
-        "Validates final profile files have zero contamination detected by CLI tool before marking cleanup complete; exports summary report showing removed_items_count, removed_from_profile, target_profile for each operation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-162",
-      "title": "Add Guest Payment Method Validation to Booking Workflow",
-      "priority": "high",
-      "description": "Extend booking workflow with payment method validation step that verifies guest payment eligibility before confirmation, preventing invalid payment methods from reaching checkout and reducing downstream payment failures.",
-      "acceptanceCriteria": [
-        "Add payment_validation step to src/assistant/data/workflows.json booking_workflow with step_number=4, type=validation, precondition=guest_contact_complete, action=validate_payment_method",
-        "Implementation in src/assistant/pipeline/payment-validator.ts checks guest.payment_method against settings.json enabled_payment_channels (credit_card, bank_transfer, e_wallet), validates required fields (card_last_4 or bank_account) are present and non-empty",
-        "Step logs payment_validation_outcome event with guest_id, payment_method, validation_result (passed/failed); on failure, workflow offers manual_payment_link alternative via Stripe or Bank Transfer with account details"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-152",
-      "title": "Add workflow step execution order validation with dependency graph analysis",
-      "priority": "medium",
-      "description": "Validate before execution that workflow steps can be executed in defined order without circular dependencies or impossible prerequisite chains, preventing runtime failures.",
-      "acceptanceCriteria": [
-        "Create `validateWorkflowDependencies(workflow)` function in new file `src/lib/workflow-validator.ts` that parses workflows.json, builds dependency graph, detects cycles, validates all depends_on references",
-        "Add npm script `npm run validate:workflows` that validates all profiles and exits with code 1 on failure, printing affected step names and dependency chains",
-        "Unit test in `test/lib/workflow-validator.test.ts` verifies circular detection (A→B→A), missing dependency detection, and valid workflows pass validation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-153",
-      "title": "Add guest satisfaction sampling after fallback responses with reaction buttons",
-      "priority": "medium",
-      "description": "Automatically collect implicit feedback by offering quick yes/no reactions after fallback responses to identify unhelpful fallbacks and improve response quality.",
-      "acceptanceCriteria": [
-        "Extend fallback response templates in `src/assistant/data/knowledge.json` to include reaction buttons in format: \"Was this helpful? [👍 Yes] [👎 No]\" with fallback_id reference",
-        "Create `rainbow_fallback_reactions` table in `shared/schema-tables.ts` with columns: conversation_id, fallback_id, reaction (enum), created_at",
-        "Add admin endpoint GET `/admin/analytics/fallback-effectiveness` returning per-fallback success rate and sample count (e.g., \"booking-clarification: 0.78, 42 samples\") in `src/routes/admin/analytics.ts`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-163",
-      "title": "Implement message send deduplication with idempotency keys",
-      "priority": "medium",
-      "description": "Prevent duplicate messages when concurrent sends occur due to network retries or race conditions by implementing idempotency key tracking, reducing costs and improving reliability.",
-      "acceptanceCriteria": [
-        "Each outbound message has unique idempotency key (UUID + timestamp)",
-        "Duplicate sends with same key within 30-second window are rejected",
-        "Duplicate rejection is logged and exposed via admin endpoint",
-        "Test: concurrent send with same message body results in single delivery"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/baileys-client.ts (add idempotency_key parameter and dedup check)",
-        "File to edit: shared/schema-tables.ts (add sent_messages table with idempotency_key index)",
-        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'deduplication'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-164",
-      "title": "Add guest communication preferences (quiet hours and frequency limits)",
-      "priority": "medium",
-      "description": "Store per-guest communication preferences (quiet hours, max messages/hour) to improve guest experience and respect their availability. Enforce preferences during message delivery.",
-      "acceptanceCriteria": [
-        "Guest preferences table stores quiet_hours_start, quiet_hours_end, max_msgs_per_hour per profile",
-        "Pipeline defers non-critical messages during quiet hours (requeue for next period)",
-        "Rate limiter prevents exceeding max_msgs_per_hour threshold",
-        "Test: message during quiet hours is deferred, message outside quiet hours sends immediately"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add guest_preferences table with quiet_hours, rate_limit)",
-        "File to edit: src/assistant/pipeline/index.ts (add preference enforcement in send logic)",
-        "Test command: npm run test -- src/assistant/pipeline/index.test.ts -t 'preferences'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-165",
-      "title": "Add WhatsApp message template compliance validator",
-      "priority": "medium",
-      "description": "Validate all responses against WhatsApp's messaging template guidelines to prevent account throttling or bans due to non-compliant message patterns.",
-      "acceptanceCriteria": [
-        "Validator checks response length ≤4096 chars, no suspicious links, no repeated formatting",
-        "Invalid responses logged with violation reason, fallback to generic template response",
-        "Pre-deployment CLI test runs validator on all knowledge.json responses",
-        "Test: oversized response rejected with fallback, compliant response passes"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/template-validator.ts (new file with compliance checks)",
-        "File to edit: src/assistant/pipeline/index.ts (call validator before sending)",
-        "Test command: npm run test -- src/lib/template-validator.test.ts -t 'compliance'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-166",
-      "title": "Add message delivery status tracking for WhatsApp messages",
-      "priority": "medium",
-      "description": "Track WhatsApp message delivery status (sent/delivered/read/failed) per message to improve reliability monitoring and identify delivery issues.",
-      "acceptanceCriteria": [
-        "Message status table tracks status field: sent, delivered, read, failed",
-        "Status updates via Baileys webhook when WhatsApp sends ACK/delivery receipts",
-        "Admin dashboard shows delivery rate % and failed message logs",
-        "Test: message status updates from 'sent' to 'delivered' via webhook"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add message_status column to sent_messages)",
-        "File to edit: src/lib/baileys-client.ts (handle message-ack events)",
-        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'delivery status'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-167",
-      "title": "Implement escalation team performance metrics and SLA tracking",
-      "priority": "medium",
-      "description": "Track escalation team performance (response time, resolution time, satisfaction score) to identify bottlenecks and optimize team allocation.",
-      "acceptanceCriteria": [
-        "Escalation metrics table tracks team_id, avg_response_time, avg_resolution_time, nps_score",
-        "Metrics updated hourly from escalation events and NPS responses",
-        "Admin dashboard displays per-team SLA compliance (target: <2min response, <1hr resolution)",
-        "Test: escalation metrics table populated with correct response time calculations"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add escalation_metrics table)",
-        "File to edit: src/routes/admin/metrics-router.ts (new file, calculate metrics)",
-        "Test command: npm run test -- src/routes/admin/metrics-router.test.ts -t 'sla'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-168",
-      "title": "Build Intent Classifier Confidence Distribution Monitoring Service",
-      "priority": "medium",
-      "description": "Implement monitoring service to track intent classification confidence scores across all intents and profiles, detect confidence anomalies, and alert when specific intent types degrade indicating possible model drift or data quality issues.",
-      "acceptanceCriteria": [
-        "Create src/lib/intent-classifier-monitor.ts that logs to database table intent_confidence_logs on each message: intent_type, predicted_intent, confidence_score, guest_profile, timestamp",
-        "Add admin endpoint GET /admin/intent-metrics/confidence-report?hours=24 returning per-intent stats (mean/median/p50/p90 confidence), intents with >25% low-confidence predictions (<0.6) flagged red, top-5 lowest confidence mispredictions with full message context",
-        "Dashboard in src/routes/admin/classifier-monitoring.ts displays confidence trend charts with anomaly detection alerts when intent confidence drops >15% from 30-day baseline; exports CSV report for offline analysis"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-169",
-      "title": "Implement Conversation Context Contradiction Detector with Auto-Reset",
-      "priority": "medium",
-      "description": "Add context quality validator that detects contradictory information in conversation history (conflicting dates, room types, guest identities) and automatically resets degraded context before intent classification to prevent downstream errors.",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/context-contradiction-detector.ts analyzing last 15 conversation messages for entity conflicts: check_in_date variance >3 days, room_type/menu_item changes, guest name mismatches (Levenshtein distance >2), overlapping booking periods",
-        "When contradiction detected (confidence threshold 0.7), mark context_quality=degraded, log contradiction event with message_indices and conflict_type, remove only conflicted entities from context before next AI inference call",
-        "Unit tests in tests/unit/context-contradiction.test.ts verify detection of: date conflicts (\"10th\" then \"12th\"), room changes (\"double\" then \"triple\"), name typos (\"John\" vs \"Jon\"), and confirm context reset clears conflicted keys only (preserves guest_id, profile)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-170",
-      "title": "Expand Cafe-Specific Booking Keywords for Makan Moments Profile",
-      "priority": "medium",
-      "description": "Build comprehensive cafe-specific keyword list for booking and inquiry intents in Makan Moments profile, improving classification accuracy for food ordering, table reservation, and event booking requests while maintaining zero cross-contamination with hostel profiles.",
-      "acceptanceCriteria": [
-        "Update src/assistant/data/makan/intent-keywords.json with cafe keywords: order_food (nasi lemak, teh, menu, item, how much, available), table_booking (reserved, table for 4, group, function room, catering), inquiry_menu (price, ingredient, open time, closure) - minimum 18 keywords per intent, zero hostel keywords",
-        "Validate keywords are cafe-specific (\"book a table\" vs hostel \"book a room\", \"menu item\" vs \"room type\") with zero overlap to pelangi/southern profiles; run contamination detector to confirm zero cross-profile collisions",
-        "Integration test validates intent classifier achieves >80% F1-score on makan test data, correctly distinguishes food_order from table_booking_inquiry, shows zero false-positives on hostel keywords (room, guest, check-in, checkout)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-154",
-      "title": "Add per-profile knowledge base freshness monitoring with staleness alerts",
-      "priority": "low",
-      "description": "Monitor when profile-specific knowledge files haven't been updated, alerting ops when KB content may be stale and cause outdated responses.",
-      "acceptanceCriteria": [
-        "Add startup check in `src/index.ts` comparing file mtime of `.rainbow-kb/**/*.md` and `.rainbow-kb-southern/**/*.md` against configurable max-age (default 30 days in settings.json)",
-        "Log KB staleness events to `rainbow_config_audit` table with severity=\"KB_STALE\", profile, file path, days-since-modified when threshold exceeded",
-        "Add admin endpoint GET `/admin/monitoring/kb-staleness` returning stale KB files per profile with last-modified dates and age in days in `src/routes/admin/monitoring.ts`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_scopeCreep": true
     },
     {
       "id": "US-149",

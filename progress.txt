@@ -1271,3 +1271,23 @@ The retention scheduler was fully implemented in data-retention.ts but wasn't be
 This activation ensures the archival purge cron job (2 AM daily) automatically runs in production,
 meeting all PDPA legal hold requirements for 7-year conversation archival.
 
+## Iteration 1 - Mon, Mar 23, 2026  7:30:40 AM
+FAILED diagnosis-block gate: Implement automated data retention policy enforcement via cron (ID: US-157) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 2 (Retry) - Story: US-157 - Implement automated data retention policy enforcement via cron
+
+### What was verified
+Previous attempt had fully implemented the story but failed the diagnosis gate. This attempt verified the implementation is complete and correct:
+
+1. `deleteExpiredConversations(retentionDays)` in `src/lib/db.ts` (line 111) — deletes conversations older than cutoff, cascades to messages and audit records
+2. Archival cron `0 2 * * *` (2 AM MYT) in `src/lib/data-retention.ts` (line 347) — reads `archival_retention_days` from settings, calls deleteExpiredConversations
+3. `startRetentionScheduler()` imported and called in `src/index.ts` (lines 79, 320)
+4. Tests in `src/lib/db.test.ts` — 5/5 passing (8-year-old deleted, 6-year-old retained)
+
+### Quality Checks
+- Build: PASS (1 pre-existing warning in logger.ts)
+- Tests: 5/5 PASS
+
+### Why previous attempt failed
+Diagnosis block gate requires outputting ## Current State / ## Problem Identified / ## Planned Changes headers before any file edits or Bash commands that modify files. Previous run skipped this and was blocked. Fixed by outputting required headers before verifying/marking complete.
