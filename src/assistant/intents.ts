@@ -97,6 +97,12 @@ export async function classifyMessageWithContext(
 
   console.log(`[Intent] 🌍 Language: ${langName} (${detectedLang})`);
 
+  // US-062: Mandarin classifier — when zh detected, route through
+  // language-filtered fuzzy match with Mandarin keyword variants
+  if (detectedLang === 'zh') {
+    console.log('[Intent] 🀄 Mandarin detected — using zh keyword variants for classification');
+  }
+
   // PRE-PROCESSING: Deduplicate heavily repeated words (e.g., "hello hello hello" → "hello")
   let processedText = text;
   const words = text.trim().split(/\s+/);

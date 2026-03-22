@@ -59,11 +59,17 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-22T19:26:28Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "last_attempted": "2026-03-22T19:21:14Z",
+      "_decomposed": true,
+      "_decomposedInto": [
+        "US-103",
+        "US-104",
+        "US-105"
+      ],
+      "_skipped": true
     },
     {
       "id": "US-062",
@@ -387,6 +393,94 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-103",
+      "title": "Add room-type specific booking intent classification for Pelangi Capsule",
+      "priority": "high",
+      "description": "Improve booking intent accuracy by adding room-type variant keywords (single, double, family, dorm) to distinguish between room-specific booking requests and general inquiries.",
+      "acceptanceCriteria": [
+        "Add room-type keyword variants to src/assistant/data/intent-keywords.json under booking_intent for Pelangi profile only: single room, double room, family room, dorm room, twin bed",
+        "Add test in tests/classifier.test.ts verifying messages 'I want to book a double room' and 'family room availability' classify as booking_intent with confidence >= 0.85",
+        "Add validation in tests/profile-validation.test.ts asserting room-type keywords (single, double, family, dorm) appear ONLY in booking_intent across all profiles, never in inquiry_intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-104",
+      "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
+      "priority": "high",
+      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
+      "acceptanceCriteria": [
+        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
+        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
+        "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-105",
+      "title": "Add context-aware fallback response selection based on confidence and conversation history",
+      "priority": "high",
+      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
+        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
+        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-106",
+      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
+      "priority": "high",
+      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
+        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
+        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-107",
+      "title": "Add booking workflow confirmation step validation with required template placeholders",
+      "priority": "medium",
+      "description": "Validate booking workflow send_confirmation steps include required email/SMS templates with all necessary placeholder fields (guest name, dates, confirmation number) before workflow execution.",
+      "acceptanceCriteria": [
+        "Add validateConfirmationStep(step) function in src/assistant/pipeline/booking-validator.ts checking: step.type === 'send_confirmation' requires fields [email_template, sms_template, booking_reference]; verifies placeholders {{guest_name}}, {{check_in_date}}, {{check_out_date}} exist in at least one template; throws ActionableError with step path and missing field list",
+        "Add test in tests/booking-validator.test.ts that loads workflows.json and asserts all send_confirmation steps in booking workflows contain required placeholders; test also verifies invalid workflow (missing email_template) throws error with clear message",
+        "Call validateAllWorkflows() in src/index.ts startup sequence; log 'Booking confirmation validation: 4/4 workflows valid' or exit with error listing which workflow and which step requires repair"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-005",
