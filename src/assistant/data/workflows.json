@@ -1857,6 +1857,142 @@
         "ms": "Hi {{guest_name}}, terima kasih kerana menginap di Pelangi Capsule Hostel baru-baru ini.\n\nJika ada masa, ulasan pendek anda sangat membantu pelancong lain:\n{{review_url}}\n\nTerima kasih.",
         "zh": "您好，{{guest_name}}，感谢您近期在Pelangi胶囊旅舍的入住。\n\n如果您有时间，您的小简评价对其他旅行者很有帮助：\n{{review_url}}\n\n谢谢。"
       }
+    },
+    {
+      "id": "process_booking_cancellation",
+      "name": "Booking Cancellation Workflow",
+      "format": "nodes",
+      "startNodeId": "confirm_cancellation",
+      "nodes": [
+        {
+          "id": "confirm_cancellation",
+          "type": "wait_reply",
+          "label": "Confirm cancellation intent",
+          "config": {
+            "storeAs": "cancellation_confirmed",
+            "prompt": {
+              "en": "I understand you'd like to cancel your booking. Can you confirm? Reply YES or NO.",
+              "ms": "Saya faham anda ingin membatalkan tempahan. Boleh sahkan? Balas YA atau TIDAK.",
+              "zh": "我理解您想取消预订。请确认吗？回复是或否。"
+            }
+          },
+          "next": "check_cancellation_intent"
+        },
+        {
+          "id": "check_cancellation_intent",
+          "type": "condition",
+          "label": "Check if guest confirmed",
+          "config": {
+            "field": "{{workflow.data.cancellation_confirmed}}",
+            "operator": "regex",
+            "value": "^(yes|ya|yep|confirm|ok|y)$",
+            "trueNext": "ask_checkin_date",
+            "falseNext": "cancellation_declined"
+          }
+        },
+        {
+          "id": "cancellation_declined",
+          "type": "message",
+          "label": "Guest declined cancellation",
+          "config": {
+            "message": {
+              "en": "Got it! Your booking remains active.",
+              "ms": "Baik! Tempahan anda tetap aktif.",
+              "zh": "明白了！您的预订保持有效。"
+            }
+          }
+        },
+        {
+          "id": "ask_checkin_date",
+          "type": "wait_reply",
+          "label": "Ask for check-in date",
+          "config": {
+            "storeAs": "booking_checkin_date",
+            "prompt": {
+              "en": "Thank you. Please provide your check-in date (YYYY-MM-DD format)",
+              "ms": "Terima kasih. Berikan tarikh check-in anda (format YYYY-MM-DD)",
+              "zh": "感谢。请提供您的入住日期（YYYY-MM-DD格式）"
+            }
+          },
+          "next": "validate_checkin_date"
+        },
+        {
+          "id": "validate_checkin_date",
+          "type": "condition",
+          "label": "Validate date format",
+          "config": {
+            "field": "{{workflow.data.booking_checkin_date}}",
+            "operator": "regex",
+            "value": "^\\d{4}-\\d{2}-\\d{2}$",
+            "trueNext": "calculate_credit",
+            "falseNext": "invalid_date_error"
+          }
+        },
+        {
+          "id": "invalid_date_error",
+          "type": "message",
+          "label": "Invalid date format",
+          "config": {
+            "message": {
+              "en": "Please use YYYY-MM-DD format (e.g., 2026-02-15)",
+              "ms": "Sila gunakan format YYYY-MM-DD (cth., 2026-02-15)",
+              "zh": "请使用YYYY-MM-DD格式（例如2026-02-15）"
+            }
+          },
+          "next": "ask_checkin_date"
+        },
+        {
+          "id": "calculate_credit",
+          "type": "function",
+          "label": "Calculate credit",
+          "config": {
+            "function": "calculateCancellationCredit",
+            "inputs": {
+              "checkInDate": "{{workflow.data.booking_checkin_date}}"
+            },
+            "outputAs": "credit_result"
+          },
+          "next": "display_credit_message"
+        },
+        {
+          "id": "display_credit_message",
+          "type": "message",
+          "label": "Display credit result",
+          "config": {
+            "message": {
+              "en": "Cancellation processed! {{workflow.data.credit_result}}",
+              "ms": "Pembatalan diproses! {{workflow.data.credit_result}}",
+              "zh": "取消已处理！{{workflow.data.credit_result}}"
+            }
+          },
+          "next": "notify_admin_cancellation"
+        },
+        {
+          "id": "notify_admin_cancellation",
+          "type": "whatsapp_send",
+          "label": "Notify admin",
+          "config": {
+            "receiver": "{{system.admin_phone}}",
+            "content": {
+              "en": "Booking Cancellation: {{guest.phone}} - Check-in: {{workflow.data.booking_checkin_date}} - Credit: {{workflow.data.credit_result}}"
+            },
+            "urgency": "normal"
+          },
+          "next": "cancellation_complete"
+        },
+        {
+          "id": "cancellation_complete",
+          "type": "message",
+          "label": "Final confirmation",
+          "config": {
+            "message": {
+              "en": "Your cancellation request has been sent to our admin team. Thank you!",
+              "ms": "Permintaan pembatalan anda telah dihantar. Terima kasih!",
+              "zh": "您的取消请求已发送给管理员。谢谢！"
+            }
+          }
+        }
+      ]
     }
   ]
 }

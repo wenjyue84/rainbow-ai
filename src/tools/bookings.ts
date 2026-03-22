@@ -1,8 +1,10 @@
 /**
  * US-064: Booking modification tool helpers
+ * US-072: Booking cancellation with automatic credit calculation
  *
  * Provides findConflictingBookings() for detecting overlapping reservations
  * before applying guest-initiated booking changes (date, room type, amenities).
+ * Provides calculateCancellationCredit() for calculating refund amounts based on cancellation timing.
  */
 
 import { pool } from '../lib/db.js';
@@ -123,5 +125,38 @@ export async function findConflictingBookings(
     console.error(`[bookings] findConflictingBookings DB error:`, msg);
     // Fail-open: return no conflicts on DB error to avoid blocking the guest
     return [];
+  }
+}
+
+/**
+ * Calculate cancellation credit based on check-in timing.
+ *
+ * Returns 100% credit if cancellation is more than 48 hours before check-in.
+ * Returns 50% credit if cancellation is 48 hours or less before check-in.
+ *
+ * @param checkInDate - Booking check-in date (ISO string or Date object)
+ * @returns Credit message with percentage amount
+ */
+export function calculateCancellationCredit(checkInDate: string | Date): string {
+  try {
+    const checkIn = new Date(checkInDate);
+    const now = new Date();
+
+    if (isNaN(checkIn.getTime())) {
+      return '❌ Error: Invalid check-in date format. Please provide a valid date.';
+    }
+
+    // Calculate hours between now and check-in
+    const hoursUntilCheckIn = (checkIn.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+    if (hoursUntilCheckIn > 48) {
+      return '✅ 100% credit applied. You will receive a full refund within 3-5 business days.';
+    } else {
+      return '✅ 50% credit applied. You will receive 50% refund within 3-5 business days.';
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[bookings] calculateCancellationCredit error:`, msg);
+    return '❌ Error calculating cancellation credit. Please contact support.';
   }
 }
