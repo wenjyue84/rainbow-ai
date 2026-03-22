@@ -1861,3 +1861,38 @@ This analysis is based on the provided user story and project structure, which i
 ### Gotchas
 - prd.json must be read/written with `encoding='utf-8'` on Windows (cp1252 default fails on some characters)
 - Build: 6/6 tests pass, esbuild succeeds
+## Iteration 2 - Mon, Mar 23, 2026  3:49:02 AM
+FAILED diagnosis-block gate: Implement conversation quality scoring system with per-intent accuracy tracking (ID: US-063) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 20 - Story: US-067 - Add per-profile intent whitelist validator
+### What was implemented
+- Validated that the per-profile intent whitelist validator was fully implemented:
+  - `src/assistant/data/intent-whitelists.json` exists with 3 profiles: makan, southern, pms_capsule
+  - `src/assistant/validators/profile-intent-whitelist.ts` contains validation functions: validateProfileIntents, validateAllProfiles, fixProfileIntents, getViolationsSummary
+  - CLI command `npm run validate:intent-profile -- --profile <profile> [--fix]` works correctly
+  - Startup validation runs automatically in src/index.ts (lines 132-149)
+  - `tests/unit/profile-intent-whitelist.test.ts` has 21 comprehensive tests (all passing)
+- Verified all acceptance criteria are met:
+  - ✓ intent-whitelists.json with curated lists for each profile
+  - ✓ Startup validation with error messages for violations
+  - ✓ CLI with --fix flag support
+  - ✓ Tests asserting cross-contamination prevention (makan rejects booking_*, checkin_*; southern rejects order_*, menu_*)
+
+### Tests executed
+- Unit tests: 21/21 passing
+- Build: clean (esbuild with pre-existing warnings only)
+- CLI validation: "All profiles are valid!"
+- Startup integration: validation code executes at server startup
+
+### Patterns discovered
+- Profile-to-directory mapping is configured in the validator (makan→data-makan, southern→data-southern, pms_capsule→data-pms-capsule, pms_southern→data-pms-southern)
+- The validation reads routing.json files directly, not separate intents-{profile}.json files
+- Whitelist violations are warnings by default, with strict mode controlled by STRICT_PROFILE_VALIDATION environment variable
+
+### Gotchas
+- The story was already fully implemented when I started — no changes were needed
+- All necessary files (validator, CLI script, tests, startup integration) were already in place
+
+## Iteration 20 - Completed
+Completed: Add per-profile intent whitelist validator to block cross-contaminated intents at startup (ID: US-067)

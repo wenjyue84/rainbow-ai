@@ -80,6 +80,7 @@ import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/cana
 import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
 import { validateProfileIntents } from './lib/config.js';
+import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -125,6 +126,35 @@ try {
       console.error('[Startup] FATAL: Aborting startup due to profile data contamination (STRICT_PROFILE_VALIDATION=true)');
       process.exit(1);
     }
+  }
+}
+
+// US-067: Profile intent whitelist validation.
+// Ensures each profile only contains intents from its curated whitelist.
+// Prevents cross-contamination (e.g., cafe intents in hostel profile).
+{
+  try {
+    const whitelistViolations = validateIntentWhitelists();
+    let hasViolations = false;
+    for (const [, violations] of whitelistViolations) {
+      if (violations.length > 0) {
+        hasViolations = true;
+        break;
+      }
+    }
+
+    if (hasViolations) {
+      const summary = getViolationsSummary(whitelistViolations);
+      console.warn('[Startup] WARNING: Intent whitelist violations detected:\n' + summary);
+      if (process.env.STRICT_PROFILE_VALIDATION === 'true') {
+        console.error('[Startup] FATAL: Aborting startup due to intent whitelist violations (STRICT_PROFILE_VALIDATION=true)');
+        process.exit(1);
+      }
+    } else {
+      console.log('[Startup] Intent whitelist validation passed');
+    }
+  } catch (err: any) {
+    console.warn('[Startup] Intent whitelist validation skipped:', err.message);
   }
 }
 
