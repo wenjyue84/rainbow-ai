@@ -887,3 +887,43 @@ This is a technical brief for implementing a batch-insert queue in a TypeScript/
 *   **Typing:** Ensure strong typing for the queue and Drizzle's `values()` method to avoid runtime errors, removing any `as any` casts.
 *   **Shutdown:** The flush operation on shutdown should be synchronous or properly awaited to ensure it completes before the process terminates.
 
+
+## Iteration [Current] - Story: US-034 - Add intent prediction batch insert queue
+
+### What was implemented
+- Converted trackIntentPrediction() from individual DB inserts to memory-based queuing
+- Added private queue array and flush timer in intent-tracker.ts (lines 6-10)
+- Implemented flush() method with bulk INSERT via Drizzle and retry logic (lines 13-46)
+- Added initializeQueue() for timer setup and process exit handlers (lines 51-71)
+- Removed (intentPredictions as any) casts - now uses proper InsertIntentPrediction type
+- Created 7 comprehensive unit tests in src/assistant/__tests__/intent-tracker-batch.test.ts
+- Already calling initializeQueue() at startup (src/index.ts line 223)
+
+### Acceptance criteria verified
+- ✅ Queue accumulates predictions in memory (not individual inserts)
+- ✅ Flushes at 50 items OR every 5 seconds, whichever first
+- ✅ Single bulk INSERT statement via Drizzle.insert().values([...])
+- ✅ Graceful shutdown: SIGTERM/SIGINT flush remaining items
+- ✅ Retry logic: max 3 retries before drop with warning log
+- ✅ API unchanged: trackIntentPrediction() signature same, backward compatible
+- ✅ Unit tests verify all above plus data field preservation
+
+### Test results
+- All 7 tests passing in intent-tracker-batch.test.ts
+- Tests cover: batch trigger, timer trigger, graceful shutdown, retry logic, API compatibility, data integrity
+- Full test suite: 2445 passed (with 41 pre-existing failures unrelated to this change)
+
+### Performance impact
+- Reduces database writes by ~50x (batches 50 items into 1 INSERT)
+- Reduces connection overhead under high load (100+ messages/min)
+- 5-second flush window ensures bounded latency for analytics
+
+### Patterns discovered
+- Vitest module state persists across tests - use vi.hoisted() for mocks and unique conversation IDs per test
+- mockValues.mock.calls format: array of call arguments, need Array.isArray() check
+- Drizzle bulk insert: db.insert(table).values([...items]) requires items array, not single item
+
+### Gotchas
+- Tests in __tests__/ directory work better than tests/unit/ due to sparse checkout config
+- Process exit handlers must be registered once via initializeQueue(), called at startup in src/index.ts
+- Queue state is module-level (private), can't be reset between tests - design tests to find items by unique ID prefix
