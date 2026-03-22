@@ -31,6 +31,17 @@ function initFuzzyMatcher(): void {
         language: lang as 'en' | 'ms' | 'zh' | 'ta'
       });
     }
+
+    // US-053: Include regional variants if they exist
+    if ((intent as any).regional_variants) {
+      for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
+        keywordIntents.push({
+          intent: intent.intent,
+          keywords: variants as string[],
+          language: lang as 'en' | 'ms' | 'zh' | 'ta'
+        });
+      }
+    }
   }
 
   fuzzyMatcher = new FuzzyIntentMatcher(keywordIntents);

@@ -56,9 +56,33 @@
             "field": "{{workflow.data.booking_dates}}",
             "operator": "regex",
             "value": "(\\d{1,2}[\\s\\-\\/](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*[\\s\\-\\/]\\d{1,2}|\\d{1,2}[\\-\\/]\\d{1,2}[\\-\\/]\\d{2,4})",
-            "trueNext": "check_booking_conflict",
+            "trueNext": "validate_past_dates",
             "falseNext": "date_error_reprompt"
           }
+        },
+        {
+          "id": "validate_past_dates",
+          "type": "condition",
+          "label": "Validate check-in date is not in the past",
+          "config": {
+            "field": "{{workflow.data.booking_dates_normalized}}",
+            "operator": "pastDateCheck",
+            "trueNext": "check_booking_conflict",
+            "falseNext": "past_dates_msg"
+          }
+        },
+        {
+          "id": "past_dates_msg",
+          "type": "message",
+          "label": "Notify guest of past date and suggest alternatives",
+          "config": {
+            "message": {
+              "en": "Sorry, check-in date cannot be today or in the past. The earliest available check-in is tomorrow. Would you like to adjust your dates?",
+              "ms": "Maaf, tarikh check-in tidak boleh hari ini atau tarikh yang lepas. Check-in paling awal ialah esok. Boleh ubah tarikh anda?",
+              "zh": "抱歉，入住日期不能是今天或过去的日期。最早可入住日期是明天。您想调整日期吗？"
+            }
+          },
+          "next": "wait_booking_dates"
         },
         {
           "id": "check_booking_conflict",
