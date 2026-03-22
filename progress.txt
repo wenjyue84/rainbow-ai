@@ -2023,3 +2023,52 @@ Based on the user story, here is a technical brief for the Frappe/Python impleme
 - All 8 new tests pass ✓
 - Build succeeds with 0 new errors ✓
 - Pre-existing type errors in drizzle-orm definitions are unaffected ✓
+## Iteration 1 - Mon, Mar 23, 2026  4:08:29 AM
+FAILED diagnosis-block gate: Add pre-confirmation booking business rule validator with actionable conflict warnings (ID: US-068) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-068 (Gemini 2.5 Pro)
+### Technical Brief: US-068 Pre-Confirmation Booking Validator
+
+**Objective:** Implement a server-side business rule validator for guest bookings that returns structured warnings and suggestions before final confirmation.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/booking.py`: This is the primary controller for the Booking DocType. It will house the core validation logic.
+*   `lhdn_payroll_integration/api.py`: A new whitelisted method should be created here to expose the validation logic to the client-side without needing to save the document.
+
+**2. Frappe DocTypes & Hooks Involved:**
+*   **DocTypes:**
+    *   `Booking`: The central DocType where validation is triggered.
+    *   `Guest`: To check historical stay limits.
+    *   `Room`: To validate against room capacity.
+    *   `LHDN Payroll Settings`: A custom settings DocType to store configurable rules like `max_stay_days` and `advance_booking_window`.
+*   **Hooks (`hooks.py`):** No hooks are likely needed; logic can be placed directly in DocType methods or called via a whitelisted API function.
+
+**3. Recommended Implementation Approach:**
+1.  **Whitelisted Function:** In `api.py`, create a function `validate_booking_rules(booking_details)` decorated with `@frappe.whitelist()`. This function will receive draft booking data (guest, room, dates) as a JSON object.
+2.  **Core Logic:** The function will perform the checks: stay limits, room capacity, and booking window. It should return a dictionary: `{'is_valid': bool, 'warnings': [], 'recommendations': []}`.
+3.  **Server-Side Validation:** In `booking.py`, call the same core validation logic from within the `validate()` method to ensure rules are enforced upon save, throwing `frappe.ValidationError` if critical rules are broken.
+4.  **Client-Side Integration (Guidance for UI Dev):** A client script in `booking.js` should call the whitelisted API function on field changes to provide real-time feedback to the user.
+
+**4. Edge Cases & Gotchas:**
+*   The whitelisted API method must perform its own permission checks.
+*   The validation logic needs to handle new guests (no booking history) gracefully.
+*   Ensure date comparisons are robust and account for timezones if applicable.
+*   The system should clearly differentiate between hard failures (block save) and soft warnings (allow save but display a message).
+
+
+## Iteration 6 - Story: US-068 - Add pre-confirmation booking business rule validator with actionable conflict warnings
+### What was implemented
+- Verified existing implementation from Iteration 5 was complete and correct
+- `validatePreConfirmationRules()` in `src/assistant/pipeline/booking-validators.ts` (lines 229-373)
+- All 3 acceptance criteria confirmed present:
+  1. Function with correct signature returning `{isValid, warnings, recommendations}` ✓
+  2. Config keys `maxStayDays`, `advanceBookingWindow`, `stayCeiling` in `settings.json` ✓  
+  3. 8 unit tests in `tests/unit/booking-validators.test.ts` covering all required cases ✓
+- Build: success (1 pre-existing warning, no errors)
+- Tests: 8/8 pass
+### Patterns discovered
+- Story was already implemented; previous attempt failed only due to "DIAGNOSIS_BLOCK_MISSING" gate check
+- Always output diagnosis block headers before any edits to avoid retry loop
+### Gotchas
+- The diagnosis-block gate is enforced by the outer loop, not the code — failing it wastes a retry even with a correct implementation
