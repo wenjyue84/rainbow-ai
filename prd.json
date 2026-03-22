@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-057",
-      "title": "Implement startup profile-aware intent validation to prevent cross-contamination",
-      "priority": "high",
-      "description": "Detect and reject mismatched intents at application startup. Data-makan and data-southern profiles are currently loading Pelangi Capsule Hostel intents due to copy-paste errors from earlier development.",
-      "acceptanceCriteria": [
-        "Add function validateProfileIntents() in src/lib/config.ts that compares loaded intent definitions against RAINBOW_PROFILE env var and checks for hostel-specific keywords in cafe profiles",
-        "Add startup check that throws Error with profile name and conflicting intents if mismatch detected before routes initialize",
-        "Add unit test in tests/unit/profile-contamination.test.ts asserting detection catches 'check-in', 'room availability' in makan profile intents.json"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-058",
       "title": "Create data file contamination detection CLI tool with pre-deployment report",
       "priority": "high",
@@ -80,7 +63,13 @@
       "_source": "ai-example",
       "model": "haiku",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-22T19:15:27Z"
+      "last_attempted": "2026-03-22T19:18:19Z",
+      "_contextStats": {
+        "tokensBeforeMasking": 401,
+        "tokensAfterMasking": 400,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-061",
@@ -693,6 +682,74 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-134",
+      "title": "Enforce profile isolation in conversation API queries with access control middleware",
+      "priority": "high",
+      "description": "Add runtime profileId validation to prevent querying conversations from other business profiles. This enforces strict data isolation at the API layer before database queries execute.",
+      "acceptanceCriteria": [
+        "Add profileId parameter validation middleware to src/routes/admin/conversations.ts that extracts profileId from JWT token and validates it matches :conversationId's profile",
+        "Add integration test test/integration/profile-isolation-conversations.test.ts asserting GET /admin/conversations/:crossProfileConversationId/messages returns 403 Forbidden",
+        "Update src/lib/db.ts conversation query builder to filter by WHERE rainbow_messages.profile_id = $1 in all conversation message queries"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-135",
+      "title": "Generate per-profile intent classification accuracy baselines with CLI report generator",
+      "priority": "high",
+      "description": "Build CLI tool to compute precision, recall, and F1 scores per intent per profile from intent_analytics and rainbow_messages tables. Enables data-driven decisions on intent classifier improvements and identifies profile-specific accuracy gaps.",
+      "acceptanceCriteria": [
+        "Create npm run report:intent-accuracy command that queries intent_analytics grouped by profile_id and intent_name, outputs JSON report to reports/intent-accuracy-YYYY-MM-DD.json with fields: profile, intent, precision, recall, f1_score, total_predictions, misclassified_count",
+        "Add validation rule: fail build with exit code 1 if any intent has F1 score < 0.70 (configurable threshold in src/assistant/data/settings.json)",
+        "Add test test/unit/intent-accuracy-report.test.ts asserting report includes all profiles and intents with correct F1 calculation (TP, FP, FN from intent_analytics table)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-136",
+      "title": "Add per-intent confidence threshold configuration for profile-specific fallback routing",
+      "priority": "high",
+      "description": "Extend settings.json with confidenceThresholds object allowing each profile to define custom confidence thresholds per intent. Predictions below threshold route to fallback handler instead of intent-specific logic, reducing low-confidence misrouting.",
+      "acceptanceCriteria": [
+        "Add confidenceThresholds object to src/assistant/data/settings.json structure: { profile_id: { booking: 0.75, inquiry: 0.70, fallback: 0.50 } }",
+        "In src/assistant/pipeline/intent-classifier.ts, check prediction.confidence against profile-specific threshold before routing; if below threshold, set intent to 'fallback' with reason: 'confidence_below_threshold'",
+        "Add unit test test/unit/confidence-threshold-routing.test.ts asserting prediction with confidence=0.65 for booking intent with threshold=0.75 routes to fallback, while confidence=0.80 routes to booking handler"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-137",
+      "title": "Add startup validation preventing knowledge base cross-profile file contamination",
+      "priority": "high",
+      "description": "At startup, scan each profile's knowledge.json and verify all file_path references exist in that profile's dedicated .rainbow-kb directory. Prevents deployment of contaminated knowledge bases that reference Pelangi Capsule content in Makan Moments or Southern Homestay profiles.",
+      "acceptanceCriteria": [
+        "Add startup validation hook in src/index.ts that for each profile loads knowledge.json, extracts all file_path values, verifies each file exists in profile-specific directory (.rainbow-kb/ for pelangi, .rainbow-kb-southern/ for southern, etc.)",
+        "Log validation report on startup: 'Profile: data-makan | KB files: 15 | Valid: 15 | Cross-profile refs: 0' with ❌ marker if any cross-profile references detected",
+        "Fail startup with exit code 1 and list offending files if any knowledge.json references files outside its profile directory, e.g., 'ERROR: data-makan/knowledge.json references .rainbow-kb/pelangi-check-in.md (wrong directory)'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-035",
@@ -1467,6 +1524,23 @@
       "model": "haiku"
     },
     {
+      "id": "US-138",
+      "title": "Validate all booking workflow steps have required field definitions before deployment",
+      "priority": "medium",
+      "description": "Create CLI validator that scans workflows.json and ensures every booking workflow step declares its requiredFields array. Prevents deployment of incomplete booking workflows that could fail at runtime due to missing field validation.",
+      "acceptanceCriteria": [
+        "Create npm run validate:booking-workflows command in src/scripts/validate-workflows.ts that parses src/assistant/data/workflows.json, checks every step with type='booking' has requiredFields array defined with at least 1 field",
+        "Output summary: 'Booking workflows validated: 8/8 steps have requiredFields. Check-in step requires: checkInDate, roomType, guestName' to console; fail with exit code 1 if any step missing requiredFields definition",
+        "Add test test/unit/booking-workflow-validator.test.ts with mock workflows containing one step with missing requiredFields, assert validator returns { valid: false, missingDefinitions: ['step_name'] }"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-086",
       "title": "Add guest communication preference detection from conversation history",
       "priority": "low",
@@ -1609,6 +1683,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-057",
+      "title": "Implement startup profile-aware intent validation to prevent cross-contamination",
+      "priority": "high",
+      "description": "Detect and reject mismatched intents at application startup. Data-makan and data-southern profiles are currently loading Pelangi Capsule Hostel intents due to copy-paste errors from earlier development.",
+      "acceptanceCriteria": [
+        "Add function validateProfileIntents() in src/lib/config.ts that compares loaded intent definitions against RAINBOW_PROFILE env var and checks for hostel-specific keywords in cafe profiles",
+        "Add startup check that throws Error with profile name and conflicting intents if mismatch detected before routes initialize",
+        "Add unit test in tests/unit/profile-contamination.test.ts asserting detection catches 'check-in', 'room availability' in makan profile intents.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-056",
