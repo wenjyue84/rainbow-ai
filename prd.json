@@ -47,40 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-044",
-      "title": "Implement profile data schema validator to prevent future cross-profile contamination",
-      "priority": "high",
-      "description": "Add startup validation that ensures each profile's data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) only contain profile-specific content, blocking server start if contamination detected.",
-      "acceptanceCriteria": [
-        "Validator function in src/lib/profile-validator.ts runs on server startup, checks src/assistant/data/ files for known cross-profile terms (hostel-specific terms in cafe profile, etc.)",
-        "CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms",
-        "Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content and passes on clean profile data"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-045",
-      "title": "Add state machine validator tests for booking workflow transitions",
-      "priority": "high",
-      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
-      "acceptanceCriteria": [
-        "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
-        "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
-        "Test coverage >80% for state guards and transition conditions in ConversationState and WorkflowEngine"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-048",
       "title": "Add past-date check-in validation with alternative date suggestions",
       "priority": "high",
@@ -382,6 +348,57 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-087",
+      "title": "Implement intent classifier regression test baseline with accuracy thresholds",
+      "priority": "high",
+      "description": "Add automated regression tests that verify intent classification accuracy doesn't degrade between builds. Establish per-profile baseline accuracy thresholds for booking and inquiry intents to catch classifier degradation early.",
+      "acceptanceCriteria": [
+        "Create src/assistant/__tests__/intentClassifier.regression.test.ts with test data covering at least 20 sample intents per profile",
+        "Assert booking intent accuracy >= 85% and inquiry intent accuracy >= 80% per profile using test.expect() assertions",
+        "Add npm run test:regression command and integrate into deploy.sh to run before production deployment"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-088",
+      "title": "Add booking workflow step dependency validator with circular-reference detection",
+      "priority": "high",
+      "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
+      "acceptanceCriteria": [
+        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
+        "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
+        "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-089",
+      "title": "Implement multi-profile conversation isolation unit tests with cross-contamination assertions",
+      "priority": "high",
+      "description": "Add comprehensive tests to verify conversation data from one business profile never leaks into queries for another profile. Validates database query isolation and profile-aware filtering to enforce strict business separation.",
+      "acceptanceCriteria": [
+        "Create src/lib/db/__tests__/conversationIsolation.test.ts with tests creating conversations under different profile_ids (pelangi, southern, makan)",
+        "Assert getConversations(pelangiProfile) returns 0 results for conversations created under southernProfile",
+        "Inspect SQL query execution to verify WHERE profile_id = ? filter is present in all conversation SELECT queries"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -785,6 +802,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-090",
+      "title": "Add conversation context size validator with auto-truncation on overflow",
+      "priority": "medium",
+      "description": "Implement validation for conversation history size to prevent memory bloat and improve context handling performance. Automatically truncate oldest messages when context window exceeds configured limit, preserving recent message quality for AI inference.",
+      "acceptanceCriteria": [
+        "Add validateConversationContextSize() function in src/assistant/pipeline/conversationProcessor.ts that checks history length and returns truncated array",
+        "Truncate messages older than 20 messages or 24-hour window, whichever comes first",
+        "Add unit test in src/assistant/pipeline/__tests__/conversationProcessor.test.ts asserting that truncation preserves recent messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-091",
+      "title": "Build fallback response effectiveness tracker with admin analytics endpoint",
+      "priority": "medium",
+      "description": "Track when fallback responses are triggered and whether they result in escalation or successful resolution. Provide admin endpoint to query effectiveness metrics by profile and intent, enabling data-driven fallback improvements.",
+      "acceptanceCriteria": [
+        "Add fallback_triggered_count and fallback_escalated_count columns to rainbow_messages Drizzle schema in shared/schema-tables.ts",
+        "Create POST /api/admin/analytics/fallback-effectiveness endpoint returning {profile, totalFallbacks, escalationRate, topMisclassifiedIntents}",
+        "Add integration test asserting endpoint returns correct escalation rate calculation for test data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-086",
       "title": "Add guest communication preference detection from conversation history",
       "priority": "low",
@@ -927,6 +978,40 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-044",
+      "title": "Implement profile data schema validator to prevent future cross-profile contamination",
+      "priority": "high",
+      "description": "Add startup validation that ensures each profile's data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) only contain profile-specific content, blocking server start if contamination detected.",
+      "acceptanceCriteria": [
+        "Validator function in src/lib/profile-validator.ts runs on server startup, checks src/assistant/data/ files for known cross-profile terms (hostel-specific terms in cafe profile, etc.)",
+        "CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms",
+        "Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content and passes on clean profile data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-045",
+      "title": "Add state machine validator tests for booking workflow transitions",
+      "priority": "high",
+      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
+      "acceptanceCriteria": [
+        "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
+        "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
+        "Test coverage >80% for state guards and transition conditions in ConversationState and WorkflowEngine"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-043",
