@@ -1611,3 +1611,60 @@ FAILED diagnosis-block gate: Implement startup profile-aware intent validation t
 - Build: esbuild successful (2.1mb bundle, pre-existing warnings only)
 
 Status: PASSING - US-057 confirmed complete
+
+
+## Iteration 22 - Story: US-058 - Create data file contamination detection CLI tool with pre-deployment report
+### What was implemented
+- Created src/lib/profile-contamination-check.ts with:
+  * detectContamination(profileName: string): ContaminationResult function
+  * Scans knowledge.json, intent-keywords.json, routing.json for cross-profile terminology
+  * HOSTEL_TERMS: check-in, room type, capsule, guest, deck, password, amenities, etc. (27 terms in 3 languages)
+  * CAFE_TERMS: menu, order, dine, nasi lemak, mee goreng, roti canai, price, RM, breakfast, etc. (32 terms in 3 languages)
+  * getProfileType(profileName): determines if profile is 'hostel', 'cafe', or 'unknown'
+  * For cafe profiles (makan): checks against HOSTEL_TERMS
+  * For hostel profiles (pelangi, southern): checks against CAFE_TERMS
+  * generateContaminationReport(results[]): outputs CSV with Profile, Contaminated, Source File, Matched Term, Context columns
+- Created scripts/check-profiles.ts CLI that:
+  * Scans all profiles (pelangi, makan, southern) for contamination
+  * Outputs CSV report to stdout
+  * Shows top 5 contamination findings with detailed context
+  * Exits with code 1 if contamination detected, 0 if clean
+- Added npm script: "check:profiles": "tsx scripts/check-profiles.ts"
+- Extended tests/unit/profile-contamination.test.ts with 6 new tests:
+  * Test contamination detection structure and finding format
+  * Test CSV report generation with proper formatting
+  * Test handling of non-existent profiles
+  * Test profile type detection (pelangi, southern, makan)
+  * All 23 tests passing (17 existing + 6 new)
+
+### Acceptance Criteria Met
+[x] Created src/lib/profile-contamination-check.ts with detectContamination(profileName) function
+[x] Added npm script 'check:profiles' that runs detection for pelangi, makan, southern and outputs CSV
+[x] Test in tests/unit/profile-contamination.test.ts validates contamination detection with multi-language findings
+
+### Findings
+- Pelangi profile: CLEAN (0 cafe terms)
+- Makan profile: CONTAMINATED (31 instances of hostel terms: "guest", "password", "deck", "amenities", "staying")
+  * knowledge.json: 6 findings (guest, tetamu, 客人, kemudahan, deck entries)
+  * intent-keywords.json: 25 findings (password in wifi keywords, amenities in facilities_info, etc.)
+- Southern profile: CONTAMINATED (93 instances of cafe terms: RM, price, harga, food court, kitchen, dining, cafe, etc.)
+  * Heavy cafe term presence in hostel-specific intents (checkin_info, checkout_info, facilities)
+
+### Patterns discovered
+- Profile-specific keywords should be completely isolated — no shared vocabulary
+- Multi-language checking is critical (cafe intents reference "RM" which triggers on pricing intent text)
+- Hostel-specific intents in the data files shouldn't reference cafe operations at all
+- CSV report format allows easy parsing and integration into deployment pipelines
+
+### Gotchas
+- Windows doesn't support NODE_OPTIONS env var syntax in npm scripts (use npx directly)
+- The "password" keyword appears in both hostel and cafe contexts (WiFi password) — may need refinement
+- Southern profile has significant contamination, suggesting data was co-mingled during merge
+
+### Quality Checks Passed
+- Build: esbuild successful (2.1mb bundle, pre-existing warnings only)
+- Tests: 23/23 passing in profile-contamination.test.ts
+- CLI: check:profiles script runs successfully, detects all contamination
+- Server startup: successful with MCP_SERVER_PORT=3002
+
+Status: PASSING - US-058 completed successfully

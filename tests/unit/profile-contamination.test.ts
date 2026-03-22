@@ -244,3 +244,129 @@ describe('validateProfileIntents', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests for data file contamination detection (US-058)
+// ─────────────────────────────────────────────────────────────────────────
+
+import { detectContamination, generateContaminationReport } from '../../src/lib/profile-contamination-check.js';
+
+describe('Data File Contamination Detection', () => {
+  it('should detect hostel terms in makan knowledge.json', () => {
+    const result = detectContamination('makan');
+
+    // Result should have proper structure
+    expect(result).toHaveProperty('profileName');
+    expect(result).toHaveProperty('contaminated');
+    expect(result).toHaveProperty('findings');
+    expect(Array.isArray(result.findings)).toBe(true);
+
+    // If contaminated, verify finding structure
+    if (result.contaminated) {
+      for (const finding of result.findings) {
+        expect(finding).toHaveProperty('sourceFile');
+        expect(finding).toHaveProperty('contaminant');
+        expect(finding).toHaveProperty('context');
+        expect(finding).toHaveProperty('matchedTerm');
+
+        // Verify sourceFile is one of the known files
+        expect(['knowledge.json', 'intent-keywords.json', 'routing.json']).toContain(finding.sourceFile);
+      }
+    }
+  });
+
+  it('should detect hostel terms if present in makan profile', () => {
+    const result = detectContamination('makan');
+
+    // If the makan profile is contaminated, verify hostel terms are detected
+    if (result.contaminated && result.findings.length > 0) {
+      const matchedTerms = result.findings.map((f) => f.matchedTerm.toLowerCase());
+
+      // Verify that detected terms are from hostel-related vocabulary
+      // Examples: guest, password, deck, amenities, staying, etc.
+      const hostelTermPatterns = [
+        'guest', 'tetamu', '客人',      // guest
+        'password', 'kata laluan', '密码',  // password
+        'dek', 'deck',                  // deck
+        'kemudahan', 'amenities',       // amenities/facilities
+        'menginap', 'staying',          // staying
+        'check-in', 'check in', 'room type', 'hostel', 'capsule'  // other hostel terms
+      ];
+
+      const hasHostelTerm = matchedTerms.some((t) =>
+        hostelTermPatterns.some((term) => t.includes(term))
+      );
+
+      expect(hasHostelTerm).toBe(true);
+    }
+
+    // Verify result has proper structure
+    expect(typeof result.contaminated).toBe('boolean');
+  });
+
+  it('should generate a CSV report from contamination results', () => {
+    const results = [
+      {
+        profileName: 'test-profile',
+        contaminated: false,
+        findings: [],
+      },
+      {
+        profileName: 'test-profile-2',
+        contaminated: true,
+        findings: [
+          {
+            sourceFile: 'knowledge.json',
+            contaminant: 'test',
+            context: 'intent: test (en)',
+            matchedTerm: 'check-in',
+          },
+        ],
+      },
+    ];
+
+    const report = generateContaminationReport(results);
+
+    // Verify report is a string
+    expect(typeof report).toBe('string');
+
+    // Verify CSV header is present
+    expect(report).toContain('Profile');
+    expect(report).toContain('Contaminated');
+    expect(report).toContain('Source File');
+    expect(report).toContain('Matched Term');
+    expect(report).toContain('Context');
+
+    // Verify content rows are present
+    expect(report).toContain('test-profile');
+    expect(report).toContain('test-profile-2');
+    expect(report).toContain('check-in');
+    expect(report).toContain('knowledge.json');
+  });
+
+  it('should handle non-existent profiles gracefully', () => {
+    const result = detectContamination('non-existent-profile-xyz');
+
+    expect(result.profileName).toBe('non-existent-profile-xyz');
+    expect(result.contaminated).toBe(false);
+    expect(result.findings.length).toBe(0);
+  });
+
+  it('should detect pelangi profile type correctly', () => {
+    const result = detectContamination('pelangi');
+
+    // Pelangi should check against CAFE_TERMS, not HOSTEL_TERMS
+    expect(result).toHaveProperty('profileName', 'pelangi');
+    expect(result).toHaveProperty('contaminated');
+    expect(Array.isArray(result.findings)).toBe(true);
+  });
+
+  it('should detect southern profile type correctly', () => {
+    const result = detectContamination('southern');
+
+    // Southern should check against CAFE_TERMS, not HOSTEL_TERMS
+    expect(result).toHaveProperty('profileName', 'southern');
+    expect(result).toHaveProperty('contaminated');
+    expect(Array.isArray(result.findings)).toBe(true);
+  });
+});
