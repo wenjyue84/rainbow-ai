@@ -1291,3 +1291,24 @@ Previous attempt had fully implemented the story but failed the diagnosis gate. 
 
 ### Why previous attempt failed
 Diagnosis block gate requires outputting ## Current State / ## Problem Identified / ## Planned Changes headers before any file edits or Bash commands that modify files. Previous run skipped this and was blocked. Fixed by outputting required headers before verifying/marking complete.
+
+## Iteration [N] - Story: US-092 - Build intent keyword collision detector CLI
+
+### What was implemented
+- Created `scripts/validate-keywords.ts` — self-contained CLI using tsx
+- Added `"validate:keywords": "tsx scripts/validate-keywords.ts"` to package.json scripts
+- Script loads intent-keywords.json from all 3 profiles (pelangi, makan, southern)
+- Detects within-profile collisions: keywords mapping to multiple intents (severity: high=3+, medium=2)
+- Detects cross-profile duplicates: identical keywords appearing across profiles
+- Outputs human-readable report by default; `--json` flag for machine-readable JSON
+- Exit code 0 = clean, 1 = issues found
+
+### Patterns discovered
+- Profile directories: `src/assistant/data`, `src/assistant/data-makan`, `src/assistant/data-southern`
+- intent-keywords.json structure: `{ intents: [{ intent, keywords: { en: [], ms: [], zh: [] } }] }`
+- Existing scripts in scripts/ use `#!/usr/bin/env tsx` + ESM imports
+- 207 within-profile collisions and 1359 cross-profile duplicates found across 3 profiles
+
+### Gotchas
+- Files need `encoding='utf-8'` on Windows (cp1252 default fails on special chars)
+- Node -e inline code with `!` gets escaped in bash; use python3 for JSON manipulation

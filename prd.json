@@ -47,39 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-157",
-      "title": "Implement automated data retention policy enforcement via cron",
-      "priority": "critical",
-      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
-      "acceptanceCriteria": [
-        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
-        "Retention period is configurable via settings.json",
-        "Deletion is logged with count of deleted records in audit log",
-        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
-        "File to edit: ecosystem.config.cjs (add cron schedule)",
-        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T23:30:41Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 624,
-        "tokensAfterMasking": 622,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
-    },
-    {
       "id": "US-092",
       "title": "Build intent keyword collision detector CLI with cross-profile contamination detection",
       "priority": "high",
@@ -92,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-22T23:40:27Z"
     },
     {
       "id": "US-093",
@@ -423,55 +391,37 @@
       "model": "haiku"
     },
     {
-      "id": "US-159",
-      "title": "Add conversation turn latency profiler by intent class",
-      "priority": "medium",
-      "description": "Track how long each conversation turn takes to process grouped by intent classification, enabling identification of slow intents and performance regression detection.",
+      "id": "US-157",
+      "title": "Implement automated data retention policy enforcement via cron",
+      "priority": "critical",
+      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
       "acceptanceCriteria": [
-        "Add turn_latency_ms column to rainbow_messages table; log elapsed time in processMessage() in src/assistant/pipeline/message-processor.ts by wrapping AI call with performance.now()",
-        "Implement GET /admin/analytics/latency-profile?intent_class=booking_request&days=7 returning {p50_ms, p95_ms, p99_ms, mean_ms, sample_count} grouped by intent_class",
-        "Add regression detection: return warning if p95 latency increased >20% from 7-day rolling average"
+        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
+        "Retention period is configurable via settings.json",
+        "Deletion is logged with count of deleted records in audit log",
+        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
       ],
-      "technicalNotes": [],
+      "technicalNotes": [
+        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
+        "File to edit: ecosystem.config.cjs (add cron schedule)",
+        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
+      ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-160",
-      "title": "Add booking workflow dry-run validator for safe precondition checking",
-      "priority": "medium",
-      "description": "Implement workflow execution in read-only validation mode to verify all preconditions and step dependencies without database mutations or API calls.",
-      "acceptanceCriteria": [
-        "Add dryRun: boolean parameter to executeWorkflow() in src/assistant/pipeline/workflow-executor.ts; when true, validate preconditions but skip all mutations (no DB writes, API calls, or SMS)",
-        "Return validation report: {valid: true, steps_validated: ['verify_guest', 'check_availability'], path_ok: true} or {valid: false, blocked_on: 'check_availability', reason: 'no_rooms_free'}",
-        "Add test in src/assistant/__tests__/workflow-dryrun.test.ts asserting dryRun validates without side effects and subsequent real execution succeeds with same context"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-161",
-      "title": "Add context freshness validator for returning guest conversations",
-      "priority": "medium",
-      "description": "Validate whether previous conversation context for a returning guest should be reused based on time elapsed, stay history, and profile rules before auto-populating in new conversation.",
-      "acceptanceCriteria": [
-        "Implement isContextFresh(guestId, savedContext, businessProfile) in src/lib/context-manager.ts returning {fresh: boolean, reason: string, age_days: number}",
-        "Rules: fresh if age <30 days AND no conflicting stay AND same profile; always clear if >90 days old or profile changed",
-        "Add test asserting context reused for 7-day return, cleared for 120-day return, and cleared if profile changed"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "last_attempted": "2026-03-22T23:30:41Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 624,
+        "tokensAfterMasking": 622,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-156",
