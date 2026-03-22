@@ -61,8 +61,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T17:57:48Z"
+      "model": "haiku"
     },
     {
       "id": "US-045",
@@ -386,6 +385,421 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-035",
+      "title": "Add DLQ overflow alert and webhook notification for message queue",
+      "priority": "medium",
+      "description": "The message queue (src/lib/message-queue.ts) has a dead-letter queue but no alerting when it grows beyond a threshold. Failed messages silently accumulate. Add a configurable DLQ size threshold that triggers a webhook notification to the admin panel when exceeded.",
+      "acceptanceCriteria": [
+        "A DLQ_ALERT_THRESHOLD setting exists in settings.json (default: 10)",
+        "When DLQ size exceeds the threshold, a POST is sent to DIGIMAN_API_URL/api/alerts with the DLQ count and oldest message timestamp",
+        "Alert is sent at most once per hour to avoid spam (cooldown timer)",
+        "DLQ metrics are exposed via GET /api/admin/queue/health endpoint returning dlqSize, totalProcessed, and failureRate",
+        "The queue health endpoint requires admin auth (existing Passport middleware)",
+        "Unit test verifies alert fires at threshold and respects cooldown"
+      ],
+      "technicalNotes": [
+        "Add alert logic to src/lib/message-queue.ts after DLQ push",
+        "Add GET /api/admin/queue/health route to src/routes/admin/",
+        "Use existing httpClient from src/lib/http-client.ts for the webhook POST",
+        "Cooldown: store lastAlertTime as module-level variable"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "filesTouch": [
+        "src/lib/message-queue.ts",
+        "src/routes/admin/queue-health.ts",
+        "tests/unit/dlq-alert.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet"
+    },
+    {
+      "id": "US-037",
+      "title": "Add circuit breaker state transition tests and HALF_OPEN recovery logic",
+      "priority": "medium",
+      "description": "The circuit breaker (src/assistant/circuit-breaker.ts) lacks tests for the HALF_OPEN state where exactly one probe request is allowed through. If the probe fails, the circuit should re-open with an extended timeout. Add configurable recovery timeout with exponential backoff and comprehensive state transition tests.",
+      "acceptanceCriteria": [
+        "HALF_OPEN state allows exactly 1 request through as a probe",
+        "If probe succeeds, circuit transitions to CLOSED and resets failure count",
+        "If probe fails, circuit transitions back to OPEN with timeout doubled (up to max 5 minutes)",
+        "Recovery timeout is configurable via constructor option (default: 30 seconds)",
+        "Max recovery timeout is configurable (default: 300 seconds)",
+        "Test file covers all 6 state transitions: CLOSED to OPEN, OPEN to HALF_OPEN, HALF_OPEN to CLOSED, HALF_OPEN to OPEN, CLOSED to CLOSED on success, OPEN to OPEN within timeout",
+        "Tests use fake timers (vi.useFakeTimers) with no real delays"
+      ],
+      "technicalNotes": [
+        "Modify src/assistant/circuit-breaker.ts to add configurable recovery timeout and exponential backoff",
+        "Add tests/unit/circuit-breaker-states.test.ts with state transition matrix",
+        "Use Vitest fake timers for deterministic time-based tests",
+        "Keep changes minimal - only add the missing recovery logic and tests"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/circuit-breaker.ts",
+        "tests/unit/circuit-breaker-states.test.ts"
+      ],
+      "passes": false,
+      "model": "haiku"
+    },
+    {
+      "id": "US-039",
+      "title": "Add message acknowledgment status tracking to rainbow_messages table",
+      "priority": "medium",
+      "description": "Track message delivery and read status (sent, delivered, read) in the database to improve accountability and reliability. Update pipeline to set status on WhatsApp webhook receipts.",
+      "acceptanceCriteria": [
+        "Add ack_status column (enum: pending, sent, delivered, read) to rainbow_messages table in shared/schema-tables.ts",
+        "Update message pipeline in src/assistant/pipeline/ to set ack_status on receipt webhook from WhatsApp",
+        "Add GET /admin/messages/unacked endpoint returning count and oldest unacked message timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-040",
+      "title": "Add per-profile message rate limiting with configurable daily quotas",
+      "priority": "medium",
+      "description": "Enforce profile-specific message quotas (Pelangi, Makan, Southern) with tracking in in-memory store. Reject excess messages with 429 status and remaining quota info to improve reliability and prevent spam.",
+      "acceptanceCriteria": [
+        "Create src/lib/rate-limiter.ts with getProfileQuota(profile) and trackMessage(profile, count) functions",
+        "Update message ingestion pipeline to check quota before processing; reject with 429 and {remaining, resetAt} JSON",
+        "Add quotas to src/assistant/data/settings.json with keys: quota.pelangi.dailyLimit, quota.makan.dailyLimit, quota.southern.dailyLimit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-041",
+      "title": "Add conversation auto-archival after guest checkout completion",
+      "priority": "medium",
+      "description": "Automatically mark conversations as archived when a guest completes checkout. Reduces clutter in active conversation queries and improves database query performance.",
+      "acceptanceCriteria": [
+        "Add archived_at timestamp column to rainbow_conversations table in shared/schema-tables.ts",
+        "Update checkout workflow in workflows.json to call archiveConversation(conversation_id) function",
+        "Modify conversation list query in src/routes/admin/ to filter WHERE archived_at IS NULL by default"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-042",
+      "title": "Add admin bulk message scheduling with queue state visibility endpoint",
+      "priority": "medium",
+      "description": "Allow admins to schedule multiple messages at once with exponential backoff on delivery failures. Add queue state endpoint to monitor pending messages, ensuring reliability for bulk messaging campaigns.",
+      "acceptanceCriteria": [
+        "Create POST /admin/messages/schedule-bulk accepting {messages: Array<{phone, text, delayMs}>, maxRetries: number}",
+        "Implement queue processor in src/lib/message-queue.ts with exponential backoff (retry after 5s, 10s, 30s on failure)",
+        "Add GET /admin/messages/queue-state returning {pending: number, failed: number, oldestTimestamp}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-046",
+      "title": "Add input normalization and sanitization middleware for WhatsApp formatting edge cases",
+      "priority": "medium",
+      "description": "Normalize user input (Unicode NFC, whitespace trimming, emoji consolidation, zero-width character removal) before intent classification to improve accuracy on noisy WhatsApp messages.",
+      "acceptanceCriteria": [
+        "Middleware in src/assistant/pipeline/normalize-input.ts applies Unicode NFC normalization, regex whitespace cleanup, and emoji variant consolidation before ClassifyIntentService",
+        "Unit tests show '  Check  in?!!  ', 'Check​​ in' (zero-width spaces), and 'Check in 😀' all normalize to canonical form and match identical intent",
+        "Integration test confirms F1-score improvement ≥2% on WhatsApp test dataset with formatting variance"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-047",
+      "title": "Add exponential time-decay weighting for conversation context to reduce stale message influence",
+      "priority": "medium",
+      "description": "Implement exponential decay function for conversation history so older messages contribute less to intent classification and response generation, preventing multi-day conversations from being misclassified.",
+      "acceptanceCriteria": [
+        "ConversationState.messages includes timestamp_ms; getRelevantContext() computes decay_weight = 0.9^(hours_old) for each message before passing to intent classifier",
+        "Unit test in src/assistant/__tests__/context-decay.test.ts validates 30-day-old messages have weight <5%, recent messages have weight >90%",
+        "Integration test confirms conversation spanning 3+ days classifies Day 3 intent correctly without interference from Day 1 context messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-065",
+      "title": "Build intent misclassification dashboard and trend reporting for classifier accuracy",
+      "priority": "medium",
+      "description": "Provide visibility into intent classifier performance by tracking misclassifications and exposing per-intent accuracy trends. Enable data-driven prioritization of intent improvement efforts.",
+      "acceptanceCriteria": [
+        "Create intent_misclassifications table (id, profile_id, message_text, predicted_intent, actual_intent, confidence, timestamp) in shared/schema-tables.ts; log misclassifications in src/assistant/engine/classifier.ts when predicted_intent diverges from user feedback",
+        "Create GET /admin/dashboard/intent-health?profile=pelangi endpoint returning: per_intent_accuracy_pct, top_5_misclassified_intents, 7_day_accuracy_trend, sample misclassified messages",
+        "Add integration test: tests/unit/intent-misclassification-tracking.test.ts verifying misclassification logging and dashboard query accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-066",
+      "title": "Auto-generate knowledge base FAQ entries from escalated conversation patterns",
+      "priority": "medium",
+      "description": "Analyze escalated conversations to identify common unresolved questions, then auto-generate FAQ entries and static reply templates. Reduces future escalations by expanding fallback response coverage based on actual guest needs.",
+      "acceptanceCriteria": [
+        "Create npm script: npm run generate-faq -- --from-escalations --profile=pelangi that queries escalation_events table for past 30 days, extracts top-10 escalation reasons, clusters by intent, outputs suggested_faq.json with reply templates",
+        "Implement CLI tool in scripts/generate-faq-from-escalations.ts that deduplicates similar escalation messages and generates knowledge.json-compatible FAQ snippets with confidence scores",
+        "Add admin endpoint POST /admin/faq/import-from-escalations?profile=pelangi&count=10 returning suggested entries for review; allows approval to bulk-merge into src/assistant/data/knowledge.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-069",
+      "title": "Add conversation relevance scoring to prune stale context before AI inference",
+      "priority": "medium",
+      "description": "Enhance multi-turn dialogue handling by scoring historical messages based on age, semantic similarity to current message, and intent match. Messages below the relevance threshold are excluded from the LLM context window to reduce noise and improve response accuracy.",
+      "acceptanceCriteria": [
+        "Implement `scoreContextRelevance(messages, currentMessage, currentIntent)` function in `src/assistant/pipeline/context-handler.ts` that assigns 0-100 scores based on: (1) message age (decay 1 point per minute), (2) embedding cosine similarity to current message (threshold 0.6), (3) intent match bonus (+30 if intent matches current intent)",
+        "Add config option `contextPruneThreshold` in `src/assistant/data/settings.json` (default: 35), applied during pipeline context assembly",
+        "Unit tests in `tests/unit/context-relevance-scoring.test.ts` verify: messages older than 1 hour score < 35 when intent differs, messages with matching intent score >= 65, and context pruning reduces window from 10 to ~5 relevant messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-070",
+      "title": "Add conversation message deduplication using embedding similarity within 30-second window",
+      "priority": "medium",
+      "description": "Reduce duplicate message sends by detecting when a pending outbound message is semantically very similar to a message sent in the last 30 seconds. Useful for preventing double-sends during network retries or rapid intent classification changes.",
+      "acceptanceCriteria": [
+        "Implement `deduplicateRecentMessages(pendingMessage, conversationHistory, threshold)` in new file `src/lib/conversation-dedup.ts`. Using existing embedding model, compute cosine similarity between pendingMessage and last 3 outbound messages sent within 30 seconds. Return `{isDuplicate: boolean, similarMessageId: string}` if similarity > threshold (default 0.82)",
+        "Add config option `deduplicationEnabled` and `deduplicationSimilarityThreshold` to `src/assistant/data/settings.json`. Call dedup check in message send pipeline before DB insert",
+        "Unit tests in `tests/unit/conversation-dedup.test.ts` verify: near-duplicate ('Great! I booked room 101' vs 'Perfect! Room 101 reserved') returns isDuplicate=true, dissimilar messages ('Can I check availability?' vs 'Your booking is confirmed') return isDuplicate=false, messages older than 30 seconds are ignored"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-071",
+      "title": "Add admin analytics endpoint for per-profile intent distribution with anomaly alerts",
+      "priority": "medium",
+      "description": "Expose real-time visibility into intent classification distribution per profile. Detect imbalances (e.g., one intent representing >60% of messages) that indicate classification drift or data quality issues.",
+      "acceptanceCriteria": [
+        "GET `/admin/analytics/intent-distribution?profile=makan&days=7` returns JSON: `{profile, period_days, total_messages, intents: [{intent_id, count, percentage, trend: \"up\"|\"down\"|\"stable\"}], anomalies: [{severity: \"high\"|\"medium\", message: \"intent_fallback at 45% (expected <10%)\"}]}`. Query `intent_analytics` table grouped by intent_id with date filtering",
+        "Logic: compute 7-day average distribution per intent, flag as anomaly if intent count is >2 std devs from baseline OR single intent >50% of traffic",
+        "Test file `tests/unit/admin-intent-analytics.test.ts` mocks intent_analytics rows and asserts: (1) endpoint correctly sums counts across dates, (2) anomalies detected when fallback intent > 40%, (3) response includes all intents even if count is 0"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-074",
+      "title": "Implement conversation message summarization for threads exceeding 12 messages",
+      "priority": "medium",
+      "description": "Compress older conversation history into a brief factual summary to reduce AI context window size while preserving key details (booking dates, room types, guest names). Helps maintain conversation coherence in long multi-turn dialogues without losing critical information.",
+      "acceptanceCriteria": [
+        "Summarization middleware in `src/assistant/pipeline/context-summarizer.ts` triggers when conversation message count > 12, generating a 3-5 sentence factual summary of prior messages",
+        "Summary is prepended to system prompt in `src/assistant/engines/ai-engine.ts` with clear delimiter '**Conversation Summary**: [facts]'",
+        "Integration test with 15-message booking conversation shows context token reduction >50% while preserving all booking-critical details (dates, room counts, guest name)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-075",
+      "title": "Implement fallback response effectiveness metric tracking and admin analytics",
+      "priority": "medium",
+      "description": "Track which fallback response templates are most effective by measuring user follow-up actions (subsequent intents, escalations). Enable data-driven fallback response selection to improve resolution rates when AI confidence is low.",
+      "acceptanceCriteria": [
+        "Add `fallback_template_id` and `follow_up_action` columns to `rainbow_messages` table via Drizzle migration in `shared/schema-tables.ts`",
+        "Admin API endpoint `GET /admin/analytics/fallback-effectiveness?profile=data-pelangi` returns follow-up success rate per fallback template (e.g., 'suggest_escalation': 0.65)",
+        "Test assertion: fallback response with >70% follow-up success rate is identified and ranked higher than <40% success variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-076",
+      "title": "Add multi-turn conversation contradiction detector for data quality monitoring",
+      "priority": "medium",
+      "description": "Detect when guests make contradictory statements across conversation turns (e.g., 'I arrive on 2026-03-25' followed by 'I checked in 2026-03-20'). Log contradictions to identify potential user confusion or data entry errors.",
+      "acceptanceCriteria": [
+        "New validator function `detectStatementContradictions()` in `src/assistant/pipeline/validators.ts` analyzes last 4 messages for conflicting dates, room numbers, or guest identifiers",
+        "Detected contradictions logged to `conversation_feedback` table with type ('date_conflict', 'room_conflict', 'guest_identity_mismatch') and message pair IDs",
+        "Unit test: conversation with 'check-in: 2026-03-25' then 'checked in 2026-03-20' correctly flagged as date_conflict contradiction"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-079",
+      "title": "Implement 30-second message deduplication to prevent duplicate bot responses",
+      "priority": "medium",
+      "description": "Prevent duplicate bot responses in rapid-fire message sequences by comparing message hashes within configurable time window. Improves conversation reliability and reduces redundant API calls.",
+      "acceptanceCriteria": [
+        "Add DEDUP_WINDOW_SECONDS=30 to src/assistant/data/settings.json with per-profile override capability",
+        "Implement deduplication in src/assistant/pipeline/message-processing.ts: compute SHA256 hash of incoming message, query rainbow_messages for identical hash from same sender within time window, return cached response if found",
+        "Write test: when guest sends 'room price?' at T=0s and T=15s, second request returns identical cached response from T=0s without reprocessing through AI"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-080",
+      "title": "Add per-profile daily message rate limit enforcement at intake",
+      "priority": "medium",
+      "description": "Prevent message spam and abuse by enforcing daily message quotas per guest per profile. Blocks guests from flooding the system while maintaining fair access.",
+      "acceptanceCriteria": [
+        "Add RATE_LIMIT_MESSAGES_PER_DAY=100 to src/assistant/data/settings.json with per-profile environment variable override (RATE_LIMIT_MAKAN=80, RATE_LIMIT_SOUTHERN=120, etc.)",
+        "Implement rate limiter in src/lib/middleware/rate-limiter.ts: query rainbow_messages WHERE sender_id=? AND created_at > NOW()-24h, compare count against profile quota before processing",
+        "Write test: when guest exceeds daily limit (e.g., 101st message), handler returns 429 error with response body containing remaining_quota, reset_time, and profile_name"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-081",
+      "title": "Build intent classification decision audit trail for debugging misclassifications",
+      "priority": "medium",
+      "description": "Log all intent predictions with confidence scores and alternative candidates for post-incident debugging and classifier improvement. Enables data-driven intent accuracy analysis.",
+      "acceptanceCriteria": [
+        "Add intent_classification_audit table to shared/schema-tables.ts with columns: id, timestamp, message_id, profile_id, predicted_intent, confidence_score, top_3_alternatives (JSON), message_text_preview, classifier_model_version",
+        "Log to src/assistant/pipeline/intent-classification.ts immediately after classifier.predict() returns: insert audit record with top intent + confidence score + top 3 candidates with their scores",
+        "Write test: audit entry created for each classification with confidence between 0.0-1.0, alternatives array containing 3 valid intent names from routing.json, and timestamp within 1 second of message creation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-083",
+      "title": "Add per-profile booking confirmation message templates in settings.json",
+      "priority": "medium",
+      "description": "Allow each business profile (Pelangi/Makan/Southern) to customize booking confirmation message templates instead of using hardcoded format, improving response quality and profile separation.",
+      "acceptanceCriteria": [
+        "Add confirmation_template_booking field to src/assistant/data/settings.json for each profile with placeholder variables like {guest_name}, {room_type}, {check_in}",
+        "Update assistant/ai-provider.ts sendConfirmationMessage() to render profile-specific template using Handlebars or simple string replacement",
+        "Add integration test in tests/confirmation-templates.test.ts verifying different profiles produce distinct confirmation messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-084",
+      "title": "Build conversation quality trend detector with 30-day rolling baseline",
+      "priority": "medium",
+      "description": "Monitor intent classification confidence and escalation rates per profile to detect quality degradation and alert admins, supporting reliability and response quality goals.",
+      "acceptanceCriteria": [
+        "Add GET /api/admin/quality/trends/:profile endpoint that queries intent_analytics for 30-day rolling average confidence and escalation_rate, returning trend direction",
+        "Alert threshold: if confidence drops >10% from baseline or escalation_rate increases >5%, include alert flag in response",
+        "Add unit test in tests/quality-trends.test.ts with mocked analytics data verifying trend calculations and alert thresholds"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-085",
+      "title": "Implement intent classifier top-3 confidence tracking for debugging misclassifications",
+      "priority": "medium",
+      "description": "Store top 3 intent predictions with confidence scores instead of just winner, enabling admin debugging of why classifier chose wrong intent.",
+      "acceptanceCriteria": [
+        "Add top_3_predictions JSONB column to intent_analytics table storing [{intent: string, score: float}] for top 3 scoring intents",
+        "Update src/assistant/pipeline/intent-classifier.ts to log all model scores before storing in database",
+        "Add admin endpoint GET /api/admin/debug/intents/:conversation_id/alternatives returning top_3_predictions and actual intent chosen"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-086",
+      "title": "Add guest communication preference detection from conversation history",
+      "priority": "low",
+      "description": "Extract guest's preferred language and response style from past conversations to improve multi-turn dialogue context and personalization.",
+      "acceptanceCriteria": [
+        "Create src/lib/guest-context.ts with getGuestPreferences(guest_id) querying last 10 messages from rainbow_conversations, detecting language_code",
+        "Cache result with 24h TTL in memory to avoid repeated database hits",
+        "Add integration test in tests/guest-context.test.ts verifying language detection from mock messages (English/Chinese/Tamil samples)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-005",
