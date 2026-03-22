@@ -1516,6 +1516,7 @@ Based on the project's TypeScript structure and the story's acceptance criteria,
 *   **Atomicity:** The operation to move a message from the DLQ to the main queue must be atomic to prevent message loss.
 *   **Expired Messages:** The logic should clarify whether messages past their `expires_at` timestamp are still eligible for retry.
 
+<<<<<<< Updated upstream
 
 ## Iteration [19] - Story: US-056 - Add real-time room availability validation during booking confirmation
 ### What was implemented
@@ -1815,3 +1816,48 @@ This analysis is based on the provided user story and project structure, which i
 *   The scoring logic depends on a "confidence threshold" which must be sourced from a configuration file or constant.
 *   Gracefully handle scoring for conversations that may lack clear resolution or intent data.
 
+=======
+>>>>>>> Stashed changes
+
+## Pre-analysis for US-064 (Gemini 2.5 Pro)
+**Note on Tech Stack:** The provided user story (US-064) describes a feature for a TypeScript/Node.js application, not a Frappe/Python one. The file paths (`.ts`, `.json`) and implementation details are specific to a JS/TS environment. The following brief is based on the technical requirements as described in the JSON.
+
+**Technical Brief for US-064**
+
+**1. Target Files:**
+*   **Configuration:** `src/assistant/data/routing.json` (add new intent)
+*   **Implementation:** `src/assistant/tools/bookings.ts` (add new function)
+*   **Testing:** `tests/unit/booking-modification.test.ts` (new test file)
+
+**2. Involved Entities:**
+*   **Intent:** `booking_modification`
+*   **Primary Function:** `findConflictingBookings`
+*   **Database Table:** `room_bookings`
+
+**3. Implementation Approach:**
+*   In `bookings.ts`, implement `findConflictingBookings` to query the `room_bookings` table. It should identify any bookings for a given `roomType` that have an overlapping `bookedDateRange`.
+*   Add the `booking_modification` intent to `routing.json`, defining the conversational workflow steps.
+*   The assistant's core logic will use `findConflictingBookings` to validate proposed changes before committing them to the database.
+*   Create `booking-modification.test.ts` to mock the database interaction and test the conflict detection, room unavailability, and successful update scenarios.
+
+**4. Edge Cases & Gotchas:**
+*   The conflict detection query must exclude the specific booking being modified to avoid false positives.
+*   Carefully handle date range comparisons to cover all overlap scenarios.
+*   The workflow must gracefully handle validation failures (e.g., no availability) by suggesting alternatives to the user.
+*   Ensure state is managed correctly through the multi-turn dialogue, particularly when falling back to alternative options.
+
+
+## Iteration N - Story: US-064 - Implement booking modification workflow
+### What was implemented
+- Added `booking_modification` intent to `src/assistant/data/routing.json` pointing to workflow `booking_modification`
+- Added `booking_modification` workflow to `src/assistant/data/workflows.json` with 5 node steps: `list_existing_bookings`, `select_booking_id`, `choose_change_type`, `validate_availability`, `confirm_and_update`
+- Created `src/tools/bookings.ts` with `findConflictingBookings(bookedDateRange, roomType, profileId)` using scheduled_messages table queries + room type filtering
+- Created `tests/unit/booking-modification.test.ts` with 6 tests covering 3 required scenarios + edge cases
+### Patterns discovered
+- `src/tools/` is the actual tools directory (not `src/assistant/tools/` as the PRD states)
+- Mock path from `tests/unit/` to DB is `../../src/lib/db.js`
+- `vi.resetAllMocks()` in beforeEach prevents cross-test mock pollution
+- `findConflictingBookings` uses fail-open pattern (returns [] on DB error) like existing booking-validators
+### Gotchas
+- prd.json must be read/written with `encoding='utf-8'` on Windows (cp1252 default fails on some characters)
+- Build: 6/6 tests pass, esbuild succeeds
