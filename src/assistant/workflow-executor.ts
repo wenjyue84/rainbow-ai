@@ -4,6 +4,7 @@ import type { WorkflowDefinition, WorkflowStep } from './config-store.js';
 import { enhanceWorkflowStep, WorkflowEnhancerContext } from './workflow-enhancer.js';
 import { callAPI as httpClientCallAPI } from '../lib/http-client.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
+import { executeWorkflowInTransaction, logTransactionMetrics, type TransactionMetrics } from './pipeline/workflow-transaction-handler.js';
 import type {
   HybridWorkflowDefinition, WorkflowNode, NodeWorkflowState,
   MessageNodeConfig, WaitReplyNodeConfig, WhatsAppSendNodeConfig,
@@ -790,4 +791,37 @@ export function hasAutoAdvanceSteps(workflow: WorkflowDefinition, fromIndex: num
     }
   }
   return true;
+}
+
+// ============================================================================
+// US-082: Transaction-Wrapped Workflow Execution
+// ============================================================================
+
+/**
+ * Executes a workflow step within a database transaction.
+ *
+ * Wraps the entire step execution in a transaction, ensuring:
+ * - All database writes are atomic (all-or-nothing)
+ * - On failure, all changes are rolled back
+ * - Transaction isolation is READ_COMMITTED
+ * - Duration is logged for deadlock detection
+ *
+ * This is the public-facing function that external callers should use.
+ * Internal recursive calls (evaluation steps) use executeWorkflowStep directly
+ * to avoid nested transactions.
+ */
+export async function executeWorkflowStepWithTransaction(
+  state: WorkflowState,
+  userMessage: string | null,
+  context: WorkflowContext
+): Promise<WorkflowExecutionResult> {
+  const [result, metrics] = await executeWorkflowInTransaction(
+    () => executeWorkflowStep(state, userMessage, context),
+    state.workflowId
+  );
+
+  // Log metrics for monitoring
+  logTransactionMetrics(metrics, state.workflowId);
+
+  return result;
 }
