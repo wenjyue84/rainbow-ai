@@ -1945,3 +1945,40 @@ Completed: Add per-profile intent whitelist validator to block cross-contaminate
 *   **Past Dates**: The check for past-date bookings should be timezone-aware, using Frappe's date utilities.
 *   **Workflow vs. Validate Hook**: The `validate` hook fires on every save. Ensure the logic is conditional on the booking's status to prevent it from running unnecessarily (e.g., on a draft save).
 
+## Iteration 1 - Mon, Mar 23, 2026  3:59:19 AM
+FAILED diagnosis-block gate: Implement booking modification workflow for guest-initiated date and room-type changes (ID: US-064) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-068 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for the Frappe/Python implementation.
+
+***
+
+**Subject:** Technical Brief for US-068: Booking Pre-confirmation Validator
+**Target App:** `lhdn_payroll_integration`
+
+**NOTE:** The user story specifies a TypeScript implementation. This brief translates the requirements for the requested Frappe/Python environment.
+
+**1. Python Files to Modify:**
+*   **Primary Logic:** `lhdn_payroll_integration/utils/booking_validator.py` (new file).
+*   **DocType Controller:** `lhdn_payroll_integration/doctype/booking/booking.py` (assuming `Booking` DocType).
+*   **Settings DocType:** `lhdn_payroll_integration/doctype/payroll_settings/payroll_settings.py` & `.json` (assuming a settings singleton).
+*   **Hooks:** `lhdn_payroll_integration/hooks.py`.
+*   **Tests:** `lhdn_payroll_integration/tests/test_booking_validator.py` (new file).
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:** A `Booking` DocType is central. It must link to `Guest` and `Room` DocTypes (or equivalents). A singleton DocType like `Payroll Settings` is needed to store configuration.
+*   **Hook:** The `validate` document hook for the `Booking` DocType is the ideal place to trigger the validation logic.
+
+**3. Implementation Approach:**
+1.  Create/extend a singleton DocType for settings (`Payroll Settings`) with fields: `max_stay_days`, `advance_booking_window`.
+2.  In `booking_validator.py`, create a function `validate_pre_confirmation_rules(booking_doc)`.
+3.  This function will fetch the settings, access related documents (guest, room), and run the validation logic. It should return a dictionary: `{ "is_valid": bool, "warnings": [], "recommendations": [] }`.
+4.  In `booking.py`, call this validator from the `validate` method. If the result is invalid, use `frappe.throw` with the formatted warning messages to block the transaction.
+
+**4. Edge Cases & Gotchas:**
+*   The logic to calculate `guest_total_nights_booked` requires an efficient query across existing `Booking` documents to avoid performance issues on save.
+*   Date comparisons must be robust; use `frappe.utils.date_diff` and be mindful of timezones.
+*   The recommendation logic ("Suggest room X") requires a separate query to find suitable, available rooms, adding scope.
+*   The front-end currently cannot consume structured warnings from `frappe.throw`. The "actionable" part might need a custom client script to interpret the message.
+
