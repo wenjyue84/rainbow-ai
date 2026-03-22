@@ -10,7 +10,7 @@
     "Improve the booking workflow steps in workflows.json",
     "Fix any failing tests",
     "Prioritize reliability and response quality over new features",
-    "Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that business, with zero contamination from other profiles",
+    "Enforce strict business profile separation — each profile's data files must only contain content specific to that business, with zero contamination from other profiles",
     "Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
   ],
   "epics": [
@@ -64,9 +64,7 @@
       "estimatedComplexity": "medium",
       "passes": true,
       "_source": "research",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T22:00:26Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "model": "haiku"
     },
     {
       "id": "US-087",
@@ -85,8 +83,7 @@
       "_source": "ai-example",
       "model": "sonnet",
       "last_attempted": "2026-03-22T21:46:55Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_passedCommit": "e8822abd1581fac9d1597d15f0ca8e93d022bed1"
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-088",
@@ -94,7 +91,7 @@
       "priority": "high",
       "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
       "acceptanceCriteria": [
-        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A\u2192B\u2192A) and throws WorkflowValidationError",
+        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
         "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
         "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
       ],
@@ -147,7 +144,7 @@
       "acceptanceCriteria": [
         "New module src/assistant/pipeline/topic-drift-detector.ts exports detectTopicDrift(messages: Message[], threshold: 0.7) returning {drifted: boolean, confidence: number}",
         "When topic drift detected (confidence > threshold), response pipeline routes to topic-refocus fallback instead of normal AI inference",
-        "Unit tests verify correct detection on sequences: booking\u2192general_question\u2192booking with passing assertion on coherence recovery"
+        "Unit tests verify correct detection on sequences: booking→general_question→booking with passing assertion on coherence recovery"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -162,7 +159,7 @@
       "priority": "high",
       "description": "Create validator ensuring routing.json routes reference only intents from same profile, preventing cross-contamination at configuration layer and catching Makan/Southern Pelangi data leakage.",
       "acceptanceCriteria": [
-        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route\u2192intent mismatches with profile name",
+        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
         "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
         "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
       ],
@@ -225,6 +222,642 @@
       "model": "sonnet"
     },
     {
+      "id": "US-103",
+      "title": "Add room-type specific booking intent classification for Pelangi Capsule",
+      "priority": "high",
+      "description": "Improve booking intent accuracy by adding room-type variant keywords (single, double, family, dorm) to distinguish between room-specific booking requests and general inquiries.",
+      "acceptanceCriteria": [
+        "Add room-type keyword variants to src/assistant/data/intent-keywords.json under booking_intent for Pelangi profile only: single room, double room, family room, dorm room, twin bed",
+        "Add test in tests/classifier.test.ts verifying messages 'I want to book a double room' and 'family room availability' classify as booking_intent with confidence >= 0.85",
+        "Add validation in tests/profile-validation.test.ts asserting room-type keywords (single, double, family, dorm) appear ONLY in booking_intent across all profiles, never in inquiry_intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-104",
+      "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
+      "priority": "high",
+      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
+      "acceptanceCriteria": [
+        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
+        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
+        "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-105",
+      "title": "Add context-aware fallback response selection based on confidence and conversation history",
+      "priority": "high",
+      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
+        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
+        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-106",
+      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
+      "priority": "high",
+      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
+        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
+        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-108",
+      "title": "Add Makan Moments seasonal promotion inquiry intent",
+      "priority": "high",
+      "description": "Create café-specific seasonal_promotion_inquiry intent for Makan Moments to handle limited-time menu item questions without leaking to other profiles.",
+      "acceptanceCriteria": [
+        "Add seasonal_promotion_inquiry intent to src/assistant/data/data-makan/intents.json with café context only",
+        "Add seasonal keywords (limited edition, weekend special, promotion, special price) to data-makan/intent-keywords.json",
+        "Add test in tests/unit/intent-classifier-makan.test.ts asserting seasonal intents classify correctly and do NOT match Pelangi profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-113",
+      "title": "Persist individual intent prediction confidence scores with classification outcome tracking",
+      "priority": "high",
+      "description": "Store confidence scores from each intent prediction linked to whether routing succeeded or failed, enabling per-intent accuracy analysis and threshold tuning",
+      "acceptanceCriteria": [
+        "Add intent_predictions table to shared/schema-tables.ts with: id, conversation_id, predicted_intent, confidence_score, correct_intent, profile, created_at",
+        "IntentClassifier.classify() in src/assistant/pipeline/classify.ts saves all predictions with confidence >= 0.4 to database immediately after classification",
+        "Vitest test verifies predictions are persisted and retrievable: query for single intent should return sorted by confidence_score with accuracy = sum(correct_intent==predicted_intent)/total"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-114",
+      "title": "Profile Data Schema Version Compatibility Enforcement at Startup",
+      "priority": "high",
+      "description": "Validates profile data file compatibility during startup to prevent runtime failures from mismatched or incompatible schema versions across routing.json, workflows.json, intents.json, and knowledge.json",
+      "acceptanceCriteria": [
+        "Function: enforceProfileDataVersionCompatibility(profileName) in src/lib/profile-validator.ts loads all src/assistant/data/{profileName}/*.json files and extracts 'schema_version' field",
+        "Throws ProfileVersionMismatchError with details of mismatched files and their versions if any file has different schema_version",
+        "Called during app startup in src/index.ts before ProfileAssistant initialization; prevents server startup if validation fails"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-119",
+      "title": "Implement guest language preference persistence across conversation turns",
+      "priority": "high",
+      "description": "Persist detected guest language preference (English/Malay/Mandarin) in conversation state to ensure consistent intent classification routing across multi-turn dialogues. Prevents misclassification when guests code-switch between languages mid-conversation or when conversation context is lost.",
+      "acceptanceCriteria": [
+        "Store 'preferred_language' detected from first non-greeting message in rainbow_conversations.metadata; language detection uses existing language model with fallback to keyword matching",
+        "Intent router weights keyword matching by preferred_language (e.g., prioritize Malay variants from intent-keywords.json if preferred_language='malay')",
+        "Test verifies code-switched queries (English-Malay mix) classify to correct intent based on preference, with regression test ensuring English-only and Malay-only conversations still classify accurately"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-120",
+      "title": "Implement workflow step execution timeout with automatic rollback",
+      "priority": "high",
+      "description": "Add execution timeout and automatic transaction rollback to prevent hung booking workflows from leaving databases in inconsistent state. If workflow step exceeds max duration, rollback all changes and escalate to staff with actionable error context.",
+      "acceptanceCriteria": [
+        "Each workflow step in workflows.json has optional 'max_duration_ms' property (default 30000); step execution aborts if timeout exceeded with transaction rollback",
+        "Timeout failure logs to rainbow_messages as escalation event with step_id, actual_duration_ms, and max_duration_ms for debugging",
+        "Test verifies booking not created if workflow step times out mid-execution, guest receives escalation message with retry option, and no partial state persists"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-121",
+      "title": "Add booking workflow performance profiler endpoint with step-level bottleneck identification",
+      "priority": "high",
+      "description": "Create admin endpoint that profiles booking workflow execution to identify slow steps and bottlenecks. Helps debug workflow reliability issues and performance degradation.",
+      "acceptanceCriteria": [
+        "POST /admin/bookings/profile endpoint profiles each booking workflow step with execution duration, input/output sizes, and state snapshots",
+        "Aggregates metrics across all bookings showing per-step average duration, p95, and p99 latencies; flags steps exceeding 2000ms threshold",
+        "Response includes step-level timing heatmap with suggested optimization targets based on cumulative impact"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-122",
+      "title": "Build intent classification decision tracer logging top-3 candidates with confidence breakdown",
+      "priority": "high",
+      "description": "Log detailed intent classification decision process (top-3 candidates, confidence scores, keyword match details) to debug misclassifications and improve accuracy tracking per profile.",
+      "acceptanceCriteria": [
+        "Each intent classification in src/assistant/pipeline/classifier.ts logs to structured format: intent candidates array with name/confidence/matched_keywords, chosen intent, tie-break reasons",
+        "Log searchable by conversation_id in admin endpoint GET /admin/conversations/{id}/classification-trace returning decision history",
+        "Test suite includes assertions that top-3 candidates confidence scores sum ~100%, that winning candidate has highest score, and that logs capture Malaysian English keyword variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-127",
+      "title": "Add booking workflow step precondition validator with logged violations",
+      "priority": "high",
+      "description": "Prevent invalid booking state transitions by validating step preconditions before execution. Examples: prevent payment charge without payment method, prevent check-in for past dates.",
+      "acceptanceCriteria": [
+        "Add validateBookingStepPreconditions() in src/assistant/validators/booking-preconditions.ts checking preconditions array from workflows.json before step execution",
+        "Update src/assistant/data/workflows.json booking steps with preconditions field, e.g., payment_charge: [\"payment_method_provided\", \"guest_verified\"], check_in: [\"checkin_date_not_past\", \"room_available\"]",
+        "Unit test asserting precondition violation (missing payment method) prevents execution and logs violation reason to console with step_id and required_precondition fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-131",
+      "title": "Generate intent classification confusion matrix from production logs",
+      "priority": "high",
+      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
+      "acceptanceCriteria": [
+        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
+        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
+        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-132",
+      "title": "Implement conversation context summarization for dialogues exceeding 20 turns",
+      "priority": "high",
+      "description": "Automatically summarize long multi-turn conversations to prevent context window overflow. Preserves booking details and guest preferences while maintaining conversation quality and reducing token usage.",
+      "acceptanceCriteria": [
+        "When conversation reaches 20 turns, trigger summarization in src/assistant/pipeline/context-manager.ts and store summary in conversation_summary column of rainbow_conversations table",
+        "Summary must reduce >3000 tokens to <300 tokens while preserving guest name, room preferences, booking dates; test with 25-message conversation",
+        "Add test asserting post-summarization intent classification accuracy on follow-up messages remains >90%"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-137",
+      "title": "Implement soft hold timeout cleanup for abandoned bookings",
+      "priority": "high",
+      "description": "Add a background job that releases soft-held room inventory if a booking conversation is abandoned (no message activity for 30 minutes during checkout process). Prevents inventory from being permanently blocked by stalled conversations.",
+      "acceptanceCriteria": [
+        "Background job runs every 5 minutes checking for abandoned holds",
+        "Holds older than 30 minutes are released and inventory returned to available pool",
+        "Admin can see released holds in GET /admin/bookings/released-holds"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/booking-hold-cleanup.ts (new file - cleanup job)",
+        "File to edit: src/index.ts (register cleanup job in Express startup)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-138",
+      "title": "Implement circuit breaker for AI provider failures",
+      "priority": "high",
+      "description": "Add circuit breaker pattern to stop calling AI provider (Kimi/OpenRouter) after 3 consecutive failures within 60 seconds. Route to fallback response instead. Automatically reset after 5 minutes of success.",
+      "acceptanceCriteria": [
+        "After 3 failed AI calls, circuit opens and next request routes to fallback without calling AI",
+        "Circuit resets after 5 minutes of successful calls",
+        "npm run test:run tests verify circuit breaker state transitions"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/ai-provider-circuit-breaker.ts (new file - circuit breaker logic)",
+        "File to edit: src/assistant/pipeline/ai-inference.ts (wrap AI calls with circuit breaker)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-139",
+      "title": "Booking Workflow Step Retry Queue with Exponential Backoff",
+      "priority": "high",
+      "description": "Improve booking reliability by automatically retrying failed steps (room availability, payment verification) with exponential backoff delays and clear guest communication after each attempt.",
+      "acceptanceCriteria": [
+        "Add booking_step_retries table with: workflow_id, step_name, attempt_count, next_retry_time, error_reason; retry logic: attempt 1 after 1s, attempt 2 after 4s, attempt 3 after 16s",
+        "Implement retry scheduler in src/assistant/workflows.ts that executes pending retries every 30 seconds based on next_retry_time",
+        "Send guest WhatsApp message after failed retry: 'Checking availability... (Attempt {n}/3)' and escalate to human after 3 failures"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-140",
+      "title": "Profile Intent Whitelist Enforcement at Message Processing with Violation Logging",
+      "priority": "high",
+      "description": "Prevent cross-profile intent contamination by validating classified intents against profile whitelists at runtime and logging violations for audit purposes.",
+      "acceptanceCriteria": [
+        "Load profile-specific intent whitelists from src/assistant/data/{profile}/intents-whitelist.json at server startup; validate against intents.json to catch schema mismatches",
+        "Add whitelist validation in src/lib/message-router.ts before executing intent handler: if intent not in profile whitelist, log warning and escalate with message 'This request needs human assistance'",
+        "Log contamination violations to rainbow_contamination_events table with: guest_phone, profile, classified_intent, confidence_score, context, timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-123",
+      "title": "Implement Conversation Turn Limit Enforcer with Staff Escalation",
+      "priority": "medium",
+      "description": "Prevent infinite conversation loops by enforcing maximum turn count per conversation. When limit is reached, gracefully escalate to staff with conversation context.",
+      "acceptanceCriteria": [
+        "Add turn_count field to rainbow_conversations table; increment on each message pair processed in src/assistant/pipeline/message-handler.ts",
+        "Check turn_count >= CONVERSATION_TURN_LIMIT config value in message handler; return escalation message with staff routing when limit is reached",
+        "Add unit test verifying escalation triggers at configured turn limit (default 15) and normal processing continues at turn 14"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-124",
+      "title": "Build Intent Misclassification Feedback Loop with Admin Summary Endpoint",
+      "priority": "medium",
+      "description": "Enable admins to mark incorrectly classified intents and track correction patterns. Generate summaries of misclassification by profile and intent type for model improvement.",
+      "acceptanceCriteria": [
+        "Create POST /admin/intent-feedback endpoint accepting {messageId, correct_intent, reason} request body; persist to intent_feedback table with timestamp and admin_user_id",
+        "Create GET /admin/intent-feedback/summary?dateRange={start,end} endpoint returning {intent_pair: 'original→corrected', count, example_message_ids, affected_profiles}",
+        "Add unit test verifying feedback persists and summary endpoint groups by intent pairs with correct counts"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-125",
+      "title": "Build Intent Confidence Percentile-Based Fallback Router",
+      "priority": "medium",
+      "description": "Route to smart fallback responses based on confidence score percentiles per intent. Improve response quality for low-confidence predictions using context-aware selection.",
+      "acceptanceCriteria": [
+        "In src/assistant/classifier/intent-classifier.ts, track confidence_score with each prediction; calculate rolling P25/P50/P75 percentiles per intent per profile using 100-turn window",
+        "Create smart_fallback_selector(confidence, intent, profile, context) function routing to fallback tier (high/medium/low_confidence) based on percentile bucket and conversation history",
+        "Add unit test with mock predictions at P10, P50, P90 confidence; verify each routes to correct fallback tier with appropriate response template"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-126",
+      "title": "Create Booking Workflow Rollback Reason Analyzer with Recovery Metrics",
+      "priority": "medium",
+      "description": "Track why booking workflows are rolled back to identify systematic failures and improve booking flow reliability and recovery times.",
+      "acceptanceCriteria": [
+        "Add rollback_reason enum field to booking_step_metrics table with values {timeout, validation_failed, payment_failed, availability_changed, staff_cancelled}; capture details in rollback_details JSON",
+        "Create GET /admin/booking/rollback-analysis?profile={profile}&daysBack=30 endpoint returning {reason, count, avg_time_to_recovery_minutes, most_affected_step, profile_breakdown}",
+        "Add unit test with 5 mock rollback scenarios; verify each reason is classified, counted, and recovery time calculated correctly"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-128",
+      "title": "Implement confidence-threshold-based AI provider routing",
+      "priority": "medium",
+      "description": "Route low-confidence intent predictions to higher-quality AI providers. If booking/inquiry intent confidence below threshold, use Kimi K2.5 instead of Ollama for more accurate responses.",
+      "acceptanceCriteria": [
+        "Add confidence_routing_thresholds section to src/assistant/data/settings.json with per-intent mappings: booking: 0.6, inquiry: 0.65, default: 0.7",
+        "Update selectAIProvider() in src/assistant/pipeline/message-processor.ts to compare classifier confidence against threshold and select high-quality provider when confidence < threshold",
+        "Integration test with mock booking intent confidence=0.55 asserts selectAIProvider() returns 'kimi' and confidence=0.75 returns 'ollama'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-129",
+      "title": "Build conversation topic consistency checker with topic switch detection",
+      "priority": "medium",
+      "description": "Detect unexpected topic switches in multi-turn conversations (e.g., booking → amenity → booking pattern) to identify context confusion and flag conversations for manual review.",
+      "acceptanceCriteria": [
+        "Add detectTopicSwitch() function in src/assistant/pipeline/context-analyzer.ts classifying messages into topics [booking, inquiry, amenity, complaint] and returning array of {from_topic, to_topic, message_index}",
+        "Log detected switches to database table conversation_topic_events with columns: conversation_id, message_index, from_topic, to_topic, timestamp, flagged_for_review boolean",
+        "Unit test asserting booking→amenity→booking sequence generates 2 topic switch events and flagged_for_review=true when unexpected transitions detected"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-133",
+      "title": "Add booking cancellation reason tracking with admin analytics endpoint",
+      "priority": "medium",
+      "description": "Track cancellation causes (guest request, payment failed, room unavailable, admin action) to identify operational bottlenecks and improve workflow reliability. Surfaces patterns for business decision-making.",
+      "acceptanceCriteria": [
+        "Add booking_cancellation_reason enum column (guest_requested, admin_requested, payment_failed, room_unavailable, other) to bookings table via Drizzle migration",
+        "Update src/assistant/workflows/booking.ts cancellation handler to log reason; add endpoint GET /admin/analytics/cancellations?profile=pelangi&days=30 returning reason frequency breakdown",
+        "Add test asserting analytics endpoint correctly counts 100 test cancellations by reason with <1% error margin"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-134",
+      "title": "Implement guest messaging rate limiter with per-profile thresholds",
+      "priority": "medium",
+      "description": "Prevent message spam and abuse by enforcing profile-specific rate limits. Protects system reliability and ensures fair resource allocation across profiles while gracefully handling exceeded limits.",
+      "acceptanceCriteria": [
+        "Create src/lib/rate-limiter.ts with per-profile thresholds in src/assistant/data/settings.json (pelangi: 10 msgs/min, makan: 5 msgs/min, southern: 8 msgs/min)",
+        "Integrate into src/assistant/pipeline/message-processor.ts; respond with templated 'Our team will respond shortly' message when limit exceeded",
+        "Add unit test asserting that 11 consecutive messages to pelangi profile within 60 seconds triggers limiter on 11th message with rate-limit response"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-135",
+      "title": "Build knowledge base duplicate detector with semantic similarity scoring",
+      "priority": "medium",
+      "description": "Identify near-duplicate knowledge base entries using semantic embeddings. Prevents redundant answers, maintains profile-specific content without cross-contamination, and improves fallback response quality.",
+      "acceptanceCriteria": [
+        "Create src/tools/knowledge-duplicate-detector.ts comparing knowledge.json entries via cosine similarity; add CLI 'npm run analyze:duplicates -- --profile=southern --threshold=0.85'",
+        "Output duplicate pairs with similarity scores and locations (e.g., 'entry_12 (score: 0.92) vs entry_45 - consider removing duplicate')",
+        "Add test asserting near-identical entries score >0.88 similarity and exact duplicates score >0.98 similarity"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-141",
+      "title": "Add guest input sanitization for names and phone numbers",
+      "priority": "medium",
+      "description": "Validate and sanitize guest-provided names and phone numbers before storing in database. Enforce phone number format (Malaysian/Southeast Asian), prevent SQL injection in free-text names, and reject obviously invalid inputs.",
+      "acceptanceCriteria": [
+        "Invalid phone numbers (e.g., '123') are rejected with clear error message",
+        "Names with SQL injection attempts (e.g., \"'; DROP TABLE\") are safely stored",
+        "npm run test:run src/__tests__/input-sanitizer.test.ts passes"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/input-sanitizer.ts (new file - validation logic)",
+        "File to edit: src/__tests__/input-sanitizer.test.ts (new file - test suite)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-142",
+      "title": "Build message delivery status tracking dashboard",
+      "priority": "medium",
+      "description": "Track Baileys message delivery and read status (sent, delivered, read, failed) and expose metrics via admin endpoint. Return per-message delivery status and aggregate delivery rate % by profile for reliability monitoring.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/delivery-status returns {\"sent\":X, \"delivered\":Y, \"read\":Z, \"failed\":W}",
+        "Each message tracked with status changes over time",
+        "Delivery rate includes 24h, 7d, and 30d aggregates"
+      ],
+      "technicalNotes": [
+        "File to edit: src/routes/admin/analytics.ts (add delivery status endpoint)",
+        "File to edit: src/lib/message-tracker.ts (new file - status tracking logic)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-143",
+      "title": "Add booking cancellation confirmation message workflow",
+      "priority": "medium",
+      "description": "When guest cancels a booking, automatically send a WhatsApp message confirming cancellation with reason, refund amount, and cancellation reference ID. Use workflows.json structure for consistency with other booking workflows.",
+      "acceptanceCriteria": [
+        "Cancellation message is sent within 5 seconds of confirmation",
+        "Message includes: cancellation ID, refund amount, policy info",
+        "npm run test:run tests cancellation message generation"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/workflows.json (add cancellation_confirmation step)",
+        "File to edit: src/assistant/pipeline/booking.ts (trigger workflow on cancellation)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-144",
+      "title": "Add conversation metadata export endpoint for compliance auditing",
+      "priority": "medium",
+      "description": "Create admin endpoint that exports conversation metadata (participant, start/end time, intent distribution, number of turns) as CSV for compliance auditing. Support filtering by date range and profile.",
+      "acceptanceCriteria": [
+        "GET /admin/export/conversations?start=2026-01-01&end=2026-03-23&profile=pelangi returns CSV",
+        "CSV includes: conversation_id, guest_phone, profile, start_time, end_time, intent_count",
+        "Export includes footer with total records and export timestamp"
+      ],
+      "technicalNotes": [
+        "File to edit: src/routes/admin/export.ts (new file - export endpoint)",
+        "File to edit: src/lib/conversation-exporter.ts (new file - CSV generation)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-145",
+      "title": "Add conversation context window limit enforcement with summarization",
+      "priority": "medium",
+      "description": "Monitor conversation message count and enforce a hard limit of 50 messages per conversation. When limit is reached, keep most recent 40 messages and summarize oldest 10 messages into a single context line, then continue.",
+      "acceptanceCriteria": [
+        "Conversation with 50+ messages automatically triggers summarization",
+        "Summary is 1-2 sentences capturing key context from oldest 10 messages",
+        "npm run test:run tests verify summarization and context continuity"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/context-window-limiter.ts (new file - limit enforcement)",
+        "File to edit: src/assistant/pipeline/conversation-manager.ts (integrate limiter)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-146",
+      "title": "Resume Multi-Day Conversations with Automatic Context Summary",
+      "priority": "medium",
+      "description": "Enable guests to resume conversations from previous sessions by storing conversation summaries and reinjecting context. When a guest asks to continue from yesterday, retrieve and load the previous conversation summary into the system prompt.",
+      "acceptanceCriteria": [
+        "Add last_conversation_date and conversation_summary columns to rainbow_conversations table schema",
+        "Create GET /admin/guest/{guestId}/resume endpoint that retrieves last conversation summary and returns it with human-readable formatting",
+        "Inject summary into system prompt when resuming conversation with format: 'Previous conversation context: {summary}. Continue from where the guest left off.'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-147",
+      "title": "Intent Confidence Threshold Tuner with Production Misclassification Analysis",
+      "priority": "medium",
+      "description": "Provide admin tools to analyze intent misclassifications in production and dynamically adjust per-intent confidence thresholds based on observed accuracy patterns.",
+      "acceptanceCriteria": [
+        "Create GET /admin/intent-confidence-analysis endpoint returning confusion matrix grouped by (predicted_intent, actual_intent) for last 500 messages with accuracy percentage per intent",
+        "Add POST /admin/intent/{intentId}/confidence-threshold endpoint to update threshold with validation that new_threshold is between 0.1 and 0.95",
+        "Track threshold changes in rainbow_config_audit table with: timestamp, admin_user, intent_id, old_threshold, new_threshold, updated_at"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-148",
+      "title": "Conversation History Compression for Long Dialogues with Token Optimization",
+      "priority": "medium",
+      "description": "Optimize token usage in context window by automatically compressing messages beyond 15 into semantic summaries while preserving critical conversation facts.",
+      "acceptanceCriteria": [
+        "Implement compressConversationHistory(messages, minMessageCount=15) in src/assistant/context-manager.ts that keeps last 3 messages verbatim, summarizes older messages into 1-2 sentence facts",
+        "Compression format: replace older turns with '[Turn {n}: Guest asked about {topic}, bot provided {action_taken}]' to preserve intent without full message text",
+        "Add GET /admin/compression-stats endpoint returning: total_conversations_compressed, avg_message_count_before, avg_message_count_after, estimated_token_savings_percent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-130",
+      "title": "Add intent keyword coverage analyzer CLI tool with collision detection",
+      "priority": "low",
+      "description": "Analyze keyword distribution across intent-keywords.json to identify low-coverage keywords and cross-intent collisions. Helps refine booking/inquiry keyword definitions per profile.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run analyze:keyword-coverage' reads src/assistant/data/intent-keywords.json and test corpus, outputs JSON with per-keyword stats: {\"keyword\": \"book\", \"frequency\": 450, \"intent\": \"booking\", \"collision_count\": 1, \"low_coverage\": false}",
+        "Flag keywords appearing in <50 test cases with low_coverage=true, flag keywords in multiple intents with collision_count>1 for refinement review",
+        "Unit test asserting Makan 'order' keyword has collision_count==1 while Pelangi 'room' keyword has collision_count>=2, profiles show different collision patterns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-005",
       "title": "Fix .rej rejected patch files from previous Spiral run",
       "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
@@ -233,7 +866,7 @@
         "All .rej files are removed from the repository",
         "Changes from the .rej files are correctly applied to the target files",
         "All target JSON files remain valid JSON after applying changes",
-        "No data loss \u00e2\u20ac\u201d all intended additions from .rej files are preserved"
+        "No data loss â€” all intended additions from .rej files are preserved"
       ],
       "dependencies": [],
       "passes": true,
@@ -262,7 +895,7 @@
       "acceptanceCriteria": [
         "npm run test:run exits with code 0",
         "All previously passing tests continue to pass",
-        "No test files are deleted as a fix \u00e2\u20ac\u201d tests must pass legitimately",
+        "No test files are deleted as a fix â€” tests must pass legitimately",
         "Test failure root causes are addressed in the implementation code"
       ],
       "dependencies": [],
@@ -282,7 +915,7 @@
     },
     {
       "id": "US-011",
-      "title": "Fix Makan Moments knowledge.json \u2014 remove all Pelangi Capsule Hostel content",
+      "title": "Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hostel content",
       "description": "The file src/assistant/data-makan/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content including WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', hostel address '26A Jalan Perang Taman Pelangi', capsule facilities, and hostel check-in/out info. Remove ALL Pelangi-specific content and replace with Makan Moments Cafe-appropriate responses: cafe opening hours, menu info, ordering process, and table/takeaway options. The cafe does not have WiFi-for-guests, capsules, or room check-ins.",
       "priority": "critical",
       "acceptanceCriteria": [
@@ -307,7 +940,7 @@
     },
     {
       "id": "US-012",
-      "title": "Fix Southern Homestay knowledge.json \u2014 remove Pelangi Capsule content",
+      "title": "Fix Southern Homestay knowledge.json — remove Pelangi Capsule content",
       "description": "The file src/assistant/data-southern/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content: WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', Pelangi address, Pelangi YouTube video link, and capsule-specific facilities. Remove ALL Pelangi-specific identifiers and replace with Southern Homestay-appropriate placeholder responses. Southern Homestay is a separate property and must have its own identity.",
       "priority": "critical",
       "acceptanceCriteria": [
@@ -336,7 +969,7 @@
       "priority": "critical",
       "description": "Guests may message in emergencies (medical, fire, security incident). The current intents.json has no emergency/SOS category. An unrecognized emergency message hitting the fallback pipeline introduces unacceptable delay. A dedicated T1 regex-matched intent should bypass all queues and immediately alert all staff phones.",
       "acceptanceCriteria": [
-        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '\u6551\u547d', '\u6025\u6551'",
+        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '救命', '急救'",
         "Emergency intent bypasses confidence thresholds and routes directly to immediate escalation workflow",
         "All staff phones in settings.json receive a WhatsApp alert within 10 seconds of the trigger",
         "routing.json maps the emergency intent to a new 'emergency_escalate' workflow",
@@ -421,7 +1054,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T20:15:59Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nThe prd.json shows US-072 `passes: true` already, but the outer loop is retrying it. Let me verify the actual implementation is correct.\nThe implementation exists in `bookings.ts` but the acceptance criteria requires `src/tools/booking-tools.ts`. Let me check the tests and what file the tests import from.\nUS-072 is already `passes: true` in prd.json with 16 tests passing and build succeeding. I'll move to the next incomplete story.\n\n## Current State\n\nUS-072 is fully implemented. Moving to US-073 (highest priority `passes: false` story).\n\nLet me read US-073:\n## Problem Identified\n\nNeed to implement an intent classifier uncertainty analyzer:\n1. `analyzeClassificationUncertainty()` function in `src/assistant/schemas.ts`\n2. Admin CLI script for `npm run analyze-intent-confusion`\n3. Tests verifying competing keyword signals are identified\n\n## Planned Changes\n\n- Add `analyzeClassificationUncertainty()` to `src/assistant/schemas.ts`\n- Create `src/scripts/analyze-intent-confusion.ts` CLI script\n- Add `analyze-intent-confusion` script to `package.json`\n- Create test file `src/assistant/__tests__/intent-uncertainty-analyzer.test.ts`\n\nLet me read the relevant existing code:\nNow I'll implement the solution. Let me add `analyzeClassificationUncertainty()` to `schemas.ts`:\nNow create the CLI script:\nNow add the npm script to `package.json`:\nNow create the test file:\nAll 8 tests pass. Now run the build:\nBuild passes. Let me also verify the CLI script runs:\nAll working. Now update prd.json:\nNow document and commit:\nUS-073 is complete.\n\n**Summary:**\n\n- `analyzeClassificationUncertainty()` added to `src/assistant/schemas.ts` \u2014 scores keyword groups (booking_keywords, inquiry_keywords, cancellation_keywords, etc.) against the message and normalizes to contributions summing to 1.0\n- `scripts/analyze-intent-confusion.ts` CLI outputs top 5 confused intent pairs, confusion matrix, and triggering keywords  \n- `package.json` \u2014 added `analyze-intent-confusion` script\n- 8 tests pass; build succeeds; CLI runs correctly\n- `prd.json` updated with `passes: true`"
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nThe prd.json shows US-072 `passes: true` already, but the outer loop is retrying it. Let me verify the actual implementation is correct.\nThe implementation exists in `bookings.ts` but the acceptance criteria requires `src/tools/booking-tools.ts`. Let me check the tests and what file the tests import from.\nUS-072 is already `passes: true` in prd.json with 16 tests passing and build succeeding. I'll move to the next incomplete story.\n\n## Current State\n\nUS-072 is fully implemented. Moving to US-073 (highest priority `passes: false` story).\n\nLet me read US-073:\n## Problem Identified\n\nNeed to implement an intent classifier uncertainty analyzer:\n1. `analyzeClassificationUncertainty()` function in `src/assistant/schemas.ts`\n2. Admin CLI script for `npm run analyze-intent-confusion`\n3. Tests verifying competing keyword signals are identified\n\n## Planned Changes\n\n- Add `analyzeClassificationUncertainty()` to `src/assistant/schemas.ts`\n- Create `src/scripts/analyze-intent-confusion.ts` CLI script\n- Add `analyze-intent-confusion` script to `package.json`\n- Create test file `src/assistant/__tests__/intent-uncertainty-analyzer.test.ts`\n\nLet me read the relevant existing code:\nNow I'll implement the solution. Let me add `analyzeClassificationUncertainty()` to `schemas.ts`:\nNow create the CLI script:\nNow add the npm script to `package.json`:\nNow create the test file:\nAll 8 tests pass. Now run the build:\nBuild passes. Let me also verify the CLI script runs:\nAll working. Now update prd.json:\nNow document and commit:\nUS-073 is complete.\n\n**Summary:**\n\n- `analyzeClassificationUncertainty()` added to `src/assistant/schemas.ts` — scores keyword groups (booking_keywords, inquiry_keywords, cancellation_keywords, etc.) against the message and normalizes to contributions summing to 1.0\n- `scripts/analyze-intent-confusion.ts` CLI outputs top 5 confused intent pairs, confusion matrix, and triggering keywords  \n- `package.json` — added `analyze-intent-confusion` script\n- 8 tests pass; build succeeds; CLI runs correctly\n- `prd.json` updated with `passes: true`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 653,
@@ -466,7 +1099,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T20:08:30Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\n## Current State\nThe implementation of US-068 already exists from a previous iteration (Iteration 5). The files are:\n- `src/assistant/pipeline/booking-validators.ts` \u2014 `validatePreConfirmationRules()` function is implemented (lines 229-373)\n- `tests/unit/booking-validators.test.ts` \u2014 test file exists\n\n## Problem Identified\nThe story is still marked `passes: false` because the previous attempt failed a \"diagnosis block\" gate check before the implementation was written. The implementation itself appears complete. I need to verify it actually passes all acceptance criteria, run the build + tests, and mark it complete.\n\n## Planned Changes\n- Verify `settings.json` has required config keys (`maxStayDays`, `advanceBookingWindow`, `stayCeiling`)\n- Run `npm run build` to confirm no new errors\n- Run tests to confirm the test suite passes\n- Mark `passes: true` in `prd.json`\nAll acceptance criteria implementations are in place. Now let's run the quality checks:\nBuild succeeds (1 warning, no errors). Now run the booking-validators tests:\nAll 8 tests pass. Now mark the story complete:\nUS-068 is complete. Summary:\n\n- **Build**: passes (1 pre-existing warning, no errors)\n- **Tests**: 8/8 pass in `tests/unit/booking-validators.test.ts`\n- **Implementation** was already in place from a prior iteration \u2014 the story only failed due to the diagnosis-block gate check\n- `prd.json` updated: `passes: true`, `_failureReason` removed\n- Committed as `f8e3dac`"
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\n## Current State\nThe implementation of US-068 already exists from a previous iteration (Iteration 5). The files are:\n- `src/assistant/pipeline/booking-validators.ts` — `validatePreConfirmationRules()` function is implemented (lines 229-373)\n- `tests/unit/booking-validators.test.ts` — test file exists\n\n## Problem Identified\nThe story is still marked `passes: false` because the previous attempt failed a \"diagnosis block\" gate check before the implementation was written. The implementation itself appears complete. I need to verify it actually passes all acceptance criteria, run the build + tests, and mark it complete.\n\n## Planned Changes\n- Verify `settings.json` has required config keys (`maxStayDays`, `advanceBookingWindow`, `stayCeiling`)\n- Run `npm run build` to confirm no new errors\n- Run tests to confirm the test suite passes\n- Mark `passes: true` in `prd.json`\nAll acceptance criteria implementations are in place. Now let's run the quality checks:\nBuild succeeds (1 warning, no errors). Now run the booking-validators tests:\nAll 8 tests pass. Now mark the story complete:\nUS-068 is complete. Summary:\n\n- **Build**: passes (1 pre-existing warning, no errors)\n- **Tests**: 8/8 pass in `tests/unit/booking-validators.test.ts`\n- **Implementation** was already in place from a prior iteration — the story only failed due to the diagnosis-block gate check\n- `prd.json` updated: `passes: true`, `_failureReason` removed\n- Committed as `f8e3dac`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 714,
@@ -483,7 +1116,7 @@
       "acceptanceCriteria": [
         "Add booking_modification intent to src/assistant/data/routing.json with workflow steps: [list_existing_bookings, select_booking_id, choose_change_type, validate_availability, confirm_and_update]",
         "Implement findConflictingBookings(bookedDateRange, roomType, profileId) in src/assistant/tools/bookings.ts that queries room_bookings table and detects overlapping reservations",
-        "Add tests/unit/booking-modification.test.ts with 3 scenarios: (1) date conflict detected\u2192suggest_alternatives, (2) room_type_unavailable\u2192fallback_rooms, (3) successful_modification\u2192confirmation_message"
+        "Add tests/unit/booking-modification.test.ts with 3 scenarios: (1) date conflict detected→suggest_alternatives, (2) room_type_unavailable→fallback_rooms, (3) successful_modification→confirmation_message"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -515,7 +1148,7 @@
       "priority": "high",
       "description": "Track conversation resolution quality post-interaction to identify problem intents and guide improvements. Score conversations based on escalation count, resolution type, and classifier confidence to measure response reliability.",
       "acceptanceCriteria": [
-        "Implement scoreConversation(conversationId: string) function in src/assistant/pipeline/scoring.ts calculating 1\u20135 score: escalated=-2pts, unresolved=-1pt, successful_resolution=+5pts, confidence_decrement=\u22120.5pt per 10% below threshold",
+        "Implement scoreConversation(conversationId: string) function in src/assistant/pipeline/scoring.ts calculating 1–5 score: escalated=-2pts, unresolved=-1pt, successful_resolution=+5pts, confidence_decrement=−0.5pt per 10% below threshold",
         "Add conversation_quality_score column to rainbow_conversations table via Drizzle migration; populate scores on conversation completion",
         "Create GET /admin/analytics/conversation-quality?profile=pelangi endpoint returning: avg_score_by_intent, 7-day_trend, bottom_5_intents_by_score with test coverage in tests/unit/admin-quality-analytics.test.ts"
       ],
@@ -557,9 +1190,9 @@
       "priority": "high",
       "description": "Expand intent classification to support non-English guests by adding Mandarin (zh) keyword variants. Enables accurate booking and inquiry detection for Mandarin-speaking guests at international hostels.",
       "acceptanceCriteria": [
-        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '\u8ba2\u623f', '\u9884\u8ba2', '\u623f\u95f4\u4ef7\u683c', '\u5165\u4f4f\u65f6\u95f4')",
+        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '订房', '预订', '房间价格', '入住时间')",
         "Detect guest language from message text in src/assistant/engine/classifier.ts and trigger Mandarin classifier when zh language detected",
-        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving \u226580% classification accuracy"
+        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving ≥80% classification accuracy"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -717,7 +1350,7 @@
       "id": "US-045",
       "title": "Add state machine validator tests for booking workflow transitions",
       "priority": "high",
-      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry \u2192 booking \u2192 confirmation \u2192 check-in \u2192 checkout) and reject invalid skips.",
+      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
       "acceptanceCriteria": [
         "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
         "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
@@ -738,7 +1371,7 @@
       "acceptanceCriteria": [
         "Intent classifier logs confidence score (0-1) and latency_ms for each classification to intent_analytics table in Neon",
         "Admin metrics endpoint GET /admin/metrics/intent-classification returns success_rate, avg_confidence, and p95_latency grouped by intent_type and profile",
-        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman \u22650.7)"
+        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman ≥0.7)"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -796,7 +1429,7 @@
       "model": "sonnet",
       "last_attempted": "2026-03-22T17:15:56Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- `src/assistant/pipeline/prompt-injection-guard.ts` exists with `detectPromptInjection()` and 30 patterns\n- Test file exists with 26 passing tests (12 injection patterns, 11 safe messages)\n- `settings.json` has `promptInjection.patterns` but NOT `security.injection_patterns` (AC requires this)\n- `chat-engine.ts` does NOT call `detectPromptInjection()` - no WARN logging or deflection response\n\n## Problem Identified\nAC4 (WARN logging with JID), AC5 (deflection response), AC6 (security.injection_patterns config key), and needing 15+ patterns in tests are all unimplemented.\n\n## Planned Changes\n1. `src/assistant/pipeline/prompt-injection-guard.ts` \u2014 add NFKC unicode normalization + Malay equivalent patterns\n2. `src/assistant/data/settings.json` \u2014 add `security.injection_patterns` array\n3. `src/assistant/chat-engine.ts` \u2014 import guard, add early injection check with WARN log + deflection\n4. `src/assistant/__tests__/prompt-injection-guard.test.ts` \u2014 add 3+ more patterns (including Malay) to reach 15+\nNow update `settings.json` to add `security.injection_patterns`:\nNow integrate the detection in `chat-engine.ts`:\nNow add the injection check inside `processChat` right after the start time is set:\nNow add 3+ more patterns to the test to reach 15+:\nAlso add a false-positive check for safe Malay messages:\nNow run the tests to verify:\n32 tests passing (17 injection patterns + 12 safe messages + 3 edge cases). Now run the TypeScript check:\nFix the TypeScript error on the settings access (pre-existing type is loosely typed, use `any` cast):\nGood \u2014 the only remaining TS errors are pre-existing (lines 264, 267, 377). Let me run a broader test to confirm nothing broke:\nAll passing. Now update `prd.json` to mark US-036 as `passes: true`:\nNow document learnings and commit:\nI see `src/assistant/prompt-injection-guard.ts` and `tests/unit/prompt-injection-guard.test.ts` are untracked. Let me check those:\nThese are re-export shims from a previous attempt. Stage them too:\nUS-036 is complete. Here's a summary of what was implemented:\n\n**US-036: Prompt injection detection in chat engine** \u2705\n\n1. **`prompt-injection-guard.ts`** (pipeline/) \u2014 added NFKC unicode normalization + 4 Malay equivalent patterns (`abaikan arahan`, `lupakan arahan`, `bertindak sebagai`, `langkau arahan`), total 34 default patterns\n\n2. **`chat-engine.ts`** \u2014 added early injection gate in `processChat()`:\n   - Reads `settings.security.injection_patterns` (empty = use built-in defaults)\n   - On detection: logs `WARN` with `sessionId` + `matchedPattern`\n   - Returns polite deflection response instead of forwarding to AI\n\n3. **`settings.json`** \u2014 added `security.injection_patterns: []` key\n\n4. **`prompt-injection-guard.test.ts`** \u2014 expanded from 26 \u2192 32 tests covering 17 injection patterns (12 original + 5 new including Malay) and a false-positive Malay safe message"
+        "diagnosisBlock": "## Current State\n- `src/assistant/pipeline/prompt-injection-guard.ts` exists with `detectPromptInjection()` and 30 patterns\n- Test file exists with 26 passing tests (12 injection patterns, 11 safe messages)\n- `settings.json` has `promptInjection.patterns` but NOT `security.injection_patterns` (AC requires this)\n- `chat-engine.ts` does NOT call `detectPromptInjection()` - no WARN logging or deflection response\n\n## Problem Identified\nAC4 (WARN logging with JID), AC5 (deflection response), AC6 (security.injection_patterns config key), and needing 15+ patterns in tests are all unimplemented.\n\n## Planned Changes\n1. `src/assistant/pipeline/prompt-injection-guard.ts` — add NFKC unicode normalization + Malay equivalent patterns\n2. `src/assistant/data/settings.json` — add `security.injection_patterns` array\n3. `src/assistant/chat-engine.ts` — import guard, add early injection check with WARN log + deflection\n4. `src/assistant/__tests__/prompt-injection-guard.test.ts` — add 3+ more patterns (including Malay) to reach 15+\nNow update `settings.json` to add `security.injection_patterns`:\nNow integrate the detection in `chat-engine.ts`:\nNow add the injection check inside `processChat` right after the start time is set:\nNow add 3+ more patterns to the test to reach 15+:\nAlso add a false-positive check for safe Malay messages:\nNow run the tests to verify:\n32 tests passing (17 injection patterns + 12 safe messages + 3 edge cases). Now run the TypeScript check:\nFix the TypeScript error on the settings access (pre-existing type is loosely typed, use `any` cast):\nGood — the only remaining TS errors are pre-existing (lines 264, 267, 377). Let me run a broader test to confirm nothing broke:\nAll passing. Now update `prd.json` to mark US-036 as `passes: true`:\nNow document learnings and commit:\nI see `src/assistant/prompt-injection-guard.ts` and `tests/unit/prompt-injection-guard.test.ts` are untracked. Let me check those:\nThese are re-export shims from a previous attempt. Stage them too:\nUS-036 is complete. Here's a summary of what was implemented:\n\n**US-036: Prompt injection detection in chat engine** ✅\n\n1. **`prompt-injection-guard.ts`** (pipeline/) — added NFKC unicode normalization + 4 Malay equivalent patterns (`abaikan arahan`, `lupakan arahan`, `bertindak sebagai`, `langkau arahan`), total 34 default patterns\n\n2. **`chat-engine.ts`** — added early injection gate in `processChat()`:\n   - Reads `settings.security.injection_patterns` (empty = use built-in defaults)\n   - On detection: logs `WARN` with `sessionId` + `matchedPattern`\n   - Returns polite deflection response instead of forwarding to AI\n\n3. **`settings.json`** — added `security.injection_patterns: []` key\n\n4. **`prompt-injection-guard.test.ts`** — expanded from 26 → 32 tests covering 17 injection patterns (12 original + 5 new including Malay) and a false-positive Malay safe message"
       }
     },
     {
@@ -916,7 +1549,7 @@
         "Conversation history is tracked per phone number with a configurable window size (default 5)",
         "History is passed to AI provider calls as context",
         "History is cleared/reset after a configurable inactivity timeout",
-        "Memory footprint is bounded \u00e2\u20ac\u201d old entries are pruned"
+        "Memory footprint is bounded â€” old entries are pruned"
       ],
       "dependencies": [],
       "passes": true,
@@ -942,7 +1575,7 @@
         "A new 'post_stay_review' workflow exists in workflows.json triggered by checkout_full workflow completion",
         "The review request message is sent 2 hours after checkout (configurable delay in settings.json under 'post_stay_review')",
         "The message includes the hostel's Google Maps review link personalised with the guest's name",
-        "Message is only sent once per guest per stay \u2014 stored flag in DB prevents duplicates",
+        "Message is only sent once per guest per stay — stored flag in DB prevents duplicates",
         "The review request uses only utility template language (no marketing phrases) to avoid billing reclassification under July 2025 per-message pricing",
         "Admin can toggle the feature on/off in settings.json"
       ],
@@ -964,7 +1597,7 @@
       "acceptanceCriteria": [
         "A new admin route GET /admin/pdpa/data-export/:phone returns all data held for a given phone number as structured JSON",
         "The export includes: all rainbow_messages, rainbow_conversations, intent_analytics entries, and stored guest profile fields",
-        "A guest-facing trigger path exists: guest sends 'request my data' \u2192 Rainbow acknowledges and creates an admin notification to fulfil within 7 days",
+        "A guest-facing trigger path exists: guest sends 'request my data' → Rainbow acknowledges and creates an admin notification to fulfil within 7 days",
         "The admin notification includes the guest's phone, request timestamp, and a direct link to the export endpoint",
         "The endpoint requires admin authentication",
         "Unit test verifies the endpoint returns all expected data categories for a test phone number"
@@ -973,7 +1606,7 @@
         "PDPA Amendment Act 2024 Phase 3 (June 2025): data portability right is enforceable",
         "See existing gdpr-erasure.ts and gdpr-data-export.ts for route patterns to extend",
         "Response format should be structured JSON with a clear schema (phone, messages[], conversations[], analytics[])",
-        "7-day fulfilment window per PDPA guidelines \u2014 the admin notification should include a due date"
+        "7-day fulfilment window per PDPA guidelines — the admin notification should include a due date"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -994,7 +1627,7 @@
       "technicalNotes": [
         "PDPA 2024 Amendment: 72-hour timeline starts from when the data controller becomes aware of the incident",
         "Notification to affected individuals must follow within 7 days of notifying the Commissioner",
-        "Commissioner notification requires manual filing via PDPC Malaysia portal \u2014 implement as a checklist prompt in admin UI rather than automated external API call",
+        "Commissioner notification requires manual filing via PDPC Malaysia portal — implement as a checklist prompt in admin UI rather than automated external API call",
         "See existing breach-report.ts and pdpa-dpo.ts admin routes for integration points"
       ],
       "dependencies": [],
@@ -1032,7 +1665,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T16:38:24Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** \u2014 Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** \u2014 Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** \u2014 Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
+        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** — Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** — Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** — Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
       }
     },
     {
@@ -1064,7 +1697,7 @@
     },
     {
       "id": "US-013",
-      "title": "Fix Makan Moments intents.json \u2014 remove hostel-specific intents",
+      "title": "Fix Makan Moments intents.json — remove hostel-specific intents",
       "description": "Audit src/assistant/data-makan/intents.json for any intents that are hostel-specific (e.g., check_in, checkout_info, capsule_facilities, locker, room_types, dorm). These must not exist in a cafe profile. Remove or replace them with cafe-appropriate intents. The cafe profile should only have food/beverage-relevant intents.",
       "priority": "high",
       "acceptanceCriteria": [
@@ -1091,7 +1724,7 @@
     },
     {
       "id": "US-014",
-      "title": "Fix Makan Moments intent-keywords.json \u2014 remove hostel keywords from cafe profile",
+      "title": "Fix Makan Moments intent-keywords.json — remove hostel keywords from cafe profile",
       "description": "Audit src/assistant/data-makan/intent-keywords.json for any keywords that are hostel-specific (booking a room, check-in, check-out, capsule, dorm, locker, hostel, overnight stay). These must be removed. The cafe profile should only have food/beverage keywords (order, menu, table, food, drink, takeaway, dine-in, halal, vegetarian, price).",
       "priority": "high",
       "acceptanceCriteria": [
@@ -1176,7 +1809,7 @@
       "priority": "medium",
       "description": "Guests commonly want to extend their current booking by additional days. This is distinct from making a new booking (handled by 'booking' intent). Without a dedicated intent, guests saying 'can I stay 2 more nights?' fall through to LLM fallback and may receive confusing responses. A dedicated intent and forwarding workflow routes these to admin for availability confirmation.",
       "acceptanceCriteria": [
-        "A 'stay_extension' intent exists in intents.json with patterns: 'extend my stay', 'stay longer', 'more nights', 'extend booking', 'tambah malam', '\u5ef6\u957f\u4f4f\u5bbf', '\u591a\u4f4f'",
+        "A 'stay_extension' intent exists in intents.json with patterns: 'extend my stay', 'stay longer', 'more nights', 'extend booking', 'tambah malam', '延长住宿', '多住'",
         "routing.json maps 'stay_extension' to a new 'extension_request' workflow",
         "The extension_request workflow collects the guest's desired new check-out date and forwards the request to admin via WhatsApp notification",
         "The bot confirms the request has been forwarded and sets expectations: 'We'll confirm availability within 30 minutes'",
@@ -1198,18 +1831,18 @@
       "priority": "medium",
       "description": "Luggage storage after checkout and late checkout requests are among the most common hostel guest queries globally. The current intents.json has no handlers for either, so these route to the LLM unnecessarily for questions that have fixed policy answers. Adding dedicated intents with static replies eliminates LLM cost and latency for these high-frequency requests.",
       "acceptanceCriteria": [
-        "A 'luggage_storage' intent exists in intents.json with T1/T2 patterns: 'luggage storage', 'store bags', 'leave bags', 'store my bags', 'simpan beg', '\u5bc4\u5b58\u884c\u674e'",
-        "A 'late_checkout' intent exists in intents.json with patterns: 'late checkout', 'check out late', 'extend checkout time', 'lambat checkout', '\u665a\u9000\u623f'",
+        "A 'luggage_storage' intent exists in intents.json with T1/T2 patterns: 'luggage storage', 'store bags', 'leave bags', 'store my bags', 'simpan beg', '寄存行李'",
+        "A 'late_checkout' intent exists in intents.json with patterns: 'late checkout', 'check out late', 'extend checkout time', 'lambat checkout', '晚退房'",
         "knowledge.json has a 'luggage_storage' entry with the hostel's current policy",
         "knowledge.json 'late_checkout' entry reflects the existing policy (free, subject to availability)",
         "routing.json maps both intents to 'static_reply'",
         "Unit tests confirm both intents resolve at T2 tier without reaching the LLM"
       ],
       "technicalNotes": [
-        "Late checkout policy already exists in the checkout_info static response \u2014 extract into its own intent entry",
+        "Late checkout policy already exists in the checkout_info static response — extract into its own intent entry",
         "Luggage storage: confirm with hostel management whether free or paid before writing the knowledge.json entry",
         "Both intents should be added to a POST_STAY or GENERAL_SUPPORT phase in intents.json",
-        "No new routing logic needed \u2014 static_reply action already exists"
+        "No new routing logic needed — static_reply action already exists"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -1221,14 +1854,14 @@
       "priority": "medium",
       "description": "WhatsApp switched to per-message billing on July 1, 2025. Every outbound message is now individually metered. A race condition exists in intent-classifier.ts: the 3-second 'thinking' ack timer and the main LLM response can both send messages within the same request. If the LLM responds in 2.8s, both the ack and the answer are sent. The ack should be cancelled if the main response arrives before the timer fires. Each unnecessary message is a billing charge.",
       "acceptanceCriteria": [
-        "The ackTimer in intent-classifier.ts is cleared before any response is sent from the LLM pipeline \u2014 not just after",
+        "The ackTimer in intent-classifier.ts is cleared before any response is sent from the LLM pipeline — not just after",
         "A test with a mock LLM response time of 2.9 seconds confirms only one message is sent (the actual answer, not the ack)",
         "A 'messages_sent_per_conversation' counter is tracked and exposed in the analytics dashboard",
         "The admin billing dashboard adds a 'avg messages per conversation' KPI alongside cost metrics",
         "settings.json adds documentation comment on the July 2025 per-message pricing model in the billing section"
       ],
       "technicalNotes": [
-        "Current code: ackTimer is a setTimeout at 3000ms in intent-classifier.ts \u2014 clearTimeout must be called at the start of sendResponse, not after",
+        "Current code: ackTimer is a setTimeout at 3000ms in intent-classifier.ts — clearTimeout must be called at the start of sendResponse, not after",
         "Reference: intent-classifier.ts lines around the ackTimer declaration and clearTimeout calls",
         "WhatsApp utility messages in an open 24h service window are free; only proactive outbound marketing messages are charged outside the window",
         "Source: https://www.ycloud.com/blog/whatsapp-api-pricing-update"
@@ -1243,16 +1876,16 @@
       "priority": "medium",
       "description": "Malaysia's Tamil-speaking Indian population (~7%) is an underserved guest segment. The system already has Tamil ('ta') translations in tiered_fallback and language detection supports 'ta', but intents.json has zero Tamil script patterns. Tamil-speaking guests always fall through to LLM classification with no T1/T2 acceleration. Adding Tamil script patterns for the five most common intents (greeting, thanks, wifi, pricing, directions) would improve quality for this segment.",
       "acceptanceCriteria": [
-        "The 'greeting' intent in intents.json includes Tamil patterns: \u0bb5\u0ba3\u0b95\u0bcd\u0b95\u0bae\u0bcd (vanakkam), \u0ba8\u0bae\u0bb8\u0bcd\u0b95\u0bbe\u0bb0 (namaskaram), \u0bb9\u0bb2\u0bcb (hello in Tamil script)",
-        "The 'thanks' intent includes Tamil: \u0ba8\u0ba9\u0bcd\u0bb1\u0bbf (nandri), \u0bae\u0bbf\u0b95\u0bcd\u0b95 \u0ba8\u0ba9\u0bcd\u0bb1\u0bbf (mikka nandri)",
-        "The 'wifi' intent includes Tamil patterns for wifi/password queries: \u0bb5\u0bc8\u0b83\u0baa\u0bc8, \u0b95\u0b9f\u0bb5\u0bc1\u0b9a\u0bcd\u0b9a\u0bca\u0bb2\u0bcd",
-        "The 'pricing' intent includes Tamil patterns: \u0bb5\u0bbf\u0bb2\u0bc8, \u0b8e\u0bb5\u0bcd\u0bb5\u0bb3\u0bb5\u0bc1",
-        "The 'directions' intent includes Tamil patterns: \u0bae\u0bc1\u0b95\u0bb5\u0bb0\u0bbf, \u0b8e\u0baa\u0bcd\u0baa\u0b9f\u0bbf \u0baa\u0bcb\u0bb5\u0ba4\u0bc1",
+        "The 'greeting' intent in intents.json includes Tamil patterns: வணக்கம் (vanakkam), நமஸ்கார (namaskaram), ஹலோ (hello in Tamil script)",
+        "The 'thanks' intent includes Tamil: நன்றி (nandri), மிக்க நன்றி (mikka nandri)",
+        "The 'wifi' intent includes Tamil patterns for wifi/password queries: வைஃபை, கடவுச்சொல்",
+        "The 'pricing' intent includes Tamil patterns: விலை, எவ்வளவு",
+        "The 'directions' intent includes Tamil patterns: முகவரி, எப்படி போவது",
         "Unit tests verify that Tamil-script messages for each intent resolve correctly without LLM"
       ],
       "technicalNotes": [
-        "Tamil script Unicode range: U+0B80\u2013U+0BFF \u2014 use this range for regex character class",
-        "The languageDetection module uses ELD library \u2014 test Tamil detection accuracy with sample messages before relying on it",
+        "Tamil script Unicode range: U+0B80–U+0BFF — use this range for regex character class",
+        "The languageDetection module uses ELD library — test Tamil detection accuracy with sample messages before relying on it",
         "Most Malaysian Tamil speakers also code-switch to English/Malay, so Tamil patterns are additive quality improvements",
         "Have patterns verified by a native Tamil speaker before release"
       ],
@@ -1274,10 +1907,10 @@
         "A warning indicator appears for any provider in a jurisdiction without PDPA adequacy recognition"
       ],
       "technicalNotes": [
-        "USA-based providers (Groq, NVIDIA): no federal data protection law \u2014 flag as 'requires Standard Contractual Clauses review'",
+        "USA-based providers (Groq, NVIDIA): no federal data protection law — flag as 'requires Standard Contractual Clauses review'",
         "PDPA CBPDT Guidelines (April 2025): transfer allowed if destination has law 'substantially similar' to PDPA or 'adequate level of protection'",
         "See existing compliance.ts and pdpa-security.ts for admin route placement",
-        "The report itself is a read-only documentation aid \u2014 no new external API calls to providers needed"
+        "The report itself is a read-only documentation aid — no new external API calls to providers needed"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -1298,7 +1931,7 @@
       "technicalNotes": [
         "Meta docs: business_capability_update webhook fires with max_daily_conversation_per_phone property (now portfolio-level as of Oct 7, 2025)",
         "Source: https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
-        "Only relevant if Pelangi and Southern Homestay share a WABA \u2014 confirm in Meta Business Manager",
+        "Only relevant if Pelangi and Southern Homestay share a WABA — confirm in Meta Business Manager",
         "Existing rateLimiting.perUserMaxMessages is unaffected; this is a portfolio-level additive control"
       ],
       "dependencies": [],
@@ -1309,9 +1942,9 @@
       "id": "US-027",
       "title": "Add booking date input normalization for Malaysian date formats",
       "priority": "medium",
-      "description": "The booking workflow's wait_booking_dates step accepts free-text date input with no normalization. Malaysian guests provide dates in varied formats: '15/3', '15-3-26', 'March 15', '15 Mac', 'esok' (tomorrow in Malay), '\u660e\u5929' (tomorrow in Chinese). Without normalization, unparseable dates cause downstream processing failures or require staff manual interpretation. A date normalization utility should convert all variants to ISO 8601.",
+      "description": "The booking workflow's wait_booking_dates step accepts free-text date input with no normalization. Malaysian guests provide dates in varied formats: '15/3', '15-3-26', 'March 15', '15 Mac', 'esok' (tomorrow in Malay), '明天' (tomorrow in Chinese). Without normalization, unparseable dates cause downstream processing failures or require staff manual interpretation. A date normalization utility should convert all variants to ISO 8601.",
       "acceptanceCriteria": [
-        "A date normalization utility at src/lib/date-normalizer.ts parses: DD/MM, DD/MM/YY, DD/MM/YYYY, 'DD MonthName' in English and Malay, relative terms: 'today', 'tomorrow', 'esok', 'lusa', '\u4eca\u5929', '\u660e\u5929', '\u540e\u5929'",
+        "A date normalization utility at src/lib/date-normalizer.ts parses: DD/MM, DD/MM/YY, DD/MM/YYYY, 'DD MonthName' in English and Malay, relative terms: 'today', 'tomorrow', 'esok', 'lusa', '今天', '明天', '后天'",
         "Malay month names are correctly parsed: Jan, Feb, Mac, Apr, Mei, Jun, Jul, Ogo, Sep, Okt, Nov, Dis",
         "Check-out date is validated to be after check-in date; invalid sequences prompt clarification",
         "Past dates trigger a re-prompt with a helpful message",
@@ -1387,7 +2020,7 @@
     },
     {
       "id": "US-016",
-      "title": "Fix Makan Moments routing.json \u2014 remove hostel intent routes",
+      "title": "Fix Makan Moments routing.json — remove hostel intent routes",
       "description": "Audit src/assistant/data-makan/routing.json for routing entries that map hostel-only intents (check_in, checkout_info, capsule_facilities, room_booking). These routes must not exist in the cafe profile. Add or verify routing entries for cafe-specific intents (menu_query, order_placement, allergen_query, table_reservation).",
       "priority": "medium",
       "acceptanceCriteria": [
@@ -1416,7 +2049,7 @@
       "id": "US-032",
       "title": "Enhance: Fix data-makan and data-southern profiles which currently contain copy-pasted Pe",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass \u2014 pushing coverage higher (57% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass — pushing coverage higher (57% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
       ],
@@ -1432,7 +2065,7 @@
       "id": "US-029",
       "title": "Enhance: Add better fallback responses when AI confidence is low",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Add better fallback responses when AI confidence is low. All current stories pass \u2014 pushing coverage higher (40% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Add better fallback responses when AI confidence is low. All current stories pass — pushing coverage higher (40% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Add better fallback responses when AI confidence is low"
       ],
@@ -1463,7 +2096,7 @@
       "id": "US-030",
       "title": "Enhance: Prioritize reliability and response quality over new features",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Prioritize reliability and response quality over new features. All current stories pass \u2014 pushing coverage higher (17% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Prioritize reliability and response quality over new features. All current stories pass — pushing coverage higher (17% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Prioritize reliability and response quality over new features"
       ],
@@ -1489,11 +2122,11 @@
     },
     {
       "id": "US-031",
-      "title": "Enhance: Enforce strict business profile separation \u2014 each profile's data files must only",
+      "title": "Enhance: Enforce strict business profile separation — each profile's data files must only",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that business, with zero contamination from other profiles. All current stories pass \u2014 pushing coverage higher (40% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Enforce strict business profile separation — each profile's data files must only contain content specific to that business, with zero contamination from other profiles. All current stories pass — pushing coverage higher (40% → target 70%).",
       "acceptanceCriteria": [
-        "Further improves coverage of goal: Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that busine"
+        "Further improves coverage of goal: Enforce strict business profile separation — each profile's data files must only contain content specific to that busine"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -1533,8 +2166,8 @@
         "The feature only activates for guests who have completed the check-in workflow"
       ],
       "technicalNotes": [
-        "Only activate for in-stay guests \u2014 check conversation state to avoid sending to pre-arrival guests",
-        "The cafe menu already has handling via menu-flow.json \u2014 upsell_suggest links to existing menu intent",
+        "Only activate for in-stay guests — check conversation state to avoid sending to pre-arrival guests",
+        "The cafe menu already has handling via menu-flow.json — upsell_suggest links to existing menu intent",
         "Use BullMQ delayed job (same pattern as cart_recovery in settings.json) for the post-check-in message",
         "Mark messages as utility template to avoid marketing billing charges under July 2025 per-message pricing"
       ],
