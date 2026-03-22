@@ -47,40 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-044",
-      "title": "Implement profile data schema validator to prevent future cross-profile contamination",
-      "priority": "high",
-      "description": "Add startup validation that ensures each profile's data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) only contain profile-specific content, blocking server start if contamination detected.",
-      "acceptanceCriteria": [
-        "Validator function in src/lib/profile-validator.ts runs on server startup, checks src/assistant/data/ files for known cross-profile terms (hostel-specific terms in cafe profile, etc.)",
-        "CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms",
-        "Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content and passes on clean profile data"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-045",
-      "title": "Add state machine validator tests for booking workflow transitions",
-      "priority": "high",
-      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
-      "acceptanceCriteria": [
-        "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
-        "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
-        "Test coverage >80% for state guards and transition conditions in ConversationState and WorkflowEngine"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-048",
       "title": "Add past-date check-in validation with alternative date suggestions",
       "priority": "high",
@@ -93,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -361,6 +327,125 @@
         "Create src/assistant/validators/booking-preflight.ts exporting validateBookingRequest(payload, profileConfig): { valid: bool, errors: string[] } checking checkin_date >= today, room_type in profile.rooms[], guest_name not empty/null",
         "Call preflight validator in src/assistant/pipeline/routing.ts before booking workflow execution: if !valid, return escalation with errors array in response message",
         "Write test case: booking with past-date check-in returns error message 'Check-in date cannot be in the past. Available dates: [tomorrow, day+2, day+3]. Contact staff for special requests.' with profile-aware date formatting"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-082",
+      "title": "Add database transaction wrapping for booking workflow execution with automatic rollback",
+      "priority": "high",
+      "description": "Wrap multi-step booking workflows in database transactions to prevent partial failures leaving inconsistent state, improving reliability and test coverage.",
+      "acceptanceCriteria": [
+        "Update src/assistant/pipeline/workflow-executor.ts executeWorkflow() to wrap all steps in BEGIN/ROLLBACK/COMMIT, with explicit error handling on step failure",
+        "Add unit test in tests/workflow-transactions.test.ts simulating step 2 failure and verifying step 1 database changes are rolled back",
+        "Verify transaction isolation level is READ_COMMITTED and log transaction duration to detect deadlocks"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-087",
+      "title": "Implement intent classifier regression test baseline with accuracy thresholds",
+      "priority": "high",
+      "description": "Add automated regression tests that verify intent classification accuracy doesn't degrade between builds. Establish per-profile baseline accuracy thresholds for booking and inquiry intents to catch classifier degradation early.",
+      "acceptanceCriteria": [
+        "Create src/assistant/__tests__/intentClassifier.regression.test.ts with test data covering at least 20 sample intents per profile",
+        "Assert booking intent accuracy >= 85% and inquiry intent accuracy >= 80% per profile using test.expect() assertions",
+        "Add npm run test:regression command and integrate into deploy.sh to run before production deployment"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-088",
+      "title": "Add booking workflow step dependency validator with circular-reference detection",
+      "priority": "high",
+      "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
+      "acceptanceCriteria": [
+        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
+        "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
+        "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-089",
+      "title": "Implement multi-profile conversation isolation unit tests with cross-contamination assertions",
+      "priority": "high",
+      "description": "Add comprehensive tests to verify conversation data from one business profile never leaks into queries for another profile. Validates database query isolation and profile-aware filtering to enforce strict business separation.",
+      "acceptanceCriteria": [
+        "Create src/lib/db/__tests__/conversationIsolation.test.ts with tests creating conversations under different profile_ids (pelangi, southern, makan)",
+        "Assert getConversations(pelangiProfile) returns 0 results for conversations created under southernProfile",
+        "Inspect SQL query execution to verify WHERE profile_id = ? filter is present in all conversation SELECT queries"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-092",
+      "title": "Build intent keyword collision detector CLI with cross-profile contamination detection",
+      "priority": "high",
+      "description": "Create CLI tool that scans intent-keywords.json across all profiles to detect keywords mapping to multiple intents within a profile and identical keywords appearing across profiles, preventing misclassification and data contamination.",
+      "acceptanceCriteria": [
+        "npm run validate:keywords scans all profiles and outputs JSON report with within-profile collisions and cross-profile duplicates",
+        "Detector identifies keywords in intent-keywords.json that appear in multiple intents within same profile and flags severity level",
+        "Detector flags when keyword appears identically across data-pelangi, data-makan, and data-southern profiles as cross-contamination risk"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-093",
+      "title": "Add conversation topic drift detector to prevent off-topic context in AI inference",
+      "priority": "high",
+      "description": "Implement topic coherence tracking across multi-turn dialogues to detect when user messages diverge from booking/inquiry context, triggering alternative fallback response strategy instead of passing off-topic context to AI model.",
+      "acceptanceCriteria": [
+        "New module src/assistant/pipeline/topic-drift-detector.ts exports detectTopicDrift(messages: Message[], threshold: 0.7) returning {drifted: boolean, confidence: number}",
+        "When topic drift detected (confidence > threshold), response pipeline routes to topic-refocus fallback instead of normal AI inference",
+        "Unit tests verify correct detection on sequences: booking→general_question→booking with passing assertion on coherence recovery"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-094",
+      "title": "Enforce profile routing isolation with pre-deployment intent route validator",
+      "priority": "high",
+      "description": "Create validator ensuring routing.json routes reference only intents from same profile, preventing cross-contamination at configuration layer and catching Makan/Southern Pelangi data leakage.",
+      "acceptanceCriteria": [
+        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
+        "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
+        "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -717,6 +802,142 @@
       "model": "sonnet"
     },
     {
+      "id": "US-083",
+      "title": "Add per-profile booking confirmation message templates in settings.json",
+      "priority": "medium",
+      "description": "Allow each business profile (Pelangi/Makan/Southern) to customize booking confirmation message templates instead of using hardcoded format, improving response quality and profile separation.",
+      "acceptanceCriteria": [
+        "Add confirmation_template_booking field to src/assistant/data/settings.json for each profile with placeholder variables like {guest_name}, {room_type}, {check_in}",
+        "Update assistant/ai-provider.ts sendConfirmationMessage() to render profile-specific template using Handlebars or simple string replacement",
+        "Add integration test in tests/confirmation-templates.test.ts verifying different profiles produce distinct confirmation messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-084",
+      "title": "Build conversation quality trend detector with 30-day rolling baseline",
+      "priority": "medium",
+      "description": "Monitor intent classification confidence and escalation rates per profile to detect quality degradation and alert admins, supporting reliability and response quality goals.",
+      "acceptanceCriteria": [
+        "Add GET /api/admin/quality/trends/:profile endpoint that queries intent_analytics for 30-day rolling average confidence and escalation_rate, returning trend direction",
+        "Alert threshold: if confidence drops >10% from baseline or escalation_rate increases >5%, include alert flag in response",
+        "Add unit test in tests/quality-trends.test.ts with mocked analytics data verifying trend calculations and alert thresholds"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-085",
+      "title": "Implement intent classifier top-3 confidence tracking for debugging misclassifications",
+      "priority": "medium",
+      "description": "Store top 3 intent predictions with confidence scores instead of just winner, enabling admin debugging of why classifier chose wrong intent.",
+      "acceptanceCriteria": [
+        "Add top_3_predictions JSONB column to intent_analytics table storing [{intent: string, score: float}] for top 3 scoring intents",
+        "Update src/assistant/pipeline/intent-classifier.ts to log all model scores before storing in database",
+        "Add admin endpoint GET /api/admin/debug/intents/:conversation_id/alternatives returning top_3_predictions and actual intent chosen"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-090",
+      "title": "Add conversation context size validator with auto-truncation on overflow",
+      "priority": "medium",
+      "description": "Implement validation for conversation history size to prevent memory bloat and improve context handling performance. Automatically truncate oldest messages when context window exceeds configured limit, preserving recent message quality for AI inference.",
+      "acceptanceCriteria": [
+        "Add validateConversationContextSize() function in src/assistant/pipeline/conversationProcessor.ts that checks history length and returns truncated array",
+        "Truncate messages older than 20 messages or 24-hour window, whichever comes first",
+        "Add unit test in src/assistant/pipeline/__tests__/conversationProcessor.test.ts asserting that truncation preserves recent messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-091",
+      "title": "Build fallback response effectiveness tracker with admin analytics endpoint",
+      "priority": "medium",
+      "description": "Track when fallback responses are triggered and whether they result in escalation or successful resolution. Provide admin endpoint to query effectiveness metrics by profile and intent, enabling data-driven fallback improvements.",
+      "acceptanceCriteria": [
+        "Add fallback_triggered_count and fallback_escalated_count columns to rainbow_messages Drizzle schema in shared/schema-tables.ts",
+        "Create POST /api/admin/analytics/fallback-effectiveness endpoint returning {profile, totalFallbacks, escalationRate, topMisclassifiedIntents}",
+        "Add integration test asserting endpoint returns correct escalation rate calculation for test data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-095",
+      "title": "Validate booking workflow step timeouts with automatic escalation recovery",
+      "priority": "medium",
+      "description": "Add timeout_ms validation to all booking workflow steps with minimum 5000ms enforcement, and test that timed-out steps automatically escalate to staff instead of hanging indefinitely.",
+      "acceptanceCriteria": [
+        "Workflow schema validator in src/assistant/schemas.ts enforces timeout_ms field (minimum 5000ms) on all booking workflow steps, with startup validation error if missing",
+        "Integration test verifies booking step exceeding timeout creates escalation_events database record with step_id and timestamp",
+        "npm run test passes new booking workflow timeout recovery test cases"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-096",
+      "title": "Add fallback response pool rotation to prevent repetitive bot responses",
+      "priority": "medium",
+      "description": "Implement fallback response variation system that tracks recently-used responses and rotates through variant pools based on confidence level, improving user experience when AI confidence is low.",
+      "acceptanceCriteria": [
+        "New module src/assistant/engine/fallback-pool.ts exports selectFallbackResponse(profile: string, confidenceLevel: 'low'|'medium'|'high'): string with rotation state tracking",
+        "Admin endpoint POST /admin/fallback-pools/:profile allows configuring response variant pools in settings.json with example: {low: ['I don't understand...', 'Sorry, could you rephrase...'], medium: [...]",
+        "Unit tests verify rotation skips recently-used responses within 10-message window per profile and cycles through variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-086",
+      "title": "Add guest communication preference detection from conversation history",
+      "priority": "low",
+      "description": "Extract guest's preferred language and response style from past conversations to improve multi-turn dialogue context and personalization.",
+      "acceptanceCriteria": [
+        "Create src/lib/guest-context.ts with getGuestPreferences(guest_id) querying last 10 messages from rainbow_conversations, detecting language_code",
+        "Cache result with 24h TTL in memory to avoid repeated database hits",
+        "Add integration test in tests/guest-context.test.ts verifying language detection from mock messages (English/Chinese/Tamil samples)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-005",
       "title": "Fix .rej rejected patch files from previous Spiral run",
       "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
@@ -842,6 +1063,40 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-044",
+      "title": "Implement profile data schema validator to prevent future cross-profile contamination",
+      "priority": "high",
+      "description": "Add startup validation that ensures each profile's data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) only contain profile-specific content, blocking server start if contamination detected.",
+      "acceptanceCriteria": [
+        "Validator function in src/lib/profile-validator.ts runs on server startup, checks src/assistant/data/ files for known cross-profile terms (hostel-specific terms in cafe profile, etc.)",
+        "CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms",
+        "Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content and passes on clean profile data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-045",
+      "title": "Add state machine validator tests for booking workflow transitions",
+      "priority": "high",
+      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
+      "acceptanceCriteria": [
+        "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
+        "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
+        "Test coverage >80% for state guards and transition conditions in ConversationState and WorkflowEngine"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-043",

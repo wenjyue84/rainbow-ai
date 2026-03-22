@@ -105,6 +105,7 @@ export function getDateOneMonthLater(fromDate: string): string {
     return formatToISO(tomorrow);
   }
 
+<<<<<<< Updated upstream
   const year = parsed.getFullYear();
   const month = parsed.getMonth();
   const day = parsed.getDate();
@@ -122,6 +123,21 @@ export function getDateOneMonthLater(fromDate: string): string {
   const targetDay = Math.min(day, lastDay);
 
   const future = new Date(targetYear, targetMonth, targetDay);
+=======
+  const future = new Date(parsed);
+  const targetMonth = future.getMonth() + 1;
+  const targetYear = targetMonth > 11 ? future.getFullYear() + 1 : future.getFullYear();
+  const actualMonth = targetMonth > 11 ? 0 : targetMonth;
+
+  // Get the last day of the target month
+  const lastDay = new Date(targetYear, actualMonth + 1, 0).getDate();
+  const day = Math.min(parsed.getDate(), lastDay);
+
+  future.setFullYear(targetYear);
+  future.setMonth(actualMonth);
+  future.setDate(day);
+
+>>>>>>> Stashed changes
   return formatToISO(future);
 }
 
@@ -130,9 +146,9 @@ export function getDateOneMonthLater(fromDate: string): string {
  * Returns validation result with suggested dates if check-in is in the past
  *
  * Rules:
- * - Check-in must be today or later (tomorrow minimum)
+ * - Check-in must be tomorrow or later (not today, not past)
  * - Check-out must be after check-in
- * - If check-in is in the past, suggest tomorrow as new check-in
+ * - If check-in is today or earlier, suggest tomorrow as new check-in
  * - If check-out is in the past/invalid, suggest 1 month after new check-in
  */
 export function validateBookingDates(
@@ -157,7 +173,7 @@ export function validateBookingDates(
   const checkOutTime = new Date(checkOutParsed);
   checkOutTime.setHours(0, 0, 0, 0);
 
-  // Check if check-in is today (should be tomorrow at earliest)
+  // Check if check-in is today or earlier (should be tomorrow at earliest)
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -165,11 +181,13 @@ export function validateBookingDates(
   let finalCheckOut = checkOutStr;
   let suggestedCheckIn: string | undefined;
   let suggestedCheckOut: string | undefined;
+  let hasErrors = false;
 
   // If check-in is today or earlier, suggest tomorrow
   if (checkInTime <= today) {
     suggestedCheckIn = formatToISO(tomorrow);
     finalCheckIn = suggestedCheckIn;
+    hasErrors = true;
   }
 
   // Check if check-out is after the (potentially adjusted) check-in
@@ -180,6 +198,7 @@ export function validateBookingDates(
     // Suggest check-out as 1 month after the (potentially adjusted) check-in
     suggestedCheckOut = getDateOneMonthLater(finalCheckIn);
     finalCheckOut = suggestedCheckOut;
+    hasErrors = true;
   }
 
   const hasErrors = !!suggestedCheckIn || !!suggestedCheckOut;
@@ -190,9 +209,16 @@ export function validateBookingDates(
     checkOutDate: finalCheckOut,
     suggestedCheckIn,
     suggestedCheckOut,
+<<<<<<< Updated upstream
     reason: hasErrors
       ? 'Check-in date is today or earlier. Suggesting next available dates.'
       : undefined
+=======
+    reason:
+      hasErrors
+        ? 'Check-in date is today or earlier. Suggesting next available dates.'
+        : undefined
+>>>>>>> Stashed changes
   };
 }
 
