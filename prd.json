@@ -47,20 +47,292 @@
   ],
   "userStories": [
     {
-      "id": "US-032",
-      "title": "Enhance: Fix data-makan and data-southern profiles which currently contain copy-pasted Pe",
-      "priority": "low",
-      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass — pushing coverage higher (57% → target 70%).",
+      "id": "US-034",
+      "title": "Add intent prediction batch insert queue to reduce database writes",
+      "priority": "high",
+      "description": "Every WhatsApp message triggers an individual DB insert to intent_analytics via intent-tracker.ts. Under load (100+ messages/min), this creates excessive DB connections and write amplification on Neon. Add a batch insert queue that accumulates predictions and flushes them in bulk every 5 seconds or when the queue reaches 50 items.",
       "acceptanceCriteria": [
-        "Further improves coverage of goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
+        "Intent predictions are queued in memory instead of inserted individually",
+        "Queue flushes to DB when it reaches 50 items OR every 5 seconds, whichever comes first",
+        "Flush uses a single bulk INSERT statement via Drizzle",
+        "Queue is flushed on process SIGTERM/SIGINT to prevent data loss",
+        "If a flush fails, items are re-queued with a max retry of 3 before being dropped with a warning log",
+        "Existing trackPrediction() API remains unchanged - callers are unaffected",
+        "Unit test verifies batch size trigger, timer trigger, and graceful shutdown flush"
+      ],
+      "technicalNotes": [
+        "Modify src/assistant/intent-tracker.ts - add private queue array and flush timer",
+        "Use setInterval for time-based flush; clearInterval + final flush on process exit",
+        "Drizzle supports bulk insert: db.insert(table).values([...items])",
+        "Remove the (intentPredictions as any) casts - use proper typed inserts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "filesTouch": [
+        "src/assistant/intent-tracker.ts",
+        "tests/unit/intent-tracker-batch.test.ts"
+      ],
+      "passes": true,
+      "model": "haiku",
+      "last_attempted": "2026-03-22T16:49:49Z"
+    },
+    {
+      "id": "US-036",
+      "title": "Add prompt injection detection to chat engine input sanitizer",
+      "priority": "high",
+      "description": "The sanitizeInput() function in chat-engine.ts only strips control characters but does not detect prompt injection attempts. Add pattern-based detection that flags suspicious inputs, logs them for security review, and returns a safe fallback response instead of forwarding to the AI provider.",
+      "acceptanceCriteria": [
+        "A detectPromptInjection(input: string) function checks against 15+ known injection patterns",
+        "Patterns include: ignore previous instructions, you are now, system prompt, jailbreak, DAN mode, override, and Malay equivalents",
+        "Detection is case-insensitive and handles unicode normalization",
+        "Flagged messages are logged with severity WARN including the sender JID and matched pattern",
+        "Flagged messages receive a polite deflection response instead of AI processing",
+        "Detection patterns are configurable via a JSON array in settings.json under security.injection_patterns",
+        "Unit tests cover all 15+ patterns plus false-positive checks for normal guest messages"
+      ],
+      "technicalNotes": [
+        "Add src/assistant/prompt-injection-guard.ts with the detection logic",
+        "Call detectPromptInjection() in chat-engine.ts sanitizeInput() pipeline before AI call",
+        "Use regex patterns - no ML model needed for this level of detection",
+        "False positive risk: test with real guest messages like can you ignore my previous booking to ensure they pass"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/prompt-injection-guard.ts",
+        "src/assistant/chat-engine.ts",
+        "tests/unit/prompt-injection-guard.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet"
+    },
+    {
+      "id": "US-038",
+      "title": "Add booking workflow date conflict detection before reservation confirmation",
+      "priority": "high",
+      "description": "Prevent double-bookings by checking for overlapping reservations during booking workflow execution. Validate check-in/check-out dates against existing reservations in the same unit.",
+      "acceptanceCriteria": [
+        "Add dateRangeConflict() function in src/assistant/pipeline/booking-validators.ts that queries existing reservations and returns conflict details",
+        "Update workflows.json booking confirmation step to execute validation before marking booking as confirmed",
+        "Add unit test in src/__tests__/booking-validators.test.ts verifying rejection of overlapping check-in dates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-043",
+      "title": "Add intent classification confidence metrics and per-profile baselines",
+      "priority": "high",
+      "description": "Create metrics tracking for intent classification success rates and confidence scores, with per-profile baselines to detect accuracy regressions and identify low-confidence prediction patterns.",
+      "acceptanceCriteria": [
+        "Intent classifier logs confidence score (0-1) and latency_ms for each classification to intent_analytics table in Neon",
+        "Admin metrics endpoint GET /admin/metrics/intent-classification returns success_rate, avg_confidence, and p95_latency grouped by intent_type and profile",
+        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman ≥0.7)"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-20T17:41:46Z"
+      "model": "haiku"
+    },
+    {
+      "id": "US-044",
+      "title": "Implement profile data schema validator to prevent future cross-profile contamination",
+      "priority": "high",
+      "description": "Add startup validation that ensures each profile's data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) only contain profile-specific content, blocking server start if contamination detected.",
+      "acceptanceCriteria": [
+        "Validator function in src/lib/profile-validator.ts runs on server startup, checks src/assistant/data/ files for known cross-profile terms (hostel-specific terms in cafe profile, etc.)",
+        "CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms",
+        "Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content and passes on clean profile data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-045",
+      "title": "Add state machine validator tests for booking workflow transitions",
+      "priority": "high",
+      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
+      "acceptanceCriteria": [
+        "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
+        "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
+        "Test coverage >80% for state guards and transition conditions in ConversationState and WorkflowEngine"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-035",
+      "title": "Add DLQ overflow alert and webhook notification for message queue",
+      "priority": "medium",
+      "description": "The message queue (src/lib/message-queue.ts) has a dead-letter queue but no alerting when it grows beyond a threshold. Failed messages silently accumulate. Add a configurable DLQ size threshold that triggers a webhook notification to the admin panel when exceeded.",
+      "acceptanceCriteria": [
+        "A DLQ_ALERT_THRESHOLD setting exists in settings.json (default: 10)",
+        "When DLQ size exceeds the threshold, a POST is sent to DIGIMAN_API_URL/api/alerts with the DLQ count and oldest message timestamp",
+        "Alert is sent at most once per hour to avoid spam (cooldown timer)",
+        "DLQ metrics are exposed via GET /api/admin/queue/health endpoint returning dlqSize, totalProcessed, and failureRate",
+        "The queue health endpoint requires admin auth (existing Passport middleware)",
+        "Unit test verifies alert fires at threshold and respects cooldown"
+      ],
+      "technicalNotes": [
+        "Add alert logic to src/lib/message-queue.ts after DLQ push",
+        "Add GET /api/admin/queue/health route to src/routes/admin/",
+        "Use existing httpClient from src/lib/http-client.ts for the webhook POST",
+        "Cooldown: store lastAlertTime as module-level variable"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "filesTouch": [
+        "src/lib/message-queue.ts",
+        "src/routes/admin/queue-health.ts",
+        "tests/unit/dlq-alert.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet"
+    },
+    {
+      "id": "US-037",
+      "title": "Add circuit breaker state transition tests and HALF_OPEN recovery logic",
+      "priority": "medium",
+      "description": "The circuit breaker (src/assistant/circuit-breaker.ts) lacks tests for the HALF_OPEN state where exactly one probe request is allowed through. If the probe fails, the circuit should re-open with an extended timeout. Add configurable recovery timeout with exponential backoff and comprehensive state transition tests.",
+      "acceptanceCriteria": [
+        "HALF_OPEN state allows exactly 1 request through as a probe",
+        "If probe succeeds, circuit transitions to CLOSED and resets failure count",
+        "If probe fails, circuit transitions back to OPEN with timeout doubled (up to max 5 minutes)",
+        "Recovery timeout is configurable via constructor option (default: 30 seconds)",
+        "Max recovery timeout is configurable (default: 300 seconds)",
+        "Test file covers all 6 state transitions: CLOSED to OPEN, OPEN to HALF_OPEN, HALF_OPEN to CLOSED, HALF_OPEN to OPEN, CLOSED to CLOSED on success, OPEN to OPEN within timeout",
+        "Tests use fake timers (vi.useFakeTimers) with no real delays"
+      ],
+      "technicalNotes": [
+        "Modify src/assistant/circuit-breaker.ts to add configurable recovery timeout and exponential backoff",
+        "Add tests/unit/circuit-breaker-states.test.ts with state transition matrix",
+        "Use Vitest fake timers for deterministic time-based tests",
+        "Keep changes minimal - only add the missing recovery logic and tests"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/circuit-breaker.ts",
+        "tests/unit/circuit-breaker-states.test.ts"
+      ],
+      "passes": false,
+      "model": "haiku"
+    },
+    {
+      "id": "US-039",
+      "title": "Add message acknowledgment status tracking to rainbow_messages table",
+      "priority": "medium",
+      "description": "Track message delivery and read status (sent, delivered, read) in the database to improve accountability and reliability. Update pipeline to set status on WhatsApp webhook receipts.",
+      "acceptanceCriteria": [
+        "Add ack_status column (enum: pending, sent, delivered, read) to rainbow_messages table in shared/schema-tables.ts",
+        "Update message pipeline in src/assistant/pipeline/ to set ack_status on receipt webhook from WhatsApp",
+        "Add GET /admin/messages/unacked endpoint returning count and oldest unacked message timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-040",
+      "title": "Add per-profile message rate limiting with configurable daily quotas",
+      "priority": "medium",
+      "description": "Enforce profile-specific message quotas (Pelangi, Makan, Southern) with tracking in in-memory store. Reject excess messages with 429 status and remaining quota info to improve reliability and prevent spam.",
+      "acceptanceCriteria": [
+        "Create src/lib/rate-limiter.ts with getProfileQuota(profile) and trackMessage(profile, count) functions",
+        "Update message ingestion pipeline to check quota before processing; reject with 429 and {remaining, resetAt} JSON",
+        "Add quotas to src/assistant/data/settings.json with keys: quota.pelangi.dailyLimit, quota.makan.dailyLimit, quota.southern.dailyLimit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-041",
+      "title": "Add conversation auto-archival after guest checkout completion",
+      "priority": "medium",
+      "description": "Automatically mark conversations as archived when a guest completes checkout. Reduces clutter in active conversation queries and improves database query performance.",
+      "acceptanceCriteria": [
+        "Add archived_at timestamp column to rainbow_conversations table in shared/schema-tables.ts",
+        "Update checkout workflow in workflows.json to call archiveConversation(conversation_id) function",
+        "Modify conversation list query in src/routes/admin/ to filter WHERE archived_at IS NULL by default"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-042",
+      "title": "Add admin bulk message scheduling with queue state visibility endpoint",
+      "priority": "medium",
+      "description": "Allow admins to schedule multiple messages at once with exponential backoff on delivery failures. Add queue state endpoint to monitor pending messages, ensuring reliability for bulk messaging campaigns.",
+      "acceptanceCriteria": [
+        "Create POST /admin/messages/schedule-bulk accepting {messages: Array<{phone, text, delayMs}>, maxRetries: number}",
+        "Implement queue processor in src/lib/message-queue.ts with exponential backoff (retry after 5s, 10s, 30s on failure)",
+        "Add GET /admin/messages/queue-state returning {pending: number, failed: number, oldestTimestamp}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-046",
+      "title": "Add input normalization and sanitization middleware for WhatsApp formatting edge cases",
+      "priority": "medium",
+      "description": "Normalize user input (Unicode NFC, whitespace trimming, emoji consolidation, zero-width character removal) before intent classification to improve accuracy on noisy WhatsApp messages.",
+      "acceptanceCriteria": [
+        "Middleware in src/assistant/pipeline/normalize-input.ts applies Unicode NFC normalization, regex whitespace cleanup, and emoji variant consolidation before ClassifyIntentService",
+        "Unit tests show '  Check  in?!!  ', 'Check​​ in' (zero-width spaces), and 'Check in 😀' all normalize to canonical form and match identical intent",
+        "Integration test confirms F1-score improvement ≥2% on WhatsApp test dataset with formatting variance"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-047",
+      "title": "Add exponential time-decay weighting for conversation context to reduce stale message influence",
+      "priority": "medium",
+      "description": "Implement exponential decay function for conversation history so older messages contribute less to intent classification and response generation, preventing multi-day conversations from being misclassified.",
+      "acceptanceCriteria": [
+        "ConversationState.messages includes timestamp_ms; getRelevantContext() computes decay_weight = 0.9^(hours_old) for each message before passing to intent classifier",
+        "Unit test in src/assistant/__tests__/context-decay.test.ts validates 30-day-old messages have weight <5%, recent messages have weight >90%",
+        "Integration test confirms conversation spanning 3+ days classifies Day 3 intent correctly without interference from Day 1 context messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-005",
@@ -357,6 +629,40 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
+    },
+    {
+      "id": "US-033",
+      "title": "Add startup environment validation with clear error messages",
+      "priority": "high",
+      "description": "Rainbow AI silently fails or crashes with cryptic errors when required environment variables (DATABASE_URL, MCP_SERVER_PORT) are missing or malformed. Add a startup validation step that checks all required env vars before the server starts and exits with clear, actionable error messages.",
+      "acceptanceCriteria": [
+        "A validateEnvironment() function runs before Express server starts in src/index.ts",
+        "Required vars checked: DATABASE_URL, MCP_SERVER_PORT, NODE_ENV",
+        "Optional vars logged as warnings if missing: DIGIMAN_API_URL, DIGIMAN_API_TOKEN",
+        "DATABASE_URL format is validated as a valid postgres:// connection string",
+        "MCP_SERVER_PORT is validated as a number between 1024-65535",
+        "On failure, process exits with code 1 and a human-readable error listing all missing/invalid vars",
+        "Unit tests cover all validation paths (missing, malformed, valid)"
+      ],
+      "technicalNotes": [
+        "Add src/lib/env-validator.ts with pure validation functions",
+        "Call validateEnvironment() in src/index.ts before any DB or server init",
+        "Use Zod schemas for validation to match existing project patterns",
+        "Keep it simple - no .env file loading, just validate process.env"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/lib/env-validator.ts",
+        "src/index.ts",
+        "tests/unit/env-validator.test.ts"
+      ],
+      "passes": true,
+      "model": "haiku",
+      "last_attempted": "2026-03-22T16:38:24Z",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** — Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** — Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** — Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
+      }
     },
     {
       "id": "US-006",
@@ -736,6 +1042,22 @@
       "epicId": "E-6"
     },
     {
+      "id": "US-032",
+      "title": "Enhance: Fix data-makan and data-southern profiles which currently contain copy-pasted Pe",
+      "priority": "low",
+      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass — pushing coverage higher (57% → target 70%).",
+      "acceptanceCriteria": [
+        "Further improves coverage of goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-20T17:41:46Z"
+    },
+    {
       "id": "US-029",
       "title": "Enhance: Add better fallback responses when AI confidence is low",
       "priority": "low",
@@ -848,157 +1170,6 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
-    },
-    {
-      "id": "US-033",
-      "title": "Add startup environment validation with clear error messages",
-      "priority": "high",
-      "description": "Rainbow AI silently fails or crashes with cryptic errors when required environment variables (DATABASE_URL, MCP_SERVER_PORT) are missing or malformed. Add a startup validation step that checks all required env vars before the server starts and exits with clear, actionable error messages.",
-      "acceptanceCriteria": [
-        "A validateEnvironment() function runs before Express server starts in src/index.ts",
-        "Required vars checked: DATABASE_URL, MCP_SERVER_PORT, NODE_ENV",
-        "Optional vars logged as warnings if missing: DIGIMAN_API_URL, DIGIMAN_API_TOKEN",
-        "DATABASE_URL format is validated as a valid postgres:// connection string",
-        "MCP_SERVER_PORT is validated as a number between 1024-65535",
-        "On failure, process exits with code 1 and a human-readable error listing all missing/invalid vars",
-        "Unit tests cover all validation paths (missing, malformed, valid)"
-      ],
-      "technicalNotes": [
-        "Add src/lib/env-validator.ts with pure validation functions",
-        "Call validateEnvironment() in src/index.ts before any DB or server init",
-        "Use Zod schemas for validation to match existing project patterns",
-        "Keep it simple - no .env file loading, just validate process.env"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "filesTouch": [
-        "src/lib/env-validator.ts",
-        "src/index.ts",
-        "tests/unit/env-validator.test.ts"
-      ],
-      "passes": true,
-      "model": "haiku",
-      "last_attempted": "2026-03-22T16:38:24Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** — Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** — Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** — Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
-      }
-    },
-    {
-      "id": "US-034",
-      "title": "Add intent prediction batch insert queue to reduce database writes",
-      "priority": "high",
-      "description": "Every WhatsApp message triggers an individual DB insert to intent_analytics via intent-tracker.ts. Under load (100+ messages/min), this creates excessive DB connections and write amplification on Neon. Add a batch insert queue that accumulates predictions and flushes them in bulk every 5 seconds or when the queue reaches 50 items.",
-      "acceptanceCriteria": [
-        "Intent predictions are queued in memory instead of inserted individually",
-        "Queue flushes to DB when it reaches 50 items OR every 5 seconds, whichever comes first",
-        "Flush uses a single bulk INSERT statement via Drizzle",
-        "Queue is flushed on process SIGTERM/SIGINT to prevent data loss",
-        "If a flush fails, items are re-queued with a max retry of 3 before being dropped with a warning log",
-        "Existing trackPrediction() API remains unchanged - callers are unaffected",
-        "Unit test verifies batch size trigger, timer trigger, and graceful shutdown flush"
-      ],
-      "technicalNotes": [
-        "Modify src/assistant/intent-tracker.ts - add private queue array and flush timer",
-        "Use setInterval for time-based flush; clearInterval + final flush on process exit",
-        "Drizzle supports bulk insert: db.insert(table).values([...items])",
-        "Remove the (intentPredictions as any) casts - use proper typed inserts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "filesTouch": [
-        "src/assistant/intent-tracker.ts",
-        "tests/unit/intent-tracker-batch.test.ts"
-      ],
-      "passes": false,
-      "model": "haiku"
-    },
-    {
-      "id": "US-035",
-      "title": "Add DLQ overflow alert and webhook notification for message queue",
-      "priority": "medium",
-      "description": "The message queue (src/lib/message-queue.ts) has a dead-letter queue but no alerting when it grows beyond a threshold. Failed messages silently accumulate. Add a configurable DLQ size threshold that triggers a webhook notification to the admin panel when exceeded.",
-      "acceptanceCriteria": [
-        "A DLQ_ALERT_THRESHOLD setting exists in settings.json (default: 10)",
-        "When DLQ size exceeds the threshold, a POST is sent to DIGIMAN_API_URL/api/alerts with the DLQ count and oldest message timestamp",
-        "Alert is sent at most once per hour to avoid spam (cooldown timer)",
-        "DLQ metrics are exposed via GET /api/admin/queue/health endpoint returning dlqSize, totalProcessed, and failureRate",
-        "The queue health endpoint requires admin auth (existing Passport middleware)",
-        "Unit test verifies alert fires at threshold and respects cooldown"
-      ],
-      "technicalNotes": [
-        "Add alert logic to src/lib/message-queue.ts after DLQ push",
-        "Add GET /api/admin/queue/health route to src/routes/admin/",
-        "Use existing httpClient from src/lib/http-client.ts for the webhook POST",
-        "Cooldown: store lastAlertTime as module-level variable"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "filesTouch": [
-        "src/lib/message-queue.ts",
-        "src/routes/admin/queue-health.ts",
-        "tests/unit/dlq-alert.test.ts"
-      ],
-      "passes": false,
-      "model": "sonnet"
-    },
-    {
-      "id": "US-036",
-      "title": "Add prompt injection detection to chat engine input sanitizer",
-      "priority": "high",
-      "description": "The sanitizeInput() function in chat-engine.ts only strips control characters but does not detect prompt injection attempts. Add pattern-based detection that flags suspicious inputs, logs them for security review, and returns a safe fallback response instead of forwarding to the AI provider.",
-      "acceptanceCriteria": [
-        "A detectPromptInjection(input: string) function checks against 15+ known injection patterns",
-        "Patterns include: ignore previous instructions, you are now, system prompt, jailbreak, DAN mode, override, and Malay equivalents",
-        "Detection is case-insensitive and handles unicode normalization",
-        "Flagged messages are logged with severity WARN including the sender JID and matched pattern",
-        "Flagged messages receive a polite deflection response instead of AI processing",
-        "Detection patterns are configurable via a JSON array in settings.json under security.injection_patterns",
-        "Unit tests cover all 15+ patterns plus false-positive checks for normal guest messages"
-      ],
-      "technicalNotes": [
-        "Add src/assistant/prompt-injection-guard.ts with the detection logic",
-        "Call detectPromptInjection() in chat-engine.ts sanitizeInput() pipeline before AI call",
-        "Use regex patterns - no ML model needed for this level of detection",
-        "False positive risk: test with real guest messages like can you ignore my previous booking to ensure they pass"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "filesTouch": [
-        "src/assistant/prompt-injection-guard.ts",
-        "src/assistant/chat-engine.ts",
-        "tests/unit/prompt-injection-guard.test.ts"
-      ],
-      "passes": false,
-      "model": "sonnet"
-    },
-    {
-      "id": "US-037",
-      "title": "Add circuit breaker state transition tests and HALF_OPEN recovery logic",
-      "priority": "medium",
-      "description": "The circuit breaker (src/assistant/circuit-breaker.ts) lacks tests for the HALF_OPEN state where exactly one probe request is allowed through. If the probe fails, the circuit should re-open with an extended timeout. Add configurable recovery timeout with exponential backoff and comprehensive state transition tests.",
-      "acceptanceCriteria": [
-        "HALF_OPEN state allows exactly 1 request through as a probe",
-        "If probe succeeds, circuit transitions to CLOSED and resets failure count",
-        "If probe fails, circuit transitions back to OPEN with timeout doubled (up to max 5 minutes)",
-        "Recovery timeout is configurable via constructor option (default: 30 seconds)",
-        "Max recovery timeout is configurable (default: 300 seconds)",
-        "Test file covers all 6 state transitions: CLOSED to OPEN, OPEN to HALF_OPEN, HALF_OPEN to CLOSED, HALF_OPEN to OPEN, CLOSED to CLOSED on success, OPEN to OPEN within timeout",
-        "Tests use fake timers (vi.useFakeTimers) with no real delays"
-      ],
-      "technicalNotes": [
-        "Modify src/assistant/circuit-breaker.ts to add configurable recovery timeout and exponential backoff",
-        "Add tests/unit/circuit-breaker-states.test.ts with state transition matrix",
-        "Use Vitest fake timers for deterministic time-based tests",
-        "Keep changes minimal - only add the missing recovery logic and tests"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "filesTouch": [
-        "src/assistant/circuit-breaker.ts",
-        "tests/unit/circuit-breaker-states.test.ts"
-      ],
-      "passes": false,
-      "model": "haiku"
     }
   ]
 }

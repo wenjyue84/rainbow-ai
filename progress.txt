@@ -836,3 +836,54 @@ Completed: Add startup environment validation with clear error messages (ID: US-
 
 ## Iteration 7 - Completed
 Completed: Add startup environment validation with clear error messages (ID: US-033)
+
+## Pre-analysis for US-034 (Gemini 2.5 Pro)
+Here is the technical brief for the development task:
+
+**Technical Brief: US-034 - Batch Intent Prediction Inserts**
+
+**1. Files to Modify:**
+*   **Primary:** `src/assistant/intent-tracker.ts`. This file will contain the new queueing, batching, and flushing logic.
+*   **Schema:** The Drizzle schema for the `intent_analytics` table, likely located in `shared/schema.ts`, will be needed for type-safe inserts.
+
+**2. Core Components Involved:**
+*   **Function Hook:** The existing `trackPrediction()` method will be the entry point, modified to add items to a queue instead of writing directly to the DB.
+*   **Database Table:** `intent_analytics` is the target for the bulk inserts.
+
+**3. Implementation Approach:**
+*   Introduce a private queue (e.g., `private predictionQueue: T[] = []`) within the `IntentTracker` class.
+*   In the constructor, start a `setInterval` to call a new `flushQueue()` method every 5 seconds.
+*   Modify `trackPrediction()` to push predictions to the `predictionQueue` and then check if `queue.length >= 50`. If so, call `await flushQueue()`.
+*   The `flushQueue()` method should use Drizzle's bulk insert (`db.insert(intentAnalytics).values(...)`) to write the entire queue in a single transaction.
+*   Implement graceful shutdown handlers (`process.on('SIGTERM', ...)`) that await a final `flushQueue()` call and clear the interval to prevent data loss.
+
+**4. Edge Cases & Gotchas:**
+*   **Race Conditions:** Implement a simple `isFlushing` lock to prevent the timer and the queue size limit from triggering `flushQueue()` at the same time.
+*   **Error Handling:** If the bulk insert fails, the items should be added back to the front of the queue. Implement a retry counter on each item, dropping it with a warning log after 3 failed attempts.
+*   **Type Safety:** Avoid `any` casts by using the proper Drizzle-generated type for the items in the `.values()` array.
+
+
+## Pre-analysis for US-034 (Gemini 2.5 Pro)
+This is a technical brief for implementing a batch-insert queue in a TypeScript/Node.js application.
+
+**1. Files to Modify:**
+*   `src/assistant/intent-tracker.ts`: To implement the core queuing and flushing logic.
+*   `src/assistant/__tests__/intent-tracker-batch.test.ts`: A new unit test file to verify the implementation.
+
+**2. Key Components & Hooks:**
+*   **Database Table:** `intent_analytics` is the target for the bulk inserts.
+*   **Process Hooks:** Use `process.on('SIGTERM', ...)` and `process.on('SIGINT', ...)` for graceful shutdown and final data flush.
+
+**3. Implementation Approach:**
+*   In `intent-tracker.ts`, introduce a private array to act as the in-memory queue.
+*   Modify the `trackPrediction` method to push incoming data to this queue instead of direct database insertion.
+*   Create a `flushQueue` method that uses Drizzle's bulk insert feature (`db.insert(...).values(...)`) to write the entire queue to the `intent_analytics` table.
+*   Trigger `flushQueue` via `setInterval` every 5 seconds and also when the queue size reaches 50.
+*   Implement a retry mechanism within `flushQueue` for failed DB operations, re-queueing items up to 3 times before discarding with a log.
+*   The `SIGTERM`/`SIGINT` handlers should call `flushQueue` to prevent data loss on exit.
+
+**4. Edge Cases & Gotchas:**
+*   **Race Conditions:** Implement a simple lock (e.g., an `isFlushing` flag) to prevent timer-based and size-based flushes from running concurrently.
+*   **Typing:** Ensure strong typing for the queue and Drizzle's `values()` method to avoid runtime errors, removing any `as any` casts.
+*   **Shutdown:** The flush operation on shutdown should be synchronous or properly awaited to ensure it completes before the process terminates.
+

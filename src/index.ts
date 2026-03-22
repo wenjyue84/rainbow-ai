@@ -77,6 +77,7 @@ import { startEinvoiceQueueProcessor } from './lib/einvoice-queue.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
+import { initializeQueue } from './assistant/intent-tracker.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -217,6 +218,9 @@ startWebhookHealthCheck();
 
 // US-884: Start booking sequence processor (60s polling for pre-arrival messages)
 startBookingSequenceProcessor();
+
+// US-034: Initialize intent prediction batch queue (flushes every 5s or at 50 items)
+initializeQueue();
 
 // US-1039: Start MyInvois e-invoice queue processor (30s polling, 72h retry window)
 startEinvoiceQueueProcessor();
