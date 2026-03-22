@@ -12,6 +12,7 @@ import type { ChatMessage as TypesChatMessage } from './types.js';
 import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
+import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -187,6 +188,28 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     content: msg.content,
     timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now()
   })) as TypesChatMessage[];
+
+  // Prompt injection guard — check before any AI processing
+  const settings = options.configStore.getSettings();
+  const injectionPatterns: string[] = (settings as any).security?.injection_patterns ?? [];
+  const injectionResult = detectPromptInjection(sanitizeInput(message), injectionPatterns);
+  if (injectionResult.blocked) {
+    console.warn('[PromptInjection] WARN: injection attempt detected', {
+      sessionId: sessionId ?? '(no-session)',
+      matchedPattern: injectionResult.matchedPattern,
+    });
+    const safeResponse: string =
+      (settings as any).promptInjection?.safeResponse ??
+      "I can only help with hostel-related questions. How can I assist you today?";
+    return {
+      message: safeResponse,
+      intent: 'injection_blocked',
+      confidence: 1.0,
+      responseTime: Date.now() - startTime,
+      model: 'none',
+      sanitized: true,
+    };
+  }
 
   // Tool-calling mode: bypass intent classification and use tool loop
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {

@@ -10,8 +10,9 @@ export interface PromptInjectionResult {
   matchedPattern: string | null;
 }
 
-/** Default patterns — can be overridden via settings.json promptInjection.patterns */
+/** Default patterns — can be overridden via settings.json security.injection_patterns */
 const DEFAULT_PATTERNS: string[] = [
+  // English patterns
   'ignore previous instructions',
   'ignore all previous',
   'ignore your instructions',
@@ -43,6 +44,11 @@ const DEFAULT_PATTERNS: string[] = [
   'stop being',
   'do not follow',
   'do anything now',
+  // Malay equivalents
+  'abaikan arahan',
+  'lupakan arahan',
+  'bertindak sebagai',
+  'langkau arahan',
 ];
 
 /**
@@ -58,7 +64,8 @@ export function detectPromptInjection(
   customPatterns?: string[]
 ): PromptInjectionResult {
   const patterns = customPatterns && customPatterns.length > 0 ? customPatterns : DEFAULT_PATTERNS;
-  const lower = text.toLowerCase();
+  // NFKC normalization handles unicode variants (e.g. fullwidth chars, ligatures)
+  const lower = text.normalize('NFKC').toLowerCase();
 
   for (const pattern of patterns) {
     if (lower.includes(pattern.toLowerCase())) {
