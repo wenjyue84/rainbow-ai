@@ -62,7 +62,7 @@
       "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-22T21:01:30Z"
+      "last_attempted": "2026-03-22T20:46:01Z"
     },
     {
       "id": "US-082",
@@ -389,6 +389,176 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-121",
+      "title": "Add booking workflow performance profiler endpoint with step-level bottleneck identification",
+      "priority": "high",
+      "description": "Create admin endpoint that profiles booking workflow execution to identify slow steps and bottlenecks. Helps debug workflow reliability issues and performance degradation.",
+      "acceptanceCriteria": [
+        "POST /admin/bookings/profile endpoint profiles each booking workflow step with execution duration, input/output sizes, and state snapshots",
+        "Aggregates metrics across all bookings showing per-step average duration, p95, and p99 latencies; flags steps exceeding 2000ms threshold",
+        "Response includes step-level timing heatmap with suggested optimization targets based on cumulative impact"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-122",
+      "title": "Build intent classification decision tracer logging top-3 candidates with confidence breakdown",
+      "priority": "high",
+      "description": "Log detailed intent classification decision process (top-3 candidates, confidence scores, keyword match details) to debug misclassifications and improve accuracy tracking per profile.",
+      "acceptanceCriteria": [
+        "Each intent classification in src/assistant/pipeline/classifier.ts logs to structured format: intent candidates array with name/confidence/matched_keywords, chosen intent, tie-break reasons",
+        "Log searchable by conversation_id in admin endpoint GET /admin/conversations/{id}/classification-trace returning decision history",
+        "Test suite includes assertions that top-3 candidates confidence scores sum ~100%, that winning candidate has highest score, and that logs capture Malaysian English keyword variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-123",
+      "title": "Create workflow state checkpoint validator preventing invalid booking progressions",
+      "priority": "high",
+      "description": "Add pre-step validation in booking workflow to catch invalid state transitions early (e.g., confirming without room type) with actionable error messages.",
+      "acceptanceCriteria": [
+        "src/assistant/validators/workflow-state-validator.ts defines valid state transitions in workflows.json per step (e.g., 'confirm' requires room_type, guest_count, check_in_date not null)",
+        "Each workflow step in src/assistant/pipeline/booking.ts calls validator before execution; throws RangeError with invalid fields + required fields list",
+        "Test suite includes tests/workflow-state-validator.test.ts with invalid state transition scenarios (missing required fields, wrong enum values, past dates) all throwing errors"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-126",
+      "title": "Implement intent classifier per-turn accuracy degradation detector",
+      "priority": "high",
+      "description": "Track classification accuracy across conversation turns to identify when intent recognition degrades during multi-turn interactions. Helps diagnose context-handling failures and differentiate profile-specific degradation patterns.",
+      "acceptanceCriteria": [
+        "Add calculatePerTurnAccuracy() function in src/assistant/tools/intent-analytics.ts computing accuracy per message index, output format: {\"profile\": \"pelangi\", \"turn_1\": 0.92, \"turn_2\": 0.87, \"turn_3\": 0.79}",
+        "CLI command 'npm run analyze:turn-accuracy' generates report for last 100 conversations per profile with per-turn accuracy bars and degradation warnings when turn_n < turn_1 - 0.1",
+        "Unit test asserting Pelangi and Makan profiles exhibit different degradation slopes across 5 turns, with profile-specific baseline expectations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-127",
+      "title": "Add booking workflow step precondition validator with logged violations",
+      "priority": "high",
+      "description": "Prevent invalid booking state transitions by validating step preconditions before execution. Examples: prevent payment charge without payment method, prevent check-in for past dates.",
+      "acceptanceCriteria": [
+        "Add validateBookingStepPreconditions() in src/assistant/validators/booking-preconditions.ts checking preconditions array from workflows.json before step execution",
+        "Update src/assistant/data/workflows.json booking steps with preconditions field, e.g., payment_charge: [\"payment_method_provided\", \"guest_verified\"], check_in: [\"checkin_date_not_past\", \"room_available\"]",
+        "Unit test asserting precondition violation (missing payment method) prevents execution and logs violation reason to console with step_id and required_precondition fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-124",
+      "title": "Implement fallback response effectiveness tracker correlating resolution outcomes",
+      "priority": "medium",
+      "description": "Track fallback response usage and measure effectiveness by correlating guest's next message (escalation vs satisfaction) to identify which fallbacks need improvement.",
+      "acceptanceCriteria": [
+        "src/assistant/pipeline/fallback-selector.ts stores fallback_id with conversation_message; next guest message analyzed for escalation keywords or satisfaction signals",
+        "Admin endpoint GET /admin/fallbacks/metrics returns per-fallback success rates (resolved without escalation), conversion counts, and confidence-level buckets",
+        "Query by profile, intent type, date range; identify fallbacks with <50% success rate flagged for replacement in src/assistant/data/"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-125",
+      "title": "Add intent confidence baseline per profile with 7-day rolling degradation alerts",
+      "priority": "medium",
+      "description": "Track intent classification confidence trends per profile to detect when accuracy degrades, enabling proactive improvement efforts and regression detection.",
+      "acceptanceCriteria": [
+        "Store daily average confidence score per (profile, intent) pair in rainbow_intent_confidence_baseline table; compute 7-day rolling average",
+        "Admin endpoint GET /admin/metrics/confidence-trends returns time-series data per profile; flags any intent with >10% confidence drop below 7-day baseline as alert",
+        "Vitest tests verify baseline calculations, rolling average math, and alert threshold logic; test with mock confidence data from test/fixtures/"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-128",
+      "title": "Implement confidence-threshold-based AI provider routing",
+      "priority": "medium",
+      "description": "Route low-confidence intent predictions to higher-quality AI providers. If booking/inquiry intent confidence below threshold, use Kimi K2.5 instead of Ollama for more accurate responses.",
+      "acceptanceCriteria": [
+        "Add confidence_routing_thresholds section to src/assistant/data/settings.json with per-intent mappings: booking: 0.6, inquiry: 0.65, default: 0.7",
+        "Update selectAIProvider() in src/assistant/pipeline/message-processor.ts to compare classifier confidence against threshold and select high-quality provider when confidence < threshold",
+        "Integration test with mock booking intent confidence=0.55 asserts selectAIProvider() returns 'kimi' and confidence=0.75 returns 'ollama'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-129",
+      "title": "Build conversation topic consistency checker with topic switch detection",
+      "priority": "medium",
+      "description": "Detect unexpected topic switches in multi-turn conversations (e.g., booking → amenity → booking pattern) to identify context confusion and flag conversations for manual review.",
+      "acceptanceCriteria": [
+        "Add detectTopicSwitch() function in src/assistant/pipeline/context-analyzer.ts classifying messages into topics [booking, inquiry, amenity, complaint] and returning array of {from_topic, to_topic, message_index}",
+        "Log detected switches to database table conversation_topic_events with columns: conversation_id, message_index, from_topic, to_topic, timestamp, flagged_for_review boolean",
+        "Unit test asserting booking→amenity→booking sequence generates 2 topic switch events and flagged_for_review=true when unexpected transitions detected"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-130",
+      "title": "Add intent keyword coverage analyzer CLI tool with collision detection",
+      "priority": "low",
+      "description": "Analyze keyword distribution across intent-keywords.json to identify low-coverage keywords and cross-intent collisions. Helps refine booking/inquiry keyword definitions per profile.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run analyze:keyword-coverage' reads src/assistant/data/intent-keywords.json and test corpus, outputs JSON with per-keyword stats: {\"keyword\": \"book\", \"frequency\": 450, \"intent\": \"booking\", \"collision_count\": 1, \"low_coverage\": false}",
+        "Flag keywords appearing in <50 test cases with low_coverage=true, flag keywords in multiple intents with collision_count>1 for refinement review",
+        "Unit test asserting Makan 'order' keyword has collision_count==1 while Pelangi 'room' keyword has collision_count>=2, profiles show different collision patterns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-005",
