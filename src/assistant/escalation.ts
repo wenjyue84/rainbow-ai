@@ -4,6 +4,7 @@ import { configStore } from './config-store.js';
 import { updateSlots } from './conversation.js';
 import { updateConversationMode } from './conversation-logger.js';
 import { logEscalationEvent } from '../lib/escalation-events.js';
+import { getFallbackCorrelation } from './pipeline/fallback-handler.js';
 import { pool } from '../lib/db.js';
 import { sessionWindowActive, logSessionExpired } from '../lib/session-window.js';
 import { markHumanResponded } from '../lib/handoff-sla.js';
@@ -149,11 +150,15 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   // US-429: Log escalation event with summary context for warm handoff
   // US-908: Use context.profileId (tenant_id) instead of hardcoded 'pelangi'
+  // US-077: Include fallback correlation if escalation preceded by a fallback response
+  const fallbackCorrelation = getFallbackCorrelation(context.phone);
   logEscalationEvent({
     jid: context.phone,
     profileId: profileId,
     trigger: context.reason,
     metadata: context.metadata,
+    fallbackResponseTemplateId: fallbackCorrelation.templateId ?? undefined,
+    escalationWithin2Msgs: fallbackCorrelation.within2Msgs || undefined,
     summaryContext: {
       guestName: context.pushName,
       recentMessages: historyMessages.map(m => m),

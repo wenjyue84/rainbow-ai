@@ -15,6 +15,10 @@ export interface EscalationEventInput {
   trigger: string;
   count?: number;
   metadata?: Record<string, any>;
+  /** US-077: Fallback template that preceded this escalation */
+  fallbackResponseTemplateId?: string | null;
+  /** US-077: True if escalation occurred within 2 user messages of a fallback */
+  escalationWithin2Msgs?: boolean;
   /** US-429: Optional context for warm handoff summary generation */
   summaryContext?: {
     guestName: string;
@@ -36,6 +40,8 @@ export function logEscalationEvent(input: EscalationEventInput): void {
       trigger: input.trigger,
       count: input.count ?? null,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      fallbackResponseTemplateId: input.fallbackResponseTemplateId ?? null,
+      escalationWithin2Msgs: input.escalationWithin2Msgs ?? null,
     })
     .returning({ id: escalationEvents.id })
     .then((rows) => {

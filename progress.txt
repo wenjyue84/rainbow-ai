@@ -282,3 +282,23 @@ Implementation was already complete from prior iterations (attempts 1 & 2). Both
 ### Gotchas
 - "room" appears in BOTH booking_keywords and inquiry_keywords built-in lists — this is intentional for the acceptance criteria test
 - Contributions must sum to 1.0 (normalized)
+
+## Iteration N - Story: US-077 Track fallback response effectiveness with escalation correlation metrics
+
+### What was implemented
+- Added `fallback_response_template_id` (text) and `escalation_within_2_msgs` (boolean) columns to `escalation_events` table in `shared/schema-tables.ts`
+- Created `src/assistant/pipeline/fallback-handler.ts`: in-memory tracker per JID; records which fallback template was sent and how many user messages have passed since; exported `onUserMessageReceived`, `recordFallbackUsed`, `getFallbackCorrelation`, `clearFallbackTracking`
+- Updated `src/assistant/pipeline/response-processor.ts`: calls `onUserMessageReceived` at start of each message cycle; records fallback template IDs for all_llm_failed, misinformation_fallback, hallucination_fallback, groundedness_fallback, faithfulness_fallback; passes correlation data to `logEscalationEvent` calls
+- Updated `src/assistant/escalation.ts`: imports `getFallbackCorrelation` and passes data to `logEscalationEvent` in `escalateToStaff`
+- Updated `src/lib/escalation-events.ts`: added optional `fallbackResponseTemplateId` and `escalationWithin2Msgs` fields to `EscalationEventInput` interface; stores them in DB insert
+- Created `src/routes/admin/fallback-metrics.ts`: GET /admin/fallback-metrics returns top 5 templates by escalation_rate DESC
+- Registered `fallbackMetricsRoutes` in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- `response-processor.ts` is the central place to add fallback template recording since all fallback paths converge there
+- `fallback-handler.ts` in-memory tracker pattern: "within N messages" tracking avoids DB reads at escalation time
+- `onUserMessageReceived` must be called BEFORE `recordFallbackUsed` in the same processing cycle (fallback happens after user msg received)
+
+### Gotchas
+- Schema change requires `npm run db:push` to apply migration on Neon; build passes without it since esbuild doesn't type-check schema compatibility
+- The `boolean` Drizzle type maps to PostgreSQL `boolean`; Neon accepts `null` for unset values so we use nullable boolean columns

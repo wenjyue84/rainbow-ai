@@ -230,6 +230,9 @@ export const escalationEvents = pgTable("escalation_events", {
   // US-836: SLA timer fields
   slaBreachedAt: timestamp("sla_breached_at"),       // set when SLA window expires without human response
   humanRespondedAt: timestamp("human_responded_at"), // set when outbound message sent after escalation
+  // US-077: Fallback effectiveness tracking
+  fallbackResponseTemplateId: text("fallback_response_template_id"), // template that was used before escalation
+  escalationWithin2Msgs: boolean("escalation_within_2_msgs"),        // true if escalation within 2 msgs of fallback
 }, (table) => ([
   index("idx_escalation_events_jid").on(table.jid),
   index("idx_escalation_events_trigger").on(table.trigger),

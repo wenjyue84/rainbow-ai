@@ -26,6 +26,9 @@ import { addApproval } from '../approval-queue.js';
 import { trackResponseSent } from '../../lib/activity-tracker.js';
 import { getUnknownFallbackMessages } from '../ai-response-generator.js';
 import { recordWhatsappMessageCost } from '../../lib/whatsapp-cost.js';
+import {
+  onUserMessageReceived, recordFallbackUsed, getFallbackCorrelation,
+} from './fallback-handler.js';
 import { checkFaithfulness, FAITHFULNESS_THRESHOLD, getFaithfulnessFallback } from '../faithfulness-checker.js';
 import {
   detectHallucinations, applyHallucinationAction, logHallucinationEvent,
@@ -68,11 +71,15 @@ export async function processAndSend(
   const { requestId, phone, text, foreignLang, convo, lang, msg, diaryEvent, devMetadata, profileConfig, profileId } = state;
   let response = state.response;
 
+  // US-077: Track user message received (increments msgsSinceFallback counter)
+  onUserMessageReceived(phone);
+
   // Catch-all fallback: if pipeline produced no response, use static fallback
   if (!response || !response.trim()) {
     console.warn(`[ResponseProcessor] Empty response for ${phone}, using static fallback (all_llm_failed)`);
     const fallbacks = getUnknownFallbackMessages();
     response = fallbacks[lang] || fallbacks.en;
+    recordFallbackUsed(phone, 'all_llm_failed');
   }
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
@@ -141,6 +148,7 @@ export async function processAndSend(
 
     // Log escalation event
     const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+    const ruleEscFallback = getFallbackCorrelation(phone);
     logEscalationEvent({
       jid: phone,
       profileId,
@@ -151,6 +159,8 @@ export async function processAndSend(
         confidence: diaryEvent.confidence,
         rules: ruleResult.rules.map(r => r.trigger),
       },
+      fallbackResponseTemplateId: ruleEscFallback.templateId ?? undefined,
+      escalationWithin2Msgs: ruleEscFallback.within2Msgs || undefined,
     });
   }
 
@@ -174,6 +184,7 @@ export async function processAndSend(
         `topicFiles=${(state.ragTopicFiles ?? []).length}, reason=${misinformationResult.blockReason}`
       );
       response = getMisinformationFallback(lang);
+      recordFallbackUsed(phone, 'misinformation_fallback');
       diaryEvent.escalated = true;
     }
 
@@ -213,6 +224,7 @@ export async function processAndSend(
             );
             response = applyHallucinationAction(response, hallucinationResult, lang);
             if (hallucinationResult.action === 'block') {
+              recordFallbackUsed(phone, 'hallucination_fallback');
               diaryEvent.escalated = true;
             }
           } else if (hallucinationResult.isFactualQuery && hallucinationResult.verdicts.length > 0) {
@@ -251,6 +263,7 @@ export async function processAndSend(
                   `${groundednessResult.latencyMs}ms)`
                 );
                 response = getGroundednessFallback(lang);
+                recordFallbackUsed(phone, 'groundedness_fallback');
                 diaryEvent.escalated = true;
               } else {
                 console.log(
@@ -269,6 +282,7 @@ export async function processAndSend(
             `${result.unmatchedClaims.length} unmatched claims: ${result.unmatchedClaims.join(', ')}`
           );
           response = getFaithfulnessFallback(lang);
+          recordFallbackUsed(phone, 'faithfulness_fallback');
           diaryEvent.escalated = true;
         } else if (result.totalClaims > 0) {
           console.log(`[Faithfulness] Score ${result.score.toFixed(2)} (${result.matchedClaims}/${result.totalClaims} claims) for ${phone}`);
@@ -347,12 +361,15 @@ export async function processAndSend(
 
       // US-822: Log escalation event with reason='sentiment'
       const { logEscalationEvent } = await import('../../lib/escalation-events.js');
+      const sentEscFallback = getFallbackCorrelation(phone);
       logEscalationEvent({
         jid: phone,
         profileId,
         trigger: 'sentiment',
         count: sentimentCheck.consecutiveCount,
         metadata: { consecutiveNegative: sentimentCheck.consecutiveCount },
+        fallbackResponseTemplateId: sentEscFallback.templateId ?? undefined,
+        escalationWithin2Msgs: sentEscFallback.within2Msgs || undefined,
       });
 
       // US-822: Configurable escalation message per profile

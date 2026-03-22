@@ -98,6 +98,7 @@ import whatsappFlowsHealthRoutes from './whatsapp-flows-health.js';
 import providerSloRoutes from './provider-slo.js';
 import einvoiceRoutes from './einvoice.js';
 import wabaPortfolioRoutes from './waba-portfolio.js'; // US-026
+import fallbackMetricsRoutes from './fallback-metrics.js'; // US-077
 
 const router = Router();
 
@@ -360,6 +361,7 @@ router.use(whatsappFlowsHealthRoutes);    // US-934: WhatsApp Flows health monit
 router.use(providerSloRoutes);            // US-996: LLM provider latency SLO tracker
 router.use(einvoiceRoutes);               // US-1039: MyInvois e-invoice queue + dashboard
 router.use(wabaPortfolioRoutes);          // US-026: Portfolio-level WABA messaging limit tracking
+router.use(fallbackMetricsRoutes);        // US-077: Fallback response effectiveness metrics
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
