@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import dotenv from 'dotenv';
 import * as schema from '../../shared/schema.js';
+import { lt } from 'drizzle-orm';
 import { checkPoolerWarning } from './db-url.js';
 
 // CRITICAL: Load .env before accessing process.env
@@ -99,6 +100,66 @@ export function getPoolMetrics() {
     idle: pool?.idleCount ?? 0,
     waiting: pool?.waitingCount ?? 0,
   };
+}
+
+/**
+ * Deletes conversations older than specified days (US-157: PDPA 7-year retention).
+ * Hard-deletes related messages and audit records.
+ * @param retentionDays Number of days to retain (default: 2555 for 7 years)
+ * @returns Object with count of deleted records
+ */
+export async function deleteExpiredConversations(retentionDays: number = 2555) {
+  try {
+    const now = new Date();
+    const cutoffDate = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+
+    // Delete conversations older than cutoff
+    const deletedConversations = await db
+      .delete(schema.rainbowConversations)
+      .where(lt(schema.rainbowConversations.createdAt, cutoffDate))
+      .returning({ phone: schema.rainbowConversations.phone });
+
+    const phoneNumbers = deletedConversations.map(conv => conv.phone);
+
+    let deletedMessages = 0;
+    let deletedAuditRecords = 0;
+
+    // Delete messages for those conversations using raw pool query
+    if (phoneNumbers.length > 0) {
+      const msgResult = await pool.query(
+        'DELETE FROM rainbow_messages WHERE phone = ANY($1)',
+        [phoneNumbers]
+      );
+      deletedMessages = msgResult.rowCount ?? 0;
+    }
+
+    // Delete audit records for those conversations using raw pool query
+    if (phoneNumbers.length > 0) {
+      const auditResult = await pool.query(
+        'DELETE FROM conversation_audit WHERE phone = ANY($1)',
+        [phoneNumbers]
+      );
+      deletedAuditRecords = auditResult.rowCount ?? 0;
+    }
+
+    const result = {
+      retention_days: retentionDays,
+      cutoff_date: cutoffDate.toISOString(),
+      timestamp: now.toISOString(),
+      records_deleted: {
+        conversations: deletedConversations.length,
+        messages: deletedMessages,
+        audit_records: deletedAuditRecords,
+      },
+    };
+
+    console.log(`[DataRetention] Expired data purge: ${deletedConversations.length} conversations, ${deletedMessages} messages, ${deletedAuditRecords} audit records deleted (cutoff: ${cutoffDate.toISOString()})`);
+
+    return result;
+  } catch (error: any) {
+    console.error('[DataRetention] deleteExpiredConversations failed:', error.message);
+    throw error;
+  }
 }
 
 export { pool, db, dbReady };

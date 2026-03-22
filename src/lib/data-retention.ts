@@ -11,7 +11,7 @@
  */
 
 import cron from 'node-cron';
-import { db, pool, dbReady } from './db.js';
+import { db, pool, dbReady, deleteExpiredConversations } from './db.js';
 import { rainbowMessages, rainbowConversations, promptInjectionEvents, dpaRegistry } from '../../shared/schema-tables.js';
 import { lt, lte, gt, eq, isNull, isNotNull, and, sql } from 'drizzle-orm';
 import { configStore } from '../assistant/config-store.js';
@@ -342,4 +342,28 @@ export function startRetentionScheduler(): void {
   });
 
   console.log('[DataRetention] Nightly retention scheduler started (3:00 AM MYT)');
+
+  // US-157: Legal hold archival deletion (7 years) — runs daily at 2 AM
+  cron.schedule('0 2 * * *', async () => {
+    const ready = await dbReady;
+    if (!ready) {
+      console.warn('[DataRetention] Skipping archival purge — database not ready');
+      return;
+    }
+
+    console.log('[DataRetention] Running archival purge (7-year legal hold)...');
+    try {
+      const store = configStore;
+      const settings = (store.getSettings() as any).retention;
+      const archivalDays = settings?.archival_retention_days ?? 2555; // Default 7 years
+      const result = await deleteExpiredConversations(archivalDays);
+      console.log(JSON.stringify({ event: 'archival_purge', ...result }));
+    } catch (err: any) {
+      console.error('[DataRetention] Archival purge failed:', err.message);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('[DataRetention] Archival purge scheduler started (2:00 AM MYT, 7-year legal hold)');
 }

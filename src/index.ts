@@ -76,6 +76,7 @@ import { startBookingSequenceProcessor } from './lib/booking-sequence.js';
 import { startEinvoiceQueueProcessor } from './lib/einvoice-queue.js';
 import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
+import { startRetentionScheduler } from './lib/data-retention.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
@@ -314,6 +315,9 @@ startBreachDetectionScheduler();
 
 // US-969: Start marketing consent expiry scheduler (every 1h, expires 48h-old pending consents)
 startConsentExpiryScheduler();
+
+// US-157: Start data retention scheduler (archival purge at 2 AM MYT daily + PDPA disposal)
+startRetentionScheduler();
 
 // US-1030: Periodic messaging volume limit check (every 15 min) — fires 80%/95% alerts
 setInterval(() => {
