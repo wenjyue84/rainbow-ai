@@ -47,28 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-155",
-      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
-      "priority": "critical",
-      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
-      "acceptanceCriteria": [
-        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
-        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
-        "Admin can view/manage opt-in status per guest via API",
-        "Inbound messages automatically set opted_in=true with audit log"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
-        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
-        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
       "id": "US-156",
       "title": "Implement conversation audit trail logging for PDPA compliance",
       "priority": "critical",
@@ -86,7 +64,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "research",
       "model": "haiku"
     },
@@ -641,6 +619,57 @@
       "model": "sonnet"
     },
     {
+      "id": "US-176",
+      "title": "Implement user intent classification feedback handler with retraining signal",
+      "priority": "high",
+      "description": "Add endpoint to capture guest/agent feedback when intent classification is incorrect. Stores corrections in database to generate retraining signals for intent classifier accuracy improvement.",
+      "acceptanceCriteria": [
+        "Endpoint POST /api/conversations/:conversationId/correct-intent with body { correctedIntent, feedbackReason } stores to table intent_correction_feedback(conversation_id, message_id, predicted_intent, corrected_intent, profile_id, created_at)",
+        "Admin endpoint GET /admin/insights/intent-corrections returns correction metrics by intent pair showing top misclassifications with correction_rate, e.g. { 'booking_inquiry→luggage_inquiry': { correction_count: 15, correction_rate: 0.12 } }",
+        "Weekly retraining signal: Cron job identifies intent pairs with >10% feedback correction rate and logs candidates for model/keyword tuning"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-177",
+      "title": "Add conversation reliability metrics aggregation endpoint",
+      "priority": "high",
+      "description": "Create GET /admin/metrics/conversation-health endpoint aggregating intent classification accuracy, fallback rate, escalation rate, booking completion rate, and average resolution time across profiles.",
+      "acceptanceCriteria": [
+        "Endpoint returns JSON: { conversationCount: 1523, intentAccuracy: 0.92, fallbackRate: 0.08, escalationRate: 0.05, bookingCompletionRate: 0.87, avgResolutionMin: 4.2, byProfile: { pelangi: {...}, makan: {...}, southern: {...} } }",
+        "Aggregates from intent_analytics, escalation_events, rainbow_conversations tables; includes 7-day historical trends for each metric",
+        "Refreshes hourly via cron; includes lastUpdated timestamp and next update time"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-178",
+      "title": "Add transaction rollback validation tests for booking workflow",
+      "priority": "high",
+      "description": "Create unit tests validating that booking workflow transactions properly roll back when steps fail. Ensures database consistency and data integrity after workflow failures.",
+      "acceptanceCriteria": [
+        "Test file src/tests/booking-workflow-rollback.test.ts with: (1) booking creation succeeds and commits, (2) payment step failure triggers full rollback, (3) partial step completion rolls back all related records",
+        "Each test uses transaction boundaries to verify booking_id, guest records, and payment records are reverted to pre-workflow state on failure",
+        "Validates implementation of 'Add database transaction wrapping for booking workflow execution with automatic rollback'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-152",
       "title": "Add workflow step execution order validation with dependency graph analysis",
       "priority": "medium",
@@ -853,6 +882,40 @@
       "model": "sonnet"
     },
     {
+      "id": "US-179",
+      "title": "Build booking modification audit trail with guest reason capture",
+      "priority": "medium",
+      "description": "Add audit tracking for all booking modifications (date/room changes, cancellations, extensions). Captures guest reason and enables admin analytics on booking change patterns.",
+      "acceptanceCriteria": [
+        "New table booking_amendments(id, booking_id, amendment_type: 'date'|'room'|'cancel'|'extend', original_value, new_value, guest_reason, initiated_by: 'guest'|'staff', created_at, conversation_id) with foreign key to rainbow_conversations",
+        "Endpoint GET /admin/analytics/amendments?profile=pelangi&startDate=2026-03-01 returns amendment timeline breakdown by type with frequency and top guest reasons",
+        "Log all booking modification steps to amendments table; capture reason when guest requests amendment via conversation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-180",
+      "title": "Implement check-in time scheduling workflow for Pelangi Capsule",
+      "priority": "medium",
+      "description": "Add guest-facing check-in scheduling: guests request/confirm check-in time, staff views schedule. Includes automated WhatsApp reminder 30 minutes before scheduled check-in.",
+      "acceptanceCriteria": [
+        "New workflow in src/assistant/data/workflows.json 'guest_check_in_schedule' with steps: request_time → validate_time_slot → confirm_schedule → send_reminder. Intent 'check_in_schedule_request' routes to workflow",
+        "New table check_in_schedule(booking_id, requested_time, confirmed_time, guest_name, room_number, reminder_sent_at) with endpoint GET /admin/checkin/schedule?date=2026-03-25&profile=pelangi for staff view",
+        "Reminder job: Node-cron runs daily, fetches upcoming check-ins for next 24h, sends WhatsApp message 30min before each confirmed time"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-154",
       "title": "Add per-profile knowledge base freshness monitoring with staleness alerts",
       "priority": "low",
@@ -868,6 +931,29 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-155",
+      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
+      "priority": "critical",
+      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
+      "acceptanceCriteria": [
+        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
+        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
+        "Admin can view/manage opt-in status per guest via API",
+        "Inbound messages automatically set opted_in=true with audit log"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
+        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
+        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "_scopeCreep": true
     },
     {
       "id": "US-149",

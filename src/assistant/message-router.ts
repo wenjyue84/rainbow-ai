@@ -18,6 +18,7 @@ import { trackError } from '../lib/activity-tracker.js';
 import { withSendRetry } from '../lib/send-retry.js';
 import { isOptedOut } from './opt-out.js';
 import { sendWhatsAppTypingIndicator, sendWhatsAppPausedIndicator } from '../lib/whatsapp/index.js';
+import { auditLog } from '../lib/logger.js';
 
 import { validateAndPrepare } from './pipeline/input-validator.js';
 import { handleActiveStates } from './pipeline/state-executor.js';
@@ -133,6 +134,19 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
 
     // Phase 3: Intent classification & action dispatch
     await classifyAndRoute(state, ctx);
+
+    // US-156: Log to conversation audit trail for PDPA compliance (fire-and-forget)
+    auditLog({
+      phone: state.phone,
+      message: state.text,
+      intent: state.diaryEvent.intent,
+      confidence: state.diaryEvent.confidence,
+      actionTaken: state.diaryEvent.action,
+      tier: state.devMetadata.source,
+      profileId: state.profileId,
+    }).catch(err => {
+      console.error('[US-156] Audit log failed:', err);
+    });
 
     // Phase 4: Response processing & delivery
     await processAndSend(state, ctx);

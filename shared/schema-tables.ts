@@ -203,6 +203,34 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   check("chk_rainbow_messages_profile_not_empty", sql`profile_id IS NOT NULL AND profile_id <> ''`),
 ]));
 
+// ─── Conversation Audit Trail (US-156) ──────────────────────────────
+// Immutable audit log for PDPA compliance and conversation quality debugging.
+// Insert-only table; deletions only via automated data retention policy (US-157).
+
+export const conversationAudit = pgTable("conversation_audit", {
+  id: serial("id").primaryKey(),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  guestId: varchar("guest_id", { length: 128 }),  // optional guest ID if available
+  message: text("message").notNull(),              // full message content
+  intent: text("intent"),                          // detected intent
+  confidence: real("confidence"),                  // intent confidence score (0.0-1.0)
+  actionTaken: text("action_taken"),               // action/workflow triggered
+  tier: text("tier"),                              // classification tier (T1-T4)
+  profileId: text("profile_id").default('pelangi'),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_conv_audit_phone").on(table.phone),
+  index("idx_conv_audit_timestamp").on(table.timestamp),
+  index("idx_conv_audit_phone_timestamp").on(table.phone, table.timestamp),
+  index("idx_conv_audit_intent").on(table.intent),
+  index("idx_conv_audit_profile").on(table.profileId),
+  index("idx_conv_audit_guest_id").on(table.guestId),
+  // Immutability: no deletes allowed on this table (enforced via trigger or application logic)
+]));
+
+export type ConversationAudit = typeof conversationAudit.$inferSelect;
+export type InsertConversationAudit = typeof conversationAudit.$inferInsert;
+
 // ─── Message Delivery Status (US-426) ────────────────────────────────
 
 export const messageDeliveryStatus = pgTable("message_delivery_status", {

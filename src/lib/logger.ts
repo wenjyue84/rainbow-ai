@@ -61,3 +61,39 @@ const rootLogger = winston.createLogger({ level: logLevel, transports });
 export function createModuleLogger(module: string): winston.Logger {
   return rootLogger.child({ module });
 }
+
+/**
+ * Log a conversation interaction to the audit trail table for PDPA compliance.
+ * Insert-only; immutable.
+ */
+export async function auditLog(data: {
+  phone: string;
+  guestId?: string;
+  message: string;
+  intent?: string;
+  confidence?: number;
+  actionTaken?: string;
+  tier?: string;
+  profileId?: string;
+}): Promise<void> {
+  try {
+    // Dynamic import to avoid circular dependencies
+    const { db } = await import('./db.js');
+    const { conversationAudit } = await import('../../shared/schema-tables.js');
+
+    await db.insert(conversationAudit).values({
+      phone: data.phone,
+      guestId: data.guestId,
+      message: data.message,
+      intent: data.intent,
+      confidence: data.confidence,
+      actionTaken: data.actionTaken,
+      tier: data.tier,
+      profileId: data.profileId || 'pelangi',
+      timestamp: new Date(),
+    });
+  } catch (err) {
+    // Log to standard logger but don't throw — audit failure should not crash the conversation
+    rootLogger.error('Audit log failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
