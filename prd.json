@@ -47,22 +47,71 @@
   ],
   "userStories": [
     {
-      "id": "US-089",
-      "title": "Implement multi-profile conversation isolation unit tests with cross-contamination assertions",
-      "priority": "high",
-      "description": "Add comprehensive tests to verify conversation data from one business profile never leaks into queries for another profile. Validates database query isolation and profile-aware filtering to enforce strict business separation.",
+      "id": "US-155",
+      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
+      "priority": "critical",
+      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
       "acceptanceCriteria": [
-        "Create src/lib/db/__tests__/conversationIsolation.test.ts with tests creating conversations under different profile_ids (pelangi, southern, makan)",
-        "Assert getConversations(pelangiProfile) returns 0 results for conversations created under southernProfile",
-        "Inspect SQL query execution to verify WHERE profile_id = ? filter is present in all conversation SELECT queries"
+        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
+        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
+        "Admin can view/manage opt-in status per guest via API",
+        "Inbound messages automatically set opted_in=true with audit log"
       ],
-      "technicalNotes": [],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
+        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
+        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
+      ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true,
-      "_source": "ai-example",
+      "_source": "research",
       "model": "haiku",
-      "last_attempted": "2026-03-22T22:45:23.694Z"
+      "last_attempted": "2026-03-22T22:56:42Z"
+    },
+    {
+      "id": "US-156",
+      "title": "Implement conversation audit trail logging for PDPA compliance",
+      "priority": "critical",
+      "description": "Log all conversation interactions (message content, intent, confidence, action taken, timestamp) to an audit table for regulatory compliance and debugging conversation quality issues.",
+      "acceptanceCriteria": [
+        "Audit table logs timestamp, guest_id, message, intent, confidence, action_taken",
+        "Audit logs are immutable (insert-only, no deletes except via data retention policy)",
+        "Admin endpoint provides audit trail export for specific date range",
+        "Test: audit table contains entry for each message with correct confidence score"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add conversation_audit table)",
+        "File to edit: src/lib/logger.ts (add auditLog function that writes to DB)",
+        "Test command: npm run test -- shared/schema-tables.test.ts -t 'audit table'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-157",
+      "title": "Implement automated data retention policy enforcement via cron",
+      "priority": "critical",
+      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
+      "acceptanceCriteria": [
+        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
+        "Retention period is configurable via settings.json",
+        "Deletion is logged with count of deleted records in audit log",
+        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
+        "File to edit: ecosystem.config.cjs (add cron schedule)",
+        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "research",
+      "model": "haiku"
     },
     {
       "id": "US-092",
@@ -183,297 +232,6 @@
       "_source": "ai-example",
       "model": "haiku",
       "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-104",
-      "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
-      "priority": "high",
-      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
-      "acceptanceCriteria": [
-        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
-        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
-        "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-105",
-      "title": "Add context-aware fallback response selection based on confidence and conversation history",
-      "priority": "high",
-      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
-        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
-        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-106",
-      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
-      "priority": "high",
-      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
-        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
-        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-108",
-      "title": "Add Makan Moments seasonal promotion inquiry intent",
-      "priority": "high",
-      "description": "Create café-specific seasonal_promotion_inquiry intent for Makan Moments to handle limited-time menu item questions without leaking to other profiles.",
-      "acceptanceCriteria": [
-        "Add seasonal_promotion_inquiry intent to src/assistant/data/data-makan/intents.json with café context only",
-        "Add seasonal keywords (limited edition, weekend special, promotion, special price) to data-makan/intent-keywords.json",
-        "Add test in tests/unit/intent-classifier-makan.test.ts asserting seasonal intents classify correctly and do NOT match Pelangi profile"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-113",
-      "title": "Persist individual intent prediction confidence scores with classification outcome tracking",
-      "priority": "high",
-      "description": "Store confidence scores from each intent prediction linked to whether routing succeeded or failed, enabling per-intent accuracy analysis and threshold tuning",
-      "acceptanceCriteria": [
-        "Add intent_predictions table to shared/schema-tables.ts with: id, conversation_id, predicted_intent, confidence_score, correct_intent, profile, created_at",
-        "IntentClassifier.classify() in src/assistant/pipeline/classify.ts saves all predictions with confidence >= 0.4 to database immediately after classification",
-        "Vitest test verifies predictions are persisted and retrievable: query for single intent should return sorted by confidence_score with accuracy = sum(correct_intent==predicted_intent)/total"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-114",
-      "title": "Profile Data Schema Version Compatibility Enforcement at Startup",
-      "priority": "high",
-      "description": "Validates profile data file compatibility during startup to prevent runtime failures from mismatched or incompatible schema versions across routing.json, workflows.json, intents.json, and knowledge.json",
-      "acceptanceCriteria": [
-        "Function: enforceProfileDataVersionCompatibility(profileName) in src/lib/profile-validator.ts loads all src/assistant/data/{profileName}/*.json files and extracts 'schema_version' field",
-        "Throws ProfileVersionMismatchError with details of mismatched files and their versions if any file has different schema_version",
-        "Called during app startup in src/index.ts before ProfileAssistant initialization; prevents server startup if validation fails"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-119",
-      "title": "Implement guest language preference persistence across conversation turns",
-      "priority": "high",
-      "description": "Persist detected guest language preference (English/Malay/Mandarin) in conversation state to ensure consistent intent classification routing across multi-turn dialogues. Prevents misclassification when guests code-switch between languages mid-conversation or when conversation context is lost.",
-      "acceptanceCriteria": [
-        "Store 'preferred_language' detected from first non-greeting message in rainbow_conversations.metadata; language detection uses existing language model with fallback to keyword matching",
-        "Intent router weights keyword matching by preferred_language (e.g., prioritize Malay variants from intent-keywords.json if preferred_language='malay')",
-        "Test verifies code-switched queries (English-Malay mix) classify to correct intent based on preference, with regression test ensuring English-only and Malay-only conversations still classify accurately"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-120",
-      "title": "Implement workflow step execution timeout with automatic rollback",
-      "priority": "high",
-      "description": "Add execution timeout and automatic transaction rollback to prevent hung booking workflows from leaving databases in inconsistent state. If workflow step exceeds max duration, rollback all changes and escalate to staff with actionable error context.",
-      "acceptanceCriteria": [
-        "Each workflow step in workflows.json has optional 'max_duration_ms' property (default 30000); step execution aborts if timeout exceeded with transaction rollback",
-        "Timeout failure logs to rainbow_messages as escalation event with step_id, actual_duration_ms, and max_duration_ms for debugging",
-        "Test verifies booking not created if workflow step times out mid-execution, guest receives escalation message with retry option, and no partial state persists"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-121",
-      "title": "Add booking workflow performance profiler endpoint with step-level bottleneck identification",
-      "priority": "high",
-      "description": "Create admin endpoint that profiles booking workflow execution to identify slow steps and bottlenecks. Helps debug workflow reliability issues and performance degradation.",
-      "acceptanceCriteria": [
-        "POST /admin/bookings/profile endpoint profiles each booking workflow step with execution duration, input/output sizes, and state snapshots",
-        "Aggregates metrics across all bookings showing per-step average duration, p95, and p99 latencies; flags steps exceeding 2000ms threshold",
-        "Response includes step-level timing heatmap with suggested optimization targets based on cumulative impact"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-122",
-      "title": "Build intent classification decision tracer logging top-3 candidates with confidence breakdown",
-      "priority": "high",
-      "description": "Log detailed intent classification decision process (top-3 candidates, confidence scores, keyword match details) to debug misclassifications and improve accuracy tracking per profile.",
-      "acceptanceCriteria": [
-        "Each intent classification in src/assistant/pipeline/classifier.ts logs to structured format: intent candidates array with name/confidence/matched_keywords, chosen intent, tie-break reasons",
-        "Log searchable by conversation_id in admin endpoint GET /admin/conversations/{id}/classification-trace returning decision history",
-        "Test suite includes assertions that top-3 candidates confidence scores sum ~100%, that winning candidate has highest score, and that logs capture Malaysian English keyword variants"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-127",
-      "title": "Add booking workflow step precondition validator with logged violations",
-      "priority": "high",
-      "description": "Prevent invalid booking state transitions by validating step preconditions before execution. Examples: prevent payment charge without payment method, prevent check-in for past dates.",
-      "acceptanceCriteria": [
-        "Add validateBookingStepPreconditions() in src/assistant/validators/booking-preconditions.ts checking preconditions array from workflows.json before step execution",
-        "Update src/assistant/data/workflows.json booking steps with preconditions field, e.g., payment_charge: [\"payment_method_provided\", \"guest_verified\"], check_in: [\"checkin_date_not_past\", \"room_available\"]",
-        "Unit test asserting precondition violation (missing payment method) prevents execution and logs violation reason to console with step_id and required_precondition fields"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-131",
-      "title": "Generate intent classification confusion matrix from production logs",
-      "priority": "high",
-      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
-      "acceptanceCriteria": [
-        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
-        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
-        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-150",
-      "title": "Add guest conversation inactivity timeout with automatic context reset",
-      "priority": "high",
-      "description": "Prevent stale conversation context from poisoning subsequent queries by resetting context after inactivity windows. Addresses multi-turn dialogue quality and prevents context drift in long-running conversations.",
-      "acceptanceCriteria": [
-        "Add `last_message_at` and `context_reset_at` timestamp columns to `rainbow_conversations` table in `shared/schema-tables.ts` Drizzle schema",
-        "Implement context reset logic in `src/assistant/pipeline/context-builder.ts` that returns empty history if last message > 60 minutes ago, with configurable timeout in `settings.json`",
-        "Unit test in `test/pipeline/context-builder.test.ts` verifies context is reset for conversations inactive > 60m but preserved for active conversations within window"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-151",
-      "title": "Add intent classification calibration tracking with real booking outcomes",
-      "priority": "high",
-      "description": "Track which intents actually lead to successful bookings to continuously improve classification confidence scores and identify misclassifications in production data.",
-      "acceptanceCriteria": [
-        "Add `booking_success` boolean and `booking_success_at` timestamp fields to `intent_analytics` table in `shared/schema-tables.ts`, linked by conversation_id",
-        "Create admin endpoint GET `/admin/analytics/intent-calibration/{profile}` that returns per-intent success rate (e.g., \"book-room: 0.92, 95 samples\") in `src/routes/admin/analytics.ts`",
-        "Implement callback in booking confirmation workflow that updates intent_analytics.booking_success = true when checkout workflow completes successfully"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-152",
-      "title": "Add workflow step execution order validation with dependency graph analysis",
-      "priority": "medium",
-      "description": "Validate before execution that workflow steps can be executed in defined order without circular dependencies or impossible prerequisite chains, preventing runtime failures.",
-      "acceptanceCriteria": [
-        "Create `validateWorkflowDependencies(workflow)` function in new file `src/lib/workflow-validator.ts` that parses workflows.json, builds dependency graph, detects cycles, validates all depends_on references",
-        "Add npm script `npm run validate:workflows` that validates all profiles and exits with code 1 on failure, printing affected step names and dependency chains",
-        "Unit test in `test/lib/workflow-validator.test.ts` verifies circular detection (A→B→A), missing dependency detection, and valid workflows pass validation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-153",
-      "title": "Add guest satisfaction sampling after fallback responses with reaction buttons",
-      "priority": "medium",
-      "description": "Automatically collect implicit feedback by offering quick yes/no reactions after fallback responses to identify unhelpful fallbacks and improve response quality.",
-      "acceptanceCriteria": [
-        "Extend fallback response templates in `src/assistant/data/knowledge.json` to include reaction buttons in format: \"Was this helpful? [👍 Yes] [👎 No]\" with fallback_id reference",
-        "Create `rainbow_fallback_reactions` table in `shared/schema-tables.ts` with columns: conversation_id, fallback_id, reaction (enum), created_at",
-        "Add admin endpoint GET `/admin/analytics/fallback-effectiveness` returning per-fallback success rate and sample count (e.g., \"booking-clarification: 0.78, 42 samples\") in `src/routes/admin/analytics.ts`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-154",
-      "title": "Add per-profile knowledge base freshness monitoring with staleness alerts",
-      "priority": "low",
-      "description": "Monitor when profile-specific knowledge files haven't been updated, alerting ops when KB content may be stale and cause outdated responses.",
-      "acceptanceCriteria": [
-        "Add startup check in `src/index.ts` comparing file mtime of `.rainbow-kb/**/*.md` and `.rainbow-kb-southern/**/*.md` against configurable max-age (default 30 days in settings.json)",
-        "Log KB staleness events to `rainbow_config_audit` table with severity=\"KB_STALE\", profile, file path, days-since-modified when threshold exceeded",
-        "Add admin endpoint GET `/admin/monitoring/kb-staleness` returning stale KB files per profile with last-modified dates and age in days in `src/routes/admin/monitoring.ts`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-149",
@@ -645,6 +403,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-089",
+      "title": "Implement multi-profile conversation isolation unit tests with cross-contamination assertions",
+      "priority": "high",
+      "description": "Add comprehensive tests to verify conversation data from one business profile never leaks into queries for another profile. Validates database query isolation and profile-aware filtering to enforce strict business separation.",
+      "acceptanceCriteria": [
+        "Create src/lib/db/__tests__/conversationIsolation.test.ts with tests creating conversations under different profile_ids (pelangi, southern, makan)",
+        "Assert getConversations(pelangiProfile) returns 0 results for conversations created under southernProfile",
+        "Inspect SQL query execution to verify WHERE profile_id = ? filter is present in all conversation SELECT queries"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-22T22:45:23.694Z"
     },
     {
       "id": "US-088",
