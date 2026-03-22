@@ -88,6 +88,25 @@ export const intentPredictions = pgTable("intent_predictions", {
   index("idx_intent_predictions_correct_created").on(table.wasCorrect, table.createdAt),
 ]));
 
+// ─── Intent Analytics (US-043) ──────────────────────────────────────
+// Tracks confidence metrics and latency for each intent classification
+// Used for calculating per-profile and per-intent success rates and baselines
+
+export const intentAnalytics = pgTable("intent_analytics", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  intentType: text("intent_type").notNull(),
+  confidence: real("confidence").notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  wasCorrect: boolean("was_correct"),  // populated by feedback correlation later
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_intent_analytics_profile_id").on(table.profileId),
+  index("idx_intent_analytics_intent_type").on(table.intentType),
+  index("idx_intent_analytics_profile_intent").on(table.profileId, table.intentType),
+  index("idx_intent_analytics_created_at").on(table.createdAt),
+]));
+
 export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   phone: varchar("phone", { length: 32 }).primaryKey(),
   pushName: text("push_name").notNull(),

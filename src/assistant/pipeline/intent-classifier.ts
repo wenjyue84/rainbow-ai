@@ -24,6 +24,8 @@ import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
+import { db } from '../../lib/db.js';
+import { intentAnalytics } from '../../../shared/schema-tables.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -39,6 +41,7 @@ export async function classifyAndRoute(
   state: PipelineState, ctx: RouterContext
 ): Promise<void> {
   const { phone, convo, lang, msg, devMetadata } = state;
+  const classificationStartTime = Date.now();
 
   // ─── US-1011: Manglish normalisation pre-processor ───────────────
   // Runs before T2 fuzzy-match and LLM intent classification.
@@ -138,6 +141,15 @@ export async function classifyAndRoute(
     confidence: result.confidence,
     tier: devMetadata.source ?? 'unknown',
   });
+
+  // ─── US-043: Record intent classification metrics ─────────────────
+  const classificationLatencyMs = Date.now() - classificationStartTime;
+  db.insert(intentAnalytics).values({
+    profileId: state.profileId,
+    intentType: result.intent,
+    confidence: result.confidence,
+    latencyMs: classificationLatencyMs,
+  }).catch(() => {}); // fire-and-forget
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
   if (isIntentGap(devMetadata.source, result.confidence)) {

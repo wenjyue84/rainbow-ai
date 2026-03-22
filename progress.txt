@@ -1009,3 +1009,68 @@ This plan outlines the implementation of a prompt injection detection mechanism 
 ### Gotchas
 - RTK hook blocks vitest/tsc when not prefixed with rtk - use node_modules/.bin/vitest directly
 - chat-engine.ts has pre-existing TypeScript errors (lines 264, 267, 377) unrelated to this story
+
+## Iteration N - Story: US-043 - Add intent classification confidence metrics and per-profile baselines
+
+### What was implemented
+- Added `intentAnalytics` table to `shared/schema-tables.ts` with fields: id, profileId, intentType, confidence, latencyMs, wasCorrect, createdAt
+- Updated `src/assistant/pipeline/intent-classifier.ts` to:
+  - Record classification start time at function entry
+  - Calculate latency_ms (Date.now() - startTime)
+  - Insert analytics record to intent_analytics table with profileId, intentType, confidence, and latencyMs
+  - Fire-and-forget pattern to avoid blocking main pipeline
+- Created `/admin/metrics/intent-classification` endpoint in `src/routes/admin/intent-analytics.ts`:
+  - Returns overall success_rate, avg_confidence, p95_latency
+  - Groups metrics by intent_type (byIntent)
+  - Groups metrics by profile (byProfile)
+  - Groups metrics by intent_type AND profile (byIntentAndProfile)
+  - Uses SQL percentile_cont for p95_latency calculation
+- Created unit test `src/assistant/__tests__/intent-classification-metrics.test.ts` with:
+  - Spearman correlation function (ranking + Pearson of ranks)
+  - 8 tests covering correlation scenarios: strong positive (0.7+), moderate mixed, perfect calibration, tied values, per-profile baselines, endpoint response structure validation, success_rate calculation, baseline anomaly detection
+
+### Patterns discovered
+- Spearman correlation requires two steps: rank both arrays (handling ties with average ranks), then calculate Pearson on the ranks
+- For metrics aggregation, SQL `percentile_cont(0.95) within group (order by column)` computes p95 in a single query
+- Admin endpoints should support fire-and-forget DB writes to avoid blocking request/response cycle
+
+### Gotchas
+- Import path from `src/assistant/pipeline/intent-classifier.ts` to `shared/schema-tables.ts` requires `../../../shared/` (3 levels up), not `../../shared/`
+- Correlation test library wasnt
+## Iteration 1 - Mon, Mar 23, 2026  1:49:01 AM
+FAILED diagnosis-block gate: Add intent classification confidence metrics and per-profile baselines (ID: US-043) — no diagnosis block found — attempt 1/3
+
+
+
+## Iteration N - Story: US-043 - Add intent classification confidence metrics and per-profile baselines
+
+### What was implemented
+- Added `intentAnalytics` table to `shared/schema-tables.ts` with fields: id, profileId, intentType, confidence, latencyMs, wasCorrect, createdAt
+- Updated `src/assistant/pipeline/intent-classifier.ts` to:
+  - Record classification start time at function entry
+  - Calculate latency_ms (Date.now() - startTime)
+  - Insert analytics record to intent_analytics table with profileId, intentType, confidence, and latencyMs
+  - Fire-and-forget pattern to avoid blocking main pipeline
+- Created `/admin/metrics/intent-classification` endpoint in `src/routes/admin/intent-analytics.ts`:
+  - Returns overall success_rate, avg_confidence, p95_latency
+  - Groups metrics by intent_type (byIntent)
+  - Groups metrics by profile (byProfile)
+  - Groups metrics by intent_type AND profile (byIntentAndProfile)
+  - Uses SQL percentile_cont for p95_latency calculation
+- Created unit test `src/assistant/__tests__/intent-classification-metrics.test.ts` with:
+  - Spearman correlation function (ranking + Pearson of ranks)
+  - 8 tests covering correlation scenarios: strong positive (>=0.7), moderate mixed, perfect calibration, tied values, per-profile baselines, endpoint response structure validation, success_rate calculation, baseline anomaly detection
+
+### Patterns discovered
+- Spearman correlation requires two steps: rank both arrays (handling ties with average ranks), then calculate Pearson on the ranks
+- For metrics aggregation, SQL percentile_cont(0.95) within group (order by column) computes p95 in a single query
+- Admin endpoints should support fire-and-forget DB writes to avoid blocking request/response cycle
+
+### Gotchas
+- Import path from src/assistant/pipeline/intent-classifier.ts to shared/schema-tables.ts requires ../../../shared/ (3 levels up), not ../../shared/
+- Correlation test library not available in dependencies, so implemented Spearman correlation inline in test file
+- SQL success_rate calculation: count(*) filter (where was_correct = true)::float / count(*) requires explicit float cast to avoid integer division
+- DB insert must be fire-and-forget (catch and ignore errors) to not block pipeline
+
+## Iteration N - Completed
+Completed: Add intent classification confidence metrics and per-profile baselines (ID: US-043)

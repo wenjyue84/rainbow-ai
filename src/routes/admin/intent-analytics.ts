@@ -458,4 +458,118 @@ router.post('/intent/predictions/bulk-validate', async (req: Request, res: Respo
   }
 });
 
+// ─── GET /api/rainbow/metrics/intent-classification ──────────────────
+// Returns intent classification success rate, avg confidence, and p95 latency
+// Grouped by intent_type and profile (US-043)
+router.get('/metrics/intent-classification', async (req: Request, res: Response) => {
+  try {
+    // Test database connection first
+    try {
+      await db.execute(sql`SELECT 1`);
+    } catch (connError) {
+      console.error('[Intent Classification Metrics] Database unavailable');
+      return res.json({
+        success: true,
+        metrics: {
+          overall: {
+            success_rate: null,
+            avg_confidence: null,
+            p95_latency: null,
+            total_count: 0,
+          },
+          byIntent: [],
+          byProfile: [],
+          byIntentAndProfile: [],
+        },
+        warning: 'Database connection unavailable',
+      });
+    }
+
+    // Import intentAnalytics here to avoid circular dependencies
+    const { intentAnalytics: iaTable } = await import('../../../shared/schema-tables.js');
+
+    // Overall metrics (all classifications)
+    const overallMetrics = await db
+      .select({
+        total_count: sql<number>`count(*)::int`,
+        avg_confidence: sql<number>`avg(confidence)`,
+        success_count: sql<number>`count(*) filter (where was_correct = true)::int`,
+      })
+      .from(iaTable);
+
+    const overall = overallMetrics[0] || { total_count: 0, avg_confidence: null, success_count: 0 };
+    const success_rate = overall.total_count > 0
+      ? (overall.success_count / overall.total_count)
+      : null;
+
+    // Metrics by intent type
+    const byIntentMetrics = await db
+      .select({
+        intent_type: iaTable.intentType,
+        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        avg_confidence: sql<number>`avg(confidence)`,
+        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
+        total_count: sql<number>`count(*)::int`,
+      })
+      .from(iaTable)
+      .groupBy(iaTable.intentType)
+      .orderBy(desc(sql`count(*)`));
+
+    // Metrics by profile
+    const byProfileMetrics = await db
+      .select({
+        profile_id: iaTable.profileId,
+        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        avg_confidence: sql<number>`avg(confidence)`,
+        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
+        total_count: sql<number>`count(*)::int`,
+      })
+      .from(iaTable)
+      .groupBy(iaTable.profileId)
+      .orderBy(desc(sql`count(*)`));
+
+    // Metrics by intent and profile (detailed breakdown)
+    const byIntentAndProfileMetrics = await db
+      .select({
+        profile_id: iaTable.profileId,
+        intent_type: iaTable.intentType,
+        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        avg_confidence: sql<number>`avg(confidence)`,
+        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
+        total_count: sql<number>`count(*)::int`,
+      })
+      .from(iaTable)
+      .groupBy(iaTable.profileId, iaTable.intentType)
+      .orderBy(desc(sql`count(*)`));
+
+    // Calculate overall p95_latency
+    const p95Result = await db
+      .select({
+        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
+      })
+      .from(iaTable);
+
+    const overall_p95 = p95Result[0]?.p95_latency || null;
+
+    res.json({
+      success: true,
+      metrics: {
+        overall: {
+          success_rate,
+          avg_confidence: overall.avg_confidence || null,
+          p95_latency: overall_p95,
+          total_count: overall.total_count,
+        },
+        byIntent: byIntentMetrics,
+        byProfile: byProfileMetrics,
+        byIntentAndProfile: byIntentAndProfileMetrics,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[Intent Classification Metrics] Error:', error);
+    serverError(res, 'Failed to fetch intent classification metrics');
+  }
+});
+
 export default router;
