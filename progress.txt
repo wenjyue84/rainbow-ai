@@ -302,3 +302,55 @@ Implementation was already complete from prior iterations (attempts 1 & 2). Both
 ### Gotchas
 - Schema change requires `npm run db:push` to apply migration on Neon; build passes without it since esbuild doesn't type-check schema compatibility
 - The `boolean` Drizzle type maps to PostgreSQL `boolean`; Neon accepts `null` for unset values so we use nullable boolean columns
+
+## Iteration - Story: US-078 - Create booking workflow pre-flight validator
+
+### What was implemented
+1. **Preflight validator** in `src/assistant/validators/booking-preflight.ts`:
+   - `validateBookingRequest(payload, profileConfig, locale)` function
+   - Validates three required fields:
+     - `guest_name`: Must not be empty/null
+     - `checkIn`: Must be YYYY-MM-DD format and >= today (with date parsing fix for timezone issues)
+     - `room_type`: Must be in profile's available rooms list
+   - Returns `{ valid: bool, errors: string[] }`
+   - Multi-language support (EN, MS, ZH, TA) with locale-aware error messages
+   - Available dates suggestion in error messages: [tomorrow, +2 days, +3 days]
+
+2. **Comprehensive test suite** in `src/assistant/validators/booking-preflight.test.ts`:
+   - 19 tests covering:
+     - Guest name validation (empty, null, whitespace)
+     - Check-in date validation (missing, past-date, invalid format, today, future, timezone handling)
+     - Room type validation (missing, empty, invalid, case-insensitive matching)
+     - Multi-error scenarios
+     - Multi-language error message generation
+   - All 19 tests passing
+
+3. **Room configuration handling**:
+   - Reads available rooms from `settings.booking.available_rooms` or `settings.rooms[]`
+   - Fallback to common hostel room types: ['2-bed', '4-bed', 'private', 'dorm']
+   - Case-insensitive room type matching
+
+### Quality checks
+- ✅ Build succeeded (esbuild) with no new errors
+- ✅ All 19 validator tests passing
+- ✅ Server startup validation completes (expected DATABASE_URL error is normal)
+- ✅ TypeScript compilation via esbuild successful
+- ✅ prd.json updated to mark story as complete (passes: true)
+
+### Patterns discovered
+- Date parsing in JavaScript requires timezone awareness — use `new Date(year, month-1, day, 0, 0, 0, 0)` for local date creation to match comparison with normalized "today"
+- Multi-language error messages use simple record maps: `Record<string, string>` for flexible i18n
+- Profile configuration retrieved via `ConfigStore.getSettings()` with fallback paths for different config structure variations
+
+### Gotchas
+- JavaScript Date constructor with ISO string format (e.g., `new Date('2026-03-23')`) may be UTC-biased, causing timezone mismatches when comparing with local "today" — fixed by parsing components separately
+- esbuild doesn't support TypeScript `as any` syntax in certain contexts — use `const mockConfig: any = {...}` pattern instead
+- Windows PowerShell npm test environment requires different env var syntax than bash
+
+### Acceptance criteria met
+✅ Created `src/assistant/validators/booking-preflight.ts` with `validateBookingRequest()` exporting validation function
+✅ Validates `checkin_date >= today`, `room_type in profile.rooms[]`, `guest_name not empty/null`
+✅ Test case for past-date check-in returns error with available dates: [tomorrow, day+2, day+3]
+✅ Profile-aware date formatting (EN, MS, ZH, TA)
+✅ Returns `{ valid: bool, errors: string[] }`
+
