@@ -65,27 +65,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "research",
       "model": "sonnet",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
-      "id": "US-088",
-      "title": "Add booking workflow step dependency validator with circular-reference detection",
-      "priority": "high",
-      "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
-      "acceptanceCriteria": [
-        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
-        "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
-        "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-089",
@@ -700,6 +683,57 @@
       "model": "sonnet"
     },
     {
+      "id": "US-171",
+      "title": "Implement guest session timeout cleaner with abandoned booking escalation",
+      "priority": "high",
+      "description": "Add background job to detect and clean up abandoned guest sessions (inactive >1 hour), create escalation events for incomplete bookings, and provide staff with visibility into stale conversations requiring follow-up.",
+      "acceptanceCriteria": [
+        "Background job runs every 5 minutes, marks conversations inactive >1 hour in rainbow_conversations table with session_status='abandoned'",
+        "Creates escalation_events record with type='abandoned_booking' for conversations initiated with booking intent but no confirmation, includes guest phone and last_message_time",
+        "Staff endpoint GET /admin/abandoned-sessions?profile=pelangi returns count, guest details, and time since last message for manual follow-up"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-172",
+      "title": "Build conversation state snapshot and recovery on server restart",
+      "priority": "high",
+      "description": "Ensure conversations persist across server restarts with full context by saving conversation state snapshots on shutdown and restoring them on startup, preventing loss of multi-turn context and booking workflow progress.",
+      "acceptanceCriteria": [
+        "On server shutdown (SIGTERM), save active conversation state (messages, context_window, current_intent, booking_progress) to new rainbow_conversation_snapshots table",
+        "On startup, restore conversations from recent snapshots to memory and set recovery_status='recovered' in rainbow_conversations, skip stale snapshots >24 hours old",
+        "Add integration test asserting context and messages are fully restored after simulated server restart with multiple concurrent conversations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "opus"
+    },
+    {
+      "id": "US-173",
+      "title": "Add admin CLI for bulk intent keyword updates with cross-profile contamination validation",
+      "priority": "high",
+      "description": "Create safe admin CLI tool to bulk update intent keywords across profiles while preventing cross-profile contamination by validating keywords don't appear in other profiles' routing or intent definitions.",
+      "acceptanceCriteria": [
+        "New CLI command npm run admin:bulk-keywords --profile pelangi --file keywords.json --validate checks each keyword against intent-keywords.json of other profiles (southern, makan)",
+        "Generates pre-update contamination detection report showing any keywords that would conflict with routing.json in other profiles, blocks update without --force",
+        "On successful update, logs audit entry in new keyword_audit_log table with timestamp, admin_user, profile, keywords_added, keywords_removed, contamination_checks_passed"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-123",
       "title": "Implement Conversation Turn Limit Enforcer with Staff Escalation",
       "priority": "medium",
@@ -1227,6 +1261,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-174",
+      "title": "Add intent classification latency profiler with per-profile percentile tracking",
+      "priority": "medium",
+      "description": "Create endpoint and CLI tools to measure and analyze intent classification performance across profiles, with percentile metrics (p50, p95, p99) to identify slow intents affecting response times and overall reliability.",
+      "acceptanceCriteria": [
+        "New endpoint GET /admin/intent-profiling/stats returns latency percentiles (p50, p95, p99) per intent per profile with request count",
+        "Classification latency logged in rainbow_messages table as intent_classification_ms field for every classification",
+        "New CLI command npm run analyze:intent-latency generates profile-specific performance report identifying slowest intents"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-175",
+      "title": "Generate booking workflow step documentation from workflows.json for staff training",
+      "priority": "medium",
+      "description": "Auto-generate readable documentation of the booking workflow steps, conditions, dependencies and error handling from workflows.json to improve staff understanding, aid debugging, and identify workflow improvements.",
+      "acceptanceCriteria": [
+        "New CLI command npm run generate:workflow-docs --output=docs/booking-workflow.md parses src/assistant/data/workflows.json booking workflow and generates markdown with step descriptions, conditions, dependencies, and error messages",
+        "Documentation includes decision tree showing conditional branches and which steps depend on prior step success, includes timeout and rollback scenarios",
+        "Generated docs highlight any circular dependencies, missing error handlers, or unreachable steps (detected at generation time by traversing the workflow DAG)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-130",
       "title": "Add intent keyword coverage analyzer CLI tool with collision detection",
       "priority": "low",
@@ -1412,6 +1480,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-088",
+      "title": "Add booking workflow step dependency validator with circular-reference detection",
+      "priority": "high",
+      "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
+      "acceptanceCriteria": [
+        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
+        "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
+        "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-087",
