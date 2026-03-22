@@ -27,7 +27,7 @@ import {
   formatReport,
   EXCLUSIVE_TERM_GROUPS,
   PROFILE_CONFIGS,
-} from '../../lib/profile-validator.js';
+} from '../lib/profile-validator.js';
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 const mockReadFileSync = readFileSync as ReturnType<typeof vi.fn>;
@@ -230,7 +230,11 @@ describe('formatReport', () => {
 
     expect(text).toContain('✗ CONTAMINATED');
     expect(text).toContain('capsule_conflict');
-    expect(text).toContain('lineNumber' in report.profiles[0].matches[0] ? ':1' : '');
+
+    // Find a profile with matches
+    const contaminatedProfile = report.profiles.find((p) => p.matches.length > 0);
+    expect(contaminatedProfile).toBeDefined();
+    expect(contaminatedProfile?.matches[0].lineNumber).toBe(1);
   });
 });
 

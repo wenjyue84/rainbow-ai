@@ -1011,6 +1011,7 @@ This plan outlines the implementation of a prompt injection detection mechanism 
 - chat-engine.ts has pre-existing TypeScript errors (lines 264, 267, 377) unrelated to this story
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 ## Iteration N - Story: US-043 - Add intent classification confidence metrics and per-profile baselines
 
 ### What was implemented
@@ -1106,6 +1107,8 @@ Based on the user story and project structure, here is a technical brief for the
 *   The `intent_analytics` table will grow quickly. Ensure `(profile, intent_type)` is indexed to maintain query performance.
 *   The metrics endpoint must gracefully handle cases where no data is available for a given profile, returning an empty set or `0` values instead of erroring.
 =======
+=======
+>>>>>>> Stashed changes
 ## Pre-analysis for US-043 (Gemini 2.5 Pro)
 This technical brief is for a TypeScript/Node.js project, as the user story's details (file paths, technologies) conflict with the Frappe/Python context provided.
 
@@ -1135,5 +1138,48 @@ This technical brief is for a TypeScript/Node.js project, as the user story's de
     *   **Success Rate Definition:** The acceptance criteria require a `success_rate`, but the logging mechanism doesn't track correctness. The metric may need to be defined as "confidence > threshold" unless a feedback mechanism exists.
     *   **p95 Latency Calculation:** This requires a specific Postgres function; ensure Drizzle can express it or fall back to a raw SQL query.
     *   **Test Data:** The correlation test requires a high-quality, labeled dataset where the "correct" intent is known.
+<<<<<<< Updated upstream
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
+
+
+## Iteration N - Story: US-044 - Implement profile data schema validator to prevent future cross-profile contamination
+
+### What was implemented
+- Created `src/lib/profile-validator.ts` with profile validation logic:
+  - Defines EXCLUSIVE_TERM_GROUPS with hostel-specific terms (capsule_conflict, card_locked, luggage_storage, etc.) and cafe-specific terms (ORDER_BROWSE, ORDER_ITEM_ADD, MENU_FILTER_PRICE, etc.)
+  - Defines PROFILE_CONFIGS for each profile (pelangi, southern, makan-moments) with their data directories and forbidden term groups
+  - `scanFileForTerms()` function scans a file for contaminated terms and reports line numbers
+  - `validateProfile()` validates a single profile by checking all 4 target files (routing.json, knowledge.json, intent-keywords.json, workflows.json)
+  - `validateAllProfiles()` validates all three profiles and returns a combined report
+  - `formatReport()` formats the report as a human-readable string with file paths, line numbers, and offending terms
+- Created `src/__tests__/profile-validation.test.ts` with 19 comprehensive tests:
+  - Tests for scanFileForTerms (file not found, no matches, single/multiple detections, one match per line)
+  - Tests for validateProfile (unknown profile error, clean profiles, contaminated profiles, missing files)
+  - Tests for validateAllProfiles (all clean, any contaminated, includes all profiles)
+  - Tests for formatReport (clean and contaminated output formatting)
+  - Tests for EXCLUSIVE_TERM_GROUPS completeness and no overlap
+- Created `scripts/validate-profiles.ts` CLI command that runs validation and exits with code 1 if contamination detected
+- Added npm script `validate:profiles` to run the CLI command
+- Integrated validation into server startup in `src/index.ts` with STRICT_PROFILE_VALIDATION env var support
+- Fixed test import path from `../../lib/profile-validator.js` to `../lib/profile-validator.js`
+- Fixed test expectation for contaminated report output to properly handle undefined matches
+
+### Acceptance Criteria Met
+- ✅ Validator function in src/lib/profile-validator.ts runs on server startup and checks data files for cross-profile terms
+- ✅ CLI command npm run validate:profiles outputs contamination report with file paths, line numbers, and offending terms
+- ✅ Vitest suite in src/__tests__/profile-validation.test.ts confirms validator rejects mixed content (19/19 tests passing)
+
+### Patterns discovered
+- Profile-aware validation uses a term group mapping to check if terms from one business type appear in another
+- One match per line reporting prevents duplicate reports on the same line with multiple forbidden terms
+- Test mocking of fs module requires importing the module under test AFTER mocks are set up
+- Relative import paths from src/__tests__/ to src/lib/ need only one level up (../) not two (../../)
+
+### Real-world validation results
+- Validator detected actual contamination in makan-moments profile:
+  - knowledge.json: 4 hostel terms (facility_orientation, luggage_storage, lower_deck_preference, late_checkout_request)
+  - workflows.json: 3 hostel terms (lower_deck_preference, card_locked, capsule_conflict)
+- This validates that the validator is working correctly and catching real cross-profile issues
 

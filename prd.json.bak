@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-043",
-      "title": "Add intent classification confidence metrics and per-profile baselines",
-      "priority": "high",
-      "description": "Create metrics tracking for intent classification success rates and confidence scores, with per-profile baselines to detect accuracy regressions and identify low-confidence prediction patterns.",
-      "acceptanceCriteria": [
-        "Intent classifier logs confidence score (0-1) and latency_ms for each classification to intent_analytics table in Neon",
-        "Admin metrics endpoint GET /admin/metrics/intent-classification returns success_rate, avg_confidence, and p95_latency grouped by intent_type and profile",
-        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman ≥0.7)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-044",
       "title": "Implement profile data schema validator to prevent future cross-profile contamination",
       "priority": "high",
@@ -348,6 +331,40 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-077",
+      "title": "Track fallback response effectiveness with escalation correlation metrics",
+      "priority": "high",
+      "description": "Measure which fallback responses lead to escalations within 2 messages, identifying weak templates for improvement. Directly addresses goal of adding better fallback responses.",
+      "acceptanceCriteria": [
+        "Add fallback_response_template_id and escalation_within_2_msgs boolean columns to escalation_events table in shared/schema-tables.ts",
+        "Log fallback template ID in src/assistant/pipeline/fallback-handler.ts when returning generic response, correlate with escalations in same conversation thread",
+        "Write test: /admin/fallback-metrics endpoint returns top 5 escalation-prone templates sorted by escalation_rate DESC, showing template text and escalation percentage"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-078",
+      "title": "Create booking workflow pre-flight validator with actionable error messages",
+      "priority": "high",
+      "description": "Validate all required booking fields before executing workflow steps, failing fast with helpful suggestions. Improves booking reliability and user experience.",
+      "acceptanceCriteria": [
+        "Create src/assistant/validators/booking-preflight.ts exporting validateBookingRequest(payload, profileConfig): { valid: bool, errors: string[] } checking checkin_date >= today, room_type in profile.rooms[], guest_name not empty/null",
+        "Call preflight validator in src/assistant/pipeline/routing.ts before booking workflow execution: if !valid, return escalation with errors array in response message",
+        "Write test case: booking with past-date check-in returns error message 'Check-in date cannot be in the past. Available dates: [tomorrow, day+2, day+3]. Contact staff for special requests.' with profile-aware date formatting"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -649,6 +666,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-079",
+      "title": "Implement 30-second message deduplication to prevent duplicate bot responses",
+      "priority": "medium",
+      "description": "Prevent duplicate bot responses in rapid-fire message sequences by comparing message hashes within configurable time window. Improves conversation reliability and reduces redundant API calls.",
+      "acceptanceCriteria": [
+        "Add DEDUP_WINDOW_SECONDS=30 to src/assistant/data/settings.json with per-profile override capability",
+        "Implement deduplication in src/assistant/pipeline/message-processing.ts: compute SHA256 hash of incoming message, query rainbow_messages for identical hash from same sender within time window, return cached response if found",
+        "Write test: when guest sends 'room price?' at T=0s and T=15s, second request returns identical cached response from T=0s without reprocessing through AI"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-080",
+      "title": "Add per-profile daily message rate limit enforcement at intake",
+      "priority": "medium",
+      "description": "Prevent message spam and abuse by enforcing daily message quotas per guest per profile. Blocks guests from flooding the system while maintaining fair access.",
+      "acceptanceCriteria": [
+        "Add RATE_LIMIT_MESSAGES_PER_DAY=100 to src/assistant/data/settings.json with per-profile environment variable override (RATE_LIMIT_MAKAN=80, RATE_LIMIT_SOUTHERN=120, etc.)",
+        "Implement rate limiter in src/lib/middleware/rate-limiter.ts: query rainbow_messages WHERE sender_id=? AND created_at > NOW()-24h, compare count against profile quota before processing",
+        "Write test: when guest exceeds daily limit (e.g., 101st message), handler returns 429 error with response body containing remaining_quota, reset_time, and profile_name"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-081",
+      "title": "Build intent classification decision audit trail for debugging misclassifications",
+      "priority": "medium",
+      "description": "Log all intent predictions with confidence scores and alternative candidates for post-incident debugging and classifier improvement. Enables data-driven intent accuracy analysis.",
+      "acceptanceCriteria": [
+        "Add intent_classification_audit table to shared/schema-tables.ts with columns: id, timestamp, message_id, profile_id, predicted_intent, confidence_score, top_3_alternatives (JSON), message_text_preview, classifier_model_version",
+        "Log to src/assistant/pipeline/intent-classification.ts immediately after classifier.predict() returns: insert audit record with top intent + confidence score + top 3 candidates with their scores",
+        "Write test: audit entry created for each classification with confidence between 0.0-1.0, alternatives array containing 3 valid intent names from routing.json, and timestamp within 1 second of message creation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-005",
       "title": "Fix .rej rejected patch files from previous Spiral run",
       "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
@@ -774,6 +842,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-043",
+      "title": "Add intent classification confidence metrics and per-profile baselines",
+      "priority": "high",
+      "description": "Create metrics tracking for intent classification success rates and confidence scores, with per-profile baselines to detect accuracy regressions and identify low-confidence prediction patterns.",
+      "acceptanceCriteria": [
+        "Intent classifier logs confidence score (0-1) and latency_ms for each classification to intent_analytics table in Neon",
+        "Admin metrics endpoint GET /admin/metrics/intent-classification returns success_rate, avg_confidence, and p95_latency grouped by intent_type and profile",
+        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman ≥0.7)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-038",
