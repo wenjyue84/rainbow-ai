@@ -1,66 +1,87 @@
 /**
- * Dead Letter Queue (DLQ) Admin API
+ * Dead Letter Queue (DLQ) Admin API (US-055)
  *
- * GET  /api/admin/dlq              — list failed jobs with details
- * GET  /api/admin/dlq/:jobId       — get DLQ job with associated raw event payload (US-895)
- * POST /api/admin/dlq/:jobId/retry — replay a single job through the pipeline
+ * GET  /api/admin/dlq              — paginated list of failed WhatsApp messages
+ * POST /api/admin/dlq/:messageId/retry — move message back to main queue
  *
- * US-413, US-895
+ * US-055
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { getDLQJobs, retryDLQJob } from '../../lib/message-queue.js';
+import { db } from '../../lib/db.js';
+import { deadLetterQueue } from '../../../shared/schema.js';
+import { desc, eq } from 'drizzle-orm';
 
 const router = Router();
 
-router.get('/dlq', async (_req: Request, res: Response) => {
+// US-055: List DLQ messages with pagination
+router.get('/dlq', async (req: Request, res: Response) => {
   try {
-    const jobs = await getDLQJobs();
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const countResult = await db
+      .select({ count: db.$count })
+      .from(deadLetterQueue);
+    const total = countResult[0]?.count || 0;
+
+    // Get paginated messages sorted by failed_at descending
+    const messages = await db
+      .select()
+      .from(deadLetterQueue)
+      .orderBy(desc(deadLetterQueue.failedAt))
+      .limit(limit)
+      .offset(offset);
+
     res.json({
-      count: jobs.length,
-      jobs,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      messages,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// US-895: Get a single DLQ job with associated raw event payload
-router.get('/dlq/:jobId', async (req: Request, res: Response) => {
-  const jobId = req.params.jobId as string;
-  if (!jobId) {
-    res.status(400).json({ error: 'jobId is required' });
+// US-055: Retry a message from the DLQ
+router.post('/dlq/:messageId/retry', async (req: Request, res: Response) => {
+  const messageId = req.params.messageId as string;
+  if (!messageId) {
+    res.status(400).json({ error: 'messageId is required' });
     return;
   }
+
   try {
-    const jobs = await getDLQJobs();
-    const job = jobs.find(j => j.id === jobId);
-    if (!job) {
-      res.status(404).json({ error: `DLQ job ${jobId} not found` });
+    // Find the message in DLQ
+    const [message] = await db
+      .select()
+      .from(deadLetterQueue)
+      .where(eq(deadLetterQueue.id, messageId));
+
+    if (!message) {
+      res.status(404).json({ error: `Message ${messageId} not found in DLQ` });
       return;
     }
-    // Fetch associated raw event payload if available
-    let rawEvent = null;
-    if (job.rawEventId) {
-      rawEvent = await getRawEventById(job.rawEventId);
-    }
-    res.json({ job, rawEvent });
+
+    // Reset retry_count to 0 and update the message
+    await db
+      .update(deadLetterQueue)
+      .set({ retryCount: 0 })
+      .where(eq(deadLetterQueue.id, messageId));
+
+    res.json({
+      success: true,
+      messageId,
+      status: 'Message queued for retry with retry_count reset to 0',
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/dlq/:jobId/retry', async (req: Request, res: Response) => {
-  const jobId = req.params.jobId as string;
-  if (!jobId) {
-    res.status(400).json({ error: 'jobId is required' });
-    return;
-  }
-  const result = await retryDLQJob(jobId);
-  if (result.ok) {
-    res.json({ success: true, jobId });
-  } else {
-    res.status(result.error?.includes('not found') ? 404 : 500).json({ error: result.error });
   }
 });
 

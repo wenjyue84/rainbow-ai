@@ -1027,3 +1027,27 @@ export const einvoiceQueue = pgTable("einvoice_queue", {
 
 export type EinvoiceQueueEntry = typeof einvoiceQueue.$inferSelect;
 export type InsertEinvoiceQueueEntry = typeof einvoiceQueue.$inferInsert;
+
+// ─── Dead Letter Queue (DLQ) (US-055) ───────────────────────────────
+// Stores failed WhatsApp messages for manual admin retry
+
+export const deadLetterQueue = pgTable("dead_letter_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  messageId: text("message_id").notNull(),
+  guestId: varchar("guest_id", { length: 64 }).notNull(),  // phone number
+  body: text("body").notNull(),
+  failureReason: text("failure_reason").notNull(),
+  failedAt: timestamp("failed_at").notNull().defaultNow(),
+  retryCount: integer("retry_count").notNull().default(0),
+  profile: text("profile").notNull().default("pelangi"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_dlq_guest_id").on(table.guestId),
+  index("idx_dlq_profile").on(table.profile),
+  index("idx_dlq_failed_at").on(table.failedAt),
+  index("idx_dlq_expires_at").on(table.expiresAt),
+]));
+
+export type DeadLetterQueueMessage = typeof deadLetterQueue.$inferSelect;
+export type InsertDeadLetterQueueMessage = typeof deadLetterQueue.$inferInsert;
