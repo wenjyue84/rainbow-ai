@@ -596,3 +596,34 @@ Here is the technical brief for the story as it relates to the actual **TypeScri
 - Fuse.js threshold=0.3 means 0=exact, 1=anything; distance=100; ignoreLocation=true
 - When query length > keyword length, Fuse returns no results — not a bug, just the matching direction
 - Malay keywords: "tempahan"=booking, "nak book"=booking, "ada bilik"=availability — all in keywords.json
+
+## Pre-analysis for US-136 (Gemini 2.5 Pro)
+### Technical Brief: US-136 Database Isolation Tests
+
+This brief outlines the implementation for ensuring strict data separation between tenant profiles (Pelangi, Southern Homestay, etc.) at the database level.
+
+**1. Target Files:**
+*   `src/__tests__/isolation.test.ts`: A new test suite to be created for this user story.
+*   `src/lib/db.ts`: Modify to introduce a query validation mechanism for testing purposes.
+*   `src/lib/conversations.ts`, `src/lib/messages.ts`, etc.: These files contain the actual query logic that will be tested.
+
+**2. Key Entities (Models):**
+*   Conversations
+*   Messages
+*   Intents
+*   Any other database table containing profile-specific data.
+
+**3. Implementation Approach:**
+*   In `src/lib/db.ts`, create a test-only wrapper or hook for the database query function (e.g., using environment flags).
+*   This hook will intercept outgoing SQL queries during tests and assert that a `WHERE` clause filtering by `profile_id` (or equivalent tenant ID) is always present.
+*   In `src/__tests__/isolation.test.ts`, write tests that:
+    *   Seed the test database with data from multiple profiles.
+    *   Execute standard data-fetching functions (e.g., `getMessages`, `getConversation`).
+    *   Assert that only data for the currently active profile is returned.
+    *   Include a "negative test" to confirm that a query *without* the profile filter fails, proving the test's validity.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the validation logic correctly handles complex queries with `JOIN`s.
+*   The test setup must use database transactions to roll back changes, ensuring tests are atomic and independent.
+*   The query interception logic must not run in production.
+
