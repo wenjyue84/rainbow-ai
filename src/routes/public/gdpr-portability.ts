@@ -56,7 +56,8 @@ const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
   keyGenerator: (req: Request) => {
-    const phone = (req.body?.phone as string | undefined) || req.ip || '';
+    // Use phone number for rate limiting key (phone is always provided in request body)
+    const phone = (req.body?.phone as string | undefined) || '';
     return `portability-otp:${phone}`;
   },
   handler: (_req: Request, res: Response) => {

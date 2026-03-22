@@ -63,24 +63,11 @@
         {
           "id": "validate_past_dates",
           "type": "condition",
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-          "label": "Validate check-in date is not in the past",
-          "config": {
-            "field": "{{workflow.data.booking_dates_normalized}}",
-            "operator": "pastDateCheck",
-=======
-=======
->>>>>>> Stashed changes
           "label": "Check for past check-in dates",
           "config": {
             "field": "{{workflow.data.booking_dates}}",
             "operator": "pastDateCheck",
             "value": null,
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
             "trueNext": "check_booking_conflict",
             "falseNext": "past_dates_msg"
           }
@@ -88,27 +75,12 @@
         {
           "id": "past_dates_msg",
           "type": "message",
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-          "label": "Notify guest of past date and suggest alternatives",
-          "config": {
-            "message": {
-              "en": "Sorry, check-in date cannot be today or in the past. The earliest available check-in is tomorrow. Would you like to adjust your dates?",
-              "ms": "Maaf, tarikh check-in tidak boleh hari ini atau tarikh yang lepas. Check-in paling awal ialah esok. Boleh ubah tarikh anda?",
-              "zh": "抱歉，入住日期不能是今天或过去的日期。最早可入住日期是明天。您想调整日期吗？"
-=======
-=======
->>>>>>> Stashed changes
           "label": "Suggest alternative dates for past check-in",
           "config": {
             "message": {
               "en": "Sorry, check-in date cannot be today or earlier. The earliest available check-in is tomorrow. Would you like to proceed with tomorrow as your check-in date instead?",
               "ms": "Maaf, tarikh check-in tidak boleh hari ini atau sebelumnya. Tarikh check-in paling awal adalah esok hari. Boleh ke esok hari untuk check-in?",
               "zh": "抱歉，入住日期不能是今天或更早。最早的入住日期是明天。您想改用明天作为入住日期吗？"
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
             }
           },
           "next": "wait_booking_dates"
@@ -121,7 +93,7 @@
             "field": "{{workflow.data.booking_dates_normalized}}",
             "operator": "dateConflict",
             "value": [],
-            "trueNext": "confirm_booking_msg",
+            "trueNext": "check_room_availability",
             "falseNext": "booking_conflict_msg"
           }
         },
@@ -134,6 +106,31 @@
               "en": "Sorry, those dates are not available. Please try different dates for your booking.",
               "ms": "Maaf, tarikh tersebut tidak tersedia. Sila pilih tarikh lain untuk tempahan anda.",
               "zh": "抱歉，这些日期不可用。请选择其他日期预订。"
+            }
+          },
+          "next": "wait_booking_dates"
+        },
+        {
+          "id": "check_room_availability",
+          "type": "condition",
+          "label": "Check real-time room availability against reservations DB",
+          "config": {
+            "field": "{{workflow.data.booking_dates_normalized}}",
+            "operator": "dbAvailabilityCheck",
+            "value": null,
+            "trueNext": "confirm_booking_msg",
+            "falseNext": "room_unavailable_msg"
+          }
+        },
+        {
+          "id": "room_unavailable_msg",
+          "type": "message",
+          "label": "Notify guest all rooms are fully booked with alternative suggestions",
+          "config": {
+            "message": {
+              "en": "Sorry, we are fully booked for those dates. Here are some nearby available periods you may consider:\n- Try shifting your check-in by 1-2 days\n- Consider a shorter stay\n\nWould you like to try different dates?",
+              "ms": "Maaf, kami penuh untuk tarikh tersebut. Berikut adalah cadangan tarikh terdekat yang mungkin tersedia:\n- Cuba geser tarikh check-in 1-2 hari\n- Pertimbangkan penginapan yang lebih singkat\n\nBoleh cuba tarikh lain?",
+              "zh": "抱歉，您所选日期的房间已全部预订。以下是一些可参考的近期可用时间段：\n- 尝试将入住日期调整1-2天\n- 考虑缩短住宿时间\n\n您想尝试其他日期吗？"
             }
           },
           "next": "wait_booking_dates"

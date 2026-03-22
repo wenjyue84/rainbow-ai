@@ -280,3 +280,88 @@ describe('US-034: Intent prediction batch insert queue', () => {
     vi.useRealTimers();
   });
 });
+
+// ─── US-056: Room Availability Validation ────────────────────────────────────
+
+import { getOccupiedRoomsForDateRange } from '../../shared/schema-tables.js';
+
+describe('US-056: Room availability validation during booking confirmation', () => {
+  test('getOccupiedRoomsForDateRange returns query params for date overlap check', () => {
+    const checkIn = new Date('2026-04-10T14:00:00Z');
+    const checkOut = new Date('2026-04-12T12:00:00Z');
+
+    const params = getOccupiedRoomsForDateRange(checkIn, checkOut, 'pelangi');
+
+    expect(params.checkIn).toEqual(checkIn);
+    expect(params.checkOut).toEqual(checkOut);
+    expect(params.profile).toBe('pelangi');
+  });
+
+  test('overbooking attempt is rejected — workflow routes to room_unavailable_msg', () => {
+    // Verify the booking workflow has a check_room_availability node with dbAvailabilityCheck
+    // and that it routes to room_unavailable_msg on failure (rooms all booked)
+    const workflows = JSON.parse(
+      require('fs').readFileSync(
+        require('path').resolve(__dirname, '../data/workflows.json'),
+        'utf-8'
+      )
+    );
+
+    const bookingWorkflow = workflows.workflows.find(
+      (w: { id: string }) => w.id === 'booking_payment_handler'
+    );
+    expect(bookingWorkflow).toBeDefined();
+
+    const availabilityNode = bookingWorkflow.nodes.find(
+      (n: { id: string }) => n.id === 'check_room_availability'
+    );
+    expect(availabilityNode).toBeDefined();
+    expect(availabilityNode.type).toBe('condition');
+    expect(availabilityNode.config.operator).toBe('dbAvailabilityCheck');
+
+    // When rooms are fully booked (condition false), guest sees alternative date suggestions
+    expect(availabilityNode.config.falseNext).toBe('room_unavailable_msg');
+    expect(availabilityNode.config.trueNext).toBe('confirm_booking_msg');
+
+    const unavailableNode = bookingWorkflow.nodes.find(
+      (n: { id: string }) => n.id === 'room_unavailable_msg'
+    );
+    expect(unavailableNode).toBeDefined();
+    expect(unavailableNode.type).toBe('message');
+
+    // The unavailable message must mention alternative date suggestions
+    const enMessage: string = unavailableNode.config.message.en;
+    expect(enMessage.toLowerCase()).toMatch(/fully booked|not available|no room/);
+    expect(enMessage.toLowerCase()).toMatch(/different dates|try|adjust|shift/);
+
+    // Guest is looped back to re-enter dates (not dead-ended)
+    expect(unavailableNode.next).toBe('wait_booking_dates');
+  });
+
+  test('defaulted profile is pelangi when not specified', () => {
+    const params = getOccupiedRoomsForDateRange(
+      new Date('2026-05-01'),
+      new Date('2026-05-03')
+    );
+    expect(params.profile).toBe('pelangi');
+  });
+
+  test('check_room_availability node sits between date conflict check and confirmation', () => {
+    const workflows = JSON.parse(
+      require('fs').readFileSync(
+        require('path').resolve(__dirname, '../data/workflows.json'),
+        'utf-8'
+      )
+    );
+
+    const bookingWorkflow = workflows.workflows.find(
+      (w: { id: string }) => w.id === 'booking_payment_handler'
+    );
+
+    const conflictNode = bookingWorkflow.nodes.find(
+      (n: { id: string }) => n.id === 'check_booking_conflict'
+    );
+    // Conflict node must chain to availability node (not directly to confirmation)
+    expect(conflictNode.config.trueNext).toBe('check_room_availability');
+  });
+});

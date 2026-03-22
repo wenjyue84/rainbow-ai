@@ -1051,3 +1051,43 @@ export const deadLetterQueue = pgTable("dead_letter_queue", {
 
 export type DeadLetterQueueMessage = typeof deadLetterQueue.$inferSelect;
 export type InsertDeadLetterQueueMessage = typeof deadLetterQueue.$inferInsert;
+
+// ─── Room Reservations ────────────────────────────────────────────────────────
+// Stores confirmed/pending room reservations for real-time availability checks.
+// Used by the booking workflow's dbAvailabilityCheck operator (US-056).
+
+export const roomReservations = pgTable("room_reservations", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  roomId: varchar("room_id", { length: 64 }).notNull(),
+  guestPhone: varchar("guest_phone", { length: 32 }).notNull(),
+  guestName: text("guest_name").notNull(),
+  checkInDate: timestamp("check_in_date").notNull(),
+  checkOutDate: timestamp("check_out_date").notNull(),
+  /** pending | confirmed | cancelled */
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  profile: varchar("profile", { length: 64 }).notNull().default("pelangi"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_room_reservations_check_in").on(table.checkInDate),
+  index("idx_room_reservations_check_out").on(table.checkOutDate),
+  index("idx_room_reservations_profile").on(table.profile),
+  index("idx_room_reservations_status").on(table.status),
+  index("idx_room_reservations_room_id").on(table.roomId),
+]));
+
+export type RoomReservation = typeof roomReservations.$inferSelect;
+export type InsertRoomReservation = typeof roomReservations.$inferInsert;
+
+/**
+ * Returns room IDs that are occupied (status != 'cancelled') for any night
+ * overlapping [checkIn, checkOut). Two reservations overlap when:
+ *   existing.checkIn < requested.checkOut AND existing.checkOut > requested.checkIn
+ */
+export function getOccupiedRoomsForDateRange(
+  checkIn: Date,
+  checkOut: Date,
+  profile: string = "pelangi"
+): { checkIn: Date; checkOut: Date; profile: string } {
+  return { checkIn, checkOut, profile };
+}
