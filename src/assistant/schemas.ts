@@ -402,6 +402,106 @@ export const kdsOrderPayloadSchema = z.object({
 });
 export type KdsOrderPayload = z.infer<typeof kdsOrderPayloadSchema>;
 
+// ─── Intent Uncertainty Analyzer (US-073) ───────────────────────────
+
+export interface ClassificationUncertaintyInput {
+  message: string;
+  predictedIntent: string;
+  confidence: number;
+  keywords?: Record<string, string[]>;
+}
+
+export interface FeatureContributions {
+  [featureName: string]: number;
+}
+
+/**
+ * Analyzes why a classification was uncertain (confidence < 0.65).
+ * Returns per-feature confidence contributions summing to 1.0,
+ * showing which keyword groups and context signals competed.
+ *
+ * Example output: { "booking_keywords": 0.4, "inquiry_keywords": 0.35, "context_signal": 0.25 }
+ */
+export function analyzeClassificationUncertainty(
+  input: ClassificationUncertaintyInput
+): FeatureContributions {
+  const { message, predictedIntent, confidence, keywords } = input;
+  const lowerMsg = message.toLowerCase();
+  const words = lowerMsg.split(/\s+/);
+
+  // Built-in keyword groups for common competing intents
+  const builtinGroups: Record<string, string[]> = {
+    booking_keywords: [
+      'book', 'booking', 'reserve', 'reservation', 'stay', 'check in', 'check-in',
+      'room', 'bed', 'capsule', 'night', 'nights', 'available', 'availability',
+    ],
+    inquiry_keywords: [
+      'how much', 'price', 'cost', 'rate', 'fee', 'what is', 'tell me', 'info',
+      'information', 'room', 'type', 'types', 'kind', 'option', 'options',
+    ],
+    cancellation_keywords: [
+      'cancel', 'cancellation', 'refund', 'credit', 'change', 'modify', 'reschedule',
+    ],
+    checkin_keywords: [
+      'check in', 'check-in', 'checkin', 'arrival', 'arrive', 'arrive time',
+      'when can', 'earliest', 'latest',
+    ],
+    ...keywords,
+  };
+
+  // Inject predicted intent group if not covered
+  const intentGroupKey = `${predictedIntent}_keywords`;
+  if (!builtinGroups[intentGroupKey]) {
+    builtinGroups[intentGroupKey] = [predictedIntent.replace(/_/g, ' ')];
+  }
+
+  // Score each keyword group by counting word/phrase matches in the message
+  const rawScores: Record<string, number> = {};
+
+  for (const [groupName, groupKeywords] of Object.entries(builtinGroups)) {
+    let score = 0;
+    for (const kw of groupKeywords) {
+      if (lowerMsg.includes(kw)) {
+        // Longer phrase matches score higher (more specific signal)
+        score += kw.split(' ').length;
+      }
+    }
+    if (score > 0) {
+      rawScores[groupName] = score;
+    }
+  }
+
+  // Context signal: question marks, message length, politeness markers
+  let contextScore = 0;
+  if (lowerMsg.includes('?')) contextScore += 2;
+  if (words.length <= 5) contextScore += 1;   // Short messages are often ambiguous
+  if (['please', 'hi', 'hello', 'thanks'].some(w => lowerMsg.includes(w))) contextScore += 1;
+  // Low confidence itself contributes to context ambiguity weight
+  contextScore += Math.round((1 - confidence) * 3);
+
+  if (contextScore > 0) {
+    rawScores['context_signal'] = contextScore;
+  }
+
+  // Normalize to sum to 1.0
+  const total = Object.values(rawScores).reduce((a, b) => a + b, 0);
+
+  if (total === 0) {
+    // Fallback: equal weight between predicted intent and context
+    return {
+      [intentGroupKey]: 0.5,
+      context_signal: 0.5,
+    };
+  }
+
+  const contributions: FeatureContributions = {};
+  for (const [key, score] of Object.entries(rawScores)) {
+    contributions[key] = Math.round((score / total) * 100) / 100;
+  }
+
+  return contributions;
+}
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {
