@@ -728,3 +728,64 @@ Completed: Enhance: Fix data-makan and data-southern profiles (ID: US-032)
 - Profile data accuracy tests ensure routing, intents, and knowledge bases reflect correct business context
 - All tests are focused on profile separation and business alignment, no code changes to main logic
 
+
+## Pre-analysis for US-033 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-033.
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**User Story:** US-033 - Add startup environment validation
+
+**1. Files to Modify:**
+*   `src/index.ts`: To call the new validation function at startup.
+*   Create a new file: `src/lib/env-validator.ts` for the validation logic.
+*   Create a new test file: `tests/unit/env-validator.test.ts` for unit tests.
+
+**2. Involved Framework Hooks:**
+This is a Node.js/Express project, not Frappe. The integration point is not a DocType hook, but the application entry point. The validation must be the first operation in `src/index.ts` before the server or database is initialized.
+
+**3. Implementation Approach:**
+In `src/lib/env-validator.ts`, use the Zod library to create a schema that validates `process.env`.
+*   Define a schema checking for required variables: `DATABASE_URL`, `MCP_SERVER_PORT`, `NODE_ENV`.
+*   Use `.refine()` for custom validation:
+    *   `DATABASE_URL`: check for `postgres://` prefix.
+    *   `MCP_SERVER_PORT`: use `z.coerce.number()` to ensure it's a number between 1024-65535.
+*   Define optional variables (`DIGIMAN_API_URL`, `DIGIMAN_API_TOKEN`) with `.optional()`.
+*   In a `validateEnvironment()` function, wrap the schema parsing in a try/catch block. On failure, format Zod's error object to list all issues, log them clearly, and call `process.exit(1)`.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the validation function is synchronous and runs before any async operations in `src/index.ts`.
+*   The process *must* exit on validation failure to prevent silent errors downstream.
+*   Log warnings for missing optional variables but do not exit.
+*   Unit tests should cover missing, malformed (bad port, invalid DB URL), and valid environment configurations.
+
+
+## Pre-analysis for US-033 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js user story. The "Frappe/Python" context will be ignored.
+
+### Technical Brief: US-033 Environment Validation
+
+**Objective:** Implement a startup validation function to check for required and optional environment variables, providing clear, consolidated error messages to prevent silent failures.
+
+**Files to Modify:**
+*   `src/lib/env-validator.ts` (New file for validation logic)
+*   `src/index.ts` (To call the new validation function)
+*   A new unit test file, likely `src/__tests__/lib/env-validator.test.ts`
+
+**Key Modules & Entrypoints:**
+*   The application entrypoint `src/index.ts` is the primary integration point.
+*   The core logic will be encapsulated in the new `env-validator` module.
+
+**Implementation Approach:**
+1.  In `src/lib/env-validator.ts`, create a `validateEnvironment` function.
+2.  Use a Zod schema to define rules for `process.env` as specified in the story.
+    *   Use `z.coerce.number().min(1024).max(65535)` for `MCP_SERVER_PORT`.
+    *   Use `z.string().url().startsWith('postgres://')` for `DATABASE_URL`.
+3.  Use Zod's `safeParse` to collect all validation errors, not just the first one.
+4.  If validation fails, format a single, comprehensive error message listing all issues and exit the process with `process.exit(1)`.
+5.  In `src/index.ts`, call `validateEnvironment()` at the very top, before any server or database initialization.
+6.  Create unit tests for the validator, mocking `process.env` and `process.exit` to cover all success and failure scenarios.
+
+**Gotchas:**
+*   The validation must run before any other code that might depend on `process.env`.
+*   Remember that all `process.env` values are strings; use Zod's coercion features for numeric validation.
+

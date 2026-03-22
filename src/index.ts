@@ -23,6 +23,7 @@ import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
 import { pool, getPoolMetrics, initDb } from './lib/db.js';
 import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
+import { validateEnvironment } from './lib/env-validator.js';
 import adminRoutes from './routes/admin/index.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import fnbChatRoutes from './routes/public/fnb-chat.js';
@@ -99,6 +100,15 @@ try {
     console.error('[Startup] Set USE_SECRETS_MANAGER=false to fall back to .env file values');
     process.exit(1);
   }
+}
+
+// US-033: Validate required environment variables before initializing DB/server.
+// Exits with code 1 and human-readable errors if DATABASE_URL, MCP_SERVER_PORT, or NODE_ENV are missing/invalid.
+try {
+  validateEnvironment();
+} catch (err: any) {
+  console.error(err.message);
+  process.exit(1);
 }
 
 // US-499: Initialize DB pool now that secrets/env are loaded.

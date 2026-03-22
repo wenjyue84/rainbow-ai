@@ -848,6 +848,154 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
+    },
+    {
+      "id": "US-033",
+      "title": "Add startup environment validation with clear error messages",
+      "priority": "high",
+      "description": "Rainbow AI silently fails or crashes with cryptic errors when required environment variables (DATABASE_URL, MCP_SERVER_PORT) are missing or malformed. Add a startup validation step that checks all required env vars before the server starts and exits with clear, actionable error messages.",
+      "acceptanceCriteria": [
+        "A validateEnvironment() function runs before Express server starts in src/index.ts",
+        "Required vars checked: DATABASE_URL, MCP_SERVER_PORT, NODE_ENV",
+        "Optional vars logged as warnings if missing: DIGIMAN_API_URL, DIGIMAN_API_TOKEN",
+        "DATABASE_URL format is validated as a valid postgres:// connection string",
+        "MCP_SERVER_PORT is validated as a number between 1024-65535",
+        "On failure, process exits with code 1 and a human-readable error listing all missing/invalid vars",
+        "Unit tests cover all validation paths (missing, malformed, valid)"
+      ],
+      "technicalNotes": [
+        "Add src/lib/env-validator.ts with pure validation functions",
+        "Call validateEnvironment() in src/index.ts before any DB or server init",
+        "Use Zod schemas for validation to match existing project patterns",
+        "Keep it simple - no .env file loading, just validate process.env"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/lib/env-validator.ts",
+        "src/index.ts",
+        "tests/unit/env-validator.test.ts"
+      ],
+      "passes": true,
+      "model": "haiku",
+      "last_attempted": "2026-03-22T16:38:24Z"
+    },
+    {
+      "id": "US-034",
+      "title": "Add intent prediction batch insert queue to reduce database writes",
+      "priority": "high",
+      "description": "Every WhatsApp message triggers an individual DB insert to intent_analytics via intent-tracker.ts. Under load (100+ messages/min), this creates excessive DB connections and write amplification on Neon. Add a batch insert queue that accumulates predictions and flushes them in bulk every 5 seconds or when the queue reaches 50 items.",
+      "acceptanceCriteria": [
+        "Intent predictions are queued in memory instead of inserted individually",
+        "Queue flushes to DB when it reaches 50 items OR every 5 seconds, whichever comes first",
+        "Flush uses a single bulk INSERT statement via Drizzle",
+        "Queue is flushed on process SIGTERM/SIGINT to prevent data loss",
+        "If a flush fails, items are re-queued with a max retry of 3 before being dropped with a warning log",
+        "Existing trackPrediction() API remains unchanged - callers are unaffected",
+        "Unit test verifies batch size trigger, timer trigger, and graceful shutdown flush"
+      ],
+      "technicalNotes": [
+        "Modify src/assistant/intent-tracker.ts - add private queue array and flush timer",
+        "Use setInterval for time-based flush; clearInterval + final flush on process exit",
+        "Drizzle supports bulk insert: db.insert(table).values([...items])",
+        "Remove the (intentPredictions as any) casts - use proper typed inserts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "filesTouch": [
+        "src/assistant/intent-tracker.ts",
+        "tests/unit/intent-tracker-batch.test.ts"
+      ],
+      "passes": false,
+      "model": "haiku"
+    },
+    {
+      "id": "US-035",
+      "title": "Add DLQ overflow alert and webhook notification for message queue",
+      "priority": "medium",
+      "description": "The message queue (src/lib/message-queue.ts) has a dead-letter queue but no alerting when it grows beyond a threshold. Failed messages silently accumulate. Add a configurable DLQ size threshold that triggers a webhook notification to the admin panel when exceeded.",
+      "acceptanceCriteria": [
+        "A DLQ_ALERT_THRESHOLD setting exists in settings.json (default: 10)",
+        "When DLQ size exceeds the threshold, a POST is sent to DIGIMAN_API_URL/api/alerts with the DLQ count and oldest message timestamp",
+        "Alert is sent at most once per hour to avoid spam (cooldown timer)",
+        "DLQ metrics are exposed via GET /api/admin/queue/health endpoint returning dlqSize, totalProcessed, and failureRate",
+        "The queue health endpoint requires admin auth (existing Passport middleware)",
+        "Unit test verifies alert fires at threshold and respects cooldown"
+      ],
+      "technicalNotes": [
+        "Add alert logic to src/lib/message-queue.ts after DLQ push",
+        "Add GET /api/admin/queue/health route to src/routes/admin/",
+        "Use existing httpClient from src/lib/http-client.ts for the webhook POST",
+        "Cooldown: store lastAlertTime as module-level variable"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "filesTouch": [
+        "src/lib/message-queue.ts",
+        "src/routes/admin/queue-health.ts",
+        "tests/unit/dlq-alert.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet"
+    },
+    {
+      "id": "US-036",
+      "title": "Add prompt injection detection to chat engine input sanitizer",
+      "priority": "high",
+      "description": "The sanitizeInput() function in chat-engine.ts only strips control characters but does not detect prompt injection attempts. Add pattern-based detection that flags suspicious inputs, logs them for security review, and returns a safe fallback response instead of forwarding to the AI provider.",
+      "acceptanceCriteria": [
+        "A detectPromptInjection(input: string) function checks against 15+ known injection patterns",
+        "Patterns include: ignore previous instructions, you are now, system prompt, jailbreak, DAN mode, override, and Malay equivalents",
+        "Detection is case-insensitive and handles unicode normalization",
+        "Flagged messages are logged with severity WARN including the sender JID and matched pattern",
+        "Flagged messages receive a polite deflection response instead of AI processing",
+        "Detection patterns are configurable via a JSON array in settings.json under security.injection_patterns",
+        "Unit tests cover all 15+ patterns plus false-positive checks for normal guest messages"
+      ],
+      "technicalNotes": [
+        "Add src/assistant/prompt-injection-guard.ts with the detection logic",
+        "Call detectPromptInjection() in chat-engine.ts sanitizeInput() pipeline before AI call",
+        "Use regex patterns - no ML model needed for this level of detection",
+        "False positive risk: test with real guest messages like can you ignore my previous booking to ensure they pass"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/prompt-injection-guard.ts",
+        "src/assistant/chat-engine.ts",
+        "tests/unit/prompt-injection-guard.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet"
+    },
+    {
+      "id": "US-037",
+      "title": "Add circuit breaker state transition tests and HALF_OPEN recovery logic",
+      "priority": "medium",
+      "description": "The circuit breaker (src/assistant/circuit-breaker.ts) lacks tests for the HALF_OPEN state where exactly one probe request is allowed through. If the probe fails, the circuit should re-open with an extended timeout. Add configurable recovery timeout with exponential backoff and comprehensive state transition tests.",
+      "acceptanceCriteria": [
+        "HALF_OPEN state allows exactly 1 request through as a probe",
+        "If probe succeeds, circuit transitions to CLOSED and resets failure count",
+        "If probe fails, circuit transitions back to OPEN with timeout doubled (up to max 5 minutes)",
+        "Recovery timeout is configurable via constructor option (default: 30 seconds)",
+        "Max recovery timeout is configurable (default: 300 seconds)",
+        "Test file covers all 6 state transitions: CLOSED to OPEN, OPEN to HALF_OPEN, HALF_OPEN to CLOSED, HALF_OPEN to OPEN, CLOSED to CLOSED on success, OPEN to OPEN within timeout",
+        "Tests use fake timers (vi.useFakeTimers) with no real delays"
+      ],
+      "technicalNotes": [
+        "Modify src/assistant/circuit-breaker.ts to add configurable recovery timeout and exponential backoff",
+        "Add tests/unit/circuit-breaker-states.test.ts with state transition matrix",
+        "Use Vitest fake timers for deterministic time-based tests",
+        "Keep changes minimal - only add the missing recovery logic and tests"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/circuit-breaker.ts",
+        "tests/unit/circuit-breaker-states.test.ts"
+      ],
+      "passes": false,
+      "model": "haiku"
     }
   ]
 }

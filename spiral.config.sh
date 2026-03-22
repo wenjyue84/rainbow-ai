@@ -2,7 +2,7 @@
 # spiral.config.sh — Rainbow AI Spiral configuration
 
 # Test command
-SPIRAL_VALIDATE_CMD="npm run test:run"
+SPIRAL_VALIDATE_CMD="bash spiral-validate.sh"
 
 # Reports directory
 SPIRAL_REPORTS_DIR="test-reports"
