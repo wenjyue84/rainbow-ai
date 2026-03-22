@@ -58,8 +58,8 @@ export interface PelangiApiNodeConfig {
 /** Config for 'condition' node — branches based on variable evaluation */
 export interface ConditionNodeConfig {
   field: string;          // Template variable to evaluate (e.g., '{{pelangi.availableCount}}')
-  operator: 'gt' | 'lt' | 'eq' | 'neq' | 'exists' | 'empty' | 'regex';
-  value?: string | number; // For 'regex': a JS regex pattern string (e.g. "\\d{1,2}[\\s/-]\\w+")
+  operator: 'gt' | 'lt' | 'eq' | 'neq' | 'exists' | 'empty' | 'regex' | 'dateConflict';
+  value?: string | number | any[]; // For 'regex': a JS regex pattern string; for 'dateConflict': array of existing bookings
   trueNext: string;       // Node ID if condition is true
   falseNext: string;      // Node ID if condition is false
 }

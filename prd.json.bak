@@ -47,6 +47,37 @@
   ],
   "userStories": [
     {
+      "id": "US-036",
+      "title": "Add prompt injection detection to chat engine input sanitizer",
+      "priority": "high",
+      "description": "The sanitizeInput() function in chat-engine.ts only strips control characters but does not detect prompt injection attempts. Add pattern-based detection that flags suspicious inputs, logs them for security review, and returns a safe fallback response instead of forwarding to the AI provider.",
+      "acceptanceCriteria": [
+        "A detectPromptInjection(input: string) function checks against 15+ known injection patterns",
+        "Patterns include: ignore previous instructions, you are now, system prompt, jailbreak, DAN mode, override, and Malay equivalents",
+        "Detection is case-insensitive and handles unicode normalization",
+        "Flagged messages are logged with severity WARN including the sender JID and matched pattern",
+        "Flagged messages receive a polite deflection response instead of AI processing",
+        "Detection patterns are configurable via a JSON array in settings.json under security.injection_patterns",
+        "Unit tests cover all 15+ patterns plus false-positive checks for normal guest messages"
+      ],
+      "technicalNotes": [
+        "Add src/assistant/prompt-injection-guard.ts with the detection logic",
+        "Call detectPromptInjection() in chat-engine.ts sanitizeInput() pipeline before AI call",
+        "Use regex patterns - no ML model needed for this level of detection",
+        "False positive risk: test with real guest messages like can you ignore my previous booking to ensure they pass"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "filesTouch": [
+        "src/assistant/prompt-injection-guard.ts",
+        "src/assistant/chat-engine.ts",
+        "tests/unit/prompt-injection-guard.test.ts"
+      ],
+      "passes": false,
+      "model": "sonnet",
+      "last_attempted": "2026-03-22T17:15:56Z"
+    },
+    {
       "id": "US-038",
       "title": "Add booking workflow date conflict detection before reservation confirmation",
       "priority": "high",
@@ -61,8 +92,7 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T17:29:00Z"
+      "model": "haiku"
     },
     {
       "id": "US-043",
@@ -184,125 +214,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-056",
-      "title": "Add real-time room availability validation during booking confirmation",
-      "priority": "high",
-      "description": "Prevent overbookings by checking room availability against the reservations table before confirming guest bookings. Currently booking workflows accept any booking without verifying room inventory.",
-      "acceptanceCriteria": [
-        "Modify booking confirmation step in src/assistant/data/workflows.json to include room availability check before persisting reservation",
-        "Add query to shared/schema-tables.ts that returns occupied/reserved rooms for requested check-in date range",
-        "Add test in src/assistant/__tests__/intent-tracker-batch.test.ts asserting overbooking attempt is rejected with alternative date suggestions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-057",
-      "title": "Implement startup profile-aware intent validation to prevent cross-contamination",
-      "priority": "high",
-      "description": "Detect and reject mismatched intents at application startup. Data-makan and data-southern profiles are currently loading Pelangi Capsule Hostel intents due to copy-paste errors from earlier development.",
-      "acceptanceCriteria": [
-        "Add function validateProfileIntents() in src/lib/config.ts that compares loaded intent definitions against RAINBOW_PROFILE env var and checks for hostel-specific keywords in cafe profiles",
-        "Add startup check that throws Error with profile name and conflicting intents if mismatch detected before routes initialize",
-        "Add unit test in tests/unit/profile-contamination.test.ts asserting detection catches 'check-in', 'room availability' in makan profile intents.json"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-058",
-      "title": "Create data file contamination detection CLI tool with pre-deployment report",
-      "priority": "high",
-      "description": "Scan data files for cross-profile keyword contamination before deployment. Prevent future instances of makan profile containing Pelangi hostel knowledge by adding automated detection.",
-      "acceptanceCriteria": [
-        "Create src/lib/profile-contamination-check.ts with function detectContamination(profileName: string) that compares keywords/phrases in knowledge.json, intent-keywords.json, and routing.json against known hostel/cafe terminology",
-        "Add npm script 'check:profiles' that runs detection for each profile (pelangi, makan, southern) and outputs CSV report showing contaminated keys and source files",
-        "Add test in tests/unit/profile-contamination.test.ts asserting data-makan/knowledge.json fails detection if it contains 'check-in', 'room type', 'hostel' keywords"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-061",
-      "title": "Add conversation message profile isolation enforcement in database queries",
-      "priority": "high",
-      "description": "Enforce database and application-level checks that conversation messages can only be accessed within their own profile context. Prevents cross-profile data leakage where Pelangi messages could be retrieved during Makan Moments conversations.",
-      "acceptanceCriteria": [
-        "Add database constraint in Drizzle schema (shared/schema-tables.ts) that enforces rainbow_messages.profile_id must match conversation's profile_id on insert",
-        "Implement profile_id check in src/lib/conversation.ts getConversationMessages() that validates all fetched messages belong to expected profile_id, throws ProfileMismatchError if violation detected",
-        "Add unit test in tests/unit/conversation-profile-isolation.test.ts asserting queries for messages with mismatched profile_id are rejected"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-062",
-      "title": "Add Mandarin Chinese keyword variants for booking and inquiry intents",
-      "priority": "high",
-      "description": "Expand intent classification to support non-English guests by adding Mandarin (zh) keyword variants. Enables accurate booking and inquiry detection for Mandarin-speaking guests at international hostels.",
-      "acceptanceCriteria": [
-        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '订房', '预订', '房间价格', '入住时间')",
-        "Detect guest language from message text in src/assistant/engine/classifier.ts and trigger Mandarin classifier when zh language detected",
-        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving ≥80% classification accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-063",
-      "title": "Implement conversation quality scoring system with per-intent accuracy tracking",
-      "priority": "high",
-      "description": "Track conversation resolution quality post-interaction to identify problem intents and guide improvements. Score conversations based on escalation count, resolution type, and classifier confidence to measure response reliability.",
-      "acceptanceCriteria": [
-        "Implement scoreConversation(conversationId: string) function in src/assistant/pipeline/scoring.ts calculating 1–5 score: escalated=-2pts, unresolved=-1pt, successful_resolution=+5pts, confidence_decrement=−0.5pt per 10% below threshold",
-        "Add conversation_quality_score column to rainbow_conversations table via Drizzle migration; populate scores on conversation completion",
-        "Create GET /admin/analytics/conversation-quality?profile=pelangi endpoint returning: avg_score_by_intent, 7-day_trend, bottom_5_intents_by_score with test coverage in tests/unit/admin-quality-analytics.test.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-064",
-      "title": "Implement booking modification workflow for guest-initiated date and room-type changes",
-      "priority": "high",
-      "description": "Enable guests to modify existing bookings (check-in date, room type, add amenities) through conversation flow. Reduces staff escalations and strengthens multi-turn dialogue handling for booking intent workflows.",
-      "acceptanceCriteria": [
-        "Add booking_modification intent to src/assistant/data/routing.json with workflow steps: [list_existing_bookings, select_booking_id, choose_change_type, validate_availability, confirm_and_update]",
-        "Implement findConflictingBookings(bookedDateRange, roomType, profileId) in src/assistant/tools/bookings.ts that queries room_bookings table and detects overlapping reservations",
-        "Add tests/unit/booking-modification.test.ts with 3 scenarios: (1) date conflict detected→suggest_alternatives, (2) room_type_unavailable→fallback_rooms, (3) successful_modification→confirmation_message"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-035",
       "title": "Add DLQ overflow alert and webhook notification for message queue",
       "priority": "medium",
@@ -410,6 +321,108 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-042",
+      "title": "Add admin bulk message scheduling with queue state visibility endpoint",
+      "priority": "medium",
+      "description": "Allow admins to schedule multiple messages at once with exponential backoff on delivery failures. Add queue state endpoint to monitor pending messages, ensuring reliability for bulk messaging campaigns.",
+      "acceptanceCriteria": [
+        "Create POST /admin/messages/schedule-bulk accepting {messages: Array<{phone, text, delayMs}>, maxRetries: number}",
+        "Implement queue processor in src/lib/message-queue.ts with exponential backoff (retry after 5s, 10s, 30s on failure)",
+        "Add GET /admin/messages/queue-state returning {pending: number, failed: number, oldestTimestamp}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-046",
+      "title": "Add input normalization and sanitization middleware for WhatsApp formatting edge cases",
+      "priority": "medium",
+      "description": "Normalize user input (Unicode NFC, whitespace trimming, emoji consolidation, zero-width character removal) before intent classification to improve accuracy on noisy WhatsApp messages.",
+      "acceptanceCriteria": [
+        "Middleware in src/assistant/pipeline/normalize-input.ts applies Unicode NFC normalization, regex whitespace cleanup, and emoji variant consolidation before ClassifyIntentService",
+        "Unit tests show '  Check  in?!!  ', 'Check​​ in' (zero-width spaces), and 'Check in 😀' all normalize to canonical form and match identical intent",
+        "Integration test confirms F1-score improvement ≥2% on WhatsApp test dataset with formatting variance"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-047",
+      "title": "Add exponential time-decay weighting for conversation context to reduce stale message influence",
+      "priority": "medium",
+      "description": "Implement exponential decay function for conversation history so older messages contribute less to intent classification and response generation, preventing multi-day conversations from being misclassified.",
+      "acceptanceCriteria": [
+        "ConversationState.messages includes timestamp_ms; getRelevantContext() computes decay_weight = 0.9^(hours_old) for each message before passing to intent classifier",
+        "Unit test in src/assistant/__tests__/context-decay.test.ts validates 30-day-old messages have weight <5%, recent messages have weight >90%",
+        "Integration test confirms conversation spanning 3+ days classifies Day 3 intent correctly without interference from Day 1 context messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-049",
+      "title": "Add message timestamp validation for chronological conversation ordering",
+      "priority": "medium",
+      "description": "Ensure conversation context messages are processed in chronological order. When building context for multi-turn dialogues, validate that messages are ordered by timestamp and log warnings for out-of-order messages.",
+      "acceptanceCriteria": [
+        "Context builder in src/assistant/pipeline/context-builder.ts validates message chronological ordering",
+        "Out-of-order messages logged with message IDs and timestamps for debugging",
+        "Unit tests verify valid/invalid orderings with same-timestamp edge cases and reversed sequences"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-050",
+      "title": "Add conversation context deduplication for repeated user inputs",
+      "priority": "medium",
+      "description": "Detect and skip consecutive duplicate messages when building conversation context. Prevents context bloat when users accidentally resend the same message multiple times.",
+      "acceptanceCriteria": [
+        "Context builder filters consecutive messages with identical text and sender ID in src/assistant/pipeline/context-builder.ts",
+        "Preserves first occurrence, removes duplicates while maintaining message order",
+        "Unit tests verify deduplication works for 2-5 consecutive duplicates and doesn't filter non-consecutive duplicates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-051",
+      "title": "Add profile-aware fallback response suggestions from knowledge base FAQ",
+      "priority": "medium",
+      "description": "When AI confidence is below threshold (< 0.5), instead of generic fallback, parse profile's knowledge.json FAQ section and suggest 2-3 relevant topics to guide the user.",
+      "acceptanceCriteria": [
+        "Fallback handler in src/assistant/engine/fallback-handler.ts checks knowledge.json faq entries when confidence < 0.5",
+        "Suggests profile-specific topics with no cross-profile contamination",
+        "Unit tests verify Makan Moments suggests cafe-relevant topics, Southern/Pelangi suggest hostel-relevant topics"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-005",
@@ -537,40 +550,6 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
-    },
-    {
-      "id": "US-036",
-      "title": "Add prompt injection detection to chat engine input sanitizer",
-      "priority": "high",
-      "description": "The sanitizeInput() function in chat-engine.ts only strips control characters but does not detect prompt injection attempts. Add pattern-based detection that flags suspicious inputs, logs them for security review, and returns a safe fallback response instead of forwarding to the AI provider.",
-      "acceptanceCriteria": [
-        "A detectPromptInjection(input: string) function checks against 15+ known injection patterns",
-        "Patterns include: ignore previous instructions, you are now, system prompt, jailbreak, DAN mode, override, and Malay equivalents",
-        "Detection is case-insensitive and handles unicode normalization",
-        "Flagged messages are logged with severity WARN including the sender JID and matched pattern",
-        "Flagged messages receive a polite deflection response instead of AI processing",
-        "Detection patterns are configurable via a JSON array in settings.json under security.injection_patterns",
-        "Unit tests cover all 15+ patterns plus false-positive checks for normal guest messages"
-      ],
-      "technicalNotes": [
-        "Add src/assistant/prompt-injection-guard.ts with the detection logic",
-        "Call detectPromptInjection() in chat-engine.ts sanitizeInput() pipeline before AI call",
-        "Use regex patterns - no ML model needed for this level of detection",
-        "False positive risk: test with real guest messages like can you ignore my previous booking to ensure they pass"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "filesTouch": [
-        "src/assistant/prompt-injection-guard.ts",
-        "src/assistant/chat-engine.ts",
-        "tests/unit/prompt-injection-guard.test.ts"
-      ],
-      "passes": true,
-      "model": "sonnet",
-      "last_attempted": "2026-03-22T17:15:56Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n- `src/assistant/pipeline/prompt-injection-guard.ts` exists with `detectPromptInjection()` and 30 patterns\n- Test file exists with 26 passing tests (12 injection patterns, 11 safe messages)\n- `settings.json` has `promptInjection.patterns` but NOT `security.injection_patterns` (AC requires this)\n- `chat-engine.ts` does NOT call `detectPromptInjection()` - no WARN logging or deflection response\n\n## Problem Identified\nAC4 (WARN logging with JID), AC5 (deflection response), AC6 (security.injection_patterns config key), and needing 15+ patterns in tests are all unimplemented.\n\n## Planned Changes\n1. `src/assistant/pipeline/prompt-injection-guard.ts` — add NFKC unicode normalization + Malay equivalent patterns\n2. `src/assistant/data/settings.json` — add `security.injection_patterns` array\n3. `src/assistant/chat-engine.ts` — import guard, add early injection check with WARN log + deflection\n4. `src/assistant/__tests__/prompt-injection-guard.test.ts` — add 3+ more patterns (including Malay) to reach 15+\nNow update `settings.json` to add `security.injection_patterns`:\nNow integrate the detection in `chat-engine.ts`:\nNow add the injection check inside `processChat` right after the start time is set:\nNow add 3+ more patterns to the test to reach 15+:\nAlso add a false-positive check for safe Malay messages:\nNow run the tests to verify:\n32 tests passing (17 injection patterns + 12 safe messages + 3 edge cases). Now run the TypeScript check:\nFix the TypeScript error on the settings access (pre-existing type is loosely typed, use `any` cast):\nGood — the only remaining TS errors are pre-existing (lines 264, 267, 377). Let me run a broader test to confirm nothing broke:\nAll passing. Now update `prd.json` to mark US-036 as `passes: true`:\nNow document learnings and commit:\nI see `src/assistant/prompt-injection-guard.ts` and `tests/unit/prompt-injection-guard.test.ts` are untracked. Let me check those:\nThese are re-export shims from a previous attempt. Stage them too:\nUS-036 is complete. Here's a summary of what was implemented:\n\n**US-036: Prompt injection detection in chat engine** ✅\n\n1. **`prompt-injection-guard.ts`** (pipeline/) — added NFKC unicode normalization + 4 Malay equivalent patterns (`abaikan arahan`, `lupakan arahan`, `bertindak sebagai`, `langkau arahan`), total 34 default patterns\n\n2. **`chat-engine.ts`** — added early injection gate in `processChat()`:\n   - Reads `settings.security.injection_patterns` (empty = use built-in defaults)\n   - On detection: logs `WARN` with `sessionId` + `matchedPattern`\n   - Returns polite deflection response instead of forwarding to AI\n\n3. **`settings.json`** — added `security.injection_patterns: []` key\n\n4. **`prompt-injection-guard.test.ts`** — expanded from 26 → 32 tests covering 17 injection patterns (12 original + 5 new including Malay) and a false-positive Malay safe message"
-      }
     },
     {
       "id": "US-034",

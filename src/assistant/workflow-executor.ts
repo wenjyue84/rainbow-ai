@@ -641,6 +641,26 @@ async function executeNodeWorkflowStep(
               conditionMet = false;
             }
             break;
+          case 'dateConflict': {
+            // US-038: Check for date range conflicts in booking workflow
+            try {
+              const { dateRangeConflict } = await import('./pipeline/booking-validators.js');
+              const bookingDates = state.collectedData.booking_dates || '';
+
+              if (bookingDates) {
+                // Call async validator with the raw booking dates string
+                const result = await dateRangeConflict(bookingDates, 'pelangi');
+                conditionMet = !result.hasConflict; // true if NO conflict
+                console.log(`[NodeExecutor] dateConflict check: ${bookingDates} → ${conditionMet ? 'OK' : 'CONFLICT'}`);
+              } else {
+                conditionMet = true; // No dates to check
+              }
+            } catch (err) {
+              console.error('[NodeExecutor] dateConflict operator failed:', err);
+              conditionMet = true; // Default to "no conflict" on error (fail-open)
+            }
+            break;
+          }
         }
 
         console.log(`[NodeExecutor] Condition: ${config.field} ${config.operator} ${config.value} → ${conditionMet}`);

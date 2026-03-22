@@ -56,9 +56,34 @@
             "field": "{{workflow.data.booking_dates}}",
             "operator": "regex",
             "value": "(\\d{1,2}[\\s\\-\\/](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*[\\s\\-\\/]\\d{1,2}|\\d{1,2}[\\-\\/]\\d{1,2}[\\-\\/]\\d{2,4})",
-            "trueNext": "confirm_booking_msg",
+            "trueNext": "check_booking_conflict",
             "falseNext": "date_error_reprompt"
           }
+        },
+        {
+          "id": "check_booking_conflict",
+          "type": "condition",
+          "label": "Check for date range conflicts",
+          "config": {
+            "field": "{{workflow.data.booking_dates_normalized}}",
+            "operator": "dateConflict",
+            "value": [],
+            "trueNext": "confirm_booking_msg",
+            "falseNext": "booking_conflict_msg"
+          }
+        },
+        {
+          "id": "booking_conflict_msg",
+          "type": "message",
+          "label": "Notify guest of date conflict",
+          "config": {
+            "message": {
+              "en": "Sorry, those dates are not available. Please try different dates for your booking.",
+              "ms": "Maaf, tarikh tersebut tidak tersedia. Sila pilih tarikh lain untuk tempahan anda.",
+              "zh": "抱歉，这些日期不可用。请选择其他日期预订。"
+            }
+          },
+          "next": "wait_booking_dates"
         },
         {
           "id": "date_error_reprompt",
