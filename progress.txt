@@ -1785,3 +1785,33 @@ FAILED diagnosis-block gate: Add Mandarin Chinese keyword variants for booking a
 
 ### Gotchas
 - Always output the diagnosis block (## Current State, ## Problem Identified, ## Planned Changes) BEFORE making any file changes
+
+## Pre-analysis for US-063 (Gemini 2.5 Pro)
+**Technical Brief: US-063 Conversation Quality Scoring**
+
+This analysis is based on the provided user story and project structure, which indicate a TypeScript/Node.js environment, not Frappe/Python as mentioned in the prompt.
+
+**1. Primary Files for Modification:**
+*   `src/assistant/pipeline/scoring.ts`: New file to house the `scoreConversation` function.
+*   `shared/schema.ts`: Modify the Drizzle ORM schema for the `rainbow_conversations` table.
+*   `migrations/`: A new SQL or Drizzle migration file will be needed to alter the database table.
+*   `src/routes/admin/analytics.ts` (or similar): New file or existing router to add the `/admin/analytics/conversation-quality` endpoint.
+*   `src/assistant/pipeline.ts` (or similar): This is the likely location to call the `scoreConversation` function upon conversation completion.
+*   `tests/unit/admin-quality-analytics.test.ts`: New test file for the analytics endpoint.
+
+**2. Key Entities (Frappe Equivalents):**
+*   **DocType:** The `rainbow_conversations` table schema defined in `shared/schema.ts` is the equivalent. It will be modified to add the `conversation_quality_score` column.
+*   **Hooks:** The "on conversation completion" event/logic within the assistant's processing pipeline serves as the hook to trigger the scoring function.
+
+**3. Implementation Approach:**
+1.  **Schema & Migration:** Add `conversationQualityScore` to the `rainbow_conversations` schema in `shared/schema.ts` and generate a Drizzle migration.
+2.  **Scoring Logic:** Implement the `scoreConversation` function in `src/assistant/pipeline/scoring.ts`. It should take a `conversationId`, fetch its state (escalation, resolution, confidence), calculate the score per the acceptance criteria, and update the corresponding database record.
+3.  **API Endpoint:** Create a `GET` route and handler that queries the database, using aggregations (e.g., `AVG`, `GROUP BY intent`) to compute and return the required analytics.
+4.  **Integration:** Identify the function that finalizes conversations and insert the call to `scoreConversation` there.
+
+**4. Edge Cases & Gotchas:**
+*   The analytics query on a large dataset may be slow; ensure columns like `intent`, `profile`, and timestamp are indexed.
+*   The scoring trigger point must be chosen carefully to avoid scoring incomplete conversations.
+*   The scoring logic depends on a "confidence threshold" which must be sourced from a configuration file or constant.
+*   Gracefully handle scoring for conversations that may lack clear resolution or intent data.
+

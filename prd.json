@@ -61,8 +61,7 @@
       "estimatedComplexity": "medium",
       "passes": true,
       "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T03:45:00Z"
+      "model": "sonnet"
     },
     {
       "id": "US-064",
@@ -442,6 +441,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-113",
+      "title": "Persist individual intent prediction confidence scores with classification outcome tracking",
+      "priority": "high",
+      "description": "Store confidence scores from each intent prediction linked to whether routing succeeded or failed, enabling per-intent accuracy analysis and threshold tuning",
+      "acceptanceCriteria": [
+        "Add intent_predictions table to shared/schema-tables.ts with: id, conversation_id, predicted_intent, confidence_score, correct_intent, profile, created_at",
+        "IntentClassifier.classify() in src/assistant/pipeline/classify.ts saves all predictions with confidence >= 0.4 to database immediately after classification",
+        "Vitest test verifies predictions are persisted and retrievable: query for single intent should return sorted by confidence_score with accuracy = sum(correct_intent==predicted_intent)/total"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-114",
+      "title": "Create profile-scoped fallback response template files to enforce business isolation",
+      "priority": "high",
+      "description": "Move fallback templates to profile-specific JSON files so each business customizes low-confidence responses without content contamination (e.g., Pelangi cannot say 'Makan Moments cafe')",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/fallbacks-pelangi.json, fallbacks-southern.json, fallbacks-makan.json with profile-specific fallback templates (5+ templates each)",
+        "FallbackSelector in src/assistant/pipeline/fallback.ts loads template from activeProfile.fallbacks_file instead of shared file",
+        "Vitest test: Pelangi fallbacks never contain ['Makan', 'cafe', 'Southern'], Southern never contain ['capsule', 'hostel', 'Pelangi'], Makan never contain ['guest', 'room', 'check-in']"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-107",
       "title": "Add booking workflow confirmation step validation with required template placeholders",
       "priority": "medium",
@@ -525,6 +558,57 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-115",
+      "title": "Build keyword suggestion engine for intents with misclassification patterns",
+      "priority": "medium",
+      "description": "Analyze recent failed classifications to suggest keywords that could improve accuracy for underperforming intents",
+      "acceptanceCriteria": [
+        "Create src/tools/keyword-suggestion-engine.ts with function suggestKeywords(profile: string, intent: string, lookbackDays: number): KeywordSuggestion[]",
+        "CLI: npm run suggest:keywords -- --profile=pelangi --intent=booking_inquiry suggests top 5 keywords from misclassified messages not already in intent-keywords.json",
+        "Output shows: keyword, frequency_in_misclassifications, current_keywords_similarity_score, expected_accuracy_boost_pct"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-116",
+      "title": "Deduplicate messages in conversation context window before AI processing",
+      "priority": "medium",
+      "description": "Remove duplicate messages (same content from same user within 5-minute window) when building context to reduce token waste and improve clarity for multi-turn conversations",
+      "acceptanceCriteria": [
+        "ConversationContextBuilder in src/assistant/pipeline/context.ts implements deduplication: group by (user_id, normalized_content), keep first occurrence",
+        "Vitest test: context with 12 messages including 3 duplicates reduces to 9 unique messages after deduplication, preserving original message order",
+        "Deduplication runs before context size limit check in src/assistant/pipeline/context.ts:buildContext()"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-117",
+      "title": "Add workflow step execution duration SLA tracking and performance alerts",
+      "priority": "medium",
+      "description": "Monitor execution time for each booking workflow step to identify bottlenecks and enforce performance SLAs (target <3 seconds per step)",
+      "acceptanceCriteria": [
+        "WorkflowExecutor in src/assistant/pipeline/workflow-executor.ts records step_duration_ms and logs warnings if step > 3000ms to src/lib/logger.ts",
+        "Admin endpoint GET /admin/analytics/workflow-steps returns: {step_name, avg_duration_ms, max_duration_ms, p95_duration_ms, violation_count} grouped by profile",
+        "Vitest test verifies booking_confirm step with 100ms execution logs normally, but 4000ms execution logs warning with step name and profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-005",
