@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-038",
-      "title": "Add booking workflow date conflict detection before reservation confirmation",
-      "priority": "high",
-      "description": "Prevent double-bookings by checking for overlapping reservations during booking workflow execution. Validate check-in/check-out dates against existing reservations in the same unit.",
-      "acceptanceCriteria": [
-        "Add dateRangeConflict() function in src/assistant/pipeline/booking-validators.ts that queries existing reservations and returns conflict details",
-        "Update workflows.json booking confirmation step to execute validation before marking booking as confirmed",
-        "Add unit test in src/__tests__/booking-validators.test.ts verifying rejection of overlapping check-in dates"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T17:29:00Z"
-    },
-    {
       "id": "US-043",
       "title": "Add intent classification confidence metrics and per-profile baselines",
       "priority": "high",
@@ -303,6 +285,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-067",
+      "title": "Add per-profile intent whitelist validator to block cross-contaminated intents at startup",
+      "priority": "high",
+      "description": "Enforce strict profile separation by validating that each profile (makan, southern, pelangi) only contains intents from a curated whitelist. Prevents Pelangi Capsule Hostel intents (booking_checkin, luggage_storage) from appearing in cafe or homestay profiles.",
+      "acceptanceCriteria": [
+        "Create `src/assistant/data/intent-whitelists.json` with structure: `{\"makan\": [\"menu_inquiry\", \"order_booking\", ...], \"southern\": [\"room_inquiry\", \"checkout\", ...], ...}`. At startup, validate each profile's `src/assistant/data/intents-{profile}.json` against its whitelist and error with list of violations: \"Profile 'makan' contains hostel intent 'booking_checkin' not in whitelist\"",
+        "CLI command `npm run validate:intent-profile -- --profile makan --fix` (without --fix: report only; with --fix: remove violating intents)",
+        "Test file `tests/unit/profile-intent-whitelist.test.ts` asserts that makan profile rejects intents with intent_id like 'booking_*' and 'checkin_*', southern profile rejects 'order_*' and 'menu_*'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-068",
+      "title": "Add pre-confirmation booking business rule validator with actionable conflict warnings",
+      "priority": "high",
+      "description": "Before confirmation step in booking workflow, validate guest booking eligibility against business rules (stay limits, room capacity, advance booking window). Return structured warnings so the workflow can decide to escalate or auto-suggest alternatives.",
+      "acceptanceCriteria": [
+        "Extend `src/assistant/pipeline/booking-validators.ts` with function `validatePreConfirmationRules(guestId, roomId, checkInDate, nightCount, profile)` returning `{isValid: boolean, warnings: [{code: string, message: string}], recommendations: string[]}`. Rules: (1) guest has not exceeded profile's max_stay_nights, (2) room_capacity >= guest_count, (3) check_in within 90 days, (4) check_out not in past. Warnings populate recommendations like 'Suggest room 105 (4 beds) instead of 101 (2 beds)'",
+        "Add config keys in `src/assistant/data/settings.json`: `maxStayDays`, `advanceBookingWindow`, `stayCeiling` (days after which warnings trigger)",
+        "Extend `tests/unit/booking-validators.test.ts` with tests: assert warnings generated when guest_total_nights_booked + night_count > maxStayDays, assert capacity warning when room_beds < guest_count, assert no past-date bookings allowed"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-035",
       "title": "Add DLQ overflow alert and webhook notification for message queue",
       "priority": "medium",
@@ -410,6 +426,142 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-042",
+      "title": "Add admin bulk message scheduling with queue state visibility endpoint",
+      "priority": "medium",
+      "description": "Allow admins to schedule multiple messages at once with exponential backoff on delivery failures. Add queue state endpoint to monitor pending messages, ensuring reliability for bulk messaging campaigns.",
+      "acceptanceCriteria": [
+        "Create POST /admin/messages/schedule-bulk accepting {messages: Array<{phone, text, delayMs}>, maxRetries: number}",
+        "Implement queue processor in src/lib/message-queue.ts with exponential backoff (retry after 5s, 10s, 30s on failure)",
+        "Add GET /admin/messages/queue-state returning {pending: number, failed: number, oldestTimestamp}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-046",
+      "title": "Add input normalization and sanitization middleware for WhatsApp formatting edge cases",
+      "priority": "medium",
+      "description": "Normalize user input (Unicode NFC, whitespace trimming, emoji consolidation, zero-width character removal) before intent classification to improve accuracy on noisy WhatsApp messages.",
+      "acceptanceCriteria": [
+        "Middleware in src/assistant/pipeline/normalize-input.ts applies Unicode NFC normalization, regex whitespace cleanup, and emoji variant consolidation before ClassifyIntentService",
+        "Unit tests show '  Check  in?!!  ', 'Check​​ in' (zero-width spaces), and 'Check in 😀' all normalize to canonical form and match identical intent",
+        "Integration test confirms F1-score improvement ≥2% on WhatsApp test dataset with formatting variance"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-047",
+      "title": "Add exponential time-decay weighting for conversation context to reduce stale message influence",
+      "priority": "medium",
+      "description": "Implement exponential decay function for conversation history so older messages contribute less to intent classification and response generation, preventing multi-day conversations from being misclassified.",
+      "acceptanceCriteria": [
+        "ConversationState.messages includes timestamp_ms; getRelevantContext() computes decay_weight = 0.9^(hours_old) for each message before passing to intent classifier",
+        "Unit test in src/assistant/__tests__/context-decay.test.ts validates 30-day-old messages have weight <5%, recent messages have weight >90%",
+        "Integration test confirms conversation spanning 3+ days classifies Day 3 intent correctly without interference from Day 1 context messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-065",
+      "title": "Build intent misclassification dashboard and trend reporting for classifier accuracy",
+      "priority": "medium",
+      "description": "Provide visibility into intent classifier performance by tracking misclassifications and exposing per-intent accuracy trends. Enable data-driven prioritization of intent improvement efforts.",
+      "acceptanceCriteria": [
+        "Create intent_misclassifications table (id, profile_id, message_text, predicted_intent, actual_intent, confidence, timestamp) in shared/schema-tables.ts; log misclassifications in src/assistant/engine/classifier.ts when predicted_intent diverges from user feedback",
+        "Create GET /admin/dashboard/intent-health?profile=pelangi endpoint returning: per_intent_accuracy_pct, top_5_misclassified_intents, 7_day_accuracy_trend, sample misclassified messages",
+        "Add integration test: tests/unit/intent-misclassification-tracking.test.ts verifying misclassification logging and dashboard query accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-066",
+      "title": "Auto-generate knowledge base FAQ entries from escalated conversation patterns",
+      "priority": "medium",
+      "description": "Analyze escalated conversations to identify common unresolved questions, then auto-generate FAQ entries and static reply templates. Reduces future escalations by expanding fallback response coverage based on actual guest needs.",
+      "acceptanceCriteria": [
+        "Create npm script: npm run generate-faq -- --from-escalations --profile=pelangi that queries escalation_events table for past 30 days, extracts top-10 escalation reasons, clusters by intent, outputs suggested_faq.json with reply templates",
+        "Implement CLI tool in scripts/generate-faq-from-escalations.ts that deduplicates similar escalation messages and generates knowledge.json-compatible FAQ snippets with confidence scores",
+        "Add admin endpoint POST /admin/faq/import-from-escalations?profile=pelangi&count=10 returning suggested entries for review; allows approval to bulk-merge into src/assistant/data/knowledge.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-069",
+      "title": "Add conversation relevance scoring to prune stale context before AI inference",
+      "priority": "medium",
+      "description": "Enhance multi-turn dialogue handling by scoring historical messages based on age, semantic similarity to current message, and intent match. Messages below the relevance threshold are excluded from the LLM context window to reduce noise and improve response accuracy.",
+      "acceptanceCriteria": [
+        "Implement `scoreContextRelevance(messages, currentMessage, currentIntent)` function in `src/assistant/pipeline/context-handler.ts` that assigns 0-100 scores based on: (1) message age (decay 1 point per minute), (2) embedding cosine similarity to current message (threshold 0.6), (3) intent match bonus (+30 if intent matches current intent)",
+        "Add config option `contextPruneThreshold` in `src/assistant/data/settings.json` (default: 35), applied during pipeline context assembly",
+        "Unit tests in `tests/unit/context-relevance-scoring.test.ts` verify: messages older than 1 hour score < 35 when intent differs, messages with matching intent score >= 65, and context pruning reduces window from 10 to ~5 relevant messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-070",
+      "title": "Add conversation message deduplication using embedding similarity within 30-second window",
+      "priority": "medium",
+      "description": "Reduce duplicate message sends by detecting when a pending outbound message is semantically very similar to a message sent in the last 30 seconds. Useful for preventing double-sends during network retries or rapid intent classification changes.",
+      "acceptanceCriteria": [
+        "Implement `deduplicateRecentMessages(pendingMessage, conversationHistory, threshold)` in new file `src/lib/conversation-dedup.ts`. Using existing embedding model, compute cosine similarity between pendingMessage and last 3 outbound messages sent within 30 seconds. Return `{isDuplicate: boolean, similarMessageId: string}` if similarity > threshold (default 0.82)",
+        "Add config option `deduplicationEnabled` and `deduplicationSimilarityThreshold` to `src/assistant/data/settings.json`. Call dedup check in message send pipeline before DB insert",
+        "Unit tests in `tests/unit/conversation-dedup.test.ts` verify: near-duplicate ('Great! I booked room 101' vs 'Perfect! Room 101 reserved') returns isDuplicate=true, dissimilar messages ('Can I check availability?' vs 'Your booking is confirmed') return isDuplicate=false, messages older than 30 seconds are ignored"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-071",
+      "title": "Add admin analytics endpoint for per-profile intent distribution with anomaly alerts",
+      "priority": "medium",
+      "description": "Expose real-time visibility into intent classification distribution per profile. Detect imbalances (e.g., one intent representing >60% of messages) that indicate classification drift or data quality issues.",
+      "acceptanceCriteria": [
+        "GET `/admin/analytics/intent-distribution?profile=makan&days=7` returns JSON: `{profile, period_days, total_messages, intents: [{intent_id, count, percentage, trend: \"up\"|\"down\"|\"stable\"}], anomalies: [{severity: \"high\"|\"medium\", message: \"intent_fallback at 45% (expected <10%)\"}]}`. Query `intent_analytics` table grouped by intent_id with date filtering",
+        "Logic: compute 7-day average distribution per intent, flag as anomaly if intent count is >2 std devs from baseline OR single intent >50% of traffic",
+        "Test file `tests/unit/admin-intent-analytics.test.ts` mocks intent_analytics rows and asserts: (1) endpoint correctly sums counts across dates, (2) anomalies detected when fallback intent > 40%, (3) response includes all intents even if count is 0"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-005",
@@ -537,6 +689,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-038",
+      "title": "Add booking workflow date conflict detection before reservation confirmation",
+      "priority": "high",
+      "description": "Prevent double-bookings by checking for overlapping reservations during booking workflow execution. Validate check-in/check-out dates against existing reservations in the same unit.",
+      "acceptanceCriteria": [
+        "Add dateRangeConflict() function in src/assistant/pipeline/booking-validators.ts that queries existing reservations and returns conflict details",
+        "Update workflows.json booking confirmation step to execute validation before marking booking as confirmed",
+        "Add unit test in src/__tests__/booking-validators.test.ts verifying rejection of overlapping check-in dates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-22T17:27:53Z"
     },
     {
       "id": "US-036",
