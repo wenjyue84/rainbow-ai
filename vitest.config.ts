@@ -46,7 +46,7 @@ export default defineConfig({
               maxForks: 1,
             },
           },
-          include: ['src/**/*.integration.test.ts'],
+          include: ['src/**/*.integration.test.ts', 'tests/integration/**/*.{test,spec}.{ts,tsx}'],
           exclude: ['node_modules', 'dist'],
         },
       },

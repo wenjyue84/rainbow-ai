@@ -52,8 +52,20 @@ export const insertIntentPredictionSchema = createInsertSchema(intentPredictions
   tier: z.string().min(1),
 });
 
+// ─── Booking Confirmation Schema (US-149) ────────────────────────────
+
+export const bookingConfirmSchema = z.object({
+  idempotencyKey: z.string().uuid('idempotencyKey must be a valid UUID').optional(),
+  guestName: z.string().min(1, 'guestName is required'),
+  roomType: z.string().optional(),
+  checkIn: z.string().min(1, 'checkIn is required'),
+  checkOut: z.string().optional(),
+  confirmationNumber: z.string().optional(),
+});
+
 // ─── Schema-derived Types ────────────────────────────────────────────
 
 export type InsertRainbowFeedbackType = z.infer<typeof insertRainbowFeedbackSchema>;
 export type UpdateFeedbackSettings = z.infer<typeof updateFeedbackSettingsSchema>;
 export type InsertIntentPredictionType = z.infer<typeof insertIntentPredictionSchema>;
+export type BookingConfirmInput = z.infer<typeof bookingConfirmSchema>;

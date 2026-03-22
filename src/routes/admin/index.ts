@@ -99,6 +99,7 @@ import providerSloRoutes from './provider-slo.js';
 import einvoiceRoutes from './einvoice.js';
 import wabaPortfolioRoutes from './waba-portfolio.js'; // US-026
 import fallbackMetricsRoutes from './fallback-metrics.js'; // US-077
+import bookingConfirmRoutes from '../booking-confirm.js'; // US-149
 
 const router = Router();
 
@@ -362,6 +363,7 @@ router.use(providerSloRoutes);            // US-996: LLM provider latency SLO tr
 router.use(einvoiceRoutes);               // US-1039: MyInvois e-invoice queue + dashboard
 router.use(wabaPortfolioRoutes);          // US-026: Portfolio-level WABA messaging limit tracking
 router.use(fallbackMetricsRoutes);        // US-077: Fallback response effectiveness metrics
+router.use(bookingConfirmRoutes);         // US-149: Idempotent booking confirmation
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

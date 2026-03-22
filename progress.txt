@@ -596,6 +596,7 @@ Here is the technical brief for the story as it relates to the actual **TypeScri
 - Fuse.js threshold=0.3 means 0=exact, 1=anything; distance=100; ignoreLocation=true
 - When query length > keyword length, Fuse returns no results — not a bug, just the matching direction
 - Malay keywords: "tempahan"=booking, "nak book"=booking, "ada bilik"=availability — all in keywords.json
+<<<<<<< Updated upstream
 
 ## Pre-analysis for US-136 (Gemini 2.5 Pro)
 ### Technical Brief: US-136 Database Isolation Tests
@@ -734,3 +735,133 @@ This brief outlines the implementation for ensuring strict data separation betwe
 
 ### Gotchas
 - prd.json uses UTF-8 encoding with special chars — python3 needs encoding='utf-8' to read/write it
+=======
+## Iteration 2 - Mon, Mar 23, 2026  5:46:54 AM
+FAILED diagnosis-block gate: Implement intent classifier regression test baseline with accuracy thresholds (ID: US-087) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-087 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. Here is the technical brief based on the provided JSON and the project structure.
+
+**Project:** rainbow-ai (TypeScript/Node.js)
+**User Story:** US-087: Implement intent classifier regression test baseline with accuracy thresholds.
+
+### Technical Brief for Claude Agent
+
+**1. Python Files to Modify:**
+This is a TypeScript project. The primary files to be created/modified are:
+*   **`src/assistant/__tests__/intentClassifier.regression.test.ts`** (Create): This new file will contain the regression test logic using Vitest.
+*   **`package.json`** (Modify): Add a new script `test:regression` to run the new test file.
+*   **`deploy.sh`** (Modify): Integrate the `npm run test:regression` command into the deployment pipeline to ensure accuracy checks are run before release.
+
+**2. Frappe DocTypes/Hooks Involved:**
+The equivalent concepts in this project are:
+*   **Key Modules:** The core logic resides in an "intent classifier" service, likely located in or near `src/assistant/`. This service is what the test will target.
+*   **Configuration/Data:**
+    *   `profiles.json`: This file likely defines the different "profiles" mentioned in the story, each with its own intent model settings.
+    *   `calibration.jsonl`: This file appears to contain evaluation data (JSON Lines format), which should be used as the test dataset for the regression test.
+
+**3. Recommended Implementation Approach:**
+1.  **Create Test File:** In `src/assistant/__tests__/intentClassifier.regression.test.ts`, use the Vitest testing framework (`describe`, `it`, `expect`).
+2.  **Load Data:** Write a utility function to parse the test cases from `calibration.jsonl`.
+3.  **Iterate Profiles:** Loop through each configuration defined in `profiles.json`.
+4.  **Run Classification:** For each profile, filter the test data to get at least 20 samples for "booking" and "inquiry" intents. Run the intent classifier against these samples.
+5.  **Calculate & Assert Accuracy:** Tally the correct predictions for each intent type and calculate the accuracy percentage. Use `expect(bookingAccuracy).toBeGreaterThanOrEqual(0.85)` and `expect(inquiryAccuracy).toBeGreaterThanOrEqual(0.80)`.
+6.  **Update `package.json`:** Add `"test:regression": "vitest run src/assistant/__tests__/intentClassifier.regression.test.ts"` to the `scripts` section.
+7.  **Update `deploy.sh`:** Add a line `npm run test:regression` before the final deployment command. Ensure the script will exit on failure.
+
+**4. Edge Cases & Gotchas:**
+*   **Test Data Schema:** The structure of objects within `calibration.jsonl` must be correctly parsed to extract the input text and the expected intent.
+*   **Classifier Initialization:** The intent classifier may require asynchronous setup or dependency injection (e.g., loading a model). Ensure this is handled correctly in a `beforeAll` or `beforeEach` block.
+*   **Profile-Specific Logic:** The classifier might behave differently for each profile. Ensure the test correctly initializes the classifier for the specific profile being tested in each loop iteration.
+*   **Deployment Script Failure:** The `deploy.sh` script must be configured to abort the deployment if the `npm run test:regression` command fails (e.g., using `set -e`).
+
+>>>>>>> Stashed changes
+
+## Pre-analysis for US-149 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the idempotent booking confirmation feature in the `lhdn_payroll_integration` Frappe app.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-149 - Idempotent Booking Confirmation
+
+**Technical Brief:**
+
+This story requires adding an idempotent API endpoint for booking confirmations. The implementation should be done within the Frappe framework using Python.
+
+**1. Files to Modify:**
+*   `lhdn_payroll_integration/api.py`: Create a new whitelisted method (e.g., `create_booking_confirmation`) here to contain the core business logic.
+*   `lhdn_payroll_integration/hooks.py`: Update the `api_allowed_methods` dictionary to expose the new `create_booking_confirmation` method.
+
+**2. Frappe DocTypes / Hooks:**
+*   **DocType:** A `Booking` DocType (or similar) will be created or updated by the API method.
+*   **Hook:** `api_allowed_methods` in `hooks.py`.
+*   **Framework Cache:** Use `frappe.cache` to store and retrieve idempotency keys.
+
+**3. Implementation Approach:**
+1.  In `api.py`, define the `create_booking_confirmation` function.
+2.  Retrieve the idempotency key from the request headers (`frappe.request.headers.get("Idempotency-Key")`).
+3.  Check if `frappe.cache.get(idempotency_key)` returns a value. If so, return the cached response immediately.
+4.  If no cached value exists, proceed to create the `Booking` Frappe document.
+5.  Upon successful document creation, cache the response (e.g., `{"booking_id": new_booking.name}`) using the key: `frappe.cache.set(idempotency_key, response, ex=86400)`.
+6.  Return the new response.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the client is responsible for generating the UUID for the idempotency key.
+*   The cached response must be a JSON serializable dictionary to match what a live request would return.
+*   Handle potential race conditions where two identical requests arrive simultaneously before the first has finished processing and caching.
+*   Only cache responses on successful booking creation; failures should not be cached, allowing for safe retries.
+
+
+## Pre-analysis for US-149 (Gemini 2.5 Pro)
+This technical brief translates the provided user story's intent (idempotent API) from a Node.js context to a Frappe/Python implementation for the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+
+*   `lhdn_payroll_integration/api.py`: To define the whitelisted `@frappe.whitelist()` endpoint that will handle the booking creation.
+*   `lhdn_payroll_integration/utils.py`: A new file to house the `@idempotent_request` decorator logic, keeping the code clean and reusable.
+*   `lhdn_payroll_integration/hooks.py`: To register the daily scheduler event for cleaning up expired keys.
+*   `lhdn_payroll_integration/tasks.py`: To define the `purge_expired_keys` function called by the scheduler.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **New DocType: `IdempotencyKey`**: Create this to persist requests. Fields: `key` (Data, Unique), `request_hash` (Data), `response_body` (Long Text/JSON), `creation` (Datetime).
+*   **Target DocType (e.g., `Booking`)**: The DocType that is created by the business logic (e.g., a hotel booking or payroll entry).
+*   **Hook: `scheduler_events`**: In `hooks.py`, add a `"daily": [...]` event to trigger the key purging task.
+
+**3. Implementation Approach:**
+
+1.  Implement a Python decorator (`@idempotent_request`) in `utils.py`.
+2.  The decorator will read an `Idempotency-Key` header from `frappe.request.headers`.
+3.  It checks if an `IdempotencyKey` document with that key already exists. If yes, it returns the cached `response_body` from that document and stops execution.
+4.  If no key is found, it executes the main API function. Upon successful completion, it creates a new `IdempotencyKey` document, storing the key and the function's result.
+5.  Apply this decorator to the booking creation method in `api.py`.
+6.  Create a scheduled job that runs daily to delete `IdempotencyKey` records older than 24 hours.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Race Conditions**: Two identical requests arriving simultaneously. The database's `UNIQUE` constraint on the `key` field of the `IdempotencyKey` DocType will prevent duplicates. The decorator must handle the potential `UniqueValidationError`.
+*   **Request Body Mismatch**: A client might reuse a key for a different request. The decorator should also store and verify a hash of the request body (`request_hash`) to ensure the key is being used for the exact same payload.
+*   **Failed Requests**: Only store the idempotency key after the core booking logic has completed successfully. Do not cache failed or partial requests.
+
+
+## Iteration N - Story: US-149 Implement idempotent booking confirmation with idempotency keys
+
+### What was implemented
+- Created `src/routes/booking-confirm.ts` — POST `/booking-confirm` route with idempotency middleware
+  - Accepts `idempotency-key` header OR `x-idempotency-key` query param (UUID format)
+  - In-memory Map cache with 24h TTL; exports `idempotencyCache` for test inspection
+  - Duplicate requests return cached response with `idempotent: true` flag
+  - Periodic cleanup via `setInterval(...).unref()` to avoid blocking process exit
+- Added `bookingConfirmSchema` + `BookingConfirmInput` type to `shared/validation/rainbow-validation.ts`
+- Registered route in `src/routes/admin/index.ts`
+- Created `tests/integration/booking-idempotency.test.ts` — 7 tests, all pass
+- Updated `vitest.config.ts` integration project to include `tests/integration/**/*.{test,spec}.{ts,tsx}`
+
+### Patterns discovered
+- vitest `projects` config restricts file discovery; must add new test dirs to the matching project's `include`
+- `setInterval(...).unref()` prevents the cleanup interval from blocking process exit in tests
+- Export `idempotencyCache` from the route module allows test isolation via `beforeEach(() => cache.clear())`
+
+### Gotchas
+- `npm run test:run` script uses single quotes (Unix) — on Windows, run `npx vitest run <file>` directly
+- prd.json must be read/written with `encoding='utf-8'` on Windows to avoid cp1252 codec errors
