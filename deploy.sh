@@ -22,6 +22,11 @@ for arg in "$@"; do
   esac
 done
 
+# ── Regression Tests (quality gate) ─────────────────────────────────
+echo "==> Running intent classifier regression tests..."
+npm run test:regression
+echo "    Regression tests passed."
+
 # ── Build ────────────────────────────────────────────────────────────
 if [ "$SKIP_BUILD" = false ]; then
   echo "==> Building Rainbow AI (esbuild)..."
