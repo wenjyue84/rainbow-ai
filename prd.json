@@ -389,6 +389,143 @@
       "_decomposedFrom": "US-061"
     },
     {
+      "id": "US-105",
+      "title": "Add context-aware fallback response selection based on confidence and conversation history",
+      "priority": "high",
+      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
+        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
+        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-106",
+      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
+      "priority": "high",
+      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
+        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
+        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-108",
+      "title": "Add Makan Moments seasonal promotion inquiry intent",
+      "priority": "high",
+      "description": "Create café-specific seasonal_promotion_inquiry intent for Makan Moments to handle limited-time menu item questions without leaking to other profiles.",
+      "acceptanceCriteria": [
+        "Add seasonal_promotion_inquiry intent to src/assistant/data/data-makan/intents.json with café context only",
+        "Add seasonal keywords (limited edition, weekend special, promotion, special price) to data-makan/intent-keywords.json",
+        "Add test in tests/unit/intent-classifier-makan.test.ts asserting seasonal intents classify correctly and do NOT match Pelangi profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-107",
+      "title": "Add booking workflow confirmation step validation with required template placeholders",
+      "priority": "medium",
+      "description": "Validate booking workflow send_confirmation steps include required email/SMS templates with all necessary placeholder fields (guest name, dates, confirmation number) before workflow execution.",
+      "acceptanceCriteria": [
+        "Add validateConfirmationStep(step) function in src/assistant/pipeline/booking-validator.ts checking: step.type === 'send_confirmation' requires fields [email_template, sms_template, booking_reference]; verifies placeholders {{guest_name}}, {{check_in_date}}, {{check_out_date}} exist in at least one template; throws ActionableError with step path and missing field list",
+        "Add test in tests/booking-validator.test.ts that loads workflows.json and asserts all send_confirmation steps in booking workflows contain required placeholders; test also verifies invalid workflow (missing email_template) throws error with clear message",
+        "Call validateAllWorkflows() in src/index.ts startup sequence; log 'Booking confirmation validation: 4/4 workflows valid' or exit with error listing which workflow and which step requires repair"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-109",
+      "title": "Add guest sentiment tracking to conversation metadata",
+      "priority": "medium",
+      "description": "Track sentiment (positive/negative/neutral) on each guest message to improve fallback response selection and identify escalation triggers early.",
+      "acceptanceCriteria": [
+        "Add sentiment field to rainbow_conversations table via Drizzle migration in shared/schema-tables.ts",
+        "Implement sentiment classifier in src/assistant/pipeline/sentiment.ts using keyword-based scoring with unit tests for positive/neutral/negative classification",
+        "Fallback response selector in src/assistant/pipeline/fallback.ts uses sentiment to prioritize helpful vs. escalation responses"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-110",
+      "title": "Implement booking workflow draft save with 24-hour recovery",
+      "priority": "medium",
+      "description": "Allow guests to save incomplete booking state mid-workflow and resume within 24 hours, improving reliability and reducing abandoned bookings.",
+      "acceptanceCriteria": [
+        "Create booking_drafts table with columns: id, profile_id, guest_id, draft_state (JSONB), created_at, expires_at",
+        "Add POST /api/bookings/draft and GET /api/bookings/draft/:id endpoints in src/routes/admin/bookings.ts; include cleanup job deleting expired drafts",
+        "Unit tests verify draft persistence, retrieval, and automatic expiration after 24 hours"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-111",
+      "title": "Build fallback response effectiveness analytics endpoint",
+      "priority": "medium",
+      "description": "Create admin dashboard endpoint reporting which fallback responses trigger escalations within 2 turns, enabling confidence threshold optimization.",
+      "acceptanceCriteria": [
+        "Add GET /admin/analytics/fallback-effectiveness endpoint in src/routes/admin/analytics.ts returning {template_id, escalation_rate_percent, message_count, recommended_threshold}",
+        "Query logic joins escalation_events + rainbow_messages to measure escalation correlation within 2 turns",
+        "Integration test verifies escalation rate: send fallback alone (0%), send fallback then escalation (50%)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-112",
+      "title": "Implement multi-turn intent consistency validator",
+      "priority": "medium",
+      "description": "Detect abrupt intent switches in conversation (e.g., book → cancel → book in 3 messages) and flag for confidence review to prevent workflow errors.",
+      "acceptanceCriteria": [
+        "Add intent_switch_count tracking in src/assistant/pipeline/conversation-validator.ts; detect >2 intent changes in 5 consecutive messages",
+        "Log warning to conversation_feedback table when rapid switches detected; include intent_sequence field",
+        "Unit tests assert rapid intent switches detected; integration tests verify no false positives on room type clarification sequences"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-005",
       "title": "Fix .rej rejected patch files from previous Spiral run",
       "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
