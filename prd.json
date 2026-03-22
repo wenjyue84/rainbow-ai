@@ -59,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-22T23:52:45Z"
     },
     {
       "id": "US-094",
@@ -381,74 +382,6 @@
         "Add intent_classifier_baselines table storing profile_id, intent_type, baseline_accuracy (7-day rolling), last_updated; implement migration",
         "Add regression detection logic triggered during nightly analytics job: alert if accuracy drops >5% from baseline, create record in regression_alerts table",
         "Implement /admin/analytics/regression-alerts endpoint returning active/resolved regressions with affected intents, baseline accuracy, and current accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-160",
-      "title": "Profile-aware message routing validation middleware preventing cross-profile contamination",
-      "priority": "high",
-      "description": "Validate that incoming messages route to correct profile and log violations to audit trail to enforce strict business profile separation",
-      "acceptanceCriteria": [
-        "Add message routing validation middleware in src/assistant/pipeline/middleware/routing-validator.ts that asserts message.profile === target_profile before processing intent classification",
-        "Log all routing violations to rainbow_config_audit table with type 'cross_profile_routing', sender_id, intended_profile, actual_profile for investigation",
-        "Add src/tests/middleware/routing-validation.test.ts asserting middleware rejects messages where profile !== target and audit logs contain violation records with all required fields"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-161",
-      "title": "Real-time intent classification performance dashboard with per-profile metrics",
-      "priority": "medium",
-      "description": "Add admin dashboard showing intent classification accuracy trends per profile and intent type to help identify performance degradation early",
-      "acceptanceCriteria": [
-        "Implement /admin/analytics/dashboard/intent-performance endpoint returning accuracy trends with 24h/7d/30d windows per profile and intent type",
-        "Add simple HTML dashboard at /dashboard/intent-metrics consuming this endpoint with line chart visualization of accuracy over time",
-        "Store daily accuracy snapshots in database (new table intent_classification_metrics) computed from rainbow_messages.intent_predicted vs feedback data"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-162",
-      "title": "Guest sentiment analysis with automatic escalation for negative interactions",
-      "priority": "medium",
-      "description": "Analyze guest message sentiment in real-time and escalate to staff immediately when negative sentiment detected instead of providing generic fallback",
-      "acceptanceCriteria": [
-        "Integrate sentiment analysis library (e.g., npm sentiment) into message pipeline in src/assistant/pipeline/message-processor.ts, compute sentiment_score (-1.0 to 1.0)",
-        "Add sentiment_score column to rainbow_messages table with migration; store sentiment on every user message insertion",
-        "Auto-escalate messages with sentiment_score < 0.3 as escalation_events with type 'negative_sentiment' and sentiment value in escalation_data JSON"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-163",
-      "title": "Booking confirmation email template customization endpoint for per-profile branding",
-      "priority": "medium",
-      "description": "Allow admins to customize booking confirmation emails per profile so each business sends branded, business-specific confirmations instead of generic templates",
-      "acceptanceCriteria": [
-        "Create booking_email_templates table (profile_id, subject, body_html, updated_at); implement Drizzle migration in shared/schema-tables.ts",
-        "Implement GET /admin/workflows/booking-email-template/:profileId and PUT /admin/workflows/booking-email-template/:profileId endpoints with Zod validation in src/routes/admin/workflows.ts",
-        "Update booking workflow email sender in src/assistant/pipeline/workflow-executor.ts to fetch custom template per profile; fall back to src/assistant/data/email-templates/booking-default.html if not configured"
       ],
       "technicalNotes": [],
       "dependencies": [],
