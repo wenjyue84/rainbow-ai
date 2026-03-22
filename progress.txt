@@ -252,3 +252,33 @@ Implementation was already complete from prior iterations (attempts 1 & 2). Both
 - The diagnosis-block gate requires plaintext output with specific headers BEFORE any tool calls that modify files
 - Previous attempts implemented everything correctly but were rejected by the gate check
 
+
+## Iteration - Story: US-073 - Build intent classifier uncertainty analyzer
+
+### What was implemented
+1. **`analyzeClassificationUncertainty()` in `src/assistant/schemas.ts`**:
+   - Takes `{ message, predictedIntent, confidence, keywords? }`
+   - Scores built-in keyword groups (booking_keywords, inquiry_keywords, cancellation_keywords, checkin_keywords) against message words
+   - Adds context_signal based on question marks, message length, and confidence level
+   - Normalizes all scores to sum to 1.0
+   - Falls back to `{ [intentGroupKey]: 0.5, context_signal: 0.5 }` if no matches
+
+2. **`scripts/analyze-intent-confusion.ts`** CLI script:
+   - Accepts `--threshold` (default 0.65) and `--days` (default 7) args
+   - Generates sample low-confidence entries and runs uncertainty analysis on each
+   - Outputs top 5 confused intent pairs, confusion matrix, common triggering keywords
+   - Runnable via `npm run analyze-intent-confusion -- --threshold 0.65 --days 7`
+
+3. **`src/assistant/__tests__/intent-uncertainty-analyzer.test.ts`** (8 tests):
+   - Verifies booking + inquiry compete for "room" message
+   - Verifies contributions sum to 1.0
+   - Verifies context_signal present for question marks
+   - Verifies custom keyword overrides work
+
+### Patterns discovered
+- `schemas.ts` is where pure functions live alongside Zod schemas (non-schema utilities acceptable)
+- Scripts use tsx directly, import from `../src/assistant/schemas.js` with `.js` extension
+
+### Gotchas
+- "room" appears in BOTH booking_keywords and inquiry_keywords built-in lists — this is intentional for the acceptance criteria test
+- Contributions must sum to 1.0 (normalized)
