@@ -379,6 +379,7 @@ This task involves creating a new integration test suite, not modifying existing
 
 
 ## Pre-analysis for US-223 (Gemini 2.5 Pro)
+<<<<<<< Updated upstream
 **Project Correction:** The user story is for a **TypeScript/Node.js** project, not Frappe/Python. The implementation will be in TypeScript.
 
 Here is the technical brief for user story US-223:
@@ -658,4 +659,34 @@ This story requires creating a whitelisted API endpoint to validate a `Booking` 
 *   The query for overlapping bookings must be optimized to avoid performance issues, filtering by status (e.g., 'Confirmed', 'In-house') is crucial.
 *   Pricing logic can be complex; ensure all conditions (seasonal rates, guest count) are covered in the recalculation.
 *   This is a point-in-time check. The system state (e.g., room availability) could change between the check and the actual confirmation action.
+=======
+Here is the technical brief for user story US-223.
+
+This is a **TypeScript/Node.js** task, not Frappe/Python. The story requires creating a new validation module and integrating it into the application's startup process.
+
+**Technical Brief: US-223 Knowledge Base Content Validator**
+
+*   **Objective:** Implement a content validator that runs on server startup to ensure the integrity and profile isolation of `knowledge.json` files.
+
+*   **Files to Modify/Create:**
+    *   **Create:** `src/lib/validate-knowledge-base.ts` - This new file will export a main validation function.
+    *   **Modify:** The primary server entry point (likely `src/server.ts` or `src/main.ts`). It must be updated to import and call the validation function during its bootstrap sequence.
+
+*   **Involved Entities (No Frappe DocTypes):**
+    *   **Configuration/Data Files:** `knowledge.json` files for each profile (e.g., Pelangi, Makan, Southern). The script will need to dynamically locate and parse these files.
+
+*   **Implementation Approach:**
+    1.  In `validate-knowledge-base.ts`, create a function that locates all `knowledge.json` files across profile directories.
+    2.  For each file, parse the JSON and iterate through each knowledge entry.
+    3.  **Schema Validation:** Check for the presence and validity of `id`, `intent`, `profile_id`, and `response` fields.
+    4.  **Contamination Check:** If `profile_id` is 'makan' or 'southern', search the `response` string for forbidden keywords (e.g., "hostel", "capsule").
+    5.  The function should return a list of critical errors and warnings.
+    6.  In the server entry point, call this function. If critical errors are returned, throw an exception to halt startup. Otherwise, log any warnings.
+
+*   **Edge Cases & Gotchas:**
+    *   Startup will fail if a `profile_id` field is missing; this is a critical, blocking violation.
+    *   Violations like empty responses or keyword contamination should only log warnings and not block startup.
+    *   Error messages must be precise, including the file path, entry `id`, and the specific rule that failed.
+    *   The file discovery logic should be robust and not rely on hardcoded paths.
+>>>>>>> Stashed changes
 

@@ -84,15 +84,24 @@ function getResponseText(response: KnowledgeEntry['response']): string {
 }
 
 /**
- * Check if response contains forbidden phrases (case-insensitive)
+ * Check if response contains forbidden Pelangi phrases (case-insensitive).
+ * For non-hospitality profiles (makan), also flags check-in/check-out.
  */
-function containsForbiddenPhrases(text: string): string[] {
+function containsForbiddenPhrases(text: string, profileId: string): string[] {
   const lowerText = text.toLowerCase();
   const found: string[] = [];
 
-  for (const phrase of PELANGI_FORBIDDEN_PHRASES) {
-    if (lowerText.includes(phrase.toLowerCase())) {
-      if (!found.includes(phrase)) {
+  // Always check core Pelangi phrases
+  for (const phrase of PELANGI_PHRASES_ALL_PROFILES) {
+    if (lowerText.includes(phrase.toLowerCase()) && !found.includes(phrase)) {
+      found.push(phrase);
+    }
+  }
+
+  // For cafe profiles, also flag hospitality terms
+  if (profileId === 'makan') {
+    for (const phrase of PELANGI_PHRASES_CAFE_ONLY) {
+      if (lowerText.includes(phrase.toLowerCase()) && !found.includes(phrase)) {
         found.push(phrase);
       }
     }
@@ -164,7 +173,7 @@ function validateKnowledgeFile(
 
       // Check for cross-profile contamination (Pelangi phrases in Makan/Southern)
       if (profileId !== 'pelangi') {
-        const forbiddenFound = containsForbiddenPhrases(responseText);
+        const forbiddenFound = containsForbiddenPhrases(responseText, profileId);
         if (forbiddenFound.length > 0) {
           const details = `Found Pelangi-specific phrases: ${forbiddenFound.join(', ')}`;
           warnings.push(
