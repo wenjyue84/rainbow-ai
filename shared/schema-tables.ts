@@ -1454,6 +1454,27 @@ export const bookingStateAudit = pgTable("booking_state_audit", {
 export type BookingStateAuditRecord = typeof bookingStateAudit.$inferSelect;
 export type InsertBookingStateAuditRecord = typeof bookingStateAudit.$inferInsert;
 
+// ─── Booking Classification Failures (US-226) ────────────────────────
+// Logs booking intent classification failures where confidence < 0.65.
+// Used to detect patterns in misclassified booking messages so product
+// can improve keyword coverage and intent accuracy.
+
+export const bookingClassificationFailures = pgTable("booking_classification_failures", {
+  id: serial("id").primaryKey(),
+  messageId: text("message_id"),                     // optional message correlation id
+  rawInput: text("raw_input").notNull(),              // the original user message
+  profileId: text("profile_id").notNull().default('pelangi'),
+  top3Candidates: jsonb("top_3_candidates").notNull().default([]), // [{intent, confidence}]
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_bcf_profile_id").on(table.profileId),
+  index("idx_bcf_timestamp").on(table.timestamp),
+  index("idx_bcf_profile_timestamp").on(table.profileId, table.timestamp),
+]));
+
+export type BookingClassificationFailure = typeof bookingClassificationFailures.$inferSelect;
+export type InsertBookingClassificationFailure = typeof bookingClassificationFailures.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

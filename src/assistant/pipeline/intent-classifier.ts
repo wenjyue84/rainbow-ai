@@ -30,6 +30,7 @@ import { intentAnalytics, escalationQueue } from '../../../shared/schema-tables.
 import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
+import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAILURE_THRESHOLD } from '../booking-failure-logger.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -129,6 +130,17 @@ export async function classifyAndRoute(
   devMetadata.model = result.model;
   devMetadata.responseTime = result.responseTime;
   devMetadata.usage = result.usage;
+
+  // ─── US-226: Log booking classification failures ───────────────────
+  // Log when a booking-related intent is classified with low confidence (<0.65)
+  if (BOOKING_INTENT_CATEGORIES.has(result.intent) && result.confidence < BOOKING_FAILURE_THRESHOLD) {
+    logBookingClassificationFailure({
+      rawInput: processText,
+      profileId: state.profileId,
+      top3Candidates: [{ intent: result.intent, confidence: result.confidence }],
+      messageId: msg.messageId,
+    }).catch(() => {});
+  }
 
   // ─── US-119: Store language preference from first non-greeting message ───
   const isFirstMessage = convo.messages.length === 0;
