@@ -122,6 +122,7 @@ import workflowsRoutes from './workflows.js'; // US-290: Workflow dry-run endpoi
 import contextStatsRoutes from './context-stats.js'; // US-308: Context relevance reranker stats
 import bookingTraceRoutes from './booking-trace.js'; // US-309: Booking workflow trace timeline
 import keywordMinerRoutes from './keyword-miner.js'; // US-323: Intent Keyword Auto-Miner
+import routingAuditRoutes from './routing-audit.js'; // US-343: Live message routing integrity audit
 
 const router = Router();
 
@@ -410,6 +411,7 @@ router.use(workflowsRoutes);                      // US-290: Workflow dry-run en
 router.use(contextStatsRoutes);                   // US-308: Context relevance reranker stats
 router.use(bookingTraceRoutes);                   // US-309: Booking workflow trace timeline
 router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto-Miner
+router.use(routingAuditRoutes);                   // US-343: Live message routing integrity audit
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

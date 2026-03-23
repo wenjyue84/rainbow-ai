@@ -1650,6 +1650,32 @@ export const workflowErrorQueue = pgTable("workflow_error_queue", {
 export type WorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferSelect;
 export type InsertWorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferInsert;
 
+// ─── Routing Audit Logs (US-343) ─────────────────────────────────────
+// Records every message routing decision for cross-profile integrity auditing.
+// Captures source_profile, target_profile, and classifier result so violations
+// (source != target) can be queried for root-cause analysis.
+
+export const routingAuditLogs = pgTable("routing_audit_logs", {
+  id: serial("id").primaryKey(),
+  messageId: varchar("message_id", { length: 128 }).notNull(),
+  phone: varchar("phone", { length: 64 }).notNull(),
+  sourceProfile: text("source_profile").notNull(),
+  targetProfile: text("target_profile").notNull(),
+  classifierMatchResult: text("classifier_match_result"),  // intent matched, e.g. 'check_availability'
+  classifierConfidence: real("classifier_confidence"),      // 0.0-1.0
+  isViolation: boolean("is_violation").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_ral_source_profile").on(table.sourceProfile),
+  index("idx_ral_target_profile").on(table.targetProfile),
+  index("idx_ral_is_violation").on(table.isViolation),
+  index("idx_ral_created_at").on(table.createdAt),
+  index("idx_ral_phone").on(table.phone),
+]));
+
+export type RoutingAuditLog = typeof routingAuditLogs.$inferSelect;
+export type InsertRoutingAuditLog = typeof routingAuditLogs.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

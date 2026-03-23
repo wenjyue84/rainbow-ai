@@ -745,6 +745,7 @@ Based on the user story, here is a technical brief for the implementation in a F
 *   **Increased Latency:** The extra LLM call will add latency. Ensure the performance impact is acceptable for a real-time chat interface.
 *   **Empty History:** The function should handle cases with fewer messages than `max_history` by simply returning the original list.
 
+<<<<<<< Updated upstream
 
 ## Pre-analysis for US-333 (Gemini 2.5 Pro)
 Here is the technical brief for the Claude Code agent:
@@ -1127,3 +1128,56 @@ Verified:
 
 ### Gotchas
 - The diagnosis block gate requires the exact headers in plain text BEFORE any file edits or Bash commands that modify files.
+=======
+## Iteration 2 - Tue, Mar 24, 2026  5:43:07 AM
+FAILED diff-guard: Summarize Long Conversation History to Prevent Multi-Turn Token Breaches (ID: US-328) — 2104 lines > 500 limit — attempt 2/3
+
+
+## Pre-analysis for US-328 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js application, not a Frappe/Python one. The file paths and function names (`.ts` extension) clearly point to a TypeScript codebase.
+
+Here is the technical brief based on the provided JSON for the actual TypeScript project:
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**User Story:** US-328 - Summarize Long Conversation History
+
+**1. Python Files to Modify:**
+*   Not applicable. This is a TypeScript project. The primary file to modify will be `src/assistant/context-manager.ts`.
+*   A second file, likely responsible for the intent classification pipeline (e.g., `src/pipelines/intent-classification.ts` or similar), will also need changes to integrate the new summarization function.
+
+**2. Frappe DocTypes/Hooks Involved:**
+*   Not applicable. The core logic involves TypeScript functions and modules. The `summarizeConversationContext` function will be a new export from `context-manager.ts`.
+
+**3. Recommended Implementation Approach:**
+*   In `src/assistant/context-manager.ts`, implement `summarizeConversationContext(messages, maxHistory)`.
+*   Inside this function, if `messages.length` exceeds `maxHistory`, slice the oldest messages (`messages.slice(0, -maxHistory)`).
+*   Send these older messages to a compact, efficient AI model (like Claude Haiku) with a system prompt to extract and summarize only booking-critical facts (guest name, dates, room type, etc.).
+*   The function should return a new context object: `{ summary: "...", recentMessages: messages.slice(-maxHistory) }`.
+*   Modify the intent classification pipeline to call this function before preparing the final payload for the main AI provider, replacing the long message history with the new summary and recent messages.
+
+**4. Edge Cases & Gotchas:**
+*   **Empty Summary:** The summarization model might return an empty or useless summary if no critical facts are in the older messages. Handle this gracefully.
+*   **State Management:** Ensure the new summary is correctly prepended to the context for subsequent turns. The context for the AI will look like `[summary, ...recentMessages]`.
+*   **Token Miscalculation:** The summarization itself consumes tokens. Ensure the logic doesn't get stuck in a loop if the summary + recent messages are still too long.
+*   **Fact Preservation:** The unit test is critical. It must rigorously check that key facts from the *beginning* of a long conversation are preserved in the final summary.
+
+>>>>>>> Stashed changes
+
+## Iteration N - Tue, Mar 24, 2026 - Story: US-343 Live Message Routing Integrity Audit Endpoint — PASSED
+
+### What was implemented
+- Added `routingAuditLogs` table to `shared/schema-tables.ts` with fields: message_id, phone, source_profile, target_profile, classifier_match_result, classifier_confidence, is_violation, created_at
+- Created `src/routes/middleware/routing-audit.ts` with `logRoutingDecision()` — fire-and-forget, logs every routing decision, sets is_violation=true when source_profile != target_profile
+- Created `src/routes/admin/routing-audit.ts` with two endpoints:
+  - GET /audit/routing-violations?hours=24&profile_id=X — returns violation records
+  - GET /audit/routing-stats?hours=24 — returns aggregate stats (total, violations, rate)
+- Registered in `src/routes/admin/index.ts`
+- 8/8 tests passing in src/routes/admin/__tests__/routing-audit.test.ts
+
+### Patterns discovered
+- Middleware dir `src/routes/middleware/` did not exist — created it
+- Existing routing-validator in `src/assistant/pipeline/middleware/` only logs violations; this new middleware logs ALL decisions (broader audit)
+- Fire-and-forget pattern: errors swallowed in catch block, never throw
+
+### Gotchas
+- prd.json must be read/written with utf-8 encoding on Windows (default cp1252 causes UnicodeDecodeError)
