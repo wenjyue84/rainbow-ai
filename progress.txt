@@ -1957,3 +1957,54 @@ Here is the technical brief for the Claude agent.
 *   Consider conversations where no messages have keyword overlap; ensure a graceful fallback.
 *   Ensure the new admin endpoint is properly authenticated and authorized for admin users only.
 
+## Iteration 1 - Tue, Mar 24, 2026  3:55:13 AM
+FAILED diff-guard: Booking Workflow Step Execution Trace Logger (ID: US-309) — 510 lines > 500 limit — attempt 1/3
+
+
+## Pre-analysis for US-309 (Gemini 2.5 Pro)
+Here is the technical brief for the user story.
+
+**Project:** Rainbow AI (TypeScript/Node.js)
+**User Story:** US-309: Booking Workflow Step Execution Trace Logger
+
+### 1. Files to Modify
+
+*   **`src/assistant/workflow/executor.ts`**: To implement the core tracing logic by wrapping step execution.
+*   **`src/db/schema.ts`** (or similar): To define the new `booking_workflow_traces` table schema using Drizzle ORM.
+*   **`src/routes/admin.ts`** (or similar): To add the new `GET /admin/booking/:bookingId/trace` endpoint for retrieving traces.
+*   **`test/unit/workflow/execution-tracing.test.ts`**: To create a new test file asserting that traces are correctly generated and stored.
+
+### 2. Frappe DocTypes / Hooks (Analogues)
+
+*   **Database Table (DocType):** A new table, `booking_workflow_traces`, will be created to store the execution logs.
+*   **API Endpoint (Hook):** A new admin-facing REST endpoint will be created to expose the collected trace data for a specific booking.
+
+### 3. Implementation Approach
+
+1.  **Schema:** Define the `booking_workflow_traces` table in a Drizzle schema file, including columns for `booking_id`, `step_name`, `input_json`, `output_json`, `error_msg`, `duration_ms`, and timestamps. Run `drizzle-kit` to generate the SQL migration.
+2.  **Executor Logic:** In `executor.ts`, create the `executeWorkflowStepWithTrace` wrapper. This function will record a start time, call the original step execution function within a `try/catch` block, record the end time, and log the step's input, output (or error), and duration to the new database table.
+3.  **API Endpoint:** Add a new route handler for `GET /admin/booking/:bookingId/trace`. This handler will query the `booking_workflow_traces` table, filtering by the `bookingId` from the URL, and return the results as a JSON array, ordered by creation time.
+4.  **Testing:** Implement unit tests to verify that a multi-step workflow generates the expected number of trace records and that each record accurately captures the I/O and error states.
+
+### 4. Edge Cases & Gotchas
+
+*   **Performance:** The tracing mechanism adds a database write for every step. Ensure this is done asynchronously (without `await` in the hot path) to minimize performance impact on the booking workflow itself.
+*   **Data Size:** Input/output JSON can be large. Consider if truncation or a `jsonb` column type is necessary to avoid database performance issues or row size limits.
+*   **Error Handling:** The tracing logic itself should not cause the workflow to fail. Wrap database logging calls in their own `try/catch` to prevent logging failures from crashing the main process.
+*   **PII:** Review the input/output of all steps to ensure no sensitive Personally Identifiable Information is being logged in plain text.
+
+
+## Iteration 2 - Tue, Mar 24, 2026 - Story: US-309 Booking Workflow Step Execution Trace Logger
+### What was implemented
+- `shared/schema-tables.ts`: Added `bookingWorkflowTraces` table with id, booking_id, step_name, input_json, output_json, error_msg, duration_ms, created_at + 3 indexes
+- `src/assistant/workflow/executor.ts`: `executeWorkflowStepWithTrace(stepName, context, fn)` — transparent wrapper that times execution, captures input/output/error, fire-and-forgets trace to DB
+- `src/routes/admin/booking-trace.ts`: `GET /booking/:bookingId/trace` returning step timeline with totals and error summary
+- `src/routes/admin/index.ts`: Registered bookingTraceRoutes
+- `tests/unit/workflow/execution-tracing.test.ts`: 6 unit tests — success trace, input capture, output capture, error capture + re-throw, fallback bookingId, 5-step workflow
+
+### Patterns discovered
+- Previous attempt failed with 510-line diff (>500 limit). Kept this attempt lean (~220 lines) by removing unnecessary profile parameter and keeping test concise.
+- Fire-and-forget pattern using `dbReady.then(...)` avoids blocking workflow execution for tracing.
+
+### Gotchas
+- Node v24 escapes `!` in -e strings on Windows bash; use single quotes and avoid `!` in inline scripts.

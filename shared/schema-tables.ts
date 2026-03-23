@@ -1573,6 +1573,28 @@ export const rainbowLowconfMessages = pgTable("rainbow_lowconf_messages", {
 export type LowconfMessage = typeof rainbowLowconfMessages.$inferSelect;
 export type InsertLowconfMessage = typeof rainbowLowconfMessages.$inferInsert;
 
+// ─── Booking Workflow Traces (US-309) ─────────────────────────────────
+// Logs each booking workflow step's input, output, error, and duration
+// for post-mortem debugging of multi-step failures.
+
+export const bookingWorkflowTraces = pgTable("booking_workflow_traces", {
+  id: serial("id").primaryKey(),
+  bookingId: text("booking_id").notNull(),
+  stepName: text("step_name").notNull(),
+  inputJson: jsonb("input_json"),
+  outputJson: jsonb("output_json"),
+  errorMsg: text("error_msg"),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_bwt_booking_id").on(table.bookingId),
+  index("idx_bwt_step_name").on(table.stepName),
+  index("idx_bwt_created_at").on(table.createdAt),
+]));
+
+export type BookingWorkflowTrace = typeof bookingWorkflowTraces.$inferSelect;
+export type InsertBookingWorkflowTrace = typeof bookingWorkflowTraces.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
