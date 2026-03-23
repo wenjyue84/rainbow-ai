@@ -925,3 +925,85 @@ This is a Node.js/TypeScript user story, not Frappe/Python. The technical brief 
 - ✓ CLI verified to generate fixtures with `npm run cli:generate-intent-testcases -- --profile=pelangi --count=100`
 - ✓ Test file runs with `npx vitest run` and generates both .test.ts and .json files
 
+## Iteration 2 - Tue, Mar 24, 2026  6:07:46 AM
+FAILED diagnosis-block gate: Intent Classification Regression Test Dataset Generator (ID: US-338) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-338 (Gemini 2.5 Pro)
+This is a Node.js/TypeScript user story, not Frappe/Python. The technical brief has been adjusted accordingly.
+
+**Subject: Technical Brief for US-338: Intent Classification Test Generator**
+
+**1. Primary Files to Modify/Create:**
+*   **Create `scripts/generate-intent-testcases.ts`:** This new file will contain the core logic for the CLI tool. It will parse arguments, connect to the database, query intent data, and generate the test file.
+*   **Modify `package.json`:** Add the new CLI command to the `scripts` section: `"cli:generate-intent-testcases": "ts-node scripts/generate-intent-testcases.ts"`.
+*   **Read `src/db/schema.ts` (or similar):** The script will need to import Drizzle table schemas, likely for `intent_classifications` and `profiles`, to build its queries.
+*   **Read `intent-keywords.json`:** The script may need to read this file to cross-reference low-confidence keywords.
+
+**2. Involved DocTypes/Hooks (Node.js Equivalents):**
+*   **Database Tables:** The script will primarily query the `intent_classifications` production table.
+*   **CLI Entrypoint:** The feature is a command-line tool, not triggered by a web hook or UI event.
+
+**3. Recommended Implementation Approach:**
+1.  Use `yargs` or a similar library in `generate-intent-testcases.ts` to parse the `--profile` and `--count` arguments.
+2.  Initialize the Drizzle ORM client, connecting to the production database.
+3.  Query the `intent_classifications` table, filtering by the specified `profile`, ordering by creation date descending, and limiting by `count`.
+4.  Process the results to build a Vitest test file string. This string should contain:
+    *   `describe` blocks for each intent.
+    *   `it` blocks for each data point, asserting confidence scores are above a set floor (`expect(confidence).toBeGreaterThan(0.85)`).
+    *   A separate test suite to check for cross-profile contamination.
+5.  Write the generated string to `src/__tests__/fixtures/intent-classifications-${profile}.test.ts` using `fs.writeFileSync`.
+6.  Log any classifications with low confidence to the console, suggesting which keywords might need to be added to `intent-keywords.json`.
+
+**4. Edge Cases & Gotchas:**
+*   **Database Credentials:** The script must load production database credentials securely, likely via environment variables.
+*   **SQL Injection:** Use the Drizzle query builder exclusively; do not use raw SQL with interpolated string arguments.
+*   **No Data:** If the query returns no results for the given profile/timeframe, the script should generate a valid but skipped test file to prevent CI failures.
+*   **Asynchronous Operations:** All database and file system operations will be asynchronous; use `async/await` correctly.
+*   **Test File Formatting:** Use a code formatter like Prettier programmatically to ensure the generated test file is readable.
+
+
+## Pre-analysis for US-342 (Gemini 2.5 Pro)
+This user story (US-342) describes a feature for the current TypeScript project, `rainbow-ai`, not a Frappe/Python application. The acceptance criteria explicitly mention the file `src/assistant/fallback-generator.ts` and concepts like `intent_id` and `profile-isolated` responses, which are all relevant to the AI assistant architecture of this project.
+
+Here is the technical brief for implementing US-342 within the `rainbow-ai` (TypeScript) project:
+
+**Technical Brief: Context-Aware Fallback Generator (US-342)**
+
+1.  **Files to Modify:**
+    *   **`src/assistant/fallback-generator.ts`**: (Create or modify) This file will contain the core function for querying the database and identifying the best historical response.
+    *   **`src/assistant/FallbackHandler.ts`** (or equivalent): The existing code that provides static fallback responses must be modified to call the new generator.
+    *   **`src/lib/db/schema.ts`** (or Drizzle client location): To access and query the `escalation_events` table.
+    *   **`tests/assistant/fallback-generator.test.ts`**: (Create) A new test file is required to validate the logic as per acceptance criteria.
+
+2.  **Key Data Structures & Tables:**
+    *   **`escalation_events` table**: The primary data source. The implementation will need to query this table, filtering by `intent_id` and `profile_id`.
+    *   Key Columns: `staff_resolution`, `guest_feedback`, `intent_id`, `profile_id`.
+
+3.  **Recommended Implementation Approach:**
+    *   In `fallback-generator.ts`, create an async function `generateContextualFallback(intentId, profileId, conversationContext)`.
+    *   This function should use the project's database client to select `staff_resolution` from `escalation_events` where `intent_id` and `profile_id` match and `staff_resolution` is not null.
+    *   Filter these results to find "successful" resolutions (e.g., based on `guest_feedback` content or a potential future 'success' flag).
+    *   Use a text similarity library to calculate a score between the current `conversationContext` and the historical `staff_resolution` texts.
+    *   Return the resolution with the highest score, provided it exceeds the 0.75 threshold.
+    *   Update the main fallback handler to invoke this function. If it returns a valid response, use it; otherwise, revert to the old static template mechanism.
+
+4.  **Edge Cases & Gotchas:**
+    *   **No Matching Escalations**: If no successful escalations are found for an intent, the system must gracefully fall back to a generic, static response.
+    *   **Performance**: The DB query and similarity scoring could be slow. Consider caching resolutions for frequently triggered intents to reduce latency.
+    *   **Profile Isolation**: The database query MUST strictly enforce `WHERE profile_id = ?` to prevent data leakage between different AI profiles (e.g., Pelangi vs. Makan).
+    *   **Similarity Tuning**: The 0.75 score is a starting point. It may require tuning to balance relevance against the risk of providing no response.
+    *   **Defining Success**: The logic for what constitutes a "successful" resolution from `guest_feedback` needs to be clearly defined and implemented.
+
+
+## Iteration 16 - Tue, Mar 24, 2026 - Story: US-338 Intent Classification Regression Test Dataset Generator — PASSED (Retry 2)
+
+### What was implemented
+Story was already fully implemented from iteration 15. The script `scripts/generate-intent-testcases.ts` and fixture `src/__tests__/fixtures/intent-classifications-pelangi.test.ts` existed and all 12 tests pass.
+
+### Why previous attempt failed
+The outer loop's diagnosis-block gate blocked the attempt before it could mark passes=true. This retry confirmed implementation was complete and marked the story done.
+
+### Patterns discovered
+- When retrying stories, check if implementation already exists before re-implementing
+- The diagnosis block requirement is enforced by the outer loop gate, not the code itself
