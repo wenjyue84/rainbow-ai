@@ -1156,3 +1156,58 @@ All code was already present from a prior iteration:
 ### Patterns discovered
 - Story was fully implemented but passes=false — verification pass was needed
 - Regression detected by comparing stored baseline vs live 7-day analytics window
+## Iteration 1 - Tue, Mar 24, 2026  1:45:04 AM
+FAILED diagnosis-block gate: Build intent classification confidence baseline tracker with per-profile regression detection (ID: US-247) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-247 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for implementing the feature within a FraPPe/Python context.
+
+**Note:** The provided story references a TypeScript/Node.js stack (`schemas.ts`, Zod). This brief translates the story's intent into the equivalent Frappe/Python architecture.
+
+### **Technical Brief: US-247 Intent Baseline Tracking**
+
+**1. Python Files to Modify:**
+
+*   **`.../doctype/intent_accuracy_baseline/intent_accuracy_baseline.py`**: A new file to contain the controller logic for the new DocType, including the core `compute_intent_baseline` function.
+*   **`.../api.py`**: To add the new whitelisted `GET` endpoint for retrieving baseline data for the admin UI.
+*   **`.../hooks.py`**: To add a new daily or hourly `scheduler_event` that will trigger the baseline computation job.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **New DocType: `Intent Accuracy Baseline`**:
+    *   **Fields**: `profile` (Link), `intent` (Data), `mean_confidence` (Float), `min_confidence` (Float), `threshold` (Float), `last_updated` (Datetime).
+    *   **Permissions**: System Manager only.
+*   **Scheduler Hook**: A new entry in `hooks.py` like `"hourly": ["...tasks.update_intent_baselines"]` to run the analysis periodically.
+
+**3. Implementation Approach:**
+
+1.  **Create DocType**: Define the `Intent Accuracy Baseline` DocType via `.json` definition files.
+2.  **Scheduled Job**: Implement `update_intent_baselines` as a background job (`frappe.enqueue`). This function will iterate through all relevant profiles, fetch recent prediction data, and call a helper `compute_intent_baseline` for each.
+3.  **API Endpoint**: Create a whitelisted function `get_intent_baselines(profile)` in `api.py`. It will query the `Intent Accuracy Baseline` DocType, compare the stored `mean_confidence` against a fresh calculation, and return a list of intents, flagging any with a confidence drop >5%.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Data Source**: The story assumes `recentPredictions[]` exists. A source DocType containing raw prediction logs must be identified or created first.
+*   **Performance**: The scheduled job could be resource-intensive. Ensure database queries for prediction data are indexed and optimized. Process profiles/intents in batches to avoid timeouts.
+*   **Alerting**: The "alert product team" requirement can be implemented using `frappe.sendmail` within the scheduled job when a regression is detected.
+*   **New Intents**: The system must gracefully handle intents that are new and have no baseline yet. The initial baseline should be established after a minimum number of predictions have been logged.
+
+
+## Iteration 9 - Story: Intent Classification Confidence Baseline Tracker (US-247) — PASSED (attempt 2)
+
+### What was implemented
+All code was already in place from prior iterations — this was a verification pass only:
+- `shared/schema-tables.ts`: `intentAccuracyBaselines` table with profile, intent, mean_confidence, min_confidence, threshold, sample_count, last_updated
+- `src/assistant/intent-accuracy-baseline.ts`: `computeIntentBaseline()` function (mean + p5 percentile)
+- `src/routes/admin/intent-accuracy.ts`: GET + POST endpoints with live regression detection
+- `src/routes/admin/index.ts`: Route registered
+
+### Quality checks
+- esbuild build: PASS
+- Server startup: PASS
+- prd.json: passes=true
+
+### Gotchas
+- Previous attempt failed due to DIAGNOSIS_BLOCK_MISSING runner gate — needed to output diagnosis block before any file edits
+- Code was fully implemented but passes field was never set to true
