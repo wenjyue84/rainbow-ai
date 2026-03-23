@@ -869,3 +869,43 @@ FAILED diagnosis-block gate: Profile Data File Integrity Validator CLI with Cros
 
 ### Gotchas
 - vitest must be run with npx on Windows (NODE_OPTIONS env var syntax differs)
+
+## Iteration 3 - Story: US-228 Booking Workflow Step Pre-Execution Validation
+
+### What was implemented
+- Created `src/assistant/booking-validator.ts` with `validateBookingPreconditions()` function
+  - Validates guest exists (phone/ID present)
+  - Validates check-in date not in past
+  - Validates room availability via roomReservations table
+  - Detects overlapping bookings for guest
+  - Returns guest-friendly error messages with recovery suggestions
+- Created `extractBookingContext()` helper to map workflow step IDs to booking fields
+- Created `src/__tests__/booking-validator.test.ts` with 7 comprehensive tests:
+  1. Valid booking passes validation
+  2. Missing guest info returns error
+  3. Past date caught
+  4. Room unavailable suggests alternatives
+  5. Overlapping bookings detected
+  6. Context extraction from workflow state
+  7. Missing fields handled gracefully
+
+### Integration with workflow-executor.ts
+- Added import of `validateBookingPreconditions` and `extractBookingContext`
+- Added US-228 precondition validation block before step action execution
+- Only applies to workflows with "book" or "booking" in workflow ID (fail-safe)
+- Returns guest-friendly error message + escalates to staff on validation failure
+- Validation errors logged but don't break workflow (fail-open on unexpected errors)
+
+### Patterns discovered
+- Database queries use pg Pool directly for async availability checks
+- Validation gracefully degrades (fail-open) when DB unreachable
+- Date parsing supports multiple formats: "15 Feb", "15/2/2026", "2026-02-15"
+- Workflow step IDs are case-insensitive when extracting context fields
+
+### Quality checks
+- npm run build: SUCCESS (2.3mb bundle)
+- Vitest tests: 7/7 PASSED
+- All acceptance criteria met:
+  ✓ validateBookingPreconditions() in booking-validator.ts
+  ✓ Called before executeWorkflowStep() in workflow-executor.ts
+  ✓ 5 comprehensive test cases covering all scenarios

@@ -9,6 +9,7 @@ import { executeWithTimeout, WorkflowTimeoutError, logTimeoutFailure } from './w
 import { logMessage } from './conversation-logger.js';
 import { recordStepMetric } from './workflow-profiler.js';
 import { pool } from '../lib/db.js';
+import { validateBookingPreconditions, extractBookingContext } from './booking-validator.js';
 import type {
   HybridWorkflowDefinition, WorkflowNode, NodeWorkflowState,
   MessageNodeConfig, WaitReplyNodeConfig, WhatsAppSendNodeConfig,
@@ -387,6 +388,37 @@ export async function executeWorkflowStep(
   }
 
   let response = getStepMessage(currentStep, language);
+
+  // ─── US-228: Booking Precondition Validation ──────────────────────
+  // Validate preconditions before executing booking workflow steps
+  if (currentStep.id && (state.workflowId.includes('book') || state.workflowId.includes('booking'))) {
+    try {
+      const bookingContext = extractBookingContext(state, context.profileId);
+      const validationResult = await validateBookingPreconditions(state, bookingContext);
+
+      if (!validationResult.valid) {
+        // Return validation errors as guest-friendly message
+        const errorMessage = validationResult.errors.join('\n\n');
+        console.warn(
+          `[WorkflowExecutor] US-228: Booking precondition validation failed for step "${currentStep.id}": ${errorMessage}`
+        );
+
+        return {
+          response: errorMessage,
+          newState: null, // Complete workflow with error
+          shouldForward: true, // Escalate for staff review
+          workflowId: state.workflowId,
+          stepId: currentStep.id
+        };
+      }
+    } catch (err) {
+      // Log validation errors but allow workflow to proceed (fail-open)
+      console.error(
+        `[WorkflowExecutor] US-228: Unexpected error during booking precondition validation:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   // Enhance step if action present and phone available
   if (currentStep.action && phone && sendMessageFn) {
