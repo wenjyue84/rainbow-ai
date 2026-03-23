@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-352",
-      "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
-      "priority": "high",
-      "description": "When a booking workflow step fails, capture structured error details (step name, input values, error type) and automatically generate guest-facing recovery suggestion + queue for staff review. Improves booking reliability.",
-      "acceptanceCriteria": [
-        "In src/assistant/booking/step-error-handler.ts, catch step execution errors and create rainbow_escalation_events row with {step_id, input_values, error_type, guest_recovery_msg, staff_notes}",
-        "Generate profile-aware recovery message (e.g., for Pelangi: 'I couldn't confirm your booking. Our front desk will call you shortly'; for Makan: 'Unable to process order. Our staff will follow up'). No generic messages.",
-        "Unit test: verify error is caught, escalation event created, recovery message is profile-specific, staff can view in /admin/escalations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T23:30:02Z"
-    },
-    {
       "id": "US-353",
       "title": "Fix Makan Moments and Southern Homestay Profile Data Contamination",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T23:50:26Z"
     },
     {
       "id": "US-354",
@@ -405,159 +388,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-365",
-      "title": "Build Booking Workflow Critical Path Analyzer CLI to Identify Bottleneck Steps",
-      "priority": "medium",
-      "description": "Analyzes workflows.json dependency graph to identify booking workflow steps that, if they fail, block the most downstream steps. Helps prioritize reliability improvements.",
-      "acceptanceCriteria": [
-        "CLI command `npm run analyze:critical-path` reads src/assistant/data/workflows.json, builds dependency graph, outputs each booking step with blocking_factor (number of steps blocked if this step fails)",
-        "Steps with blocking_factor >= 3 are flagged as CRITICAL in output; generates actionable recommendation to focus testing on these steps",
-        "Test src/__tests__/workflows-critical-path.test.ts validates that check-in step has higher blocking_factor than room-selection step"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-366",
-      "title": "Add Intent Classifier Confidence Calibration Measurement CLI",
-      "priority": "medium",
-      "description": "Measures whether reported confidence scores match actual accuracy. Tool evaluates classifier on labeled dataset and outputs calibration error per confidence bucket to improve intent classification reliability.",
-      "acceptanceCriteria": [
-        "CLI command `npm run validate:calibration --dataset src/__tests__/data/intent-calibration-dataset.json` loads test dataset, runs classifier, outputs calibration_error = |expected_accuracy - actual_accuracy| per confidence bucket (0-10%, 10-20%, ... 90-100%)",
-        "Buckets with calibration_error > 15% flagged as uncalibrated; suggests confidence threshold adjustments in report",
-        "Identifies if classifier is overconfident (predicts 95% but only 80% correct) or underconfident, enabling threshold recalibration"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-367",
-      "title": "Build Fallback Response Escalation Analyzer CLI to Identify Low-Performing Fallbacks",
-      "priority": "medium",
-      "description": "Analyzes production logs to track escalation rates for fallback responses by intent. Identifies which intents have highest escalation rates after fallback response, highlighting which fallbacks need improvement.",
-      "acceptanceCriteria": [
-        "CLI command `npm run analyze:fallback-escalations --output report.json` reads spiral_events.jsonl, filters for (fallback_response_used=true, escalation_within_2_turns=true) events, groups by (intent, fallback_response_id), computes escalation_rate",
-        "Output ranks intents by escalation_rate descending; flags intents with escalation_rate > 30% as needing better fallback responses with actionable suggestions",
-        "Report includes sample escalations (5-10 event IDs) for manual review per high-escalation intent, enabling targeted fallback improvement"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-368",
-      "title": "Implement Booking Confirmation Idempotency Validator CLI with Duplicate Detection",
-      "priority": "medium",
-      "description": "Validates idempotency implementation by submitting duplicate booking requests with same idempotency key and verifying only one reservation is created. Ensures booking workflow reliability against retry storms.",
-      "acceptanceCriteria": [
-        "CLI command `npm run validate:idempotency --booking-data '{\"roomId\":\"101\",\"checkIn\":\"2026-04-01\"}' --profile pelangi` submits identical booking twice with same idempotency key; verifies both responses return identical booking_id and database shows exactly 1 booking created (not 2)",
-        "Validator tests both REST API endpoint and WhatsApp message retry scenario (Baileys duplicate handling) to ensure idempotency works end-to-end",
-        "Test src/__tests__/booking-idempotency.test.ts validates concurrent duplicate requests with same idempotency key return consistent results and increment guest booking count by 1 only"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-381",
-      "title": "Conversation Archival Scheduler with PDPA-Compliant Retention",
-      "priority": "medium",
-      "description": "Implement automatic archival of inactive conversations >30 days old to cold storage. Moves conversation_messages from hot Postgres storage to DynamoDB/S3, keeping system responsive while maintaining audit trail. Supports PDPA compliance for data retention minimization.",
-      "acceptanceCriteria": [
-        "Create src/tools/conversation-archival.ts with async function that queries conversations with no messages >30 days, archives to DynamoDB archive-conversations table, deletes from Neon",
-        "Add cron job to ecosystem.config.cjs running daily at 2 AM; logs archive count and duration to monitoring/stdout",
-        "Test verifies conversation created 31 days ago is archived; conversation created 29 days ago is not; archived conversation still queryable via admin API"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-382",
-      "title": "VIP Guest Priority Routing with Manager Approval Workflow",
-      "priority": "medium",
-      "description": "Implement VIP guest detection and priority handling. VIP bookings require manager approval before confirmation instead of auto-confirming. Supports customer tier differentiation and prevents high-value guest booking errors.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/vip-guests.json schema: { guests: [{ phone: string, is_vip: boolean, approval_required: boolean }] }",
-        "Booking workflow checks guest phone against VIP list; if is_vip=true, routes to new 'manager-approval' step before confirmation that blocks execution until manager responds",
-        "Test verifies non-VIP booking auto-confirms after room check; VIP booking pauses at approval step; approval_required=false bypasses approval even if is_vip=true"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-385",
-      "title": "Intent Misclassification Pattern Analyzer CLI for Production Log Analysis",
-      "priority": "medium",
-      "description": "Analyzes production conversation logs to identify intent misclassification patterns, grouping by (actual, predicted) pairs and showing keyword overlap and confidence distribution for each pair. Helps product owner identify which intent pairs need keyword disambiguation.",
-      "acceptanceCriteria": [
-        "CLI command 'npm run intent:analyze-misclassifications --profile=data-pelangi' outputs JSON report with top 10 misclassification pairs, confidence stats, and suggested keyword conflicts to resolve",
-        "Report includes keyword overlap analysis showing which keywords appear in both intents of a misclassified pair",
-        "Creates 'src/tools/intent-misclassification-analyzer.ts' with data source from rainbow_messages table filtered by intent_actual != intent_predicted"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-386",
-      "title": "Booking Workflow Step Execution Performance Profiler with Bottleneck Detection",
-      "priority": "medium",
-      "description": "Profiles each booking workflow step's execution time, collects percentile latencies (P50/P95/P99), and identifies bottleneck steps. Provides admin endpoint for performance dashboard and highlights steps exceeding latency thresholds.",
-      "acceptanceCriteria": [
-        "File 'src/lib/booking-workflow-profiler.ts' wraps workflow step execution with timing, stores metrics in database table with (step_name, duration_ms, timestamp, profile), and exports getStepMetrics(stepName) returning {p50, p95, p99, sampleCount}",
-        "Admin endpoint GET '/admin/analytics/booking-performance' returns per-step latencies and flags steps with P95 > 500ms as bottlenecks, includes sample execution traces for slow steps",
-        "Unit test asserts profiler accurately measures step timing within 50ms variance and correctly classifies step with 1000ms execution as bottleneck when P95 threshold is 500ms"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-387",
-      "title": "Low-Confidence Intent Pattern Detector with Per-Intent Confidence Tracking",
-      "priority": "medium",
-      "description": "Detects patterns in low-confidence intent classifications by analyzing which intents consistently receive low confidence scores. Identifies systemic classification weaknesses vs. random noise to guide keyword improvements and intent definition refinement.",
-      "acceptanceCriteria": [
-        "Tool 'src/tools/low-confidence-pattern-detector.ts' queries intent_analytics table to compute per-intent confidence percentiles and flags intents with median confidence < 0.7 (configurable threshold)",
-        "Admin endpoint GET '/admin/analytics/low-confidence-intents' returns top 10 intents sorted by low-confidence occurrence frequency, includes per-intent stats (mean confidence, sample count, last 5 examples with timestamps and user messages)",
-        "Dashboard includes 7-day confidence trend per intent queryable by profile via ?profile=data-pelangi, surfaces intents with declining confidence trends for product owner prioritization"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -825,6 +655,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-352",
+      "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
+      "priority": "high",
+      "description": "When a booking workflow step fails, capture structured error details (step name, input values, error type) and automatically generate guest-facing recovery suggestion + queue for staff review. Improves booking reliability.",
+      "acceptanceCriteria": [
+        "In src/assistant/booking/step-error-handler.ts, catch step execution errors and create rainbow_escalation_events row with {step_id, input_values, error_type, guest_recovery_msg, staff_notes}",
+        "Generate profile-aware recovery message (e.g., for Pelangi: 'I couldn't confirm your booking. Our front desk will call you shortly'; for Makan: 'Unable to process order. Our staff will follow up'). No generic messages.",
+        "Unit test: verify error is caught, escalation event created, recovery message is profile-specific, staff can view in /admin/escalations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T23:30:02Z"
     },
     {
       "id": "US-351",
