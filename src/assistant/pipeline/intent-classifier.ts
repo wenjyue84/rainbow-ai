@@ -27,6 +27,7 @@ import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics } from '../../../shared/schema-tables.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
+import { logClassificationDecision } from './intent-audit-logger.js';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
 
 const logger = createModuleLogger('IntentClassifier');
@@ -162,6 +163,14 @@ export async function classifyAndRoute(
     intentType: result.intent,
     confidence: result.confidence,
     latencyMs: classificationLatencyMs,
+  }).catch(() => {}); // fire-and-forget
+
+  // ─── US-239: Audit log every classification decision ──────────────
+  logClassificationDecision({
+    profileName: state.profileId,
+    messageText: processText,
+    classifiedIntent: result.intent,
+    confidenceScore: result.confidence,
   }).catch(() => {}); // fire-and-forget
 
   // ─── US-113: Persist intent prediction confidence scores ──────────
