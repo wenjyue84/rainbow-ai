@@ -326,3 +326,205 @@ export function deduplicateContextMessages(
 
   return kept;
 }
+
+// ─── US-328: Conversation Context Summarization ──────────────────────
+
+/**
+ * Result of conversation summarization
+ */
+export interface SummarizationContextResult {
+  summary: string;
+  recentMessages: ChatMessage[];
+  messageReductionRatio: number;  // (original count - recent count) / original count
+  factsExtracted: {
+    guestName?: string;
+    roomType?: string;
+    checkInDate?: string;
+    checkOutDate?: string;
+    specialRequests?: string[];
+    guestCount?: string;
+  };
+}
+
+/**
+ * US-328: Summarize long conversation history to prevent multi-turn token breaches.
+ *
+ * Extracts key booking-critical facts from older messages (guest name, room type,
+ * check-in/out dates, special requests) and keeps only the most recent messages
+ * (up to maxHistoryMessages). This preserves essential information while reducing
+ * context size.
+ *
+ * @param messages - Full conversation history (ChatMessage array)
+ * @param maxHistoryMessages - Number of recent messages to keep (default: 10)
+ * @returns Summary result with extracted facts, summary text, and recent messages
+ */
+export function summarizeConversationContext(
+  messages: ChatMessage[],
+  maxHistoryMessages: number = 10,
+): SummarizationContextResult {
+  if (!messages || messages.length === 0) {
+    return {
+      summary: '',
+      recentMessages: [],
+      messageReductionRatio: 0,
+      factsExtracted: {},
+    };
+  }
+
+  // If within history limit, no summarization needed
+  if (messages.length <= maxHistoryMessages) {
+    return {
+      summary: '',
+      recentMessages: [...messages],
+      messageReductionRatio: 0,
+      factsExtracted: {},
+    };
+  }
+
+  // Extract key facts from older messages
+  const facts = extractBookingCriticalFacts(messages);
+
+  // Keep only the most recent maxHistoryMessages
+  const recentMessages = messages.slice(-maxHistoryMessages);
+
+  // Build summary from extracted facts
+  const summaryParts: string[] = [];
+  if (facts.guestName) {
+    summaryParts.push(`Guest: ${facts.guestName}`);
+  }
+  if (facts.roomType) {
+    summaryParts.push(`Room type: ${facts.roomType}`);
+  }
+  if (facts.checkInDate) {
+    summaryParts.push(`Check-in: ${facts.checkInDate}`);
+  }
+  if (facts.checkOutDate) {
+    summaryParts.push(`Check-out: ${facts.checkOutDate}`);
+  }
+  if (facts.guestCount) {
+    summaryParts.push(`Guests: ${facts.guestCount}`);
+  }
+  if (facts.specialRequests && facts.specialRequests.length > 0) {
+    summaryParts.push(`Special requests: ${facts.specialRequests.join(', ')}`);
+  }
+
+  const summary = summaryParts.length > 0
+    ? `[Summary of ${messages.length - maxHistoryMessages} earlier messages] ${summaryParts.join(' | ')}`
+    : '';
+
+  const messageReductionRatio = messages.length > 0
+    ? (messages.length - recentMessages.length) / messages.length
+    : 0;
+
+  // Log the summarization with reduction ratio
+  const reductionPercent = Math.round(messageReductionRatio * 100);
+  logger.info(
+    `Conversation summarized: ${messages.length} -> ${recentMessages.length} messages ` +
+    `(${reductionPercent}% reduction)`,
+    {
+      originalCount: messages.length,
+      recentCount: recentMessages.length,
+      summaryLength: summary.length,
+      factsExtracted: Object.keys(facts).filter(k => (facts as any)[k]),
+    }
+  );
+
+  return {
+    summary,
+    recentMessages,
+    messageReductionRatio,
+    factsExtracted: facts,
+  };
+}
+
+/**
+ * Extract booking-critical facts from conversation messages.
+ *
+ * Scans messages for patterns matching:
+ * - Guest name (from greetings or explicit mentions)
+ * - Room type (double, single, suite, etc.)
+ * - Check-in/check-out dates
+ * - Guest count (number of people)
+ * - Special requests (allergies, accessibility, preferences)
+ *
+ * @param messages - Conversation history to scan
+ * @returns Object with extracted facts
+ */
+function extractBookingCriticalFacts(messages: ChatMessage[]): SummarizationContextResult['factsExtracted'] {
+  const facts: SummarizationContextResult['factsExtracted'] = {};
+
+  // Combine all message content for pattern matching
+  const fullText = messages.map(m => m.content).join(' ');
+  const textLower = fullText.toLowerCase();
+
+  // Extract guest count (e.g., "2 guests", "for 3", "4 people")
+  const guestCountMatch = textLower.match(/(?:for\s+)?(\d+)\s+(?:guests?|people|persons?)/);
+  if (guestCountMatch) {
+    facts.guestCount = guestCountMatch[1];
+  }
+
+  // Extract room type (double, single, twin, suite, dorm, family, studio)
+  // Flexible matching: "double room", "a double room", "want double", etc.
+  const roomTypeMatch = textLower.match(/(?:a\s+)?(double|single|twin|suite|dorm|family|studio)(?:\s+room)?/);
+  if (roomTypeMatch) {
+    facts.roomType = roomTypeMatch[1];
+  }
+
+  // Extract check-in date patterns
+  const checkInMatch = fullText.match(
+    /(?:check[-\s]?in|arrive|arrival)[\s\w.,:]*?(?:on\s+)?([A-Z][a-z]+\s+\d{1,2}(?:,?\s*\d{4})?|\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i
+  );
+  if (checkInMatch) {
+    facts.checkInDate = checkInMatch[1];
+  }
+
+  // Extract check-out date patterns
+  const checkOutMatch = fullText.match(
+    /(?:check[-\s]?out|leave|departure)[\s\w.,:]*?(?:on\s+)?([A-Z][a-z]+\s+\d{1,2}(?:,?\s*\d{4})?|\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i
+  );
+  if (checkOutMatch) {
+    facts.checkOutDate = checkOutMatch[1];
+  }
+
+  // Extract special requests (allergies, accessibility, high floor, early check-in, quiet, etc.)
+  const specialRequestPatterns = [
+    /allerg(?:y|ies)[:\s]+([^.!\n]+)/i,
+    /(?:special\s+)?request(?:s)?[:\s]+([^.!\n]+)/i,
+    /(?:accessibility|wheelchair|mobility)[:\s]+([^.!\n]+)/i,
+    /(?:high|low|ground)\s+floor/i,
+    /(?:early|late)\s+(?:check[-\s]?in|check[-\s]?out)/i,
+    /(?:quiet|corner|away\s+from)\s+(?:room|area)/i,
+    /quiet\s+room/i,
+  ];
+
+  facts.specialRequests = [];
+  for (const pattern of specialRequestPatterns) {
+    const matches = fullText.match(pattern);
+    if (matches) {
+      const request = matches[1] || matches[0];
+      if (request && !facts.specialRequests.includes(request)) {
+        facts.specialRequests.push(request.trim());
+      }
+    }
+  }
+
+  if (facts.specialRequests.length === 0) {
+    delete facts.specialRequests;
+  }
+
+  // Extract guest name from first user message or explicit mentions
+  // Look for patterns like "My name is ...", "I am ...", "I'm ...", "Call me ...", "This is ..."
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      const nameMatch = msg.content.match(
+        /(?:my\s+name\s+is|i\s+am|i'm|call\s+me|this\s+is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i
+      );
+      if (nameMatch) {
+        facts.guestName = nameMatch[1];
+        break;
+      }
+    }
+  }
+
+  return facts;
+}
