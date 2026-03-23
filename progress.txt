@@ -1481,3 +1481,38 @@ Here is the technical brief for implementing user story US-207 in a Frappe/Pytho
 *   **Filtering:** The `profile` field is critical for multi-tenant filtering and must be indexed for performance.
 *   **API Naming:** The Frappe endpoints will be `POST /api/method/lhdn_payroll_integration.api.add_intent_hard_case` and `GET /api/method/lhdn_payroll_integration.api.get_intent_hard_cases`.
 
+## Iteration 1 - Mon Mar 23 17:41:23 MPST 2026
+FAILED diagnosis-block gate: Add intent classification hard-case queue for manual product review (ID: US-207) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-207 (Gemini 2.5 Pro)
+Based on the user story JSON, the request targets a Node.js/TypeScript application, not a Frappe/Python one. The following technical brief has been adapted for the correct technology stack.
+
+---
+
+**Subject:** Technical Brief for US-207: Intent Hard-Case Review Queue
+
+**1. TypeScript Files to Modify:**
+*   `src/routes/admin/intent-analytics.ts`: Implement the new API route handlers here.
+*   `src/assistant/__tests__/intent-analytics.test.ts`: Add unit tests validating the new endpoints and logic.
+*   A new database interaction service might be needed (e.g., `src/services/analyticsService.ts`) to keep the route handlers clean.
+
+**2. Involved Entities (Routes & Database):**
+*   **API Routes:**
+    *   `POST /admin/api/intent-hard-cases`
+    *   `GET /admin/api/intent-hard-cases`
+*   **Database Table:** `intent_hard_cases`
+*   **Data Schema:** Expects fields like `{ conversationId, intentId, confidence, reason }`.
+
+**3. Recommended Implementation Approach:**
+1.  Define the schema and create a database migration for the `intent_hard_cases` table.
+2.  In `intent-analytics.ts`, add a handler for the `POST` endpoint to validate and insert new hard-case records.
+3.  Implement the `GET` handler to fetch records, performing a `GROUP BY` on the predicted intent to structure the response as required.
+4.  Add unit tests in `intent-analytics.test.ts` to mock `POST` calls and verify the `GET` endpoint returns the correct data structure and aggregations.
+
+**4. Edge Cases & Gotchas:**
+*   **Authentication:** Ensure the new admin endpoints are protected by an appropriate auth middleware.
+*   **Data Aggregation:** The grouping and breakdown required by the `GET` endpoint may need a complex database query or post-processing in the service layer.
+*   **Performance:** The `intent_hard_cases` table could become large. Index the table on columns that will be frequently filtered or grouped, such as `profile` and `intentId`.
+*   **Input Validation:** The `POST` endpoint must robustly validate all incoming fields to prevent bad data.
+

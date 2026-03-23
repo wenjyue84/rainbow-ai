@@ -47,25 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-207",
-      "title": "Add intent classification hard-case queue for manual product review",
-      "priority": "high",
-      "description": "Create admin endpoint to flag and review conversations with ambiguous intent classifications (low confidence, multiple similar candidates). Helps product team identify patterns in misclassifications and improve training data.",
-      "acceptanceCriteria": [
-        "POST /admin/api/intent-hard-cases endpoint in src/routes/admin/intent-analytics.ts accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table",
-        "GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown",
-        "Unit test in src/assistant/__tests__/intent-analytics.test.ts asserts hard-case queue contains >5 items from confusion matrix output with confidence < 0.75"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T09:41:24Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
       "id": "US-208",
       "title": "Implement conversation message relevance scorer to prune stale context",
       "priority": "high",
@@ -406,108 +387,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-246",
-      "title": "Fallback Response Coverage Analyzer CLI",
-      "priority": "high",
-      "description": "Build a CLI tool that scans knowledge.json and workflows.json across all profiles to identify intents with zero fallback responses or escalation handlers. Generates per-profile coverage report showing which intents risk sending generic fallback messages due to missing static replies or workflow escalation handlers.",
-      "acceptanceCriteria": [
-        "npm run analyze:fallback-coverage generates JSON report: {profile, intent, has_knowledge_reply, has_workflow_handler, coverage_percent} sorted by risk",
-        "Tool identifies intents missing both static replies in knowledge.json AND escalation handlers in workflows.json, marking as 'zero_coverage'",
-        "Fails with exit code 1 if any profile has >2 intents with zero_coverage status"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-247",
-      "title": "Cross-Profile Conversation Isolation Unit Test Suite",
-      "priority": "high",
-      "description": "Add comprehensive unit tests validating that rainbow_conversations table queries enforce strict profile isolation. Tests verify that all conversation fetches, lists, and updates are properly scoped by profile_name, preventing accidental data leakage between pelangi, makan, and southern profiles. Includes route validation ensuring intent routes never match across profiles.",
-      "acceptanceCriteria": [
-        "Test file src/__tests__/profile-isolation/conversation-isolation.test.ts with 10+ test cases validating WHERE profile_name = ? clause in all conversation queries (fetch, list, update, delete)",
-        "Test confirms routing.json intent->profile mappings contain zero intent keyword overlaps between different profiles for same intent category",
-        "Test suite verifies GET /admin/api/conversations/:profile filters by profile_name and returns zero cross-profile conversations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-240",
-      "title": "Booking Payment Confirmation Validator",
-      "priority": "medium",
-      "description": "Add new booking workflow step to validate payment confirmation before finalizing reservation. Prevents booking without verified payment transaction.",
-      "acceptanceCriteria": [
-        "New workflow step `payment_confirmation` added to `src/assistant/data/workflows.json` with inputs for transaction_id and outputs for payment_status (success/failed/pending)",
-        "Function `validatePaymentConfirmation(transactionId: string)` in `src/assistant/workflows/booking-payment-validator.ts` returns boolean and error message on failure",
-        "Unit tests in `tests/booking-payment-validator.test.ts` cover success case (payment confirmed), failure case (payment declined), and timeout case (payment pending)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-242",
-      "title": "Fallback Response Effectiveness Analytics Dashboard",
-      "priority": "medium",
-      "description": "Create admin API endpoint tracking which fallback responses successfully resolve conversations vs. which result in escalation, enabling data-driven fallback improvements.",
-      "acceptanceCriteria": [
-        "Endpoint `GET /admin/analytics/fallback-effectiveness/:profileName` in `src/routes/admin/fallback-analytics.ts` returns JSON with fallback_id, usage_count, escalation_count, escalation_rate, avg_resolution_time_ms",
-        "Query parameters support date_from (ISO), date_to (ISO), and optional intent_filter to scope results by intent type (booking/inquiry/other)",
-        "Test in `tests/fallback-analytics.test.ts` verifies correct escalation_rate calculation (escalated / total) and validates parameter filtering with known test data"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-243",
-      "title": "Booking Workflow Dry-Run Simulator",
-      "priority": "medium",
-      "description": "Allow admins and developers to simulate complete booking workflow execution without committing to database, enabling safe testing of workflow changes.",
-      "acceptanceCriteria": [
-        "Admin endpoint `POST /admin/booking/simulate` in `src/routes/admin/booking-simulator.ts` accepts guest_data (name/email/dates/rooms) and runs workflow_id through execution engine without database writes",
-        "Returns detailed execution trace: step_name, step_status (pass/fail), output_data, duration_ms for each workflow step, plus final summary with would-be reservation details",
-        "Integration test in `tests/booking-simulator.test.ts` simulates 3-step booking (validate_payment -> check_availability -> create_reservation) and verifies no rows inserted in database tables"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-248",
-      "title": "Intent Classifier Admin Audit Log Viewer with Decision Timeline",
-      "priority": "medium",
-      "description": "Create an admin web endpoint to view real-time intent classification decisions with full decision context. Shows classified intent, confidence score, top-3 alternative candidates with their scores, input message text, and profile. Allows filtering by profile, intent, confidence range, and timestamp to debug misclassifications and track classifier behavior patterns.",
-      "acceptanceCriteria": [
-        "GET /admin/api/classifier-audit?profile=pelangi&intent=booking&confidence_min=0.5&from=2026-03-20 returns paginated list of classification decisions with {message_id, input_text, selected_intent, confidence, candidates:[{intent, score}], timestamp}",
-        "Admin UI shows per-intent misclassification frequency and allows manual feedback to tag false positives for retraining",
-        "Audit log stored in rainbow_messages.metadata.classifier_decision field capturing top-3 predictions for each message"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -775,6 +654,25 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-207",
+      "title": "Add intent classification hard-case queue for manual product review",
+      "priority": "high",
+      "description": "Create admin endpoint to flag and review conversations with ambiguous intent classifications (low confidence, multiple similar candidates). Helps product team identify patterns in misclassifications and improve training data.",
+      "acceptanceCriteria": [
+        "POST /admin/api/intent-hard-cases endpoint in src/routes/admin/intent-analytics.ts accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table",
+        "GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown",
+        "Unit test in src/assistant/__tests__/intent-analytics.test.ts asserts hard-case queue contains >5 items from confusion matrix output with confidence < 0.75"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:41:24Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-210",

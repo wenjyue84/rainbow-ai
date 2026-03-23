@@ -47,40 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-202",
-      "title": "Intent Classifier Low-Confidence Alert Threshold",
-      "priority": "high",
-      "description": "Add configurable per-intent confidence thresholds that trigger admin alerts when classifications fall below threshold, identifying weak intents requiring improvement or retraining.",
-      "acceptanceCriteria": [
-        "Add confidence_threshold (float, default: 0.7) field to each intent in src/assistant/data/intent-keywords.json with validation in Zod schema",
-        "Classification pipeline in src/assistant/pipeline/classify.ts checks confidence against threshold, inserts alert records into analytics table with intent_id and actual_confidence score",
-        "Admin endpoint GET /admin/alerts/low-confidence?days=7&profile=pelangi returns alert summary grouped by intent, sorted by frequency with percentage of low-confidence predictions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-203",
-      "title": "Profile Intent Keyword Validation at Startup",
-      "priority": "high",
-      "description": "Validate that intent-keywords.json contains only keywords for intents defined in intents.json for that profile, preventing orphaned keywords and cross-profile keyword contamination.",
-      "acceptanceCriteria": [
-        "Add validation function in src/lib/validation.ts that on startup iterates intent-keywords.json keys and compares against intents.json for current profile, logs orphaned keywords with match counts",
-        "Validation runs during profile initialization in src/index.ts, warns to logs if orphaned keywords found without blocking startup, includes intent IDs and keyword strings",
-        "Test asserts validation detects keywords for non-existent intents, correctly identifies valid intent-keyword mappings, and passes validation for clean profiles without warnings"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-207",
       "title": "Add intent classification hard-case queue for manual product review",
       "priority": "high",
@@ -95,7 +61,9 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:41:24Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-208",
@@ -144,9 +112,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:47:43.111Z"
     },
     {
       "id": "US-212",
@@ -348,9 +317,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:47:43.118Z"
     },
     {
       "id": "US-233",
@@ -422,370 +392,13 @@
     },
     {
       "id": "US-239",
-      "title": "Conversation Quality Score Regression Detection Test Suite",
+      "title": "Intent Classification Decision Audit Logger",
       "priority": "high",
-      "description": "Define and enforce baseline conversation quality metrics (accuracy, escalation rate, response relevance) to catch regressions in production",
+      "description": "Log every intent classification decision with confidence score, top-3 candidate intents, and message hash for debugging accuracy regressions and identifying weak categories.",
       "acceptanceCriteria": [
-        "Create src/assistant/tests/conversation-quality-regression.test.ts defining baselines: accuracy >85%, escalation_rate <10%, response_relevance >80%; with test data fixtures in src/assistant/tests/fixtures/conversation-quality-*.json",
-        "Test assertions verify: classified intent matches expected intent per fixture, no unwanted escalations occur, response relevance score >80% per response",
-        "Integrate test into GitHub Actions CI; test suite runs on every PR and fails if any metric drops below baseline, preventing quality regressions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-241",
-      "title": "Action Dispatch Menu Intent Handler for Makan Moments",
-      "priority": "high",
-      "description": "Implement dedicated handler in action dispatcher for menu inquiry intents in Makan Moments profile. Route menu-related questions directly to static response from knowledge.json instead of AI inference, reducing latency and improving response consistency.",
-      "acceptanceCriteria": [
-        "New file src/assistant/pipeline/stages/action-dispatch-menu.ts exports function that matches intent='menu_inquiry' and returns formatted menu from knowledge.json in <100ms",
-        "Test covers 5 menu query variations: 'What's on the menu?', 'Vegetarian options?', 'Do you have drinks?', 'Promo today?', 'Halal food?' — all return menu without AI fallback",
-        "Routing.json for Makan profile includes action 'menu_inquiry' → action-dispatch-menu handler with fallback to escalation if menu data missing"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-242",
-      "title": "Profile-Specific Action Dispatch Routing Validator",
-      "priority": "high",
-      "description": "Add startup validator that ensures every action referenced in each profile's routing.json actually exists and is callable. Prevents undefined handler crashes and enforces strict action availability per profile (Pelangi, Makan, Southern each have different action sets).",
-      "acceptanceCriteria": [
-        "Validator function in src/assistant/pipeline/stages/action-dispatch.ts scans routing.json for all actions and confirms each has corresponding handler file in action-dispatch*.ts; throws error with missing action details at startup",
-        "Test verifies: Makan routing validates against Makan actions only, referencing Pelangi-only action 'book_capsule' fails with 'Unsupported action for profile makan'",
-        "CI test includes profile-isolation check: each profile's routing resolves only actions belonging to that profile, no cross-contamination"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-243",
-      "title": "Booking Workflow Check-In Step Input Validator with Actionable Failures",
-      "priority": "high",
-      "description": "Implement pre-execution validator for booking workflow check-in step. Validates guest exists, check-in date is not past, room is available, and required fields present. Returns specific error message per violation type instead of generic failure.",
-      "acceptanceCriteria": [
-        "New file src/assistant/workflows/validators/checkin-validator.ts exports validateCheckinStep(booking) returning {valid: bool, errors: [{type, message, suggestion}]}; error types: past_date, guest_not_found, room_unavailable, missing_field",
-        "Test scenarios: (1) check-in tomorrow returns valid=true, (2) check-in yesterday returns error type='past_date' with message='Check-in date cannot be in past' and suggestion='Did you mean [tomorrow's date]?', (3) non-existent guest_id returns type='guest_not_found' with suggestion='Create guest first or verify guest_id'",
-        "Validator called in workflows.json booking flow before step execution; violations logged with guest_id and timestamp for analytics"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-198",
-      "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
-      "priority": "medium",
-      "description": "Add timeout detection to booking workflow steps. If any step exceeds 5 seconds, log performance warning and alert admin via `/admin/workflow-performance` endpoint. Improves reliability visibility.",
-      "acceptanceCriteria": [
-        "Middleware in `src/assistant/pipeline/workflow-executor.ts` tracks step execution time and flags >5s as slow with step name, duration, and timestamp logged to `workflow_step_timings` table",
-        "Admin endpoint `GET /admin/workflow-performance?step=confirm_booking&days=7` returns p50/p95/p99 latencies per step with slow-step flag when >5s occurs",
-        "Cron job `scripts/workflow-performance-alert.ts` sends daily Slack alert if any step avg latency increases >50% from 7-day baseline"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-199",
-      "title": "Conversation Debug Timeline Visualization Generator",
-      "priority": "medium",
-      "description": "CLI tool that generates interactive HTML timeline showing conversation flow, intent classification at each turn, confidence scores, and AI response reasoning. Enables rapid debugging of multi-turn dialogue failures.",
-      "acceptanceCriteria": [
-        "CLI command `npm run debug:conversation --conversation-id=abc123 --output=/tmp/conv.html` generates HTML with message → detected_intent → confidence → action → response flow visualization",
-        "HTML includes collapsible intent confidence breakdown (top 3 candidates with scores) and context snippet for each message",
-        "Query `conversation_timeline` view in db returning message sequence with intent_id, confidence, executed_action_id for easy template rendering"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-200",
-      "title": "Automated Booking Clarification Question Generator for Low-Confidence Intents",
-      "priority": "medium",
-      "description": "When booking intent confidence is 0.60–0.79, generate context-aware clarification question instead of escalating. Reduces unnecessary support escalations while improving booking conversion.",
-      "acceptanceCriteria": [
-        "Function `generateClarificationQuestion(intent, messageContext, confidence)` in `src/assistant/pipeline/clarification-engine.ts` returns templated question with context variables filled (e.g., room type, date mentioned)",
-        "For intent='booking_inquiry', confidence=0.70, message='looking for a room': returns 'Are you interested in checking in this weekend or a specific date?'",
-        "Clarification template library at `src/assistant/data/clarification-templates.json` includes per-profile and per-intent variants; fallback to generic template if profile-specific not found"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-204",
-      "title": "Booking Workflow Step Execution Duration Histogram Endpoint",
-      "priority": "medium",
-      "description": "Add admin API endpoint that returns execution time distribution for each booking workflow step across recent bookings, enabling performance bottleneck identification and workflow optimization.",
-      "acceptanceCriteria": [
-        "Admin endpoint GET /admin/analytics/workflow-durations?profile=pelangi&days=7 returns JSON with step names and execution time percentiles (p50, p95, p99)",
-        "Endpoint queries rainbow_messages table timestamps, calculates histograms per workflow step with min/max/mean durations",
-        "Unit test mocks booking execution data with step timings, asserts response includes all booking workflow step names and valid percentile calculations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-205",
-      "title": "Conversation Context Window Tuning Configuration",
-      "priority": "medium",
-      "description": "Add configurable settings for conversation context window size, relevance threshold, and pruning strategy in settings.json to allow runtime optimization without code changes.",
-      "acceptanceCriteria": [
-        "Add context_window object to src/assistant/data/settings.json with max_messages (default: 10), relevance_threshold (default: 0.5), and pruning_strategy enum ('fifo' or 'relevance')",
-        "Conversation pipeline in src/assistant/pipeline/context-manager.ts reads settings on startup and applies pruning before sending context to AI provider",
-        "Unit test loads settings.json with different configurations, applies pruning with various max_messages values, asserts final context respects configured window size"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-206",
-      "title": "Fallback Response Suggestion Engine CLI",
-      "priority": "medium",
-      "description": "CLI tool that analyzes recent misclassified messages and generates suggestions for fallback response templates, with confidence scores and exact file paths for implementation.",
-      "acceptanceCriteria": [
-        "CLI command `npm run suggest:fallbacks -- --profile=pelangi --count=10` queries rainbow_messages for recent misclassifications, analyzes intent distribution of failures",
-        "Outputs JSON with suggested fallback templates grouped by failed_intent, includes confidence_deficit score and exact JSON path in src/assistant/data/knowledge.json for each suggestion",
-        "Test asserts suggestions generated only for intents with >2 recent misclassifications, output includes profile validation, and suggested templates contain actionable guidance"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-211",
-      "title": "Build per-profile intent accuracy baseline validator for CI regression detection",
-      "priority": "medium",
-      "description": "Create CLI command and baseline storage to validate intent classification F1 scores per profile in CI. Prevents accuracy regressions and enforces minimum thresholds before deployment.",
-      "acceptanceCriteria": [
-        "CLI: npm run test:intent-accuracy -- --profile=data-pelangi --min-accuracy=0.82 reads confusion matrix from src/tools/__tests__/confusion-matrix-generator.test.ts output",
-        "Store baseline thresholds in src/.intent-baselines/{profile}.json with per-intent F1 targets; CI exits(1) if any intent accuracy < threshold",
-        "Test in src/__tests__/ci-validators/intent-baseline.test.ts asserts data-pelangi booking intent F1 >= 0.85 and data-makan menu_inquiry F1 >= 0.80"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-214",
-      "title": "Guest Language Auto-Detection from First Message for Multi-Lingual Context",
-      "priority": "medium",
-      "description": "Auto-detect guest's preferred language from initial message and persist across conversation turns. Use detected language in all subsequent AI prompts and responses to improve multi-turn dialogue coherence across Mandarin, Tamil, Malay, and English speakers.",
-      "acceptanceCriteria": [
-        "Implement detectLanguageFromMessage(text) function in src/assistant/pipeline/language.ts using language-detect npm package; store language_code (ISO 639-1) in conversations.guest_language column",
-        "Retrieve guest_language on every message and inject into AI prompt context (e.g., 'Respond in {guest_language}')",
-        "Unit test: assert >85% accuracy detecting Mandarin/Tamil/Malay on 50-word message samples from test/fixtures/multilingual-samples.json"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-215",
-      "title": "Booking Workflow Step SLA Monitoring Endpoint for Performance Tracking",
-      "priority": "medium",
-      "description": "Monitor execution time of booking workflow steps against configurable SLA thresholds. Identify steps that consistently exceed SLA for optimization prioritization. Lightweight alternative to full profiler for quick reliability checks.",
-      "acceptanceCriteria": [
-        "Admin endpoint GET /admin/workflows/:profile/sla-status returns [{step_id, avg_duration_ms, sla_threshold_ms, status: 'ok'|'warning'|'critical', run_count}]",
-        "SLA thresholds configurable in src/assistant/data/settings.json per step_id; defaults: validation=200ms, confirmation=500ms, room_check=300ms",
-        "Test: assert status='critical' when avg_duration_ms exceeds sla_threshold_ms by >50%; warning when 90-150% of threshold"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-216",
-      "title": "Conversation Context Span Analyzer for Multi-Turn Window Recommendations",
-      "priority": "medium",
-      "description": "Analyze conversation history to assess context quality and recommend pruning strategy. Measures message count, age of oldest message, and semantic drift to guide context window optimization for multi-turn dialogues.",
-      "acceptanceCriteria": [
-        "Implement analyzeContextSpan(messages: Message[], currentIntent: string) in src/assistant/context/analyzer.ts returning {message_count, oldest_age_seconds, semantic_drift_score: 0-100, recommendation: 'keep_all'|'prune_old'|'truncate'}",
-        "Admin endpoint GET /admin/conversations/:id/context-analysis returns analysis result with actionable pruning recommendation",
-        "Test: assert recommendation='truncate' when message_count > 20; recommendation='prune_old' when 10-20 messages; recommendation='keep_all' when < 10"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-219",
-      "title": "Conversation Turn-Count Pattern Analyzer for Intent Complexity Profiling",
-      "priority": "medium",
-      "description": "Analyze multi-turn conversation patterns to identify which intents typically require multiple exchanges and which profiles have conversations exceeding optimal context windows. Generate histograms showing turn-count distributions by intent and profile to inform context pruning thresholds.",
-      "acceptanceCriteria": [
-        "Create `src/lib/conversation-turn-analyzer.ts` with `analyzeTurnPatterns(profileName: string, days: number)` returning object with turn_count_histogram, median_turns, p95_turns, intents_by_complexity; validate against rainbow_conversations table",
-        "Add CLI command `npm run analyze-turns -- --profile pelangi --days 30` outputting CSV with intent, turn_count, conversation_count, success_rate grouped by profile",
-        "Integration test `src/tests/conversation-turn-analyzer.test.ts` asserting correct percentile calculations on sample dataset with >3 different intent types"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-220",
-      "title": "Booking Workflow Step Execution Anomaly Detection and Alert System",
-      "priority": "medium",
-      "description": "Monitor workflow step execution times against 14-day rolling baseline and alert admins when steps take significantly longer than expected (z-score > 2.5). Identify performance regressions or stuck workflow steps before they impact guest experience.",
-      "acceptanceCriteria": [
-        "Create `src/lib/workflow-anomaly-detector.ts` with `detectAnomalies(profile: string, stepName: string, duration_ms: number)` comparing against `workflow_step_metrics` baseline (mean, stddev from last 14 days), store hits to `workflow_anomalies` table with fields: workflow_id, step_name, duration_ms, z_score, profile_name",
-        "Add admin endpoint `GET /api/admin/workflow-anomalies?days=7&profile=pelangi&severity=high` returning paginated anomalies with actual vs baseline duration, sorted by z-score descending",
-        "Send admin notification (via WhatsApp or email) when anomaly z-score > 3.0 for any step; include step name, duration, and recommended action"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-221",
-      "title": "Fallback Response Template A/B Test Framework with Outcome Tracking",
-      "priority": "medium",
-      "description": "Support A/B testing of fallback response variants to measure which template leads to successful conversation continuation vs escalation. Track variant performance per profile and intent to optimize response quality.",
-      "acceptanceCriteria": [
-        "Create `src/assistant/data/fallback-variants.json` with schema: `{intent: 'booking'|'inquiry'|'other', variant_a: string, variant_b: string, enabled: boolean, baseline_success_rate?: number}` for at least 4 common fallback intents; validate no Pelangi content in Makan/Southern variants",
-        "Modify `src/assistant/conversation.ts` fallback selection to randomly assign variant (50/50) and log to `fallback_experiments` table with: experiment_id, variant, profile, intent, timestamp, outcome ('escalated'|'resolved'|'reengaged')",
-        "CLI command `npm run fallback-ab-report -- --profile=makan --days=30 --min-samples=50` outputs: variant, sample_size, success_rate, ci_95, recommendation; assert statistical confidence before recommending winner"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-225",
-      "title": "Conversation Quality Score Endpoint with Multi-Factor Metrics",
-      "priority": "medium",
-      "description": "Add admin API endpoint that calculates conversation quality across multiple dimensions: intent classification clarity, AI response confidence stability, turn efficiency, and escalation frequency. Provides actionable metrics to identify poorly-handled conversations for product improvement.",
-      "acceptanceCriteria": [
-        "Create src/routes/admin/conversation-quality.ts with GET /admin/conversations/:conversation_id/quality-score endpoint returning { overall_score: 0-100, factors: { clarity_score, confidence_stability, turn_efficiency, escalation_indicator }, recommendations: [] }",
-        "Score calculation queries conversation_feedback table and intent_analytics table to compute: average intent classification confidence, variance in confidence across turns, messages_per_intent ratio",
-        "Endpoint returns specific recommendations (e.g., 'Confidence dropped from 0.9 to 0.4 mid-conversation - consider context pruning') based on detected patterns"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-229",
-      "title": "Multi-Turn Conversation Context Relevance Pruning with Configurable Thresholds",
-      "priority": "medium",
-      "description": "When conversation context exceeds 8 turns, automatically score each message's relevance to the current classified intent and remove lowest-scoring messages. Prevents off-topic context from degrading AI responses in long dialogues while preserving booking-critical turns.",
-      "acceptanceCriteria": [
-        "Add `scoreMessageRelevance(currentIntent: string, message: string): number` function in `src/assistant/conversation-engine.ts` that returns 0-1 relevance score using keyword overlap + semantic similarity.",
-        "Update `settings.json` with new keys: `conversation_max_context_turns` (default 10) and `context_relevance_threshold` (default 0.4). Prune below-threshold messages when context exceeds max_turns.",
-        "Unit test in `src/__tests__/conversation-pruning.test.ts` verifying 12-turn conversation with intents [booking, small_talk, booking] is pruned to 6 turns keeping both booking turns and removing small_talk."
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-230",
-      "title": "Fallback Response Template Performance Tracker with Escalation Metrics",
-      "priority": "medium",
-      "description": "Track which fallback response template was served and whether it led to immediate escalation. Expose /admin/fallback/performance endpoint showing conversion-to-escalation rate per template. Inform future fallback selection logic.",
-      "acceptanceCriteria": [
-        "Add `fallback_template_id, served_at, led_to_escalation_within_2_turns` columns to `conversation_feedback` table. Update migration in `shared/schema-tables.ts`.",
-        "When fallback response is sent, record template ID. When escalation message detected within next 2 turns, mark `led_to_escalation_within_2_turns = true`.",
-        "Endpoint GET /admin/fallback/performance returns JSON: `[{template_id, send_count, escalation_count, escalation_rate}]` sorted by escalation_rate. Test that template with 5/10 escalations (50%) appears in results."
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-234",
-      "title": "Conversation Auto-Reset Handler with Session Cleanup",
-      "priority": "medium",
-      "description": "Implement conversation reset functionality allowing guests to clear context and start fresh, preventing stale context contamination in long conversation threads.",
-      "acceptanceCriteria": [
-        "Implement handler in src/assistant/pipeline/message-router.ts that detects reset commands ('reset', 'clear', 'start over', 'begin again')",
-        "On reset: delete all prior conversation messages from database, reset context window to empty, log audit event with timestamp and conversation_id",
-        "Integration test src/__tests__/conversation-reset.test.ts asserts: send reset command → old messages deleted → next message starts with empty context and no prior turn history"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-235",
-      "title": "Booking Workflow Modification Request Handler",
-      "priority": "medium",
-      "description": "Add booking modification workflow to handle guest requests to change check-in/check-out dates or room types, validating availability and updating reservations atomically.",
-      "acceptanceCriteria": [
-        "Add 'booking.modify' workflow definition to workflows.json with precondition: existing_booking_id exists, steps: [validate_new_dates, check_availability_inventory, update_reservation, send_modification_confirmation]",
-        "Implement handler in src/assistant/pipeline/booking.ts that accepts new dates from conversation context, validates against database availability table, updates reservation with new dates, returns confirmation",
-        "Integration test asserts: guest message contains new dates → validation checks dates not in past and room available → database reservation updated → response contains new dates and updated total price"
+        "New database table `intent_classification_decisions` in `shared/schema-tables.ts` with fields: id, timestamp, profile_name, message_hash, classified_intent, confidence_score, top_3_candidates_json, actual_intent",
+        "Modify classification pipeline in `src/assistant/pipeline/intent-classifier.ts` to log each decision to database before returning result",
+        "Test in `tests/intent-audit-logger.test.ts` verifies audit entries created and can be queried by profile_name and timestamp range with proper JSON parsing of candidates array"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -796,13 +409,13 @@
     },
     {
       "id": "US-240",
-      "title": "Intent Classification Inference Latency Profiler",
+      "title": "Booking Payment Confirmation Validator",
       "priority": "medium",
-      "description": "Track and profile intent classification latency per intent type and AI provider to identify performance bottlenecks and slow classifications",
+      "description": "Add new booking workflow step to validate payment confirmation before finalizing reservation. Prevents booking without verified payment transaction.",
       "acceptanceCriteria": [
-        "Create src/assistant/classifiers/inference-latency-profiler.ts wrapping classification pipeline; log to classification_latency_log table with: timestamp, intent, provider, latency_ms, success, profile_id",
-        "Implement admin endpoint GET /admin/classification-latencies?intent=booking returning p50/p95/p99 latencies, slowest classification calls, and provider comparison",
-        "Alert when classification latency exceeds 2000ms; log context (input length, provider, model) to admin dashboard for debugging"
+        "New workflow step `payment_confirmation` added to `src/assistant/data/workflows.json` with inputs for transaction_id and outputs for payment_status (success/failed/pending)",
+        "Function `validatePaymentConfirmation(transactionId: string)` in `src/assistant/workflows/booking-payment-validator.ts` returns boolean and error message on failure",
+        "Unit tests in `tests/booking-payment-validator.test.ts` cover success case (payment confirmed), failure case (payment declined), and timeout case (payment pending)"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -812,14 +425,48 @@
       "model": "haiku"
     },
     {
-      "id": "US-244",
-      "title": "Conversation Context Freshness Scorer for Multi-Turn Dialogs",
+      "id": "US-241",
+      "title": "Conversation Message Deduplication Filter",
       "priority": "medium",
-      "description": "Implement context quality scorer that measures conversation relevance before including it in AI prompt. Scores 0-100 based on message recency, intent consistency, and turn count. Filters stale context automatically to improve multi-turn dialog accuracy.",
+      "description": "Filter out duplicate or near-duplicate messages from conversation context before AI inference, reducing token usage and context noise for improved response quality.",
       "acceptanceCriteria": [
-        "New file src/assistant/pipeline/conversation-context-scorer.ts exports scoreContext(messages[], currentIntent) returning 0-100; scores <30 for conversations where last message >10 minutes old OR last intent differs from current by >2 turns OR message count >20",
-        "Test: 5-turn recent booking conversation (all within 5 min, consistent booking intent) scores 85+; 15-turn old conversation from 1 hour ago scores <40",
-        "Scorer is integrated in action-dispatch.ts: if score <35, context excluded from AI prompt but conversation history preserved in response"
+        "Function `deduplicateMessages(messages: Message[]): Message[]` in `src/assistant/pipeline/context-deduplicator.ts` uses similarity matching (>85% threshold) to identify duplicates, keeps first occurrence",
+        "Integration test in `tests/context-deduplicator.test.ts` shows conversation with 'What time check-in?' appearing 3 times results in only 1 message in deduplicated output",
+        "Logs deduplication metrics (removed_count, estimated_tokens_saved) to conversation trace for monitoring effectiveness"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-242",
+      "title": "Fallback Response Effectiveness Analytics Dashboard",
+      "priority": "medium",
+      "description": "Create admin API endpoint tracking which fallback responses successfully resolve conversations vs. which result in escalation, enabling data-driven fallback improvements.",
+      "acceptanceCriteria": [
+        "Endpoint `GET /admin/analytics/fallback-effectiveness/:profileName` in `src/routes/admin/fallback-analytics.ts` returns JSON with fallback_id, usage_count, escalation_count, escalation_rate, avg_resolution_time_ms",
+        "Query parameters support date_from (ISO), date_to (ISO), and optional intent_filter to scope results by intent type (booking/inquiry/other)",
+        "Test in `tests/fallback-analytics.test.ts` verifies correct escalation_rate calculation (escalated / total) and validates parameter filtering with known test data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-243",
+      "title": "Booking Workflow Dry-Run Simulator",
+      "priority": "medium",
+      "description": "Allow admins and developers to simulate complete booking workflow execution without committing to database, enabling safe testing of workflow changes.",
+      "acceptanceCriteria": [
+        "Admin endpoint `POST /admin/booking/simulate` in `src/routes/admin/booking-simulator.ts` accepts guest_data (name/email/dates/rooms) and runs workflow_id through execution engine without database writes",
+        "Returns detailed execution trace: step_name, step_status (pass/fail), output_data, duration_ms for each workflow step, plus final summary with would-be reservation details",
+        "Integration test in `tests/booking-simulator.test.ts` simulates 3-step booking (validate_payment -> check_availability -> create_reservation) and verifies no rows inserted in database tables"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -827,40 +474,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
-    },
-    {
-      "id": "US-245",
-      "title": "Makan Profile Menu-Related Intent Accuracy Tracker",
-      "priority": "medium",
-      "description": "Implement tracker to monitor classification accuracy for Makan Moments menu and promotion inquiry intents specifically. Maintains rolling accuracy window and alerts when intent confusion occurs (e.g., menu inquiries misclassified as booking). Enables early detection of profile-specific regressions.",
-      "acceptanceCriteria": [
-        "New file src/assistant/pipeline/metrics/makan-intent-tracker.ts exports trackMakanIntent(classified_intent, message) which maintains 100-message sliding window per intent; calculates accuracy for menu_inquiry vs promo_inquiry vs booking based on keyword heuristic ground truth",
-        "Test: classifier correctly identifies 'Do you have vegan options?' as menu_inquiry (accuracy tracked), 'Promote my event' as promo_inquiry; misclassification tracked separately and alerts if window accuracy <80%",
-        "Metrics endpoint GET /admin/metrics/makan-intents returns {intent_type, accuracy_percent, sample_size, last_updated} for Makan profile only"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-201",
-      "title": "Fallback Response Template Staleness and Quality Auditor",
-      "priority": "low",
-      "description": "CLI audit tool that identifies fallback response templates unchanged for >90 days or lacking helpful suggestions (action verbs, next steps). Flags templates for refresh to keep responses relevant and helpful.",
-      "acceptanceCriteria": [
-        "CLI command `npm run audit:fallback-staleness --profile=data-makan --days=90 --output=docs/` generates `fallback-staleness-{profile}.md` report",
-        "Report flags templates where: last_updated_at timestamp >90 days old, response text <30 chars, or response missing action verbs (help, contact, check, book, confirm)",
-        "Report includes template path, current text, suggestion based on top 5 misclassified intents from analytics table to guide refresh priority"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -1130,6 +743,41 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-203",
+      "title": "Profile Intent Keyword Validation at Startup",
+      "priority": "high",
+      "description": "Validate that intent-keywords.json contains only keywords for intents defined in intents.json for that profile, preventing orphaned keywords and cross-profile keyword contamination.",
+      "acceptanceCriteria": [
+        "Add validation function in src/lib/validation.ts that on startup iterates intent-keywords.json keys and compares against intents.json for current profile, logs orphaned keywords with match counts",
+        "Validation runs during profile initialization in src/index.ts, warns to logs if orphaned keywords found without blocking startup, includes intent IDs and keyword strings",
+        "Test asserts validation detects keywords for non-existent intents, correctly identifies valid intent-keyword mappings, and passes validation for clean profiles without warnings"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_scopeCreep": true
+    },
+    {
+      "id": "US-202",
+      "title": "Intent Classifier Low-Confidence Alert Threshold",
+      "priority": "high",
+      "description": "Add configurable per-intent confidence thresholds that trigger admin alerts when classifications fall below threshold, identifying weak intents requiring improvement or retraining.",
+      "acceptanceCriteria": [
+        "Add confidence_threshold (float, default: 0.7) field to each intent in src/assistant/data/intent-keywords.json with validation in Zod schema",
+        "Classification pipeline in src/assistant/pipeline/classify.ts checks confidence against threshold, inserts alert records into analytics table with intent_id and actual_confidence score",
+        "Admin endpoint GET /admin/alerts/low-confidence?days=7&profile=pelangi returns alert summary grouped by intent, sorted by frequency with percentage of low-confidence predictions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-197",
