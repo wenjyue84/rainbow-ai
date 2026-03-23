@@ -475,3 +475,48 @@ Here is the technical brief for user story US-223:
 - tests/unit/kb-validator.test.ts (new test suite)
 - prd.json (US-223 marked as passes: true)
 
+## Iteration 1 - Mon Mar 23 19:36:27 MPST 2026
+FAILED diagnosis-block gate: Knowledge Base Content Validator with Profile Isolation Enforcement (ID: US-223) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 4 - Story: US-223 Knowledge Base Content Validator (PASSED)
+
+### What was implemented
+- Verified existing implementation in `src/lib/validate-knowledge-base.ts`:
+  - validateKnowledgeBase() function with full acceptance criteria met
+  - Loads all profile knowledge.json files from src/assistant/data* directories
+  - Enforces required fields: id, intent, profile_id, response (length > 5)
+  - Detects Pelangi-specific phrases (hostel, check-in, room_type, capsule, etc.) in non-Pelangi profiles
+  - Returns critical violations vs warnings separately
+- Verified integration in `src/index.ts` (line 233):
+  - Called on server startup
+  - process.exit(1) on critical violations
+  - Logs warnings without blocking
+- Verified comprehensive test suite in `tests/unit/kb-validator.test.ts`:
+  - 7 tests, all passing
+  - Covers required fields, missing profile_id (critical), contamination detection, JSON parse errors, multi-profile validation
+
+### Acceptance Criteria Checklist
+- ✅ AC1: Create src/lib/validate-knowledge-base.ts called on server startup
+  - Validates required fields: id, intent, profile_id, response (non-empty, length > 5)
+- ✅ AC2: Detects Pelangi-specific phrases in data-makan and data-southern files
+  - Logs violations with file path and corrective action
+- ✅ AC3: Startup fails with clear error message if critical violations found
+  - Logs warnings for non-critical issues without blocking
+
+### Quality Checks
+- Build: ✅ Passed (esbuild, 2.3mb output)
+- Tests: ✅ 7 tests passed in kb-validator.test.ts
+- Integration: ✅ Validator correctly integrated into server startup flow
+
+### Patterns discovered
+- Knowledge base validator uses pure file system traversal and regex-based phrase detection
+- No external NLP libraries needed — lightweight and performant
+- Critical vs warning distinction allows for graceful degradation
+
+### Files modified
+- src/lib/validate-knowledge-base.ts (existing, verified correct)
+- src/index.ts (existing, verified integration at line 233)
+- tests/unit/kb-validator.test.ts (existing, all tests pass)
+- prd.json (US-223 marked passes: true)
+
