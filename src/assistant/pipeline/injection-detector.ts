@@ -40,9 +40,9 @@ const ROLEPLAY_PATTERNS: RegExp[] = [
 
 /** Instruction override / ignore previous patterns */
 const INSTRUCTION_OVERRIDE_PATTERNS: RegExp[] = [
-  /ignore\s+(?:all\s+)?(?:previous|prior|above|your)\s+(?:instructions?|directives?|rules?|prompts?)/i,
-  /disregard\s+(?:all\s+)?(?:previous|prior|above|your)\s+(?:instructions?|directives?|rules?|prompts?)/i,
-  /forget\s+(?:all\s+)?(?:previous|prior|above|your|everything)\s+(?:instructions?|directives?|rules?|prompts?|above)?/i,
+  /ignore\s+(?:all\s+)?(?:(?:previous|prior|above|your)\s+)*(?:instructions?|directives?|rules?|prompts?)/i,
+  /disregard\s+(?:all\s+)?(?:(?:previous|prior|above|your)\s+)*(?:instructions?|directives?|rules?|prompts?)/i,
+  /forget\s+(?:all\s+)?(?:(?:previous|prior|above|your|everything)\s+)*(?:instructions?|directives?|rules?|prompts?|above)/i,
   /override\s+(?:your|all|the)\s+(?:instructions?|rules?|settings?|prompts?)/i,
   /bypass\s+(?:your|all|the)\s+(?:instructions?|rules?|filters?|safety|restrictions?)/i,
   /new\s+instructions?\s*:/i,

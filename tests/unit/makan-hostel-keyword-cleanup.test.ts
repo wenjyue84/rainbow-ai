@@ -92,14 +92,14 @@ const HOSTEL_INTENTS = [
   'room_type_inquiry',
 ];
 
-/** Cafe-specific keywords that MUST be preserved */
+/** Cafe-specific keywords that MUST be preserved (substring matches) */
 const REQUIRED_CAFE_KEYWORDS = [
   'menu',
   'order',
   'recommend',
   'food',
   'complaint',
-  'greeting',
+  'hello',
 ];
 
 // ─── AC1: Identify and confirm 8+ hostel keywords are absent ─────────────────
