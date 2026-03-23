@@ -23,6 +23,7 @@ import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
+import { normalizeInput, logNormalization } from './input-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics, escalationQueue } from '../../../shared/schema-tables.js';
@@ -49,11 +50,18 @@ export async function classifyAndRoute(
   const { phone, convo, lang, msg, devMetadata } = state;
   const classificationStartTime = Date.now();
 
+  // ─── US-318: Input normalisation pre-processor ─────────────────────
+  // Runs before all other normalisers. Strips emojis, normalises
+  // diacritics (Latin only — Tamil combining marks are preserved),
+  // lowercases, and collapses whitespace for consistent classification.
+  const inputNorm = normalizeInput(state.processText);
+  logNormalization(inputNorm);
+
   // ─── US-1011: Manglish normalisation pre-processor ───────────────
   // Runs before T2 fuzzy-match and LLM intent classification.
   // Expands abbreviations (brp→berapa, nk→nak) and strips discourse
   // particles (la, lah, lor) so downstream classifiers see cleaner text.
-  const rawText = state.processText;
+  const rawText = inputNorm.normalized;
   const processText = normalizeManglish(rawText);
   if (processText !== rawText) {
     console.log(`[ManglishNorm] "${rawText}" → "${processText}"`);

@@ -213,3 +213,116 @@ export function pruneContextByRelevance(
     .sort((a, b) => a.originalIndex - b.originalIndex)
     .map(item => item.message);
 }
+
+// ─── US-317: Conversation Context Semantic Deduplication Filter ────
+
+/**
+ * Compute Levenshtein distance between two strings.
+ * Returns the minimum number of single-character edits (insertions,
+ * deletions, substitutions) required to transform one string into the other.
+ */
+export function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+
+  // Early exits
+  if (m === 0) return n;
+  if (n === 0) return m;
+  if (a === b) return 0;
+
+  // Use single-row optimization (O(min(m,n)) space)
+  const prev = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) {
+    prev[j] = j;
+  }
+
+  for (let i = 1; i <= m; i++) {
+    let prevDiag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = prev[j];
+      if (a[i - 1] === b[j - 1]) {
+        prev[j] = prevDiag;
+      } else {
+        prev[j] = 1 + Math.min(prevDiag, prev[j - 1], prev[j]);
+      }
+      prevDiag = temp;
+    }
+  }
+
+  return prev[n];
+}
+
+/**
+ * Compute similarity between two strings using normalized Levenshtein distance.
+ * Returns a value between 0 (completely different) and 1 (identical).
+ *
+ * Formula: 1 - (levenshteinDistance / maxLength)
+ */
+export function levenshteinSimilarity(a: string, b: string): number {
+  const normalizedA = a.toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizedB = b.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  if (normalizedA === normalizedB) return 1.0;
+  if (normalizedA.length === 0 && normalizedB.length === 0) return 1.0;
+  if (normalizedA.length === 0 || normalizedB.length === 0) return 0.0;
+
+  const distance = levenshteinDistance(normalizedA, normalizedB);
+  const maxLen = Math.max(normalizedA.length, normalizedB.length);
+
+  return 1 - distance / maxLen;
+}
+
+/**
+ * US-317: Remove duplicate or near-duplicate messages from conversation context
+ * using Levenshtein distance for similarity scoring.
+ *
+ * Iterates messages in order, comparing each against previously seen messages
+ * of the same role. If the Levenshtein-based similarity exceeds the threshold,
+ * the message is considered a duplicate and skipped. First occurrence is always
+ * preserved.
+ *
+ * @param messages - Array of conversation messages to deduplicate
+ * @param similarityThreshold - Similarity threshold (0-1). Messages above this
+ *   are considered duplicates. Default: 0.85
+ * @returns Deduplicated array of messages (first occurrence kept)
+ */
+export function deduplicateContextMessages(
+  messages: ChatMessage[],
+  similarityThreshold: number = 0.85,
+): ChatMessage[] {
+  if (!messages || messages.length === 0) {
+    return [];
+  }
+
+  if (messages.length === 1) {
+    return [...messages];
+  }
+
+  const kept: ChatMessage[] = [];
+  // Track seen message contents per role so user messages aren't compared
+  // with assistant messages
+  const seenByRole: Map<string, string[]> = new Map();
+
+  for (const message of messages) {
+    const role = message.role;
+    const seenContents = seenByRole.get(role) ?? [];
+
+    let isDuplicate = false;
+    for (const seenContent of seenContents) {
+      const similarity = levenshteinSimilarity(message.content, seenContent);
+      if (similarity >= similarityThreshold) {
+        isDuplicate = true;
+        break;
+      }
+    }
+
+    if (!isDuplicate) {
+      kept.push(message);
+      seenContents.push(message.content);
+      seenByRole.set(role, seenContents);
+    }
+  }
+
+  return kept;
+}
