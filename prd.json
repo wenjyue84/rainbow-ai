@@ -47,34 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-308",
-      "title": "Conversation Context Relevance Reranker for Multi-Turn Booking Dialogs",
-      "priority": "high",
-      "description": "Implement message relevance scoring to filter conversation history before AI inference. Score messages by keyword overlap with current intent, reorder by relevance to prevent stale context from degrading booking classification accuracy.",
-      "acceptanceCriteria": [
-        "Implement `scoreMessageRelevance(message, currentIntent, profile)` in `src/assistant/pipeline/context.ts` returning 0-1 relevance score based on intent keyword overlap and recency decay",
-        "Add integration test `test/integration/multi-turn-context.test.ts` showing 10-message conversation reranked to 5 high-relevance messages before booking confirmation step",
-        "Add admin endpoint `GET /admin/context-stats?profile={profile}&days=7` returning avg context size, avg filtered size, and relevance score distribution per profile"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T19:39:56Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the current state of the project first.\nNow let me check if the files from previous attempts still exist.\nGood - the files exist from previous iterations. Let me read them and check what's actually there.\nGood - all three files exist. Let me check if the route is registered and verify the admin index.\nAll the code is in place. Now let me run the build and tests to verify.\n\n## Current State\n- All 3 files for US-308 exist from previous iterations:\n  - `src/assistant/pipeline/context.ts` — `scoreMessageRelevance()` and `filterContextByRelevance()`\n  - `test/integration/multi-turn-context.test.ts` — 8 tests for the 10-message booking dialog\n  - `src/routes/admin/context-stats.ts` — admin endpoint with `computeContextStats()`\n- Route is registered in `src/routes/admin/index.ts` (import on line 122, used on line 408)\n- The `ChatMessage` type matches expectations (role, content, timestamp)\n\n## Problem Identified\nPrevious attempts failed because of a \"DIAGNOSIS_BLOCK_MISSING\" gate — the agent made file edits without outputting a diagnosis block first. The code itself appears complete and correct.\n\n## Planned Changes\n1. Run tests to verify the 8 tests pass\n2. Run build to verify no build errors\n3. Run server startup test\n4. If all pass, mark US-308 as `passes: true` in prd.json\n5. Commit changes\n\nLet me verify everything works:\nAll 8 tests pass and the build succeeds. Let me do the server startup test:\nServer starts without errors. All checks pass. Now mark US-308 as complete:\nNow update progress.txt and commit:\nUS-308 is complete. All checks passed:\n\n- **8/8 tests pass** in `test/integration/multi-turn-context.test.ts`\n- **Build succeeds** (esbuild, 2.4MB bundle)\n- **Server starts** without errors\n- **prd.json** updated: `passes: true`\n- **Committed** to branch\n\nThe code was already fully implemented from a prior iteration — this attempt just needed to verify it and pass the diagnosis-block gate before making any edits."
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 609,
-        "tokensAfterMasking": 607,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
-    },
-    {
       "id": "US-309",
       "title": "Booking Workflow Step Execution Trace Logger",
       "priority": "high",
@@ -90,16 +62,7 @@
       "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T19:55:14Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the relevant files first.\nNow let me read the story details for US-309.\nLet me check what already exists from prior attempts.\nNow let me look at existing patterns for similar admin routes and the schema table structure at the end.\nNow let me check a sample admin route for a similar pattern (booking-related):\nGood. Now let me check the existing `bookingExecutionAudit` table and see the pattern for the existing schema table:\nNow I have a very clear picture. Let me also check what test patterns exist:\nNow I have full context. Let me write my diagnosis.\n\n## Current State\n- The project has an existing `bookingExecutionAudit` table in `shared/schema-tables.ts` that already tracks `booking_id, step_name, input, output, status, executed_at` — but it's missing `error_msg` and `duration_ms` columns specifically.\n- No `booking_workflow_traces` table exists yet, nor the executor wrapper or admin endpoint.\n- Prior attempt failed with 510 lines > 500 line diff limit. I need to keep this tight.\n\n## Problem Identified\nUS-309 needs:\n1. A `booking_workflow_traces` DB table with schema: `booking_id, step_name, input_json, output_json, error_msg, duration_ms, created_at`\n2. An `executeWorkflowStepWithTrace()` function in `src/assistant/workflow/executor.ts`\n3. An admin endpoint `GET /admin/booking/:bookingId/trace`\n4. A unit test file\n\n## Planned Changes\nKeep total diff under 500 lines by being very concise:\n1. **`shared/schema-tables.ts`** — Add `bookingWorkflowTraces` table (~20 lines)\n2. **`src/assistant/workflow/executor.ts`** — New file with `executeWorkflowStepWithTrace()` (~50 lines)\n3. **`src/routes/admin/booking-trace.ts`** — New file for admin endpoint (~55 lines)\n4. **`src/routes/admin/index.ts`** — Register the new route (2 lines)\n5. **`tests/unit/workflow/execution-tracing.test.ts`** — Unit tests (~90 lines)\n\nTotal: ~220 lines of new/changed code, well within 500 limit.\n\nNow implementing:\nNow register the route in the admin index:\nNow create the unit test:\nNow run the quality checks:\nBuild passes and all 6 tests pass. Now let me run the server startup test:\nServer starts fine. Now update prd.json to mark US-309 as passed:\nNow document learnings in progress.txt:\nNow commit:\nUS-309 is complete. All checks passed:\n\n- **Build**: esbuild succeeds (1 pre-existing warning only)\n- **Tests**: 6/6 unit tests pass\n- **Server startup**: Starts without errors\n- **prd.json**: `passes: true`\n- **Committed**: `4cba4a3`"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 918,
-        "tokensAfterMasking": 916,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "last_attempted": "2026-03-23T19:45:13Z"
     },
     {
       "id": "US-322",
@@ -861,6 +824,57 @@
         "Create src/tools/cli/cleanup-profile-data.ts that scans intent-keywords.json, knowledge.json, and routing.json for each profile and removes hostel-specific keywords ('dorm', 'shared room', 'bed space', 'capsule')",
         "Generate CSV report showing removed keywords per profile and verify cleaned knowledge.json contains only cafe/homestay-specific content",
         "Run on data-makan and data-southern profiles and verify no false positives in cafe-related keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-413",
+      "title": "Profile-Scoped Conversation Database Query Isolation Test Suite",
+      "priority": "high",
+      "description": "Add unit tests verifying that conversation and message queries are properly isolated by profile. Tests must assert that querying conversations for 'makan' never returns messages from 'southern' or 'pelangi' profiles, and validate row-level database constraints prevent cross-profile data leakage.",
+      "acceptanceCriteria": [
+        "Create test file src/__tests__/db/conversation-isolation.test.ts with at least 4 test cases: (1) query conversations by profile returns only that profile's messages, (2) concurrent profile queries don't leak data, (3) raw pg queries respect profile boundaries, (4) conversation count by profile is accurate",
+        "Tests must create fixture data for makan, southern, and pelangi profiles with separate conversations, then assert isolation",
+        "Run with 'npm run test:run -- conversation-isolation' and verify all pass"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-414",
+      "title": "Booking Workflow Room-Type Precondition Validator with Missing-Field Report",
+      "priority": "high",
+      "description": "Implement validator that enforces required fields (guest_name, check_in_date, check_out_date, room_type) before executing booking confirmation workflow step. Return structured JSON listing missing fields and expected types when validation fails.",
+      "acceptanceCriteria": [
+        "Add function validateBookingPreconditions() in src/assistant/pipeline/workflow-executor.ts that checks all required fields exist and have valid types",
+        "Return {valid: false, missingFields: ['room_type'], errors: [{field: 'room_type', expected: 'string', received: 'undefined'}]} when validation fails",
+        "Add 3 test cases in src/__tests__/workflows/precondition-validator.test.ts: (1) valid complete booking passes, (2) missing room_type fails with specific error, (3) invalid check_in_date format fails"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-415",
+      "title": "Makan Moments Profile Content Integrity Validator with Hostel-Specific Content Removal",
+      "priority": "high",
+      "description": "Implement CLI tool that scans Makan Moments data files (intents.json, intent-keywords.json, knowledge.json, workflows.json, routing.json) for Pelangi Capsule Hostel references and outputs audit report with specific line numbers and recommended fixes.",
+      "acceptanceCriteria": [
+        "Create src/tools/audit-profile-contamination.ts with command 'node dist/tools/audit-profile-contamination.js --profile makan --check' that scans all 5 data files and reports any hostel-specific keywords (e.g., 'check_in', 'check_out', 'room_type', 'availability')",
+        "Output JSON report with {file: 'intents.json', line: 12, content: '...', verdict: 'remove|fix|keep'} for each suspicious entry",
+        "Run on Makan profile and generate audit report with at least 10 contaminated entries; add test case asserting no hostel intents remain after cleanup"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -1725,6 +1739,40 @@
       "model": "sonnet"
     },
     {
+      "id": "US-416",
+      "title": "Intent Keyword Fuzzy Matcher for Typo Tolerance with Levenshtein Distance",
+      "priority": "medium",
+      "description": "Enhance intent keyword classifier to match keywords with 1-2 character variations using Levenshtein distance. Example: 'chekc' should match 'check' intent keyword. Implement as fallback when exact match fails.",
+      "acceptanceCriteria": [
+        "Add fuzzyMatchKeyword(input: string, keywords: string[], maxDistance: number = 2) in src/assistant/intent/keyword-classifier.ts using Levenshtein distance library",
+        "Add 5 test cases in src/__tests__/intent/fuzzy-matcher.test.ts: 'chekc' → 'check', 'bookie' → 'booking', 'avalibl' → 'available', 'checkin' → 'check_in', 'checkout' → 'check_out'",
+        "Run 'npm run test:run -- fuzzy-matcher' and verify all pass; integrate into intent classification pipeline as fallback after exact match fails"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-417",
+      "title": "Conversation Context Token Counter with Budget Exhaustion Warning",
+      "priority": "medium",
+      "description": "Implement token counter for conversation history that warns when approaching token limit (e.g., 80% of budget used). Provide estimate of tokens per message and suggest pruning strategy when limit approaches.",
+      "acceptanceCriteria": [
+        "Add function estimateConversationTokens(messages: Message[]) in src/lib/token-counter.ts that counts approximate tokens using rule-of-thumb (1 token ≈ 4 characters) or integrates with tiktoken library",
+        "Add checkTokenBudget(messages, budget=4000, warnThreshold=0.8) that returns {tokensUsed: number, percentageUsed: number, warning: string} when 80%+ full",
+        "Test on realistic 15+ turn booking conversation; verify warning triggers at 3200+ tokens and suggests 'prune oldest 5 non-critical messages'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -1992,6 +2040,34 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-308",
+      "title": "Conversation Context Relevance Reranker for Multi-Turn Booking Dialogs",
+      "priority": "high",
+      "description": "Implement message relevance scoring to filter conversation history before AI inference. Score messages by keyword overlap with current intent, reorder by relevance to prevent stale context from degrading booking classification accuracy.",
+      "acceptanceCriteria": [
+        "Implement `scoreMessageRelevance(message, currentIntent, profile)` in `src/assistant/pipeline/context.ts` returning 0-1 relevance score based on intent keyword overlap and recency decay",
+        "Add integration test `test/integration/multi-turn-context.test.ts` showing 10-message conversation reranked to 5 high-relevance messages before booking confirmation step",
+        "Add admin endpoint `GET /admin/context-stats?profile={profile}&days=7` returning avg context size, avg filtered size, and relevance score distribution per profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T19:39:56Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nLet me read the current state of the project first.\nNow let me check if the files from previous attempts still exist.\nGood - the files exist from previous iterations. Let me read them and check what's actually there.\nGood - all three files exist. Let me check if the route is registered and verify the admin index.\nAll the code is in place. Now let me run the build and tests to verify.\n\n## Current State\n- All 3 files for US-308 exist from previous iterations:\n  - `src/assistant/pipeline/context.ts` — `scoreMessageRelevance()` and `filterContextByRelevance()`\n  - `test/integration/multi-turn-context.test.ts` — 8 tests for the 10-message booking dialog\n  - `src/routes/admin/context-stats.ts` — admin endpoint with `computeContextStats()`\n- Route is registered in `src/routes/admin/index.ts` (import on line 122, used on line 408)\n- The `ChatMessage` type matches expectations (role, content, timestamp)\n\n## Problem Identified\nPrevious attempts failed because of a \"DIAGNOSIS_BLOCK_MISSING\" gate — the agent made file edits without outputting a diagnosis block first. The code itself appears complete and correct.\n\n## Planned Changes\n1. Run tests to verify the 8 tests pass\n2. Run build to verify no build errors\n3. Run server startup test\n4. If all pass, mark US-308 as `passes: true` in prd.json\n5. Commit changes\n\nLet me verify everything works:\nAll 8 tests pass and the build succeeds. Let me do the server startup test:\nServer starts without errors. All checks pass. Now mark US-308 as complete:\nNow update progress.txt and commit:\nUS-308 is complete. All checks passed:\n\n- **8/8 tests pass** in `test/integration/multi-turn-context.test.ts`\n- **Build succeeds** (esbuild, 2.4MB bundle)\n- **Server starts** without errors\n- **prd.json** updated: `passes: true`\n- **Committed** to branch\n\nThe code was already fully implemented from a prior iteration — this attempt just needed to verify it and pass the diagnosis-block gate before making any edits."
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 609,
+        "tokensAfterMasking": 607,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-290",
