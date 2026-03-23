@@ -109,6 +109,7 @@ export interface ChatMessage {
 
 export interface ConversationState {
   phone: string;
+  profileId?: string;  // US-160: Profile associated with this conversation for routing validation
   pushName: string;
   messages: ChatMessage[];
   language: 'en' | 'ms' | 'zh' | 'ta';

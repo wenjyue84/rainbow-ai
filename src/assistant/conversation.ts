@@ -83,6 +83,7 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
   // StateManager.getOrCreate() handles TTL checking and lastActiveAt updates
   return conversationManager.getOrCreate(key, () => ({
     phone,
+    profileId,  // US-160: Track profile association for routing validation
     pushName,
     messages: [],
     language: 'en' as const,

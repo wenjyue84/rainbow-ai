@@ -1140,3 +1140,64 @@ Build passed, 8/8 tests passed, server started successfully.
 - [x] AC1: intent_classifier_baselines table exists in schema; regressionAlerts table added (migration via db:push)
 - [x] AC2: Nightly scheduler calls updateBaselines() + detectAndPersistRegressions(); WARN log on detection; auto-resolves recovered intents
 - [x] AC3: GET /admin/analytics/regression-alerts endpoint with active/resolved/all filter, profile filter, summary counts
+
+---
+
+## Iteration [SPIRAL] - Story: US-160 Profile-aware message routing validation middleware preventing cross-profile contamination
+
+### What was implemented
+- **Routing Validator Middleware** (`src/assistant/pipeline/middleware/routing-validator.ts`):
+  - `validateRouting()`: Pure function checking if message profile matches conversation profile
+    - Returns null if valid (first contact or profiles match)
+    - Returns RoutingViolation object if profiles mismatch (cross-profile detected)
+    - Violation contains: senderId (phone), intendedProfile, actualProfile, timestamp
+  - `logRoutingViolation()`: Async function logging violations to rainbow_config_audit table
+    - Inserts with action='cross_profile_routing', changed_by=sender_id
+    - after_json contains sender_id, intended_profile, actual_profile
+    - Fire-and-forget error handling (logs to console, doesn't throw)
+  - `validateMessageRouting()`: Main middleware function
+    - Takes PipelineState with resolved profileId and convo
+    - Returns {continue: false, reason: 'cross_profile_routing'} if violation detected
+    - Returns null if routing is valid (continues pipeline)
+    - Triggers audit logging on violations
+
+- **ConversationState Enhancement** (`src/assistant/types.ts`):
+  - Added optional `profileId?: string` field to track profile association
+  - Enables detection of cross-profile message routing
+
+- **Conversation Initialization Update** (`src/assistant/conversation.ts`):
+  - `getOrCreate()` now stores profileId in conversation state when creating
+  - Subsequent messages can be validated against stored profileId
+
+- **Comprehensive Test Suite** (`src/tests/middleware/routing-validation.test.ts`):
+  - 24 tests covering:
+    - First contact (no existing profile) — always valid
+    - Same-profile messages — valid routing
+    - Cross-profile messages — routing violations
+    - Profile switches between pelangi/southern/makan-moments
+    - AC1: Message validation before processing
+    - AC2: Violation structure with required audit fields
+    - AC3: Middleware rejection of cross-profile messages
+    - Routing violation structures with senderId, intendedProfile, actualProfile
+
+### Patterns discovered
+- Conversations keyed by `convoKey(phone, profileId)` enables per-profile scoping
+- Profile association stored in ConversationState avoids separate lookup table
+- Violation logging uses fire-and-forget to avoid blocking message processing
+- First contact (undefined profileId) always allowed—establishes profile on first message
+- Cross-profile switch detected when incoming profileId !== conversation profileId
+- Audit trail captures full violation context for investigation
+
+### Gotchas
+- Import paths: Middleware at `src/assistant/pipeline/middleware/` uses `../../../lib/db.js`
+- Pool is imported at module level, making it complex to mock in tests
+  - Solution: Tests focus on logic validation rather than database mocking
+- ConversationState optional profileId means migrations/loaded conversations may lack field
+  - Solution: validateRouting() returns null if conversationProfileId is undefined (first contact)
+- Fire-and-forget logging means async errors don't propagate to middleware caller
+  - Solution: Errors logged to console, but don't halt message processing
+
+### Acceptance Criteria Met
+- [x] AC1: Middleware asserts message.profile === target_profile in `src/assistant/pipeline/middleware/routing-validator.ts`
+- [x] AC2: Violations logged to rainbow_config_audit with type='cross_profile_routing', sender_id, intended_profile, actual_profile
+- [x] AC3: `src/tests/middleware/routing-validation.test.ts` (24 tests) asserts rejection of cross-profile messages and audit log structure
