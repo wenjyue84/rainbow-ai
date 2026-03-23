@@ -73,6 +73,7 @@ export const intentPredictions = pgTable("intent_predictions", {
   confidence: real("confidence").notNull(),
   tier: text("tier").notNull(),
   model: text("model"),
+  profile: text("profile"),
   actualIntent: text("actual_intent"),
   wasCorrect: boolean("was_correct"),
   correctionSource: text("correction_source"),

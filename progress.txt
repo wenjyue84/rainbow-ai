@@ -1766,3 +1766,35 @@ There are no references to Frappe DocTypes, hooks, or Python files. The brief ca
   - [x] seasonal_promotion_inquiry added to intents-makan.json with café context
   - [x] Seasonal keywords (limited edition, weekend special, promotion, special price) in intent-keywords.json
   - [x] Test verifies seasonal intents classify correctly and do NOT match Pelangi profile
+## Iteration 1 - Mon, Mar 23, 2026 10:01:09 AM
+FAILED diagnosis-block gate: Add Makan Moments seasonal promotion inquiry intent (ID: US-108) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [SPIRAL-37] - Story: US-113 Persist individual intent prediction confidence scores with classification outcome tracking
+
+### What was implemented
+- Added `profile` column to `intentPredictions` table in `shared/schema-tables.ts`
+- Updated `trackIntentPrediction()` in `src/assistant/intent-tracker.ts` to accept and save `profile` parameter
+- Added `trackIntentPrediction` call in `classifyAndRoute()` in `src/assistant/pipeline/intent-classifier.ts`:
+  - Only fires when `result.confidence >= 0.4` (as required)
+  - Saves conversationId (phone), phoneNumber, processText, intent, confidence, tier, model, profile
+  - Fire-and-forget (non-fatal)
+- Created `tests/unit/intent-prediction-persistence.test.ts` with 11 tests covering:
+  - Schema field verification (confidence, actualIntent, profile, conversationId, predictedIntent, createdAt)
+  - trackIntentPrediction queuing behavior
+  - Sorting by confidence_score (descending)
+  - Accuracy calculation: sum(wasCorrect) / total
+  - Edge cases: no labeled predictions, 100% accuracy, combined sort+accuracy
+
+### Patterns discovered
+- `intentPredictions` table already existed with most required fields; only `profile` was missing
+- `trackIntentPrediction` uses a batch queue (BATCH_SIZE=50, FLUSH_INTERVAL_MS=5000) — "immediately" in AC means it's staged for DB write immediately, not that it bypasses batching
+- Tests mock the DB module entirely via vi.mock; accuracy/sorting logic is pure function, easily unit-tested
+
+### Quality checks
+✓ All 11 tests pass
+✓ Build completes (1 pre-existing ESM warning, no new errors)
+✓ Acceptance criteria met:
+  - [x] profile field added to intent_predictions table
+  - [x] classifyAndRoute saves predictions with confidence >= 0.4
+  - [x] Test verifies sorting by confidence_score and accuracy calculation

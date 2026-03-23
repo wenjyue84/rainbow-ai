@@ -59,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-03-23T01:25:50Z"
@@ -389,6 +389,176 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-178",
+      "title": "Implement WhatsApp booking status notifications during workflow execution",
+      "priority": "high",
+      "description": "Add guest notification system to keep customers informed during booking workflow steps (confirmation, check-in reminder, room assigned). Improves goal 4 (booking workflow steps) by adding guest communication.",
+      "acceptanceCriteria": [
+        "Add notification_guest step type to src/assistant/data/workflows.json booking workflow with message template variable support ({{guest_name}}, {{check_in_date}}, {{room_number}})",
+        "Create src/assistant/notification-handler.ts with sendNotification(workflowStep, conversation) function that sends WhatsApp message via Baileys and logs delivery status",
+        "Unit test in tests/assistant/notification-handler.test.ts asserting notification is queued when booking workflow reaches notification_guest step and message contains expected template variables"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-179",
+      "title": "Create data contamination cleanup CLI tool with automated Pelangi baseline removal",
+      "priority": "high",
+      "description": "Build CLI tool that compares data-makan and data-southern profile files against known Pelangi Capsule Hostel keywords to identify and remove cross-contaminated content. Directly fixes goal 8 and supports profile separation.",
+      "acceptanceCriteria": [
+        "Create scripts/cleanup-profile-data.ts CLI that loads Pelangi keyword baseline and compares against target profile's intent-keywords.json, outputting detected contamination with line numbers and suggested deletions",
+        "CLI generates timestamped backup JSON before modifications and outputs detailed report showing removed keywords with confidence that they're hostel-specific (e.g., 'room booking', 'check-in time')",
+        "Integration test confirming CLI removes 5+ hostel-specific keywords from Makan cafe profile and produces validation report; dry-run mode prevents accidental modifications"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-183",
+      "title": "Implement multi-language intent matching with automatic language detection and English fallback",
+      "priority": "high",
+      "description": "Detect guest message language automatically, match intents in detected language first, fallback to English keywords if no match found. Improves classification accuracy for multilingual guests while maintaining reliability across Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Language detection adds 'detectedLanguage' and 'detectionConfidence' fields to message entity in rainbow_messages table, using textlang or similar library with >80% confidence threshold",
+        "Intent matching in src/assistant/pipeline/classify-intent.ts tries language-specific keywords from intent-keywords.json first (keys: 'en', 'ms', 'zh', 'ta'), falls back to English keywords if no match found with confidence >0.6",
+        "Log detected language and fallback events to intent_analytics table for debugging; test in tests/unit/multi-language-intent-matching.test.ts with 4+ language variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-184",
+      "title": "Add per-profile intent classification accuracy time-series analytics endpoint",
+      "priority": "high",
+      "description": "Provide admin dashboard endpoint tracking intent classification accuracy per profile (Pelangi, Makan, Southern) over hourly and daily windows. Detects accuracy degradation and profile-specific classifier issues in real time.",
+      "acceptanceCriteria": [
+        "New endpoint GET /admin/analytics/intent-accuracy-timeseries?profile={profile}&window={hour|day}&hours=24 returns JSON with hourly/daily accuracy buckets and confidence intervals from intent_analytics table",
+        "Endpoint calculates accuracy as (correct_classifications / total_classifications) per time bucket per profile; stores baseline in app_settings keyed 'intent_accuracy_baseline_{profile}'",
+        "Add alert logic: trigger admin notification if accuracy drops >5% from baseline in single hour for any profile; persist alert events in escalation_events table with profile_id"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-185",
+      "title": "Build semantic fallback response relevance validator for admin review",
+      "priority": "high",
+      "description": "Validate fallback responses address the original user intent using cosine similarity on embeddings. Prevents generic off-topic responses and improves reliability when confidence is low.",
+      "acceptanceCriteria": [
+        "New admin endpoint POST /admin/validate-fallback-response with body {intent, fallbackResponse} uses embedding library (e.g., sentence-transformers via Node.js bindings) to compute cosine similarity; returns relevanceScore (0-1)",
+        "Flag responses with similarity <0.5 as 'low relevance' requiring manual review; store validation results in new fallback_validation_log table with profile_id, intent_id, score, status",
+        "Integration test in tests/unit/fallback-relevance-validator.test.ts covering 3+ profiles (Pelangi, Makan, Southern) with 5+ test fallback pairs; assert all known-good responses score >0.6"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-186",
+      "title": "Add pre-booking workflow validation gate with required field and business rule checks",
+      "priority": "high",
+      "description": "Enforce validation before booking confirmation: verify all required fields present (guest_name, check_in_date, check_out_date, room_type), validate business rules (no past dates, room availability, length of stay constraints). Blocks invalid bookings before workflow execution.",
+      "acceptanceCriteria": [
+        "New validator function in src/assistant/pipeline/validate-booking-workflow.ts returns {isValid: boolean, violations: [{field, reason}]} checking: guest_name not empty, dates ISO-8601 parseable, check_in >= today, check_out > check_in, room_type in available_rooms for profile, length_of_stay ≤ max_stay (from settings.json per-profile)",
+        "Integrate validator into workflow step execution in src/assistant/pipeline/execute-workflow.ts; block confirmation step if violations detected, return actionable message: 'Cannot confirm: missing guest name and check-in date is in the past'",
+        "Test suite tests/unit/booking-workflow-validation.test.ts with 8+ edge cases covering: missing required fields (3 cases), invalid dates (3 cases), room unavailability (1 case), length-of-stay violation (1 case); assert all violations caught before DB write"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-180",
+      "title": "Implement fuzzy matching for intent keyword classification to handle typos and misspellings",
+      "priority": "medium",
+      "description": "Add Levenshtein distance-based fuzzy matching to improve intent classification accuracy when users misspell keywords like 'bokking' or 'chckout'. This advances goal 1 (improve intent classification accuracy) by catching typos.",
+      "acceptanceCriteria": [
+        "Create src/lib/fuzzy-match.ts with Levenshtein distance calculation supporting configurable match threshold (default 85%)",
+        "Modify src/assistant/classification.ts to use fuzzy matching as fallback when exact keyword match confidence < 0.6, ensuring 'bokking' matches 'booking' intent with 0.87+ confidence",
+        "Add unit test in tests/lib/fuzzy-match.test.ts asserting 'chckout' → 'checkout' and 'chck in' → 'check in' match with expected confidence scores"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-181",
+      "title": "Add conversation context relevance scoring to deprioritize stale and off-topic messages",
+      "priority": "medium",
+      "description": "Implement relevance scoring algorithm that weights message recency and semantic similarity to current intent, improving multi-turn dialogue handling by preventing old irrelevant context from affecting AI inference.",
+      "acceptanceCriteria": [
+        "Create src/assistant/context-relevance.ts with relevanceScore(message, currentIntent) function returning 0-1 score based on message age (exponential decay) and keyword overlap with intent patterns",
+        "Modify src/assistant/pipeline.ts to sort conversation history by relevance score before passing to AI inference, filtering messages below 0.3 threshold",
+        "Integration test confirming a 5-message-old context unrelated to current booking intent is deprioritized vs recent messages, with AI reasoning limited to top-3 relevant messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-182",
+      "title": "Add intent keyword collision detection to GitHub Actions CI pipeline",
+      "priority": "medium",
+      "description": "Implement pre-deployment validation that detects keywords appearing in multiple profiles, preventing profile contamination from reaching production. Enforces goal 7 (business profile separation) at CI level.",
+      "acceptanceCriteria": [
+        "Create scripts/detect-keyword-collisions.ts that parses src/assistant/data/*/intent-keywords.json files and identifies keywords appearing in 2+ profiles, outputting collision report with affected profiles and keywords",
+        "Add GitHub Actions step to .github/workflows/validate.yml that runs collision detector and fails deployment if collisions detected with clear error message listing which keywords (e.g., 'booking', 'check-in') are duplicated",
+        "Unit test asserting collision detector correctly identifies 'booking' keyword when present in both pelangi and makan profiles, but ignores same keyword within single profile's multiple intent types"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-187",
+      "title": "Implement conversation context consolidation CLI for token and cost optimization",
+      "priority": "medium",
+      "description": "Add npm script and CLI to consolidate old messages (>7 days) into semantic summaries while preserving booking intent and critical entities. Keeps conversation context window manageable without losing information.",
+      "acceptanceCriteria": [
+        "New CLI command 'npm run consolidate-context -- --profile={profile} --max-age-days=7' reads messages older than threshold from rainbow_messages, generates summary using LLM (Kimi/Ollama), stores consolidated_summary in rainbow_conversations table with original message IDs preserved for audit",
+        "Consolidation logic in src/tools/consolidate-context.ts extracts and preserves key entities (guest_name, check_in_date, check_out_date, room_type, booking_status) in summary; test in tests/unit/context-consolidation.test.ts validates entity extraction on 3+ real conversation samples",
+        "Verify token count reduction: measure average tokens before/after consolidation across 10+ test conversations; assert >30% reduction with zero information loss on critical fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

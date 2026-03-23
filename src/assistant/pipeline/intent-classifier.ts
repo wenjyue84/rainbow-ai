@@ -26,6 +26,7 @@ import { normalizeManglish } from '../manglish-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics } from '../../../shared/schema-tables.js';
+import { trackIntentPrediction } from '../intent-tracker.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -150,6 +151,20 @@ export async function classifyAndRoute(
     confidence: result.confidence,
     latencyMs: classificationLatencyMs,
   }).catch(() => {}); // fire-and-forget
+
+  // ─── US-113: Persist intent prediction confidence scores ──────────
+  if (result.confidence >= 0.4) {
+    trackIntentPrediction(
+      phone,
+      phone,
+      processText,
+      result.intent,
+      result.confidence,
+      devMetadata.source ?? 'unknown',
+      devMetadata.model,
+      state.profileId
+    ).catch(() => {}); // fire-and-forget, non-fatal
+  }
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
   if (isIntentGap(devMetadata.source, result.confidence)) {

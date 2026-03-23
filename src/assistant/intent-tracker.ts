@@ -91,7 +91,8 @@ export async function trackIntentPrediction(
   predictedIntent: string,
   confidence: number,
   tier: string,
-  model?: string
+  model?: string,
+  profile?: string
 ): Promise<void> {
   try {
     const prediction: InsertIntentPrediction = {
@@ -102,6 +103,7 @@ export async function trackIntentPrediction(
       confidence,
       tier,
       model: model || null,
+      profile: profile || null,
       actualIntent: null,
       wasCorrect: null,
       correctionSource: null,
