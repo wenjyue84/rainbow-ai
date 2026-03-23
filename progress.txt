@@ -1,5 +1,6 @@
 
 ## Pre-analysis for US-213 (Gemini 2.5 Pro)
+<<<<<<< Updated upstream
 Based on the user story and project structure, this is a **NodeJS/TypeScript** task, not Frappe/Python. The following brief is tailored for a TypeScript developer.
 
 **Technical Brief: US-213 Intent Keyword Suggestion Engine**
@@ -177,4 +178,67 @@ This user story appears to be for a TypeScript/Node.js project, not a Frappe/Pyt
 Therefore, I cannot generate a technical brief for the `lhdn_payroll_integration` app based on this information.
 
 If you provide the correct user story JSON for the Frappe/Python task, I can analyze it and generate the requested technical brief.
+=======
+**Technical Brief: US-213 Keyword Suggestion Engine**
+
+This brief outlines the implementation plan for a new keyword suggestion tool. The user story specifies an `npm` command, indicating this is a **Node.js/TypeScript** task, not Frappe/Python.
+
+**1. Files to Modify / Create:**
+*   **Create:** `scripts/suggest-keywords.ts` to house the main CLI logic.
+*   **Modify:** `package.json` to add the new `suggest:keywords` script command.
+*   **Reference:** `src/db/schema.ts` (or similar) to understand the `escalation_queue` and `intents` table structures.
+*   **Create:** `schemas/suggestion-output.schema.json` for validating the final JSON output.
+
+**2. Core Data Models Involved:**
+*   **`escalation_queue` table:** The primary data source, containing misclassified messages and the target intent.
+*   **`intents` table (assumption):** The destination for keywords, used to check for existing keywords to avoid suggesting duplicates.
+
+**3. Recommended Implementation Approach:**
+1.  In `scripts/suggest-keywords.ts`, use a CLI argument parser like `yargs` to handle `--profile` and `--days`.
+2.  Implement a database service to query the `escalation_queue` table, filtering by the date range and profile. Group the retrieved messages by `intent_id`.
+3.  For each intent, process the message text using a TF-IDF (Term Frequency-Inverse Document Frequency) algorithm. The `natural` npm package is a good candidate.
+4.  Identify the top 2-3 n-grams (2-word phrases are better than single words) with the highest TF-IDF scores, filtering out a standard list of stop words.
+5.  Format the results into the required JSON structure `{intent_id, ...}` and validate against the schema before printing to `stdout`.
+
+**4. Edge Cases & Gotchas:**
+*   **Stop Words:** The TF-IDF analysis must filter out generic stop words (e.g., "the", "is", "please") to produce meaningful keywords.
+*   **Text Normalization:** Pre-process message text by converting to lowercase and removing punctuation to ensure accurate term frequency counting.
+*   **Novelty:** The script must fetch an intent's current keywords and filter them out from the final suggestions.
+*   **No Data:** Gracefully handle cases where no escalated messages are found in the specified period.
+
+
+## Pre-analysis for US-213 (Gemini 2.5 Pro)
+### Technical Brief: US-213 Intent Keyword Suggestion Engine
+
+**Project:** `rainbow-ai` (Node.js/TypeScript environment)
+**Goal:** Implement a CLI tool to suggest new intent keywords by analyzing escalated messages.
+
+**1. Files to Modify:**
+*   **Create:** `scripts/suggest-keywords.ts` to house the main analysis and CLI logic.
+*   **Create:** `src/lib/tfidf.ts` for the Term Frequency-Inverse Document Frequency implementation.
+*   **Modify:** `package.json` to add the new `suggest:keywords` npm script command.
+*   **Create:** `schemas/suggestion-output.schema.json` to define and validate the JSON output structure.
+
+**2. Frappe DocTypes / Data Models Involved:**
+*   This is a Node.js project. The equivalent of DocTypes are database tables accessed via Drizzle ORM.
+*   **`escalation_queue` table:** The primary data source, containing misclassified messages.
+*   **`intents` table (assumed):** A table that stores intent definitions and their current keywords.
+
+**3. Recommended Implementation Approach:**
+1.  In `scripts/suggest-keywords.ts`, use a CLI library like `yargs` to define and parse `--profile` and `--days` arguments.
+2.  Use the existing Drizzle client to query the `escalation_queue` table for messages within the given time frame.
+3.  Group the messages by `intent_id`.
+4.  For each intent's message corpus, use the `tfidf.ts` module to:
+    a. Tokenize message text, apply stemming, and remove common English stop-words.
+    b. Calculate TF-IDF scores for each term.
+5.  Extract the top 2-3 terms with the highest scores as `suggested_keywords`.
+6.  Calculate `estimated_accuracy_boost_percent` by checking what percentage of the analyzed messages for an intent contain one of the new suggested keywords.
+7.  Format the result into the specified JSON structure and print to `stdout`.
+
+**4. Edge Cases & Gotchas:**
+*   **Stop Words:** The analysis must filter out high-frequency but low-value conversational words (e.g., "hello," "please," "thanks") to produce meaningful keywords.
+*   **Data Sparsity:** Intents with few escalated messages may not yield statistically significant keywords. The script should handle this gracefully.
+*   **Performance:** Ensure the database query on `escalation_queue` is efficient, using an index on the timestamp column.
+*   **Schema:** The definition of a "misclassified" message in `escalation_queue` must be confirmed; it's assumed any entry is a candidate.
+>>>>>>> Stashed changes
 
