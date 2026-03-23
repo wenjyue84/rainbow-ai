@@ -256,3 +256,91 @@ Therefore, I cannot generate a technical brief for the `lhdn_payroll_integration
 
 If you provide the correct user story JSON for the Frappe/Python task, I can analyze it and generate the requested technical brief.
 
+
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+**Technical Brief: US-223 Knowledge Base Validator**
+
+**Project:** TypeScript/Node.js (Note: The story describes a TS/Node.js task, not Frappe/Python).
+**Objective:** Implement a startup validation script to ensure the integrity of `knowledge.json` files, enforcing profile-specific content and required data fields.
+
+**1. Python Files to Modify / Key Files:**
+*   **Create:** `src/lib/validate-knowledge-base.ts` This new file will contain the core validation logic.
+*   **Modify:** The primary server entry point (likely `src/main.ts`, `src/server.ts`, or a script referenced in `ecosystem.config.cjs`) must be modified to import and execute the validator on application startup.
+
+**2. Frappe DocTypes / Involved Entities:**
+*   **Data Source:** `knowledge.json` files within each profile's data directory (e.g., `.rainbow-kb-makan/`, `.rainbow-kb-southern/`).
+*   **Process Hook:** The validation will be hooked into the server's startup sequence, running once before the application becomes operational.
+
+**3. Implementation Approach:**
+*   The `validate-knowledge-base.ts` script should export a main async function.
+*   This function will use a glob pattern to locate all `knowledge.json` files.
+*   It will iterate through each file, parse its contents, and validate each entry against the acceptance criteria:
+    *   **Field Enforcement:** Check for `id`, `intent`, `profile_id`, and a non-empty `response`.
+    *   **Contamination Check:** For "Makan" and "Southern" profiles, scan `response` text for forbidden Pelangi-specific keywords (e.g., `hostel`, `check-in`).
+*   Aggregate results, logging non-critical warnings but throwing a fatal error for critical violations (like a missing `profile_id`) to halt startup.
+
+**4. Edge Cases & Gotchas:**
+*   **Startup Blocking:** The main server process must `await` the validation function to ensure it completes before proceeding.
+*   **Profile Identification:** Reliably derive the `profile_id` from the file's directory path to ensure accurate contamination checks.
+*   **Error Handling:** Gracefully handle parse errors from malformed or empty `knowledge.json` files.
+*   **Error Clarity:** Critical failure logs must be explicit, indicating the exact file and error, to simplify debugging.
+
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+Based on the user story, this is a **TypeScript/Node.js task**, not Frappe/Python. The technical brief has been adjusted accordingly.
+
+**Technical Brief: US-223 Knowledge Base Content Validator**
+
+**1. Objective:**
+Implement a validation script that runs on server startup to ensure the integrity of `knowledge.json` files, enforcing schema rules and profile content isolation.
+
+**2. Files to Modify:**
+*   **Create:** `src/lib/validate-knowledge-base.ts` to house the validation logic.
+*   **Modify:** The primary server entry file (likely `src/server.ts` or a related startup script) to import and execute the validator.
+
+**3. Involved Frappe DocTypes/Hooks:**
+*   N/A. This story pertains to a Node.js environment. The key data sources are `knowledge.json` files within various `.rainbow-kb-*` directories.
+
+**4. Implementation Approach:**
+*   The validator function should use `glob` or a similar utility to discover all profile-specific `knowledge.json` files.
+*   For each file, parse the JSON and iterate through each article object.
+*   **Schema Enforcement:** Validate that `id`, `intent`, and `profile_id` exist. The `response` field must be a string longer than 5 characters.
+*   **Contamination Check:** For `makan` and `southern` profiles, search the `response` text for a blocklist of Pelangi-specific terms (e.g., `hostel`, `check-in`, `capsule`). Use a case-insensitive regex for this.
+*   **Error Handling:** If `profile_id` is missing, throw a fatal error to halt the startup process. Log other violations as console warnings, including the file path and entry `id`.
+
+**5. Edge Cases & Gotchas:**
+*   The script must gracefully handle and report malformed JSON files without crashing.
+*   Ensure the file discovery mechanism is robust and correctly identifies all profile knowledge bases.
+*   Critical failure messages should be explicit about why the server startup was blocked.
+
+
+## Pre-analysis for US-217 (Gemini 2.5 Pro)
+This user story describes a **TypeScript/Node.js** implementation, not a Frappe/Python one. The file paths (`.ts`, `.json`) and structure (`src/lib`, `src/tests`) are characteristic of a modern TypeScript project.
+
+Here is a technical brief based on the **actual technology stack** described in the story:
+
+**Project:** TypeScript Booking Workflow Engine
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/tests/workflows/booking-cancellation.integration.test.ts` (the primary task).
+*   **Analyze/Modify:** `src/lib/workflow-executor.ts` (contains the core cancellation logic to be tested and potentially fixed).
+*   **Reference/Verify:** `src/assistant/data/workflows.json` (defines the state machine for the `booking_cancellation_workflow`).
+
+**2. Key Components Involved:**
+*   **Workflow Executor:** The primary orchestrator is `workflow-executor.ts`.
+*   **Workflow Definition:** State transitions and rules are defined declaratively in `workflows.json`.
+*   **Database Table:** The `workflow_audit` table is used for logging state transitions.
+*   **Business Profiles:** Cancellation policies are segmented by profiles: "Pelangi," "Makan," and "Southern."
+
+**3. Implementation Approach:**
+*   Create the new integration test file using a framework like Vitest or Jest.
+*   Implement the 6+ test cases from the acceptance criteria, focusing on triggering the workflow via the executor.
+*   For each test, assert the final database state, the credit/refund calculation, and the entries created in the `workflow_audit` table.
+*   Use test coverage tools to ensure the `cancellation` code paths in `workflow-executor.ts` exceed 85% coverage.
+
+**4. Edge Cases & Gotchas:**
+*   **Database Transactions:** Critically test that any failure during the workflow rolls back all database changes to ensure atomicity.
+*   **Profile Logic:** Ensure tests explicitly cover how different cancellation policies for "Pelangi," "Makan," etc., are applied.
+*   **State Consistency:** Verify that the primary booking record and the audit log are never left in a mismatched state.
+

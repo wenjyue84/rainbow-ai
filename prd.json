@@ -62,7 +62,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T10:45:31Z"
+      "last_attempted": "2026-03-23T10:47:29Z"
     },
     {
       "id": "US-223",
@@ -269,40 +269,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-261",
-      "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
-      "priority": "high",
-      "description": "Create a CLI tool that analyzes per-profile intent classification accuracy at different confidence thresholds and recommends optimal settings per profile. Prevents over-escalation in high-accuracy profiles like Pelangi while protecting low-accuracy ones like Makan Moments.",
-      "acceptanceCriteria": [
-        "CLI command `npm run profile-threshold-calibrate [profile-name]` reads intent classification logs and outputs recommended confidence threshold with accuracy metrics",
-        "Creates/updates `src/assistant/data/settings.json` with per-profile threshold overrides under `profiles[profile].intentClassificationThreshold`",
-        "Unit test: threshold calibrator correctly identifies profile with >90% accuracy should use higher threshold (0.85+) vs profile with <75% accuracy uses lower threshold (0.65)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-262",
-      "title": "Conversation Context Message Decay Scorer for Multi-Turn Relevance",
-      "priority": "high",
-      "description": "Implement exponential decay function that assigns relevance scores to historical messages in multi-turn conversations. Newer messages receive higher relevance, older messages contribute less to AI context when token limits are reached.",
-      "acceptanceCriteria": [
-        "Implement `scoreMessageRelevance(message, messageIndex, totalMessages): number` in `src/assistant/lib/context.ts` returning 0-1 decay score (messages >5 turns old score <0.3)",
-        "Unit test: 10-message conversation scores message[0] < 0.5, message[9] = 1.0, following exponential decay with half-life of 3 messages",
-        "AI context builder in `src/assistant/pipeline/build-context.ts` uses decay scores to rank and truncate messages when exceeding 8000 token limit"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-263",
       "title": "Cross-Profile Message Routing Validator Middleware",
       "priority": "high",
@@ -354,23 +320,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-266",
-      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
-      "priority": "high",
-      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
-      "acceptanceCriteria": [
-        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
-        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
-        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-267",
       "title": "Add Null Safety Validator to Conversation Context Pipeline",
       "priority": "high",
@@ -389,30 +338,13 @@
     },
     {
       "id": "US-268",
-      "title": "Booking Workflow Dry-Run Validator for Consequence-Free Preview",
-      "priority": "high",
-      "description": "Add dry-run mode to booking workflow that validates complete booking logic (business rules, availability, cost calculation) without persisting to database. Returns detailed validation report including estimated cost and discovered issues, enabling preview to guest before final confirmation commit.",
+      "title": "Intent Classification Batch Prediction Queue with Priority Routing",
+      "priority": "medium",
+      "description": "Implement a message queue that batches concurrent intent predictions to reduce database write contention. Routes emergency and booking intents ahead of inquiry intents during peak loads.",
       "acceptanceCriteria": [
-        "Implement validateBookingDryRun(bookingData, profile): {valid: boolean, errors: [], warnings: [], estimatedCost: {perNight, nights, total}} in src/assistant/validators/booking-validator.ts",
-        "Test with past check-in date (returns error 'Check-in date is in past. Suggest dates: 2026-03-25 onwards'), availability conflict (returns error with alternate room types), and valid booking (returns valid: true, cost breakdown)",
-        "Integration test: dry-run returns identical cost to actual booking creation, proving validation logic matches execution logic"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-269",
-      "title": "Conversation Summary Compressor for Extended Multi-Turn Dialogues",
-      "priority": "high",
-      "description": "Automatically compress conversation history for dialogues exceeding 20 messages by summarizing older messages into a single summary record. Preserves semantic context while reducing token count for AI inference, improving both cost and latency on long conversations.",
-      "acceptanceCriteria": [
-        "Implement compressConversationContext(messages: Message[], maxFullMessages: number = 20): Message[] in src/assistant/pipeline/context-compressor.ts that replaces messages 1 through (length-20) with single {role: 'summary', content: '...'} message",
-        "Test with 50-message conversation: last 20 remain unchanged, messages 1-30 replaced with summary like 'Guest inquired about room types on 2026-03-20, discussed check-in options, selected double room for 3 nights'",
-        "Add config setting max_full_messages_in_context: 20 in src/assistant/data/settings.json under each profile's conversation section"
+        "Create `src/assistant/pipeline/batch-predictor.ts` with `BatchPredictionQueue` class accepting intent jobs with priority enum (emergency|booking|inquiry|other); batches every 500ms or when queue reaches 10 items; add `INTENT_BATCH_WINDOW_MS` env var in settings.json",
+        "Add test in `test/assistant/batch-predictor.test.ts` asserting high-priority booking intents process before low-priority inquiries even when enqueued 2 seconds later",
+        "Implement `GET /admin/debug/queue-metrics` endpoint returning `{queueDepth, avgProcessTimeMs, throughputPerSec, priorityDistribution}`"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -422,14 +354,31 @@
       "model": "haiku"
     },
     {
-      "id": "US-270",
-      "title": "Low-Confidence Intent Escalation Explainer with Candidate Disambiguation",
-      "priority": "high",
-      "description": "When intent classification confidence falls below threshold, automatically generate human-readable explanation listing competing intents and their confidence percentages. Improves user experience by transparently explaining uncertainty rather than abruptly escalating without context.",
+      "id": "US-269",
+      "title": "Multi-Language Intent Fuzzy Matcher with Typo Tolerance for Malay/Tamil/English",
+      "priority": "medium",
+      "description": "Enhance intent classification to handle typographical errors and phonetic variants in English, Malay (BM), and Tamil (TA). Improves detection accuracy for non-native speakers and fast-typing guests using Levenshtein distance matching.",
       "acceptanceCriteria": [
-        "Implement generateConfidenceExplanation(selectedIntent: string, candidates: {intent: string, confidence: number}[], profile: string): string in src/assistant/pipeline/fallback-handler.ts",
-        "Test with ambiguous message scoring booking (48%), inquiry (36%), pricing (16%): returns 'I'm 48% confident you're asking to make a booking. Could also be asking about room details (36%) or pricing (16%). Let me connect you with our team to help better.'",
-        "Add config in src/assistant/data/settings.json: fallback.show_confidence_explanation (boolean, default true) and confidence_threshold (number, default 0.50) per profile"
+        "Add language variant keywords to `src/assistant/data/intent-keywords.json`: booking intent variants = {en: ['book', 'bokk', 'booking', 'reserve'], bm: ['buku bilik', 'pesan bilik', 'bilik'], ta: ['arai parippu']}; implement `fuzzyMatchIntentKeyword()` in `src/assistant/pipeline/intent-classifier.ts` using Levenshtein distance with 80% similarity threshold",
+        "Create `test/assistant/fuzzy-intent-matching.test.ts` with assertions: 'bokk room' matches booking (1-char typo), 'buku bilk' matches booking in Malay (1-char typo), 'book bilik' mixed-language matches with ≥0.75 confidence",
+        "Add `INTENT_FUZZY_THRESHOLD` env var in settings.json (default 0.8) to control matching sensitivity"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-270",
+      "title": "Admin Booking Search Dashboard with Advanced Filtering and CSV Export",
+      "priority": "medium",
+      "description": "Add a searchable admin interface for querying bookings by guest name, date range, room type, payment status, and conversation sentiment. Enable CSV export for business analytics and reporting.",
+      "acceptanceCriteria": [
+        "Implement `GET /admin/bookings/search?guest_name=&date_from=&date_to=&room_type=&status=` in `src/routes/admin/bookings.ts` returning paginated results; add query validation using Zod; support partial name matching and date range queries",
+        "Create `POST /admin/bookings/export-csv` endpoint that generates CSV with columns: booking_id, guest_name, check_in, check_out, room_type, status, total_price, conversation_turns; write to `/tmp/bookings-{timestamp}.csv`",
+        "Add test in `test/admin/booking-search.test.ts` asserting: (1) date range filter excludes bookings outside window, (2) CSV export includes correct row count and valid headers, (3) partial name search finds case-insensitive matches"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -440,37 +389,37 @@
     },
     {
       "id": "US-271",
-      "title": "Profile Data Schema Validator with Startup Contamination Detection",
-      "priority": "high",
-      "description": "Add schema validation at server startup checking all profile data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) against defined JSON schemas. Detects cross-profile contamination, missing required fields, and invalid configurations early, preventing runtime errors.",
+      "title": "Fallback Response Effectiveness Tracker with Click-Through and Escalation Metrics",
+      "priority": "medium",
+      "description": "Track user interactions with fallback responses (e.g., clicking 'Speak to staff' buttons, requesting callback). Measure which fallback templates lead to successful resolutions vs. further escalation, enabling data-driven improvement.",
       "acceptanceCriteria": [
-        "Create src/lib/validators/profile-schema-validator.ts with validateProfileDataFiles(profile: string): {valid: boolean, errors: ValidationError[]} that validates each file against corresponding schema in src/schemas/",
-        "Call validator in src/index.ts before express.listen(); exit process with code 1 and clear error if any profile fails validation",
-        "Test: pelangi routing.json referencing 'makan-moments-booking' intent → validator detects as contamination and fails with 'Error in pelangi/routing.json: intent makan-moments-booking not defined in pelangi/intents.json'"
+        "Add `fallback_interaction` event logging in `src/assistant/pipeline/fallback-handler.ts`: log (fallback_id, response_text, user_interaction, timestamp); create database table `fallback_analytics` to persist interactions and track escalation chains",
+        "Implement `GET /admin/analytics/fallback-effectiveness` endpoint returning `{fallback_id, response_text, clickThroughRate, escalationRate, avgResolutionTimeMs}` grouped by fallback template, sorted by escalation_rate descending",
+        "Add test in `test/admin/fallback-analytics.test.ts` asserting: (1) click-through events increment counter correctly, (2) endpoint calculates escalation_rate = (escalations / total_interactions), (3) data correctly segments by fallback_id"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "haiku"
     },
     {
       "id": "US-272",
-      "title": "Intent Classification Decision Trace Logger for Confusion Analysis",
-      "priority": "medium",
-      "description": "Log top-3 intent candidates with confidence scores for every classification decision to a database table. Enables post-hoc analysis of confusion patterns, debugging of misclassifications, and identification of ambiguous message types that need better keywords or training.",
+      "title": "Guest Preference Learning from Repeat Conversation Patterns",
+      "priority": "low",
+      "description": "Extract and persist user preferences from conversation history (room types, check-in times, language, dietary needs). Automatically inject learned preferences into future conversation context to reduce back-and-forth clarifications.",
       "acceptanceCriteria": [
-        "Add table intent_classification_traces to shared/schema-tables.ts with columns: id, profile, message_text, top_3_candidates JSON, confidence_scores JSON, selected_intent, created_at",
-        "Implement logClassificationTrace(profile, message, candidates, confidences, selected) in src/assistant/audit.ts that persists every classification decision before returning result",
-        "Query by profile reveals top confusion pairs (e.g., 'booking' misclassified as 'inquiry' 12 times) to inform keyword improvements"
+        "Implement `extractUserPreferences()` in `src/assistant/pipeline/preference-extractor.ts` mining messages for patterns like 'prefer twin beds' or 'never after 5pm'; store in `guest_preferences` table as (guest_id, preference_key, preference_value, confidence_score); only persist scores > 0.7",
+        "Modify `buildSystemPrompt()` in `src/assistant/schemas.ts` to inject learned preferences, e.g., 'Guest historically prefers twin beds (3 bookings). Suggest this first.'",
+        "Add test in `test/assistant/preference-learning.test.ts` asserting: (1) preferences extracted from ≥2 messages stored with confidence > 0.7, (2) system prompt includes learned preference in next conversation"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -740,6 +689,57 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-261",
+      "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
+      "priority": "high",
+      "description": "Create a CLI tool that analyzes per-profile intent classification accuracy at different confidence thresholds and recommends optimal settings per profile. Prevents over-escalation in high-accuracy profiles like Pelangi while protecting low-accuracy ones like Makan Moments.",
+      "acceptanceCriteria": [
+        "CLI command `npm run profile-threshold-calibrate [profile-name]` reads intent classification logs and outputs recommended confidence threshold with accuracy metrics",
+        "Creates/updates `src/assistant/data/settings.json` with per-profile threshold overrides under `profiles[profile].intentClassificationThreshold`",
+        "Unit test: threshold calibrator correctly identifies profile with >90% accuracy should use higher threshold (0.85+) vs profile with <75% accuracy uses lower threshold (0.65)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-262",
+      "title": "Conversation Context Message Decay Scorer for Multi-Turn Relevance",
+      "priority": "high",
+      "description": "Implement exponential decay function that assigns relevance scores to historical messages in multi-turn conversations. Newer messages receive higher relevance, older messages contribute less to AI context when token limits are reached.",
+      "acceptanceCriteria": [
+        "Implement `scoreMessageRelevance(message, messageIndex, totalMessages): number` in `src/assistant/lib/context.ts` returning 0-1 decay score (messages >5 turns old score <0.3)",
+        "Unit test: 10-message conversation scores message[0] < 0.5, message[9] = 1.0, following exponential decay with half-life of 3 messages",
+        "AI context builder in `src/assistant/pipeline/build-context.ts` uses decay scores to rank and truncate messages when exceeding 8000 token limit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-266",
+      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
+      "priority": "high",
+      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
+      "acceptanceCriteria": [
+        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
+        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
+        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-213",
