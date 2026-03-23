@@ -47,25 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-196",
-      "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
-      "priority": "critical",
-      "description": "Create npm CLI command that scans all profile-specific data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) and reports cross-profile contamination (e.g., Pelangi Capsule Hostel content in Makan Moments profile) with actionable fix instructions.",
-      "acceptanceCriteria": [
-        "npm run validate:profiles outputs report listing file paths with cross-contamination, e.g. 'src/assistant/data/data-makan/knowledge.json contains \"Pelangi Capsule Hostel\" (5 occurrences) - remove or relocate to shared profile'",
-        "Scanner checks for profile-specific keywords defined in src/assistant/validators/profile-keywords.json (e.g., makan profile must not contain hostel-related terms) and verifies intent routes match profile context",
-        "GitHub Actions CI step runs validator in --strict mode and fails build if contamination detected; developers run locally with --fix flag to auto-remove flagged terms (with manual review before commit)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-23T04:46:47Z"
-    },
-    {
       "id": "US-127",
       "title": "Add booking workflow step precondition validator with logged violations",
       "priority": "high",
@@ -78,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -627,6 +608,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-212",
+      "title": "Create Cross-Profile Intent Namespace Collision Detector",
+      "priority": "high",
+      "description": "Build CLI tool and pre-deployment check that identifies intent names appearing in multiple business profiles' routing.json files, preventing silent cross-profile contamination where a booking intent from Pelangi overwrites Makan's cafe-ordering intent.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:intent-namespace` loads all profiles' routing.json, extracts intent keys, groups by intent name, reports collisions with affected profiles (e.g., 'booking_request appears in data-pelangi and data-makan')",
+        "Add pre-deployment GitHub Actions check in `.github/workflows/deploy.yml` that runs `validate:intent-namespace` and fails deployment if any collision detected",
+        "Generate detailed report showing: collision name, profiles affected, confidence scores in each profile, suggested resolution (rename or move to shared namespace)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-213",
+      "title": "Add Booking Workflow Transactional Rollback with Admin Dry-Run Endpoint",
+      "priority": "high",
+      "description": "Wrap booking workflow execution in database transactions and add admin test endpoint to simulate and rollback workflow steps, catching state machine errors before they corrupt production booking records.",
+      "acceptanceCriteria": [
+        "Refactor `executeBookingWorkflow()` in `src/assistant/workflows/booking.ts` to wrap all DB writes in transaction; on step failure, rollback all previous steps and log exact failure point with error context",
+        "Add POST `/admin/api/workflow-test/booking/dry-run` endpoint accepting: profile_id, guest_name, check_in_date, room_type; executes full workflow in transaction, returns success/failure with all step traces, auto-rolls back at end",
+        "Add test file `src/assistant/workflows/booking.test.ts` with cases: successful booking, transient step failure (network), invalid state transition (past-date), verify each rolls back completely"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-165",
       "title": "Implement automatic conversation context summarization for multi-turn dialogues exceeding message limits",
       "priority": "medium",
@@ -999,6 +1014,76 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-214",
+      "title": "Implement Orphaned Intent-Keywords Cleanup Task with Dry-Run Report",
+      "priority": "medium",
+      "description": "Add automated weekly task to identify and safely remove keyword entries from intent-keywords.json that no longer match any active intent routes, with pre-removal audit report to prevent accidental deletion of valid keywords.",
+      "acceptanceCriteria": [
+        "Cron job runs weekly, scans all profiles' intent-keywords.json and routing.json, identifies orphaned keywords with zero matching route intents, generates CSV report with keyword, profile, last-seen date",
+        "Before deletion, compare against previous week's report to detect churn; only remove keywords orphaned for 2+ consecutive weeks",
+        "Add CLI command `npm run audit:orphaned-keywords` that generates dry-run report without deletions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-215",
+      "title": "Add Conversation Turn Limit Enforcement with Progressive Warnings",
+      "priority": "medium",
+      "description": "Implement conversation turn counter in message processing pipeline that warns guests at message 10 of multi-turn dialogues and resets context after 12 exchanges to prevent context bloat and maintain focus on booking intent.",
+      "acceptanceCriteria": [
+        "Pipeline counts turns in `rainbow_conversations.turn_count` column; at turn 10, inject warning message before AI response: 'Let me help summarize: you're looking for [detected intent]. Can I confirm these details?'",
+        "At turn 12, reset conversation context via new stored procedure `reset_conversation_context(conversation_id)` that preserves only: guest_id, profile_id, detected_intent, booking_details (dates/room/party_size)",
+        "Add analytics event `conversation_reset` with fields: reset_reason='turn_limit', original_turn_count, preserved_intent_confidence"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-216",
+      "title": "Implement Per-Intent Confidence Distribution Histogram Reporter",
+      "priority": "medium",
+      "description": "Generate weekly analysis of intent classification confidence scores bucketed by intent type and profile, identifying unreliable intents with bimodal or low-confidence distributions that need keyword training or workflow redesign.",
+      "acceptanceCriteria": [
+        "SQL query on `intent_analytics` table groups by intent_name, profile_id, buckets confidence into ranges [0-0.3], [0.3-0.6], [0.6-0.8], [0.8-1.0], counts occurrences in each bucket",
+        "Generate HTML report showing histograms per intent per profile; flag intents with <0.7 mean confidence or >0.4 std dev as 'needs investigation'",
+        "Add CLI: `npm run report:intent-confidence --week [YYYY-WW]` outputs CSV with columns: intent_name, profile_id, mean_confidence, std_dev, sample_count, status"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-196",
+      "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
+      "priority": "critical",
+      "description": "Create npm CLI command that scans all profile-specific data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) and reports cross-profile contamination (e.g., Pelangi Capsule Hostel content in Makan Moments profile) with actionable fix instructions.",
+      "acceptanceCriteria": [
+        "npm run validate:profiles outputs report listing file paths with cross-contamination, e.g. 'src/assistant/data/data-makan/knowledge.json contains \"Pelangi Capsule Hostel\" (5 occurrences) - remove or relocate to shared profile'",
+        "Scanner checks for profile-specific keywords defined in src/assistant/validators/profile-keywords.json (e.g., makan profile must not contain hostel-related terms) and verifies intent routes match profile context",
+        "GitHub Actions CI step runs validator in --strict mode and fails build if contamination detected; developers run locally with --fix flag to auto-remove flagged terms (with manual review before commit)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T04:46:47Z"
     },
     {
       "id": "US-157",
