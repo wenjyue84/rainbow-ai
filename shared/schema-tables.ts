@@ -1549,6 +1549,30 @@ export const profileIsolationRepairs = pgTable("profile_isolation_repairs", {
 export type ProfileIsolationRepair = typeof profileIsolationRepairs.$inferSelect;
 export type InsertProfileIsolationRepair = typeof profileIsolationRepairs.$inferInsert;
 
+// ─── Low-Confidence Message Archival (US-280) ──────────────────────────────
+// Stores messages where intent confidence < 0.5 for QA review and retraining.
+// QA team can submit correct_intent via admin API to build a correction dataset.
+
+export const rainbowLowconfMessages = pgTable("rainbow_lowconf_messages", {
+  id: serial("id").primaryKey(),
+  profile: text("profile").notNull().default('pelangi'),
+  messageId: text("message_id"),
+  originalText: text("original_text").notNull(),
+  predictedIntent: text("predicted_intent").notNull(),
+  confidence: real("confidence").notNull(),
+  correctIntent: text("correct_intent"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_lowconf_messages_profile").on(table.profile),
+  index("idx_lowconf_messages_reviewed_at").on(table.reviewedAt),
+  index("idx_lowconf_messages_created_at").on(table.createdAt),
+  index("idx_lowconf_messages_confidence").on(table.confidence),
+]));
+
+export type LowconfMessage = typeof rainbowLowconfMessages.$inferSelect;
+export type InsertLowconfMessage = typeof rainbowLowconfMessages.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

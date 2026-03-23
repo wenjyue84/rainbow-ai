@@ -26,7 +26,7 @@ import { normalizeManglish } from '../manglish-normalizer.js';
 import { normalizeInput, logNormalization } from './input-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
-import { intentAnalytics, escalationQueue } from '../../../shared/schema-tables.js';
+import { intentAnalytics, escalationQueue, rainbowLowconfMessages } from '../../../shared/schema-tables.js';
 import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
@@ -191,6 +191,17 @@ export async function classifyAndRoute(
     confidence: result.confidence,
     tier: devMetadata.source ?? 'unknown',
   });
+
+  // ─── US-280: Archive low-confidence messages for QA review ───────
+  if (result.confidence < 0.5) {
+    db.insert(rainbowLowconfMessages).values({
+      profile: state.profileId,
+      messageId: msg.messageId ?? null,
+      originalText: processText.slice(0, 2000),
+      predictedIntent: result.intent,
+      confidence: result.confidence,
+    }).catch(() => {}); // fire-and-forget, non-fatal
+  }
 
   // ─── US-043: Record intent classification metrics ─────────────────
   const classificationLatencyMs = Date.now() - classificationStartTime;
