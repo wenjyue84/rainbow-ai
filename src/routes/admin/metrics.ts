@@ -6,6 +6,7 @@ import { isAIAvailable } from '../../assistant/ai-client.js';
 import { trackConfigReloaded } from '../../lib/activity-tracker.js';
 import { ok, getStore } from './http-utils.js';
 import { getConfigAuditLog } from '../../lib/config-db.js';
+import { pool } from '../../lib/db.js';
 
 const router = Router();
 
@@ -88,6 +89,32 @@ router.get('/config-audit', async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const rows = await getConfigAuditLog(limit);
   ok(res, rows);
+});
+
+// ─── US-324: Workflow Timeout Metrics ────────────────────────────────
+// GET /metrics/workflow-timeouts — per-step timeout frequency and average elapsed_ms
+
+router.get('/workflow-timeouts', async (req: Request, res: Response) => {
+  try {
+    const days = Math.min(parseInt(req.query.days as string) || 7, 90);
+    const { rows } = await pool.query(
+      `SELECT
+         step_name,
+         workflow_id,
+         COUNT(*) AS timeout_count,
+         AVG(elapsed_ms)::int AS avg_elapsed_ms,
+         MAX(elapsed_ms) AS max_elapsed_ms,
+         SUM(CASE WHEN fallback_used THEN 1 ELSE 0 END) AS fallback_count
+       FROM booking_workflow_events
+       WHERE timed_out_at >= NOW() - INTERVAL '1 day' * $1
+       GROUP BY step_name, workflow_id
+       ORDER BY timeout_count DESC`,
+      [days]
+    );
+    ok(res, { days, rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

@@ -197,6 +197,8 @@ export const workflowStepSchema = z.object({
     defaultNextId: z.string(),
   }).optional(),
   max_duration_ms: z.number().int().min(1000).optional(), // US-120: timeout duration (default 30000ms)
+  timeoutMs: z.number().int().min(1000).optional(),        // US-324: alias for max_duration_ms (takes precedence)
+  fallbackResponse: z.string().optional(),                 // US-324: per-step fallback message on timeout
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 

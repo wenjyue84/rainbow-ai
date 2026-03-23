@@ -230,3 +230,52 @@ Here is a technical brief for user story US-323.
 *   **Concurrency**: File-based updates to `intent-keywords.json` could lead to a race condition if multiple admins act simultaneously. Implement a file lock or a queuing mechanism.
 *   **Data Validation**: The API must rigorously validate the incoming suggestion payload to prevent corrupting the JSON file.
 
+
+
+## Pre-analysis for US-324 (Gemini 2.5 Pro)
+Technical brief for Claude Code agent regarding user story US-324.
+
+**Project:** `rainbow-ai` (Node.js/TypeScript, not Frappe/Python)
+
+**Objective:** Implement per-step timeout handling in the booking workflow to provide graceful fallbacks instead of hanging.
+
+**1. Python Files to Modify / DocTypes (Project-Corrected):**
+*   This is a TypeScript project. The primary files to modify are:
+*   `src/types/workflow.ts`: Extend the `WorkflowStep` interface with `timeoutMs?: number` and `fallbackResponse?: string`.
+*   `src/services/WorkflowExecutor.ts` (or similar orchestrator): Implement the core timeout logic here. This file likely processes the workflow steps.
+*   `src/lib/db/schema.ts` (or Drizzle equivalent): Define a new table schema for `bookingWorkflowEvents` (columns: `id`, `step_name`, `elapsed_ms`, `timed_out_at`).
+*   `src/routes/admin/metrics.ts`: Add a new endpoint to expose timeout frequency metrics.
+*   `tests/integration/booking-workflow.test.ts`: Create a new test file to validate the timeout behavior.
+
+**2. Recommended Implementation Approach:**
+*   Use `Promise.race` within the workflow executor to compete the step's action (`Promise`) against a `setTimeout` timer.
+*   If the timer promise resolves first, throw a custom `StepTimeoutError`.
+*   The calling function should `try/catch` this specific error.
+*   On catch, log the timeout details to the new `booking_workflow_events` table using the Drizzle ORM client.
+*   Return the `fallbackResponse` from the step's configuration to the user.
+*   Create a new API endpoint `/api/admin/metrics/workflow-timeouts` that performs a SQL `GROUP BY` on `step_name` to count and return timeout occurrences.
+
+**3. Edge Cases & Gotchas:**
+*   Ensure timed-out operations don't leave dangling resources or partial data.
+*   The fallback response is static per the story; consider if it needs dynamic data in the future.
+*   Node.js timers have slight delays; the integration test should account for a small margin (~100ms) beyond the configured timeout.
+*   Confirm that logging the timeout event to the database is itself a non-blocking, reliable operation.
+
+
+## Iteration 12 - Story: US-324 Booking Workflow Step Timeout Handler with Graceful Fallback Responses — PASSED
+### What was implemented
+- Added `timeoutMs` and `fallbackResponse` fields to `workflowStepSchema` in `src/assistant/schemas.ts` (timeoutMs takes precedence over existing max_duration_ms)
+- Added `booking_workflow_events` Drizzle table in `shared/schema-tables.ts` to log step_name, workflow_id, profile_id, elapsed_ms, timed_out_at, fallback_used
+- Updated `workflow-executor.ts`: uses `timeoutMs || max_duration_ms`, logs to `booking_workflow_events`, returns step's `fallbackResponse` (or generic escalation if not set)
+- Added `GET /metrics/workflow-timeouts` endpoint in `src/routes/admin/metrics.ts` with `pool` import
+- Rewrote `src/assistant/__tests__/workflow-timeout-integration.test.ts` with 9 US-324-specific tests (all pass)
+
+### Patterns discovered
+- Existing `max_duration_ms` was already in schemas; `timeoutMs` added as precedence-taking alias
+- booking_workflow_events is a raw pg table (pool.query), not Drizzle-managed (same pattern as booking_execution_audit)
+- Tests using executeWithTimeout directly can verify 100ms timing constraint reliably
+
+### Gotchas
+- `getTimeoutEscalationMessage` lives in `workflow-executor-node.ts` not timeout-handler — import already present in executor
+- Pool must be imported in metrics.ts (wasn't before US-324)
+- Merge conflict in prd.json/spiral_events.jsonl resolved by `git checkout --theirs`

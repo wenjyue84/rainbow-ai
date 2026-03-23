@@ -1595,6 +1595,26 @@ export const bookingWorkflowTraces = pgTable("booking_workflow_traces", {
 export type BookingWorkflowTrace = typeof bookingWorkflowTraces.$inferSelect;
 export type InsertBookingWorkflowTrace = typeof bookingWorkflowTraces.$inferInsert;
 
+// ─── Booking Workflow Timeout Events (US-324) ──────────────────────────────
+// Logs each timeout event per workflow step for per-step timeout frequency metrics.
+
+export const bookingWorkflowEvents = pgTable("booking_workflow_events", {
+  id: serial("id").primaryKey(),
+  stepName: text("step_name").notNull(),
+  workflowId: text("workflow_id"),
+  profileId: text("profile_id"),
+  elapsedMs: integer("elapsed_ms").notNull(),
+  timedOutAt: timestamp("timed_out_at").notNull().defaultNow(),
+  fallbackUsed: boolean("fallback_used").default(false).notNull(),
+}, (table) => ([
+  index("idx_bwe_step_name").on(table.stepName),
+  index("idx_bwe_workflow_id").on(table.workflowId),
+  index("idx_bwe_timed_out_at").on(table.timedOutAt),
+]));
+
+export type BookingWorkflowEvent = typeof bookingWorkflowEvents.$inferSelect;
+export type InsertBookingWorkflowEvent = typeof bookingWorkflowEvents.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

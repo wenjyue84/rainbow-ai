@@ -351,8 +351,8 @@ export async function executeWorkflowStep(
       instanceId
     };
 
-    // US-120: Apply timeout to step execution
-    const maxDurationMs = (currentStep as any).max_duration_ms || 30000;
+    // US-324: timeoutMs takes precedence over max_duration_ms
+    const maxDurationMs = (currentStep as any).timeoutMs || (currentStep as any).max_duration_ms || 30000;
 
     // US-121: Start profiling this step
     const stepStartTime = Date.now();
@@ -395,11 +395,26 @@ export async function executeWorkflowStep(
         console.log(`[WorkflowExecutor] Step ${currentStep.id} metadata:`, enhanced.metadata);
       }
     } catch (error) {
-      // US-120: Handle timeout with escalation
+      // US-120 / US-324: Handle timeout with graceful fallback
       if (error instanceof WorkflowTimeoutError) {
-        console.error(`[WorkflowExecutor] US-120: Step timeout:`, error.message);
+        console.error(`[WorkflowExecutor] US-324: Step timeout:`, error.message);
 
-        // Log escalation event to rainbow_messages
+        // US-324: Use per-step fallbackResponse if configured, else generic escalation
+        const fallbackResponse = (currentStep as any).fallbackResponse || getTimeoutEscalationMessage(language);
+        const hasFallback = !!(currentStep as any).fallbackResponse;
+
+        // US-324: Log to booking_workflow_events for per-step timeout metrics
+        try {
+          await pool.query(
+            `INSERT INTO booking_workflow_events (step_name, workflow_id, profile_id, elapsed_ms, timed_out_at, fallback_used)
+             VALUES ($1, $2, $3, $4, NOW(), $5)`,
+            [currentStep.id, state.workflowId, context.profileId || null, error.actualDurationMs, hasFallback]
+          );
+        } catch (dbErr) {
+          console.error(`[WorkflowExecutor] US-324: Failed to log to booking_workflow_events:`, dbErr);
+        }
+
+        // Also log escalation event to rainbow_messages (US-120 pattern)
         try {
           const failureLog = logTimeoutFailure(
             currentStep.id,
@@ -413,25 +428,24 @@ export async function executeWorkflowStep(
             phone,
             pushName || 'Guest',
             'assistant',
-            getTimeoutEscalationMessage(language),
+            fallbackResponse,
             {
               messageType: 'escalation',
               workflowId: state.workflowId,
               stepId: currentStep.id,
               action: 'timeout_escalation',
               profileId: context.profileId,
-              // Store timeout details in the message metadata
               source: 'workflow_timeout',
               ...(failureLog as any)
             }
           );
         } catch (logErr) {
-          console.error(`[WorkflowExecutor] US-120: Failed to log timeout event:`, logErr);
+          console.error(`[WorkflowExecutor] US-324: Failed to log timeout message:`, logErr);
         }
 
-        // Return escalation response and complete workflow
+        // Return fallback response and complete workflow
         return {
-          response: getTimeoutEscalationMessage(language),
+          response: fallbackResponse,
           newState: null, // Complete the workflow
           shouldForward: true, // Escalate to staff
           workflowId: state.workflowId,
