@@ -807,6 +807,31 @@ export const campaignPacingEvents = pgTable("campaign_pacing_events", {
 export type CampaignPacingEvent = typeof campaignPacingEvents.$inferSelect;
 export type InsertCampaignPacingEvent = typeof campaignPacingEvents.$inferInsert;
 
+// ─── Intent Classification Decisions (US-239) ─────────────────────────────────
+// Audit log for every intent classification decision.
+// Records confidence scores, top-3 candidate intents, and message hashes
+// for debugging accuracy regressions and identifying weak categories.
+
+export const intentClassificationDecisions = pgTable("intent_classification_decisions", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  profileName: text("profile_name").notNull().default('pelangi'),
+  messageHash: varchar("message_hash", { length: 64 }).notNull(),
+  classifiedIntent: text("classified_intent").notNull(),
+  confidenceScore: real("confidence_score").notNull(),
+  top3CandidatesJson: jsonb("top_3_candidates_json").notNull().default('[]'),  // array of { intent, score }
+  actualIntent: text("actual_intent"),  // populated later by feedback/correction
+}, (table) => ([
+  index("idx_icd_profile_name").on(table.profileName),
+  index("idx_icd_timestamp").on(table.timestamp),
+  index("idx_icd_profile_timestamp").on(table.profileName, table.timestamp),
+  index("idx_icd_classified_intent").on(table.classifiedIntent),
+  index("idx_icd_message_hash").on(table.messageHash),
+]));
+
+export type IntentClassificationDecision = typeof intentClassificationDecisions.$inferSelect;
+export type InsertIntentClassificationDecision = typeof intentClassificationDecisions.$inferInsert;
+
 // ─── Vector Access Logs (US-966) ──────────────────────────────────────────────
 // OWASP LLM06:2025 — Vector and Embedding Weaknesses.
 // Logs every RAG retrieval call for 90-day audit trail.

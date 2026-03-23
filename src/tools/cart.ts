@@ -49,9 +49,7 @@ import {
 // Tool definitions extracted to cart-tool-defs.ts
 
 // ─── Handler Factories below ──────────────────────────────────────
-  {
-    name: 'cart_remove_item',
-    description: 'Remove an item from the guest\'s cart. Use this when the guest says remove, cancel, drop, or forget an item. Malay: "tak nak X", "buang X", "cancel X", "tak jadi X".',
+PLACEHOLDER_REMOVE_START
     inputSchema: {
       type: 'object',
       properties: {

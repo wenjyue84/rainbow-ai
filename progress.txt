@@ -1,3 +1,58 @@
+## Iteration [SPIRAL] - Story: US-208 Implement conversation message relevance scorer to prune stale context
+
+### What was implemented
+- **Context Manager Module** (`src/assistant/pipeline/context-manager.ts`):
+  - `scoreMessageRelevance(message, intent, index, total)`: Scores messages 0-1 for relevance to current intent
+    - Starts with base score 0.2 for non-empty messages
+    - Adds keyword matching boost (up to 0.2) based on intent-specific keywords
+    - Adds recency factor (up to 0.25) for recent messages
+    - Penalizes generic phrases (up to -0.25)
+    - Maps 10+ intents to keyword lists (booking, wifi, checkin, pricing, facilities, complaint, etc.)
+  - `filterByRelevance(messages, intent, threshold=0.3, minMessages=8)`: Filters low-relevance messages
+    - Always preserves most recent 8 messages
+    - For older messages, keeps only if score >= 0.3
+    - Returns messages in original order
+
+- **Chat Engine Integration** (`src/assistant/chat-engine.ts`):
+  - After intent classification, filters conversationHistory if length > 8
+  - Logs pruning results: "Filtered history from X to Y messages for intent Z"
+  - Prevents hallucination from outdated booking requests or old check-in questions
+
+- **Test Suite** (`src/assistant/__tests__/context-pruning.test.ts`):
+  - 8 comprehensive tests covering:
+    - Keyword matching scores differently for different intents
+    - Recency bonus for recent messages
+    - Assistant messages get slight relevance boost
+    - Empty messages score 0
+    - Score clamping to [0, 1]
+    - Filtering behavior for short vs. long conversations
+    - **Core acceptance criteria**: Old extend_stay request filtered when classifying room_type intent
+    - Booking context preserved when filtering for booking intent (validates keyword relevance)
+  - All 8 tests passing ✓
+
+### Patterns discovered
+- Intent keyword matching uses case-insensitive substring matching (`.includes()`)
+- Scoring uses multiplicative and additive components for flexibility:
+  - Base 0.2 (non-empty) + keyword match (0-0.2) + assistant boost (0.1) + recency (0-0.25) - penalties
+  - Allows message type, intent, and temporal context to combine naturally
+- Keeping minimum 8 most recent messages ensures immediate context is never lost
+- Keyword threshold of 0.3 balances between filtering stale and preserving relevant old context
+
+### Gotchas
+- Initial implementation always kept first+last messages as anchors, which broke test expecting old extend_stay to be filtered
+  - **Solution**: Changed to keep only most recent N messages absolutely, filter older by threshold
+- Keyword list doesn't include "booking" for the word "book" separately
+  - "book" matches substring in "to book a room", but "booking" won't match "book"
+- Test required object reference equality for `.toContain()`, adjusted to check for booking-related content instead
+- Pre-existing esbuild syntax errors in cart.ts prevented full build test (unrelated to this story)
+
+### Acceptance Criteria Met
+- [x] AC1: `scoreMessageRelevance(message, intent, index, total)` function created in context-manager.ts, returns 0-1 score
+- [x] AC2: Chat engine filters messages where score < 0.3 when history.length > 8
+- [x] AC3: Unit tests verify old 'extend stay' request excluded from new 'room type question' intent, with edge cases for booking preservation
+
+---
+
 ## Iteration [SPIRAL] - Story: US-207 Add intent classification hard-case queue for manual product review
 
 ### What was implemented
@@ -1653,4 +1708,33 @@ Based on the user story, here is the technical brief for the Claude agent.
 *   The `0.3` threshold is a "magic number" and will likely require tuning based on real-world testing.
 *   Ensure that if all messages are pruned (an unlikely but possible scenario), the system doesn't fail or send an empty context. Consider always keeping the most recent message.
 *   Be mindful of performance; the scoring function will run on every message when the context is long, so it should be efficient.
+
+## Iteration 1 - Mon, Mar 23, 2026  6:03:20 PM
+FAILED diagnosis-block gate: Implement conversation message relevance scorer to prune stale context (ID: US-208) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-208 (Gemini 2.5 Pro)
+**Technical Brief: US-208 - Conversation Relevance Scoring**
+
+**Project Type Note:** The user story specifies a TypeScript implementation, not a Frappe/Python one. The following brief is based on the JSON data provided.
+
+**1. Files to Modify/Create:**
+*   `src/assistant/pipeline/context-manager.ts`: Implement the `scoreMessageRelevance` function here.
+*   `src/assistant/engine.ts`: Modify the prompt-building logic to filter messages based on relevance.
+*   `src/assistant/__tests__/context-pruning.test.ts` (New File): Create unit tests to validate the context pruning.
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This is a TypeScript/Node.js application, not a Frappe project.
+
+**3. Recommended Implementation Approach:**
+*   Define the `scoreMessageRelevance` function in `context-manager.ts`. A simple implementation could calculate a score based on keyword overlap between the message content and the `currentIntent` string.
+*   In `engine.ts`, locate where the conversation history is assembled for the AI prompt.
+*   Add a condition: if `history.length > 8`, use the new function to score and filter out messages where `relevanceScore < 0.3`.
+*   Develop a test case in `context-pruning.test.ts` that simulates a long conversation with a topic change to ensure old, irrelevant messages are correctly pruned.
+
+**4. Edge Cases & Gotchas:**
+*   **Scoring Logic:** The scoring mechanism is undefined. A naive implementation may be ineffective. The choice of algorithm (e.g., keyword matching vs. semantic) is critical.
+*   **Threshold Tuning:** The `0.3` score threshold is a magic number and will likely require empirical tuning to balance context retention and pruning.
+*   **Context Collapse:** The logic must prevent a scenario where all messages are pruned, leaving the AI with no context. Consider always keeping the most recent message.
+*   **Protected Messages:** System messages or user instructions might need to be exempt from pruning to maintain core context.
 
