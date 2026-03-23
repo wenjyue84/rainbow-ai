@@ -61,9 +61,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T00:34:23Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "model": "haiku"
     },
     {
       "id": "US-098",
@@ -383,6 +381,74 @@
         "New function verifyBookingIdempotency(guestId, checkIn, checkOut, roomType, profile) checks existing active reservations",
         "Returns {valid: boolean, conflict?: {existingCheckIn, existingCheckOut, message}} with actionable error text",
         "Unit test: second booking request for same guest+dates+room within 5 minutes is rejected with conflict message"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-162",
+      "title": "Add real-time intent classification debug endpoint for ops teams",
+      "priority": "medium",
+      "description": "Expose POST /admin/debug/classify endpoint that accepts a message and returns the full intent classification result including top-3 candidate intents with confidence scores. This helps ops teams debug misclassifications and iterate on intent keywords without requiring code deployment.",
+      "acceptanceCriteria": [
+        "POST /admin/debug/classify with {message, profile} returns {classified: {intent, score}, alternatives: [{intent, score}], timing_ms}",
+        "Returns top-3 intent candidates sorted by confidence score, filters scores <0.1",
+        "Unit test: classify 'got twin room?' returns booking intent with confidence >0.7 and two alternatives"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-163",
+      "title": "Implement per-language intent confidence thresholds in settings configuration",
+      "priority": "medium",
+      "description": "Add language-specific confidence thresholds to settings.json allowing different threshold values for English, Mandarin, Malay, and Tamil. This accounts for language-specific classification difficulty and reduces false fallbacks in non-English conversations.",
+      "acceptanceCriteria": [
+        "settings.json contains languageThresholds section: {en: 0.75, zh: 0.65, ms: 0.70, ta: 0.68}",
+        "Intent classifier calls language-detect on message, applies matching threshold before fallback decision",
+        "Unit test: Mandarin message with score 0.68 is accepted (>=0.65), English with 0.68 triggers fallback (<0.75)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-164",
+      "title": "Create fallback response template usage tracker with escalation outcome correlation",
+      "priority": "medium",
+      "description": "Track which fallback response templates are delivered and whether they lead to guest escalation to staff. Expose admin endpoint showing escalation rates per template, helping ops identify low-quality fallback text and prioritize improvements.",
+      "acceptanceCriteria": [
+        "rainbow_messages table adds fallback_template_id (UUID) and escalated_to_staff (boolean) columns",
+        "GET /admin/fallback-analytics?profile=pelangi returns [{templateId, text, usageCount, escalationRate, trend}]",
+        "Unit test: 12-message conversation with 2 fallbacks correctly reports escalation rates per template (e.g., 1/4=25%, 3/3=100%)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-165",
+      "title": "Implement conversation language shift detection to flag guest confusion patterns",
+      "priority": "low",
+      "description": "Detect when a guest switches primary language mid-conversation (e.g., Mandarin to English) which often indicates guest confusion or bot misunderstanding. Log shift events and recommend staff escalation if intent confidence drops after the switch.",
+      "acceptanceCriteria": [
+        "New function detectLanguageShift(previousMessage, currentMessage) in src/assistant/pipeline returns {shifted: boolean, from: string, to: string}",
+        "If language shift detected AND intent confidence drops >15%, append escalation_reason to inference context",
+        "Unit test: conversation [Mandarin booking query 0.85, English follow-up 0.58] detects shift and adds escalation signal"
       ],
       "technicalNotes": [],
       "dependencies": [],
