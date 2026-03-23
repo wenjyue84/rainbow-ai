@@ -1723,3 +1723,46 @@ There are no references to Frappe DocTypes, hooks, or Python files. The brief ca
 ✓ Validation functions properly integrated and called at startup
 ✓ Existing validation mechanism already prevents cross-contamination
 
+
+
+## Iteration [SPIRAL-36] - Story: US-108 Add Makan Moments Seasonal Promotion Inquiry Intent
+
+### What was implemented
+- Added `seasonal_promotion_inquiry` intent to `src/assistant/data/intents-makan.json` in the MENU_AND_ORDERING phase
+  - Professional term: "Seasonal Promotion Inquiry"
+  - Patterns cover keywords: limited edition, weekend special, seasonal, special price, limited time, exclusive, new item
+  - Min confidence: 0.75, enabled by default
+  - Includes metadata comment marking it as café-specific (Makan only)
+- Added `seasonal_promotion_inquiry` to `src/assistant/data/intent-keywords.json` with multilingual keywords:
+  - English (14 keywords): limited edition, weekend special, seasonal menu, special price, limited time, exclusive item, new item, etc.
+  - Malay (13 keywords): edisi terbatas, spesial akhir pekan, menu musiman, harga istimewa, etc.
+  - Mandarin (13 keywords): 限量版, 周末特价, 季节菜单, 特价, 限时, 独家, 新品, etc.
+  - Tamil (13 keywords): பக்ష எண், வாரப் பிராமணம், பண்டு மெனு, விலை குறிப், etc.
+- Created `tests/unit/intent-classifier-makan.test.ts` with 31 comprehensive tests:
+  - Validates Makan intents structure (phase, intent, enabled flag, confidence)
+  - Verifies seasonal keywords coverage across all 4 languages
+  - Tests fuzzy matching for English, Mandarin, Malay seasonal samples
+  - Tests profile isolation: seasonal_promotion_inquiry marked as Makan-only (not in Pelangi)
+  - Achieves 100% accuracy on test samples
+
+### Patterns discovered
+- Café-specific intents live in separate `intents-makan.json` file (not mixed with hostel intents)
+- Keywords file is shared but intent definitions are segregated by profile to prevent leakage
+- Test structure follows existing pattern (fuzzy matching, language-specific tests, accuracy reporting)
+- Min confidence threshold (0.75) for seasonal_promotion_inquiry is higher than general promotions (0.70)
+- Comments in intent definitions document profile context for maintainability
+
+### Gotchas
+- JSON files require careful validation after edits (used jq to validate)
+- Multi-language support must be consistent: en, ms, zh, ta all required
+- Window's Node environment needs special handling for NODE_OPTIONS env vars (use npx directly instead)
+
+### Quality checks
+✓ All 31 Makan tests pass
+✓ JSON files validated with jq
+✓ Build completes without errors (pre-existing warnings unaffected)
+✓ Profile isolation verified: seasonal_promotion_inquiry stays in intents-makan.json only
+✓ Acceptance criteria met:
+  - [x] seasonal_promotion_inquiry added to intents-makan.json with café context
+  - [x] Seasonal keywords (limited edition, weekend special, promotion, special price) in intent-keywords.json
+  - [x] Test verifies seasonal intents classify correctly and do NOT match Pelangi profile

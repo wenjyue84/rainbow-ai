@@ -12,7 +12,10 @@ import { z } from 'zod';
 
 const postgresUrlSchema = z
   .string()
-  .startsWith('postgres://', { message: 'must start with postgres://' });
+  .refine(
+    (val) => val.startsWith('postgres://') || val.startsWith('postgresql://'),
+    { message: 'must start with postgres:// or postgresql://' }
+  );
 
 const portSchema = z
   .number()
