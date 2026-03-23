@@ -1,3 +1,50 @@
+## Iteration [SPIRAL] - Story: US-207 Add intent classification hard-case queue for manual product review
+
+### What was implemented
+- **Intent Hard Cases Table** (`shared/schema-tables.ts`):
+  - New `intentHardCases` table with columns: id, conversationId, intentId, confidence, candidateIntents (JSONB), reason, profile, createdAt
+  - Indexes on profile, intentId, confidence, createdAt, and profile+confidence
+  - Type exports: `IntentHardCase`, `InsertIntentHardCase`
+
+- **Hard-Case API Endpoints** (`src/routes/admin/intent-analytics.ts`):
+  - `POST /api/rainbow/intent-hard-cases`: Create hard-case flag
+    - Accepts conversationId, intentId, confidence, reason, candidateIntents, profile
+    - Returns hardCaseId and confirmed data
+  - `GET /api/rainbow/intent-hard-cases?profile=pelangi&limit=50`: Retrieve and group cases
+    - Groups by intentId with count, avgConfidence, minConfidence, maxConfidence
+    - Includes individual cases with createdAt, candidateIntents
+    - Rounds confidence values to 2 decimals
+
+- **Database Migration**: Applied via `drizzle/0001_add_intent_hard_cases.sql`
+  - Created `intent_hard_cases` table with all indexes
+  - Applied successfully to Neon PostgreSQL
+
+- **Unit Tests** (`src/routes/admin/__tests__/intent-analytics-us207.test.ts`):
+  - AC1: Test accepts and stores conversationId, intentId, confidence, reason
+  - AC2: Test groups cases by intent with confidence breakdown (min, max, avg)
+  - AC3: Test verifies >5 low-confidence items (<0.75) queued for review
+  - Additional test for top-3 candidate intents storage
+  - All 4 tests passing
+
+### Patterns discovered
+- candidateIntents stored as JSON string in JSONB column (allows both serialized and parsed formats)
+- Grouping logic implemented in API endpoint (not at database level) for flexibility
+- Profile parameter optional—defaults to 'pelangi' if not provided
+- Confidence values rounded to 2 decimals in response for consistency
+- Index on (profile, confidence) enables efficient filtering by profile and low-confidence threshold
+
+### Gotchas
+- Database table did not initially exist; had to manually apply migration from drizzle/0001_add_intent_hard_cases.sql
+- candidateIntents field can be null (optional) to allow simple hard-case flags without multi-candidate data
+- Drizzle db:push command hung during initial attempt; worked around using tsx to apply SQL directly
+
+### Acceptance Criteria Met
+- [x] AC1: POST /admin/api/intent-hard-cases accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table
+- [x] AC2: GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with confidence breakdown
+- [x] AC3: Unit tests assert hard-case queue contains >5 items with confidence < 0.75 from confusion matrix output
+
+---
+
 ## Iteration [SPIRAL] - Story: US-131 Generate intent classification confusion matrix from production logs
 
 ### What was implemented
