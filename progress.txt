@@ -890,3 +890,95 @@ FAILED diagnosis-block gate: Build Profile Data Contamination Scanner CLI with P
   - AC2: Accuracy calculated from intentPredictions table (wasCorrect field)
   - AC3: CSV output format with PredictedIntent, ActualIntent, Count, Percentage
   - AC4: Test dataset achieves 95% detection accuracy
+## Iteration 1 - Mon, Mar 23, 2026  1:03:38 PM
+FAILED diagnosis-block gate: Generate intent classification confusion matrix from production logs (ID: US-131) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-131 (Gemini 2.5 Pro)
+This user story is for a **TypeScript/Node.js** CLI tool within the `rainbow-ai` project, not a Frappe/Python app. The following brief has been adapted accordingly.
+
+**Project:** `rainbow-ai` (Node.js/TypeScript)
+**User Story:** US-131 - Intent Confusion Matrix Generator
+
+### Technical Brief
+
+**1. Files to Modify/Create:**
+*   **New File:** `src/tools/confusion-matrix-generator.ts` (main logic for the CLI tool).
+*   **New File:** `tests/tools/confusion-matrix-generator.test.ts` (unit tests for the tool).
+*   **Modify:** `package.json` to add the new npm script `metrics:confusion-matrix`.
+
+**2. Key Components & Schemas:**
+*   **Database Table:** `rainbow_messages` is the primary data source.
+*   **Key Columns:** `predicted_intent`, `actual_intent`, and a timestamp for the date filter.
+*   **ORM:** Drizzle (inferred from `drizzle.config.ts` and `shared/schema.ts`). The tool should leverage the existing schema definitions.
+
+**3. Implementation Approach:**
+*   Use a CLI argument parsing library (e.g., `yargs`) to process `--profile` and `--days`.
+*   Connect to the database using the project's existing Drizzle instance.
+*   Query `rainbow_messages` for records in the last `N` days where `predicted_intent` != `actual_intent`.
+*   Construct an in-memory confusion matrix (e.g., a nested object: `matrix[predicted][actual]++`).
+*   Process the matrix to find the top 5 most frequent misclassification pairs.
+*   Calculate confusion counts and percentages for the top pairs.
+*   Output the results to the console in CSV format.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** The database query must be efficient to handle potentially large log volumes. Avoid loading all data into memory at once if possible.
+*   **Data Integrity:** Handle records where `predicted_intent` or `actual_intent` may be null or empty.
+*   **Configuration:** The script must correctly resolve database connections based on the `--profile` argument.
+
+
+## Pre-analysis for US-131 (Gemini 2.5 Pro)
+There's a mismatch between your request and the provided story. The user story describes a **TypeScript/Node.js** task for building a CLI tool, not a Frappe/Python implementation.
+
+Here is the technical brief based on the **provided JSON data**:
+
+**Project:** Node.js/TypeScript CLI Tool
+
+**Objective:** Create a CLI tool to generate an intent confusion matrix from production message logs to identify common misclassifications.
+
+**Files to Modify:**
+*   **Create:** `src/tools/confusion-matrix-generator.ts` (main tool logic)
+*   **Create:** `tests/tools/confusion-matrix-generator.test.ts` (unit tests)
+*   **Modify:** `package.json` (to add the new `metrics:confusion-matrix` npm script)
+
+**Data/External Systems:**
+*   **Primary Source:** Reads from the `rainbow_messages` SQL table.
+*   **Input:** CLI arguments (`--profile`, `--days`).
+*   **Output:** CSV format to standard output.
+
+**Implementation Approach:**
+1.  Use a CLI argument parser (e.g., `yargs`) to handle `--profile` and `--days`.
+2.  Establish a database connection (likely using the existing ORM/client in the project).
+3.  Query the `rainbow_messages` table, filtering by `profile` and the calculated date range.
+4.  In-memory, build a two-dimensional map: `matrix[predicted_intent][actual_intent]`.
+5.  Iterate the matrix to find entries where `predicted !== actual`.
+6.  Calculate percentages, sort by the highest confusion count, and print the top 5 as CSV.
+
+**Gotchas & Edge Cases:**
+*   Ensure the date filtering logic correctly handles timezones.
+*   The query should explicitly ignore records where `predicted_intent` or `actual_intent` is null.
+*   For large data volumes (`days` > 30), consider streaming results or using a more memory-efficient data structure to avoid heap overflows.
+
+
+## Iteration [SPIRAL] - Story: US-131 Generate intent classification confusion matrix from production logs
+
+### What was implemented
+- **Confusion Matrix Module** (`src/tools/confusion-matrix-generator.ts`):
+  - `buildConfusionMatrix()`: Pure function, no DB — builds Map<predicted, Map<actual, count>> from raw rows
+  - `calculateAccuracy()`: Computes accuracy % from totalEvaluated and totalMisclassified
+  - `generateConfusionMatrix()`: Queries `intent_predictions` table where `actual_intent IS NOT NULL` and `was_correct = false`
+  - `formatAsCSV()`: Outputs top-N pairs with summary comment headers
+  - CLI entry: detects `isMain` via `process.argv[1]` suffix check (avoids running on test import)
+- **Unit Tests** (`src/tools/confusion-matrix-generator.test.ts`):
+  - 17 tests across 4 describe blocks: buildConfusionMatrix, calculateAccuracy, 95% accuracy detection, formatAsCSV
+  - AC3 covered: dataset of 100 msgs with 5 misclassified → 95% accuracy verified
+
+### Patterns discovered
+- `intentPredictions` table is the correct source (has both predictedIntent and actualIntent); `rainbow_messages` only has `intent` (predicted)
+- Use `pool.query()` raw SQL for CLI scripts (matches existing `analytics-classifier-baseline.ts` pattern)
+- `isMain` detection for ESM CLI scripts: check `process.argv[1].endsWith('filename.ts')`
+- Separate pure logic from DB code to enable unit tests without mocking the DB
+
+### Gotchas
+- prd.json must be read/written with `encoding='utf-8'` on Windows (cp1252 codec fails on emoji chars in story titles)
+- Previous attempt failed DIAGNOSIS_BLOCK_MISSING gate — always output diagnosis block BEFORE any file edits
