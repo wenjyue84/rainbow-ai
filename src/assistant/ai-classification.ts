@@ -9,6 +9,7 @@ import { isAIAvailable, getAISettings, chatWithFallback, getProviders } from './
 import { getLLMSettings } from './llm-settings-loader.js';
 import { classifyResultSchema, safeParseLLMResponse } from './schemas.js';
 import { generateWithValidation } from './ai-response-generator.js';
+import { FALLBACK_CONFIDENCE_THRESHOLD } from './turn-confidence-scorer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ export async function classifyIntent(
   history: ChatMessage[] = []
 ): Promise<AIClassifyResult> {
   if (!isAIAvailable()) {
-    return { category: 'unknown', confidence: 0, entities: {} };
+    return { category: 'unknown', confidence: 0, entities: {}, fallback_used: true };
   }
 
   const systemPrompt = await getSystemPrompt();
@@ -185,7 +186,9 @@ export async function classifyIntent(
 
   if (data) {
     const result = parseClassifyResult(data);
-    return { ...result, usage };
+    // US-245: Record confidence and set fallback_used when below threshold
+    const fallback_used = result.confidence < FALLBACK_CONFIDENCE_THRESHOLD;
+    return { ...result, usage, fallback_used };
   }
 
   // All retries exhausted — try partial recovery from raw (US-1015 AC3: safe fallback)
@@ -193,13 +196,15 @@ export async function classifyIntent(
     try {
       const parsed = JSON.parse(raw);
       const result = parseClassifyResult(parsed);
-      return { ...result, usage };
+      // US-245: Record confidence and set fallback_used when below threshold
+      const fallback_used = result.confidence < FALLBACK_CONFIDENCE_THRESHOLD;
+      return { ...result, usage, fallback_used };
     } catch {
       console.error('[AI] Failed to parse classify result:', raw);
     }
   }
 
-  return { category: 'unknown', confidence: 0, entities: {} };
+  return { category: 'unknown', confidence: 0, entities: {}, fallback_used: true };
 }
 
 // ─── Split-Model: Classify-Only (fast 8B model) ─────────────────────

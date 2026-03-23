@@ -31,6 +31,7 @@ import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
 import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAILURE_THRESHOLD } from '../booking-failure-logger.js';
+import { recordTurnConfidence } from '../turn-confidence-scorer.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -199,6 +200,11 @@ export async function classifyAndRoute(
     confidence: result.confidence,
     latencyMs: classificationLatencyMs,
   }).catch(() => {}); // fire-and-forget
+
+  // ─── US-245: Record turn-by-turn confidence metadata ──────────────
+  const totalTokens = (devMetadata.usage?.prompt_tokens ?? 0) + (devMetadata.usage?.completion_tokens ?? 0);
+  recordTurnConfidence(phone, result.intent, result.confidence, totalTokens)
+    .catch(() => {}); // fire-and-forget
 
   // ─── US-239: Audit log every classification decision ──────────────
   logClassificationDecision({

@@ -242,6 +242,8 @@ export interface AIClassifyResult {
     completion_tokens?: number;
     total_tokens?: number;
   };
+  /** US-245: True when confidence < 0.6 threshold — indicates fallback was used */
+  fallback_used?: boolean;
 }
 
 export interface AIClientConfig {
