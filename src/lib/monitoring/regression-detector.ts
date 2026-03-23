@@ -81,7 +81,7 @@ export async function calculateIntentAccuracy(
 /**
  * Get all intents that have at least one validated prediction in the recent window
  */
-export async function getIntentsInWindow(startDate: Date, endDate: Date, profile?: string): Promise<string[]> {
+export async function getIntentsInWindow(startDate: Date, endDate: Date, profile?: string, _retried: boolean = false): Promise<string[]> {
   try {
     const conditions = [
       gte(intentPredictions.createdAt, startDate),
@@ -89,7 +89,7 @@ export async function getIntentsInWindow(startDate: Date, endDate: Date, profile
       isNotNull(intentPredictions.wasCorrect),
     ];
 
-    if (profile) {
+    if (profile && !_retried) {
       conditions.push(sql`${intentPredictions.profile} = ${profile}`);
     }
 
@@ -104,10 +104,10 @@ export async function getIntentsInWindow(startDate: Date, endDate: Date, profile
     return results.map(r => r.intent);
   } catch (error: any) {
     // Gracefully handle case where profile column doesn't exist (test environments)
-    if (profile && error.message?.includes('does not exist')) {
+    if (!_retried && profile && (error.message?.includes('does not exist') || error.cause?.message?.includes('does not exist'))) {
       console.warn(`[Regression Detector] Profile column not available; retrying without profile filter`);
-      // Retry without profile filter
-      return getIntentsInWindow(startDate, endDate, undefined);
+      // Retry without profile filter (only once)
+      return getIntentsInWindow(startDate, endDate, undefined, true);
     }
     console.error('[Regression Detector] Error getting intents in window:', error);
     throw error;

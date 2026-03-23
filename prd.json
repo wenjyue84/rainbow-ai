@@ -59,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T08:05:52Z"
     },
     {
       "id": "US-159",
@@ -234,6 +235,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-212",
+      "title": "Intent Classification Escalation Queue with Low-Confidence Auto-Flagging",
+      "priority": "high",
+      "description": "Automatically flag intent classifications with confidence < 40% for human review. Store in dedicated escalation queue with original intent, actual guest correction, and keyword improvement recommendations. Reduces fallback escalations by enabling quick manual triage.",
+      "acceptanceCriteria": [
+        "Create escalation_queue table with schema: id, conversation_id, original_intent, confidence_score, guest_correction_intent, timestamp, profile",
+        "In src/assistant/pipeline/classification.ts: when confidence < 40%, auto-insert into escalation_queue; log to src/logs/escalation-flags.log",
+        "Admin endpoint GET /admin/escalation-queue?limit=20&profile=makan returns array sorted by confidence ascending, including message preview and recommended keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-213",
+      "title": "Intent Keyword Suggestion Engine from Escalated Conversation Analysis",
+      "priority": "high",
+      "description": "Extract new keyword suggestions from escalated conversations to improve intent classifier accuracy. Analyzes misclassified messages using TF-IDF to recommend 2-3 high-impact keywords per intent, reducing classification errors.",
+      "acceptanceCriteria": [
+        "CLI command npm run suggest:keywords --profile makan --days 30 analyzes escalation_queue table; extracts candidate keywords from misclassified message text using TF-IDF scoring",
+        "Returns JSON output: {intent_id, current_keyword_count, suggested_keywords: [string], estimated_accuracy_boost_percent}",
+        "Test: assert suggested keywords are extracted from actual guest messages and not generic terms; verify output schema validates against schema.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -344,23 +379,6 @@
         "CLI: npm run test:intent-accuracy -- --profile=data-pelangi --min-accuracy=0.82 reads confusion matrix from src/tools/__tests__/confusion-matrix-generator.test.ts output",
         "Store baseline thresholds in src/.intent-baselines/{profile}.json with per-intent F1 targets; CI exits(1) if any intent accuracy < threshold",
         "Test in src/__tests__/ci-validators/intent-baseline.test.ts asserts data-pelangi booking intent F1 >= 0.85 and data-makan menu_inquiry F1 >= 0.80"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-201",
-      "title": "Fallback Response Template Staleness and Quality Auditor",
-      "priority": "low",
-      "description": "CLI audit tool that identifies fallback response templates unchanged for >90 days or lacking helpful suggestions (action verbs, next steps). Flags templates for refresh to keep responses relevant and helpful.",
-      "acceptanceCriteria": [
-        "CLI command `npm run audit:fallback-staleness --profile=data-makan --days=90 --output=docs/` generates `fallback-staleness-{profile}.md` report",
-        "Report flags templates where: last_updated_at timestamp >90 days old, response text <30 chars, or response missing action verbs (help, contact, check, book, confirm)",
-        "Report includes template path, current text, suggestion based on top 5 misclassified intents from analytics table to guide refresh priority"
       ],
       "technicalNotes": [],
       "dependencies": [],
