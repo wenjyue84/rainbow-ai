@@ -167,3 +167,21 @@ Based on the user story and project structure, this is a **Node.js/TypeScript** 
     *   File writing for `intent-keywords.json` should be atomic (write to temp file, then rename) to prevent data corruption on interruption.
     *   The mining script should be designed to handle large log volumes efficiently, possibly by streaming or using paginated database queries.
 
+
+## Iteration 2 - Tue, Mar 24, 2026 - Story: Intent Keyword Auto-Miner from Production Misclassifications (US-323)
+### What was implemented
+All components were already present from a previous partial attempt:
+- `src/tools/keyword-miner.ts` — Core mining logic (DB queries, tokenization, n-gram extraction, duplicate filtering)
+- `src/routes/admin/keyword-miner.ts` — POST /admin/keywords/approve-suggestions + GET /admin/keywords/suggestions/:profile
+- `scripts/mine-keyword-suggestions.ts` — CLI: npm run mine-keyword-suggestions --profile=makan --window=7d
+- package.json `mine-keyword-suggestions` script entry
+- Route registered in src/routes/admin/index.ts
+
+### Patterns discovered
+- Previous attempt failed ONLY due to missing diagnosis block (process gate), not code errors
+- Build: esbuild passes with 0 errors (1 ESM warning on logger.ts, pre-existing)
+- Server starts cleanly with all routes loaded
+
+### Gotchas
+- The `intent_predictions` table queried by keyword-miner.ts may not exist in production yet; mining will return empty results gracefully
+- Atomic file writes use tmp-rename pattern to prevent corruption
