@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-351",
-      "title": "Profile Isolation Enforcement Runtime Middleware",
-      "priority": "high",
-      "description": "Add runtime middleware that blocks message routing to intents/workflows from different profile than authenticated user. Prevents accidental cross-profile message leakage at execution time.",
-      "acceptanceCriteria": [
-        "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
-        "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
-        "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-352",
       "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
       "priority": "high",
@@ -78,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T23:30:02Z"
     },
     {
       "id": "US-353",
@@ -302,6 +286,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-376",
+      "title": "Intent Classification Hard-Case Review Queue with Admin Labeling",
+      "priority": "high",
+      "description": "Create a feedback loop for classifier improvement by capturing low-confidence predictions (50-70%) from production, storing them in a review queue, and allowing admins to label correct intents for retraining. Addresses the need to improve intent classification accuracy through human feedback on ambiguous cases.",
+      "acceptanceCriteria": [
+        "Implement `HardCaseQueue` in `shared/schema-tables.ts` with fields: message_text, profile, predicted_intent, confidence, top_3_candidates, admin_label, created_at. Auto-insert when classifier confidence is between 50-70% during production inference.",
+        "Add admin endpoint GET `/admin/api/hard-cases?profile=pelangi&limit=20` returning sorted queue, and POST `/admin/api/hard-cases/:id/label?intent=booking` to record admin-provided ground truth label.",
+        "CLI command `npm run export:hard-case-labels <profile>` generates JSONL file with {message, predicted, admin_label} for classifier retraining, with logging of how many cases per intent type."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-377",
+      "title": "Conversation Context Window Size Optimizer CLI",
+      "priority": "high",
+      "description": "Analyze production conversations to determine optimal message context window size per profile, balancing conversation quality against token usage. Provides data-driven recommendations for context window tuning in settings.json to reduce inference cost.",
+      "acceptanceCriteria": [
+        "CLI command `npm run optimize:context-window <profile>` examines 100+ booking conversations from `rainbow_conversations` table, evaluates response quality (AI response length, booking progression success) at context window sizes 5, 10, 15, 20 messages.",
+        "Generate report showing: 'Profile pelangi: optimal window 10 messages (quality 0.87, tokens/conv 240). Window >12 shows no quality gain (+180 token cost).' Recommend specific size in settings.json.",
+        "Output includes breakdown: 'Messages 8-10 contribute X% to quality, messages 11-15 contribute Y%' to help justify the recommendation to the team."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-365",
       "title": "Build Booking Workflow Critical Path Analyzer CLI to Identify Bottleneck Steps",
       "priority": "medium",
@@ -368,40 +386,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
-    },
-    {
-      "id": "US-370",
-      "title": "Fallback Response Escalation Reason Logger with Admin Analytics Dashboard",
-      "priority": "medium",
-      "description": "Tag each fallback response trigger with reason (low_confidence, intent_mismatch, timeout, provider_error, unknown) in database logs to enable analysis of escalation patterns and identify improvement areas.",
-      "acceptanceCriteria": [
-        "Add `fallback_reason varchar(32)` column to `rainbow_messages` table; set reason in `src/assistant/pipeline/fallback.ts` before logging with values: 'low_confidence' (confidence < 0.5), 'intent_mismatch' (no intent found), 'timeout', 'provider_error'",
-        "Admin endpoint `GET /admin/analytics/fallback-reasons?profile=data_pelangi&days=30` returns JSON: {reason: count, trend_slope, top_affected_intents}",
-        "Test in `src/tests/fallback-reasons.test.ts`: verify reason_low_confidence set when confidence_score < 0.5, verify reason_intent_mismatch set when no intent routes match"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-375",
-      "title": "Conversation Context Debug CLI with Token Counter",
-      "priority": "medium",
-      "description": "CLI tool that dumps full context of a stored conversation including message relevance scores, token counts, and suggestions for pruning. Helps troubleshoot multi-turn context issues and token overflow problems.",
-      "acceptanceCriteria": [
-        "Command: `npm run debug:conversation -- --conversation-id <id> --profile data-pelangi` outputs JSON with messages, relevance_score, token_count, and pruning_suggestions for each message",
-        "Uses approximate token counter (tiktoken-like estimation) to calculate total tokens and per-message breakdown",
-        "Marks messages with relevance_score < 0.3 as candidate for pruning with reasoning"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -671,6 +655,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-351",
+      "title": "Profile Isolation Enforcement Runtime Middleware",
+      "priority": "high",
+      "description": "Add runtime middleware that blocks message routing to intents/workflows from different profile than authenticated user. Prevents accidental cross-profile message leakage at execution time.",
+      "acceptanceCriteria": [
+        "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
+        "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
+        "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-350",
