@@ -1075,3 +1075,55 @@ The fallback-generator.ts is designed to be integrated into the existing fallbac
 1. Calling generateFallbackResponse() in getFallbackResponse() when confidence is very low
 2. Storing intent context in escalation_events when escalations occur
 3. Populating staffResolution from staff responses and guestFeedback from post-escalation surveys
+## Iteration 1 - Tue, Mar 24, 2026  6:14:22 AM
+FAILED diagnosis-block gate: Context-Aware Fallback Response Generator from Escalation Patterns (ID: US-342) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-342 (Gemini 2.5 Pro)
+This user story (US-342) describes a feature for the current TypeScript project, `rainbow-ai`, not a Frappe/Python application. The acceptance criteria explicitly mention the file `src/assistant/fallback-generator.ts` and concepts like `intent_id` and `profile-isolated` responses, which are all relevant to the AI assistant architecture of this project.
+
+Here is the technical brief for implementing US-342 within the `rainbow-ai` (TypeScript) project:
+
+**Technical Brief: Context-Aware Fallback Generator (US-342)**
+
+1.  **Files to Modify:**
+    *   **`src/assistant/fallback-generator.ts`**: (Create or modify) This file will contain the core function for querying the database and identifying the best historical response.
+    *   **`src/assistant/FallbackHandler.ts`** (or equivalent): The existing code that provides static fallback responses must be modified to call the new generator.
+    *   **`src/lib/db/schema.ts`** (or Drizzle client location): To access and query the `escalation_events` table.
+    *   **`tests/assistant/fallback-generator.test.ts`**: (Create) A new test file is required to validate the logic as per acceptance criteria.
+
+2.  **Key Data Structures & Tables:**
+    *   **`escalation_events` table**: The primary data source. The implementation will need to query this table, filtering by `intent_id` and `profile_id`.
+    *   Key Columns: `staff_resolution`, `guest_feedback`, `intent_id`, `profile_id`.
+
+3.  **Recommended Implementation Approach:**
+    *   In `fallback-generator.ts`, create an async function `generateContextualFallback(intentId, profileId, conversationContext)`.
+    *   This function should use the project's database client to select `staff_resolution` from `escalation_events` where `intent_id` and `profile_id` match and `staff_resolution` is not null.
+    *   Filter these results to find "successful" resolutions (e.g., based on `guest_feedback` content or a potential future 'success' flag).
+    *   Use a text similarity library to calculate a score between the current `conversationContext` and the historical `staff_resolution` texts.
+    *   Return the resolution with the highest score, provided it exceeds the 0.75 threshold.
+    *   Update the main fallback handler to invoke this function. If it returns a valid response, use it; otherwise, revert to the old static template mechanism.
+
+4.  **Edge Cases & Gotchas:**
+    *   **No Matching Escalations**: If no successful escalations are found for an intent, the system must gracefully fall back to a generic, static response.
+    *   **Performance**: The DB query and similarity scoring could be slow. Consider caching resolutions for frequently triggered intents to reduce latency.
+    *   **Profile Isolation**: The database query MUST strictly enforce `WHERE profile_id = ?` to prevent data leakage between different AI profiles (e.g., Pelangi vs. Makan).
+    *   **Similarity Tuning**: The 0.75 score is a starting point. It may require tuning to balance relevance against the risk of providing no response.
+    *   **Defining Success**: The logic for what constitutes a "successful" resolution from `guest_feedback` needs to be clearly defined and implemented.
+
+
+## Iteration 16 - Tue, Mar 24, 2026 - Story: US-342 Context-Aware Fallback Response Generator — PASSED (Retry 2)
+
+### What was implemented
+Story was already fully implemented from Iteration 15. The previous attempt failed only because of the DIAGNOSIS_BLOCK_MISSING outer loop gate (not a code failure).
+
+Verified:
+- 29/29 tests pass in fallback-generator.test.ts
+- Build clean (only pre-existing logger.ts warning)
+- prd.json updated with passes: true
+
+### Patterns discovered
+- When a story fails with DIAGNOSIS_BLOCK_MISSING, the actual code is already correct — just output the diagnosis block first before any tool calls.
+
+### Gotchas
+- The diagnosis block gate requires the exact headers in plain text BEFORE any file edits or Bash commands that modify files.
