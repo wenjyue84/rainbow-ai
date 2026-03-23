@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-131",
-      "title": "Generate intent classification confusion matrix from production logs",
-      "priority": "high",
-      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
-      "acceptanceCriteria": [
-        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
-        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
-        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T04:59:44Z"
-    },
-    {
       "id": "US-158",
       "title": "Intent classifier accuracy regression alert system",
       "priority": "high",
@@ -184,6 +166,74 @@
       "model": "haiku"
     },
     {
+      "id": "US-207",
+      "title": "Add intent classification hard-case queue for manual product review",
+      "priority": "high",
+      "description": "Create admin endpoint to flag and review conversations with ambiguous intent classifications (low confidence, multiple similar candidates). Helps product team identify patterns in misclassifications and improve training data.",
+      "acceptanceCriteria": [
+        "POST /admin/api/intent-hard-cases endpoint in src/routes/admin/intent-analytics.ts accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table",
+        "GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown",
+        "Unit test in src/assistant/__tests__/intent-analytics.test.ts asserts hard-case queue contains >5 items from confusion matrix output with confidence < 0.75"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-208",
+      "title": "Implement conversation message relevance scorer to prune stale context",
+      "priority": "high",
+      "description": "Score each message in conversation history for relevance to current intent. Exclude messages with low relevance scores when context window exceeds 8 messages, preventing hallucination from outdated booking requests or old check-in questions.",
+      "acceptanceCriteria": [
+        "Add scoreMessageRelevance(message: ConvMessage, currentIntent: string) function in src/assistant/pipeline/context-manager.ts returning 0-1 relevance score",
+        "When building AI prompt in src/assistant/engine.ts: filter messages where relevanceScore < 0.3 when history.length > 8",
+        "Test in src/assistant/__tests__/context-pruning.test.ts: conversation with old 'extend stay' request should not influence new 'room type question' intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-209",
+      "title": "Add booking workflow step failure recovery with typed error messages",
+      "priority": "high",
+      "description": "Wrap booking workflow step execution with error handling that logs failures and sends guest-friendly recovery messages instead of silent crashes. Maps error codes to profile-specific fallback messages.",
+      "acceptanceCriteria": [
+        "Wrap executeWorkflowStep() in src/assistant/pipeline/workflow-executor.ts with try-catch returning {success: bool, error?: {code: string, message: string}}",
+        "Load recovery messages from src/assistant/data/{profile}/fallback-recovery.json keyed by error code (e.g., 'payment_failed', 'room_unavailable')",
+        "Log to booking_step_errors table with step_id, error_code, profile; test in src/assistant/__tests__/workflow-error-handling.test.ts asserts guest receives recovery message within 5s"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-210",
+      "title": "Add profile-specific keyword contamination blocker at startup validation",
+      "priority": "high",
+      "description": "Validate at startup that each profile's intent-keywords.json contains only business-relevant keywords. Block hostel keywords in data-makan, cafe keywords in data-southern. Fail startup with remediation steps if contamination detected.",
+      "acceptanceCriteria": [
+        "New module src/lib/startup-validators/profile-keyword-validator.ts: for data-makan, error on keywords containing ['hostel', 'pelangi', 'capsule', 'check-in']; for data-southern, error on ['cafe', 'makan', 'menu', 'order']",
+        "On violation: log error to stdout listing contaminated keywords with remediation 'Remove {keyword} from src/assistant/data/{profile}/intent-keywords.json and rebuild'",
+        "Test in src/__tests__/startup-validators/profile-keyword.test.ts: importing data-southern with 'cafe' keyword throws error; importing clean profile succeeds"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -281,6 +331,23 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-211",
+      "title": "Build per-profile intent accuracy baseline validator for CI regression detection",
+      "priority": "medium",
+      "description": "Create CLI command and baseline storage to validate intent classification F1 scores per profile in CI. Prevents accuracy regressions and enforces minimum thresholds before deployment.",
+      "acceptanceCriteria": [
+        "CLI: npm run test:intent-accuracy -- --profile=data-pelangi --min-accuracy=0.82 reads confusion matrix from src/tools/__tests__/confusion-matrix-generator.test.ts output",
+        "Store baseline thresholds in src/.intent-baselines/{profile}.json with per-intent F1 targets; CI exits(1) if any intent accuracy < threshold",
+        "Test in src/__tests__/ci-validators/intent-baseline.test.ts asserts data-pelangi booking intent F1 >= 0.85 and data-makan menu_inquiry F1 >= 0.80"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -570,6 +637,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-131",
+      "title": "Generate intent classification confusion matrix from production logs",
+      "priority": "high",
+      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
+      "acceptanceCriteria": [
+        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
+        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
+        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T04:59:44Z"
     },
     {
       "id": "US-127",

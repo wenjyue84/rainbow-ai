@@ -5,6 +5,7 @@ import { intentPredictions } from '../../../shared/schema.js';
 import { desc, eq, sql, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { serverError, badRequest, notFound } from './http-utils.js';
 import { safeReadJSON, atomicWriteJSON } from './file-utils.js';
+import { checkRegressions } from '../../lib/monitoring/regression-detector.js';
 import { join } from 'path';
 
 const EXAMPLES_PATH = join(process.cwd(), 'src', 'assistant', 'data', 'intent-examples.json');
@@ -569,6 +570,37 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
   } catch (error) {
     console.error('[Intent Classification Metrics] Error:', error);
     serverError(res, 'Failed to fetch intent classification metrics');
+  }
+});
+
+// ─── GET /api/rainbow/intent/regression-check ──────────────────────────────
+// Check for accuracy regressions across intents
+// Query params:
+//   days: number (default 7) - rolling window days
+//   threshold: number (default 0.05) - regression threshold (0.05 = 5% drop)
+//   profile: string (optional) - filter by profile
+router.get('/intent/regression-check', async (req: Request, res: Response) => {
+  try {
+    const days = Math.max(1, Math.min(90, parseInt(req.query.days as string) || 7));
+    const threshold = Math.max(0, Math.min(1, parseFloat(req.query.threshold as string) || 0.05));
+    const profile = req.query.profile as string | undefined;
+
+    const result = await checkRegressions(days, threshold, profile);
+
+    res.json({
+      success: true,
+      overallStatus: result.overallStatus,
+      intents: result.intents,
+      timestamp: result.timestamp,
+      window: {
+        days,
+        threshold: `${Math.round(threshold * 100)}%`,
+        profile: profile || 'all',
+      },
+    });
+  } catch (error) {
+    console.error('[Intent Regression Check] Error:', error);
+    serverError(res, 'Failed to check intent regressions');
   }
 });
 
