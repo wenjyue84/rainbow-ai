@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
-import { intentPredictions, regressionAlerts } from '../../../shared/schema.js';
+import { intentPredictions, regressionAlerts, intentHardCases } from '../../../shared/schema.js';
 import { desc, eq, sql, isNull, isNotNull, inArray, and } from 'drizzle-orm';
 import { serverError, badRequest, notFound } from './http-utils.js';
 import { safeReadJSON, atomicWriteJSON } from './file-utils.js';
@@ -664,6 +664,138 @@ router.get('/analytics/regression-alerts', async (req: Request, res: Response) =
   } catch (error) {
     console.error('[Regression Alerts] Error:', error);
     serverError(res, 'Failed to fetch regression alerts');
+  }
+});
+
+// ─── POST /api/rainbow/intent-hard-cases ────────────────────────────────────
+// Flag a conversation with ambiguous intent classification for manual review
+// AC1: Accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases
+router.post('/intent-hard-cases', async (req: Request, res: Response) => {
+  try {
+    const { conversationId, intentId, confidence, reason, candidateIntents } = req.body;
+    const profile = (req.query.profile as string) || 'pelangi';
+
+    // Validate required fields
+    if (!conversationId || !intentId || typeof confidence !== 'number') {
+      return badRequest(res, 'conversationId, intentId, and confidence are required');
+    }
+
+    // Insert the hard case
+    const result = await db
+      .insert(intentHardCases)
+      .values({
+        conversationId,
+        intentId,
+        confidence,
+        reason: reason || null,
+        candidateIntents: candidateIntents ? JSON.stringify(candidateIntents) : null,
+        profile,
+      })
+      .returning({ id: intentHardCases.id });
+
+    if (!result[0]) {
+      return serverError(res, 'Failed to create hard case');
+    }
+
+    res.json({
+      success: true,
+      hardCaseId: result[0].id,
+      conversationId,
+      intentId,
+      confidence,
+    });
+  } catch (error) {
+    console.error('[Intent Hard Cases] Error creating hard case:', error);
+    serverError(res, 'Failed to create intent hard case');
+  }
+});
+
+// ─── GET /api/rainbow/intent-hard-cases ─────────────────────────────────────
+// Get hard cases grouped by predicted intent with confidence breakdown
+// AC2: Returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown
+router.get('/intent-hard-cases', async (req: Request, res: Response) => {
+  try {
+    const profile = (req.query.profile as string) || 'pelangi';
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit as string) || 50));
+
+    // Fetch hard cases for the profile
+    const hardCases = await db
+      .select()
+      .from(intentHardCases)
+      .where(eq(intentHardCases.profile, profile))
+      .orderBy(desc(intentHardCases.createdAt))
+      .limit(limit);
+
+    // Group by intentId and calculate confidence statistics
+    const groupedByIntent: Record<
+      string,
+      {
+        intent: string;
+        count: number;
+        avgConfidence: number;
+        minConfidence: number;
+        maxConfidence: number;
+        cases: Array<{
+          conversationId: string;
+          confidence: number;
+          reason?: string;
+          candidateIntents?: unknown;
+          createdAt: Date;
+        }>;
+      }
+    > = {};
+
+    for (const hardCase of hardCases) {
+      const intent = hardCase.intentId;
+      if (!groupedByIntent[intent]) {
+        groupedByIntent[intent] = {
+          intent,
+          count: 0,
+          avgConfidence: 0,
+          minConfidence: 1,
+          maxConfidence: 0,
+          cases: [],
+        };
+      }
+
+      const group = groupedByIntent[intent];
+      group.count += 1;
+      group.avgConfidence =
+        (group.avgConfidence * (group.count - 1) + hardCase.confidence) / group.count;
+      group.minConfidence = Math.min(group.minConfidence, hardCase.confidence);
+      group.maxConfidence = Math.max(group.maxConfidence, hardCase.confidence);
+      group.cases.push({
+        conversationId: hardCase.conversationId,
+        confidence: hardCase.confidence,
+        reason: hardCase.reason || undefined,
+        candidateIntents: hardCase.candidateIntents,
+        createdAt: hardCase.createdAt,
+      });
+    }
+
+    // Convert to array and sort by count (most cases first)
+    const grouped = Object.values(groupedByIntent).sort((a, b) => b.count - a.count);
+
+    // Round confidence values to 2 decimals
+    for (const group of grouped) {
+      group.avgConfidence = parseFloat(group.avgConfidence.toFixed(2));
+      group.minConfidence = parseFloat(group.minConfidence.toFixed(2));
+      group.maxConfidence = parseFloat(group.maxConfidence.toFixed(2));
+    }
+
+    res.json({
+      success: true,
+      profile,
+      totalCases: hardCases.length,
+      groupedByIntent: grouped,
+      filter: {
+        profile,
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error('[Intent Hard Cases] Error fetching hard cases:', error);
+    serverError(res, 'Failed to fetch intent hard cases');
   }
 });
 

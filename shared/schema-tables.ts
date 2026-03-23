@@ -157,6 +157,30 @@ export const regressionAlerts = pgTable("regression_alerts", {
 export type RegressionAlert = typeof regressionAlerts.$inferSelect;
 export type InsertRegressionAlert = typeof regressionAlerts.$inferInsert;
 
+// ─── Intent Hard Cases (US-207) ───────────────────────────────────────
+// Stores conversations with ambiguous intent classifications for manual review
+// Flags low confidence and multi-candidate scenarios for product team analysis
+
+export const intentHardCases = pgTable("intent_hard_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: text("conversation_id").notNull(),
+  intentId: text("intent_id").notNull(),
+  confidence: real("confidence").notNull(),
+  candidateIntents: jsonb("candidate_intents"),  // array of {intent, confidence}
+  reason: text("reason"),
+  profile: text("profile").notNull().default('pelangi'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_intent_hard_cases_profile").on(table.profile),
+  index("idx_intent_hard_cases_intent_id").on(table.intentId),
+  index("idx_intent_hard_cases_confidence").on(table.confidence),
+  index("idx_intent_hard_cases_created_at").on(table.createdAt),
+  index("idx_intent_hard_cases_profile_confidence").on(table.profile, table.confidence),
+]));
+
+export type IntentHardCase = typeof intentHardCases.$inferSelect;
+export type InsertIntentHardCase = typeof intentHardCases.$inferInsert;
+
 export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   phone: varchar("phone", { length: 32 }).primaryKey(),
   pushName: text("push_name").notNull(),
@@ -510,6 +534,8 @@ export type WhatsappCostDaily = typeof whatsappCostDaily.$inferSelect;
 export type InsertWhatsappCostDaily = typeof whatsappCostDaily.$inferInsert;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = typeof adminUsers.$inferInsert;
+export type IntentHardCase = typeof intentHardCases.$inferSelect;
+export type InsertIntentHardCase = typeof intentHardCases.$inferInsert;
 
 // ─── Template Quality Events (US-831) ─────────────────────────────────
 // Tracks Meta Cloud API message_template_status_update webhook events.
