@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-213",
-      "title": "Intent Keyword Suggestion Engine from Escalated Conversation Analysis",
-      "priority": "high",
-      "description": "Extract new keyword suggestions from escalated conversations to improve intent classifier accuracy. Analyzes misclassified messages using TF-IDF to recommend 2-3 high-impact keywords per intent, reducing classification errors.",
-      "acceptanceCriteria": [
-        "CLI command npm run suggest:keywords --profile makan --days 30 analyzes escalation_queue table; extracts candidate keywords from misclassified message text using TF-IDF scoring",
-        "Returns JSON output: {intent_id, current_keyword_count, suggested_keywords: [string], estimated_accuracy_boost_percent}",
-        "Test: assert suggested keywords are extracted from actual guest messages and not generic terms; verify output schema validates against schema.json"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T10:27:44Z"
-    },
-    {
       "id": "US-217",
       "title": "Booking Workflow Cancellation State Machine Test Suite",
       "priority": "high",
@@ -79,24 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-218",
-      "title": "Intent Classification Ground Truth Dataset Exporter with Profile Isolation",
-      "priority": "high",
-      "description": "Export real conversations with inferred intents, confidence scores, and actual outcomes (escalated/resolved/clarified) for building ground truth ML training datasets. Enforce strict per-profile isolation to prevent cross-profile contamination in training data.",
-      "acceptanceCriteria": [
-        "Add CLI command `npm run export-ground-truth -- --profile=pelangi --format=jsonl --days=90 --min-confidence=0.5 --output=ground-truth.jsonl` exporting: message_text, inferred_intent, confidence_score, actual_outcome, conversation_id, timestamp, language; filter `WHERE profile_name = 'pelangi'` only",
-        "Validate export contains zero cross-profile contamination: scan exported keywords against `src/assistant/data/intent-keywords.json` from other profiles (makan, southern); fail export if any foreign keywords detected",
-        "Output format: JSONL with 8 fields per record; sample export shows ≥200 records with diverse intents, confidence scores spanning 0.4-0.99 range, and all 3+ outcome types represented"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T10:45:31Z"
     },
     {
       "id": "US-223",
@@ -252,23 +218,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-246",
-      "title": "Audit Makan Moments profile data files for Pelangi Capsule keyword contamination with fix suggestions",
-      "priority": "high",
-      "description": "Scan Makan Moments knowledge.json, routing.json, and intent-keywords.json for hostel-specific keywords (room, guest, check-in, checkout, booking confirmation) that indicate cross-profile contamination. Generate audit report with line numbers and suggest cafe-appropriate replacements.",
-      "acceptanceCriteria": [
-        "Create scripts/audit-profile-contamination.sh that scans src/assistant/data/data-makan/ files for hostel keywords and outputs CSV report with filename, line_number, contaminated_term, suggested_replacement",
-        "Script returns exit code 1 if any hostel keywords found in Makan Moments profile, 0 if clean",
-        "Add integration test in src/assistant/__tests__/profile-contamination.test.ts that runs audit on Makan Moments and Southern Homestay profiles with assertions for zero hostel keywords in Makan profile"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-247",
       "title": "Build intent classification confidence baseline tracker with per-profile regression detection",
       "priority": "high",
@@ -320,23 +269,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-257",
-      "title": "Implement Admin Configuration Audit Trail with Change Tracking",
-      "priority": "high",
-      "description": "Log all configuration file changes (settings.json, workflows.json, knowledge.json) with user, timestamp, and diff. Enables compliance auditing and rollback capabilities for accidental configuration breaks.",
-      "acceptanceCriteria": [
-        "Create admin_audit_log table: {id, config_file, changed_by, previous_hash, new_hash, diff_summary, timestamp}",
-        "Implement logging middleware capturing all POST /admin/config/:file changes with unified diff output",
-        "Implement GET /admin/api/audit-log?file=settings.json returning 20+ recent changes with diffs"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-261",
       "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
       "priority": "high",
@@ -379,6 +311,74 @@
         "Middleware in `src/routes/webhook.ts` validates `message.businessProfile` matches currently-loaded profile from `src/lib/config.ts` before passing to AI pipeline; rejects mismatches with detailed 400 error",
         "Unit test: message with profile='data-southern' rejected if handler initialized with profile='data-makan' (error includes profile mismatch details)",
         "Integration test: routing validator prevents Southern Homestay guest messages from being processed by Makan Moments knowledge.json and intent classifiers"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-264",
+      "title": "Implement Booking Workflow Step Timeout Detection with Auto-Rollback",
+      "priority": "high",
+      "description": "Add timeout handling to booking confirmation steps to prevent hanging requests. When a workflow step exceeds timeout threshold, automatically rollback guest booking state and return clear timeout error to user.",
+      "acceptanceCriteria": [
+        "Add timeout field to each booking step in src/assistant/data/workflows.json (default 5000ms) and implement stepExecutionTimer in src/assistant/pipeline/booking-executor.ts that triggers rollback on timeout",
+        "Response includes step_timeout reason code with recovery message e.g. 'Booking step took too long. Please try again or speak with staff.'",
+        "Unit test: booking confirmation step timeout triggers guest state rollback and prevents partial booking confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-265",
+      "title": "Build Intent Classification Accuracy Regression Detector with Per-Profile Baselines",
+      "priority": "high",
+      "description": "Track intent classification accuracy per profile and alert when accuracy drops below baseline. Daily snapshot job measures accuracy and detects regressions to prevent silent quality degradation.",
+      "acceptanceCriteria": [
+        "Daily cron job in src/assistant/jobs/accuracy-snapshot.ts calculates classification accuracy per profile and stores in database table intent_accuracy_snapshots with {profile, date, accuracy, baseline}",
+        "Alert triggered when accuracy drops >5% from 30-day rolling baseline, logged to admin dashboard",
+        "CLI: npm run analyze:intent-accuracy-trends shows per-profile accuracy with regression indicators"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-266",
+      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
+      "priority": "high",
+      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
+      "acceptanceCriteria": [
+        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
+        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
+        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-267",
+      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "priority": "high",
+      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "acceptanceCriteria": [
+        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
+        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
+        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -655,6 +655,85 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-213",
+      "title": "Intent Keyword Suggestion Engine from Escalated Conversation Analysis",
+      "priority": "high",
+      "description": "Extract new keyword suggestions from escalated conversations to improve intent classifier accuracy. Analyzes misclassified messages using TF-IDF to recommend 2-3 high-impact keywords per intent, reducing classification errors.",
+      "acceptanceCriteria": [
+        "CLI command npm run suggest:keywords --profile makan --days 30 analyzes escalation_queue table; extracts candidate keywords from misclassified message text using TF-IDF scoring",
+        "Returns JSON output: {intent_id, current_keyword_count, suggested_keywords: [string], estimated_accuracy_boost_percent}",
+        "Test: assert suggested keywords are extracted from actual guest messages and not generic terms; verify output schema validates against schema.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T10:27:44Z",
+      "_scopeCreep": true,
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nUS-213 has been attempted twice before and the implementation already exists:\n- `src/tools/suggest-keywords.ts` — TF-IDF engine with `tokenize()`, `computeTfIdf()`, `analyzeEscalations()`, `loadExistingKeywords()`\n- `src/tools/suggest-keywords-cli.ts` — CLI entry point with `--profile`, `--days`, `--json` flags\n- `scripts/suggest-keywords.ts` — may also exist\n- Test files in `src/tools/__tests__/suggest-keywords.test.ts` and `tests/unit/suggest-keywords.test.ts`\n- `npm run suggest:keywords` script in package.json\n\n## Problem Identified\n\nPrevious attempts failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate — the runner requires this diagnosis block before any file modifications. The actual code implementation appears to already be complete. I need to verify it works, run quality checks, and mark the story as passing.\n\n## Planned Changes\n\n1. Read and verify existing implementation files\n2. Run build to confirm no errors\n3. Run tests to confirm they pass\n4. If any issues found, fix them\n5. Update `prd.json` to mark `passes: true`\n6. Update `progress.txt` with learnings\n7. Commit changes\n\nLet me now verify the existing implementation.\nGood — all implementation files exist. Let me read the tests and schema, then run quality checks.\nEverything looks solid. Let me run the build and tests.\nTests pass (10/10). Let me run the build without rtk.\nBuild succeeds (warning is pre-existing, not an error). Let me also run the second test suite.\nAll 26 tests pass across both suites. Build succeeds. Now let me mark the story as passing and update progress.\nGood. Now update progress.txt and commit.\nUS-213 is complete. The implementation was already fully working from prior iterations — the only blocker was the diagnosis-block gate which required outputting a diagnosis as plain text before making any file changes.\n\n**Summary:**\n- **Story:** US-213 — Intent Keyword Suggestion Engine from Escalated Conversation Analysis\n- **Status:** `passes: true`\n- **Tests:** 26/26 passing (10 + 16 across two suites)\n- **Build:** Success\n- **Commit:** `51a349d`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 764,
+        "tokensAfterMasking": 764,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
+    },
+    {
+      "id": "US-218",
+      "title": "Intent Classification Ground Truth Dataset Exporter with Profile Isolation",
+      "priority": "high",
+      "description": "Export real conversations with inferred intents, confidence scores, and actual outcomes (escalated/resolved/clarified) for building ground truth ML training datasets. Enforce strict per-profile isolation to prevent cross-profile contamination in training data.",
+      "acceptanceCriteria": [
+        "Add CLI command `npm run export-ground-truth -- --profile=pelangi --format=jsonl --days=90 --min-confidence=0.5 --output=ground-truth.jsonl` exporting: message_text, inferred_intent, confidence_score, actual_outcome, conversation_id, timestamp, language; filter `WHERE profile_name = 'pelangi'` only",
+        "Validate export contains zero cross-profile contamination: scan exported keywords against `src/assistant/data/intent-keywords.json` from other profiles (makan, southern); fail export if any foreign keywords detected",
+        "Output format: JSONL with 8 fields per record; sample export shows ≥200 records with diverse intents, confidence scores spanning 0.4-0.99 range, and all 3+ outcome types represented"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-246",
+      "title": "Audit Makan Moments profile data files for Pelangi Capsule keyword contamination with fix suggestions",
+      "priority": "high",
+      "description": "Scan Makan Moments knowledge.json, routing.json, and intent-keywords.json for hostel-specific keywords (room, guest, check-in, checkout, booking confirmation) that indicate cross-profile contamination. Generate audit report with line numbers and suggest cafe-appropriate replacements.",
+      "acceptanceCriteria": [
+        "Create scripts/audit-profile-contamination.sh that scans src/assistant/data/data-makan/ files for hostel keywords and outputs CSV report with filename, line_number, contaminated_term, suggested_replacement",
+        "Script returns exit code 1 if any hostel keywords found in Makan Moments profile, 0 if clean",
+        "Add integration test in src/assistant/__tests__/profile-contamination.test.ts that runs audit on Makan Moments and Southern Homestay profiles with assertions for zero hostel keywords in Makan profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-257",
+      "title": "Implement Admin Configuration Audit Trail with Change Tracking",
+      "priority": "high",
+      "description": "Log all configuration file changes (settings.json, workflows.json, knowledge.json) with user, timestamp, and diff. Enables compliance auditing and rollback capabilities for accidental configuration breaks.",
+      "acceptanceCriteria": [
+        "Create admin_audit_log table: {id, config_file, changed_by, previous_hash, new_hash, diff_summary, timestamp}",
+        "Implement logging middleware capturing all POST /admin/config/:file changes with unified diff output",
+        "Implement GET /admin/api/audit-log?file=settings.json returning 20+ recent changes with diffs"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-212",
