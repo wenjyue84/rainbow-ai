@@ -50,6 +50,7 @@ import {
 
 // ─── Handler Factories below ──────────────────────────────────────
 
+
 /** Options for creating per-session cart handlers */
 export interface CartHandlerOptions {
   /** Available payment methods for the profile (US-867). Default: ['cash'] */

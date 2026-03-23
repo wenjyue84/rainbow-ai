@@ -220,29 +220,49 @@ export function findContamination(
         }
       }
 
-      // Fuzzy matching: compare keywords across profiles
-      const kwsBArr = Array.from(mapB.keys());
-      for (const { intent: intentA, keyword: kwA } of kwsA) {
+      // Fuzzy matching: compare unique keywords across profiles.
+      // To keep runtime manageable on large keyword sets, only fuzzy-compare
+      // keywords that are at least 4 characters long (short keywords produce
+      // too many false positives and dominate runtime).
+      const uniqueA = new Set<string>();
+      for (const { keyword } of kwsA) uniqueA.add(keyword);
+      const uniqueKwsA = Array.from(uniqueA).filter(k => k.length >= 4);
+      const kwsBArr = Array.from(mapB.keys()).filter(k => k.length >= 4);
+
+      for (const kwA of uniqueKwsA) {
         for (const kwB of kwsBArr) {
           if (kwA === kwB) continue; // already handled as exact
+
+          // Quick length-based pre-filter: if lengths differ by more than
+          // the allowed distance, the similarity will be below threshold
+          const maxLen = Math.max(kwA.length, kwB.length);
+          const minLen = Math.min(kwA.length, kwB.length);
+          const maxAllowedDist = Math.floor(maxLen * (1 - threshold / 100));
+          if (maxLen - minLen > maxAllowedDist) continue;
+
           const score = similarityScore(kwA, kwB);
           if (score >= threshold) {
+            // Find all intent pairs for this keyword pair
+            const intentsA = profileKeywordMaps.get(profA)!.get(kwA);
             const intentsB = mapB.get(kwB)!;
-            for (const intentB of intentsB) {
-              const key = [kwA, kwB, profA, intentA, profB, intentB].sort().join('|');
-              if (seen.has(key)) continue;
-              seen.add(key);
+            if (!intentsA) continue;
+            for (const intentA of intentsA) {
+              for (const intentB of intentsB) {
+                const key = [kwA, kwB, profA, intentA, profB, intentB].sort().join('|');
+                if (seen.has(key)) continue;
+                seen.add(key);
 
-              const status = isContaminated(kwA, profA, intentA, profB, intentB, score, threshold);
-              matches.push({
-                keyword: `${kwA} ~ ${kwB}`,
-                profile_a: profA,
-                intent_a: intentA,
-                profile_b: profB,
-                intent_b: intentB,
-                similarity_score: score,
-                status,
-              });
+                const status = isContaminated(kwA, profA, intentA, profB, intentB, score, threshold);
+                matches.push({
+                  keyword: `${kwA} ~ ${kwB}`,
+                  profile_a: profA,
+                  intent_a: intentA,
+                  profile_b: profB,
+                  intent_b: intentB,
+                  similarity_score: score,
+                  status,
+                });
+              }
             }
           }
         }

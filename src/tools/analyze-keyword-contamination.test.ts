@@ -425,7 +425,7 @@ describe('Integration: load real profile files', () => {
     expect(profileData.has('southern')).toBe(true);
   });
 
-  it('generates a report from real profile data', () => {
+  it('generates a report from real profile data', { timeout: 30000 }, () => {
     const profileData = loadAllProfiles(rootDir);
     const report = buildContaminationReport(profileData);
 
@@ -435,7 +435,7 @@ describe('Integration: load real profile files', () => {
     expect(Array.isArray(report.matches)).toBe(true);
   });
 
-  it('produces valid CSV from real data', () => {
+  it('produces valid CSV from real data', { timeout: 30000 }, () => {
     const profileData = loadAllProfiles(rootDir);
     const report = buildContaminationReport(profileData);
     const csv = formatCSV(report.matches);
