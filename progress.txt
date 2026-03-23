@@ -1103,3 +1103,56 @@ AUTO-DECOMPOSED: US-238 at retry 2 (threshold 2) → US-343,US-344,US-345
 ### Gotchas
 - Build uses esbuild (not tsc) — pre-existing type errors don't block build
 - intentAnalytics uses `profileId` column (Drizzle camelCase) but maps to `profile_id` in DB
+## Iteration 2 - Tue, Mar 24, 2026  1:42:54 AM
+FAILED diagnosis-block gate: Build intent classification confidence baseline tracker with per-profile regression detection (ID: US-247) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-247 (Gemini 2.5 Pro)
+This user story appears to be for a TypeScript/Node.js project, not a Frappe/Python application (references to `.ts` files and Zod schemas). However, adapting the core requirements to a Frappe/Python context for the `lhdn_payroll_integration` app would look like this:
+
+**Project:** `lhdn_payroll_integration`
+**Story:** US-247 (Adapted) - Build Payroll Action Confidence Baseline Tracker
+
+### Technical Brief
+
+**1. Python Files to Modify:**
+*   `.../doctype/payroll_action_baseline/payroll_action_baseline.py`: Server-side logic for the new DocType.
+*   `.../doctype/payroll_action_baseline/payroll_action_baseline.js`: Client-side script for custom UI/formatting.
+*   `.../api/baseline_api.py`: A new file to house the whitelisted `GET` endpoint for fetching baseline data.
+*   `.../utils/baseline_calculator.py`: A new file to contain the `compute_baseline` business logic.
+*   `.../hooks.py`: To register the scheduled job and API endpoint permissions.
+
+**2. Frappe DocTypes & Hooks:**
+*   **New DocType:** `Payroll Action Baseline`. Fields would include `profile` (Link, Company), `action_name` (Data), `mean_confidence` (Float), `min_confidence` (Float), `threshold` (Float), `last_updated` (Datetime).
+*   **Hook (Scheduled Job):** A daily scheduled job defined in `hooks.py` to trigger the baseline calculation logic, e.g., `frappe.enqueue('...utils.baseline_calculator.update_all_baselines')`.
+
+**3. Recommended Implementation:**
+1.  Create the `Payroll Action Baseline` DocType to store the metrics.
+2.  Implement the `compute_baseline` function in a utility module. This function should query a (hypothetical) `ActionPredictionLog` DocType, calculate confidence statistics for each profile/action pair, and update the `Payroll Action Baseline` table.
+3.  Create a whitelisted API endpoint `get_action_baselines` that accepts a `profile` filter. It will query the baseline DocType and compare it with the latest prediction data, flagging regressions.
+
+**4. Edge Cases & Gotchas:**
+*   **Cold Start:** The system needs a defined behavior for new actions or profiles that have no historical data. A minimum data point threshold (e.g., 100 predictions) should be required before a baseline is considered valid.
+*   **Performance:** Queries on the prediction log DocType must be highly optimized with database indexes on `profile`, `action_name`, and timestamp fields to handle large data volumes.
+*   **Alerting:** Implement alerts using Frappe's Notification or Email Alert system to automatically notify a "Product Team" Role when a regression is detected by the scheduled job.
+*   **Permissions:** The new DocType and API endpoint must be secured, likely restricted to `System Manager` or a new custom Role.
+
+
+## Iteration 8 - Story: Intent Classification Confidence Baseline Tracker (US-247) — PASSED
+
+### What was implemented
+All code was already present from a prior iteration:
+- `shared/schema-tables.ts`: `intentAccuracyBaselines` table (intent_accuracy_baseline) with profile, intent, mean_confidence, min_confidence, threshold, sample_count, last_updated
+- `src/assistant/intent-accuracy-baseline.ts`: `computeIntentBaseline(profile, intent, recentPredictions[])` — computes mean + p5 percentile as min_confidence, upserts baseline row
+- `src/routes/admin/intent-accuracy.ts`: GET /intent-accuracy/baselines?profile=X (with live regression detection) + POST /intent-accuracy/baselines/compute
+- `src/routes/admin/index.ts`: route registered at line 396
+
+### Acceptance criteria met
+✓ intent_accuracy_baseline table in schema with all required fields
+✓ computeIntentBaseline() calculates mean/p5 confidence and upserts
+✓ GET /admin/api/intent-accuracy/baselines?profile=X returns sorted list with regression flag (>5% drop)
+✓ Build passes (esbuild), server starts
+
+### Patterns discovered
+- Story was fully implemented but passes=false — verification pass was needed
+- Regression detected by comparing stored baseline vs live 7-day analytics window
