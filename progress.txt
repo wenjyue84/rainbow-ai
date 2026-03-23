@@ -1,3 +1,44 @@
+## Iteration 22 - Tue, Mar 24, 2026 - Story: US-350 Profile-Aware Fallback Response Context Matcher — PASSED
+### What was implemented
+**US-350: Profile-Aware Fallback Response Context Matcher** — Implemented context-aware fallback selection based on conversation history with profile-specific tones.
+
+**New Files:**
+- `src/assistant/pipeline/context-aware-fallback-selector.ts` — Core selector with:
+  - `determineFallbackCategory()`: Scores conversation context (booking/order/checkin/facilities) using keyword matching
+  - `selectContextAwareFallback()`: Selects profile-specific fallback from settings.json with tone matching
+  - Supports 3 profiles: makan (cafe-friendly), pelangi (hostel-friendly), southern (homestay-friendly)
+  - Multilingual support (English, Malay, Chinese)
+
+- `src/__tests__/context-aware-fallback.test.ts` — Comprehensive 21-test suite covering:
+  - AC1: Context scoring and category detection
+  - AC2: Profile-specific tone separation (verified Makan excludes hostel keywords, Pelangi excludes cafe keywords)
+  - AC3: Low-confidence fallback triggering with reason logging
+
+**Modified Files:**
+- `src/assistant/data/settings.json` — Added `fallback_responses` section with profile-specific responses for 5+ categories
+- `src/assistant/pipeline/response-processor.ts` — Integrated context-aware selector (replaces generic fallback)
+
+### Acceptance Criteria Met
+✓ **AC1**: Context-aware fallback selector scores conversation relevance and selects from settings.json
+✓ **AC2**: Profile-specific tones applied (Makan: café tone; Pelangi: hostel tone; Southern: homestay tone)
+✓ **AC3**: Unit tests verify tone separation and low-confidence fallback
+
+### Quality Checks
+- ✓ 21/21 unit tests pass
+- ✓ Build clean (1 pre-existing ESM warning on logger.ts)
+- ✓ Integrated into response-processor.ts pipeline (catches empty AI responses, applies context-aware fallback)
+
+### Patterns Discovered
+- Keyword scoring uses simple substring match (case-insensitive) across user messages only
+- Threshold tuned to 0.05 to catch weak context signals (e.g., single keyword match)
+- Profile ID normalization handles variants (makan-moments → makan, pelangi-capsule → pelangi)
+- Fallback_responses grouped by profile/category for clean separation
+
+### Gotchas
+- Smart quotes ('') in source code caused esbuild errors — used ASCII quotes instead
+- Context scoring formula needed tuning from word-ratio based to simpler keyword-frequency ratio
+- Tests needed message diversity (conversation contains both user + assistant messages) for realistic scoring
+
 ## Iteration 21 - Tue, Mar 24, 2026 - Story: US-347 WhatsApp Send Failure SMS Fallback Gateway — PASSED (attempt 2, opus)
 ### What was implemented
 All code was already fully implemented from prior iterations. This attempt:
