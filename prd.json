@@ -47,40 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-120",
-      "title": "Implement workflow step execution timeout with automatic rollback",
-      "priority": "high",
-      "description": "Add execution timeout and automatic transaction rollback to prevent hung booking workflows from leaving databases in inconsistent state. If workflow step exceeds max duration, rollback all changes and escalate to staff with actionable error context.",
-      "acceptanceCriteria": [
-        "Each workflow step in workflows.json has optional 'max_duration_ms' property (default 30000); step execution aborts if timeout exceeded with transaction rollback",
-        "Timeout failure logs to rainbow_messages as escalation event with step_id, actual_duration_ms, and max_duration_ms for debugging",
-        "Test verifies booking not created if workflow step times out mid-execution, guest receives escalation message with retry option, and no partial state persists"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-121",
-      "title": "Add booking workflow performance profiler endpoint with step-level bottleneck identification",
-      "priority": "high",
-      "description": "Create admin endpoint that profiles booking workflow execution to identify slow steps and bottlenecks. Helps debug workflow reliability issues and performance degradation.",
-      "acceptanceCriteria": [
-        "POST /admin/bookings/profile endpoint profiles each booking workflow step with execution duration, input/output sizes, and state snapshots",
-        "Aggregates metrics across all bookings showing per-step average duration, p95, and p99 latencies; flags steps exceeding 2000ms threshold",
-        "Response includes step-level timing heatmap with suggested optimization targets based on cumulative impact"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-122",
       "title": "Build intent classification decision tracer logging top-3 candidates with confidence breakdown",
       "priority": "high",
@@ -93,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T04:00:16Z"
     },
     {
       "id": "US-127",
@@ -251,31 +218,48 @@
       "model": "haiku"
     },
     {
-      "id": "US-166",
-      "title": "Add booking confirmation retry mechanism with exponential backoff for network failures",
+      "id": "US-165",
+      "title": "Create intent-to-workflow mapping validator CLI tool",
       "priority": "high",
-      "description": "Implement retry logic with exponential backoff (1s, 2s, 4s) for booking confirmation API calls to improve reliability when Neon database or downstream services are temporarily unavailable. Tracks retry attempts in database for debugging.",
+      "description": "Build CLI validator that checks routing.json → workflows.json integrity, detects orphaned intent routes, and identifies incomplete workflow step definitions before deployment.",
       "acceptanceCriteria": [
-        "Create `BookingConfirmationRetry` table in `shared/schema-tables.ts` with fields: `id`, `bookingId`, `attempt`, `lastError`, `createdAt`",
-        "Implement retry handler in `src/routes/bookings/confirm.ts` with exponential backoff; max 3 retries before escalation",
-        "CLI validation: `npm run test -- src/routes/bookings.test.ts` includes test cases for retry exhaustion, transient failures, and success on retry-2"
+        "Implement npm run validate:intent-workflow that loads src/assistant/data/{profile}/routing.json + workflows.json + intent-keywords.json and cross-validates all references",
+        "Output ANSI-formatted table: [Intent | Route Status | Workflow Name | Found | Step Count | Missing Fields (trigger/steps/rollback/guards)]",
+        "Exit code 1 if broken mappings exist; exit 0 only if all routing intents map to complete workflows with required fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-166",
+      "title": "Build intent classification confidence percentile analyzer endpoint",
+      "priority": "medium",
+      "description": "Add real-time API endpoint to analyze confidence score distribution for each intent over configurable time windows. Helps identify chronically low-confidence intents that need keyword tuning or workflow refinement.",
+      "acceptanceCriteria": [
+        "Implement GET /admin/analytics/intent-confidence-percentiles?intent=booking&hours=24 endpoint returning {p50, p75, p90, p99, min, max, mean, stddev} calculated from rainbow_classifications table",
+        "Add rainbow_classifications table with (id, intent_name, confidence_score, profile_id, timestamp, detected_language) to persist all intent prediction scores at classification time",
+        "Unit test: verify percentile calculations against 100-point synthetic test dataset match expected mathematical distribution within 1% tolerance"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "haiku"
     },
     {
       "id": "US-167",
-      "title": "Build intent classifier baseline accuracy validator blocking low-confidence deployments",
-      "priority": "high",
-      "description": "Validate that intent classifier meets per-intent accuracy thresholds before deployment. Compares recent classification results against baseline accuracy stored in Postgres. Blocks CI if any intent drops below 70% confidence.",
+      "title": "Implement language-aware fallback response pool with automatic language selection",
+      "priority": "medium",
+      "description": "Create language-specific fallback response templates and auto-select based on detected conversation language. Prevents English-only fallbacks in Mandarin or Malay conversations.",
       "acceptanceCriteria": [
-        "Create `src/assistant/validate-classifier-baselines.ts` reading from `intent_analytics` table for last 100 classifications per intent",
-        "Store baseline thresholds in `src/assistant/data/classifier-baseline.json` with format: `{\"booking\": 0.75, \"inquiry\": 0.70}`",
-        "Add `npm run validate:classifier-baselines` script that exits with code 1 if any intent has <70% recent accuracy; logs violations to stderr"
+        "Create src/assistant/data/{profile}/fallback-responses.json with structure: {fallback: {en: [...], zh: [...], ms: [...]}, escalation: {en: [...], zh: [...], ms: []}, clarify: {en: [...], zh: [...], ms: []}}",
+        "Update src/assistant/pipeline/fallback-handler.ts getFallbackResponse() to select template matching conversation.detected_language; fallback to English if language unavailable",
+        "Unit test: low-confidence Mandarin query returns Mandarin fallback; low-confidence Malay query returns Malay fallback; undetected language returns English"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -286,323 +270,34 @@
     },
     {
       "id": "US-168",
-      "title": "Add low-confidence fallback routing validator detecting inappropriate escalations",
-      "priority": "high",
-      "description": "Validate routing rules to ensure fallback responses for low-confidence predictions (confidence < 0.6) only use 'clarify' or 'escalate' actions, never direct actions like 'execute_booking' or 'send_static_reply'. Prevents silent failures and inappropriate automation.",
+      "title": "Build conversation escalation handoff protocol with staff context summary",
+      "priority": "medium",
+      "description": "Generate automated staff context summary when AI escalates to human. Includes guest info, booking status, conversation analysis, and recommended actions.",
       "acceptanceCriteria": [
-        "Create `src/assistant/validate-fallback-rules.ts` that loads `src/assistant/data/routing.json` and checks: for any intent with `confidenceThreshold < 0.6`, fallback action must be in `['clarify', 'escalate']`",
-        "Add `npm run validate:fallback-rules` CLI returning report with violations (if any) or success message",
-        "Unit test: passing a routing.json with booking intent fallback='execute_booking' and confidenceThreshold=0.5 fails validation"
+        "Add src/assistant/pipeline/escalation-handoff-generator.ts with generateHandoff(conversationId) returning {guest_name, phone, booking_status, last_intent, unresolved_issues[], previous_attempts[], recommended_action}",
+        "On escalation trigger, include handoff in message to staff with [STAFF_CONTEXT] metadata containing structured JSON; log to escalation_events table with handoff_json",
+        "Unit test: 10-turn failed booking conversation generates handoff identifying payment failure, guest contact, and suggested recovery action"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
     {
       "id": "US-169",
-      "title": "Build comprehensive multi-profile data isolation regression test suite",
-      "priority": "high",
-      "description": "Create test suite ensuring Makan, Southern, and Pelangi profiles never contaminate each other's data files, intents, keywords, or routing rules. Tests profile loader, intent classifier, and knowledge base queries to enforce strict separation.",
+      "title": "Build low-confidence intent classification pattern analyzer",
+      "priority": "medium",
+      "description": "Identify which intents chronically have low classification confidence scores. Helps prioritize keyword expansion and intent refinement for problem intents.",
       "acceptanceCriteria": [
-        "Create `src/assistant/__tests__/profile-isolation.test.ts` with 10+ test cases covering: intent duplication across profiles, keyword cross-contamination, routing rule scope isolation",
-        "Test: Loading profile 'makan' should NOT load any intents from `pelangi` or `southern` intent lists; verify via `listProfileIntents('makan')` returns only Makan-specific intents",
-        "Test: Querying Southern KB with keyword 'guest room' should NOT return Pelangi Capsule hostel responses; verify via `searchKB('southern', 'guest room')`"
+        "Implement npm run analyze:low-confidence-intents --threshold=60 --hours=48 that queries rainbow_classifications for predictions in time window and computes per-intent statistics",
+        "Output ANSI table: [Intent | Total Samples | Count Below Threshold | % Below | Avg Confidence | Top Misclassified_As Intents]",
+        "Unit test: correctly calculates that booking intent with 380 of 1000 classifications below 60% threshold returns 38% and identifies top confusion targets"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-171",
-      "title": "Implement Fallback Response Templates Repository with Confidence-Based Selection",
-      "priority": "high",
-      "description": "Replace generic fallback responses with curated templates selected based on detected intent and confidence score. Low-confidence booking intents (40-70%) receive helpful clarification prompts rather than immediate escalation, reducing user friction.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/fallback-responses.json with template objects keyed by {intent, confidenceLevel}: booking-low-confidence, inquiry-mid-confidence, unknown-fallback",
-        "Implement confidence-based template selection in src/assistant/pipeline/response-generator.ts routing <60% confidence intents to suggestion templates",
-        "Add test in test/fallback-response.test.ts asserting correct template selection for 3 confidence tiers (low/medium/high) across 4 intent types"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-172",
-      "title": "Persist Intent Prediction Confidence Scores in Analytics Table for Calibration Validation",
-      "priority": "high",
-      "description": "Intent classification confidence scores are calculated at runtime but discarded. Persist these scores to enable confidence calibration validation, accuracy regression detection, and identification of overconfident predictions that fail in production.",
-      "acceptanceCriteria": [
-        "Add confidence_score (float 0-1) and top_3_intents (JSON array) columns to rainbow_messages table via Drizzle migration in shared/schema-tables.ts",
-        "Persist {intent, confidence, top_3_candidates} in src/assistant/pipeline/intent-classifier.ts during classification execution",
-        "Add analytics endpoint GET /admin/analytics/intent-confidence-calibration?profile=data-pelangi returning accuracy-by-confidence-quartile with p99 precision threshold alerting"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-176",
-      "title": "Intent Classifier A/B Testing Framework with Per-Variant Accuracy Tracking",
-      "priority": "high",
-      "description": "Enable A/B testing of different intent classifiers by routing incoming messages to variants and tracking accuracy separately. Store variant assignments in rainbow_messages table and generate per-variant confusion matrices to identify best-performing classifier models.",
-      "acceptanceCriteria": [
-        "Add classifier_variant (e.g., 'v1-baseline', 'v2-knn-threshold-0.65') column to rainbow_messages and intent_analytics tables",
-        "Create src/assistant/pipeline/classifier-variant-router.ts with getIntentVariant(guestId, conversationId) function that assigns variant consistently per conversation",
-        "Add GET /admin/analytics/classifier-variants endpoint returning {variant, total_classifications, accuracy_percent, confusion_matrix} with ability to compare variants"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-177",
-      "title": "Booking Workflow Dry-Run Executor with Rollback Simulation",
-      "priority": "high",
-      "description": "Add ability to simulate booking workflow execution end-to-end without committing database changes, returning success/failure with detailed step-by-step logs. Enable admins to validate workflows and catch precondition failures before executing for real.",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/booking-dry-run.ts exporting executeBookingDryRun(workflowId, guestData, config) returning {success, executed_steps: [{step_name, duration_ms, status, error_reason}]}",
-        "Add POST /admin/bookings/dry-run endpoint accepting workflow_id and guest_data, returning execution trace without database mutations (use transaction rollback)",
-        "Dry-run logs show same detail as production execution: date validation, capacity checks, payment processing simulation, each with pass/fail status"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-181",
-      "title": "Intent Classifier Confidence Threshold Calibrator CLI",
-      "priority": "high",
-      "description": "Build CLI tool to analyze intent prediction confidence distributions and recommend optimal confidence thresholds per intent type based on precision-recall tradeoff. Helps prevent low-confidence intents from causing unnecessary escalations.",
-      "acceptanceCriteria": [
-        "CLI command 'npm run calibrate:thresholds <intent-name>' generates ROC curve analysis and recommended threshold with F1 score",
-        "Compares thresholds against test dataset in 'tests/intent-calibration.test.ts' ensuring recommended value improves classification accuracy by ≥5%",
-        "Output includes per-intent baseline accuracy (high-confidence vs. all predictions) for admin documentation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-182",
-      "title": "Booking Workflow Step Manual Override with Audit Logging",
-      "priority": "high",
-      "description": "Add admin endpoint to manually override stuck booking workflow steps (e.g., force 'confirm_payment' step to complete) with mandatory reason and automatic audit trail. Improves reliability by enabling quick recovery from edge cases without database tampering.",
-      "acceptanceCriteria": [
-        "POST /api/admin/booking/:bookingId/override-step accepts step_name, override_reason, and admin_id; logs to 'workflow_override_audit' table with timestamp",
-        "Override only allowed for completed workflow steps (no retroactive changes); returns new workflow execution path",
-        "Admin dashboard shows recent overrides with reasons grouped by step_name to identify systematic failures"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-183",
-      "title": "Profile Data Contamination Scanner CLI Tool",
-      "priority": "high",
-      "description": "Standalone CLI tool that scans all profile-specific JSON files (knowledge.json, intents.json, intent-keywords.json) and reports lines containing business content from other profiles with suggested removals. Automates fixing data-makan and data-southern profiles.",
-      "acceptanceCriteria": [
-        "Command 'npm run scan:contamination --profile=data-makan' analyzes all JSON files under src/assistant/data/data-makan/ and flags keywords/content matching 'pelangi', 'hostel', 'capsule', or 'guest rooms' with file:line_number",
-        "Output includes suggested sed commands to remove contaminated lines",
-        "Runs automatically in CI (GitHub Actions) as pre-deployment check, fails build if >5 contaminated lines found"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-165",
-      "title": "Implement automatic conversation context summarization for multi-turn dialogues exceeding message limits",
-      "priority": "medium",
-      "description": "When conversation exceeds 15 messages, automatically summarize earlier context and condense into summary prefix while preserving critical booking details (guest name, dates, room requirements), reducing token usage and preventing context exhaustion",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/conversation-summarizer.ts with function summarizeConversationContext(messages: Message[], maxMessages: number = 15) that extracts: guest name, original intent, booking dates, room type, any modifications discussed; returns {summary: string, retainedMessages: Message[]}",
-        "Integration point in src/assistant/pipeline/message-handler.ts: when conversation message count exceeds threshold, replace first N messages with summary message (role: 'system') containing extracted context",
-        "Unit test in tests/unit/conversation-summarizer.test.ts verifies: 20-message conversation with booking flow is condensed to summary + last 10 messages; test asserts guest name, check-in/out dates, and room count preserved in summary"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-170",
-      "title": "Implement conversation context token counter with automatic summarization trigger at 8000-token threshold",
-      "priority": "medium",
-      "description": "Track conversation token count for multi-turn dialogues. When exceeding 8000 tokens, automatically summarize the oldest messages using Kimi summarizer to prevent context overflow. Preserves conversation integrity while managing API costs.",
-      "acceptanceCriteria": [
-        "Add `countTokens(messages: ChatMessage[]): number` function to `src/lib/conversation.ts` using GPT token counter",
-        "In `src/assistant/pipeline/message-handler.ts`, trigger summarization when `tokenCount > 8000`; pass last 8+ messages to Kimi",
-        "Acceptance test: Load 15-message conversation, verify messages 1-7 are replaced with single summary; total tokens <8000"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-173",
-      "title": "Add Guest Capacity and Group Size Intent Classification for Booking Refinement",
-      "priority": "medium",
-      "description": "Many guest inquiries focus on group capacity and family sizing (e.g., 'can you fit 5 people?', 'I need space for 2 families'). This new intent helps route guests to appropriately-sized accommodations and improves booking workflow accuracy by distinguishing capacity inquiries from generic room inquiries.",
-      "acceptanceCriteria": [
-        "Add group-size-inquiry intent definition to src/assistant/data/intents.json with action routing to booking workflow",
-        "Update src/assistant/data/intent-keywords.json with 15+ keywords in English/Malay/Mandarin: 'group', 'family', 'orang', 'pax', '几个人', 'berapa orang'",
-        "Test on 30 historical group capacity messages verifying ≥80% intent classification accuracy with test assertion in test/intent-classifier.test.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-174",
-      "title": "Add Check-in Date Normalization for Malaysian Regional Date Formats",
-      "priority": "medium",
-      "description": "Guest check-in date messages use regional formats ('23/3', '23 Mac', '23 Januari', 'minggu depan'). Add parser to normalize these variations before workflow validation, reducing check-in date validation failures and improving booking confirmation accuracy.",
-      "acceptanceCriteria": [
-        "Implement date parser in src/lib/date-normalizer.ts handling: DD/M, D/M/YY, 'D BulanMelayu', 'D NamaBulan', day names, and relative dates ('minggu depan', 'esok')",
-        "Add ambiguous date confirmation prompt in booking workflow (e.g., 'Confirm 23 March 2026? Or suggest alternative dates')",
-        "Test with 20 regional date format examples in test/date-normalizer.test.ts verifying correct ISO 8601 output"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-175",
-      "title": "Build Workflow Step Performance Profiling with Slowdown Detection",
-      "priority": "medium",
-      "description": "Booking workflow steps may degrade in performance (payment gateway slowness, database latency, external API calls). Add instrumentation to detect and alert on slow steps, enabling proactive investigation and optimization.",
-      "acceptanceCriteria": [
-        "Add step_duration_ms field to workflow executor in src/assistant/pipeline/workflow-executor.ts, persisting to new rainbow_workflow_metrics table",
-        "Create admin endpoint GET /admin/analytics/workflow-performance?profile=data-pelangi&days=7 returning {step_name, p50_ms, p95_ms, p99_ms} with slowdown alerts when p95 increases >20%",
-        "Add test in test/workflow-performance.test.ts verifying metrics persisted correctly and queryable by step_name and time range"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-178",
-      "title": "Real-Time Intent Keyword Suggestion Engine for Admin Training",
-      "priority": "medium",
-      "description": "When admin creates new intent, scan recent guest messages to suggest high-frequency keywords as initial intent-keywords.json entries. Reduce manual keyword entry effort and improve intent classifier coverage based on actual guest language patterns.",
-      "acceptanceCriteria": [
-        "Create src/tools/keyword-suggestion-engine.ts exporting suggestKeywords(intent_name, message_sample_size=100) returning [{keyword, frequency, example_messages: [...]}]",
-        "POST /admin/intents/new accepts intent_name, analyzes last 100 messages with low intent classification confidence containing relevant keywords, returns top-10 suggestions",
-        "Keywords sorted by frequency and filtered to exclude common words (stop words); each suggestion shows 2-3 example messages containing the keyword"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-179",
-      "title": "Guest Satisfaction Trend Tracker from Response Sentiment Analysis",
-      "priority": "medium",
-      "description": "Analyze guest follow-up messages after fallback responses to detect sentiment (satisfied vs dissatisfied), tracking which fallback templates lead to positive vs negative follow-ups. Identify lowest-satisfaction response templates for targeted improvement.",
-      "acceptanceCriteria": [
-        "Add response_sentiment ('positive', 'neutral', 'negative') column to fallback_response_metrics table, populated by simple heuristic (e.g., presence of thanks, positive emoji, vs complaint keywords)",
-        "Create src/tools/satisfaction-tracker.ts exporting analyzeResponseSatisfaction(fallback_template_id, days=30) returning {template_id, satisfaction_percent, trend_direction, sample_follow_ups}",
-        "Add GET /admin/analytics/response-satisfaction endpoint with sortable ranking of fallback templates by satisfaction score, showing downward-trending templates in red"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-180",
-      "title": "Conversation Thread Export with Parent-Child Message Hierarchy for PDPA Compliance",
-      "priority": "medium",
-      "description": "Export guest conversations as JSON/CSV with parent-child message threading (showing reply chains and context), enabling guests to retrieve their data in structured format for PDPA 2025 data portability requests. Include metadata: timestamps, intent classifications, response type.",
-      "acceptanceCriteria": [
-        "Create src/tools/conversation-export.ts exporting exportConversationThread(guestId, format='json'|'csv') returning conversation object with parent_message_id on each message",
-        "Add GET /api/guest/export-conversation endpoint with guestId query parameter, returning JSON with thread structure: [{id, text, sender, timestamp, parent_message_id, intent_classification, response_type}]",
-        "Export includes all messages in conversation in date order, preserves conversation_id grouping, sanitizes any PII not belonging to requesting guest"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-184",
-      "title": "Multi-Profile Conversation Statistics Dashboard Endpoint",
-      "priority": "medium",
-      "description": "Create admin endpoint and dashboard showing conversation metrics grouped by business profile (Pelangi, Makan, Southern). Enables early detection of profile data contamination by comparing intent distributions, escalation rates, and resolution rates across profiles.",
-      "acceptanceCriteria": [
-        "GET /api/admin/analytics/profile-stats returns {profile, intent_distribution, escalation_rate, avg_turns, resolution_rate} for time range",
-        "Dashboard detects anomalies: if one profile shows >10% intent distribution variance from baseline, flag potential contamination",
-        "Drill-down links to sample conversations per profile to manually verify data isolation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-185",
-      "title": "Fallback Response Effectiveness Feedback Loop Tracker",
-      "priority": "medium",
-      "description": "Track which specific fallback response templates lead to follow-up escalation messages (indicating customer dissatisfaction) vs. satisfactory silence. Enable admins to identify and improve low-performing response templates per profile.",
-      "acceptanceCriteria": [
-        "When fallback response is sent, store template_id in 'rainbow_messages' table; if follow-up message arrives within 5 minutes, mark in 'fallback_feedback' table as escalated=true",
-        "GET /api/admin/fallback-effectiveness returns {template_id, times_used, escalation_rate, avg_next_message_sentiment} grouped by profile and intent",
-        "Dashboard highlights templates with escalation_rate >30% for admin review and replacement suggestions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -856,6 +551,40 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-120",
+      "title": "Implement workflow step execution timeout with automatic rollback",
+      "priority": "high",
+      "description": "Add execution timeout and automatic transaction rollback to prevent hung booking workflows from leaving databases in inconsistent state. If workflow step exceeds max duration, rollback all changes and escalate to staff with actionable error context.",
+      "acceptanceCriteria": [
+        "Each workflow step in workflows.json has optional 'max_duration_ms' property (default 30000); step execution aborts if timeout exceeded with transaction rollback",
+        "Timeout failure logs to rainbow_messages as escalation event with step_id, actual_duration_ms, and max_duration_ms for debugging",
+        "Test verifies booking not created if workflow step times out mid-execution, guest receives escalation message with retry option, and no partial state persists"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-121",
+      "title": "Add booking workflow performance profiler endpoint with step-level bottleneck identification",
+      "priority": "high",
+      "description": "Create admin endpoint that profiles booking workflow execution to identify slow steps and bottlenecks. Helps debug workflow reliability issues and performance degradation.",
+      "acceptanceCriteria": [
+        "POST /admin/bookings/profile endpoint profiles each booking workflow step with execution duration, input/output sizes, and state snapshots",
+        "Aggregates metrics across all bookings showing per-step average duration, p95, and p99 latencies; flags steps exceeding 2000ms threshold",
+        "Response includes step-level timing heatmap with suggested optimization targets based on cumulative impact"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-119",

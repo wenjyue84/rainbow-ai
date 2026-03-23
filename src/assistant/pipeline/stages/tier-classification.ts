@@ -117,11 +117,13 @@ async function classifyTieredPipeline(
     preferredLanguage = await getConversationPreferredLanguage(phone);
   }
 
+  // US-122: Pass phone as conversationId for classification tracing
   const tierResult = await (context.classifyMessageWithContext as any)(
     processText,
     contextMessages,
     lastIntent,
-    preferredLanguage
+    preferredLanguage,
+    phone  // conversationId
   );
   const classifyTime = Date.now() - startTime;
 

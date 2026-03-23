@@ -102,6 +102,7 @@ import fallbackMetricsRoutes from './fallback-metrics.js'; // US-077
 import bookingConfirmRoutes from '../booking-confirm.js'; // US-149
 import whatsappConsentRoutes from './whatsapp-consent.js'; // US-155: WhatsApp opt-in consent
 import auditTrailRoutes from './audit-trail.js'; // US-156: Conversation audit trail
+import classificationTracesRoutes from './classification-traces.js'; // US-122: Classification tracer
 
 const router = Router();
 
@@ -368,6 +369,7 @@ router.use(einvoiceRoutes);               // US-1039: MyInvois e-invoice queue +
 router.use(wabaPortfolioRoutes);          // US-026: Portfolio-level WABA messaging limit tracking
 router.use(fallbackMetricsRoutes);        // US-077: Fallback response effectiveness metrics
 router.use(bookingConfirmRoutes);         // US-149: Idempotent booking confirmation
+router.use(classificationTracesRoutes);   // US-122: Intent classification decision tracer
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

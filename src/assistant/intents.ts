@@ -295,6 +295,27 @@ export async function classifyMessageWithContext(
     if (semanticMatcher.isReady()) {
       const semanticResult = await semanticMatcher.match(processedText, config.tiers.tier3_semantic.threshold);
 
+      // US-122: Collect semantic candidates for tracing
+      if (semanticResult) {
+        tierCandidates.push({
+          intent: semanticResult.intent,
+          score: semanticResult.score,
+          matchedExample: semanticResult.matchedExample,
+        });
+
+        // Also collect top alternatives from semantic matcher (up to 2 more for top-3)
+        const allSemantic = await semanticMatcher.matchAll(processedText, 0.5);
+        if (allSemantic) {
+          let altCount = 0;
+          for (const alt of allSemantic) {
+            if (alt.intent !== semanticResult.intent && altCount < 2) {
+              tierCandidates.push({ intent: alt.intent, score: alt.score, matchedExample: alt.matchedExample });
+              altCount++;
+            }
+          }
+        }
+      }
+
       if (semanticResult && checkTierThreshold(
         semanticResult.intent,
         semanticResult.score,
@@ -306,14 +327,14 @@ export async function classifyMessageWithContext(
           `(${(semanticResult.score * 100).toFixed(0)}% - similar to: "${semanticResult.matchedExample}")`
         );
 
-        return {
+        return traceAndReturn({
           category: semanticResult.intent as any,
           confidence: semanticResult.score,
           entities: {},
           source: 'semantic',
           matchedExample: semanticResult.matchedExample,
           detectedLanguage: detectedLang
-        };
+        }, `Semantic similarity above threshold (example: "${semanticResult.matchedExample}")`);
       }
 
       // Log if close but not confident enough
@@ -381,14 +402,20 @@ export async function classifyMessageWithContext(
           }
           // Multi-intent split as last resort
           const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
-          if (splitResult) return splitResult;
-          return { category: 'unknown', confidence: 0, entities: {}, source: 'llm', detectedLanguage: detectedLang };
+          if (splitResult) return traceAndReturn(splitResult, 'LLM timeout fallback → multi-intent split');
+          return traceAndReturn({ category: 'unknown', confidence: 0, entities: {}, source: 'llm', detectedLanguage: detectedLang }, 'LLM timeout fallback → unknown');
         }
         throw timeoutErr; // Re-throw non-timeout errors
       }
 
       // Map generic LLM intent names to specific defined intents
       const mappedCategory = mapLLMIntentToSpecific(llmResult.category, processedText);
+
+      // US-122: Collect LLM candidate for tracing
+      tierCandidates.push({
+        intent: llmResult.category,
+        score: llmResult.confidence,
+      });
 
       if (mappedCategory !== llmResult.category) {
         console.log(
@@ -405,38 +432,38 @@ export async function classifyMessageWithContext(
       // If LLM returned unknown with low confidence, try multi-intent splitting
       if (mappedCategory === 'unknown' && llmResult.confidence < 0.3) {
         const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
-        if (splitResult) return splitResult;
+        if (splitResult) return traceAndReturn(splitResult, 'Multi-intent split fallback');
       }
 
-      return {
+      return traceAndReturn({
         ...llmResult,
         category: mappedCategory as any,
         source: 'llm',
         detectedLanguage: detectedLang
-      };
+      }, 'LLM classification — lower tiers did not meet threshold');
     } catch (error) {
       console.error('[Intent] LLM classification failed:', error);
       // On LLM failure, try multi-intent splitting as last resort
       const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
-      if (splitResult) return splitResult;
-      return {
+      if (splitResult) return traceAndReturn(splitResult, 'LLM error fallback → multi-intent split');
+      return traceAndReturn({
         category: 'unknown',
         confidence: 0,
         entities: {},
         source: 'llm',
         detectedLanguage: detectedLang
-      };
+      }, 'LLM error fallback → unknown');
     }
   }
 
   // All tiers disabled or failed - return unknown
-  return {
+  return traceAndReturn({
     category: 'unknown',
     confidence: 0,
     entities: {},
     source: 'llm',
     detectedLanguage: detectedLang
-  };
+  }, 'All tiers disabled or no candidates met threshold');
 }
 
 /**
