@@ -61,8 +61,7 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T10:15:28Z"
+      "model": "sonnet"
     },
     {
       "id": "US-213",
@@ -383,6 +382,142 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-261",
+      "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
+      "priority": "high",
+      "description": "Create a CLI tool that analyzes per-profile intent classification accuracy at different confidence thresholds and recommends optimal settings per profile. Prevents over-escalation in high-accuracy profiles like Pelangi while protecting low-accuracy ones like Makan Moments.",
+      "acceptanceCriteria": [
+        "CLI command `npm run profile-threshold-calibrate [profile-name]` reads intent classification logs and outputs recommended confidence threshold with accuracy metrics",
+        "Creates/updates `src/assistant/data/settings.json` with per-profile threshold overrides under `profiles[profile].intentClassificationThreshold`",
+        "Unit test: threshold calibrator correctly identifies profile with >90% accuracy should use higher threshold (0.85+) vs profile with <75% accuracy uses lower threshold (0.65)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-262",
+      "title": "Conversation Context Message Decay Scorer for Multi-Turn Relevance",
+      "priority": "high",
+      "description": "Implement exponential decay function that assigns relevance scores to historical messages in multi-turn conversations. Newer messages receive higher relevance, older messages contribute less to AI context when token limits are reached.",
+      "acceptanceCriteria": [
+        "Implement `scoreMessageRelevance(message, messageIndex, totalMessages): number` in `src/assistant/lib/context.ts` returning 0-1 decay score (messages >5 turns old score <0.3)",
+        "Unit test: 10-message conversation scores message[0] < 0.5, message[9] = 1.0, following exponential decay with half-life of 3 messages",
+        "AI context builder in `src/assistant/pipeline/build-context.ts` uses decay scores to rank and truncate messages when exceeding 8000 token limit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-263",
+      "title": "Cross-Profile Message Routing Validator Middleware",
+      "priority": "high",
+      "description": "Add middleware that validates each incoming message is routed to the correct profile's AI pipeline and data files. Prevents runtime cross-contamination between Pelangi, Makan Moments, and Southern Homestay profiles.",
+      "acceptanceCriteria": [
+        "Middleware in `src/routes/webhook.ts` validates `message.businessProfile` matches currently-loaded profile from `src/lib/config.ts` before passing to AI pipeline; rejects mismatches with detailed 400 error",
+        "Unit test: message with profile='data-southern' rejected if handler initialized with profile='data-makan' (error includes profile mismatch details)",
+        "Integration test: routing validator prevents Southern Homestay guest messages from being processed by Makan Moments knowledge.json and intent classifiers"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-264",
+      "title": "Booking Workflow Step Precondition Validator with Actionable Errors",
+      "priority": "high",
+      "description": "Validate all required preconditions before executing each booking workflow step. Return structured violation report with specific field, reason, and suggested values to guide users toward successful completion.",
+      "acceptanceCriteria": [
+        "Function `validateStepPreconditions(step: WorkflowStep, guestData, bookingData): { valid: boolean, violations: Violation[] }` in `src/assistant/lib/booking-validator.ts`; returns violations with { field, reason, suggestedValue }",
+        "Unit test: step 'confirm_booking' requires guest.name, guest.email, booking.checkIn, booking.roomType, booking.nights; missing checkIn generates violation with reason 'check-in date not provided' and suggestedValue 'tomorrow'",
+        "Booking executor calls validator before step execution; logs violations to `rainbow_messages` and returns user-friendly error with correction suggestions instead of failing silently"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-258",
+      "title": "Implement Message Cost Tracking and Per-Profile Analytics Endpoint",
+      "priority": "medium",
+      "description": "Track operational costs (intent classification, AI inference, fallback routing) per message and profile. Enables admin dashboard to identify expensive intents and optimize AI provider usage across profiles.",
+      "acceptanceCriteria": [
+        "Create message_costs table: {message_id, profile_id, intent_type, cost_cents, ai_provider, created_at}",
+        "Implement GET /admin/api/analytics/costs?profile=pelangi&date=2026-03-23 returning {intent_type, message_count, total_cost, avg_cost}",
+        "Test asserts AI-based intents (via Kimi) show higher cost than keyword-based routing"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-259",
+      "title": "Implement Automated Conversation Data Retention and Scheduled Cleanup Job",
+      "priority": "medium",
+      "description": "Automatically delete messages and conversations older than 90 days per PDPA data minimization principle. Reduces database footprint and improves query performance over time.",
+      "acceptanceCriteria": [
+        "Add retention_policy.retention_days to src/assistant/data/settings.json (default: 90 days)",
+        "Implement src/lib/retention-cleanup-job.ts running daily at 02:00 UTC, deleting rainbow_messages with created_at > 90 days ago",
+        "Test asserts messages >90 days old deleted, messages <30 days retained, job logs deletion count"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-260",
+      "title": "Implement Booking Confirmation Webhook Events for External System Integration",
+      "priority": "medium",
+      "description": "Fire webhook events on booking confirmation for external system integration (PMS, CRM, email service, analytics). Decouples Rainbow AI from external dependencies and enables extensible event-driven architecture.",
+      "acceptanceCriteria": [
+        "Create webhook_endpoints table: {id, url, event_types, is_verified, last_fired_at, failure_count}",
+        "On booking_confirmed event, POST to all registered webhooks: {booking_id, guest_id, check_in, check_out, room_type, price}",
+        "Test asserts booking_confirmed webhook fires with correct payload and retries on 5XX (3x exponential backoff)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-265",
+      "title": "Fallback Response Effectiveness A/B Tracker and Weighted Router",
+      "priority": "medium",
+      "description": "Track which fallback responses lead to successful bookings vs dead-end escalations. Weight fallback response selection by historical success rate to improve booking completion rates.",
+      "acceptanceCriteria": [
+        "Add `fallback_response_id` and `fallback_response_outcome` columns to `rainbow_messages` table; log response ID when sent, mark outcome as 'booked', 'escalated', or 'abandoned' at conversation end",
+        "CLI command `npm run analyze-fallback-effectiveness` generates JSON report with per-response booking success rate (%), escalation rate (%), avg turns-to-booking",
+        "Fallback router in `src/assistant/pipeline/fallback.ts` weights candidate responses by success rate using weighted random selection (higher success = higher selection probability)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

@@ -1245,6 +1245,30 @@ export const bookingStepErrors = pgTable("booking_step_errors", {
 export type BookingStepError = typeof bookingStepErrors.$inferSelect;
 export type InsertBookingStepError = typeof bookingStepErrors.$inferInsert;
 
+// ─── Escalation Queue (US-212) ──────────────────────────────────────────────
+// Auto-flags intent classifications with confidence < 40% for human review.
+// Enables quick manual triage to improve keyword coverage and reduce fallbacks.
+
+export const escalationQueue = pgTable("escalation_queue", {
+  id: serial("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  originalIntent: text("original_intent").notNull(),
+  confidenceScore: real("confidence_score").notNull(),
+  messagePreview: text("message_preview"),          // first 200 chars of guest message
+  recommendedKeywords: text("recommended_keywords"), // JSON array of suggested keywords
+  guestCorrectionIntent: text("guest_correction_intent"), // filled in by admin after review
+  profile: text("profile").notNull().default('pelangi'),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_escalation_queue_profile").on(table.profile),
+  index("idx_escalation_queue_confidence").on(table.confidenceScore),
+  index("idx_escalation_queue_timestamp").on(table.timestamp),
+  index("idx_escalation_queue_profile_confidence").on(table.profile, table.confidenceScore),
+]));
+
+export type EscalationQueueEntry = typeof escalationQueue.$inferSelect;
+export type InsertEscalationQueueEntry = typeof escalationQueue.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
