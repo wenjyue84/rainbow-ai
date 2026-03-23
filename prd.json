@@ -63,7 +63,14 @@
       "_source": "ai-example",
       "model": "sonnet",
       "last_attempted": "2026-03-23T19:45:13Z",
-      "_passedCommit": "c9d939eab5a851c9092f7355fa6d933e8b8e6359"
+      "_passedCommit": "c9d939eab5a851c9092f7355fa6d933e8b8e6359",
+      "_contextStats": {
+        "tokensBeforeMasking": 718,
+        "tokensAfterMasking": 715,
+        "reductionPct": 0,
+        "contextWindow": 10
+      },
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-322",
@@ -80,7 +87,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T20:05:01Z"
     },
     {
       "id": "US-323",
@@ -876,6 +884,74 @@
         "Create src/tools/audit-profile-contamination.ts with command 'node dist/tools/audit-profile-contamination.js --profile makan --check' that scans all 5 data files and reports any hostel-specific keywords (e.g., 'check_in', 'check_out', 'room_type', 'availability')",
         "Output JSON report with {file: 'intents.json', line: 12, content: '...', verdict: 'remove|fix|keep'} for each suspicious entry",
         "Run on Makan profile and generate audit report with at least 10 contaminated entries; add test case asserting no hostel intents remain after cleanup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-418",
+      "title": "Audit and Fix Failing Test Suite with Daily Regression Prevention",
+      "priority": "high",
+      "description": "Identify and fix all failing tests in the test suite. Add CI step to prevent test regressions by failing if test count decreases. Current blocker to deployment.",
+      "acceptanceCriteria": [
+        "`npm run test:run` exits with code 0 and all tests in `src/**/*.test.ts` pass",
+        "CI workflow includes `npm run test:run` as a blocking step that fails the build if any test fails",
+        "Test failure triage document created showing before/after test counts"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-419",
+      "title": "Intent Classifier Low-Confidence Candidate Explainer Endpoint",
+      "priority": "high",
+      "description": "Add debug endpoint that explains why a message was classified as intent X instead of Y/Z. Shows top-3 candidate intents with confidence scores and matched keywords to improve intent quality.",
+      "acceptanceCriteria": [
+        "New endpoint `GET /admin/debug/classify?message=...&profile=...` returns top-3 intents with confidence and matched keywords",
+        "Response includes matched keyword list for each candidate (e.g., `{intent: 'booking', confidence: 0.87, matchedKeywords: ['book', 'room']}`)",
+        "Endpoint integrated into test suite to validate intent selection reasoning"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-420",
+      "title": "Profile-Aware Booking Confirmation Pre-Flight Validator",
+      "priority": "high",
+      "description": "Validate business-specific booking requirements before confirmation. Makan Moments requires date and guest_count. Pelangi Capsule requires date, room_type, guest_count, check_in_time. Prevent invalid bookings.",
+      "acceptanceCriteria": [
+        "New function `validateBookingByProfile(profile, bookingData)` in `src/assistant/pipeline/` returns array of validation error strings or empty if valid",
+        "Profile-specific required fields defined in `src/assistant/data/profiles.json` with field validators",
+        "Booking workflow confirmation step calls validator and logs detailed errors before sending confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-421",
+      "title": "Startup Profile Data Contamination Blocker with Detailed Violation Report",
+      "priority": "high",
+      "description": "On startup, scan profile data files for cross-profile keyword contamination. Block startup with detailed report if contamination score exceeds threshold. Require manual review before deployment.",
+      "acceptanceCriteria": [
+        "Startup validator in `src/lib/profile-validator.ts` scans `src/assistant/data/{intents,intent-keywords,knowledge}.json` per profile against cross-profile keyword blocklist",
+        "Blocks startup with clear error message if contamination score > 5%, logs file paths and contaminated keywords to `logs/contamination-report.txt`",
+        "CI deployment blocked if startup validation fails, forcing manual review of violations"
       ],
       "technicalNotes": [],
       "dependencies": [],
