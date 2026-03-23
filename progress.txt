@@ -1798,3 +1798,37 @@ FAILED diagnosis-block gate: Implement conversation message relevance scorer to 
 - ✅ Build succeeds: esbuild compiles ESM bundle
 - ✅ All 8 context-pruning tests pass
 - ✅ No pre-existing type errors introduced
+
+## Pre-analysis for US-209 (Gemini 2.5 Pro)
+**Project:** rainbow-ai (Node.js/TypeScript, not Frappe/Python)
+**Story:** US-209 - Booking workflow failure recovery
+
+**Technical Brief for Claude**
+
+This user story focuses on adding robust error handling to the booking workflow in a TypeScript application, not Python/Frappe as initially suggested.
+
+**1. Files to Modify:**
+*   `src/assistant/pipeline/workflow-executor.ts`: Main implementation file.
+*   `src/assistant/__tests__/workflow-error-handling.test.ts`: For unit/integration tests.
+*   `src/assistant/data/{profile}/fallback-recovery.json`: New JSON files for storing error messages.
+
+**2. Involved Doctypes/Hooks:**
+*   This is not a Frappe project. The primary data structure involved is a new database table named `booking_step_errors`.
+*   Configuration is managed via `fallback-recovery.json` files, not Frappe hooks.
+
+**3. Implementation Approach:**
+*   Refactor `executeWorkflowStep()` to return a result object: `Promise<{success: boolean; error?: {code: string; message: string}}>`.
+*   Wrap the core logic within `executeWorkflowStep()` in a `try...catch` block.
+*   In the `catch` block, map the caught exception to a predefined error code (e.g., 'payment_failed').
+*   Create a utility to load the correct `fallback-recovery.json` based on the current user's profile.
+*   Use the database client to insert failure details (step_id, error_code, profile) into the `booking_step_errors` table.
+*   The calling function must be updated to handle the new return structure and send the user-friendly recovery message.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure there's a default/generic fallback message for unhandled or unknown exceptions.
+*   The profile-specific JSON loading must gracefully handle missing profiles or files.
+*   The database logging operation itself could fail; this should not prevent the recovery message from being sent to the guest.
+
+## Iteration 1 - Mon Mar 23 18:06:09 MPST 2026
+FAILED diagnosis-block gate: Implement conversation message relevance scorer to prune stale context (ID: US-208) — no diagnosis block found — attempt 4/3
+
