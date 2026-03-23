@@ -104,6 +104,8 @@ import bookingConfirmRoutes from '../booking-confirm.js'; // US-149
 import whatsappConsentRoutes from './whatsapp-consent.js'; // US-155: WhatsApp opt-in consent
 import auditTrailRoutes from './audit-trail.js'; // US-156: Conversation audit trail
 import classificationTracesRoutes from './classification-traces.js'; // US-122: Classification tracer
+import configAuditLogRoutes from './config-audit-log.js'; // US-257: Config audit trail
+import { configAuditMiddleware } from './config-audit-log.js'; // US-257: Audit middleware
 
 const router = Router();
 
@@ -275,6 +277,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   requireOperator(req, res, next);
 });
 
+// ─── US-257: Config Audit Middleware (before config routes) ─────────
+router.use(configAuditMiddleware());
+
 // ─── Mount Sub-Routers ──────────────────────────────────────────────
 router.use(knowledgeBaseRoutes);
 router.use(memoryRoutes);
@@ -372,6 +377,7 @@ router.use(wabaPortfolioRoutes);          // US-026: Portfolio-level WABA messag
 router.use(fallbackMetricsRoutes);        // US-077: Fallback response effectiveness metrics
 router.use(bookingConfirmRoutes);         // US-149: Idempotent booking confirmation
 router.use(classificationTracesRoutes);   // US-122: Intent classification decision tracer
+router.use(configAuditLogRoutes);         // US-257: Admin config audit trail with change tracking
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

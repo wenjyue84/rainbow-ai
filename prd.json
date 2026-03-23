@@ -59,11 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T10:37:23Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "last_attempted": "2026-03-23T10:27:44Z"
     },
     {
       "id": "US-217",
@@ -387,6 +386,91 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-264",
+      "title": "Implement Booking Workflow Step Timeout Detection with Auto-Rollback",
+      "priority": "high",
+      "description": "Add timeout handling to booking confirmation steps to prevent hanging requests. When a workflow step exceeds timeout threshold, automatically rollback guest booking state and return clear timeout error to user.",
+      "acceptanceCriteria": [
+        "Add timeout field to each booking step in src/assistant/data/workflows.json (default 5000ms) and implement stepExecutionTimer in src/assistant/pipeline/booking-executor.ts that triggers rollback on timeout",
+        "Response includes step_timeout reason code with recovery message e.g. 'Booking step took too long. Please try again or speak with staff.'",
+        "Unit test: booking confirmation step timeout triggers guest state rollback and prevents partial booking confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-265",
+      "title": "Build Intent Classification Accuracy Regression Detector with Per-Profile Baselines",
+      "priority": "high",
+      "description": "Track intent classification accuracy per profile and alert when accuracy drops below baseline. Daily snapshot job measures accuracy and detects regressions to prevent silent quality degradation.",
+      "acceptanceCriteria": [
+        "Daily cron job in src/assistant/jobs/accuracy-snapshot.ts calculates classification accuracy per profile and stores in database table intent_accuracy_snapshots with {profile, date, accuracy, baseline}",
+        "Alert triggered when accuracy drops >5% from 30-day rolling baseline, logged to admin dashboard",
+        "CLI: npm run analyze:intent-accuracy-trends shows per-profile accuracy with regression indicators"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-266",
+      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
+      "priority": "high",
+      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
+      "acceptanceCriteria": [
+        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
+        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
+        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-267",
+      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "priority": "high",
+      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "acceptanceCriteria": [
+        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
+        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
+        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-268",
+      "title": "Expand Intent Keyword Matcher to Support Malay and Tamil Variants",
+      "priority": "medium",
+      "description": "Enhance intent-keywords.json to include Malay and Tamil keyword variants alongside English, allowing single intent classifier to match multilingual user input with equal confidence across language variants.",
+      "acceptanceCriteria": [
+        "Update intent-keywords.json structure to include keywords_en, keywords_ms, keywords_ta arrays per intent in src/assistant/data/intent-keywords.json",
+        "Enhance matchIntentByKeywords() in src/assistant/pipeline/intent-matcher.ts to check all language variants with same confidence scoring algorithm",
+        "Test: 'Saya ingin booking bilik' (Malay booking) achieves confidence ≥0.8 same as English 'I want to book a room'; 'Naan venda booking' (Tamil) achieves same confidence"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",

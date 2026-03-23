@@ -123,3 +123,35 @@ FAILED diagnosis-block gate: Intent Keyword Suggestion Engine from Escalated Con
 
 ### Gotchas
 - `suggest-keywords.js` (not .ts) import path in test — requires tsx/vitest to handle, won't work with raw node
+
+## Pre-analysis for US-213 (Gemini 2.5 Pro)
+### Technical Brief: US-213 Keyword Suggestion Engine
+
+**Project Context:** This is a Node.js/TypeScript project, not Frappe/Python. The implementation should use the existing project stack (TypeScript, Drizzle ORM, etc.).
+
+**1. Files to Modify:**
+*   `scripts/suggest-keywords.ts`: This is the primary file to implement the core logic for the CLI command.
+*   `package.json`: Add or verify the `suggest:keywords` script definition in the "scripts" section.
+*   `schemas/suggestion-output.schema.json`: The script's output must conform to this JSON schema.
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This is not a Frappe application. The primary data source is the `escalation_queue` SQL table, likely accessed via the Drizzle ORM.
+
+**3. Implementation Approach:**
+*   In `suggest-keywords.ts`, use a CLI argument parser (e.g., `yargs`) to accept `--profile` and `--days`.
+*   Use the project's Drizzle instance to query the `escalation_queue` table for messages matching the profile within the given timeframe.
+*   Group the fetched messages by `intent_id`.
+*   For each intent, process the message text using a TF-IDF algorithm. An NLP library like `natural` would be suitable if not already present.
+*   Identify the 2-3 highest-scoring terms that are not generic stop words.
+*   Calculate the estimated accuracy boost (this may be a placeholder value initially).
+*   Format the result into the required JSON structure and print it to standard output.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the TF-IDF implementation includes a robust stop-word list to filter out noise.
+*   The database query must be efficient, selecting only the necessary columns to avoid performance issues with large datasets.
+*   Handle cases where an intent has no recent escalations or where no meaningful keywords can be extracted.
+*   The script must gracefully handle database connection errors.
+
+## Iteration 1 - Mon, Mar 23, 2026  6:39:14 PM
+FAILED diagnosis-block gate: Intent Keyword Suggestion Engine from Escalated Conversation Analysis (ID: US-213) — no diagnosis block found — attempt 3/3
+

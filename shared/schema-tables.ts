@@ -1269,6 +1269,28 @@ export const escalationQueue = pgTable("escalation_queue", {
 export type EscalationQueueEntry = typeof escalationQueue.$inferSelect;
 export type InsertEscalationQueueEntry = typeof escalationQueue.$inferInsert;
 
+// ─── Admin Audit Log (US-257) ──────────────────────────────────────
+// Tracks all config file changes (settings.json, workflows.json, knowledge.json)
+// with user, timestamp, content hashes, and unified diff for rollback/compliance
+
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: serial("id").primaryKey(),
+  configFile: text("config_file").notNull(),
+  changedBy: text("changed_by"),
+  previousHash: text("previous_hash"),
+  newHash: text("new_hash").notNull(),
+  diffSummary: text("diff_summary").notNull(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_admin_audit_log_config_file").on(table.configFile),
+  index("idx_admin_audit_log_changed_by").on(table.changedBy),
+  index("idx_admin_audit_log_timestamp").on(table.timestamp),
+  index("idx_admin_audit_log_file_timestamp").on(table.configFile, table.timestamp),
+]));
+
+export type AdminAuditLogEntry = typeof adminAuditLog.$inferSelect;
+export type InsertAdminAuditLogEntry = typeof adminAuditLog.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

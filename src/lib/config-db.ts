@@ -81,6 +81,21 @@ export async function ensureConfigTables(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_created_at ON rainbow_config_audit(created_at);
       CREATE INDEX IF NOT EXISTS idx_rainbow_config_audit_changed_date ON rainbow_config_audit(changed_by, created_at);
 
+      -- US-257: Admin audit log for config file change tracking with diffs
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id              SERIAL PRIMARY KEY,
+        config_file     TEXT NOT NULL,
+        changed_by      TEXT,
+        previous_hash   TEXT,
+        new_hash        TEXT NOT NULL,
+        diff_summary    TEXT NOT NULL,
+        timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_log_config_file ON admin_audit_log(config_file);
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_log_changed_by ON admin_audit_log(changed_by);
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_log_timestamp ON admin_audit_log(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_log_file_timestamp ON admin_audit_log(config_file, timestamp);
+
       -- US-831: Template quality events for Meta message_template_status_update webhook
       CREATE TABLE IF NOT EXISTS template_quality_events (
         id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -134,7 +149,7 @@ export async function ensureConfigTables(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_cpe_review_status ON campaign_pacing_events(review_status);
       CREATE INDEX IF NOT EXISTS idx_cpe_phone ON campaign_pacing_events(phone);
     `);
-    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, template_quality_events, menu_items, campaign_pacing_events)');
+    console.log('[ConfigDB] Tables ensured (rainbow_configs, rainbow_kb_files, rainbow_config_audit, admin_audit_log, template_quality_events, menu_items, campaign_pacing_events)');
   } catch (err: any) {
     console.error('[ConfigDB] Failed to create tables:', err.message);
   }
