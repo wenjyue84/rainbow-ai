@@ -49,6 +49,10 @@ import {
 // Tool definitions extracted to cart-tool-defs.ts
 
 // ─── Handler Factories below ──────────────────────────────────────
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 /** Options for creating per-session cart handlers */
 export interface CartHandlerOptions {
   /** Available payment methods for the profile (US-867). Default: ['cash'] */
