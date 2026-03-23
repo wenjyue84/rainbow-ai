@@ -53,6 +53,7 @@ import dlqRoutes from './dlq.js';
 import deliveryStatusRoutes from './delivery-status.js';
 import tracesRoutes from './traces.js';
 import escalationsRoutes from './escalations.js';
+import escalationQueueRoutes from './escalation-queue.js';
 import qualityMetricsRoutes from './quality-metrics.js';
 import intentGapsRoutes from './intent-gaps.js';
 import messagingLimitsRoutes from './messaging-limits.js';
@@ -320,6 +321,7 @@ router.use(dlqRoutes);
 router.use(deliveryStatusRoutes);
 router.use(tracesRoutes);
 router.use(escalationsRoutes);
+router.use(escalationQueueRoutes); // US-212: Low-confidence intent escalation queue
 router.use(qualityMetricsRoutes);
 router.use(intentGapsRoutes);
 router.use(messagingLimitsRoutes);

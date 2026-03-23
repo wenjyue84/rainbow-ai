@@ -25,9 +25,11 @@ import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
-import { intentAnalytics } from '../../../shared/schema-tables.js';
+import { intentAnalytics, escalationQueue } from '../../../shared/schema-tables.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
+import fs from 'fs';
+import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
 
 const logger = createModuleLogger('IntentClassifier');
@@ -185,6 +187,36 @@ export async function classifyAndRoute(
       devMetadata.model,
       state.profileId
     ).catch(() => {}); // fire-and-forget, non-fatal
+  }
+
+  // ─── US-212: Auto-flag low-confidence classifications for review ───
+  if (result.confidence < 0.4) {
+    const preview = processText.slice(0, 200);
+    const keywords = [...new Set(
+      processText.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3)
+    )].slice(0, 20);
+
+    db.insert(escalationQueue).values({
+      conversationId: phone,
+      originalIntent: result.intent,
+      confidenceScore: result.confidence,
+      messagePreview: preview,
+      recommendedKeywords: JSON.stringify(keywords),
+      profile: state.profileId,
+    }).catch(() => {}); // fire-and-forget
+
+    try {
+      const logDir = path.join(process.cwd(), 'src', 'logs');
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+      const logLine = JSON.stringify({
+        ts: new Date().toISOString(),
+        profile: state.profileId,
+        intent: result.intent,
+        confidence: result.confidence,
+        preview,
+      }) + '\n';
+      fs.appendFileSync(path.join(logDir, 'escalation-flags.log'), logLine, 'utf-8');
+    } catch { /* non-fatal */ }
   }
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─

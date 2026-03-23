@@ -2015,3 +2015,20 @@ All 3 acceptance criteria were already implemented in the codebase:
 - [x] AC1: escalation_queue table with correct schema
 - [x] AC2: Auto-insert when confidence < 40%, log to escalation-flags.log
 - [x] AC3: Admin GET endpoint with limit/profile query params, sorted by confidence ascending
+
+## Iteration [SPIRAL] - Story: US-212 Intent Classification Escalation Queue with Low-Confidence Auto-Flagging
+
+### What was implemented
+- `shared/schema-tables.ts`: Added `escalationQueue` table with columns: id, conversationId, originalIntent, confidenceScore, messagePreview, recommendedKeywords (JSON array), guestCorrectionIntent, profile, timestamp. Indexes on profile, confidence, timestamp, and compound profile+confidence.
+- `src/assistant/pipeline/intent-classifier.ts`: Added auto-insert into escalation_queue when confidence < 0.4. Also appends to `src/logs/escalation-flags.log` (JSONL format, creates dir if missing). Keyword extraction: unique 3+ char words from message, top 20.
+- `src/routes/admin/escalation-queue.ts`: New admin route `GET /admin/escalation-queue?limit=20&profile=makan` returning items sorted by confidence ascending (most uncertain first).
+- `src/routes/admin/index.ts`: Registered escalation-queue route.
+- Also fixed pre-existing merge conflict in `src/tools/cart.ts` that was blocking the build.
+
+### Patterns discovered
+- Build uses esbuild; pre-existing conflict markers (`<<<<<<`) in cart.ts were silently causing build failures on every attempt
+- Server startup fatals at profile validation (pre-existing issue unrelated to our changes)
+- Logging pattern: `fs.appendFileSync` to JSONL file (same as trace-collector.ts)
+
+### Gotchas
+- cart.ts had an unresolved merge conflict (<<<<<<< Updated upstream / >>>>>>> Stashed changes) that blocked esbuild; fixed by keeping the upstream comment + stashed interface
