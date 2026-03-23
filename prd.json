@@ -62,7 +62,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T10:47:29Z"
+      "last_attempted": "2026-03-23T11:08:22Z"
     },
     {
       "id": "US-223",
@@ -281,7 +281,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -315,19 +315,36 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-273",
+      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
+      "priority": "high",
+      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
+        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
+        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
     {
-      "id": "US-267",
-      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "id": "US-274",
+      "title": "Booking Workflow Room Availability Race Condition Tester",
       "priority": "high",
-      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "description": "Detect and log potential race conditions when multiple guests attempt to book the same room simultaneously, ensuring booking workflow reliability",
       "acceptanceCriteria": [
-        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
-        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
-        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+        "New test file tests/integration/booking-race-conditions.test.ts simulates 5 concurrent booking requests for same room and validates isolation",
+        "Function simulateConcurrentBookings(roomId: string, count: number) in src/tools/booking-validator.ts executes parallel workflow steps",
+        "Test asserts: only 1 booking succeeds, others receive 'room unavailable' error, and audit log captures all 5 booking attempts with timestamps"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -337,31 +354,14 @@
       "model": "sonnet"
     },
     {
-      "id": "US-268",
-      "title": "Intent Classification Batch Prediction Queue with Priority Routing",
-      "priority": "medium",
-      "description": "Implement a message queue that batches concurrent intent predictions to reduce database write contention. Routes emergency and booking intents ahead of inquiry intents during peak loads.",
+      "id": "US-275",
+      "title": "Profile Intent Keyword Scope Validator CLI",
+      "priority": "high",
+      "description": "Detect keywords that could potentially match intents across profiles, preventing cross-contamination false positives and enforcing strict profile separation",
       "acceptanceCriteria": [
-        "Create `src/assistant/pipeline/batch-predictor.ts` with `BatchPredictionQueue` class accepting intent jobs with priority enum (emergency|booking|inquiry|other); batches every 500ms or when queue reaches 10 items; add `INTENT_BATCH_WINDOW_MS` env var in settings.json",
-        "Add test in `test/assistant/batch-predictor.test.ts` asserting high-priority booking intents process before low-priority inquiries even when enqueued 2 seconds later",
-        "Implement `GET /admin/debug/queue-metrics` endpoint returning `{queueDepth, avgProcessTimeMs, throughputPerSec, priorityDistribution}`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-269",
-      "title": "Multi-Language Intent Fuzzy Matcher with Typo Tolerance for Malay/Tamil/English",
-      "priority": "medium",
-      "description": "Enhance intent classification to handle typographical errors and phonetic variants in English, Malay (BM), and Tamil (TA). Improves detection accuracy for non-native speakers and fast-typing guests using Levenshtein distance matching.",
-      "acceptanceCriteria": [
-        "Add language variant keywords to `src/assistant/data/intent-keywords.json`: booking intent variants = {en: ['book', 'bokk', 'booking', 'reserve'], bm: ['buku bilik', 'pesan bilik', 'bilik'], ta: ['arai parippu']}; implement `fuzzyMatchIntentKeyword()` in `src/assistant/pipeline/intent-classifier.ts` using Levenshtein distance with 80% similarity threshold",
-        "Create `test/assistant/fuzzy-intent-matching.test.ts` with assertions: 'bokk room' matches booking (1-char typo), 'buku bilk' matches booking in Malay (1-char typo), 'book bilik' mixed-language matches with ≥0.75 confidence",
-        "Add `INTENT_FUZZY_THRESHOLD` env var in settings.json (default 0.8) to control matching sensitivity"
+        "CLI command npm run validate:keyword-scope compares intent-keywords.json across all profiles (pelangi, makan, southern), flags overlapping keywords",
+        "New file src/tools/keyword-scope-validator.ts outputs CSV: profile_a,profile_b,keyword,overlap_count,risk_level",
+        "Test asserts: shared keyword 'booking' between makan and pelangi is flagged HIGH risk, and validation runs on startup via src/lib/startup-validation.ts"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -371,55 +371,21 @@
       "model": "haiku"
     },
     {
-      "id": "US-270",
-      "title": "Admin Booking Search Dashboard with Advanced Filtering and CSV Export",
-      "priority": "medium",
-      "description": "Add a searchable admin interface for querying bookings by guest name, date range, room type, payment status, and conversation sentiment. Enable CSV export for business analytics and reporting.",
+      "id": "US-278",
+      "title": "Remove Pelangi Hostel Keywords from Makan Moments Intent-Keywords File",
+      "priority": "high",
+      "description": "Makan Moments profile contains hostel-specific keywords (check-in, checkout, room type, nightly rate) that contaminate cafe-only intents. Audit and remove these to enforce strict profile separation.",
       "acceptanceCriteria": [
-        "Implement `GET /admin/bookings/search?guest_name=&date_from=&date_to=&room_type=&status=` in `src/routes/admin/bookings.ts` returning paginated results; add query validation using Zod; support partial name matching and date range queries",
-        "Create `POST /admin/bookings/export-csv` endpoint that generates CSV with columns: booking_id, guest_name, check_in, check_out, room_type, status, total_price, conversation_turns; write to `/tmp/bookings-{timestamp}.csv`",
-        "Add test in `test/admin/booking-search.test.ts` asserting: (1) date range filter excludes bookings outside window, (2) CSV export includes correct row count and valid headers, (3) partial name search finds case-insensitive matches"
+        "Script scans src/assistant/data/data-makan/intent-keywords.json and identifies 8+ hostel-specific keywords (e.g., 'checkin', 'checkout', 'room', 'amenities', 'nightly rate')",
+        "Generate cleaned file with hostel keywords removed while preserving cafe-specific ones (menu, table, reservation, promotion, order)",
+        "Validate cleaned file passes Zod schema validation in src/assistant/schemas.ts and all remaining intents resolve in routing.json"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-271",
-      "title": "Fallback Response Effectiveness Tracker with Click-Through and Escalation Metrics",
-      "priority": "medium",
-      "description": "Track user interactions with fallback responses (e.g., clicking 'Speak to staff' buttons, requesting callback). Measure which fallback templates lead to successful resolutions vs. further escalation, enabling data-driven improvement.",
-      "acceptanceCriteria": [
-        "Add `fallback_interaction` event logging in `src/assistant/pipeline/fallback-handler.ts`: log (fallback_id, response_text, user_interaction, timestamp); create database table `fallback_analytics` to persist interactions and track escalation chains",
-        "Implement `GET /admin/analytics/fallback-effectiveness` endpoint returning `{fallback_id, response_text, clickThroughRate, escalationRate, avgResolutionTimeMs}` grouped by fallback template, sorted by escalation_rate descending",
-        "Add test in `test/admin/fallback-analytics.test.ts` asserting: (1) click-through events increment counter correctly, (2) endpoint calculates escalation_rate = (escalations / total_interactions), (3) data correctly segments by fallback_id"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-272",
-      "title": "Guest Preference Learning from Repeat Conversation Patterns",
-      "priority": "low",
-      "description": "Extract and persist user preferences from conversation history (room types, check-in times, language, dietary needs). Automatically inject learned preferences into future conversation context to reduce back-and-forth clarifications.",
-      "acceptanceCriteria": [
-        "Implement `extractUserPreferences()` in `src/assistant/pipeline/preference-extractor.ts` mining messages for patterns like 'prefer twin beds' or 'never after 5pm'; store in `guest_preferences` table as (guest_id, preference_key, preference_value, confidence_score); only persist scores > 0.7",
-        "Modify `buildSystemPrompt()` in `src/assistant/schemas.ts` to inject learned preferences, e.g., 'Guest historically prefers twin beds (3 bookings). Suggest this first.'",
-        "Add test in `test/assistant/preference-learning.test.ts` asserting: (1) preferences extracted from ≥2 messages stored with confidence > 0.7, (2) system prompt includes learned preference in next conversation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "model": "sonnet"
     },
     {
       "id": "US-196",
@@ -689,6 +655,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-267",
+      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "priority": "high",
+      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "acceptanceCriteria": [
+        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
+        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
+        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-261",

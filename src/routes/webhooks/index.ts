@@ -11,6 +11,7 @@
  * before any business logic is executed.
  *
  * US-442: Implement webhook signature validation for inbound admin API calls
+ * US-263: Cross-profile message routing validator middleware
  */
 
 import { Router } from 'express';
@@ -30,8 +31,13 @@ import { recordAccountViolation, recordAccountRestriction } from '../../lib/acco
 import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 import { applyPosStockUpdate } from '../../lib/menu-items-store.js';
 import { isPacingHold, recordPacingHeld, PACING_PAUSE_ERROR_CODE } from '../../lib/campaign-pacing.js';
+import { crossProfileValidator } from './cross-profile-validator.js';
 
 const router = Router();
+
+// US-263: Cross-profile validation middleware instance (validates businessProfile
+// in request body matches the currently-loaded handler profile)
+const profileGuard = crossProfileValidator();
 
 // Load shared secret once at module initialisation so the "secret unset"
 // warning appears at startup rather than on the first request.
@@ -45,7 +51,7 @@ const metaSignatureGuard = validateMetaSignature(META_APP_SECRET);
 // ─── Evolution API inbound webhook ─────────────────────────────────────────
 // Evolution API POSTs message delivery events, connection status changes,
 // and inbound message notifications to this endpoint.
-router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response) => {
+router.post('/webhooks/evolution', signatureGuard, profileGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so Evolution does not retry.
   res.status(200).json({ ok: true });
 
@@ -61,7 +67,7 @@ router.post('/webhooks/evolution', signatureGuard, (req: Request, res: Response)
 // ─── DIGIMAN API callback webhook ──────────────────────────────────────────
 // DIGIMAN API POSTs reservation lifecycle callbacks (booking created, check-in
 // confirmed, check-out completed) to this endpoint.
-router.post('/webhooks/digiman', signatureGuard, (req: Request, res: Response) => {
+router.post('/webhooks/digiman', signatureGuard, profileGuard, (req: Request, res: Response) => {
   // Acknowledge receipt immediately so DIGIMAN does not retry.
   res.status(200).json({ ok: true });
 
@@ -94,7 +100,7 @@ router.post('/webhooks/digiman', signatureGuard, (req: Request, res: Response) =
 //   200  – handler ran successfully
 //   422  – event type not registered
 //   500  – handler threw an error
-router.post('/webhooks/events', signatureGuard, async (req: Request, res: Response) => {
+router.post('/webhooks/events', signatureGuard, profileGuard, async (req: Request, res: Response) => {
   const event = req.body as { type?: string; [key: string]: unknown };
   const eventType = event?.type;
 
@@ -327,7 +333,7 @@ router.post('/webhooks/meta/template-status', metaSignatureGuard, (req: Request,
 //
 // Authentication: shared WEBHOOK_SECRET via x-webhook-signature header.
 
-router.post('/webhooks/pos/inventory', signatureGuard, async (req: Request, res: Response) => {
+router.post('/webhooks/pos/inventory', signatureGuard, profileGuard, async (req: Request, res: Response) => {
   const { profile, items } = req.body as {
     profile?: string;
     items?: Array<{ name?: string; sku?: string; quantity: number }>;
