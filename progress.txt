@@ -1227,6 +1227,7 @@ FAILED diagnosis-block gate: Live Message Routing Integrity Audit Endpoint (ID: 
 FAILED diagnosis-block gate: Live Message Routing Integrity Audit Endpoint (ID: US-343) — no diagnosis block found — attempt 2/3
 
 
+<<<<<<< Updated upstream
 
 ## Pre-analysis for US-347 (Gemini 2.5 Pro)
 Here is the technical brief for the Claude agent:
@@ -1407,4 +1408,35 @@ Based on the user story JSON, this is a **TypeScript/Node.js** task, not Frappe/
 *   Securely load credentials from environment variables; do not hardcode them.
 *   The retry detection logic must be precise to avoid sending SMS messages prematurely or not at all.
 *   Log all SMS fallback attempts and their outcomes for auditing purposes.
+=======
+## Pre-analysis for US-347 (Gemini 2.5 Pro)
+Based on the user story JSON, here is the technical brief for the Claude agent.
+
+**Project:** WhatsApp SMS Fallback (TypeScript/Node.js)
+**Note:** The user story specifies a TypeScript (`.ts`) implementation, not Frappe/Python.
+
+**1. Primary Files for Modification:**
+*   `src/assistant/pipeline/message-sender.ts`: Modify the core message sending logic here. This file is responsible for detecting the WhatsApp failure after two retries and triggering the new SMS fallback mechanism.
+*   `src/lib/sms-sender.ts`: Create this new file to encapsulate the Twilio SMS sending logic. It will initialize the Twilio client and expose a function to send the SMS.
+*   `src/lib/sms-sender.test.ts`: Create this new file for unit tests to validate the `sms-sender` in isolation, using a mocked Twilio API.
+*   `config/` or `*.config.ts`: A configuration file will be needed to manage Twilio credentials and potentially phone number mappings.
+
+**2. Involved Frameworks/Hooks:**
+*   **Framework:** This is a Node.js/TypeScript project.
+*   **DocTypes/Hooks:** No Frappe DocTypes or hooks are involved.
+*   **Libraries:** The `twilio` npm package will need to be added as a dependency.
+
+**3. Recommended Implementation Approach:**
+1.  **Create `sms-sender.ts`:** Implement a class or module that initializes the Twilio client using `process.env.TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`. Expose an async `sendSms(to, body)` function.
+2.  **Update `message-sender.ts`:** Locate the existing message sending and retry logic. In the final failure/catch block (where `retryCount >= 2`), call the new `sendSms` function with the same message content.
+3.  **Dependency Management:** Run `npm install twilio`.
+4.  **Configuration:** Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and the Twilio phone number to the environment configuration (`.env`).
+5.  **Testing:** Mock the `twilio` library in `sms-sender.test.ts` to verify it's called correctly without making real API calls. Update integration tests for `message-sender.ts` to confirm the fallback is only triggered after the second failure.
+
+**4. Edge Cases and Gotchas:**
+*   **Number Formatting:** Ensure all phone numbers passed to Twilio are in E.164 format (e.g., `+15551234567`). The logic must handle this conversion.
+*   **SMS Failure:** What happens if the SMS via Twilio also fails? The implementation should include robust error logging for the SMS attempt.
+*   **Idempotency:** The trigger logic must be precise to avoid sending multiple SMS messages for a single failed WhatsApp message.
+*   **Async Flow:** The entire fallback process is asynchronous. Ensure promises are handled correctly throughout the `try/catch` and retry sequence.
+>>>>>>> Stashed changes
 
