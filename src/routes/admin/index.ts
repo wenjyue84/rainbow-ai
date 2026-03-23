@@ -107,6 +107,7 @@ import classificationTracesRoutes from './classification-traces.js'; // US-122: 
 import configAuditLogRoutes from './config-audit-log.js'; // US-257: Config audit trail
 import { configAuditMiddleware } from './config-audit-log.js'; // US-257: Audit middleware
 import bookingPreflightRoutes from './booking-preflight.js'; // US-224: Booking pre-flight checklist
+import thresholdsRoutes from './thresholds.js'; // US-297: Per-intent confidence threshold configuration
 
 const router = Router();
 
@@ -380,6 +381,7 @@ router.use(bookingConfirmRoutes);         // US-149: Idempotent booking confirma
 router.use(classificationTracesRoutes);   // US-122: Intent classification decision tracer
 router.use(configAuditLogRoutes);         // US-257: Admin config audit trail with change tracking
 router.use(bookingPreflightRoutes);       // US-224: Booking confirmation pre-flight checklist
+router.use(thresholdsRoutes);             // US-297: Per-intent confidence threshold configuration
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

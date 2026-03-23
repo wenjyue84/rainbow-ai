@@ -26,6 +26,7 @@ import { normalizeManglish } from '../manglish-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics, escalationQueue } from '../../../shared/schema-tables.js';
+import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
 import fs from 'fs';
@@ -147,6 +148,18 @@ export async function classifyAndRoute(
       `below threshold ${confidenceGateThreshold.toFixed(2)} → routing to fallback`
     );
     result = { ...result, intent: 'unknown', action: 'llm_reply' };
+  }
+
+  // ─── US-297: Per-intent per-profile confidence threshold gating ────
+  if (result.intent !== 'unknown') {
+    const thresholdResult = checkPerIntentThreshold(
+      state.profileId,
+      result.intent,
+      result.confidence
+    );
+    if (thresholdResult === 'uncertain') {
+      result = { ...result, intent: 'unknown', action: 'llm_reply' };
+    }
   }
 
   // ─── US-007: Intent classification debug log ─────────────────────

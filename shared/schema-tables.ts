@@ -1314,6 +1314,27 @@ export const workflowStepValidationErrors = pgTable("workflow_step_validation_er
 export type WorkflowStepValidationError = typeof workflowStepValidationErrors.$inferSelect;
 export type InsertWorkflowStepValidationError = typeof workflowStepValidationErrors.$inferInsert;
 
+// ─── Intent Classification Thresholds (US-297) ──────────────────────
+// Per-intent per-profile confidence thresholds for classification gating.
+// classifyIntent() compares confidence against threshold and returns
+// 'uncertain' if below the configured min_confidence.
+
+export const intentClassificationThresholds = pgTable("intent_classification_thresholds", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  intent: text("intent").notNull(),
+  minConfidence: real("min_confidence").notNull(),  // 0.0 - 1.0
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_classification_thresholds_profile_intent").on(table.profileId, table.intent),
+  index("idx_classification_thresholds_profile_id").on(table.profileId),
+  index("idx_classification_thresholds_intent").on(table.intent),
+]));
+
+export type IntentClassificationThreshold = typeof intentClassificationThresholds.$inferSelect;
+export type InsertIntentClassificationThreshold = typeof intentClassificationThresholds.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
