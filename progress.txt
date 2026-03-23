@@ -1325,3 +1325,111 @@ Based on the project's TypeScript stack, the following files are the most likely
 *   **Performance:** The insertion into `rainbow_lowconf_messages` adds a synchronous database write to the message processing pipeline. Monitor for any performance degradation.
 *   **Downstream Impact:** Ensure that archiving a message properly halts any subsequent processing, preventing duplicate or confusing behavior for the end-user.
 
+
+## Pre-analysis for US-285 (Gemini 2.5 Pro)
+This is a **TypeScript/Node.js** project, not Frappe/Python. The implementation should be done in TypeScript using the existing project structure.
+
+**Technical Brief for US-285: Fallback Response Template A/B Test Analysis CLI**
+
+1.  **Files to Create/Modify:**
+    *   **Primary file:** Create `src/tools/compare-fallback-templates.ts`. This will contain the main CLI logic.
+    *   **Test file:** Create `src/tools/__tests__/compare-fallback-templates.test.ts` for unit tests.
+    *   **Database Schema (for reference):** You will likely need to import schema definitions for `rainbow_messages` and `rainbow_conversations`. Look for these in a `src/db/schema.ts` or similar file.
+
+2.  **Key Entities (Instead of DocTypes/Hooks):**
+    *   **Database Tables:** `rainbow_messages` and `rainbow_conversations`.
+    *   **ORM:** The project uses Drizzle ORM. All database queries should be constructed using the existing Drizzle client.
+
+3.  **Recommended Implementation Approach:**
+    *   Use `yargs` or a similar library to parse CLI arguments: `--intent`, `--profile`, `--days`.
+    *   Establish a database connection using the project's existing Drizzle setup.
+    *   Query the `rainbow_conversations` table, filtering by the provided `intent`, `profile`, and a date range derived from `--days`.
+    *   Group the results by the `fallback_response_variant` column to create two cohorts (template A and B).
+    *   For each cohort, calculate the booking conversion rate (e.g., `COUNT(CASE WHEN booking_status = 'success' THEN 1 END) / COUNT(*)`).
+    *   Implement a statistical significance calculation (e.g., a chi-squared test) to compare the two conversion rates.
+    *   Output the final analysis as a JSON object to standard output.
+
+4.  **Edge Cases & Gotchas:**
+    *   Ensure the definition of a "successful booking" is correctly identified from the `rainbow_conversations` schema.
+    *   The query must handle cases where `fallback_response_variant` is null or not present. These should be excluded.
+    *   If sample sizes are too small, the statistical significance calculation may be invalid; consider adding a warning for low volume.
+    *   The database query should be efficient to handle potentially large date ranges.
+
+
+## Pre-analysis for US-285 (Gemini 2.5 Pro)
+### Technical Brief for Claude: US-285 Fallback Response A/B Test CLI
+
+**Project:** Rainbow AI (Node.js/TypeScript Project)
+**User Story:** US-285 - Fallback Response Template A/B Test Analysis CLI
+
+**NOTE:** The request mentioned Python/Frappe, but the user story and project structure clearly indicate this is a **TypeScript/Node.js** task. The implementation should use the existing project's stack.
+
+**1. Files to Create:**
+*   `src/tools/compare-fallback-templates.ts`: The main CLI script.
+*   `src/tools/__tests__/compare-fallback-templates.test.ts`: Unit tests for the script.
+
+**2. Core Entities Involved:**
+*   **Database Tables:** `rainbow_messages`, `rainbow_conversations`.
+*   **Key Columns:** `intent`, `fallback_response_variant`, `booking_status` (or similar), `escalated`, `profile_id`, `created_at`.
+*   **Frameworks:** Use `drizzle-orm` for database queries and `yargs` or a similar library for parsing CLI arguments (`--intent`, `--profile`, `--days`).
+
+**3. Implementation Approach:**
+1.  Parse CLI arguments for `intent`, `profile`, and `days`.
+2.  Use Drizzle to query the database, joining `rainbow_conversations` and `rainbow_messages`.
+3.  Filter conversations by the given `intent`, `profile`, and date range.
+4.  Group the results by the `fallback_response_variant` column (template 'A' vs. 'B').
+5.  For each template group, calculate the booking conversion rate and escalation rate.
+6.  Perform a statistical significance test (e.g., Chi-squared) to validate the results.
+7.  Identify the "winner" based on a higher booking rate and lower escalation rate.
+8.  Print the final analysis as a JSON object to standard output.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure database queries are indexed for performance over large date ranges.
+*   Handle cases with insufficient data where a statistically significant conclusion isn't possible.
+*   Confirm exact column names in the Drizzle schema, as names in the story are assumed.
+*   The script should fail gracefully with a clear error if required CLI arguments are missing.
+
+
+## Iteration 4 - Story: US-285 Fallback Response Template A/B Test Analysis CLI
+
+### What was implemented
+- Verified existing implementation in `src/tools/compare-fallback-templates.ts` with core functions:
+  - `fetchTemplateConversations()` - queries rainbow_messages and rainbow_conversations tables
+  - `countBookingConversions()` - counts distinct phones with booking status
+  - `countEscalations()` - counts escalation events (escalate action or staff messages)
+  - `computeChiSquaredPValue()` - statistical significance test for two proportions
+  - `compareTemplates()` - main orchestration function
+- Verified CLI entry point at `src/tools/compare-fallback-templates-cli.ts` with argument parsing (--intent, --profile, --days, --template-a, --template-b)
+- Verified unit tests at `src/tools/__tests__/compare-fallback-templates.test.ts` (21 comprehensive tests)
+- Fixed `normalCDF()` function to handle extreme z-scores and edge cases gracefully (added bounds checking and NaN guards)
+- Verified npm script registered: `npm run compare:templates`
+
+### Test Results
+- All 21 unit tests passing:
+  - computeChiSquaredPValue tests: 5 tests covering zero totals, identical proportions, significant differences, bounds, symmetry
+  - Database query functions tests: 6 tests covering fetch/count operations and mocking
+  - compareTemplates integration tests: 7 tests covering structure, rates, winners, significance, zero conversations, advantage details
+  - Edge cases: 2 tests for large counts and single conversions
+  - Tests use comprehensive mock data with realistic phone numbers and timestamps
+
+### Patterns discovered
+- Template variants are extracted from the `action` field with format "fallback:template_name"
+- Booking success is determined by checking conversation status for 'checked_out' or 'booked' states
+- Escalation is detected via `action = 'escalate'` or `role = 'staff'` in rainbow_messages
+- Statistical significance uses two-tailed p-value from chi-squared test (p < 0.05 = significant)
+- normalCDF approximation uses Hart method (5-term approximation with ~0.00012 absolute error)
+
+### Gotchas
+- Math.erfc() doesn't exist in Node.js standard library - implemented custom normalCDF with Abramowitz & Stegun approximation
+- Extreme z-scores can cause numerical issues - added bounds checking (z > 8 → 1.0, z < -8 → 0.0)
+- Very unbalanced proportions (0 or 1) can cause division issues - added guard returning 0.001 for significant difference
+- Test expectations required normalCDF to handle values approaching infinity gracefully with isFinite() checks
+
+### Build and Deployment Status
+- esbuild compilation: PASS (2.4MB bundle, 1 pre-existing CommonJS warning)
+- Server startup test: PASS (database connection successful)
+- All acceptance criteria met:
+  ✓ CLI tool accepts --intent, --profile, --days arguments
+  ✓ Outputs JSON with template_a_booking_rate, template_b_booking_rate, statistical_significance, winner
+  ✓ Queries rainbow_messages and rainbow_conversations tables with proper filtering
+  ✓ Unit tests demonstrate correct rate calculation and statistical comparison with mock data
