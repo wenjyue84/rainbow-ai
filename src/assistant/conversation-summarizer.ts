@@ -1,14 +1,20 @@
 import type { ChatMessage } from './types.js';
 import { configStore } from './config-store.js';
 import { chat } from './ai-client.js';
+import { summarizeConversationContext } from './pipeline/context-manager.js';
+import { createModuleLogger } from '../lib/logger.js';
+
+const logger = createModuleLogger('ConversationSummarizer');
 
 /**
  * Conversation Summarization Module
  *
- * Reduces context size for long conversations by:
- * 1. Summarizing old messages (e.g., 1-5)
- * 2. Keeping recent messages verbatim (e.g., 6-20)
- * 3. Reduces context overflow by ~50%
+ * US-328: Reduces context size for long conversations by:
+ * 1. Extracting booking-critical facts (guest name, room type, dates, special requests)
+ * 2. Keeping recent messages verbatim (up to maxHistoryMessages, default 10)
+ * 3. Prevents token limit exhaustion in extended multi-turn dialogues (~33-75% reduction)
+ *
+ * Uses fact-extraction approach (no LLM call) for token efficiency.
  */
 
 export interface SummarizationResult {
@@ -20,9 +26,14 @@ export interface SummarizationResult {
 }
 
 /**
- * Apply conversation summarization based on settings
+ * Apply conversation summarization using fact extraction (US-328)
+ *
+ * Extracts booking-critical facts (guest name, room type, dates, special requests)
+ * from older messages and keeps only the most recent messages, preventing token
+ * limit exhaustion in extended multi-turn dialogues.
+ *
  * @param messages - Full conversation history
- * @returns Reduced conversation with summary
+ * @returns Reduced conversation with summary and reduction metrics
  */
 export async function applyConversationSummarization(
   messages: ChatMessage[]
@@ -41,16 +52,12 @@ export async function applyConversationSummarization(
     };
   }
 
-  const {
-    summarize_threshold = 10,
-    summarize_from_message = 1,
-    summarize_to_message = 5,
-    keep_verbatim_from = 6,
-    keep_verbatim_to = 20
-  } = config;
+  // US-328: Use fact-extraction based summarization instead of LLM
+  // Default: summarize when exceeding 10 messages
+  const maxHistoryMessages = config?.max_history_messages ?? 10;
 
   // Check if conversation exceeds threshold
-  if (messages.length < summarize_threshold) {
+  if (messages.length <= maxHistoryMessages) {
     return {
       messages,
       wasSummarized: false,
@@ -60,87 +67,52 @@ export async function applyConversationSummarization(
     };
   }
 
-  console.log(`[Summarizer] Conversation has ${messages.length} messages (threshold: ${summarize_threshold}) → applying summarization`);
-
   try {
-    // Extract messages to summarize (convert to 0-based index)
-    const fromIdx = Math.max(0, summarize_from_message - 1);
-    const toIdx = Math.min(messages.length, summarize_to_message);
-    const messagesToSummarize = messages.slice(fromIdx, toIdx);
+    // US-328: Extract booking-critical facts and keep recent messages
+    const result = summarizeConversationContext(messages, maxHistoryMessages);
 
-    if (messagesToSummarize.length === 0) {
-      console.warn(`[Summarizer] No messages to summarize in range ${summarize_from_message}-${summarize_to_message}`);
+    if (!result.summary) {
+      // No facts extracted, but still reduced messages
+      const reductionPercent = Math.round(result.messageReductionRatio * 100);
+      logger.info(
+        `[US-328] Conversation reduced to recent messages: ${messages.length} -> ${result.recentMessages.length} messages ` +
+        `(${reductionPercent}% reduction)`,
+        {
+          originalCount: messages.length,
+          recentCount: result.recentMessages.length,
+          factsExtracted: Object.keys(result.factsExtracted).length,
+        }
+      );
+
       return {
-        messages,
-        wasSummarized: false,
+        messages: result.recentMessages,
+        wasSummarized: true,
         originalCount: messages.length,
-        reducedCount: messages.length,
-        summarizedRange: 'none'
+        reducedCount: result.recentMessages.length,
+        summarizedRange: 'recent-only'
       };
     }
 
-    // Build summarization prompt
-    const conversationText = messagesToSummarize
-      .map(m => `${m.role === 'user' ? 'Guest' : 'Assistant'}: ${m.content}`)
-      .join('\n');
-
-    const summaryPrompt = `You are summarizing a conversation between a guest and a hostel AI assistant.
-
-Summarize the following conversation into 2-3 concise sentences.
-
-CRITICAL: You MUST preserve these named entities exactly as they appear:
-- Guest's name (e.g., "The guest's name is John")
-- Booking dates and duration
-- Capsule/room number
-- Complaint details and status
-- Phone numbers or reference IDs
-
-Also include:
-- Guest's key questions or requests
-- Main topics discussed
-- Any other important details (dates, numbers, specific requests)
-
-Conversation to summarize (messages ${summarize_from_message}-${summarize_to_message}):
-${conversationText}
-
-Summary (include all named entities):`;
-
-    // Call AI to generate summary
-    const summaryContent = await chat(
-      'You are a helpful assistant that summarizes conversations concisely. You MUST preserve all named entities (guest name, dates, capsule numbers, complaint details) in the summary.',
-      [],
-      summaryPrompt
-    );
-
-    if (!summaryContent) {
-      console.error(`[Summarizer] Failed to generate summary`);
-      return {
-        messages,
-        wasSummarized: false,
-        originalCount: messages.length,
-        reducedCount: messages.length,
-        summarizedRange: 'failed'
-      };
-    }
-
-    // Create summary message
+    // Create summary message with extracted facts
     const summaryMessage: ChatMessage = {
       role: 'assistant',
-      content: `[Conversation Summary - Messages ${summarize_from_message}-${summarize_to_message}]: ${summaryContent}`,
-      timestamp: messagesToSummarize[0]?.timestamp || Math.floor(Date.now() / 1000)
+      content: result.summary,
+      timestamp: Math.floor(Date.now() / 1000)
     };
 
-    // Extract messages to keep verbatim (convert to 0-based index)
-    const keepFromIdx = Math.max(0, keep_verbatim_from - 1);
-    const keepToIdx = Math.min(messages.length, keep_verbatim_to);
-    const verbatimMessages = messages.slice(keepFromIdx, keepToIdx);
+    // Reconstruct: summary + recent messages
+    const reducedMessages = [summaryMessage, ...result.recentMessages];
+    const reductionPercent = Math.round(result.messageReductionRatio * 100);
 
-    // Reconstruct conversation: summary + verbatim messages
-    const reducedMessages = [summaryMessage, ...verbatimMessages];
-
-    console.log(
-      `[Summarizer] ✅ Reduced from ${messages.length} to ${reducedMessages.length} messages ` +
-      `(~${Math.round((1 - reducedMessages.length / messages.length) * 100)}% reduction)`
+    logger.info(
+      `[US-328] Conversation summarized: ${messages.length} -> ${reducedMessages.length} messages ` +
+      `(${reductionPercent}% reduction)`,
+      {
+        originalCount: messages.length,
+        reducedCount: reducedMessages.length,
+        summaryLength: result.summary.length,
+        factsExtracted: Object.keys(result.factsExtracted),
+      }
     );
 
     return {
@@ -148,10 +120,10 @@ Summary (include all named entities):`;
       wasSummarized: true,
       originalCount: messages.length,
       reducedCount: reducedMessages.length,
-      summarizedRange: `${summarize_from_message}-${summarize_to_message}`
+      summarizedRange: `fact-extraction-${maxHistoryMessages}`
     };
   } catch (error: any) {
-    console.error(`[Summarizer] Error during summarization:`, error.message);
+    logger.error(`[US-328] Summarization failed: ${error.message}`, { error });
     // On error, return original messages (fail-safe)
     return {
       messages,
@@ -165,20 +137,19 @@ Summary (include all named entities):`;
 
 /**
  * Get summarization stats for logging/debugging
+ * US-328: Now using fact-extraction based summarization
  */
 export function getSummarizationStats(): {
   enabled: boolean;
-  threshold: number;
-  summarizeRange: string;
-  keepRange: string;
+  method: string;
+  maxHistoryMessages: number;
 } {
   const settings = configStore.getSettings();
   const config = settings.conversation_management;
 
   return {
     enabled: config?.enabled ?? false,
-    threshold: config?.summarize_threshold ?? 10,
-    summarizeRange: `${config?.summarize_from_message ?? 1}-${config?.summarize_to_message ?? 5}`,
-    keepRange: `${config?.keep_verbatim_from ?? 6}-${config?.keep_verbatim_to ?? 20}`
+    method: 'fact-extraction (US-328)',
+    maxHistoryMessages: config?.max_history_messages ?? 10
   };
 }
