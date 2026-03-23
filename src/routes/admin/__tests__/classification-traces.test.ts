@@ -259,9 +259,7 @@ describe('Classification Traces Admin API (US-122)', () => {
         recordClassificationTrace(trace);
       }
 
-      const traces = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const traces = getClassificationTraces(conversationId);
 
       expect(traces.length).toBe(4);
       expect(traces[0].input_text).toBe('hello');
