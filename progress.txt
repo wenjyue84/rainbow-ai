@@ -1,4 +1,34 @@
-## Iteration [Current] - Story: Booking Workflow Failure Hotspot Analyzer (US-291)
+## Iteration [Current] - Story: Conversation Context Relevance Reranker (US-308)
+
+### What was implemented
+- Created `src/assistant/pipeline/context.ts` with `scoreMessageRelevance(message, currentIntent, profile)` returning 0-1 relevance score
+- Scoring combines intent keyword overlap (0-0.5) + temporal recency decay (0-0.5, 5-min half-life)
+- Profile-specific keyword supplements for pelangi/southern profiles
+- `filterContextByRelevance()` reranks and filters to top-N messages, always keeping most recent
+- Created `test/integration/multi-turn-context.test.ts` with 8 passing tests: 10-message conversation filtered to 5
+- Created `src/routes/admin/context-stats.ts` with GET `/analytics/context-stats?profile={profile}&days=7`
+- Admin endpoint queries rainbow_messages, groups by phone, scores each message, returns avg context/filtered sizes and relevance distribution
+- Registered route in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- ChatMessage.timestamp is Unix seconds (not milliseconds) — Date.now()/1000 needed for age calculation
+- Intent keywords from intent-keywords.json are multi-language; fallback keyword map covers common intents
+- Profile supplements (e.g., pelangi=capsule/hostel, southern=homestay/villa) boost profile-specific scoring
+- Vitest test/ directory files picked up by unit project config, not integration project (which matches tests/ with 's')
+
+### Gotchas
+- Previous attempt (attempt 1) created files but they were cleaned up between iterations
+- message.timestamp in seconds vs Date.now() in milliseconds is a critical conversion point
+- filterContextByRelevance always includes the last message even if below threshold
+- Admin endpoint limits to 10000 messages per query to prevent memory issues
+
+### Acceptance Criteria Met
+- AC1: scoreMessageRelevance(message, currentIntent, profile) in src/assistant/pipeline/context.ts returns 0-1
+- AC2: test/integration/multi-turn-context.test.ts shows 10-message conversation reranked to 5 (8 tests passing)
+- AC3: GET /admin/context-stats?profile={profile}&days=7 returns avgContextSize, avgFilteredSize, relevanceDistribution
+
+
+## Previous Iteration - Story: Booking Workflow Failure Hotspot Analyzer (US-291)
 
 ### What was implemented
 - Created `src/routes/admin/analytics-booking-failures.ts` with GET `/analytics/booking-failures?profile=pelangi&days=7` endpoint
@@ -1848,4 +1878,34 @@ FAILED diagnosis-block gate: Booking Workflow Step Execution Dry-Run Endpoint (I
 *   The logic must handle division by zero if a step has zero attempts.
 *   Be defensive against inconsistent or malformed JSON objects within `spiral_events.jsonl`.
 *   The implementation should be memory-efficient by streaming the events file, not loading it all at once.
+
+
+## Pre-analysis for US-308 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude agent.
+
+---
+**Project:** Conversation Context Reranker
+**Stack:** Node.js/TypeScript (Note: The user story describes a TypeScript project, not Frappe/Python)
+
+**1. Files to Modify:**
+*   `src/assistant/pipeline/context.ts`: Implement the core message scoring and filtering logic here.
+*   `src/admin/routes.ts` (or similar): Add the new `GET /admin/context-stats` endpoint.
+*   `test/integration/multi-turn-context.test.ts`: Create a new test file to validate the reranking logic.
+
+**2. Key Components Involved:**
+*   **Main Logic:** A new function, `scoreMessageRelevance(message, currentIntent, profile)`, will be the core of the implementation.
+*   **API Endpoint:** A new administrative endpoint is required to expose context filtering metrics.
+*   **Testing:** An integration test is needed to simulate a multi-turn conversation and verify that irrelevant messages are filtered out correctly.
+
+**3. Implementation Approach:**
+1.  In `src/assistant/pipeline/context.ts`, create the `scoreMessageRelevance` function. It should calculate a score based on keyword overlap between a message and the current intent, combined with a recency decay factor (newer messages get a higher base score).
+2.  Integrate this function into the part of the pipeline that prepares conversation history for the AI. Use it to sort and truncate the history, keeping only the most relevant messages.
+3.  Add the new `GET /admin/context-stats` route. This route will query conversation logs over a specified period, calculate statistics on context size before and after filtering, and return the analysis.
+4.  Implement the integration test as described in the acceptance criteria to validate the end-to-end reranking process.
+
+**4. Edge Cases & Gotchas:**
+*   The effectiveness of the scorer heavily depends on the quality of keywords associated with each intent.
+*   The recency decay function needs careful tuning to avoid prematurely down-ranking important but older context.
+*   Consider conversations where no messages have keyword overlap; ensure a graceful fallback.
+*   Ensure the new admin endpoint is properly authenticated and authorized for admin users only.
 

@@ -119,6 +119,7 @@ import debugFailedBookingsRoutes from './debug-failed-bookings.js'; // US-226: B
 import modelRollbackRoutes from './model-rollback.js'; // US-236: Intent classification accuracy auto-rollback
 import lowconfMessagesRoutes from './lowconf-messages.js'; // US-280: Low-confidence message archival + QA review
 import workflowsRoutes from './workflows.js'; // US-290: Workflow dry-run endpoint
+import contextStatsRoutes from './context-stats.js'; // US-308: Context relevance reranker stats
 
 const router = Router();
 
@@ -404,6 +405,7 @@ router.use(debugFailedBookingsRoutes);       // US-226: Booking classification f
 router.use('/model-rollback', modelRollbackRoutes); // US-236: Intent classification accuracy auto-rollback
 router.use(lowconfMessagesRoutes);                 // US-280: Low-confidence message archival + QA review
 router.use(workflowsRoutes);                      // US-290: Workflow dry-run endpoint
+router.use(contextStatsRoutes);                   // US-308: Context relevance reranker stats
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
