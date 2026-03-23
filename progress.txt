@@ -1286,3 +1286,42 @@ Based on the project's TypeScript stack, the following files are the most likely
 - Table schema goes in shared/schema-tables.ts (Drizzle-managed), not the raw pg tables
 - Need to run `npm run db:push` in production to create the table; build does not migrate the DB
 - msg.messageId may be undefined/null — used `?? null` to handle gracefully
+## Iteration 2 - Tue, Mar 24, 2026  2:26:50 AM
+FAILED diff-guard: Low-Confidence Intent Archival System with QA Review Endpoint (ID: US-280) — 1336 lines > 500 limit — attempt 1/3
+
+
+## Pre-analysis for US-280 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-280.
+
+### Technical Brief: US-280 - Low-Confidence Intent Archival
+
+**Project:** Rainbow AI (Node.js/TypeScript)
+
+**1. Python Files to Modify:**
+Based on the project's TypeScript stack, the following files are the most likely candidates for modification:
+*   `src/conversation/ConversationManager.ts`: To intercept the low-confidence result from `classifyIntent`.
+*   `src/db/schema.ts`: To define the schema for the new `rainbow_lowconf_messages` table.
+*   A new file for API logic: `src/http/controllers/admin/lowConfController.ts` (recommended).
+*   A new file for API routing: `src/http/routes/admin/lowConfRoutes.ts` (recommended).
+*   `src/http/server.ts` or a main router file: To register the new admin routes.
+
+**2. Frappe DocTypes or Hooks Involved:**
+*   **Database Schema (Drizzle ORM):** A new table schema, `rainbowLowconfMessages`, should be defined in `src/db/schema.ts` to model the `rainbow_lowconf_messages` table.
+*   **Core Logic Hook Point:** The primary modification point is within the `ConversationManager.classifyIntent` method, immediately after the confidence score is determined.
+
+**3. Recommended Implementation Approach:**
+1.  **Schema First:** Define the `rainbowLowconfMessages` table in `src/db/schema.ts` using Drizzle ORM syntax, matching the fields in the acceptance criteria.
+2.  **Database Migration:** Run `drizzle-kit generate` to create the SQL migration file and then apply it to the database.
+3.  **Modify `classifyIntent`:** In `ConversationManager.ts`, after calling the intent classification service, add a condition: `if (result.confidence < 0.5)`. Inside this block, insert the relevant message details into the new table and terminate the standard processing path for that message.
+4.  **Admin API:**
+    *   Create a new controller (`lowConfController.ts`) with two methods: one to handle `GET /api/admin/lowconf-messages` (querying the database with filters) and another for `POST /api/admin/lowconf-messages/:id/correct` (updating a record).
+    *   Implement a new router (`lowConfRoutes.ts`) to map these endpoints to the controller methods.
+    *   Ensure the new admin router is integrated into the main Express app and protected by an admin authentication middleware.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Authentication:** The new admin endpoints must be strictly protected to prevent unauthorized access.
+*   **Race Conditions:** The logic should prevent a message from being reviewed by multiple QA members simultaneously if that is a concern.
+*   **Input Validation:** The `POST` endpoint must validate the `correct_intent` payload to ensure it's a valid and existing intent string.
+*   **Performance:** The insertion into `rainbow_lowconf_messages` adds a synchronous database write to the message processing pipeline. Monitor for any performance degradation.
+*   **Downstream Impact:** Ensure that archiving a message properly halts any subsequent processing, preventing duplicate or confusing behavior for the end-user.
+
