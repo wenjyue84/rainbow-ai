@@ -47,178 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-323",
-      "title": "Intent Keyword Auto-Miner from Production Misclassifications",
-      "priority": "high",
-      "description": "Batch job that analyzes failed/low-confidence booking intents from production logs, extracts unmatched keywords, and suggests adding them to intent-keywords.json with admin approval workflow. Closes the loop between live misclassifications and training data updates.",
-      "acceptanceCriteria": [
-        "CLI command: npm run mine-keyword-suggestions --profile=makan --window=7d generates JSON with [{keyword: 'table reservation', intent: 'booking', frequency: 8, suggestedProfile: 'makan'}]",
-        "POST /admin/keywords/approve-suggestions accepts {profile, suggestions: [{keyword, intent}]}, auto-updates src/assistant/data-{profile}/intent-keywords.json and logs change to audit trail",
-        "Prevents duplicate suggestions within 14-day window; prioritizes high-frequency keywords"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T20:31:12Z"
-    },
-    {
-      "id": "US-324",
-      "title": "Booking Workflow Step Timeout Handler with Graceful Fallback Responses",
-      "priority": "high",
-      "description": "Add per-step timeout configuration and fallback handling for booking workflow steps. If a step (e.g., room availability check) exceeds timeout, gracefully degrade to fallback response instead of hanging or cascading failure.",
-      "acceptanceCriteria": [
-        "Workflow step schema in src/types/workflow.ts extended: {name, action, timeoutMs?: 5000, fallbackResponse?: 'Could not verify availability. Please call reception at...'} with execution wrapper",
-        "Timeout events logged to booking_workflow_events table with step_name, elapsed_ms, timed_out_at; admin metrics endpoint tracks timeout frequency per-step",
-        "Integration test validates that step timeout triggers fallback response and guest receives message within 100ms of timeout"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T20:52:15Z"
-    },
-    {
-      "id": "US-327",
-      "title": "Build Intent Keyword Freshness Analyzer CLI for Coverage Gap Detection",
-      "priority": "high",
-      "description": "Validate intent keyword utility in production by detecting stale keywords (unused for 30+ days) and identifying new user message patterns that don't match any keyword, enabling proactive coverage improvements.",
-      "acceptanceCriteria": [
-        "New CLI command npm run analyze:keyword-freshness /path/to/logs/ --days 30 parses production message logs and measures per-keyword match frequency",
-        "Reports output: stale_keywords.txt (keywords with zero matches in N days) and coverage_gaps.txt (new patterns not matching any intent keyword)",
-        "Test file src/__tests__/keyword-freshness.test.ts validates detection with 100+ realistic messages spanning 10 intents"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-328",
-      "title": "Summarize Long Conversation History to Prevent Multi-Turn Token Breaches",
-      "priority": "high",
-      "description": "Auto-summarize conversation context when exceeding 10 message exchanges to preserve booking-critical facts while preventing token limit exhaustion in extended multi-turn dialogs.",
-      "acceptanceCriteria": [
-        "New function summarizeConversationContext(messages, maxHistoryMessages=10) in src/assistant/context-manager.ts extracts key facts (guest name, room type, dates, special requests) and returns {summary, recentMessages}",
-        "Intent classification pipeline calls summarizeConversationContext before passing to AI provider; logs summary generation with message reduction ratio",
-        "Unit test validates: 15-message conversation is condensed to 1 summary + 10 recent messages while preserving all booking-critical details (room type, check-in date, guest count)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T21:27:43Z"
-    },
-    {
-      "id": "US-333",
-      "title": "Booking Workflow Failure Recovery Queue with Staff Review Endpoint",
-      "priority": "high",
-      "description": "Capture booking workflow step failures with full context and route to staff review queue instead of hard failures. Staff can manually resolve, retry, or escalate with visibility into why the step failed.",
-      "acceptanceCriteria": [
-        "New DB table workflow_error_queue: {id, conversationId, intentId, stepName, errorMessage, workflowState (JSON), createdAt, reviewedBy, resolution}",
-        "Endpoint GET /admin/workflow-queue?status=pending&profile=pelangi returns paginated queue with full conversation context and step inputs/outputs",
-        "Staff resolution endpoint: POST /admin/workflow-queue/{queueId}/resolve {action: 'retry'|'skip'|'escalate', notes: 'reason'} executes resolution"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T21:50:04Z"
-    },
-    {
-      "id": "US-338",
-      "title": "Intent Classification Regression Test Dataset Generator",
-      "priority": "high",
-      "description": "Tool extracting recent production intent classifications with ground truth labels to generate Vitest fixtures preventing per-profile accuracy regressions and identifying weak keyword coverage.",
-      "acceptanceCriteria": [
-        "CLI 'npm run cli:generate-intent-testcases -- --profile=pelangi --count=100' extracts last 7 days classifications with confidence scores into 'src/__tests__/fixtures/intent-classifications-pelangi.test.ts'",
-        "Generated test file includes per-intent accuracy assertions (floor confidence requirements) and cross-profile contamination checks ensuring no pelangi intents misclassify as makan",
-        "Identifies keywords triggering low-confidence classifications with suggestions to enhance intent-keywords.json coverage"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-342",
-      "title": "Context-Aware Fallback Response Generator from Escalation Patterns",
-      "priority": "high",
-      "description": "Generate contextual fallback responses by mining successful resolutions from escalation_events table instead of relying on static templates. Improves response quality when AI confidence is low by using proven patterns from staff corrections.",
-      "acceptanceCriteria": [
-        "Function in src/assistant/fallback-generator.ts analyzing escalation_events table for intent_id matches, extracting staff_resolution text and guest_feedback to identify successful response patterns per intent category",
-        "Fallback handler invokes generator with conversation context, returns historically-verified response matched by intent_id with similarity score > 0.75",
-        "Test verifying generated responses are correctly attributed to matching intent category, escalations are profile-isolated (no Pelangi responses for Makan intent), and similarity scoring is deterministic"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_passedCommit": "HEAD",
-      "last_attempted": "2026-03-23T22:14:23Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nBoth files exist from a previous attempt. Let me check their contents and run the tests to see the current state.\nGood, both files exist. Let me run the tests and build to verify everything passes.\n\n## Current State\nThe implementation from Iteration 15 already exists:\n- `src/assistant/fallback-generator.ts` — core module with `calculateSimilarity`, `fetchSuccessfulResolutions`, `generateFallbackResponse`, `validateProfileIsolation`\n- `src/assistant/__tests__/fallback-generator.test.ts` — 29 tests covering all acceptance criteria\n\n## Problem Identified\nThe story failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate check in the outer loop, not a code failure. The actual implementation appears complete. Need to verify tests pass and build is clean, then mark `passes: true`.\n\n## Planned Changes\n- Run tests to confirm they pass\n- Run build to confirm it's clean\n- Mark `passes: true` in prd.json\n- Commit\n29/29 tests pass. Now run the build:\nBuild clean (only the pre-existing logger.ts warning). Now update prd.json:\nNow append to progress.txt:\nNow commit:\nDone. US-342 is now marked `passes: true`.\n\n**Summary:**\n- The implementation (fallback-generator.ts + test suite) was already complete from Iteration 15\n- Previous failure was purely the outer loop's `DIAGNOSIS_BLOCK_MISSING` gate, not a code issue\n- 29/29 tests pass, build clean (1 pre-existing warning only)\n- `prd.json` updated and committed"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 828,
-        "tokensAfterMasking": 827,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
-    },
-    {
-      "id": "US-343",
-      "title": "Live Message Routing Integrity Audit Endpoint",
-      "priority": "high",
-      "description": "Detect and prevent cross-profile message routing errors in real-time. Monitors all message routing decisions to ensure strict profile separation, catching contamination before it affects guests.",
-      "acceptanceCriteria": [
-        "Middleware in src/routes/middleware/routing-audit.ts logs message routing with source_profile, target_profile, classifier_match_result for every incoming message, stores in audit_logs table",
-        "Admin endpoint `GET /admin/audit/routing-violations?hours=24&profile_id=makan` returning messages routed to wrong profile_id with message_id, expected_profile, actual_profile, and classifier_confidence for root-cause analysis",
-        "Test asserting zero cross-profile routing under concurrent message load, all routing violations are correctly logged with profile_id match verification, and metrics are accurate within 1% error"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "_decomposedFrom": "US-238",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-23T22:29:55Z"
-    },
-    {
-      "id": "US-346",
-      "title": "Guest Blacklist Lookup Before Booking Confirmation",
-      "priority": "high",
-      "description": "Validate guest phone/name against a blacklist before confirming booking. Reject with clear reason if flagged, preventing fraudulent or problematic bookings from proceeding.",
-      "acceptanceCriteria": [
-        "New table guest_blacklist(id, phone, name, reason, created_at) added to shared/schema-tables.ts with migration",
-        "Function checkBlacklist(phone: string): BlacklistMatch | null in src/lib/guest-validator.ts with fuzzy matching on name (>85% similarity)",
-        "Booking workflow pre-confirmation step calls validator and sends escalation message if guest is flagged, preventing confirmation step from executing"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-347",
       "title": "WhatsApp Send Failure SMS Fallback Gateway",
       "priority": "high",
@@ -234,7 +62,8 @@
       "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T22:39:48Z"
+      "last_attempted": "2026-03-23T22:39:48Z",
+      "_passedCommit": "f7a3d49d58ce4ec777eaaae4a6f075905e246900"
     },
     {
       "id": "US-350",
@@ -398,6 +227,91 @@
         "Create `src/data/profile-intent-whitelist.json` defining makan-owned intents (seasonal_inquiry, menu_question) separate from pelangi-owned intents (booking_request, room_inquiry)",
         "CLI command `npm run validate:profile-intents` compares routing.json intent references against whitelist, reporting violations with filename, line number, and contaminating intent name",
         "Integration test validates that makan routing.json is rejected if it contains pelangi_booking_inquiry route; exit code 1 on violation, 0 on pass"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-364",
+      "title": "Build Profile Data File Consistency Validator CLI to Detect Cross-File Mismatches",
+      "priority": "high",
+      "description": "Validates profile data files for cross-file consistency: intents defined in intents.json exist in routing.json, keywords match intents, zero Pelangi-specific content in Makan/Southern profiles. Detects orphaned or missing entries.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:profile-data --profile makan` loads src/assistant/data/data-makan/{intents,routing,intent-keywords,knowledge}.json and validates: intents_not_in_routing, routing_entries_missing_intents, orphaned_keywords, pelangi_keyword_contamination",
+        "Report flags any Pelangi-specific keywords (room, checkout, check-in, guest, booking-status) found in makan profile; lists exact file locations and values to remove",
+        "Test src/__tests__/profile-data-consistency.test.ts validates data-makan contains zero hostel-specific keywords and data-southern contains zero Pelangi references"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-365",
+      "title": "Build Booking Workflow Critical Path Analyzer CLI to Identify Bottleneck Steps",
+      "priority": "medium",
+      "description": "Analyzes workflows.json dependency graph to identify booking workflow steps that, if they fail, block the most downstream steps. Helps prioritize reliability improvements.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:critical-path` reads src/assistant/data/workflows.json, builds dependency graph, outputs each booking step with blocking_factor (number of steps blocked if this step fails)",
+        "Steps with blocking_factor >= 3 are flagged as CRITICAL in output; generates actionable recommendation to focus testing on these steps",
+        "Test src/__tests__/workflows-critical-path.test.ts validates that check-in step has higher blocking_factor than room-selection step"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-366",
+      "title": "Add Intent Classifier Confidence Calibration Measurement CLI",
+      "priority": "medium",
+      "description": "Measures whether reported confidence scores match actual accuracy. Tool evaluates classifier on labeled dataset and outputs calibration error per confidence bucket to improve intent classification reliability.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:calibration --dataset src/__tests__/data/intent-calibration-dataset.json` loads test dataset, runs classifier, outputs calibration_error = |expected_accuracy - actual_accuracy| per confidence bucket (0-10%, 10-20%, ... 90-100%)",
+        "Buckets with calibration_error > 15% flagged as uncalibrated; suggests confidence threshold adjustments in report",
+        "Identifies if classifier is overconfident (predicts 95% but only 80% correct) or underconfident, enabling threshold recalibration"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-367",
+      "title": "Build Fallback Response Escalation Analyzer CLI to Identify Low-Performing Fallbacks",
+      "priority": "medium",
+      "description": "Analyzes production logs to track escalation rates for fallback responses by intent. Identifies which intents have highest escalation rates after fallback response, highlighting which fallbacks need improvement.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:fallback-escalations --output report.json` reads spiral_events.jsonl, filters for (fallback_response_used=true, escalation_within_2_turns=true) events, groups by (intent, fallback_response_id), computes escalation_rate",
+        "Output ranks intents by escalation_rate descending; flags intents with escalation_rate > 30% as needing better fallback responses with actionable suggestions",
+        "Report includes sample escalations (5-10 event IDs) for manual review per high-escalation intent, enabling targeted fallback improvement"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-368",
+      "title": "Implement Booking Confirmation Idempotency Validator CLI with Duplicate Detection",
+      "priority": "medium",
+      "description": "Validates idempotency implementation by submitting duplicate booking requests with same idempotency key and verifying only one reservation is created. Ensures booking workflow reliability against retry storms.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:idempotency --booking-data '{\"roomId\":\"101\",\"checkIn\":\"2026-04-01\"}' --profile pelangi` submits identical booking twice with same idempotency key; verifies both responses return identical booking_id and database shows exactly 1 booking created (not 2)",
+        "Validator tests both REST API endpoint and WhatsApp message retry scenario (Baileys duplicate handling) to ensure idempotency works end-to-end",
+        "Test src/__tests__/booking-idempotency.test.ts validates concurrent duplicate requests with same idempotency key return consistent results and increment guest booking count by 1 only"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -676,6 +590,178 @@
       "passes": true
     },
     {
+      "id": "US-323",
+      "title": "Intent Keyword Auto-Miner from Production Misclassifications",
+      "priority": "high",
+      "description": "Batch job that analyzes failed/low-confidence booking intents from production logs, extracts unmatched keywords, and suggests adding them to intent-keywords.json with admin approval workflow. Closes the loop between live misclassifications and training data updates.",
+      "acceptanceCriteria": [
+        "CLI command: npm run mine-keyword-suggestions --profile=makan --window=7d generates JSON with [{keyword: 'table reservation', intent: 'booking', frequency: 8, suggestedProfile: 'makan'}]",
+        "POST /admin/keywords/approve-suggestions accepts {profile, suggestions: [{keyword, intent}]}, auto-updates src/assistant/data-{profile}/intent-keywords.json and logs change to audit trail",
+        "Prevents duplicate suggestions within 14-day window; prioritizes high-frequency keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T20:31:12Z"
+    },
+    {
+      "id": "US-324",
+      "title": "Booking Workflow Step Timeout Handler with Graceful Fallback Responses",
+      "priority": "high",
+      "description": "Add per-step timeout configuration and fallback handling for booking workflow steps. If a step (e.g., room availability check) exceeds timeout, gracefully degrade to fallback response instead of hanging or cascading failure.",
+      "acceptanceCriteria": [
+        "Workflow step schema in src/types/workflow.ts extended: {name, action, timeoutMs?: 5000, fallbackResponse?: 'Could not verify availability. Please call reception at...'} with execution wrapper",
+        "Timeout events logged to booking_workflow_events table with step_name, elapsed_ms, timed_out_at; admin metrics endpoint tracks timeout frequency per-step",
+        "Integration test validates that step timeout triggers fallback response and guest receives message within 100ms of timeout"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T20:52:15Z"
+    },
+    {
+      "id": "US-327",
+      "title": "Build Intent Keyword Freshness Analyzer CLI for Coverage Gap Detection",
+      "priority": "high",
+      "description": "Validate intent keyword utility in production by detecting stale keywords (unused for 30+ days) and identifying new user message patterns that don't match any keyword, enabling proactive coverage improvements.",
+      "acceptanceCriteria": [
+        "New CLI command npm run analyze:keyword-freshness /path/to/logs/ --days 30 parses production message logs and measures per-keyword match frequency",
+        "Reports output: stale_keywords.txt (keywords with zero matches in N days) and coverage_gaps.txt (new patterns not matching any intent keyword)",
+        "Test file src/__tests__/keyword-freshness.test.ts validates detection with 100+ realistic messages spanning 10 intents"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-328",
+      "title": "Summarize Long Conversation History to Prevent Multi-Turn Token Breaches",
+      "priority": "high",
+      "description": "Auto-summarize conversation context when exceeding 10 message exchanges to preserve booking-critical facts while preventing token limit exhaustion in extended multi-turn dialogs.",
+      "acceptanceCriteria": [
+        "New function summarizeConversationContext(messages, maxHistoryMessages=10) in src/assistant/context-manager.ts extracts key facts (guest name, room type, dates, special requests) and returns {summary, recentMessages}",
+        "Intent classification pipeline calls summarizeConversationContext before passing to AI provider; logs summary generation with message reduction ratio",
+        "Unit test validates: 15-message conversation is condensed to 1 summary + 10 recent messages while preserving all booking-critical details (room type, check-in date, guest count)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T21:27:43Z"
+    },
+    {
+      "id": "US-333",
+      "title": "Booking Workflow Failure Recovery Queue with Staff Review Endpoint",
+      "priority": "high",
+      "description": "Capture booking workflow step failures with full context and route to staff review queue instead of hard failures. Staff can manually resolve, retry, or escalate with visibility into why the step failed.",
+      "acceptanceCriteria": [
+        "New DB table workflow_error_queue: {id, conversationId, intentId, stepName, errorMessage, workflowState (JSON), createdAt, reviewedBy, resolution}",
+        "Endpoint GET /admin/workflow-queue?status=pending&profile=pelangi returns paginated queue with full conversation context and step inputs/outputs",
+        "Staff resolution endpoint: POST /admin/workflow-queue/{queueId}/resolve {action: 'retry'|'skip'|'escalate', notes: 'reason'} executes resolution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T21:50:04Z"
+    },
+    {
+      "id": "US-338",
+      "title": "Intent Classification Regression Test Dataset Generator",
+      "priority": "high",
+      "description": "Tool extracting recent production intent classifications with ground truth labels to generate Vitest fixtures preventing per-profile accuracy regressions and identifying weak keyword coverage.",
+      "acceptanceCriteria": [
+        "CLI 'npm run cli:generate-intent-testcases -- --profile=pelangi --count=100' extracts last 7 days classifications with confidence scores into 'src/__tests__/fixtures/intent-classifications-pelangi.test.ts'",
+        "Generated test file includes per-intent accuracy assertions (floor confidence requirements) and cross-profile contamination checks ensuring no pelangi intents misclassify as makan",
+        "Identifies keywords triggering low-confidence classifications with suggestions to enhance intent-keywords.json coverage"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-342",
+      "title": "Context-Aware Fallback Response Generator from Escalation Patterns",
+      "priority": "high",
+      "description": "Generate contextual fallback responses by mining successful resolutions from escalation_events table instead of relying on static templates. Improves response quality when AI confidence is low by using proven patterns from staff corrections.",
+      "acceptanceCriteria": [
+        "Function in src/assistant/fallback-generator.ts analyzing escalation_events table for intent_id matches, extracting staff_resolution text and guest_feedback to identify successful response patterns per intent category",
+        "Fallback handler invokes generator with conversation context, returns historically-verified response matched by intent_id with similarity score > 0.75",
+        "Test verifying generated responses are correctly attributed to matching intent category, escalations are profile-isolated (no Pelangi responses for Makan intent), and similarity scoring is deterministic"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_passedCommit": "",
+      "last_attempted": "2026-03-23T22:14:23Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nBoth files exist from a previous attempt. Let me check their contents and run the tests to see the current state.\nGood, both files exist. Let me run the tests and build to verify everything passes.\n\n## Current State\nThe implementation from Iteration 15 already exists:\n- `src/assistant/fallback-generator.ts` — core module with `calculateSimilarity`, `fetchSuccessfulResolutions`, `generateFallbackResponse`, `validateProfileIsolation`\n- `src/assistant/__tests__/fallback-generator.test.ts` — 29 tests covering all acceptance criteria\n\n## Problem Identified\nThe story failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate check in the outer loop, not a code failure. The actual implementation appears complete. Need to verify tests pass and build is clean, then mark `passes: true`.\n\n## Planned Changes\n- Run tests to confirm they pass\n- Run build to confirm it's clean\n- Mark `passes: true` in prd.json\n- Commit\n29/29 tests pass. Now run the build:\nBuild clean (only the pre-existing logger.ts warning). Now update prd.json:\nNow append to progress.txt:\nNow commit:\nDone. US-342 is now marked `passes: true`.\n\n**Summary:**\n- The implementation (fallback-generator.ts + test suite) was already complete from Iteration 15\n- Previous failure was purely the outer loop's `DIAGNOSIS_BLOCK_MISSING` gate, not a code issue\n- 29/29 tests pass, build clean (1 pre-existing warning only)\n- `prd.json` updated and committed"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 828,
+        "tokensAfterMasking": 827,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
+    },
+    {
+      "id": "US-343",
+      "title": "Live Message Routing Integrity Audit Endpoint",
+      "priority": "high",
+      "description": "Detect and prevent cross-profile message routing errors in real-time. Monitors all message routing decisions to ensure strict profile separation, catching contamination before it affects guests.",
+      "acceptanceCriteria": [
+        "Middleware in src/routes/middleware/routing-audit.ts logs message routing with source_profile, target_profile, classifier_match_result for every incoming message, stores in audit_logs table",
+        "Admin endpoint `GET /admin/audit/routing-violations?hours=24&profile_id=makan` returning messages routed to wrong profile_id with message_id, expected_profile, actual_profile, and classifier_confidence for root-cause analysis",
+        "Test asserting zero cross-profile routing under concurrent message load, all routing violations are correctly logged with profile_id match verification, and metrics are accurate within 1% error"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_decomposedFrom": "US-238",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T22:29:55Z"
+    },
+    {
+      "id": "US-346",
+      "title": "Guest Blacklist Lookup Before Booking Confirmation",
+      "priority": "high",
+      "description": "Validate guest phone/name against a blacklist before confirming booking. Reject with clear reason if flagged, preventing fraudulent or problematic bookings from proceeding.",
+      "acceptanceCriteria": [
+        "New table guest_blacklist(id, phone, name, reason, created_at) added to shared/schema-tables.ts with migration",
+        "Function checkBlacklist(phone: string): BlacklistMatch | null in src/lib/guest-validator.ts with fuzzy matching on name (>85% similarity)",
+        "Booking workflow pre-confirmation step calls validator and sends escalation message if guest is flagged, preventing confirmation step from executing"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-309",
       "title": "Booking Workflow Step Execution Trace Logger",
       "priority": "high",
@@ -719,11 +805,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-23T20:05:01Z",
       "_decomposed": true,
-      "_decomposedInto": [
-        "US-422",
-        "US-423",
-        "US-424"
-      ]
+      "_decomposedInto": []
     },
     {
       "id": "US-308",
@@ -770,11 +852,7 @@
       "_source": "ai-example",
       "model": "haiku",
       "_decomposed": true,
-      "_decomposedInto": [
-        "US-400",
-        "US-401",
-        "US-402"
-      ],
+      "_decomposedInto": [],
       "_skipped": true
     },
     {
@@ -912,9 +990,7 @@
       "model": "haiku",
       "_decomposed": true,
       "_decomposedInto": [
-        "US-343",
-        "US-344",
-        "US-345"
+        "US-343"
       ],
       "_skipped": true
     },

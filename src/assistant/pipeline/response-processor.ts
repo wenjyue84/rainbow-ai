@@ -51,6 +51,9 @@ import {
 import {
   detectTopicDrift, getTopicRefocusPrompt,
 } from './topic-drift-detector.js';
+import {
+  selectContextAwareFallback,
+} from './context-aware-fallback-selector.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -77,12 +80,25 @@ export async function processAndSend(
   // US-077: Track user message received (increments msgsSinceFallback counter)
   onUserMessageReceived(phone);
 
-  // Catch-all fallback: if pipeline produced no response, use static fallback
+  // Catch-all fallback: if pipeline produced no response, use context-aware fallback (US-350)
   if (!response || !response.trim()) {
-    console.warn(`[ResponseProcessor] Empty response for ${phone}, using static fallback (all_llm_failed)`);
-    const fallbacks = getUnknownFallbackMessages();
-    response = fallbacks[lang] || fallbacks.en;
-    recordFallbackUsed(phone, 'all_llm_failed');
+    console.warn(`[ResponseProcessor] Empty response for ${phone}, selecting context-aware fallback`);
+
+    // Get settings (contains fallback_responses)
+    const settings = (profileConfig.getSettings() as any) || {};
+    const fallbackResponses = settings.fallback_responses || {};
+
+    // Select profile-specific fallback based on conversation context
+    const fallbackResult = selectContextAwareFallback(
+      fallbackResponses,
+      profileId,
+      convo.messages,
+      lang
+    );
+
+    response = fallbackResult.response;
+    console.log(`[ResponseProcessor] US-350: ${fallbackResult.reason}`);
+    recordFallbackUsed(phone, 'context_aware_fallback');
   }
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
