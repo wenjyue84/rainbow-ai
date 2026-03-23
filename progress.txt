@@ -554,3 +554,58 @@ This user story is for a TypeScript/Node.js application, not Frappe/Python. The 
 - In-memory storage with circular buffer eviction
 - Admin API endpoints working and tested
 - All acceptance criteria met
+## Iteration 1 - Mon, Mar 23, 2026 12:10:21 PM
+FAILED diagnosis-block gate: Build intent classification decision tracer logging top-3 candidates with confidence breakdown (ID: US-122) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-122 (Gemini 2.5 Pro)
+**Analysis Complete: Technical Brief for US-122**
+
+**Correction:** The user story provided (US-122) is for a **TypeScript/Node.js** application, not a Frappe/Python app as stated in the prompt. The file paths (`src/assistant/pipeline/classifier.ts`), context, and acceptance criteria clearly point to the existing codebase. This brief is tailored to the story's actual technical requirements.
+
+---
+
+**1. Python Files to Modify:**
+*   N/A. The primary file is `src/assistant/pipeline/classifier.ts` (TypeScript). This is where the core classification logic resides and needs modification to capture the top-3 results.
+*   A new route file, likely `src/admin/routes.ts` or similar, will be needed for the new endpoint.
+*   `shared/schema.ts` will need to be updated to define a new database table schema.
+*   A new test file like `tests/assistant/classifier.test.ts` will be created.
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This project uses Drizzle ORM. A new SQL table, likely named `classification_traces`, should be created to store the logging data. This will require a new Drizzle migration file.
+
+**3. Recommended Implementation Approach:**
+1.  **Database:** In `shared/schema.ts`, define a `classification_traces` table with columns for `conversation_id`, `timestamp`, and a JSONB column for the detailed trace payload.
+2.  **Classifier Logic:** Modify the main function in `classifier.ts` to retain the top 3 intent candidates, their confidence scores, and matched keywords instead of only returning the winner.
+3.  **Logging:** Implement a function that takes the detailed classification results and inserts them into the new `classification_traces` table.
+4.  **API Endpoint:** Add the `GET /admin/conversations/:id/classification-trace` endpoint that queries the new table by `conversation_id` and returns the decision history.
+
+**4. Edge Cases & Gotchas:**
+*   The `classification_traces` table could grow very large; consider the performance impact of writing on every classification.
+*   Ensure the new admin endpoint is protected by the same authentication middleware as other admin routes.
+*   The acceptance criteria require logging "tie-break reasons." The classifier logic must be explicit about how it chooses a winner when scores are close and log this rationale.
+*   The structure of the JSON log should be considered stable, as changes could break the new admin endpoint or any downstream analysis.
+
+
+## Iteration 2 - Mon, Mar 23, 2026 (Attempt 2)
+Story: US-122 - Build intent classification decision tracer logging top-3 candidates with confidence breakdown
+
+### What was implemented
+The previous iteration had fully implemented all code but failed the diagnosis-block gate. This attempt verified the existing implementation is complete and working.
+
+### Files in place from previous iteration
+- `src/assistant/classification-tracer.ts` — core tracer: buildClassificationTrace, recordClassificationTrace, getClassificationTraces (in-memory circular buffer)
+- `src/routes/admin/classification-traces.ts` — admin API: GET /admin/conversations/:id/classification-trace
+- `src/assistant/__tests__/classification-tracer.test.ts` — 17 unit tests
+- `src/routes/admin/__tests__/classification-traces.test.ts` — 10 integration tests
+- Router registered in `src/routes/admin/index.ts`
+
+### Quality checks passed
+- 27/27 tests pass
+- Build succeeds (esbuild, 2.2mb)
+- Server starts successfully
+- All AC met
+
+### Gotchas
+- Story was `passes: false` only due to diagnosis-block gate (attempt 1 skipped it)
+- Implementation was already complete and correct from the previous SPIRAL iteration
