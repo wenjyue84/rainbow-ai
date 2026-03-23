@@ -582,3 +582,47 @@ This brief outlines the implementation plan for validating knowledge base conten
 ## Iteration 1 - Mon, Mar 23, 2026  7:40:08 PM
 FAILED diagnosis-block gate: Knowledge Base Content Validator with Profile Isolation Enforcement (ID: US-223) — no diagnosis block found — attempt 3/3
 
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js project, not Frappe/Python. The request to implement the user story in Frappe is incorrect based on the provided project context and story details.
+
+Here is the technical brief for implementing "US-223" in the existing TypeScript codebase:
+
+**Project:** `rainbow-ai` (Node.js/TypeScript)
+**User Story:** US-223 - Knowledge Base Content Validator
+
+### 1. Files to Create/Modify
+
+*   **Create:** `src/lib/validate-knowledge-base.ts`
+    *   This new file will contain the core validation logic.
+*   **Modify:** `src/server.ts` or `src/main.ts` (or equivalent application entry point)
+    *   The primary server startup file needs to be modified to import and execute the validator before the application begins serving requests.
+
+### 2. Key Components & Hooks
+
+*   **Application Hook:** The validation function will be hooked into the server's startup/bootstrap sequence. It must run and pass before `app.listen()` is called.
+*   **Data Sources:** The validator will target multiple JSON files, likely following a pattern like `.rainbow-kb-<profile_name>/knowledge.json` or a similar convention.
+
+### 3. Recommended Implementation Approach
+
+1.  **Create `src/lib/validate-knowledge-base.ts`:**
+    *   Define an async function `validateKnowledgeBases()`.
+    *   Use a glob pattern (e.g., `glob('**/knowledge.json', { ignore: 'node_modules/**' })`) to find all knowledge base files.
+    *   Define an array of forbidden "Pelangi" terms: `['hostel', 'check-in', 'room_type', 'capsule']`.
+2.  **Implement Validation Logic:**
+    *   For each file found, read and parse the JSON content.
+    *   Iterate through each entry in the JSON array.
+    *   **Critical Check:** Verify the `profile_id` field exists. If not, throw an exception with a clear error message to halt startup.
+    *   **Field Validation:** Check for the presence of `id`, `intent`, and `response`. Ensure `response` is a string longer than 5 characters. Log non-critical warnings for failures.
+    *   **Contamination Check:** If the file path indicates a non-Pelangi profile (e.g., `makan`, `southern`), use a regex to search for the forbidden Pelangi terms within the `response` field. Log a detailed warning if any are found.
+3.  **Integrate into Startup:**
+    *   In `src/server.ts` (or main entry point), `import` the `validateKnowledgeBases` function.
+    *   Call and `await` the function at the top of the main async startup block, wrapping it in a `try...catch` to manage the potential critical failure.
+
+### 4. Edge Cases & Gotchas
+
+*   **Asynchronous Execution:** The server's main function must be `async` and properly `await` the validation to ensure it completes before the server starts listening for traffic.
+*   **Robust Pathing:** The logic to determine a file's profile (e.g., "makan" from `.rainbow-kb-makan`) should be resilient and not hardcoded to specific absolute paths.
+*   **Malformed JSON:** Wrap `JSON.parse()` in a `try...catch` to prevent a single broken file from crashing the entire validation process without a clear error indicating which file is corrupt.
+*   **False Positives:** Simple string matching for contamination can be brittle. Use case-insensitive regular expressions with word boundaries (e.g., `/\b(hostel|check-in)\b/i`) to improve accuracy.
+
