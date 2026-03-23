@@ -47,25 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-207",
-      "title": "Add intent classification hard-case queue for manual product review",
-      "priority": "high",
-      "description": "Create admin endpoint to flag and review conversations with ambiguous intent classifications (low confidence, multiple similar candidates). Helps product team identify patterns in misclassifications and improve training data.",
-      "acceptanceCriteria": [
-        "POST /admin/api/intent-hard-cases endpoint in src/routes/admin/intent-analytics.ts accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table",
-        "GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown",
-        "Unit test in src/assistant/__tests__/intent-analytics.test.ts asserts hard-case queue contains >5 items from confusion matrix output with confidence < 0.75"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T09:41:24Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
       "id": "US-208",
       "title": "Implement conversation message relevance scorer to prune stale context",
       "priority": "high",
@@ -78,9 +59,11 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T10:03:21Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-209",
@@ -98,24 +81,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
-    },
-    {
-      "id": "US-210",
-      "title": "Add profile-specific keyword contamination blocker at startup validation",
-      "priority": "high",
-      "description": "Validate at startup that each profile's intent-keywords.json contains only business-relevant keywords. Block hostel keywords in data-makan, cafe keywords in data-southern. Fail startup with remediation steps if contamination detected.",
-      "acceptanceCriteria": [
-        "New module src/lib/startup-validators/profile-keyword-validator.ts: for data-makan, error on keywords containing ['hostel', 'pelangi', 'capsule', 'check-in']; for data-southern, error on ['cafe', 'makan', 'menu', 'order']",
-        "On violation: log error to stdout listing contaminated keywords with remediation 'Remove {keyword} from src/assistant/data/{profile}/intent-keywords.json and rebuild'",
-        "Test in src/__tests__/startup-validators/profile-keyword.test.ts: importing data-southern with 'cafe' keyword throws error; importing clean profile succeeds"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T09:47:43.111Z"
     },
     {
       "id": "US-212",
@@ -305,24 +270,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-232",
-      "title": "Confidence-Based Response Routing with Escalation Suggestions",
-      "priority": "high",
-      "description": "Route AI responses based on intent classification confidence scores: escalate low-confidence queries to staff, use inquiry template for moderate confidence, return AI response only for high confidence.",
-      "acceptanceCriteria": [
-        "Add evaluateResponseConfidence() function in src/assistant/pipeline/fallback.ts with 3 confidence bands: <0.35 (escalate to staff), 0.35-0.60 (polite inquiry), >0.60 (AI response)",
-        "Create src/assistant/data/escalation-templates-{profile}.json with profile-specific escalation messages per intent type (e.g., 'booking.inquiry' → 'Let me connect you with our team...')",
-        "Test src/__tests__/confidence-routing.test.ts with 3 scenarios asserting confidence 0.25 returns escalation template with staff WhatsApp contact, confidence 0.50 returns inquiry template, confidence 0.75 returns AI response"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T09:47:43.118Z"
-    },
-    {
       "id": "US-233",
       "title": "Startup Profile Data Isolation Enforcement with Cross-Profile Keyword Blocker",
       "priority": "high",
@@ -408,14 +355,14 @@
       "model": "sonnet"
     },
     {
-      "id": "US-240",
-      "title": "Booking Payment Confirmation Validator",
-      "priority": "medium",
-      "description": "Add new booking workflow step to validate payment confirmation before finalizing reservation. Prevents booking without verified payment transaction.",
+      "id": "US-244",
+      "title": "Booking Intent Keyword Coverage Gap Analyzer CLI",
+      "priority": "high",
+      "description": "Create a CLI tool that analyzes intent-keywords.json across all three profiles (pelangi, makan, southern) to identify booking-related keywords with uneven coverage. Generates a coverage report showing which booking/inquiry keywords appear in only one or two profiles versus all three, helping identify gaps that could cause classification failures.",
       "acceptanceCriteria": [
-        "New workflow step `payment_confirmation` added to `src/assistant/data/workflows.json` with inputs for transaction_id and outputs for payment_status (success/failed/pending)",
-        "Function `validatePaymentConfirmation(transactionId: string)` in `src/assistant/workflows/booking-payment-validator.ts` returns boolean and error message on failure",
-        "Unit tests in `tests/booking-payment-validator.test.ts` cover success case (payment confirmed), failure case (payment declined), and timeout case (payment pending)"
+        "CLI command npm run analyze:keyword-coverage outputs JSON report with keyword-to-profile mapping and identifies booking intents with <5 keywords in any single profile",
+        "Report includes per-profile keyword counts and suggests which profiles should adopt missing keywords based on business similarity",
+        "Fails CI with exit code 1 if any profile has booking or inquiry intent with zero keywords"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -425,31 +372,65 @@
       "model": "haiku"
     },
     {
-      "id": "US-241",
-      "title": "Conversation Message Deduplication Filter",
-      "priority": "medium",
-      "description": "Filter out duplicate or near-duplicate messages from conversation context before AI inference, reducing token usage and context noise for improved response quality.",
+      "id": "US-245",
+      "title": "Conversation Turn-by-Turn Confidence Scorer",
+      "priority": "high",
+      "description": "Enhance rainbow_conversations table to store per-turn confidence scores and intent classification metadata for each message turn. Records the classified intent, confidence percentage, whether a fallback was used, and token count. Provides analytics endpoint to visualize confidence trends and identify when context quality degrades across multi-turn dialogues.",
       "acceptanceCriteria": [
-        "Function `deduplicateMessages(messages: Message[]): Message[]` in `src/assistant/pipeline/context-deduplicator.ts` uses similarity matching (>85% threshold) to identify duplicates, keeps first occurrence",
-        "Integration test in `tests/context-deduplicator.test.ts` shows conversation with 'What time check-in?' appearing 3 times results in only 1 message in deduplicated output",
-        "Logs deduplication metrics (removed_count, estimated_tokens_saved) to conversation trace for monitoring effectiveness"
+        "Add turn_metadata JSONB column to rainbow_conversations storing [{turn_num, intent, confidence, fallback_used, tokens}] array updated on each message",
+        "POST /admin/api/analytics/conversation/:id/confidence-trend returns per-turn metrics showing confidence scores and intent names in chronological order",
+        "Update classifyIntent() to record confidence scores and set fallback_used=true when confidence <0.6 threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-246",
+      "title": "Audit Makan Moments profile data files for Pelangi Capsule keyword contamination with fix suggestions",
+      "priority": "high",
+      "description": "Scan Makan Moments knowledge.json, routing.json, and intent-keywords.json for hostel-specific keywords (room, guest, check-in, checkout, booking confirmation) that indicate cross-profile contamination. Generate audit report with line numbers and suggest cafe-appropriate replacements.",
+      "acceptanceCriteria": [
+        "Create scripts/audit-profile-contamination.sh that scans src/assistant/data/data-makan/ files for hostel keywords and outputs CSV report with filename, line_number, contaminated_term, suggested_replacement",
+        "Script returns exit code 1 if any hostel keywords found in Makan Moments profile, 0 if clean",
+        "Add integration test in src/assistant/__tests__/profile-contamination.test.ts that runs audit on Makan Moments and Southern Homestay profiles with assertions for zero hostel keywords in Makan profile"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
     },
     {
-      "id": "US-242",
-      "title": "Fallback Response Effectiveness Analytics Dashboard",
-      "priority": "medium",
-      "description": "Create admin API endpoint tracking which fallback responses successfully resolve conversations vs. which result in escalation, enabling data-driven fallback improvements.",
+      "id": "US-247",
+      "title": "Build intent classification confidence baseline tracker with per-profile regression detection",
+      "priority": "high",
+      "description": "Create database table and admin endpoints to track intent classification confidence baselines per profile. Automatically detect accuracy regressions and alert product team when confidence drops >5% below baseline for any intent.",
       "acceptanceCriteria": [
-        "Endpoint `GET /admin/analytics/fallback-effectiveness/:profileName` in `src/routes/admin/fallback-analytics.ts` returns JSON with fallback_id, usage_count, escalation_count, escalation_rate, avg_resolution_time_ms",
-        "Query parameters support date_from (ISO), date_to (ISO), and optional intent_filter to scope results by intent type (booking/inquiry/other)",
-        "Test in `tests/fallback-analytics.test.ts` verifies correct escalation_rate calculation (escalated / total) and validates parameter filtering with known test data"
+        "Add intent_accuracy_baseline table to schema: {profile, intent, mean_confidence, min_confidence, threshold, last_updated}. Create migration and add to src/assistant/schemas.ts Zod definitions",
+        "Implement computeIntentBaseline(profile, intent, recentPredictions[]) function that calculates mean/percentile confidence and stores in baseline table",
+        "Add GET /admin/api/intent-accuracy/baselines?profile=X endpoint returning sorted list of intents with current confidence vs baseline, highlighting any regressions >5% in red"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-248",
+      "title": "Create profile-specific intent keyword isolation test suite with cross-contamination assertions",
+      "priority": "high",
+      "description": "Build comprehensive test suite that validates profile intent keyword separation and prevents regression. Ensure Makan Moments keywords contain only cafe-related terms, Southern Homestay contains only homestay terms, with zero overlap.",
+      "acceptanceCriteria": [
+        "Create src/assistant/__tests__/profile-keyword-isolation.test.ts with test('Makan Moments keywords contain no hostel terms') using blocklist: [room, guest, check-in, checkout, booking, amenity]",
+        "Add test('Southern Homestay keywords contain no cafe terms') using blocklist: [menu, promotion, order, recipe, table, reservation]",
+        "Add test('zero keyword overlap between profiles') asserting Set intersection of all profile keyword arrays is empty"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -459,21 +440,38 @@
       "model": "haiku"
     },
     {
-      "id": "US-243",
-      "title": "Booking Workflow Dry-Run Simulator",
+      "id": "US-249",
+      "title": "Implement booking workflow step execution time profiler endpoint with bottleneck identification",
       "priority": "medium",
-      "description": "Allow admins and developers to simulate complete booking workflow execution without committing to database, enabling safe testing of workflow changes.",
+      "description": "Create admin endpoint that tracks execution time for each booking workflow step and identifies performance bottlenecks. Enable product team to optimize slow steps and understand booking workflow reliability at step level.",
       "acceptanceCriteria": [
-        "Admin endpoint `POST /admin/booking/simulate` in `src/routes/admin/booking-simulator.ts` accepts guest_data (name/email/dates/rooms) and runs workflow_id through execution engine without database writes",
-        "Returns detailed execution trace: step_name, step_status (pass/fail), output_data, duration_ms for each workflow step, plus final summary with would-be reservation details",
-        "Integration test in `tests/booking-simulator.test.ts` simulates 3-step booking (validate_payment -> check_availability -> create_reservation) and verifies no rows inserted in database tables"
+        "Add GET /admin/api/workflows/:profile/step-metrics endpoint that returns [{step_name, avg_duration_ms, p95_ms, p99_ms, call_count, failure_count}] for last 500 workflow executions",
+        "Modify workflow step executor in src/assistant/pipeline/workflow-executor.ts to record start/end timestamps and store in metrics table: workflow_step_metrics(step_name, duration_ms, profile, created_at)",
+        "Add unit tests in src/assistant/__tests__/workflow-metrics.test.ts verifying metric aggregation, percentile calculation, and profile isolation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-250",
+      "title": "Implement booking cancellation fallback workflow with refund calculation and formatted response",
+      "priority": "medium",
+      "description": "Add booking cancellation recovery step to workflows.json with automatic refund calculation based on cancellation policy. Return formatted guest message with refund amount, applicable restrictions, and next steps.",
+      "acceptanceCriteria": [
+        "Add cancellation-fallback step to src/assistant/data/workflows.json triggered on booking_cancelled intent, with config: {step_type: 'calculate_refund', refund_policy_ref: 'settings.refund_policies'}",
+        "Implement calculateRefund(booking: Booking, policy: CancellationPolicy) function in src/assistant/lib/booking-utils.ts returning {refund_amount, refund_type: 'full'|'partial'|'credit', message: string}",
+        "Add unit tests for refund scenarios: full_refund_within_7_days, partial_50pct_within_30_days, no_refund_past_30_days, store_credit_alternative"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -743,6 +741,61 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-207",
+      "title": "Add intent classification hard-case queue for manual product review",
+      "priority": "high",
+      "description": "Create admin endpoint to flag and review conversations with ambiguous intent classifications (low confidence, multiple similar candidates). Helps product team identify patterns in misclassifications and improve training data.",
+      "acceptanceCriteria": [
+        "POST /admin/api/intent-hard-cases endpoint in src/routes/admin/intent-analytics.ts accepts {conversationId, intentId, confidence, reason} and stores to intent_hard_cases table",
+        "GET /admin/api/intent-hard-cases?profile=data-pelangi&limit=50 returns cases grouped by predicted intent with top-3 candidate intents and confidence breakdown",
+        "Unit test in src/assistant/__tests__/intent-analytics.test.ts asserts hard-case queue contains >5 items from confusion matrix output with confidence < 0.75"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:41:24Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+    },
+    {
+      "id": "US-210",
+      "title": "Add profile-specific keyword contamination blocker at startup validation",
+      "priority": "high",
+      "description": "Validate at startup that each profile's intent-keywords.json contains only business-relevant keywords. Block hostel keywords in data-makan, cafe keywords in data-southern. Fail startup with remediation steps if contamination detected.",
+      "acceptanceCriteria": [
+        "New module src/lib/startup-validators/profile-keyword-validator.ts: for data-makan, error on keywords containing ['hostel', 'pelangi', 'capsule', 'check-in']; for data-southern, error on ['cafe', 'makan', 'menu', 'order']",
+        "On violation: log error to stdout listing contaminated keywords with remediation 'Remove {keyword} from src/assistant/data/{profile}/intent-keywords.json and rebuild'",
+        "Test in src/__tests__/startup-validators/profile-keyword.test.ts: importing data-southern with 'cafe' keyword throws error; importing clean profile succeeds"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:47:43.111Z"
+    },
+    {
+      "id": "US-232",
+      "title": "Confidence-Based Response Routing with Escalation Suggestions",
+      "priority": "high",
+      "description": "Route AI responses based on intent classification confidence scores: escalate low-confidence queries to staff, use inquiry template for moderate confidence, return AI response only for high confidence.",
+      "acceptanceCriteria": [
+        "Add evaluateResponseConfidence() function in src/assistant/pipeline/fallback.ts with 3 confidence bands: <0.35 (escalate to staff), 0.35-0.60 (polite inquiry), >0.60 (AI response)",
+        "Create src/assistant/data/escalation-templates-{profile}.json with profile-specific escalation messages per intent type (e.g., 'booking.inquiry' → 'Let me connect you with our team...')",
+        "Test src/__tests__/confidence-routing.test.ts with 3 scenarios asserting confidence 0.25 returns escalation template with staff WhatsApp contact, confidence 0.50 returns inquiry template, confidence 0.75 returns AI response"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T09:47:43.118Z"
     },
     {
       "id": "US-203",
@@ -2080,6 +2133,23 @@
         "module-src"
       ],
       "epicId": "E-6"
+    },
+    {
+      "id": "US-241",
+      "title": "Conversation Message Deduplication Filter",
+      "priority": "medium",
+      "description": "Filter out duplicate or near-duplicate messages from conversation context before AI inference, reducing token usage and context noise for improved response quality.",
+      "acceptanceCriteria": [
+        "Function `deduplicateMessages(messages: Message[]): Message[]` in `src/assistant/pipeline/context-deduplicator.ts` uses similarity matching (>85% threshold) to identify duplicates, keeps first occurrence",
+        "Integration test in `tests/context-deduplicator.test.ts` shows conversation with 'What time check-in?' appearing 3 times results in only 1 message in deduplicated output",
+        "Logs deduplication metrics (removed_count, estimated_tokens_saved) to conversation trace for monitoring effectiveness"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-007",

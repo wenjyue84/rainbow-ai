@@ -1832,3 +1832,65 @@ This user story focuses on adding robust error handling to the booking workflow 
 ## Iteration 1 - Mon Mar 23 18:06:09 MPST 2026
 FAILED diagnosis-block gate: Implement conversation message relevance scorer to prune stale context (ID: US-208) — no diagnosis block found — attempt 4/3
 
+
+## Pre-analysis for US-209 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-209: Booking Workflow Error Recovery**
+
+This user story describes a feature for a TypeScript/Node.js application, not a Frappe/Python one. The implementation should be guided by the file paths and technologies mentioned in the acceptance criteria.
+
+**1. Python Files to Modify (Translated to TypeScript):**
+*   `src/assistant/pipeline/workflow-executor.ts`: Main file to house the core error handling logic.
+*   `src/assistant/__tests__/workflow-error-handling.test.ts`: New file for testing the implementation.
+*   `src/assistant/data/{profile}/fallback-recovery.json`: Data file (one per profile) for storing error messages.
+
+**2. Frappe DocTypes/Hooks Involved (Translated to Node.js Components):**
+*   No Frappe DocTypes are involved. The key components are:
+*   The `executeWorkflowStep()` function signature and implementation.
+*   A new data-loading module to read profile-specific `fallback-recovery.json` files.
+*   A database interface/service to log errors to the `booking_step_errors` table.
+
+**3. Recommended Implementation Approach:**
+1.  Modify `executeWorkflowStep()` to return a `Promise<{success: boolean, error?: {code: string, message: string}}>`.
+2.  Wrap the existing logic within a `try/catch` block.
+3.  On success, return `{ success: true }`.
+4.  In the `catch` block, determine an `error_code` from the exception.
+5.  Load the recovery message from the JSON file corresponding to the active profile and `error_code`.
+6.  Asynchronously write the `step_id`, `error_code`, and `profile` to the `booking_step_errors` table.
+7.  Return `{ success: false, error: { code: ..., message: ... } }` to the caller.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure a generic fallback message is used if an `error_code` is not found in the recovery JSON.
+*   The database logging operation should itself be wrapped in a `try/catch` to prevent its failure from stopping the user-facing recovery message.
+*   Handle missing `fallback-recovery.json` files gracefully for a given profile.
+*   The mechanism for identifying the `profile` context within the executor must be robust.
+
+
+## Pre-analysis for US-209 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for the implementation in the existing TypeScript codebase:
+
+**1. Files to Modify:**
+*   `src/assistant/pipeline/workflow-executor.ts`: Main implementation file for error handling.
+*   `src/assistant/data/{profile}/fallback-recovery.json`: New JSON files for storing error messages (one per profile).
+*   `src/assistant/__tests__/workflow-error-handling.test.ts`: New test file for validation.
+*   A database service/repository file (e.g., `src/services/db.ts` or similar) might be needed to log errors.
+
+**2. Involved DocTypes/Hooks (Conceptual Equivalents):**
+*   **Workflow Logic:** The core changes are in the `executeWorkflowStep()` function.
+*   **Data Source:** Recovery messages will be loaded from new `fallback-recovery.json` files.
+*   **Database Table:** `booking_step_errors` for logging.
+
+**3. Implementation Approach:**
+1.  In `workflow-executor.ts`, modify `executeWorkflowStep()` to return a `Promise<{success: boolean; error?: {code: string; message: string;};}>`.
+2.  Wrap the existing logic within `executeWorkflowStep()` in a `try-catch` block.
+3.  On success, return `{ success: true }`.
+4.  In the `catch` block, map the internal error to a specific `errorCode` (e.g., 'payment_failed').
+5.  Create a utility to read `src/assistant/data/{profile}/fallback-recovery.json`, find the message for the `errorCode`, and return it.
+6.  Log the `step_id`, `error_code`, and `profile` to the `booking_step_errors` table.
+7.  Return `{ success: false, error: { code: errorCode, message: recoveryMessage } }`.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure there's a default recovery message if an error code is not found in the JSON file.
+*   The system must gracefully handle missing `fallback-recovery.json` files for a given profile.
+*   Error logging should not block the user-facing recovery flow; consider logging asynchronously.
+*   The error mapping logic needs to be robust to prevent unhandled exceptions from crashing the process.
+
