@@ -1620,3 +1620,43 @@ Here is the technical brief for implementing the user story.
 *   **Read Operations:** The dry-run will still perform read operations against the database. Ensure the test data is comprehensive enough to yield a realistic simulation.
 *   **Permissions:** This is an admin debugging endpoint. Ensure it is protected by appropriate authentication and authorization middleware.
 
+
+## Iteration [current] - Story: Booking Workflow Step Execution Dry-Run Endpoint (US-290)
+
+### What was implemented
+- Modified existing `src/routes/admin/workflows.ts` to add the `POST /admin/debug/profile/:profile/workflow-dry-run` endpoint
+- Fixed profile resolution logic to use `profileRegistry.getProfile()` instead of non-existent `configStore.getConfigStore()`
+- Endpoint accepts `{workflowId, testRequest, language}` in request body
+- Supports both node-based and legacy step-based workflows via `isNodeBasedWorkflow()` detection
+- Returns JSON response with {workflowId, steps, totalDurationMs, successCount, errorCount, skippedCount, summary}
+- Each step in response includes {stepId, stepName, output, status, durationMs, errorDetails}
+- Error details contain {preconditionViolations[], message, actionableFix} as per AC3
+- All 11 unit tests in `src/routes/admin/__tests__/workflows.test.ts` passing
+
+### Acceptance Criteria Met
+1. ✓ AC1: POST /admin/debug/profile/:profile/workflow-dry-run endpoint in workflows.ts accepts test booking request
+2. ✓ AC2: Executes each step/node, returns {stepId, output, status, durationMs} array without DB writes
+3. ✓ AC3: Error details include precondition violations and actionable fix suggestions
+
+### Patterns discovered
+- Existing workflows.ts already had most of the implementation - just needed profile resolution fix
+- Node-based workflows tracked via `isNodeBasedWorkflow()` helper that checks workflow structure
+- Response format includes aggregate counts (successCount, errorCount, skippedCount) for better observability
+- DryRunStep interface includes stepName field (not in AC but useful for debugging)
+
+### Gotchas
+- configStore singleton doesn't have getConfigStore(profile) method - must use profileRegistry instead
+- Test suite is comprehensive with 11 tests covering precondition validation, node cycles, response format
+
+### Build/Test Status
+- npm run build: ✓ Passed (1 warning about module.exports in logger.ts, pre-existing)
+- npm run test:run (workflows.test.ts): ✓ 11/11 tests passed
+- Server startup: Has pre-existing schema_version issues in intent-keywords.json (unrelated to this story)
+
+### Files Modified
+- src/routes/admin/workflows.ts: Fixed profile resolution logic (2 edits)
+- prd.json: Marked US-290.passes = true
+- progress.txt: This entry
+
+### Commits
+Ready to commit after verification.
