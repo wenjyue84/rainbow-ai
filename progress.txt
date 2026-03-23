@@ -63,3 +63,63 @@ FAILED diagnosis-block gate: Intent Keyword Suggestion Engine from Escalated Con
 ### Gotchas
 - Previous iteration failed because it couldn't find a "diagnosis block" in prd.json — that was a runner-specific check unrelated to the actual implementation.
 - `computeTfIdf` (with capital I) is the existing function name; don't rename it.
+
+## Pre-analysis for US-213 (Gemini 2.5 Pro)
+This is a Node.js/TypeScript project, not Frappe/Python. The user story describes a new CLI command for keyword suggestions.
+
+### Technical Brief: US-213 Keyword Suggestion Engine
+
+**1. Files to Modify/Create:**
+
+*   **`scripts/suggest-keywords.ts` (New File):** This will contain the main script logic, triggered by the `npm` command. It will handle argument parsing (`--profile`, `--days`), database queries, and orchestrating the analysis.
+*   **`package.json`:** Add a new script to the `scripts` section: `"suggest:keywords": "ts-node scripts/suggest-keywords.ts"`. Also, a new dependency for TF-IDF analysis (e.g., `natural` or `node-tfidf`) will be added.
+*   **`src/analysis/tfidf.ts` (New File):** A dedicated module to encapsulate the TF-IDF logic. It will take message texts and intent groupings as input and return scored keywords.
+*   **`src/db/queries.ts` (Modification):** Add a new function to fetch records from the `escalation_queue` table within a specified date range.
+
+**2. Database Tables / Data Sources:**
+
+*   **`escalation_queue` (Read):** The primary data source. The script will read the `message_text` and associated `intent_id` for misclassified conversations.
+*   **`intent_keywords` (Read):** (Assumed table) - The script may need to read existing keywords to avoid suggesting duplicates and to calculate the `current_keyword_count`.
+
+**3. Recommended Implementation Approach:**
+
+1.  Create the new `suggest-keywords.ts` script, using a library like `yargs` for parsing command-line arguments (`profile`, `days`).
+2.  In the script, call a new database query function to fetch escalated messages from the last `N` days.
+3.  Group the fetched messages by their `intent_id`.
+4.  For each intent group, pass the collection of message texts to the new `tfidf.ts` analysis module.
+5.  Inside `tfidf.ts`, implement text cleaning: convert to lowercase, remove punctuation, and filter out a standard list of English stop words (e.g., "the", "a", "is").
+6.  Use a library like `natural` to perform the TF-IDF calculation on the cleaned texts for each intent group.
+7.  From the TF-IDF results, extract the top 2-3 terms with the highest scores for each intent. These are the `suggested_keywords`.
+8.  Format the final results into the specified JSON structure and print to standard output.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Stop Word Filtering:** The effectiveness of TF-IDF heavily relies on a good stop-word list to filter out common, low-value words. This list may need to be customized.
+*   **Multi-language Support:** The current approach assumes English. If messages are in other languages, the text cleaning and stop-word list will need to be language-aware.
+*   **Performance:** Processing 30 days of data could be memory-intensive. The script should process data in streams or chunks if memory becomes an issue.
+*   **Zero Results:** The script should handle cases where no escalated conversations are found for the given period and return an empty or informative message.
+*   **Keyword Quality:** TF-IDF might suggest single letters, numbers, or nonsensical terms. Apply a post-filter to suggestions (e.g., minimum length of 3 characters).
+
+## Iteration 1 - Mon Mar 23 18:37:22 MPST 2026
+FAILED diagnosis-block gate: Intent Keyword Suggestion Engine from Escalated Conversation Analysis (ID: US-213) — no diagnosis block found — attempt 2/3
+
+
+## Iteration N - Story: US-213 Intent Keyword Suggestion Engine
+
+### What was implemented
+- `src/tools/suggest-keywords.ts` — TF-IDF engine: tokenize(), computeTfIdf(), analyzeEscalations(), loadExistingKeywords()
+- `src/tools/suggest-keywords-cli.ts` — CLI entry point (--profile, --days, --json flags)
+- `src/tools/__tests__/suggest-keywords.test.ts` — Test suite (10 tests)
+- `tests/unit/suggest-keywords.test.ts` — Second test suite with schema validation (16 tests)
+- `npm run suggest:keywords` script already registered in package.json
+
+### Fix applied
+- `tokenize()` filtered only pure-digit tokens (`/^\d+$/`), but test expected `'2pm'` (mixed digits+letters) to be excluded too
+- Fixed filter to `/\d/` — excludes any token containing a digit
+
+### Patterns discovered
+- Two test suites exist for same feature: `src/tools/__tests__/` (newer) and `tests/unit/` (older with schema test)
+- vitest project filter by filename only works with `npx vitest run "pattern"`, not `--project unit <file>`
+
+### Gotchas
+- `suggest-keywords.js` (not .ts) import path in test — requires tsx/vitest to handle, won't work with raw node

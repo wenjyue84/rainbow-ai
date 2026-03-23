@@ -89,7 +89,7 @@ export function tokenize(text: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+    .filter(w => w.length >= 3 && !STOP_WORDS.has(w) && !/\d/.test(w));
 }
 
 // ---------------------------------------------------------------------------
