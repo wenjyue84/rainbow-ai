@@ -47,25 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-208",
-      "title": "Implement conversation message relevance scorer to prune stale context",
-      "priority": "high",
-      "description": "Score each message in conversation history for relevance to current intent. Exclude messages with low relevance scores when context window exceeds 8 messages, preventing hallucination from outdated booking requests or old check-in questions.",
-      "acceptanceCriteria": [
-        "Add scoreMessageRelevance(message: ConvMessage, currentIntent: string) function in src/assistant/pipeline/context-manager.ts returning 0-1 relevance score",
-        "When building AI prompt in src/assistant/engine.ts: filter messages where relevanceScore < 0.3 when history.length > 8",
-        "Test in src/assistant/__tests__/context-pruning.test.ts: conversation with old 'extend stay' request should not influence new 'room type question' intent"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T10:03:21Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
       "id": "US-209",
       "title": "Add booking workflow step failure recovery with typed error messages",
       "priority": "high",
@@ -282,7 +263,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -350,7 +331,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -367,7 +348,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -469,6 +450,91 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-251",
+      "title": "Booking Workflow Context Data Validator",
+      "priority": "medium",
+      "description": "Validates that each booking workflow step has all required context data (guest_id, room_type, check_in_date) before execution, preventing silent failures from missing data.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:workflow-context` checks all steps in workflows.json and reports missing required fields per step with actionable error messages",
+        "Unit test assertions verify validator correctly identifies missing guest_id, room_type, check_in_date in test workflow definitions with typed ValidationError exceptions",
+        "Validator integration in booking workflow executor (src/assistant/pipeline/) throws typed ValidationError with step name and missing fields before execution starts"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-252",
+      "title": "Fallback Response Relevance Scorer",
+      "priority": "medium",
+      "description": "Scores how contextually relevant a fallback response is to current conversation intent and history (0-1 scale), enabling selection of better fallbacks when confidence is low.",
+      "acceptanceCriteria": [
+        "Function `scoreRelevance(intent, context, response): number` in src/assistant/fallback-relevance.ts with keyword matching and intent alignment logic returning 0-1",
+        "Test suite in tests/fallback-relevance.test.ts with 10+ test cases covering booking, inquiry, and escalation intents with expected relevance scores",
+        "Admin endpoint GET /admin/fallback/score-relevance returns {score, alternatives} with top-3 alternative responses ranked by relevance for given intent and context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-253",
+      "title": "Intent Classification Training Data Exporter",
+      "priority": "medium",
+      "description": "Exports recent production conversations where predicted_intent ≠ actual_intent in JSONL format for fine-tuning intent classifiers and building training datasets.",
+      "acceptanceCriteria": [
+        "Admin endpoint POST /admin/training-data/export with query params (days, limit, profile) returns JSONL with fields: conversation_id, predicted_intent, actual_intent, confidence, message_history, profile",
+        "Filters to conversations in past N days where predicted_intent differs from actual_intent using rainbow_messages and rainbow_conversations table queries",
+        "JSONL output includes at least 5 representative samples per misclassification type ordered by confidence (lowest first) for meaningful training signal"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-254",
+      "title": "Booking Workflow Conditional Branching Validator",
+      "priority": "medium",
+      "description": "Validates booking workflow step conditionals to ensure all branches have valid outcomes, no unreachable code paths, and conditions are correctly defined.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:workflow-branches` parses workflows.json and validates each conditional step's true/false/fallback branches point to existing step IDs",
+        "Reports unreachable steps (no incoming transitions), circular loops, and invalid branch references with step identifiers and structured error output",
+        "Unit tests verify validator correctly identifies invalid branch definitions, missing step references, and orphaned steps in workflows.json test fixtures"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-255",
+      "title": "Profile Data Version Control Diff Tool",
+      "priority": "low",
+      "description": "Compares data files between profile versions (before/after contamination fixes) showing added/removed/modified entries and flagging contamination patterns.",
+      "acceptanceCriteria": [
+        "CLI command `npm run audit:profile-diff <profile> <v1> <v2>` diffs routing.json, knowledge.json, intent-keywords.json with +/−/~ markers and entry counts",
+        "Diff output groups changes by file and shows JSON key/value before/after for modified entries in human-readable format",
+        "Identifies contamination patterns (e.g., 'pelangi_' keywords in makan profile, hostel intents in cafe profile) and flags with [CONTAMINATION] prefix"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -741,6 +807,25 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-208",
+      "title": "Implement conversation message relevance scorer to prune stale context",
+      "priority": "high",
+      "description": "Score each message in conversation history for relevance to current intent. Exclude messages with low relevance scores when context window exceeds 8 messages, preventing hallucination from outdated booking requests or old check-in questions.",
+      "acceptanceCriteria": [
+        "Add scoreMessageRelevance(message: ConvMessage, currentIntent: string) function in src/assistant/pipeline/context-manager.ts returning 0-1 relevance score",
+        "When building AI prompt in src/assistant/engine.ts: filter messages where relevanceScore < 0.3 when history.length > 8",
+        "Test in src/assistant/__tests__/context-pruning.test.ts: conversation with old 'extend stay' request should not influence new 'room type question' intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T10:03:21Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-207",
