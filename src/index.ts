@@ -26,6 +26,7 @@ import { initSecrets } from './lib/secrets.js';
 import { validateEnvironment } from './lib/env-validator.js';
 import adminRoutes from './routes/admin/index.js';
 import healthRoutes from './routes/health.js';
+import { createUiPageRoutes } from './routes/ui-pages.js';
 import webchatApiRoutes from './routes/public/webchat-api.js';
 import fnbChatRoutes from './routes/public/fnb-chat.js';
 import gdprPortabilityRoutes from './routes/public/gdpr-portability.js';
