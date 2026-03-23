@@ -25,6 +25,7 @@ import { recordConsent, hasConsent } from '../consent.js';
 import { isMarketingConfirmKeyword, isMarketingRevokeKeyword, confirmMarketingOptIn, revokeMarketingConsent } from '../../lib/marketing-optin.js';
 import { detectPromptInjection } from './prompt-injection-guard.js';
 import { detectOffScope, OFF_SCOPE_REDIRECT } from './off-scope-guard.js';
+import { detectTopicDrift, getTopicRefocusPrompt } from './topic-drift-detector.js';
 import { redactPii } from '../pii-redactor.js';
 import { logPromptInjectionEvent } from '../../lib/prompt-injection-logger.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
@@ -642,6 +643,34 @@ export async function validateAndPrepare(
     const messageSentiment = analyzeSentiment(processText);
     trackSentiment(phone, text, messageSentiment);
     console.log(`[Sentiment] ${phone}: ${messageSentiment} (${text.slice(0, 50)}...)`);
+  }
+
+  // ─── US-093: Topic Drift Detector ──────────────────────────────
+  // Detect when user messages diverge from booking/inquiry context,
+  // triggering alternative fallback response strategy.
+  const driftSettings = profileSettings?.topicDriftDetection;
+  if (driftSettings?.enabled !== false) {
+    const driftThreshold = driftSettings?.threshold ?? 0.7;
+    const driftResult = detectTopicDrift(convo.messages, driftThreshold);
+
+    if (driftResult.drifted) {
+      const driftLang = lang as 'en' | 'ms' | 'zh' | 'ta';
+      const refocusMsg = getTopicRefocusPrompt(driftLang);
+
+      console.warn(`[TopicDrift] Detected drift from ${phone}: confidence=${driftResult.confidence.toFixed(2)} > threshold=${driftThreshold.toFixed(2)}`);
+
+      // Log to intent_predictions for audit trail (fire-and-forget)
+      import('../intent-tracker.js').then(({ trackIntentPrediction }) => {
+        trackIntentPrediction(
+          phone, phone, text,
+          'topic_drift', 1.0, 'topic_drift_detector',
+          undefined,
+        );
+      }).catch(() => {});
+
+      await ctx.sendMessage(phone, refocusMsg, msg.instanceId);
+      return { continue: false, reason: 'topic_drift' };
+    }
   }
 
   // Build initial diary event and dev metadata
