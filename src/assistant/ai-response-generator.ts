@@ -61,6 +61,79 @@ export function getUnknownFallbackMessages(store?: ConfigStore): Record<string, 
 
 export const UNKNOWN_FALLBACK_MESSAGES = DEFAULT_FALLBACK_MESSAGES;
 
+// ─── Context-aware fallback response selection ──────────────────────
+// Loads fallback templates from fallback-responses.json and selects based on confidence/history
+
+let cachedFallbackResponses: Record<string, Record<string, string>> | null = null;
+
+/**
+ * Load fallback responses from JSON file (cached)
+ */
+function loadFallbackResponses(): Record<string, Record<string, string>> {
+  if (cachedFallbackResponses) {
+    return cachedFallbackResponses;
+  }
+
+  try {
+    // Dynamically import the fallback-responses JSON
+    const responses = require('./data/fallback-responses.json');
+    cachedFallbackResponses = responses;
+    return responses;
+  } catch (error) {
+    console.warn('[Fallback] Failed to load fallback-responses.json:', error);
+    // Fallback to default messages structure
+    return {
+      first_fallback: { ...DEFAULT_FALLBACK_MESSAGES },
+      repeated_fallback: { ...DEFAULT_FALLBACK_MESSAGES },
+      escalation_offer: { ...DEFAULT_FALLBACK_MESSAGES }
+    };
+  }
+}
+
+/**
+ * Select context-aware fallback response based on confidence score and conversation history.
+ *
+ * Selection logic:
+ * - if confidence < 0.5 and conversationLength < 3: use first_fallback
+ * - else if fallbackCount > 1: use escalation_offer
+ * - else: use repeated_fallback
+ *
+ * @param confidence Intent classification confidence score (0-1)
+ * @param conversationLength Number of message pairs in the conversation
+ * @param fallbackCount Number of fallback responses already given
+ * @param language Preferred language ('en', 'ms', 'zh', 'ta')
+ * @returns {template, escalationFlag} Selected template and escalation indicator
+ */
+export function getFallbackResponse(
+  confidence: number,
+  conversationLength: number,
+  fallbackCount: number,
+  language: string = 'en'
+): { template: string; escalation_flag: boolean } {
+  const responses = loadFallbackResponses();
+  let selectedContext = 'repeated_fallback';
+  let escalationFlag = false;
+
+  // Selection logic based on confidence and conversation state
+  if (confidence < 0.5 && conversationLength < 3) {
+    // Early in conversation with low confidence: gentle first prompt
+    selectedContext = 'first_fallback';
+  } else if (fallbackCount > 1) {
+    // Multiple fallbacks: offer escalation to staff
+    selectedContext = 'escalation_offer';
+    escalationFlag = true;
+  } else {
+    // Normal repeated fallback
+    selectedContext = 'repeated_fallback';
+  }
+
+  // Get the template for the selected context and language
+  const contextTemplates = responses[selectedContext] || responses['repeated_fallback'];
+  const template = contextTemplates[language] || contextTemplates['en'] || DEFAULT_FALLBACK_MESSAGES[language] || DEFAULT_FALLBACK_MESSAGES.en;
+
+  return { template, escalation_flag: escalationFlag };
+}
+
 // ─── Language-aware system prompt injection ─────────────────────────
 
 const LANGUAGE_NAMES: Record<string, string> = {

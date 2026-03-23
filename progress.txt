@@ -1,3 +1,40 @@
+## Iteration [SPIRAL-34] - Story: US-105 Context-Aware Fallback Response Selection
+
+### What was implemented
+- Created `src/assistant/data/fallback-responses.json` with context-aware templates in 4 languages (en, ms, zh, ta)
+  - `first_fallback`: Used for low confidence (< 0.5) in early conversations (< 3 turns) with gentle clarification
+  - `repeated_fallback`: Default for subsequent fallback attempts
+  - `escalation_offer`: Used when fallbackCount > 1 to offer escalation to staff
+- Implemented `getFallbackResponse(confidence, conversationLength, fallbackCount, language)` function in `ai-response-generator.ts`
+  - Returns `{template, escalation_flag}` to prevent infinite fallback loops
+  - Selection logic prioritizes context awareness
+- Added comprehensive test suite in `tests/unit/fallback.test.ts` with 16 tests covering:
+  - First fallback selection (low confidence, early conversation)
+  - Escalation offer selection (multiple fallbacks)
+  - Repeated fallback (default case)
+  - Boundary conditions (confidence=0.5, conversationLength=3, fallbackCount=2)
+  - Language fallback and Tamil support
+  - Return value structure validation
+
+### Patterns discovered
+- JSON files in `src/assistant/data/` are loaded dynamically at runtime
+- The codebase uses require() for JSON imports in ESM modules (works with esbuild)
+- Test files must be in `tests/unit/` directory to be picked up by vitest
+- Import paths from tests use `../../src/` pattern due to directory nesting
+- Language support is consistent across the app: en, ms, zh, ta
+- Escalation flags are critical for preventing infinite loops in fallback handling
+
+### Gotchas
+- Vitest poolOptions deprecation warning in config (pre-existing)
+- Pre-existing merge conflict markers in date-validation.ts don't affect builds
+- Node.js ESM module resolution requires `.js` extensions in import paths
+
+### Quality checks
+✓ All 16 tests pass
+✓ Build completes successfully (esbuild)
+✓ Server starts without errors (npx tsx)
+✓ No new type errors introduced
+
 
 ## Pre-analysis for US-072 (Gemini 2.5 Pro)
 This user story describes a booking cancellation workflow for a TypeScript/Node.js application, not a Frappe/Python app. The file paths (`.ts`, `.json`) and logic are specific to that environment.
@@ -1617,3 +1654,11 @@ FAILED diagnosis-block gate: Build per-profile intent classifier baseline accura
 
 ## Iteration 1 - Mon, Mar 23, 2026  8:55:21 AM
 Incomplete: Build per-profile intent classifier baseline accuracy tracker (ID: US-098) — attempt 2/3
+
+## Pre-analysis for US-105 (Gemini 2.5 Pro)
+This user story is not for a Frappe/Python application.
+
+The acceptance criteria and file paths (`src/assistant/engine.ts`, `tests/fallback.test.ts`, `fallback-responses.json`) clearly indicate a TypeScript/Node.js project. The logic described relates to an AI chatbot's conversational engine, not a payroll integration.
+
+There are no references to Frappe DocTypes, hooks, or Python files. The brief cannot be created as the story is for a different technology stack and application type. Please provide the correct user story for the `lhdn_payroll_integration` app.
+
