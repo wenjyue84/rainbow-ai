@@ -59,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-03-23T11:29:54Z"
@@ -252,40 +252,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-274",
-      "title": "Booking Workflow Room Availability Race Condition Tester",
-      "priority": "high",
-      "description": "Detect and log potential race conditions when multiple guests attempt to book the same room simultaneously, ensuring booking workflow reliability",
-      "acceptanceCriteria": [
-        "New test file tests/integration/booking-race-conditions.test.ts simulates 5 concurrent booking requests for same room and validates isolation",
-        "Function simulateConcurrentBookings(roomId: string, count: number) in src/tools/booking-validator.ts executes parallel workflow steps",
-        "Test asserts: only 1 booking succeeds, others receive 'room unavailable' error, and audit log captures all 5 booking attempts with timestamps"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-275",
-      "title": "Profile Intent Keyword Scope Validator CLI",
-      "priority": "high",
-      "description": "Detect keywords that could potentially match intents across profiles, preventing cross-contamination false positives and enforcing strict profile separation",
-      "acceptanceCriteria": [
-        "CLI command npm run validate:keyword-scope compares intent-keywords.json across all profiles (pelangi, makan, southern), flags overlapping keywords",
-        "New file src/tools/keyword-scope-validator.ts outputs CSV: profile_a,profile_b,keyword,overlap_count,risk_level",
-        "Test asserts: shared keyword 'booking' between makan and pelangi is flagged HIGH risk, and validation runs on startup via src/lib/startup-validation.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-279",
       "title": "Intent Classifier Fallback Chain Configuration Admin Interface",
       "priority": "high",
@@ -316,23 +282,6 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-284",
-      "title": "Booking Workflow Step Output Schema Validator",
-      "priority": "high",
-      "description": "Add runtime validation that booking workflow step outputs conform to expected schema before passing to next step, catching malformed data early and preventing downstream workflow failures.",
-      "acceptanceCriteria": [
-        "Function validateWorkflowStepOutput(stepId, output, profile) in src/assistant/pipeline/booking-executor.ts validates output against schema from workflows.json with detailed error messages",
-        "Validation failures logged to workflow_step_validation_errors table with step_id, expected_schema, actual_output, and timestamp for admin review",
-        "Unit tests in src/assistant/pipeline/__tests__/booking-step-schema.test.ts with 6+ test cases covering valid outputs, missing fields, type mismatches, and null values"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -424,6 +373,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-296",
+      "title": "Booking Workflow Email Confirmation Delivery Test Suite",
+      "priority": "high",
+      "description": "Add unit tests for booking confirmation email generation, language-specific templates, and deduplication to ensure reliability of booking notifications.",
+      "acceptanceCriteria": [
+        "Tests in `src/tests/booking-workflow-email.test.ts` verify email generation step outputs correct recipient, subject, and body for each workflow",
+        "Test assertions validate language-specific templates (en, ms, ta) are selected based on guest language preference from conversation context",
+        "Test verifies no duplicate emails sent when booking workflow retry logic executes the email step multiple times"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-297",
+      "title": "Per-Intent Confidence Threshold Configuration Admin API",
+      "priority": "high",
+      "description": "Allow admins to configure minimum confidence thresholds per intent per profile, enabling profile-specific tuning for improved classification accuracy and reliability.",
+      "acceptanceCriteria": [
+        "Admin API endpoints: GET /api/admin/thresholds/:profile and POST /api/admin/thresholds/:profile/:intent with min_confidence param (0.0-1.0)",
+        "Thresholds persisted in `intent_classification_thresholds` database table; classifyIntent() compares confidence against threshold and returns 'uncertain' if below",
+        "Test assertion in `src/tests/intent-classification.test.ts` verifies booking intent with 0.75 confidence passes 0.7 threshold but fails 0.8 threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-298",
+      "title": "Profile Data File Integrity Validator with Startup Enforcement",
+      "priority": "high",
+      "description": "Validate profile data file checksums at startup to detect corruption or cross-profile contamination, blocking startup with detailed error messages if validation fails.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:profile-integrity` generates SHA256 hashes for each profile's routing.json, intent-keywords.json, knowledge.json, workflows.json; stores in `profile-hashes.json`",
+        "Startup validation in `src/index.ts` compares live hashes against stored hashes; logs error with file name, expected hash, actual hash if mismatch and exits with code 1",
+        "Test in `src/tests/profile-integrity.test.ts` modifies profile JSON (add contaminated keyword), verifies validator detects change and blocks server startup with actionable error"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-293",
       "title": "Implement concurrent intent classification batch inferencing for 20% latency reduction",
       "priority": "medium",
@@ -476,6 +476,40 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-299",
+      "title": "Conversation Context Message TTL Filter for Multi-Turn Dialogs",
+      "priority": "medium",
+      "description": "Filter stale messages from conversation context based on configurable TTL to improve relevance and reduce context drift in multi-turn booking dialogs.",
+      "acceptanceCriteria": [
+        "New config field in `src/assistant/data/settings.json`: conversationContextTtlSeconds (default 3600); function `filterStaleMessages(messages, ttlSec)` removes messages older than TTL",
+        "Test in `src/tests/conversation-context.test.ts` verifies 10-message conversation with 5 messages >2h old filters to 5 recent messages; latest message timestamp preserved",
+        "Filtered context used in classifyIntent() pipeline; test shows booking accuracy improves when old context removed"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-300",
+      "title": "Fallback Response Effectiveness Metric Tracker with Admin Reporting",
+      "priority": "medium",
+      "description": "Track fallback response template effectiveness by measuring escalation-to-resolution rates, surfacing weak templates to admins for improvement prioritization.",
+      "acceptanceCriteria": [
+        "Database table `fallback_response_metrics` stores: profile_id, template_id, escalation_count, resolution_count, timestamp; endpoint GET /api/admin/fallback-analysis/:profile calculates effectiveness ratio per template",
+        "Fallback templates with <60% resolution rate (resolution_count / (escalation_count + resolution_count)) flagged as low-quality in admin response with recommended replacements",
+        "Integration test verifies metrics recorded when fallback returned and escalation followed, then resolution endpoint confirms metric update"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-196",
@@ -745,6 +779,57 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-274",
+      "title": "Booking Workflow Room Availability Race Condition Tester",
+      "priority": "high",
+      "description": "Detect and log potential race conditions when multiple guests attempt to book the same room simultaneously, ensuring booking workflow reliability",
+      "acceptanceCriteria": [
+        "New test file tests/integration/booking-race-conditions.test.ts simulates 5 concurrent booking requests for same room and validates isolation",
+        "Function simulateConcurrentBookings(roomId: string, count: number) in src/tools/booking-validator.ts executes parallel workflow steps",
+        "Test asserts: only 1 booking succeeds, others receive 'room unavailable' error, and audit log captures all 5 booking attempts with timestamps"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-275",
+      "title": "Profile Intent Keyword Scope Validator CLI",
+      "priority": "high",
+      "description": "Detect keywords that could potentially match intents across profiles, preventing cross-contamination false positives and enforcing strict profile separation",
+      "acceptanceCriteria": [
+        "CLI command npm run validate:keyword-scope compares intent-keywords.json across all profiles (pelangi, makan, southern), flags overlapping keywords",
+        "New file src/tools/keyword-scope-validator.ts outputs CSV: profile_a,profile_b,keyword,overlap_count,risk_level",
+        "Test asserts: shared keyword 'booking' between makan and pelangi is flagged HIGH risk, and validation runs on startup via src/lib/startup-validation.ts"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-284",
+      "title": "Booking Workflow Step Output Schema Validator",
+      "priority": "high",
+      "description": "Add runtime validation that booking workflow step outputs conform to expected schema before passing to next step, catching malformed data early and preventing downstream workflow failures.",
+      "acceptanceCriteria": [
+        "Function validateWorkflowStepOutput(stepId, output, profile) in src/assistant/pipeline/booking-executor.ts validates output against schema from workflows.json with detailed error messages",
+        "Validation failures logged to workflow_step_validation_errors table with step_id, expected_schema, actual_output, and timestamp for admin review",
+        "Unit tests in src/assistant/pipeline/__tests__/booking-step-schema.test.ts with 6+ test cases covering valid outputs, missing fields, type mismatches, and null values"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-217",
