@@ -1087,6 +1087,7 @@ FAILED quality gates: Profile Isolation Violations Auto-Repair Tool (ID: US-238)
 AUTO-DECOMPOSED: US-238 at retry 2 (threshold 2) → US-343,US-344,US-345
 
 
+<<<<<<< Updated upstream
 ## Iteration 8 - Story: Intent Classification Confidence Baseline Tracker (US-247) — PASSED
 
 ### What was implemented
@@ -1211,3 +1212,21 @@ All code was already in place from prior iterations — this was a verification 
 ### Gotchas
 - Previous attempt failed due to DIAGNOSIS_BLOCK_MISSING runner gate — needed to output diagnosis block before any file edits
 - Code was fully implemented but passes field was never set to true
+=======
+>>>>>>> Stashed changes
+
+## Iteration 9 - Story: Booking Workflow Step Context Isolation Test Suite (US-256) — PASSED
+
+### What was implemented
+- Created `src/assistant/__tests__/booking-context-isolation.test.ts` with 15 passing tests
+- Tests cover: concurrent booking state isolation, booking state mutation isolation (dates, guests, stage transitions, cancellation), message history isolation, clear state isolation, profile-scoped isolation (pelangi vs southern), full multi-step booking flow isolation, workflow vs booking state isolation
+
+### Patterns discovered
+- Conversation state is keyed by `convoKey(phone, profileId)` — pelangi defaults to phone-only key
+- `StateManager` provides automatic TTL, cleanup, and lastActiveAt tracking
+- The acceptance criteria references `booking-handler.ts` which doesn't exist; booking state mutations are in `conversation.ts` (updateBookingState, clearConversation, etc.) and types in `types.ts` (BookingState)
+- Mocking `state-persistence.js`, `intent-config.js`, `invariant.js`, and `db.js` is sufficient to test conversation logic in isolation
+
+### Gotchas
+- Must output diagnosis block as plain text BEFORE any file modifications (runner gate)
+- The `clearConversation` function deletes the key entirely, so `getOrCreate` will create fresh state after clearing

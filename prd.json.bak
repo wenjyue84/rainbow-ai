@@ -47,57 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-237",
-      "title": "Multi-Turn Booking Clarification Dialog Manager",
-      "priority": "high",
-      "description": "Guide ambiguous booking intents through a multi-turn conversational dialog that asks specific follow-up questions (dates, room type, guest count) before booking confirmation",
-      "acceptanceCriteria": [
-        "Create src/assistant/dialogs/booking-clarification-dialog.ts with state machine (states: need_dates, need_room_type, need_guest_count, ready_confirm)",
-        "Store clarification state in rainbow_conversations table as clarification_state and clarification_data JSON; test that a low-confidence booking intent triggers clarification flow with appropriate follow-up questions",
-        "Integration test: verify full clarification dialog flow (guest message 'book' → ask dates → guest responds → ask room type → confirm) results in valid booking confirmation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-238",
-      "title": "Profile Isolation Violations Auto-Repair Tool",
-      "priority": "high",
-      "description": "Detect and automatically repair data contamination that violates profile isolation rules, preventing cross-profile data leakage",
-      "acceptanceCriteria": [
-        "Create CLI command npm run repair-profile-isolation that detects violations: guests with multi-profile references, intent keywords in wrong profiles, routing.json intent routes to foreign workflows",
-        "For each violation, generate suggestion (delete cross-profile data, reassign to correct profile, or flag for manual review); apply fix and log to profile_isolation_repairs table",
-        "Output JSON report with: violations_found, repairs_applied, repairs_flagged, before/after data counts per profile, timestamp"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-245",
-      "title": "Conversation Turn-by-Turn Confidence Scorer",
-      "priority": "high",
-      "description": "Enhance rainbow_conversations table to store per-turn confidence scores and intent classification metadata for each message turn. Records the classified intent, confidence percentage, whether a fallback was used, and token count. Provides analytics endpoint to visualize confidence trends and identify when context quality degrades across multi-turn dialogues.",
-      "acceptanceCriteria": [
-        "Add turn_metadata JSONB column to rainbow_conversations storing [{turn_num, intent, confidence, fallback_used, tokens}] array updated on each message",
-        "POST /admin/api/analytics/conversation/:id/confidence-trend returns per-turn metrics showing confidence scores and intent names in chronological order",
-        "Update classifyIntent() to record confidence scores and set fallback_used=true when confidence <0.6 threshold"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-247",
       "title": "Build intent classification confidence baseline tracker with per-profile regression detection",
       "priority": "high",
@@ -112,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T17:29:21Z"
     },
     {
       "id": "US-256",
@@ -214,40 +164,6 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-296",
-      "title": "Booking Workflow Email Confirmation Delivery Test Suite",
-      "priority": "high",
-      "description": "Add unit tests for booking confirmation email generation, language-specific templates, and deduplication to ensure reliability of booking notifications.",
-      "acceptanceCriteria": [
-        "Tests in `src/tests/booking-workflow-email.test.ts` verify email generation step outputs correct recipient, subject, and body for each workflow",
-        "Test assertions validate language-specific templates (en, ms, ta) are selected based on guest language preference from conversation context",
-        "Test verifies no duplicate emails sent when booking workflow retry logic executes the email step multiple times"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-298",
-      "title": "Profile Data File Integrity Validator with Startup Enforcement",
-      "priority": "high",
-      "description": "Validate profile data file checksums at startup to detect corruption or cross-profile contamination, blocking startup with detailed error messages if validation fails.",
-      "acceptanceCriteria": [
-        "CLI command `npm run validate:profile-integrity` generates SHA256 hashes for each profile's routing.json, intent-keywords.json, knowledge.json, workflows.json; stores in `profile-hashes.json`",
-        "Startup validation in `src/index.ts` compares live hashes against stored hashes; logs error with file name, expected hash, actual hash if mismatch and exits with code 1",
-        "Test in `src/tests/profile-integrity.test.ts` modifies profile JSON (add contaminated keyword), verifies validator detects change and blocks server startup with actionable error"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -371,23 +287,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-332",
-      "title": "Intent Routing Table Cross-Profile Contamination Validator CLI",
-      "priority": "high",
-      "description": "Validate that each intent in routing.json maps only to handlers from the same profile. Catches cross-profile contamination in routing configuration before deployment.",
-      "acceptanceCriteria": [
-        "CLI: npm run validate:routing-conflicts --profile=pelangi returns structured JSON list of violations with file locations",
-        "New file src/cli/routingConflictValidator.ts parses routing.json and validates handler ownership against profile",
-        "Output includes violations like: {intent: 'booking', profile: 'pelangi', handler: 'southern_booking_handler', file: 'src/assistant/data/routing.json', line: 42}"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-333",
       "title": "Booking Workflow Failure Recovery Queue with Staff Review Endpoint",
       "priority": "high",
@@ -400,23 +299,6 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-337",
-      "title": "Makan Moments Knowledge Base Pelangi Content Removal Tool",
-      "priority": "high",
-      "description": "CLI tool to identify and remove Pelangi Capsule-specific content (hostel terminology, room types, pricing) from data-makan/knowledge.json, preserving cafe-specific content (menu items, promotions, operating hours).",
-      "acceptanceCriteria": [
-        "CLI command 'npm run cli:remove-pelangi-content -- --profile=makan --dry-run' shows list of removable entries without modifying files",
-        "Without --dry-run, removes identified content, creates backup at data-makan/knowledge.json.backup, validates output contains only cafe-specific keywords",
-        "Reports removal stats and zero hostel references in final knowledge.json"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -470,7 +352,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "_decomposedFrom": "US-238"
     },
     {
       "id": "US-346",
@@ -689,6 +572,74 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-366",
+      "title": "Sanitize Makan Moments Profile Data by Removing Pelangi Hostel References",
+      "priority": "high",
+      "description": "Remove all Pelangi Capsule Hostel-specific content from Makan Moments profile data files. Current data-makan profile contains copy-pasted hostel booking, room types, and check-in content. This violates profile separation goal and confuses the bot when responding to cafe customers.",
+      "acceptanceCriteria": [
+        "knowledge.json in src/assistant/data/data-makan/ contains only cafe-specific content (menu items, orders, promotions) with zero references to 'room', 'check-in', or 'booking'",
+        "intent-keywords.json uses cafe-specific keywords (order, menu, promotion, cafe) not hostel keywords (booking, room-type, check-in)",
+        "Unit test validates using grep to ensure zero Pelangi-specific terms in all data-makan files; test command: grep -r 'check-in\\|room-type\\|guest' src/assistant/data/data-makan/ should return empty"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-367",
+      "title": "Sanitize Southern Homestay Profile Data by Removing Pelangi References",
+      "priority": "high",
+      "description": "Remove Pelangi Capsule Hostel-specific content from Southern Homestay profile. Data-southern profile currently has Pelangi references (check-in procedures, room amenities, booking workflows). Replace with Southern Homestay-specific content and validate profile isolation.",
+      "acceptanceCriteria": [
+        "knowledge.json in src/assistant/data/data-southern/ contains only Southern Homestay-specific amenities and policies, removing Pelangi-specific check-in and room references",
+        "intent-keywords.json updated to use Southern terminology; test asserts zero 'Pelangi' substring matches across all data-southern JSON files",
+        "Routing integration test confirms Southern guest booking intents route correctly to Southern-specific workflows, not Pelangi workflows"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-371",
+      "title": "Multi-Provider AI Failover Health Check Dashboard with Auto-Switching",
+      "priority": "high",
+      "description": "Admin endpoint that monitors health/latency of all configured AI providers (NVIDIA Kimi, Ollama, OpenRouter), detects when primary provider is unhealthy, and automatically switches to backup provider to maintain uptime and reliability.",
+      "acceptanceCriteria": [
+        "GET `/api/admin/provider-health` endpoint returns array of {provider, healthy: bool, latency_ms, last_check_at, failure_count} for all configured providers",
+        "Background job pings each provider every 5 minutes; if primary provider fails 2+ consecutive health checks, automatically set failover provider as active and log switch event",
+        "Integration test verifying failover triggers correctly when primary latency > threshold (e.g., > 5000ms) and backup becomes active"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-372",
+      "title": "Baileys WhatsApp Auth State Encrypted Backup and Recovery CLI",
+      "priority": "high",
+      "description": "CLI tools to backup and restore Baileys WhatsApp session state (`whatsapp-auth/` and `whatsapp-auth-southern/`) with encryption to prevent session loss during crashes or migrations. Enables reliable session recovery.",
+      "acceptanceCriteria": [
+        "CLI `npm run backup-auth-state` creates encrypted tar.gz of whatsapp-auth/ and whatsapp-auth-southern/ directories, saves to timestamped backup file with AES-256 encryption",
+        "CLI `npm run restore-auth-state <backup.tar.gz>` decrypts and restores auth state to original directories, preserves file permissions",
+        "Unit test verifying auth state is successfully backed up and restored without corruption"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
@@ -999,7 +950,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_decomposedFrom": "US-238"
     },
     {
       "id": "US-345",
@@ -1016,7 +968,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_decomposedFrom": "US-238"
     },
     {
       "id": "US-348",
@@ -1136,6 +1089,108 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-368",
+      "title": "Generate Targeted Clarification Questions for Low-Confidence Booking Intents",
+      "priority": "medium",
+      "description": "When booking intent confidence falls below 65%, generate targeted clarification questions instead of generic fallback responses. For example, if dates are unclear, ask 'Which dates?' rather than 'I didn't understand, please try again.'",
+      "acceptanceCriteria": [
+        "Function generateBookingClarification(userMessage, confidence, parsedData) in src/assistant/fallback-handler.ts returns targeted follow-up question based on missing booking fields (date, room-type, guest-count)",
+        "Test case: low-confidence booking message (<65%) receives specific clarification (not generic fallback); assertion: response.includes('Which') or response.includes('What') for date/room clarification",
+        "Fallback selection pipeline integrates clarification generator for confidence < 0.65 threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-369",
+      "title": "Deduplicate Consecutive Messages in Booking Conversation Context for Token Efficiency",
+      "priority": "medium",
+      "description": "Remove duplicate consecutive messages from conversation history before sending to AI. Multi-turn booking dialogs often repeat messages ('I want to book', 'I want to book'). Deduplication reduces token usage while preserving conversation flow.",
+      "acceptanceCriteria": [
+        "Function deduplicateConversationContext(messages: Message[]) in src/assistant/pipeline/context-pipeline.ts removes consecutive duplicate messages, keeping most recent; test: 8-message array with 3 duplicates reduces to 5",
+        "Unit test: array [msg1, msg1, msg2, msg2, msg2, msg3] deduplicates to [msg1, msg2, msg3] while preserving message order and content",
+        "Middleware applies deduplication in booking intent pipeline before AI inference; integration test verifies token reduction on real conversation history"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-370",
+      "title": "Add Booking Workflow Check-in Steps Execution Order Validator",
+      "priority": "medium",
+      "description": "Validate that booking workflow check-in steps from workflows.json execute in the correct, defined sequence. Prevents out-of-order step execution (e.g., confirming booking before collecting guest details) with clear error messages.",
+      "acceptanceCriteria": [
+        "Validator validateWorkflowStepOrder(workflowId, executionOrder) in src/assistant/pipeline/workflow-validator.ts checks step sequence against workflows.json definitions",
+        "Unit test: valid check-in sequence [collect-guest-details → validate-date → confirm-booking] passes; reversed sequence fails with error message 'Expected step collect-guest-details at position 0, got confirm-booking'",
+        "Booking workflow executor calls validator pre-execution; test asserts invalid sequences throw WorkflowValidationError with expected vs actual step order logged"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-373",
+      "title": "Intent Keywords Phonetic Variant Suggester CLI for Singlish and Malaysian English",
+      "priority": "medium",
+      "description": "CLI tool that generates phonetic keyword variants (Singlish, abbreviations) for intent-keywords.json to improve classification accuracy for local users. For example, suggest 'chek-in', 'booking kambali' for 'check-in' and 'booking' intents.",
+      "acceptanceCriteria": [
+        "CLI command `npm run suggest-phonetic:intent <intent_name>` parses intent-keywords.json and outputs phonetic variants (Singlish slang, abbreviations, Malay/Tamil phonetic spellings)",
+        "Generated variants avoid false positives by scoring against existing intents; only suggests variants with < 0.1 overlap with other intents",
+        "Unit test with 5+ local language variants (e.g., 'cek', 'booking mau', 'ada room') verifying correct phonetic suggestions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-374",
+      "title": "Conversation Context Semantic Deduplication Using Message Embeddings",
+      "priority": "medium",
+      "description": "Detect and remove semantically duplicate messages from conversation history using embeddings (e.g., 'Can I book a room?' and 'Can I make a reservation?' are semantic duplicates despite different wording). Reduces token usage and improves context quality for multi-turn dialogs.",
+      "acceptanceCriteria": [
+        "Function `deduplicateBySemantics(messages: Message[], threshold=0.9): Message[]` computes embeddings for each message and removes messages with cosine similarity > 0.9 to earlier messages in the history",
+        "Preserves semantically unique messages even if phrased differently; only removes genuine duplicates (same intent/meaning)",
+        "Test with 8+ semantic duplicate pairs (e.g., 'What's the check-in time?' vs 'When can I check in?') verifying correct removal while preserving unique messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-375",
+      "title": "Guest Booking History Preference Pattern Extractor with Personalized Suggestions",
+      "priority": "medium",
+      "description": "Extract booking patterns from returning guests' history (preferred room types, seasons, average stay length) and use patterns to offer personalized booking suggestions in real-time conversations, improving upsell and booking completion rates.",
+      "acceptanceCriteria": [
+        "Function `extractGuestPreferences(guest_id): {preferred_room_types: string[], preferred_months: string[], avg_night_stay: number, booking_frequency: string}` queries database for guest's past 5+ bookings and extracts patterns",
+        "In booking workflow, when repeat guest detected, offer personalized suggestion: 'Based on your past stays, you typically book [room_type] in [season] for [avg_nights] nights. Interested?'",
+        "Test with sample returning guest (5+ prior bookings) verifying correct preference extraction and suggestion formatting"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -1405,6 +1460,132 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-238",
+      "title": "Profile Isolation Violations Auto-Repair Tool",
+      "priority": "high",
+      "description": "Detect and automatically repair data contamination that violates profile isolation rules, preventing cross-profile data leakage",
+      "acceptanceCriteria": [
+        "Create CLI command npm run repair-profile-isolation that detects violations: guests with multi-profile references, intent keywords in wrong profiles, routing.json intent routes to foreign workflows",
+        "For each violation, generate suggestion (delete cross-profile data, reassign to correct profile, or flag for manual review); apply fix and log to profile_isolation_repairs table",
+        "Output JSON report with: violations_found, repairs_applied, repairs_flagged, before/after data counts per profile, timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposed": true,
+      "_decomposedInto": [
+        "US-343",
+        "US-344",
+        "US-345"
+      ],
+      "_skipped": true
+    },
+    {
+      "id": "US-245",
+      "title": "Conversation Turn-by-Turn Confidence Scorer",
+      "priority": "high",
+      "description": "Enhance rainbow_conversations table to store per-turn confidence scores and intent classification metadata for each message turn. Records the classified intent, confidence percentage, whether a fallback was used, and token count. Provides analytics endpoint to visualize confidence trends and identify when context quality degrades across multi-turn dialogues.",
+      "acceptanceCriteria": [
+        "Add turn_metadata JSONB column to rainbow_conversations storing [{turn_num, intent, confidence, fallback_used, tokens}] array updated on each message",
+        "POST /admin/api/analytics/conversation/:id/confidence-trend returns per-turn metrics showing confidence scores and intent names in chronological order",
+        "Update classifyIntent() to record confidence scores and set fallback_used=true when confidence <0.6 threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-337",
+      "title": "Makan Moments Knowledge Base Pelangi Content Removal Tool",
+      "priority": "high",
+      "description": "CLI tool to identify and remove Pelangi Capsule-specific content (hostel terminology, room types, pricing) from data-makan/knowledge.json, preserving cafe-specific content (menu items, promotions, operating hours).",
+      "acceptanceCriteria": [
+        "CLI command 'npm run cli:remove-pelangi-content -- --profile=makan --dry-run' shows list of removable entries without modifying files",
+        "Without --dry-run, removes identified content, creates backup at data-makan/knowledge.json.backup, validates output contains only cafe-specific keywords",
+        "Reports removal stats and zero hostel references in final knowledge.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-237",
+      "title": "Multi-Turn Booking Clarification Dialog Manager",
+      "priority": "high",
+      "description": "Guide ambiguous booking intents through a multi-turn conversational dialog that asks specific follow-up questions (dates, room type, guest count) before booking confirmation",
+      "acceptanceCriteria": [
+        "Create src/assistant/dialogs/booking-clarification-dialog.ts with state machine (states: need_dates, need_room_type, need_guest_count, ready_confirm)",
+        "Store clarification state in rainbow_conversations table as clarification_state and clarification_data JSON; test that a low-confidence booking intent triggers clarification flow with appropriate follow-up questions",
+        "Integration test: verify full clarification dialog flow (guest message 'book' → ask dates → guest responds → ask room type → confirm) results in valid booking confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-296",
+      "title": "Booking Workflow Email Confirmation Delivery Test Suite",
+      "priority": "high",
+      "description": "Add unit tests for booking confirmation email generation, language-specific templates, and deduplication to ensure reliability of booking notifications.",
+      "acceptanceCriteria": [
+        "Tests in `src/tests/booking-workflow-email.test.ts` verify email generation step outputs correct recipient, subject, and body for each workflow",
+        "Test assertions validate language-specific templates (en, ms, ta) are selected based on guest language preference from conversation context",
+        "Test verifies no duplicate emails sent when booking workflow retry logic executes the email step multiple times"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-298",
+      "title": "Profile Data File Integrity Validator with Startup Enforcement",
+      "priority": "high",
+      "description": "Validate profile data file checksums at startup to detect corruption or cross-profile contamination, blocking startup with detailed error messages if validation fails.",
+      "acceptanceCriteria": [
+        "CLI command `npm run validate:profile-integrity` generates SHA256 hashes for each profile's routing.json, intent-keywords.json, knowledge.json, workflows.json; stores in `profile-hashes.json`",
+        "Startup validation in `src/index.ts` compares live hashes against stored hashes; logs error with file name, expected hash, actual hash if mismatch and exits with code 1",
+        "Test in `src/tests/profile-integrity.test.ts` modifies profile JSON (add contaminated keyword), verifies validator detects change and blocks server startup with actionable error"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-332",
+      "title": "Intent Routing Table Cross-Profile Contamination Validator CLI",
+      "priority": "high",
+      "description": "Validate that each intent in routing.json maps only to handlers from the same profile. Catches cross-profile contamination in routing configuration before deployment.",
+      "acceptanceCriteria": [
+        "CLI: npm run validate:routing-conflicts --profile=pelangi returns structured JSON list of violations with file locations",
+        "New file src/cli/routingConflictValidator.ts parses routing.json and validates handler ownership against profile",
+        "Output includes violations like: {intent: 'booking', profile: 'pelangi', handler: 'southern_booking_handler', file: 'src/assistant/data/routing.json', line: 42}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-236",
