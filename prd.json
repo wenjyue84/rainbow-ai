@@ -62,8 +62,7 @@
       "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T09:57:52Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "last_attempted": "2026-03-23T09:52:31Z"
     },
     {
       "id": "US-209",
@@ -384,6 +383,91 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-246",
+      "title": "Audit Makan Moments profile data files for Pelangi Capsule keyword contamination with fix suggestions",
+      "priority": "high",
+      "description": "Scan Makan Moments knowledge.json, routing.json, and intent-keywords.json for hostel-specific keywords (room, guest, check-in, checkout, booking confirmation) that indicate cross-profile contamination. Generate audit report with line numbers and suggest cafe-appropriate replacements.",
+      "acceptanceCriteria": [
+        "Create scripts/audit-profile-contamination.sh that scans src/assistant/data/data-makan/ files for hostel keywords and outputs CSV report with filename, line_number, contaminated_term, suggested_replacement",
+        "Script returns exit code 1 if any hostel keywords found in Makan Moments profile, 0 if clean",
+        "Add integration test in src/assistant/__tests__/profile-contamination.test.ts that runs audit on Makan Moments and Southern Homestay profiles with assertions for zero hostel keywords in Makan profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-247",
+      "title": "Build intent classification confidence baseline tracker with per-profile regression detection",
+      "priority": "high",
+      "description": "Create database table and admin endpoints to track intent classification confidence baselines per profile. Automatically detect accuracy regressions and alert product team when confidence drops >5% below baseline for any intent.",
+      "acceptanceCriteria": [
+        "Add intent_accuracy_baseline table to schema: {profile, intent, mean_confidence, min_confidence, threshold, last_updated}. Create migration and add to src/assistant/schemas.ts Zod definitions",
+        "Implement computeIntentBaseline(profile, intent, recentPredictions[]) function that calculates mean/percentile confidence and stores in baseline table",
+        "Add GET /admin/api/intent-accuracy/baselines?profile=X endpoint returning sorted list of intents with current confidence vs baseline, highlighting any regressions >5% in red"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-248",
+      "title": "Create profile-specific intent keyword isolation test suite with cross-contamination assertions",
+      "priority": "high",
+      "description": "Build comprehensive test suite that validates profile intent keyword separation and prevents regression. Ensure Makan Moments keywords contain only cafe-related terms, Southern Homestay contains only homestay terms, with zero overlap.",
+      "acceptanceCriteria": [
+        "Create src/assistant/__tests__/profile-keyword-isolation.test.ts with test('Makan Moments keywords contain no hostel terms') using blocklist: [room, guest, check-in, checkout, booking, amenity]",
+        "Add test('Southern Homestay keywords contain no cafe terms') using blocklist: [menu, promotion, order, recipe, table, reservation]",
+        "Add test('zero keyword overlap between profiles') asserting Set intersection of all profile keyword arrays is empty"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-249",
+      "title": "Implement booking workflow step execution time profiler endpoint with bottleneck identification",
+      "priority": "medium",
+      "description": "Create admin endpoint that tracks execution time for each booking workflow step and identifies performance bottlenecks. Enable product team to optimize slow steps and understand booking workflow reliability at step level.",
+      "acceptanceCriteria": [
+        "Add GET /admin/api/workflows/:profile/step-metrics endpoint that returns [{step_name, avg_duration_ms, p95_ms, p99_ms, call_count, failure_count}] for last 500 workflow executions",
+        "Modify workflow step executor in src/assistant/pipeline/workflow-executor.ts to record start/end timestamps and store in metrics table: workflow_step_metrics(step_name, duration_ms, profile, created_at)",
+        "Add unit tests in src/assistant/__tests__/workflow-metrics.test.ts verifying metric aggregation, percentile calculation, and profile isolation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-250",
+      "title": "Implement booking cancellation fallback workflow with refund calculation and formatted response",
+      "priority": "medium",
+      "description": "Add booking cancellation recovery step to workflows.json with automatic refund calculation based on cancellation policy. Return formatted guest message with refund amount, applicable restrictions, and next steps.",
+      "acceptanceCriteria": [
+        "Add cancellation-fallback step to src/assistant/data/workflows.json triggered on booking_cancelled intent, with config: {step_type: 'calculate_refund', refund_policy_ref: 'settings.refund_policies'}",
+        "Implement calculateRefund(booking: Booking, policy: CancellationPolicy) function in src/assistant/lib/booking-utils.ts returning {refund_amount, refund_type: 'full'|'partial'|'credit', message: string}",
+        "Add unit tests for refund scenarios: full_refund_within_7_days, partial_50pct_within_30_days, no_refund_past_30_days, store_credit_alternative"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

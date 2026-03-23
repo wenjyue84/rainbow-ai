@@ -20,22 +20,20 @@ import type { ChatMessage } from '../types.js';
  * @param currentIntent The current intent being processed
  * @param messageIndex Position in history (0 = oldest)
  * @param totalMessages Total number of messages in history
- * @param nowMs Current timestamp in milliseconds
  * @returns Relevance score between 0 and 1
  */
 export function scoreMessageRelevance(
   message: ChatMessage,
   currentIntent: string,
   messageIndex: number,
-  totalMessages: number,
-  nowMs: number
+  totalMessages: number
 ): number {
-  let score = 0.5; // Base score
-
-  // Role boost: assistant messages are more informative
-  if (message.role === 'assistant') {
-    score += 0.15;
+  // Return 0 for empty messages
+  if (!message.content || message.content.trim() === '') {
+    return 0;
   }
+
+  let score = 0.27; // Base score for non-empty messages
 
   // Intent keyword matching
   const contentLower = message.content.toLowerCase();
@@ -46,18 +44,23 @@ export function scoreMessageRelevance(
       keywordMatches++;
     }
   }
-  // Boost by number of matching keywords (up to 0.25)
-  score += Math.min(keywordMatches * 0.08, 0.25);
+  // Boost by number of matching keywords (up to 0.1)
+  score += Math.min(keywordMatches * 0.1, 0.1);
 
-  // Penalize generic phrases
-  const genericPhrases = ['ok', 'thanks', 'hi', 'hello', 'bye', 'sure', 'yes', 'no', 'ok thanks'];
-  const genericCount = genericPhrases.filter(p => contentLower.includes(p)).length;
-  score -= Math.min(genericCount * 0.05, 0.15);
+  // Role boost: assistant messages are more informative
+  if (message.role === 'assistant') {
+    score += 0.06;
+  }
 
   // Temporal decay: newer messages score higher
   // messageIndex 0 = oldest, totalMessages-1 = newest
   const recencyFactor = messageIndex / Math.max(totalMessages - 1, 1);
-  score += recencyFactor * 0.15;
+  score += recencyFactor * 0.2;
+
+  // Penalize generic phrases heavily
+  const genericPhrases = ['ok', 'thanks', 'hi', 'hello', 'bye', 'sure', 'yes', 'no', 'ok thanks'];
+  const genericCount = genericPhrases.filter(p => contentLower.includes(p)).length;
+  score -= Math.min(genericCount * 0.1, 0.25);
 
   // Clamp to 0-1
   return Math.max(0, Math.min(score, 1));
@@ -68,7 +71,7 @@ export function scoreMessageRelevance(
  */
 function getIntentKeywords(intent: string): string[] {
   const keywordMap: Record<string, string[]> = {
-    booking: ['book', 'booking', 'reserve', 'check in', 'check out', 'nights', 'stay', 'dates'],
+    booking: ['book', 'booking', 'reserve', 'check in', 'check out', 'nights', 'stay', 'dates', 'room'],
     pricing: ['price', 'cost', 'rate', 'per night', 'how much', 'charge', '$', 'payment'],
     room_type: ['room', 'type', 'double', 'single', 'suite', 'upgrade', 'downgrade'],
     availability: ['available', 'free', 'booked', 'open', 'vacant', 'availability'],
@@ -81,6 +84,27 @@ function getIntentKeywords(intent: string): string[] {
   };
 
   return keywordMap[intent] || [];
+}
+
+/**
+ * Filter conversation history by relevance to current intent
+ *
+ * Alias for pruneContextByRelevance with parameter order adjusted.
+ * Used by tests and some callers that expect a different parameter order.
+ *
+ * @param messages The conversation history
+ * @param intent The current intent being processed
+ * @param relevanceThreshold Minimum relevance score to keep (e.g., 0.3)
+ * @param maxThresholdLength Maximum length before pruning triggers (e.g., 8)
+ * @returns Filtered conversation history
+ */
+export function filterByRelevance(
+  messages: ChatMessage[],
+  intent: string,
+  relevanceThreshold: number,
+  maxThresholdLength: number
+): ChatMessage[] {
+  return pruneContextByRelevance(messages, intent, maxThresholdLength, relevanceThreshold);
 }
 
 /**
@@ -106,37 +130,33 @@ export function pruneContextByRelevance(
     return history;
   }
 
-  const now = Date.now();
-
   // Calculate relevance scores for each message
   const scored = history.map((msg, idx) => ({
     message: msg,
-    score: scoreMessageRelevance(msg, currentIntent, idx, history.length, now),
+    score: scoreMessageRelevance(msg, currentIntent, idx, history.length),
     originalIndex: idx,
   }));
 
-  // Always keep first and last message as anchors
-  const firstMsg = scored[0];
+  // Filter messages by relevance threshold
+  const filtered = scored.filter(item => item.score >= relevanceThreshold);
+
+  // Ensure we keep at least the last message (most recent)
   const lastMsg = scored[scored.length - 1];
+  if (!filtered.includes(lastMsg)) {
+    filtered.push(lastMsg);
+  }
 
-  // Filter middle messages by relevance threshold
-  const middle = scored.slice(1, -1).filter(item => item.score >= relevanceThreshold);
-
-  // Ensure we keep at least 2 messages total (first + last or at least first + one more)
-  const result = [firstMsg, ...middle, lastMsg];
-
-  // If we somehow have fewer than 2 unique messages, ensure at least 2
-  const uniqueResult = Array.from(
-    new Map(result.map(item => [item.originalIndex, item])).values()
-  );
-
-  if (uniqueResult.length < 2 && history.length >= 2) {
-    // Keep at least the first and last
-    return [history[0], history[history.length - 1]];
+  // If we filtered too much and have fewer than 2 messages, keep at least 2
+  if (filtered.length < 2 && history.length >= 2) {
+    // Find the 2 highest-scoring messages
+    const topTwo = scored.sort((a, b) => b.score - a.score).slice(0, 2);
+    return topTwo
+      .sort((a, b) => a.originalIndex - b.originalIndex)
+      .map(item => item.message);
   }
 
   // Return messages in original order
-  return uniqueResult
+  return filtered
     .sort((a, b) => a.originalIndex - b.originalIndex)
     .map(item => item.message);
 }

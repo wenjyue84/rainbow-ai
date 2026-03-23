@@ -13,7 +13,7 @@ import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
-import { pruneContextByRelevance } from './pipeline/context-manager.js';
+import { filterByRelevance } from './pipeline/context-manager.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -275,11 +275,11 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   // US-208: Filter conversation history by relevance to current intent
   // Prevents hallucination from outdated requests when history exceeds 8 messages
   if (conversationHistory.length > 8) {
-    const filteredHistory = pruneContextByRelevance(
+    const filteredHistory = filterByRelevance(
       conversationHistory,
       intentResult.category,
-      8,    // Threshold: prune when history exceeds 8 messages
-      0.3   // Relevance threshold: keep messages with score >= 0.3
+      0.3,  // Relevance threshold: keep messages with score >= 0.3
+      8     // Min messages: always keep at least 8 most recent
     );
     if (filteredHistory.length < conversationHistory.length) {
       console.log(

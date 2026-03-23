@@ -5,7 +5,8 @@
  * closing over the sessionId so the AI can mutate the correct cart.
  */
 
-import type { MCPTool, MCPToolResult } from '../types/mcp.js';
+import type { MCPToolResult } from '../types/mcp.js';
+export { cartTools } from './cart-tool-defs.js';
 import {
   cartAddItem, cartRemoveItem, cartGetItems, cartClear,
   cartUpdateItemQty, cartSetItemNotes, cartFormatSummary,
@@ -45,25 +46,9 @@ import {
   recordKdsSent,
 } from '../assistant/order-accuracy-tracker.js';
 
-// ─── Tool Definitions ──────────────────────────────────────────────
+// Tool definitions extracted to cart-tool-defs.ts
 
-export const cartTools: MCPTool[] = [
-  {
-    name: 'cart_add_item',
-    description: 'Add a known item to the guest\'s cart. Use this when you already know the exact item name, code, and price. For set meals or combos, use cart_search_item instead — it detects choices and guides customisation. Transitions order stage to ORDERING. Malay triggers: "saya nak X", "boleh bagi X", "satu X", "tolong bagi X". Manglish: "can I have X lah", "I want X lah".',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name of the menu item (e.g. "Nasi Lemak")' },
-        qty: { type: 'number', description: 'Quantity to add (default 1)' },
-        code: { type: 'string', description: 'Menu item code if known (e.g. "NR01")' },
-        price: { type: 'number', description: 'Unit price in MYR if known (e.g. 8.50)' },
-        notes: { type: 'string', description: 'Special instructions for this item (optional)' }
-      },
-      required: ['name']
-    },
-    allowedProfiles: ['makan-moments']
-  },
+// ─── Handler Factories below ──────────────────────────────────────
   {
     name: 'cart_remove_item',
     description: 'Remove an item from the guest\'s cart. Use this when the guest says remove, cancel, drop, or forget an item. Malay: "tak nak X", "buang X", "cancel X", "tak jadi X".',

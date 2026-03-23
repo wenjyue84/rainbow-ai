@@ -1627,3 +1627,30 @@ FAILED diagnosis-block gate: Implement conversation message relevance scorer to 
 - [x] AC2: Context pruning in chat-engine.ts filters messages where relevance < 0.3 when history > 8
 - [x] AC3: Tests validate old 'extend stay' request doesn't influence 'room type' intent classification
 
+
+## Pre-analysis for US-208 (Gemini 2.5 Pro)
+Based on the user story, here is the technical brief for the Claude agent.
+
+**Objective:** Implement a relevance scorer to prune stale messages from the conversation history when it exceeds 8 messages, preventing context contamination.
+
+**1. Files to Modify:**
+*   `src/assistant/pipeline/context-manager.ts`: To house the new scoring logic.
+*   `src/assistant/engine.ts`: To apply the filtering logic during prompt construction.
+*   `src/assistant/__tests__/context-pruning.test.ts`: To create unit tests for the new pruning feature.
+
+**2. Key Interfaces & Data Structures (Not Frappe DocTypes):**
+*   `ConvMessage`: The interface representing a single message in the conversation.
+*   `currentIntent`: A `string` that dictates the context for relevance scoring.
+
+**3. Implementation Approach:**
+1.  Define and export a new function `scoreMessageRelevance(message: ConvMessage, currentIntent: string)` in `context-manager.ts`. The initial implementation can use a simple heuristic, like TF-IDF or keyword overlap between the message body and intent string, to return a score from 0 to 1.
+2.  In `engine.ts`, locate the code that builds the conversation history for the AI prompt.
+3.  Add a condition: if the history length is greater than 8, map over the messages, call the `scoreMessageRelevance` function for each, and filter out those with a score `< 0.3`.
+4.  In `context-pruning.test.ts`, add a test case with a conversation history of ~10 messages, where an early message has a clearly different intent (e.g., "extend stay") from the current intent (e.g., "room type question"), and assert that the stale message is excluded from the final context.
+
+**4. Edge Cases & Gotchas:**
+*   The scoring algorithm's effectiveness is critical; a naive implementation may incorrectly prune useful context.
+*   The `0.3` threshold is a "magic number" and will likely require tuning based on real-world testing.
+*   Ensure that if all messages are pruned (an unlikely but possible scenario), the system doesn't fail or send an empty context. Consider always keeping the most recent message.
+*   Be mindful of performance; the scoring function will run on every message when the context is long, so it should be efficient.
+
