@@ -61,7 +61,14 @@
       "estimatedComplexity": "medium",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_contextStats": {
+        "tokensBeforeMasking": 559,
+        "tokensAfterMasking": 558,
+        "reductionPct": 0,
+        "contextWindow": 10
+      },
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-094",
@@ -78,7 +85,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T00:06:50Z"
     },
     {
       "id": "US-097",
@@ -424,6 +432,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-168",
+      "title": "Create admin API for managing profile-specific fallback response templates",
+      "priority": "high",
+      "description": "Enable non-technical admins to edit fallback response templates per business profile through API endpoints rather than JSON files, with database-backed storage and profile isolation enforcement.",
+      "acceptanceCriteria": [
+        "Implement endpoints POST/PUT/DELETE /admin/api/templates/{profile_id}/{template_id} to create/update/remove fallback_response_templates table records with profile_id foreign key",
+        "Add response validator that checks template_id references in src/assistant/data/routing.json match database; CLI tool scripts/validate-profile-templates.js flags broken references pre-deployment",
+        "Ensure profile isolation: query fallback template by (profile_id, template_id) pair; prevent cross-profile template selection via WHERE clause constraint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-169",
+      "title": "Implement intent misclassification feedback collection with confusion analysis",
+      "priority": "high",
+      "description": "Allow admins to correct misclassified intents from the admin panel, accumulate corrections to identify systematic classification errors and surface top confusion pairs for model improvement.",
+      "acceptanceCriteria": [
+        "Add endpoint POST /admin/api/feedback/correct-intent with payload {conversation_id, corrected_intent, reason}, store in misclassification_feedback table with conversation_id foreign key",
+        "Expose GET /admin/reports/intent-confusion returning top 25 (predicted→actual) intent confusion pairs sorted by frequency and impact, include correction count and admin notes",
+        "Auto-flag intent_configs.needs_review when same (predicted, actual) pair accumulates ≥5 corrections; track in intent_analytics.confusion_pair_count"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-161",
       "title": "Real-time intent classification performance dashboard with per-profile metrics",
       "priority": "medium",
@@ -524,6 +566,57 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-170",
+      "title": "Build guest sentiment tracking dashboard with escalation pattern analysis",
+      "priority": "medium",
+      "description": "Track sentiment progression across conversation turns and expose admin dashboard showing which intents have declining sentiment, enabling early detection of response quality issues and prediction of escalations.",
+      "acceptanceCriteria": [
+        "Add sentiment_score (1-5 scale) computation in src/assistant/pipeline/message-processor.ts using keyword-based sentiment analysis, store in conversation_feedback.sentiment_score",
+        "Query dashboard endpoint GET /admin/dashboards/sentiment-patterns returns sentiment distribution grouped by intent_type with trend indicators (improving/stable/declining)",
+        "Flag conversations with sentiment decline >2 points across consecutive turns for manual review and automated escalation after 3 negative sentiment messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-171",
+      "title": "Build intent classifier retraining pipeline from production feedback dataset",
+      "priority": "medium",
+      "description": "Export misclassification feedback and corrected classifications from production into training dataset format, creating automated data pipeline for model retraining cycles.",
+      "acceptanceCriteria": [
+        "Implement cron job scripts/export-training-data.js that queries misclassification_feedback and conversation_feedback, exports sanitized training data to training_data.jsonl with {message, actual_intent, predicted_intent, confidence} format",
+        "Expose endpoint GET /admin/ml/training-export?min_corrections=5&date_range=7d returning training dataset with metadata: total_rows, intent_distribution, top_confusion_pairs, data_quality_score",
+        "Add ml_training_runs table tracking export timestamp, row count, model_version, feedback_source for audit trail and retraining job correlation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-172",
+      "title": "Add voice message transcription and intent classification support",
+      "priority": "low",
+      "description": "Extend intent classifier to handle audio/voice messages by automatic transcription, enabling voice-based guest interactions while maintaining classification accuracy parity with text messages.",
+      "acceptanceCriteria": [
+        "Detect audio messages in message pipeline (Baileys message.audio type), transcribe via Google Cloud Speech-to-Text or OpenRouter speech API, pass transcription through existing intent classifier",
+        "Store transcription in rainbow_messages.transcription field, track voice_classification_attempted=true and voice_transcription_confidence scores in intent_analytics",
+        "Handle transcription failures: return escalation workflow if transcription_confidence <0.7, expose metric GET /admin/metrics/voice-classification-accuracy showing accuracy vs text baseline"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-157",
