@@ -13,7 +13,7 @@ import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
-import { filterByRelevance } from './pipeline/context-manager.js';
+import { pruneContextByRelevance } from './pipeline/context-manager.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
