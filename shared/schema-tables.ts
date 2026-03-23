@@ -1218,6 +1218,33 @@ export const roomReservations = pgTable("room_reservations", {
 export type RoomReservation = typeof roomReservations.$inferSelect;
 export type InsertRoomReservation = typeof roomReservations.$inferInsert;
 
+// ─── Booking Workflow Step Errors (US-209) ─────────────────────────────
+// Stores workflow step execution failures with typed error codes and recovery metadata
+// Used for logging failures, sending guest-friendly messages, and debugging
+
+export const bookingStepErrors = pgTable("booking_step_errors", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  stepId: text("step_id").notNull(),           // workflow step identifier
+  errorCode: text("error_code").notNull(),     // e.g. 'payment_failed', 'room_unavailable'
+  errorMessage: text("error_message"),         // technical error details
+  profile: text("profile").notNull().default("pelangi"),
+  conversationId: text("conversation_id"),     // optional: tie to conversation for context
+  guestPhone: varchar("guest_phone", { length: 32 }),
+  workflowId: text("workflow_id"),             // which booking workflow this belonged to
+  recoveryMessageSent: boolean("recovery_message_sent").notNull().default(false),
+  recoveryMessageAt: timestamp("recovery_message_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_booking_step_errors_step_id").on(table.stepId),
+  index("idx_booking_step_errors_error_code").on(table.errorCode),
+  index("idx_booking_step_errors_profile").on(table.profile),
+  index("idx_booking_step_errors_profile_code").on(table.profile, table.errorCode),
+  index("idx_booking_step_errors_created_at").on(table.createdAt),
+]));
+
+export type BookingStepError = typeof bookingStepErrors.$inferSelect;
+export type InsertBookingStepError = typeof bookingStepErrors.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
