@@ -74,6 +74,11 @@ const HOSTEL_KEYWORD_BLOCKLIST: string[] = [
   'laundry nearby',
   'dobi berdekatan',     // "laundry nearby" in Malay
   'laundry',
+  // Airport navigation (hostel guests arrive from airports; cafe customers don't)
+  'airport',
+  'lapangan terbang',    // "airport" in Malay
+  '机场',                // "airport" in Chinese
+  'senai',               // Senai Airport — local hostel context
 ];
 
 // Cafe-safe keywords that might superficially match hostel terms

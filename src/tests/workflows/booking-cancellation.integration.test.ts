@@ -21,17 +21,14 @@ import { calculateCancellationCredit } from '../../tools/bookings.js';
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
 
 // ─── Mock DB pool to avoid real database calls ────────────────────────────────
-const mockPoolClient = {
-  query: vi.fn().mockResolvedValue({ rows: [] }),
-  release: vi.fn(),
-};
-const mockPool = {
-  connect: vi.fn().mockResolvedValue(mockPoolClient),
-  query: vi.fn().mockResolvedValue({ rows: [] }),
-};
-
 vi.mock('../../lib/db.js', () => ({
-  pool: mockPool,
+  pool: {
+    connect: vi.fn().mockResolvedValue({
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }),
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+  },
   db: {},
 }));
 
