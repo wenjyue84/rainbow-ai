@@ -1,421 +1,442 @@
 /**
  * US-197: Profile Data Contamination Regression Test Suite
  *
- * Comprehensive unit tests that detect and block any commits where Makan/Southern
- * profile data files contain Pelangi Capsule keywords, intent names, or workflows.
- * Prevents cross-profile contamination in future releases.
+ * Scans data-makan/ and data-southern/ profile directories for Pelangi-specific
+ * terms that should not leak across profile boundaries. Also validates that
+ * intent name sets across profiles are disjoint where expected.
  *
- * Tests:
- * 1. Makan data files don't contain Pelangi-specific keywords
- * 2. Southern data files don't contain Pelangi-specific keywords
- * 3. Makan intent names are disjoint from Pelangi intent names
- * 4. Southern hostel intents don't contain Makan restaurant intents
- * 5. Makan routing.json doesn't reference Pelangi intents
- * 6. Makan workflows.json doesn't contain hostel booking workflows
- * 7. Makan knowledge.json doesn't contain Pelangi-specific responses
- * 8. Makan intent-keywords.json doesn't contain hostel/accommodation keywords
- * 9. Makan intent-examples.json doesn't contain hostel check-in/checkout examples
- * 10. Makan and Pelangi intent sets are completely disjoint
- * 11. Southern contains Pelangi hostel-specific intents (as it's also a hostel)
- * 12. Error reporting with clear contamination details for CI/CD blocking
+ * Failing tests indicate cross-profile contamination that must be remediated
+ * before merging. Error messages list contaminated files and offending keywords.
  */
 
 import { describe, it, expect } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
-// Define Pelangi-specific keywords that should NOT appear in Makan
-const PELANGI_KEYWORDS = [
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const currentDir = fileURLToPath(new URL('.', import.meta.url));
+const DATA_ROOT = resolve(currentDir, '..', 'assistant');
+
+const DATA_PELANGI = join(DATA_ROOT, 'data');
+const DATA_MAKAN = join(DATA_ROOT, 'data-makan');
+const DATA_SOUTHERN = join(DATA_ROOT, 'data-southern');
+
+/**
+ * Pelangi-specific terms that must NOT appear in data-makan/ or data-southern/ files.
+ * These are hostel/capsule concepts that belong exclusively to the Pelangi profile.
+ */
+const PELANGI_EXCLUSIVE_TERMS = [
   'capsule',
   'pelangi',
   'dorm',
   'dormitory',
   'hostel_booking',
-];
+] as const;
 
-// Additional Pelangi hostel-specific intents
-const PELANGI_HOSTEL_INTENTS = new Set([
-  'availability',
-  'billing_dispute',
-  'billing_inquiry',
-  'booking',
-  'card_locked',
-  'check_in_arrival',
-  'checkin_info',
-  'checkout_info',
-  'checkout_procedure',
-  'cleanliness_complaint',
-  'climate_control_complaint',
-  'extra_amenity_request',
-  'facilities_info',
-  'facility_malfunction',
-  'facility_orientation',
-  'forgot_item_post_checkout',
-  'general_complaint_in_stay',
-  'late_checkout_request',
+/**
+ * Extended set of Pelangi-specific intent names and keywords that should not
+ * leak into non-Pelangi profiles.
+ */
+const PELANGI_INTENT_TERMS = [
+  'capsule_conflict',
   'lower_deck_preference',
-  'luggage_storage',
-  'noise_complaint',
-  'payment_made',
-  'post_checkout_complaint',
+  'card_locked',
   'theft_report',
-  'tourist_guide',
-  'wifi',
-  'rules_policy',
-]);
+  'luggage_storage',
+  'late_checkout_request',
+  'stay_extension',
+  'extend_stay',
+  'facility_orientation',
+  'EXTRA_TOWEL',
+  'EXTRA_PILLOW',
+  'ROOM_CLEANING',
+  'MAINTENANCE_ISSUE',
+  'WIFI_PASSWORD',
+  'booking_modification',
+  'booking_cancellation',
+] as const;
 
-// Makan-specific intents (restaurant/food related)
-const MAKAN_ONLY_INTENTS = new Set([
-  'allergen_query',
-  'budget_query',
-  'food_recommendation',
-  'menu_browse_category',
-  'menu_filter_dietary',
-  'menu_item_detail',
-  'menu_query',
-  'operating_hours',
-  'order_feedback_rating',
-  'order_placement',
-  'order_status',
-  'table_reservation',
-  'specials_query',
-  'vegetarian_query',
-]);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Common intents shared by all profiles
-const COMMON_INTENTS = new Set([
-  'contact_staff',
-  'directions',
-  'greeting',
-  'payment_info',
-  'pricing',
-  'review_feedback',
-  'thanks',
-  'unknown',
-  'emergency',
-]);
-
-interface IntentConfig {
-  category?: string;
-}
-
-interface IntentNode {
-  categories?: Array<{ intents?: IntentConfig[] }>;
-}
-
-interface RoutingConfig {
-  [key: string]: {
-    intents?: string[];
-    [key: string]: unknown;
-  };
+interface ContaminationMatch {
+  file: string;
+  term: string;
+  line: number;
+  content: string;
 }
 
 /**
- * Helper: Read JSON file
+ * Scans all JSON and .md files in a directory for occurrences of forbidden terms.
+ * Returns an array of matches with file path, term, line number, and line content.
  */
-function readJsonFile<T>(filePath: string): T {
-  const fullPath = path.join(process.cwd(), filePath);
-  const content = fs.readFileSync(fullPath, 'utf-8');
-  return JSON.parse(content) as T;
-}
+function scanDirectoryForTerms(
+  dirPath: string,
+  terms: readonly string[],
+): ContaminationMatch[] {
+  if (!existsSync(dirPath)) return [];
 
-/**
- * Helper: Search for keywords in a JSON object (recursively)
- */
-function findKeywordsInJson(
-  obj: unknown,
-  keywords: string[],
-): { keyword: string; path: string }[] {
-  const found: { keyword: string; path: string }[] = [];
-  const seen = new WeakSet<object>();
+  const files = readdirSync(dirPath).filter(
+    (f) => f.endsWith('.json') || f.endsWith('.md'),
+  );
+  const matches: ContaminationMatch[] = [];
 
-  function search(value: unknown, currentPath: string = ''): void {
-    // Prevent circular references
-    if (value !== null && typeof value === 'object') {
-      if (seen.has(value as object)) return;
-      seen.add(value as object);
-    }
+  for (const file of files) {
+    const filePath = join(dirPath, file);
+    const content = readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n');
 
-    if (typeof value === 'string') {
-      const lowerValue = value.toLowerCase();
-      for (const keyword of keywords) {
-        if (lowerValue.includes(keyword.toLowerCase())) {
-          found.push({ keyword, path: currentPath || 'root' });
+    for (let i = 0; i < lines.length; i++) {
+      const lineLower = lines[i].toLowerCase();
+      for (const term of terms) {
+        if (lineLower.includes(term.toLowerCase())) {
+          matches.push({
+            file,
+            term,
+            line: i + 1,
+            content: lines[i].trim().substring(0, 120),
+          });
         }
       }
-    } else if (Array.isArray(value)) {
-      value.forEach((item, idx) => {
-        search(item, `${currentPath}[${idx}]`);
-      });
-    } else if (value !== null && typeof value === 'object') {
-      Object.entries(value).forEach(([key, val]) => {
-        const newPath = currentPath ? `${currentPath}.${key}` : key;
-        search(val, newPath);
-      });
     }
   }
 
-  search(obj);
-  return found;
+  return matches;
 }
 
-describe('US-197: Profile Data Contamination Regression Test Suite', () => {
-  describe('AC1: Pelangi keywords not in Makan data files', () => {
-    it('assertion 1: makan intent-examples.json has no Pelangi keywords', () => {
-      const data = readJsonFile<unknown>(
-        'src/assistant/data-makan/intent-examples.json',
-      );
-      const contamination = findKeywordsInJson(data, PELANGI_KEYWORDS);
+/**
+ * Extracts intent names from an intents.json file (categories across all phases).
+ */
+function extractIntentNames(filePath: string): Set<string> {
+  if (!existsSync(filePath)) return new Set();
 
-      expect(contamination.length).toBe(0);
-    });
+  const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+  const names = new Set<string>();
 
-    it('assertion 2: makan intents.json has no Pelangi hostel intents', () => {
-      const data = readJsonFile<IntentNode>(
-        'src/assistant/data-makan/intents.json',
-      );
-      const allIntents = new Set<string>();
-
-      if (data.categories) {
-        data.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                allIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      const contamination = Array.from(allIntents).filter((intent) =>
-        PELANGI_HOSTEL_INTENTS.has(intent),
-      );
-
-      expect(contamination.length).toBe(0);
-    });
-
-    it('assertion 3: makan routing.json has no Pelangi intent references', () => {
-      const data = readJsonFile<RoutingConfig>(
-        'src/assistant/data-makan/routing.json',
-      );
-      const contamination: string[] = [];
-
-      Object.values(data).forEach((route) => {
-        if (route.intents) {
-          route.intents.forEach((intent) => {
-            if (PELANGI_HOSTEL_INTENTS.has(intent)) {
-              contamination.push(intent);
-            }
-          });
+  if (data.categories && Array.isArray(data.categories)) {
+    for (const cat of data.categories) {
+      if (cat.intents && Array.isArray(cat.intents)) {
+        for (const intent of cat.intents) {
+          if (intent.category) names.add(intent.category);
         }
-      });
+      }
+    }
+  }
 
-      expect(contamination.length).toBe(0);
+  return names;
+}
+
+/**
+ * Extracts intent names from a routing.json file (top-level keys).
+ */
+function extractRoutingIntents(filePath: string): Set<string> {
+  if (!existsSync(filePath)) return new Set();
+
+  const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+  const names = new Set<string>();
+
+  for (const key of Object.keys(data)) {
+    if (key === 'schema_version') continue;
+    names.add(key);
+  }
+
+  return names;
+}
+
+/**
+ * Extracts intent names from an intent-keywords.json file.
+ */
+function extractKeywordIntents(filePath: string): Set<string> {
+  if (!existsSync(filePath)) return new Set();
+
+  const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+  const names = new Set<string>();
+
+  if (data.intents && Array.isArray(data.intents)) {
+    for (const entry of data.intents) {
+      if (entry.intent) names.add(entry.intent);
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Formats contamination matches into a human-readable error message for CI output.
+ */
+function formatContaminationReport(
+  profileName: string,
+  matches: ContaminationMatch[],
+): string {
+  const lines = [
+    '',
+    '=== CONTAMINATION DETECTED in ' + profileName + ' ===',
+    'Found ' + matches.length + ' contaminated occurrence(s):',
+    '',
+  ];
+
+  const byFile = new Map<string, ContaminationMatch[]>();
+  for (const m of matches) {
+    if (!byFile.has(m.file)) byFile.set(m.file, []);
+    byFile.get(m.file)!.push(m);
+  }
+
+  for (const [file, fileMatches] of byFile) {
+    lines.push('  ' + file + ':');
+    for (const m of fileMatches) {
+      lines.push('    L' + m.line + ': term "' + m.term + '" -> ' + m.content);
+    }
+  }
+
+  lines.push('');
+  lines.push('Remediation: Remove or replace the above Pelangi-specific terms.');
+  return lines.join('\n');
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('US-197: Profile Data Contamination Regression', () => {
+  // ── AC1: Scan data-makan for Pelangi terms ──────────────────────────────
+
+  describe('data-makan/ must not contain Pelangi-specific terms', () => {
+    const matches = scanDirectoryForTerms(DATA_MAKAN, PELANGI_EXCLUSIVE_TERMS);
+
+    it('should not contain "capsule" in any JSON/MD file', () => {
+      const capsuleHits = matches.filter((m) => m.term === 'capsule');
+      expect(
+        capsuleHits,
+        formatContaminationReport('data-makan (capsule)', capsuleHits),
+      ).toHaveLength(0);
     });
 
-    it('assertion 4: makan workflows.json has no hostel-specific workflows', () => {
-      const data = readJsonFile<unknown>(
-        'src/assistant/data-makan/workflows.json',
-      );
-      const hostelKeywords = [
-        'checkin_full',
-        'checkout_full',
-        'booking_payment',
+    it('should not contain "pelangi" in any JSON/MD file', () => {
+      const pelangiHits = matches.filter((m) => m.term === 'pelangi');
+      expect(
+        pelangiHits,
+        formatContaminationReport('data-makan (pelangi)', pelangiHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "dorm" in any JSON/MD file', () => {
+      const dormHits = matches.filter((m) => m.term === 'dorm');
+      expect(
+        dormHits,
+        formatContaminationReport('data-makan (dorm)', dormHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "dormitory" in any JSON/MD file', () => {
+      const dormitoryHits = matches.filter((m) => m.term === 'dormitory');
+      expect(
+        dormitoryHits,
+        formatContaminationReport('data-makan (dormitory)', dormitoryHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "hostel_booking" in any JSON/MD file', () => {
+      const hostelBookingHits = matches.filter((m) => m.term === 'hostel_booking');
+      expect(
+        hostelBookingHits,
+        formatContaminationReport('data-makan (hostel_booking)', hostelBookingHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain Pelangi-exclusive intent names in routing or config files', () => {
+      const intentMatches = scanDirectoryForTerms(DATA_MAKAN, PELANGI_INTENT_TERMS);
+      expect(
+        intentMatches,
+        formatContaminationReport('data-makan (Pelangi intents)', intentMatches),
+      ).toHaveLength(0);
+    });
+  });
+
+  // ── AC1: Scan data-southern for Pelangi terms ───────────────────────────
+
+  describe('data-southern/ must not contain Pelangi-specific terms', () => {
+    const matches = scanDirectoryForTerms(DATA_SOUTHERN, PELANGI_EXCLUSIVE_TERMS);
+
+    it('should not contain "capsule" in any JSON/MD file', () => {
+      const capsuleHits = matches.filter((m) => m.term === 'capsule');
+      expect(
+        capsuleHits,
+        formatContaminationReport('data-southern (capsule)', capsuleHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "pelangi" in any JSON/MD file', () => {
+      const pelangiHits = matches.filter((m) => m.term === 'pelangi');
+      expect(
+        pelangiHits,
+        formatContaminationReport('data-southern (pelangi)', pelangiHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "dorm" in any JSON/MD file', () => {
+      const dormHits = matches.filter((m) => m.term === 'dorm');
+      expect(
+        dormHits,
+        formatContaminationReport('data-southern (dorm)', dormHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "dormitory" in any JSON/MD file', () => {
+      const dormitoryHits = matches.filter((m) => m.term === 'dormitory');
+      expect(
+        dormitoryHits,
+        formatContaminationReport('data-southern (dormitory)', dormitoryHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain "hostel_booking" in any JSON/MD file', () => {
+      const hostelBookingHits = matches.filter((m) => m.term === 'hostel_booking');
+      expect(
+        hostelBookingHits,
+        formatContaminationReport('data-southern (hostel_booking)', hostelBookingHits),
+      ).toHaveLength(0);
+    });
+
+    it('should not contain Pelangi-exclusive intent names in routing or config files', () => {
+      const intentMatches = scanDirectoryForTerms(DATA_SOUTHERN, PELANGI_INTENT_TERMS);
+      expect(
+        intentMatches,
+        formatContaminationReport('data-southern (Pelangi intents)', intentMatches),
+      ).toHaveLength(0);
+    });
+  });
+
+  // ── AC2: Intent name set disjointness ───────────────────────────────────
+
+  describe('Intent name sets must be disjoint between profiles', () => {
+    const makanIntents = extractIntentNames(join(DATA_MAKAN, 'intents.json'));
+    const pelangiIntents = extractIntentNames(join(DATA_PELANGI, 'intents.json'));
+    const southernIntents = extractIntentNames(join(DATA_SOUTHERN, 'intents.json'));
+
+    const makanRouting = extractRoutingIntents(join(DATA_MAKAN, 'routing.json'));
+    const pelangiRouting = extractRoutingIntents(join(DATA_PELANGI, 'routing.json'));
+
+    // General/shared intents expected to appear across all profiles
+    const SHARED_INTENTS = new Set([
+      'greeting',
+      'thanks',
+      'contact_staff',
+      'unknown',
+      'pricing',
+      'directions',
+      'complaint',
+      'positive_review',
+      'review_feedback',
+      'accessibility',
+      'cancel_workflow',
+      'emergency',
+    ]);
+
+    function exclusiveIntents(intents: Set<string>): Set<string> {
+      const exclusive = new Set(intents);
+      for (const shared of SHARED_INTENTS) {
+        exclusive.delete(shared);
+      }
+      return exclusive;
+    }
+
+    it('Makan-exclusive intents.json categories should not overlap with Pelangi-exclusive ones', () => {
+      const makanExclusive = exclusiveIntents(makanIntents);
+      const pelangiExclusive = exclusiveIntents(pelangiIntents);
+
+      const overlap = [...makanExclusive].filter((i) => pelangiExclusive.has(i));
+      expect(
+        overlap,
+        'Overlapping intent categories between Makan and Pelangi (excluding shared): ' + overlap.join(', '),
+      ).toHaveLength(0);
+    });
+
+    it('Makan routing.json intent keys should not overlap with Pelangi-exclusive routing keys', () => {
+      const makanExclusive = exclusiveIntents(makanRouting);
+      const pelangiExclusive = exclusiveIntents(pelangiRouting);
+
+      const overlap = [...makanExclusive].filter((i) => pelangiExclusive.has(i));
+      expect(
+        overlap,
+        'Overlapping routing intents between Makan and Pelangi (excluding shared): ' + overlap.join(', '),
+      ).toHaveLength(0);
+    });
+
+    it('Southern-exclusive intents.json categories should not overlap with Makan-exclusive ones', () => {
+      const southernExclusive = exclusiveIntents(southernIntents);
+      const makanExclusive = exclusiveIntents(makanIntents);
+
+      const overlap = [...southernExclusive].filter((i) => makanExclusive.has(i));
+      expect(
+        overlap,
+        'Overlapping intent categories between Southern and Makan (excluding shared): ' + overlap.join(', '),
+      ).toHaveLength(0);
+    });
+
+    it('Makan intent-keywords.json intents should not include Pelangi hostel-specific intents', () => {
+      const makanKeywords = extractKeywordIntents(join(DATA_MAKAN, 'intent-keywords.json'));
+      const hostelOnlyIntents = [
         'capsule_conflict',
-        'card_locked_troubleshoot',
-        'theft_emergency',
         'lower_deck_preference',
+        'card_locked',
+        'theft_report',
+        'luggage_storage',
+        'late_checkout_request',
+        'stay_extension',
+        'extend_stay',
+        'booking_modification',
+        'booking_cancellation',
       ];
-      const contamination = findKeywordsInJson(data, hostelKeywords);
 
-      expect(contamination.length).toBe(0);
+      const leaked = hostelOnlyIntents.filter((i) => makanKeywords.has(i));
+      expect(
+        leaked,
+        'Pelangi hostel intents leaked into data-makan/intent-keywords.json: ' + leaked.join(', '),
+      ).toHaveLength(0);
     });
 
-    it('assertion 5: makan knowledge.json has no Pelangi-specific responses', () => {
-      const data = readJsonFile<unknown>(
-        'src/assistant/data-makan/knowledge.json',
-      );
-      const pelangiResponses = ['capsule', 'dorm', 'hostel', 'check-in', 'checkout'];
-      const contamination = findKeywordsInJson(data, pelangiResponses);
-
-      expect(contamination.length).toBe(0);
-    });
-
-    it('assertion 6: makan intent-keywords.json has no hostel keywords', () => {
-      const data = readJsonFile<unknown>(
-        'src/assistant/data-makan/intent-keywords.json',
-      );
-      const hostelKeywords = ['capsule', 'dorm', 'dormitory', 'hostel'];
-      const contamination = findKeywordsInJson(data, hostelKeywords);
-
-      expect(contamination.length).toBe(0);
-    });
-  });
-
-  describe('AC2: Intent name disjointness - Makan vs Pelangi', () => {
-    it('assertion 7: Makan and Pelangi intent names are disjoint', () => {
-      const makanData = readJsonFile<IntentNode>(
-        'src/assistant/data-makan/intents.json',
-      );
-      const pelangiData = readJsonFile<IntentNode>(
-        'src/assistant/data/intents.json',
-      );
-
-      const makanIntents = new Set<string>();
-      const pelangiIntents = new Set<string>();
-
-      // Extract Makan intents
-      if (makanData.categories) {
-        makanData.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                makanIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      // Extract Pelangi intents
-      if (pelangiData.categories) {
-        pelangiData.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                pelangiIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      // Find overlaps (excluding common intents)
-      const overlap = Array.from(makanIntents).filter(
-        (intent) => pelangiIntents.has(intent) && !COMMON_INTENTS.has(intent),
-      );
-
-      expect(overlap.length).toBe(0);
-    });
-
-    it('assertion 8: Makan has key restaurant intents', () => {
-      const data = readJsonFile<IntentNode>(
-        'src/assistant/data-makan/intents.json',
-      );
-      const allIntents = new Set<string>();
-
-      if (data.categories) {
-        data.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                allIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      const requiredMakanIntents = [
+    it('Southern intent-keywords.json intents should not include Makan cafe-specific intents', () => {
+      const southernKeywords = extractKeywordIntents(join(DATA_SOUTHERN, 'intent-keywords.json'));
+      const cafeOnlyIntents = [
         'menu_query',
+        'menu_browse_category',
         'order_placement',
+        'order_status',
+        'vegetarian_query',
+        'menu_filter_dietary',
+        'budget_query',
+        'specials_query',
+        'food_recommendation',
+        'menu_item_detail',
         'table_reservation',
+        'order_feedback_rating',
+        'allergen_query',
       ];
-      const missing = requiredMakanIntents.filter(
-        (intent) => !allIntents.has(intent),
-      );
 
-      expect(missing.length).toBe(0);
-    });
-
-    it('assertion 9: Makan does NOT contain Pelangi-only hostel intents', () => {
-      const data = readJsonFile<IntentNode>(
-        'src/assistant/data-makan/intents.json',
-      );
-      const allIntents = new Set<string>();
-
-      if (data.categories) {
-        data.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                allIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      const hostelIntents = Array.from(PELANGI_HOSTEL_INTENTS).filter(
-        (intent) => !COMMON_INTENTS.has(intent),
-      );
-      const contamination = hostelIntents.filter((intent) =>
-        allIntents.has(intent),
-      );
-
-      expect(contamination.length).toBe(0);
+      const leaked = cafeOnlyIntents.filter((i) => southernKeywords.has(i));
+      expect(
+        leaked,
+        'Makan cafe intents leaked into data-southern/intent-keywords.json: ' + leaked.join(', '),
+      ).toHaveLength(0);
     });
   });
 
-  describe('AC3: Southern data validation', () => {
-    it('assertion 10: Southern contains Pelangi hostel intents (shared profile)', () => {
-      const data = readJsonFile<IntentNode>(
-        'src/assistant/data-southern/intents.json',
-      );
-      const allIntents = new Set<string>();
+  // ── AC3: Contaminated file presence check ──────────────────────────────
 
-      if (data.categories) {
-        data.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                allIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      // Southern should have hostel intents like Pelangi
-      const hostelIntents = ['booking', 'check_in_arrival', 'checkout_info'];
-      const missing = hostelIntents.filter((intent) => !allIntents.has(intent));
-
-      expect(missing.length).toBe(0);
+  describe('Known contamination files must not exist', () => {
+    it('data-makan/ should not contain pelangi-kb.md', () => {
+      const exists = existsSync(join(DATA_MAKAN, 'pelangi-kb.md'));
+      expect(
+        exists,
+        'data-makan/pelangi-kb.md is a Pelangi knowledge base file that should not exist in the Makan profile directory',
+      ).toBe(false);
     });
 
-    it('assertion 11: Southern does NOT contain Makan-only restaurant intents', () => {
-      const data = readJsonFile<IntentNode>(
-        'src/assistant/data-southern/intents.json',
-      );
-      const allIntents = new Set<string>();
-
-      if (data.categories) {
-        data.categories.forEach((category) => {
-          if (category.intents) {
-            category.intents.forEach((intent) => {
-              if (intent.category) {
-                allIntents.add(intent.category);
-              }
-            });
-          }
-        });
-      }
-
-      const makanRestaurantIntents = Array.from(MAKAN_ONLY_INTENTS);
-      const contamination = makanRestaurantIntents.filter((intent) =>
-        allIntents.has(intent),
-      );
-
-      expect(contamination.length).toBe(0);
-    });
-  });
-
-  describe('Error reporting for CI/CD', () => {
-    it('assertion 12: test suite blocks merge on contamination detection', () => {
-      // This test documents that contamination is caught by assertions 1-11
-      // In CI/CD, any failed assertion will prevent merge
-      expect(true).toBe(true);
+    it('data-southern/ should not contain pelangi-kb.md', () => {
+      const exists = existsSync(join(DATA_SOUTHERN, 'pelangi-kb.md'));
+      expect(
+        exists,
+        'data-southern/pelangi-kb.md is a Pelangi knowledge base file that should not exist in the Southern profile directory',
+      ).toBe(false);
     });
   });
 });

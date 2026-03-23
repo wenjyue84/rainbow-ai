@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-202",
-      "title": "Intent Classifier Low-Confidence Alert Threshold",
-      "priority": "high",
-      "description": "Add configurable per-intent confidence thresholds that trigger admin alerts when classifications fall below threshold, identifying weak intents requiring improvement or retraining.",
-      "acceptanceCriteria": [
-        "Add confidence_threshold (float, default: 0.7) field to each intent in src/assistant/data/intent-keywords.json with validation in Zod schema",
-        "Classification pipeline in src/assistant/pipeline/classify.ts checks confidence against threshold, inserts alert records into analytics table with intent_id and actual_confidence score",
-        "Admin endpoint GET /admin/alerts/low-confidence?days=7&profile=pelangi returns alert summary grouped by intent, sorted by frequency with percentage of low-confidence predictions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-203",
       "title": "Profile Intent Keyword Validation at Startup",
       "priority": "high",
@@ -76,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -489,6 +472,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-246",
+      "title": "Debug Mode CLI for Intent Classification Candidate Analysis",
+      "priority": "high",
+      "description": "Add --debug flag to intent classification to output top-N candidates with confidence scores, enabling developers to debug misclassifications and understand classifier decisions",
+      "acceptanceCriteria": [
+        "New function classifyIntentDebug(message: string, topN: number = 5): IntentCandidate[] added to src/assistant/intent-classifier.ts returns all candidates with scores",
+        "Test in src/__tests__/intent-classifier-debug.test.ts verifies top candidate has highest confidence and all candidates sorted descending",
+        "CLI test: npm run classify-intent -- --debug 'check in tomorrow' outputs top 5 candidates with confidence scores >= 0.1"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-247",
+      "title": "Conversation Message History Context Window Truncator",
+      "priority": "high",
+      "description": "Automatically prune conversation history when exceeding max message count to prevent context bloat, reduce token usage, and improve multi-turn dialogue handling",
+      "acceptanceCriteria": [
+        "Function pruneConversationContext(messages: Message[], maxMessages: number = 10): Message[] in src/assistant/conversation.ts keeps first (system) message plus last maxMessages",
+        "Test case: 20-message conversation with maxMessages=10 returns 11 messages total (first + last 10)",
+        "Integration test verifies conversation pipeline truncates before calling AI provider when message count exceeds threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-248",
+      "title": "Low-Confidence Intent Fallback Response Context Selector",
+      "priority": "high",
+      "description": "Select contextually relevant fallback responses from knowledge.json based on conversation history when intent confidence falls below threshold",
+      "acceptanceCriteria": [
+        "Function selectContextualFallback(intent: string, confidence: number, history: Message[]): string in src/assistant/fallback.ts scans last 5 messages for keywords (room, check-in, booking, price)",
+        "When confidence < 0.6, keyword matches trigger corresponding fallback template; e.g., 'check-in' in history returns booking-specific fallback not generic 'I didn't understand'",
+        "Test: low-confidence booking intent (0.55) with 'when can I check in?' in history returns booking-aware fallback template"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -846,6 +880,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-249",
+      "title": "Booking Workflow Step Performance Slow-Path Analyzer Endpoint",
+      "priority": "medium",
+      "description": "Admin endpoint to identify booking workflow steps with highest p95/p99 latency, enabling performance bottleneck prioritization for workflow optimization",
+      "acceptanceCriteria": [
+        "New endpoint GET /admin/debug/workflow-performance?profile=pelangi&days=7 returns {steps: [{step_name, p50_ms, p95_ms, p99_ms, failure_count}]}",
+        "Queries step execution trace logs and calculates percentiles for each named workflow step (e.g., validate_dates, reserve_room, confirm_booking)",
+        "Test case: 100 mocked step executions with latencies [50,60,70...150] returns correct p95 value (approximately 145ms)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-250",
+      "title": "AI Provider Classification Accuracy Tracker per Provider",
+      "priority": "medium",
+      "description": "Track classification accuracy metrics per AI provider (Kimi, OpenRouter, Ollama) to enable intelligent provider routing based on performance for different intent types",
+      "acceptanceCriteria": [
+        "Add provider VARCHAR column to rainbow_messages table via Drizzle migration in shared/schema-tables.ts; populate on each classification with provider name",
+        "New function getProviderAccuracyMetrics(profile: string, days: number = 7): {provider: string, intent: string, accuracy: number}[] in src/lib/analytics.ts calculates correct_classifications / total_classifications per provider",
+        "Test case: 100 classifications (55 correct from Kimi, 70 correct from OpenRouter out of 100 each) returns Kimi accuracy=0.55, OpenRouter accuracy=0.70"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-201",
       "title": "Fallback Response Template Staleness and Quality Auditor",
       "priority": "low",
@@ -1130,6 +1198,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-202",
+      "title": "Intent Classifier Low-Confidence Alert Threshold",
+      "priority": "high",
+      "description": "Add configurable per-intent confidence thresholds that trigger admin alerts when classifications fall below threshold, identifying weak intents requiring improvement or retraining.",
+      "acceptanceCriteria": [
+        "Add confidence_threshold (float, default: 0.7) field to each intent in src/assistant/data/intent-keywords.json with validation in Zod schema",
+        "Classification pipeline in src/assistant/pipeline/classify.ts checks confidence against threshold, inserts alert records into analytics table with intent_id and actual_confidence score",
+        "Admin endpoint GET /admin/alerts/low-confidence?days=7&profile=pelangi returns alert summary grouped by intent, sorted by frequency with percentage of low-confidence predictions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-197",
