@@ -11,6 +11,9 @@ import { ok, badRequest, notFound, serverError } from './http-utils.js';
 import type { WorkflowDefinition, WorkflowStep } from '../../assistant/config-store.js';
 import type { HybridWorkflowDefinition } from '../../assistant/workflow-nodes.js';
 import { isNodeBasedWorkflow } from '../../assistant/workflow-nodes.js';
+import { db } from '../../lib/db.js';
+import { workflowErrorQueue } from '../../../shared/schema-tables.js';
+import { eq, desc, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -396,6 +399,122 @@ router.post('/debug/profile/:profile/workflow-dry-run', async (req: Request, res
     ok(res, response);
   } catch (error: any) {
     console.error('[WorkflowDryRun] Error:', error.message);
+    serverError(res, error);
+  }
+});
+
+// ─── Workflow Error Queue (US-333) ────────────────────────────────────────
+
+// GET /workflow-queue — List workflow error queue with filtering and pagination
+router.get('/workflow-queue', async (req: Request, res: Response) => {
+  try {
+    const status = (req.query.status as string) || 'pending';
+    const profile = (req.query.profile as string) || 'pelangi';
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    // Build filter conditions
+    const conditions = [
+      eq(workflowErrorQueue.status, status),
+      eq(workflowErrorQueue.profile, profile)
+    ];
+
+    // Get total count for pagination
+    const countResult = await db
+      .select({ count: workflowErrorQueue.id })
+      .from(workflowErrorQueue)
+      .where(and(...conditions));
+
+    const total = countResult.length;
+
+    // Get paginated results with most recent first
+    const rows = await db
+      .select()
+      .from(workflowErrorQueue)
+      .where(and(...conditions))
+      .orderBy(desc(workflowErrorQueue.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    ok(res, {
+      queue: rows.map(row => ({
+        id: row.id,
+        conversationId: row.conversationId,
+        intentId: row.intentId,
+        stepName: row.stepName,
+        errorMessage: row.errorMessage,
+        workflowState: row.workflowState,
+        status: row.status,
+        reviewedBy: row.reviewedBy,
+        resolution: row.resolution,
+        resolutionNotes: row.resolutionNotes,
+        profile: row.profile,
+        createdAt: row.createdAt,
+        resolvedAt: row.resolvedAt
+      })),
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + limit < total
+      }
+    });
+  } catch (error: any) {
+    console.error('[WorkflowQueue] Error:', error.message);
+    serverError(res, error);
+  }
+});
+
+// POST /workflow-queue/:queueId/resolve — Resolve a workflow error queue item
+router.post('/workflow-queue/:queueId/resolve', async (req: Request, res: Response) => {
+  try {
+    const { queueId } = req.params;
+    const { action, notes, staffMember } = req.body;
+
+    // Validate input
+    if (!queueId || !action) {
+      badRequest(res, 'queueId and action are required');
+      return;
+    }
+
+    const validActions = ['retry', 'skip', 'escalate'];
+    if (!validActions.includes(action)) {
+      badRequest(res, `action must be one of: ${validActions.join(', ')}`);
+      return;
+    }
+
+    // Get the queue item
+    const queueItem = await db
+      .select()
+      .from(workflowErrorQueue)
+      .where(eq(workflowErrorQueue.id, parseInt(queueId)))
+      .then(rows => rows[0]);
+
+    if (!queueItem) {
+      notFound(res, `Queue item ${queueId} not found`);
+      return;
+    }
+
+    // Update the queue item with resolution
+    const now = new Date();
+    const updated = await db
+      .update(workflowErrorQueue)
+      .set({
+        status: 'resolved',
+        resolution: action,
+        resolutionNotes: notes || '',
+        reviewedBy: staffMember || 'system',
+        resolvedAt: now
+      })
+      .where(eq(workflowErrorQueue.id, parseInt(queueId)))
+      .returning();
+
+    ok(res, {
+      message: `Workflow error queue item ${queueId} resolved with action: ${action}`,
+      item: updated[0]
+    });
+  } catch (error: any) {
+    console.error('[WorkflowQueueResolve] Error:', error.message);
     serverError(res, error);
   }
 });

@@ -1615,6 +1615,35 @@ export const bookingWorkflowEvents = pgTable("booking_workflow_events", {
 export type BookingWorkflowEvent = typeof bookingWorkflowEvents.$inferSelect;
 export type InsertBookingWorkflowEvent = typeof bookingWorkflowEvents.$inferInsert;
 
+// ─── Workflow Error Queue (US-333) ────────────────────────────────────────
+// Captures booking workflow step failures with full context for staff review.
+// Staff can manually resolve, retry, or escalate with visibility into failures.
+
+export const workflowErrorQueue = pgTable("workflow_error_queue", {
+  id: serial("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  intentId: text("intent_id"),
+  stepName: text("step_name").notNull(),
+  errorMessage: text("error_message").notNull(),
+  workflowState: jsonb("workflow_state"),  // Full workflow state at point of failure
+  status: text("status").notNull().default('pending'),  // 'pending' | 'resolved' | 'escalated'
+  reviewedBy: text("reviewed_by"),  // Staff member who reviewed
+  resolution: text("resolution"),  // 'retry' | 'skip' | 'escalate'
+  resolutionNotes: text("resolution_notes"),  // Reason for resolution
+  profile: text("profile").notNull().default('pelangi'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => ([
+  index("idx_workflow_error_queue_status").on(table.status),
+  index("idx_workflow_error_queue_profile").on(table.profile),
+  index("idx_workflow_error_queue_conversation_id").on(table.conversationId),
+  index("idx_workflow_error_queue_created_at").on(table.createdAt),
+  index("idx_workflow_error_queue_profile_status").on(table.profile, table.status),
+]));
+
+export type WorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferSelect;
+export type InsertWorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
