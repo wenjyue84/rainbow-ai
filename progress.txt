@@ -1452,3 +1452,49 @@ Here is the technical brief based on the actual TypeScript context:
 *   **Performance:** The detection logic must be fast to avoid adding noticeable latency to the user's response time.
 *   **Coherence Recovery:** The system must correctly recognize when a user's drifted conversation returns to the primary topic.
 
+
+## Iteration [2] - Story: US-093 - Add conversation topic drift detector to prevent off-topic context in AI inference
+
+### What was implemented
+- Completed topic drift detector module (`src/assistant/pipeline/topic-drift-detector.ts`) with:
+  - Keyword-based topic classification: booking, inquiry, general
+  - Jaccard similarity calculation for message coherence
+  - Coherence scoring with topic-specific rules (same topic = 0.95, related topics = 0.72, general = 0.25, unrelated = 0.15)
+  - Multi-language topic refocus prompts (en, ms, zh, ta)
+  - Export of `detectTopicDrift(messages, threshold=0.7)` returning `{drifted, confidence}`
+- Integrated topic drift detection into input-validator pipeline:
+  - Check runs after conversation loading and message addition
+  - When drift detected (confidence > threshold), sends refocus prompt via `ctx.sendMessage()`
+  - Returns `{ continue: false, reason: 'topic_drift' }` to stop pipeline
+  - Logs drift event to intent_predictions for audit trail
+- All 22 unit tests passing, covering:
+  - Drift detection on booking→general→booking sequences ✅
+  - Topic transition coherence (booking↔inquiry relationships)
+  - Confidence threshold validation
+  - Edge cases (empty history, no user messages, single message)
+  - Keyword matching for different categories
+  - Multi-turn conversation coherence maintenance
+
+### Patterns discovered
+- Pipeline guards (off-scope, prompt-injection) follow same pattern:
+  1. Check condition after preprocessing
+  2. Log warning + intent_predictions
+  3. Send redirect/refocus message
+  4. Return `{continue: false, reason}`
+- Topic classification via keyword overlap is more reliable than embedding-based for this use case
+  - Avoids dependency on external embedding model
+  - Fast computation (O(n) where n = keywords)
+  - Deterministic results for testing
+- Refocus prompts should acknowledge the drift and offer path back to business context
+
+### Gotchas
+- Conversation must be loaded and message added BEFORE drift check (needed to analyze context)
+- Topic drift check must happen AFTER sentiment analysis but BEFORE building full pipeline state
+- Must handle language detection to return appropriate multi-language refocus prompt
+- Settings gating via `profileSettings?.topicDriftDetection?.enabled` allows per-profile configuration
+
+### Build & Test Status
+✅ All 22 unit tests passing
+✅ Build successful (esbuild)
+✅ No type errors
+✅ Story marked as complete (passes: true)
