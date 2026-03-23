@@ -1428,6 +1428,32 @@ export const fallbackResponseMetrics = pgTable("fallback_response_metrics", {
 export type FallbackResponseMetric = typeof fallbackResponseMetrics.$inferSelect;
 export type InsertFallbackResponseMetric = typeof fallbackResponseMetrics.$inferInsert;
 
+// ─── Booking State Audit (US-312) ───────────────────────────────────
+// Logs every booking state transition attempt for audit and debugging.
+// Records whether the transition was valid per the booking state machine,
+// enabling detection of workflow bugs and malformed step sequences.
+
+export const bookingStateAudit = pgTable("booking_state_audit", {
+  id: serial("id").primaryKey(),
+  bookingId: text("booking_id").notNull(),
+  fromState: text("from_state").notNull(),
+  toState: text("to_state").notNull(),
+  valid: boolean("valid").notNull(),
+  reason: text("reason").notNull(),
+  profile: text("profile").notNull().default('pelangi'),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_booking_state_audit_booking_id").on(table.bookingId),
+  index("idx_booking_state_audit_from_state").on(table.fromState),
+  index("idx_booking_state_audit_to_state").on(table.toState),
+  index("idx_booking_state_audit_valid").on(table.valid),
+  index("idx_booking_state_audit_profile").on(table.profile),
+  index("idx_booking_state_audit_timestamp").on(table.timestamp),
+]));
+
+export type BookingStateAuditRecord = typeof bookingStateAudit.$inferSelect;
+export type InsertBookingStateAuditRecord = typeof bookingStateAudit.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

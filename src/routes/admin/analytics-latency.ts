@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
 import { sql } from 'drizzle-orm';
 import { ok, serverError } from './http-utils.js';
+import { getLatencyPercentiles, getTrackedIntents } from '../../assistant/pipeline/latency-tracker.js';
 
 const router = Router();
 
@@ -312,6 +313,33 @@ router.get('/analytics/latency/high-latency', async (req: Request, res: Response
   } catch (error) {
     console.error('[Analytics Latency] Error fetching high-latency responses:', error);
     serverError(res, 'Failed to fetch high-latency responses');
+  }
+});
+
+/**
+ * GET /analytics/latency-percentiles
+ *
+ * US-315: Intent Classification Latency Percentile Tracker.
+ *
+ * Returns {p10, p50, p90, count} for the requested intent from in-memory latency store.
+ * Query params:
+ *   - intent (optional): specific intent to query (e.g. "booking"). If omitted, aggregates all intents.
+ */
+router.get('/analytics/latency-percentiles', async (req: Request, res: Response) => {
+  try {
+    const intent = req.query.intent as string | undefined;
+
+    const percentiles = getLatencyPercentiles(intent);
+    const trackedIntents = getTrackedIntents();
+
+    ok(res, {
+      intent: intent ?? 'all',
+      ...percentiles,
+      trackedIntents,
+    });
+  } catch (error) {
+    console.error('[Analytics Latency] Error computing latency percentiles:', error);
+    serverError(res, 'Failed to compute latency percentiles');
   }
 });
 

@@ -3,9 +3,62 @@
  *
  * Implements message relevance scoring to identify and prune stale context
  * from conversation history when it exceeds capacity.
+ *
+ * US-307: Logs WARN and increments a counter when conversation turns exceed
+ * the context window size, tracking which profiles and intents generate
+ * longer multi-turn dialogues.
  */
 
 import type { ChatMessage } from '../types.js';
+import { metrics } from '@opentelemetry/api';
+import { createModuleLogger } from '../../lib/logger.js';
+
+const logger = createModuleLogger('ContextManager');
+
+/**
+ * US-307: Maximum conversation turns before truncation warning fires.
+ */
+export const CONTEXT_WINDOW_SIZE = 10;
+
+// ─── US-307: Prometheus-style counter via OpenTelemetry ─────────────
+const meter = metrics.getMeter('rainbow-ai');
+
+/**
+ * Counter incremented each time a conversation exceeds CONTEXT_WINDOW_SIZE.
+ * Labels: profile, intent.
+ */
+export const contextTruncationsCounter = meter.createCounter(
+  'conversation_context_truncations_total',
+  {
+    description: 'Number of times a conversation exceeded the context window size and was truncated',
+  },
+);
+
+/**
+ * US-307: Check whether the conversation history exceeds the context window
+ * size and, if so, emit a WARN log and increment the truncation counter.
+ *
+ * @param turnCount Number of turns (messages) in the conversation
+ * @param profile   Profile identifier (e.g. "data-pelangi", "data-southern")
+ * @param intent    Current classified intent
+ * @returns true if truncation was detected (turnCount > CONTEXT_WINDOW_SIZE)
+ */
+export function checkContextTruncation(
+  turnCount: number,
+  profile: string,
+  intent: string,
+): boolean {
+  if (turnCount > CONTEXT_WINDOW_SIZE) {
+    logger.warn(
+      `Context window exceeded: ${turnCount} turns (limit ${CONTEXT_WINDOW_SIZE})`,
+      { profile, intent, turn_count: turnCount },
+    );
+
+    contextTruncationsCounter.add(1, { profile, intent });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Score a message for relevance to the current intent
