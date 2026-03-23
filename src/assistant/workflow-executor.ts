@@ -8,6 +8,7 @@ import { executeWorkflowInTransaction, logTransactionMetrics, type TransactionMe
 import { executeWithTimeout, WorkflowTimeoutError, logTimeoutFailure } from './workflow-timeout-handler.js';
 import { logMessage } from './conversation-logger.js';
 import { recordStepMetric } from './workflow-profiler.js';
+import { pool } from '../lib/db.js';
 import type {
   HybridWorkflowDefinition, WorkflowNode, NodeWorkflowState,
   MessageNodeConfig, WaitReplyNodeConfig, WhatsAppSendNodeConfig,
@@ -17,6 +18,45 @@ import {
   isNodeBasedWorkflow, getNodeById, getNextNodeId, resolveTemplateVars, resolveVariableRef,
   convertRawPhonesToLinks,
 } from './workflow-nodes.js';
+
+// ─── US-313: Booking Workflow Execution Audit Trail ──────────────────
+
+export type WorkflowExecutionStatus = 'success' | 'error' | 'timeout' | 'skipped';
+
+/**
+ * US-313: Log a booking workflow step execution to the booking_execution_audit table.
+ * Inserts an audit record with the step name, input/output data, status, and timestamp.
+ * Returns the step result (output) unchanged so it can be used as a transparent wrapper.
+ */
+export async function logWorkflowExecution(
+  step: string,
+  input: Record<string, unknown>,
+  output: Record<string, unknown>,
+  status: WorkflowExecutionStatus,
+  bookingId?: string,
+): Promise<Record<string, unknown>> {
+  const resolvedBookingId = bookingId || input.bookingId as string || `booking-${Date.now()}`;
+
+  try {
+    await pool.query(
+      `INSERT INTO booking_execution_audit (booking_id, step_name, input, output, status, executed_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [
+        resolvedBookingId,
+        step,
+        JSON.stringify(input),
+        JSON.stringify(output),
+        status,
+      ]
+    );
+    console.log(`[WorkflowExecutor] US-313: Audit logged for step "${step}" (booking: ${resolvedBookingId}, status: ${status})`);
+  } catch (err) {
+    // Non-blocking: audit logging should never break workflow execution
+    console.error(`[WorkflowExecutor] US-313: Failed to log audit for step "${step}":`, err);
+  }
+
+  return output;
+}
 
 // Wrapper to adapt http-client callAPI to workflow-enhancer's expected signature
 async function callAPIWrapper(url: string, options?: RequestInit): Promise<any> {

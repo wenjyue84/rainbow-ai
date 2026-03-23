@@ -1335,6 +1335,53 @@ export const intentClassificationThresholds = pgTable("intent_classification_thr
 export type IntentClassificationThreshold = typeof intentClassificationThresholds.$inferSelect;
 export type InsertIntentClassificationThreshold = typeof intentClassificationThresholds.$inferInsert;
 
+// ─── Profile Isolation Violations (US-310) ──────────────────────────
+// Audit log for profile-isolation middleware violations.
+// Records any attempt to access data belonging to a different profile
+// for post-incident review and cross-profile leakage prevention.
+
+export const profileIsolationViolations = pgTable("profile_isolation_violations", {
+  id: serial("id").primaryKey(),
+  attemptedProfile: text("attempted_profile").notNull(),
+  actualProfile: text("actual_profile").notNull(),
+  queryText: text("query_text").notNull(),
+  routePath: text("route_path").notNull(),
+  method: varchar("method", { length: 10 }).notNull(),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_piv_actual_profile").on(table.actualProfile),
+  index("idx_piv_attempted_profile").on(table.attemptedProfile),
+  index("idx_piv_created_at").on(table.createdAt),
+]));
+
+export type ProfileIsolationViolation = typeof profileIsolationViolations.$inferSelect;
+export type InsertProfileIsolationViolation = typeof profileIsolationViolations.$inferInsert;
+
+// ─── Booking Execution Audit (US-313) ────────────────────────────────
+// Audit trail for booking workflow step execution.
+// Records inputs, outputs, status, and timing for each step to enable
+// debugging of failed bookings and compliance auditing.
+
+export const bookingExecutionAudit = pgTable("booking_execution_audit", {
+  id: serial("id").primaryKey(),
+  bookingId: text("booking_id").notNull(),
+  stepName: text("step_name").notNull(),
+  input: jsonb("input").notNull(),
+  output: jsonb("output").notNull(),
+  status: text("status").notNull(),  // 'success' | 'error' | 'timeout' | 'skipped'
+  executedAt: timestamp("executed_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_booking_exec_audit_booking_id").on(table.bookingId),
+  index("idx_booking_exec_audit_step_name").on(table.stepName),
+  index("idx_booking_exec_audit_status").on(table.status),
+  index("idx_booking_exec_audit_executed_at").on(table.executedAt),
+  index("idx_booking_exec_audit_booking_step").on(table.bookingId, table.stepName),
+]));
+
+export type BookingExecutionAudit = typeof bookingExecutionAudit.$inferSelect;
+export type InsertBookingExecutionAudit = typeof bookingExecutionAudit.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
