@@ -47,58 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-285",
-      "title": "Fallback Response Template A/B Test Analysis CLI",
-      "priority": "high",
-      "description": "CLI tool to compare two fallback response templates for the same intent, measuring booking conversion rate and escalation rate to validate which response template drives better outcomes.",
-      "acceptanceCriteria": [
-        "CLI tool npx tsx src/tools/compare-fallback-templates.ts --intent=<intent> --profile=<profile> --days=30 outputs JSON with template_a_booking_rate, template_b_booking_rate, statistical_significance, winner",
-        "Queries rainbow_messages and rainbow_conversations tables filtering by intent, fallback_response_variant, and booking success within date range",
-        "Unit tests in src/tools/__tests__/compare-fallback-templates.test.ts with mock conversation data showing correct rate calculation and statistical comparison"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-290",
-      "title": "Booking Workflow Step Execution Dry-Run Endpoint",
-      "priority": "high",
-      "description": "Add admin endpoint that simulates booking workflow execution against a test request without writing to the database. This enables rapid debugging of workflow step failures and provides visibility into step-by-step booking logic before deployment.",
-      "acceptanceCriteria": [
-        "Add POST /admin/debug/profile/:profile/workflow-dry-run endpoint in src/routes/admin/workflows.ts that accepts a test booking request payload",
-        "Execute each step in the booking workflow, log step name and output, and return JSON response with array of {stepId, output, status, durationMs} showing step-by-step execution without database writes",
-        "Include error details in response if any step fails, showing step precondition violations and actionable fix suggestions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-291",
-      "title": "Build booking workflow failure hotspot analyzer with step-level breakdown",
-      "priority": "high",
-      "description": "Identify which booking workflow steps fail most frequently and correlate with failure reasons (timeout, validation, unavailability). Helps prioritize targeted improvements to workflows.json.",
-      "acceptanceCriteria": [
-        "GET /admin/analytics/booking-failures returns JSON with each booking step showing failure_count, attempt_count, failure_rate%, and top 3 failure_reasons grouped by reason",
-        "Example: {\"check-room-availability\": {\"failures\": 8, \"attempts\": 100, \"rate\": \"8.0%\", \"top_reasons\": [{\"reason\": \"room-not-available\", \"count\": 5}]}}",
-        "CLI: npm run analytics:booking-failures --since=7d --profile=pelangi outputs steps sorted by failure_rate descending",
-        "Test: assert step with 10 failures out of 100 attempts calculates to 10.0% failure_rate"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-308",
       "title": "Conversation Context Relevance Reranker for Multi-Turn Booking Dialogs",
       "priority": "high",
@@ -113,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T19:14:00Z"
     },
     {
       "id": "US-309",
@@ -737,6 +686,110 @@
         "New file test/intent-classifier-isolation.test.ts with vitest that classifies 5+ representative messages per profile (e.g., 'book a room' for pelangi, 'order nasi lemak' for makan, 'reserve bed' for southern)",
         "Assert that pelangi messages classify only to pelangi intents (routing.json['pelangi-booking'], etc.), makan to makan intents only, southern to southern intents only",
         "Test fails if any profile's message classifies to another profile's intent category; run via `npm run test -- intent-classifier-isolation.test.ts`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-400",
+      "title": "Booking Workflow Integration Test Suite with Realistic Fixtures",
+      "priority": "high",
+      "description": "Comprehensive integration tests covering end-to-end booking workflow (inquiry→confirmation→check-in) with realistic guest and room data to catch workflow failures",
+      "acceptanceCriteria": [
+        "Test file `src/tests/booking-workflow.integration.ts` with 4 scenarios: happy path, invalid dates (past), unavailable rooms, missing guest email; all tests pass",
+        "Test assertions verify: `booking.status === 'confirmed'`, `confirmation_message_sent === true`, `room.available_units` decremented, `guest.confirmed_booking_id` set",
+        "Test suite under 200 lines including realistic fixture data for 3 profiles (pelangi, makan, southern)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_decomposedFrom": "US-290"
+    },
+    {
+      "id": "US-401",
+      "title": "Intent Classification Regression Test Suite with Baseline Enforcement",
+      "priority": "high",
+      "description": "Build regression tests with established per-intent accuracy baselines to flag model degradation and prevent accuracy regressions in production",
+      "acceptanceCriteria": [
+        "Baseline metrics in `src/tests/intent-baselines.json` with per-intent targets: `{\"booking\": 0.94, \"inquiry\": 0.91, \"greeting\": 0.96}` per profile",
+        "Test command `npm run test:intent-regression` loads 50+ labeled fixtures per intent, measures accuracy, fails if any intent drops >5 percentage points below baseline",
+        "Output includes per-intent precision/recall, confusion matrix between top 2 confused intents, and clear error message on regression with offending examples"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-290"
+    },
+    {
+      "id": "US-405",
+      "title": "Implement Cross-Profile Message Routing Isolation Test Suite",
+      "priority": "high",
+      "description": "Create comprehensive unit tests validating that messages for one business profile (Pelangi, Makan, Southern) are never routed to another profile. Ensures strict profile separation at the routing layer before messages reach the intent classifier.",
+      "acceptanceCriteria": [
+        "Create test/unit/profile-routing-isolation.test.ts with 6+ test cases: (1) Pelangi message routes only to Pelangi, (2) Makan message routes only to Makan, (3) Southern message routes only to Southern, (4) cross-profile message rejection, (5) profile inference from sender metadata, (6) profile mismatch error handling",
+        "Each test invokes src/lib/profile-router.ts:routeMessage(message) and asserts returned message.profile matches expected profile using strict equality",
+        "All tests pass with 100% success rate when executed via npm run test:run"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-406",
+      "title": "Build Intent Classification Confidence Metrics Collector API Endpoint",
+      "priority": "high",
+      "description": "Implement a metrics collection endpoint that captures intent classification confidence scores, per-profile accuracy trends, and misclassification patterns. Enable real-time observability into classifier health without requiring log parsing.",
+      "acceptanceCriteria": [
+        "Add POST /api/metrics/intent-classification to src/routes/admin/metrics.ts that accepts {intent, predicted_intent, confidence, profile, timestamp} and stores to metrics table in database",
+        "Create daily aggregation job src/jobs/confidence-aggregator.ts that computes per-profile accuracy baseline and flags profile-specific regression (accuracy drop > 5%) with admin alert",
+        "Test assertion in test/integration/confidence-metrics.test.ts: after 100 classifications, /api/metrics/confidence-summary returns {pelangi: {accuracy: 0.92, trend: 'stable'}, makan: {accuracy: 0.78, trend: 'declining'}}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-407",
+      "title": "Implement Booking Workflow Failure Auto-Logging with Suggested Remediations",
+      "priority": "high",
+      "description": "Add structured failure logging to the booking workflow execution pipeline. Each failure is logged with the step name, input context, error type, and a machine-generated suggestion for remediation based on error classification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/pipeline/booking-failure-logger.ts exporting logWorkflowFailure(stepName, error, context, profile) that writes to database table booking_workflow_failures with columns: step_name, error_code, error_message, suggested_action, profile, timestamp",
+        "Failure classifier detects error patterns: 'VALIDATION_FAILED' → suggest 'Ask guest to clarify dates', 'ROOM_UNAVAILABLE' → suggest 'Offer alternative room types', 'PAYMENT_FAILED' → suggest 'Escalate to payment support'",
+        "Test: test/unit/booking-failure-logger.test.ts validates that {stepName: 'check-availability', error: 'ROOM_UNAVAILABLE', context: {...}} produces suggestion containing 'alternative'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-408",
+      "title": "Create Profile-Specific Intent Whitelist Enforcement Unit Test Suite",
+      "priority": "high",
+      "description": "Build a comprehensive test suite that validates the intent keyword contamination prevention logic. Tests ensure Makan intent keywords never match Pelangi/Southern patterns and vice versa, catching profile-mixing bugs before deployment.",
+      "acceptanceCriteria": [
+        "Create test/unit/profile-intent-isolation.test.ts with 5+ test cases: (1) Pelangi keywords (e.g., 'check-in', 'room availability') reject Makan input, (2) Makan keywords (e.g., 'cake', 'delivery') reject Pelangi input, (3) cross-contamination blocking at classifier initialization, (4) per-profile keyword whitelist validation, (5) intent route enforcement",
+        "Each test calls src/assistant/intent-classifier.ts:classifyIntent(message, profile) and asserts intent_id belongs to whitelist[profile]",
+        "All tests pass with zero false positives/negatives when run via npm run test:run"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -1532,6 +1585,75 @@
       "model": "haiku"
     },
     {
+      "id": "US-402",
+      "title": "Booking Context Multi-Turn Message Compression Filter",
+      "priority": "medium",
+      "description": "For multi-turn booking conversations, compress intermediate clarification messages while preserving critical booking intent and guest preferences to reduce token usage",
+      "acceptanceCriteria": [
+        "Test assertion: 15-message booking conversation with repeated date/room clarifications compresses to ≤8 messages before AI inference",
+        "Configuration option `bookingContextCompressionEnabled` in `src/assistant/data/settings.json` with default `true`",
+        "Implementation adds compression phase in `src/assistant/pipeline/context-manager.ts` under 100 lines; preserves guest_name, room_type, check-in/check-out dates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-290"
+    },
+    {
+      "id": "US-403",
+      "title": "Fallback Response Category Classifier from Conversation Intent",
+      "priority": "medium",
+      "description": "Intelligently route to appropriate fallback type (escalation, clarification, rephrasing) based on conversation intent and stalled turn count for higher relevance",
+      "acceptanceCriteria": [
+        "Classifier in `src/assistant/pipeline/fallback-classifier.ts` routes to: `escalate_option`, `clarify_question`, or `try_rephrasing` based on intent and repeat count",
+        "Test assertion: after 3 unresolved 'check_room' intents in conversation, classifier selects 'clarify_question' fallback template over generic escalation",
+        "Configuration in `settings.json`: `fallbackCategoryMappings` dict with intent→strategy pairs; logging shows selected category per fallback"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-404",
+      "title": "Booking Workflow Step Retry Policy Configurator",
+      "priority": "medium",
+      "description": "Add configurable retry logic with exponential backoff to unreliable booking workflow steps like payment and email confirmations",
+      "acceptanceCriteria": [
+        "Workflow steps in `src/assistant/data/workflows.json` support new `retryPolicy` object: `{\"maxAttempts\": 3, \"backoffMs\": 1000, \"maxBackoffMs\": 30000}`",
+        "Test assertion: payment step with retryPolicy fails on attempts 1-2 with timeout, succeeds on attempt 3 with exponential backoff (delays: 1s, 2s), booking completes with status='confirmed'",
+        "Implementation in `src/assistant/pipeline/workflow-executor.ts` under 100 lines; retry wrapper with exponential backoff calculation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-409",
+      "title": "Build Conversation Message Auto-Cleanup Background Job with Per-Profile TTL",
+      "priority": "medium",
+      "description": "Implement a background cron job that automatically prunes old conversation messages based on configurable per-profile retention policies. Reduces database bloat and prevents accidental context reuse across different guest sessions.",
+      "acceptanceCriteria": [
+        "Create src/jobs/conversation-cleanup.ts exporting runConversationCleanup() job that runs daily at 02:00 UTC, queries rainbow_conversations where updated_at < (now - ttl_days), and soft-deletes messages with archived_at timestamp",
+        "Read per-profile TTL from src/assistant/data/settings.json retention_policy: {pelangi: 90, makan: 30, southern: 60} (days). Makan messages older than 30 days are archived regardless of conversation status",
+        "Test: test/integration/conversation-cleanup.test.ts seeds 100 old messages across profiles, runs cleanup, asserts Makan messages > 30 days old are archived while Pelangi messages < 90 days remain"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -1799,6 +1921,65 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-290",
+      "title": "Booking Workflow Step Execution Dry-Run Endpoint",
+      "priority": "high",
+      "description": "Add admin endpoint that simulates booking workflow execution against a test request without writing to the database. This enables rapid debugging of workflow step failures and provides visibility into step-by-step booking logic before deployment.",
+      "acceptanceCriteria": [
+        "Add POST /admin/debug/profile/:profile/workflow-dry-run endpoint in src/routes/admin/workflows.ts that accepts a test booking request payload",
+        "Execute each step in the booking workflow, log step name and output, and return JSON response with array of {stepId, output, status, durationMs} showing step-by-step execution without database writes",
+        "Include error details in response if any step fails, showing step precondition violations and actionable fix suggestions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposed": true,
+      "_decomposedInto": [
+        "US-400",
+        "US-401",
+        "US-402"
+      ],
+      "_skipped": true
+    },
+    {
+      "id": "US-291",
+      "title": "Build booking workflow failure hotspot analyzer with step-level breakdown",
+      "priority": "high",
+      "description": "Identify which booking workflow steps fail most frequently and correlate with failure reasons (timeout, validation, unavailability). Helps prioritize targeted improvements to workflows.json.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/booking-failures returns JSON with each booking step showing failure_count, attempt_count, failure_rate%, and top 3 failure_reasons grouped by reason",
+        "Example: {\"check-room-availability\": {\"failures\": 8, \"attempts\": 100, \"rate\": \"8.0%\", \"top_reasons\": [{\"reason\": \"room-not-available\", \"count\": 5}]}}",
+        "CLI: npm run analytics:booking-failures --since=7d --profile=pelangi outputs steps sorted by failure_rate descending",
+        "Test: assert step with 10 failures out of 100 attempts calculates to 10.0% failure_rate"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-285",
+      "title": "Fallback Response Template A/B Test Analysis CLI",
+      "priority": "high",
+      "description": "CLI tool to compare two fallback response templates for the same intent, measuring booking conversion rate and escalation rate to validate which response template drives better outcomes.",
+      "acceptanceCriteria": [
+        "CLI tool npx tsx src/tools/compare-fallback-templates.ts --intent=<intent> --profile=<profile> --days=30 outputs JSON with template_a_booking_rate, template_b_booking_rate, statistical_significance, winner",
+        "Queries rainbow_messages and rainbow_conversations tables filtering by intent, fallback_response_variant, and booking success within date range",
+        "Unit tests in src/tools/__tests__/compare-fallback-templates.test.ts with mock conversation data showing correct rate calculation and statistical comparison"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-280",
