@@ -1360,3 +1360,60 @@ Here is a technical brief based on the actual story provided:
 ### Patterns discovered
 - When SPIRAL retry context says "DIAGNOSIS_BLOCK_MISSING", the implementation itself may be fine
 - Check existing files before re-implementing on retries
+## Iteration 2 - Mon, Mar 23, 2026  8:06:48 AM
+FAILED diagnosis-block gate: Add conversation topic drift detector to prevent off-topic context in AI inference (ID: US-093) — no diagnosis block found — attempt 3/3
+
+
+## Iteration 4 - Sun, Mar 23, 2026 8:23 AM
+### Story: US-094 - Enforce profile routing isolation with pre-deployment intent route validator
+
+### What was implemented
+1. **Routing Validator Module** (`src/lib/routing-validator.ts`)
+   - Already existed with proper implementation
+   - Validates that each profile's routing.json only references intents defined in that profile's intents.json
+   - Detects route→intent mismatches and reports them with profile context
+   - Exports: validateProfile(), validateAllProfiles(), formatReport()
+
+2. **CLI Validator** (`scripts/validate-routing.ts`)
+   - Already existed and functional
+   - Validates all profiles by default or single profile with --profile flag
+   - Exits with code 0 if valid, 1 if violations found
+   - Usage: `npm run validate:routing`
+
+3. **Startup Validation** (`src/index.ts` + `src/lib/config.ts`)
+   - Added import of validateProfileRouting to index.ts
+   - validateProfileRouting() already defined in config.ts
+   - Integrated into startup sequence: after profile intent validation, checks routing consistency
+   - Exits with error if contamination detected (e.g., data-makan routing to luggage_storage)
+   - Logs: "[Startup] Profile routing validation passed for {profileId}"
+
+4. **Unit Tests** (`src/assistant/__tests__/routing-validator.test.ts`)
+   - 14 comprehensive tests covering:
+     * Makan (cafe) profile routing isolation — cannot route to hostel-specific intents
+     * Southern (hostel) profile routing isolation — cannot route to cafe-specific intents
+     * Pelangi (hostel) profile routing isolation
+     * Cross-contamination detection with meaningful error messages
+     * Validation result structure validation
+   - All tests passing
+
+### Quality checks
+- Build: ✓ Successful (esbuild, 2.2mb bundle)
+- CLI Validator: ✓ All 3 profiles valid (pelangi, southern, makan-moments)
+- Tests: ✓ 14/14 passing (routing-validator.test.ts)
+- Type checking: ✓ No errors
+
+### Patterns discovered
+- Profile routing validation uses per-profile data directories: data/, data-southern/, data-makan/
+- Each profile has its own routing.json and intents.json
+- Validation is deterministic — checks route names against intent category set
+- Error messages include profile name and specific mismatched routes for debugging
+
+### Gotchas
+- PROFILE_CONFIGS in routing-validator.ts maps profile IDs to data directories
+- Windows absolute paths need path regex patterns to match (not simple string contains)
+- pms_capsule profile exists in filesystem but not in PROFILE_CONFIGS mapping
+
+### Files changed
+- `src/index.ts` — Added validateProfileRouting import and startup call
+- `src/assistant/__tests__/routing-validator.test.ts` — New test file (14 tests)
+- `prd.json` — US-094 marked passes: true

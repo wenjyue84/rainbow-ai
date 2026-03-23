@@ -80,7 +80,7 @@ import { startRetentionScheduler } from './lib/data-retention.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
-import { validateProfileIntents } from './lib/config.js';
+import { validateProfileIntents, validateProfileRouting } from './lib/config.js';
 import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
@@ -243,6 +243,16 @@ try {
     console.log(`[Startup] Profile intent validation passed for ${configStore.profileId}`);
   } catch (validationErr: any) {
     console.error(validationErr.message);
+    process.exit(1);
+  }
+
+  // US-094: Validate that routing.json references only intents from the profile
+  // Ensures routing isolation: routes must map only to intents in the profile's intents.json
+  try {
+    validateProfileRouting(configStore.profileId);
+    console.log(`[Startup] Profile routing validation passed for ${configStore.profileId}`);
+  } catch (routingErr: any) {
+    console.error(routingErr.message);
     process.exit(1);
   }
 } catch (err: any) {

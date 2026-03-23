@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { ZodType } from 'zod';
 import { getDefaultConfig } from './default-configs.js';
 import { loadConfigFromDB, saveConfigToDB } from '../lib/config-db.js';
+import { validateProfileRouting } from '../lib/config.js';
 
 // Types are now defined via Zod schemas in schemas.ts
 // Re-export so existing consumers don't break
@@ -78,6 +79,14 @@ export class ConfigStore extends EventEmitter {
     this.workflow = await this.loadJSONAsync<WorkflowData>('workflow.json', workflowDataSchema);
     this.workflows = await this.loadJSONAsync<WorkflowsData>('workflows.json', workflowsDataSchema);
     this.routing = await this.loadJSONAsync<RoutingData>('routing.json', routingDataSchema);
+
+    // US-094: Validate routing isolation (no cross-profile contamination)
+    try {
+      validateProfileRouting(this.profileId);
+    } catch (error) {
+      console.error(`[ConfigStore:${this.profileId}] ❌ Routing validation failed:`, error instanceof Error ? error.message : error);
+      throw error;
+    }
 
     if (this.corruptedFiles.length > 0) {
       console.warn(`[ConfigStore:${this.profileId}] ⚠️ ${this.corruptedFiles.length} config file(s) failed to load — using defaults`);

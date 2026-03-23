@@ -6,6 +6,7 @@
  */
 
 import type { IntentsData } from '../assistant/schemas.js';
+import { validateProfile as validateRoutingProfile } from './routing-validator.js';
 
 /**
  * Intent categories that belong exclusively to hostel profiles.
@@ -96,6 +97,29 @@ export function validateProfileIntents(
       `[Startup] Profile contamination detected in profile "${profileId}": ` +
       `found ${unique.length} hostel-specific intent(s) that should not exist in a cafe profile. ` +
       `Contaminated intents: ${unique.join(', ')}`
+    );
+  }
+}
+
+/**
+ * US-094: Validates that routing.json references only intents from the profile's intents.json.
+ *
+ * Ensures routing isolation: each profile's routes must map only to intents defined in that profile.
+ * Prevents cross-contamination at the routing layer (e.g., data-makan routing to luggage_storage).
+ *
+ * @param profileId - Profile identifier (e.g., 'makan-moments', 'pelangi')
+ * @throws Error if routing mismatches are detected
+ */
+export function validateProfileRouting(profileId: string): void {
+  const result = validateRoutingProfile(profileId);
+
+  if (!result.isValid && result.mismatches.length > 0) {
+    const mismatchLines = result.mismatches
+      .map((m) => `  - Route "${m.route}": ${m.reason}`)
+      .join('\n');
+
+    throw new Error(
+      `[Startup] Profile routing validation failed for "${profileId}": ${result.mismatches.length} mismatch(es) detected.\n${mismatchLines}`
     );
   }
 }

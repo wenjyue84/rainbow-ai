@@ -47,30 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-093",
-      "title": "Add conversation topic drift detector to prevent off-topic context in AI inference",
-      "priority": "high",
-      "description": "Implement topic coherence tracking across multi-turn dialogues to detect when user messages diverge from booking/inquiry context, triggering alternative fallback response strategy instead of passing off-topic context to AI model.",
-      "acceptanceCriteria": [
-        "New module src/assistant/pipeline/topic-drift-detector.ts exports detectTopicDrift(messages: Message[], threshold: 0.7) returning {drifted: boolean, confidence: number}",
-        "When topic drift detected (confidence > threshold), response pipeline routes to topic-refocus fallback instead of normal AI inference",
-        "Unit tests verify correct detection on sequences: booking→general_question→booking with passing assertion on coherence recovery"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_contextStats": {
-        "tokensBeforeMasking": 559,
-        "tokensAfterMasking": 558,
-        "reductionPct": 0,
-        "contextWindow": 10
-      },
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
       "id": "US-094",
       "title": "Enforce profile routing isolation with pre-deployment intent route validator",
       "priority": "high",
@@ -83,10 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T00:06:50Z"
+      "last_attempted": "2026-03-23T00:18:45Z"
     },
     {
       "id": "US-097",
@@ -415,210 +391,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-164",
-      "title": "Implement conversation history compression for multi-turn booking dialogues",
-      "priority": "high",
-      "description": "Reduce token usage on long conversations by auto-generating summaries every 10 turns. Replace older raw messages with compressed summaries while preserving guest booking context.",
-      "acceptanceCriteria": [
-        "Add conversation_summary column to rainbow_conversations; auto-populate when message count exceeds 10 per turn",
-        "Context builder in src/assistant/pipeline/context-builder.ts uses summary for messages beyond turn 20 instead of raw history",
-        "Unit test verifies 50-turn conversation compressed to <200 tokens while preserving guest name, room preference, check-in date, and previous booking history"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-168",
-      "title": "Create admin API for managing profile-specific fallback response templates",
-      "priority": "high",
-      "description": "Enable non-technical admins to edit fallback response templates per business profile through API endpoints rather than JSON files, with database-backed storage and profile isolation enforcement.",
-      "acceptanceCriteria": [
-        "Implement endpoints POST/PUT/DELETE /admin/api/templates/{profile_id}/{template_id} to create/update/remove fallback_response_templates table records with profile_id foreign key",
-        "Add response validator that checks template_id references in src/assistant/data/routing.json match database; CLI tool scripts/validate-profile-templates.js flags broken references pre-deployment",
-        "Ensure profile isolation: query fallback template by (profile_id, template_id) pair; prevent cross-profile template selection via WHERE clause constraint"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-169",
-      "title": "Implement intent misclassification feedback collection with confusion analysis",
-      "priority": "high",
-      "description": "Allow admins to correct misclassified intents from the admin panel, accumulate corrections to identify systematic classification errors and surface top confusion pairs for model improvement.",
-      "acceptanceCriteria": [
-        "Add endpoint POST /admin/api/feedback/correct-intent with payload {conversation_id, corrected_intent, reason}, store in misclassification_feedback table with conversation_id foreign key",
-        "Expose GET /admin/reports/intent-confusion returning top 25 (predicted→actual) intent confusion pairs sorted by frequency and impact, include correction count and admin notes",
-        "Auto-flag intent_configs.needs_review when same (predicted, actual) pair accumulates ≥5 corrections; track in intent_analytics.confusion_pair_count"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-161",
-      "title": "Real-time intent classification performance dashboard with per-profile metrics",
-      "priority": "medium",
-      "description": "Add admin dashboard showing intent classification accuracy trends per profile and intent type to help identify performance degradation early",
-      "acceptanceCriteria": [
-        "Implement /admin/analytics/dashboard/intent-performance endpoint returning accuracy trends with 24h/7d/30d windows per profile and intent type",
-        "Add simple HTML dashboard at /dashboard/intent-metrics consuming this endpoint with line chart visualization of accuracy over time",
-        "Store daily accuracy snapshots in database (new table intent_classification_metrics) computed from rainbow_messages.intent_predicted vs feedback data"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-162",
-      "title": "Guest sentiment analysis with automatic escalation for negative interactions",
-      "priority": "medium",
-      "description": "Analyze guest message sentiment in real-time and escalate to staff immediately when negative sentiment detected instead of providing generic fallback",
-      "acceptanceCriteria": [
-        "Integrate sentiment analysis library (e.g., npm sentiment) into message pipeline in src/assistant/pipeline/message-processor.ts, compute sentiment_score (-1.0 to 1.0)",
-        "Add sentiment_score column to rainbow_messages table with migration; store sentiment on every user message insertion",
-        "Auto-escalate messages with sentiment_score < 0.3 as escalation_events with type 'negative_sentiment' and sentiment value in escalation_data JSON"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-163",
-      "title": "Booking confirmation email template customization endpoint for per-profile branding",
-      "priority": "medium",
-      "description": "Allow admins to customize booking confirmation emails per profile so each business sends branded, business-specific confirmations instead of generic templates",
-      "acceptanceCriteria": [
-        "Create booking_email_templates table (profile_id, subject, body_html, updated_at); implement Drizzle migration in shared/schema-tables.ts",
-        "Implement GET /admin/workflows/booking-email-template/:profileId and PUT /admin/workflows/booking-email-template/:profileId endpoints with Zod validation in src/routes/admin/workflows.ts",
-        "Update booking workflow email sender in src/assistant/pipeline/workflow-executor.ts to fetch custom template per profile; fall back to src/assistant/data/email-templates/booking-default.html if not configured"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-165",
-      "title": "Build post-checkout automated review request workflow with satisfaction tracking",
-      "priority": "medium",
-      "description": "Trigger automated review request 2 hours after guest checkout. Store review ratings to identify satisfaction patterns and inform service improvements.",
-      "acceptanceCriteria": [
-        "Create workflows-review-request.json with 4 workflow steps: detect checkout event → delay 2 hours → send WhatsApp review link → capture rating response",
-        "Add review_rating and review_timestamp columns to rainbow_conversations table; link review response to conversation",
-        "Integration test verifies review request sent at T+2h post-checkout; guest 5-star response persisted and associated with checkout conversation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-166",
-      "title": "Track fallback response effectiveness to identify low-performing templates",
-      "priority": "medium",
-      "description": "Monitor which fallback responses lead to escalation within 5 minutes. Identify templates with high escalation rates to improve first-contact resolution.",
-      "acceptanceCriteria": [
-        "Add fallback_template_id and escalation_within_5min columns to rainbow_messages to track fallback→escalation correlation",
-        "Admin endpoint GET /api/admin/fallback-effectiveness returns {template_id, escalation_rate: 0-1, sample_size, profile_id} grouped by profile",
-        "Unit test verifies fallback with 75%+ escalation rate flagged as low-performing; dashboard surfaces templates for immediate revision"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-167",
-      "title": "Add Malaysian English keyword variants to improve local guest intent classification",
-      "priority": "medium",
-      "description": "Extend booking and inquiry intent keywords with Malaysian English variations (lah, lor, meh, la, leh) to improve matching accuracy for local guests.",
-      "acceptanceCriteria": [
-        "Extend intent-keywords.json with keywords_en_my array per intent: booking includes 'book room lah', 'got single lor', 'cancel booking meh'; inquiry includes 'how much lah', 'got wifi lor'",
-        "Intent classifier detects guest language from message patterns and matches against language-specific keyword arrays in priority order",
-        "Integration test verifies 'Can I book room lah?' → booking intent; 'Got late checkout meh?' → inquiry intent; both ≥0.85 confidence score"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-170",
-      "title": "Build guest sentiment tracking dashboard with escalation pattern analysis",
-      "priority": "medium",
-      "description": "Track sentiment progression across conversation turns and expose admin dashboard showing which intents have declining sentiment, enabling early detection of response quality issues and prediction of escalations.",
-      "acceptanceCriteria": [
-        "Add sentiment_score (1-5 scale) computation in src/assistant/pipeline/message-processor.ts using keyword-based sentiment analysis, store in conversation_feedback.sentiment_score",
-        "Query dashboard endpoint GET /admin/dashboards/sentiment-patterns returns sentiment distribution grouped by intent_type with trend indicators (improving/stable/declining)",
-        "Flag conversations with sentiment decline >2 points across consecutive turns for manual review and automated escalation after 3 negative sentiment messages"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-171",
-      "title": "Build intent classifier retraining pipeline from production feedback dataset",
-      "priority": "medium",
-      "description": "Export misclassification feedback and corrected classifications from production into training dataset format, creating automated data pipeline for model retraining cycles.",
-      "acceptanceCriteria": [
-        "Implement cron job scripts/export-training-data.js that queries misclassification_feedback and conversation_feedback, exports sanitized training data to training_data.jsonl with {message, actual_intent, predicted_intent, confidence} format",
-        "Expose endpoint GET /admin/ml/training-export?min_corrections=5&date_range=7d returning training dataset with metadata: total_rows, intent_distribution, top_confusion_pairs, data_quality_score",
-        "Add ml_training_runs table tracking export timestamp, row count, model_version, feedback_source for audit trail and retraining job correlation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-172",
-      "title": "Add voice message transcription and intent classification support",
-      "priority": "low",
-      "description": "Extend intent classifier to handle audio/voice messages by automatic transcription, enabling voice-based guest interactions while maintaining classification accuracy parity with text messages.",
-      "acceptanceCriteria": [
-        "Detect audio messages in message pipeline (Baileys message.audio type), transcribe via Google Cloud Speech-to-Text or OpenRouter speech API, pass transcription through existing intent classifier",
-        "Store transcription in rainbow_messages.transcription field, track voice_classification_attempted=true and voice_transcription_confidence scores in intent_analytics",
-        "Handle transcription failures: return escalation workflow if transcription_confidence <0.7, expose metric GET /admin/metrics/voice-classification-accuracy showing accuracy vs text baseline"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-157",
       "title": "Implement automated data retention policy enforcement via cron",
       "priority": "critical",
@@ -867,6 +639,30 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-093",
+      "title": "Add conversation topic drift detector to prevent off-topic context in AI inference",
+      "priority": "high",
+      "description": "Implement topic coherence tracking across multi-turn dialogues to detect when user messages diverge from booking/inquiry context, triggering alternative fallback response strategy instead of passing off-topic context to AI model.",
+      "acceptanceCriteria": [
+        "New module src/assistant/pipeline/topic-drift-detector.ts exports detectTopicDrift(messages: Message[], threshold: 0.7) returning {drifted: boolean, confidence: number}",
+        "When topic drift detected (confidence > threshold), response pipeline routes to topic-refocus fallback instead of normal AI inference",
+        "Unit tests verify correct detection on sequences: booking→general_question→booking with passing assertion on coherence recovery"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_contextStats": {
+        "tokensBeforeMasking": 559,
+        "tokensAfterMasking": 558,
+        "reductionPct": 0,
+        "contextWindow": 10
+      },
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-092",
