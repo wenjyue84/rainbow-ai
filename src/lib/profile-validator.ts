@@ -11,7 +11,7 @@
  *   - makan-moments → Makan Moments Cafe     (src/assistant/data-makan/)
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface ContaminationMatch {
@@ -211,4 +211,101 @@ export function formatReport(report: ValidationReport): string {
   lines.push(`=== Summary: ${totalMatches} contamination match(es) — ${report.isClean ? 'CLEAN' : 'CONTAMINATED'} ===`);
 
   return lines.join('\n');
+}
+
+/**
+ * US-114: Profile Data Schema Version Compatibility Enforcement
+ *
+ * Custom error thrown when profile data files have mismatched schema versions.
+ */
+export class ProfileVersionMismatchError extends Error {
+  constructor(
+    public profileId: string,
+    public fileVersions: Record<string, string | undefined>,
+  ) {
+    const versionEntries = Object.entries(fileVersions)
+      .map(([file, version]) => `${file}: ${version || 'undefined'}`)
+      .join('\n  ');
+
+    super(
+      `Profile "${profileId}" has mismatched schema versions:\n  ${versionEntries}\n` +
+        `All data files must have the same schema_version`,
+    );
+    this.name = 'ProfileVersionMismatchError';
+  }
+}
+
+/**
+ * US-114: Enforce schema version compatibility across all data files for a profile.
+ *
+ * Loads all JSON files from the profile's data directory, extracts the schema_version
+ * field from each, and ensures they all match. Throws ProfileVersionMismatchError if
+ * versions differ.
+ *
+ * @param profileName - Profile ID (pelangi, southern, makan-moments)
+ * @param rootDir - Project root directory (default: process.cwd())
+ * @throws ProfileVersionMismatchError if versions mismatch or files are missing/invalid
+ */
+export function enforceProfileDataVersionCompatibility(
+  profileName: string,
+  rootDir: string = process.cwd(),
+): void {
+  const config = PROFILE_CONFIGS[profileName];
+  if (!config) {
+    throw new Error(
+      `Unknown profile: "${profileName}". Valid profiles: ${Object.keys(PROFILE_CONFIGS).join(', ')}`,
+    );
+  }
+
+  const dataDir = join(rootDir, config.dataDir);
+
+  // Ensure directory exists
+  if (!existsSync(dataDir)) {
+    throw new Error(`Data directory not found for profile "${profileName}": ${dataDir}`);
+  }
+
+  // Read all JSON files from the data directory
+  const jsonFiles: string[] = [];
+  const dirEntries = readdirSync(dataDir, { withFileTypes: true });
+  for (const entry of dirEntries) {
+    if (entry.isFile() && entry.name.endsWith('.json')) {
+      jsonFiles.push(entry.name);
+    }
+  }
+
+  if (jsonFiles.length === 0) {
+    throw new Error(`No JSON files found in profile data directory: ${dataDir}`);
+  }
+
+  // Extract schema versions from each file
+  const fileVersions: Record<string, string | undefined> = {};
+  let firstVersion: string | undefined;
+  const mismatchedFiles: string[] = [];
+
+  for (const fileName of jsonFiles) {
+    const filePath = join(dataDir, fileName);
+    try {
+      const content = readFileSync(filePath, 'utf-8');
+      const json = JSON.parse(content);
+      const version = json.schema_version as string | undefined;
+
+      fileVersions[fileName] = version;
+
+      // Track first version and detect mismatches
+      if (firstVersion === undefined) {
+        firstVersion = version;
+      } else if (version !== firstVersion) {
+        mismatchedFiles.push(fileName);
+      }
+    } catch (err) {
+      throw new Error(
+        `Failed to parse schema_version from ${fileName} in profile "${profileName}": ${(err as any).message}`,
+      );
+    }
+  }
+
+  // Throw error if any mismatches detected
+  if (mismatchedFiles.length > 0) {
+    throw new ProfileVersionMismatchError(profileName, fileVersions);
+  }
 }

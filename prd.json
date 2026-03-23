@@ -59,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T03:20:07Z"
     },
     {
       "id": "US-120",
@@ -218,13 +219,13 @@
     },
     {
       "id": "US-162",
-      "title": "Implement confidence-tier response routing preventing inappropriate escalations for high-confidence bookings",
+      "title": "Create intent classification edge-case regression test suite for ambiguous inputs",
       "priority": "high",
-      "description": "Route responses based on confidence tiers: high (>0.75) = execute booking, medium (0.5-0.75) = confirm details before execution, low (<0.5) = escalate to staff with full context, reducing false escalations",
+      "description": "Build comprehensive unit tests for common booking/inquiry misclassifications (e.g., 'can I bring a pet' misclassified as check-in instead of inquiry, 'what time checkout' as booking instead of inquiry). Tests must validate both Pelangi and Makan profiles separately with profile-specific ambiguities.",
       "acceptanceCriteria": [
-        "Add confidenceTiers object to each intent definition in src/assistant/data/intents.json with fields: highConfidenceAction, mediumConfidenceAction, lowConfidenceAction containing specific templates or routing decisions",
-        "Implement tier selection in src/assistant/pipeline/response-selector.ts: compare confidence score against thresholds and route to appropriate action with confidence score logged to database",
-        "Unit tests in tests/unit/confidence-tier-response-routing.test.ts verify: booking intent at 0.8 confidence executes immediately, 0.6 confidence requests confirmation, 0.3 confidence escalates to staff"
+        "Create `src/assistant/__tests__/intent-classifier-ambiguous-inputs.test.ts` with 15+ test cases covering domain-specific ambiguities",
+        "Each test case includes: input text, expected intent, actual classified intent assertion, and confidence score threshold check (must be >0.7)",
+        "Profile-specific tests verify Pelangi booking intents don't match Makan food order intents with same keywords"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -235,13 +236,13 @@
     },
     {
       "id": "US-163",
-      "title": "Build booking workflow precondition validator preventing invalid state transitions like past-date check-ins",
+      "title": "Implement conversation context summarization for extended multi-turn dialogues exceeding 15 messages",
       "priority": "high",
-      "description": "Add validation engine that checks preconditions (valid check-in date, room availability, guest verified) before executing each booking workflow step, preventing invalid bookings and providing actionable error messages",
+      "description": "Automatically compress conversation history while preserving critical booking facts (guest name, check-in/checkout dates, room type, special requests). Triggered when conversation exceeds 15 messages; keep recent 5 messages and summarized prior context.",
       "acceptanceCriteria": [
-        "Extend booking workflow steps in src/assistant/data/workflows.json with preconditions array: [{type: 'date_not_past', fields: ['check_in_date']}, {type: 'room_available', fields: ['room_type', 'check_in_date']}]",
-        "Create src/assistant/pipeline/workflow-precondition-validator.ts with evaluator function that checks each precondition and returns {passed: boolean, failureReason?: string, suggestedFix?: string}",
-        "Integration test in tests/integration/booking-workflow-preconditions.test.ts verifies: past-date check-in is rejected with alternative date suggestions; unavailable room returns available alternatives"
+        "Create `src/assistant/pipeline/context-summarizer.ts` with function to compress messages while preserving: guest identity, dates, room type, confirmed booking ID",
+        "Integration test verifies summarization doesn't lose room type or date information across compression cycles",
+        "Existing 20-message conversation can be reduced to 8 tokens without losing booking details"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -252,13 +253,47 @@
     },
     {
       "id": "US-164",
-      "title": "Create profile-specific data isolation regression test suite detecting Pelangi contamination in Makan/Southern profiles",
+      "title": "Add booking overbooking prevention validator with room inventory checking",
       "priority": "high",
-      "description": "Add automated test suite that scans Makan Moments and Southern Homestay data files (knowledge.json, intents.json, routing.json) for Pelangi Capsule Hostel keywords and concepts, preventing accidental contamination during future updates",
+      "description": "Prevent double-booking of rooms by validating room availability against existing confirmed bookings before confirmation. Queries database for overlapping bookings on same room and date range, blocks confirmation if inventory exceeded.",
       "acceptanceCriteria": [
-        "Create tests/unit/profile-data-contamination-detector.test.ts with detector functions scanning each profile for hostel-specific keywords (check_in, check_out, room_types, guest_amenities, stay_duration); outputs contaminated field paths and values",
-        "Test suite includes: makanDetectionTest checking knowledge.json has zero hostel references, southernDetectionTest checking intents.json has zero Pelangi-specific intents, routingDetectionTest checking routing.json doesn't route to hostel workflows",
-        "Test assertions fail with detailed report listing contaminated entries by file, field, line number and suggested cleanup (e.g., 'Remove line 45 from knowledge.json: \"Check-in available from 2pm\"')"
+        "Create validator function in `src/assistant/pipeline/booking-validator.ts` that queries `rainbow_messages` for overlapping confirmed bookings in date range",
+        "Unit tests verify: 1) single room prevents double-booking same dates, 2) different dates on same room allowed, 3) multiple rooms allow parallel bookings",
+        "Validator returns actionable error: 'Room [type] unavailable [date]. Suggest [alternative dates] or [alternative room types]'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-165",
+      "title": "Build confidence threshold optimization analyzer from production intent logs",
+      "priority": "medium",
+      "description": "CLI tool that analyzes intent classification logs to identify optimal confidence thresholds per intent type. Reduces false negatives (low threshold = incorrect matches) vs. false positives (high threshold = missed intents) by computing F1 scores across threshold ranges.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:optimal-thresholds` reads `intent_analytics` table and computes per-intent precision/recall across thresholds 0.5-0.95",
+        "Output JSON with recommended threshold per intent type (e.g., booking:0.78, inquiry:0.65) with F1 score and sample misclassified examples",
+        "Test with mock analytics table containing 100+ predictions with known intent correctness"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-166",
+      "title": "Implement profile data access audit logging to detect runtime contamination",
+      "priority": "medium",
+      "description": "Add middleware that logs all profile data file reads/writes (intents.json, routing.json, knowledge.json per profile). Enables detection of cross-profile contamination at runtime and audit trail for debugging profile separation violations.",
+      "acceptanceCriteria": [
+        "Create middleware in `src/assistant/pipeline/profile-isolation-audit.ts` that intercepts profile config loads and logs: timestamp, profile ID, file path, operation (read/write), user/request ID",
+        "Admin endpoint `GET /admin/audit/profile-access?profile=data-makan&hours=24` returns JSON with access logs and flags cross-profile reads (e.g., data-makan reading data-southern files)",
+        "Unit test verifies audit detects when data-makan intents.json loads Pelangi-specific intent (e.g., 'check_in' reading 'booking_extension')"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -266,23 +301,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
-    },
-    {
-      "id": "US-165",
-      "title": "Implement automatic conversation context summarization for multi-turn dialogues exceeding message limits",
-      "priority": "medium",
-      "description": "When conversation exceeds 15 messages, automatically summarize earlier context and condense into summary prefix while preserving critical booking details (guest name, dates, room requirements), reducing token usage and preventing context exhaustion",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/conversation-summarizer.ts with function summarizeConversationContext(messages: Message[], maxMessages: number = 15) that extracts: guest name, original intent, booking dates, room type, any modifications discussed; returns {summary: string, retainedMessages: Message[]}",
-        "Integration point in src/assistant/pipeline/message-handler.ts: when conversation message count exceeds threshold, replace first N messages with summary message (role: 'system') containing extracted context",
-        "Unit test in tests/unit/conversation-summarizer.test.ts verifies: 20-message conversation with booking flow is condensed to summary + last 10 messages; test asserts guest name, check-in/out dates, and room count preserved in summary"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
     },
     {
       "id": "US-157",

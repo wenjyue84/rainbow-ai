@@ -79,7 +79,7 @@ import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { startRetentionScheduler } from './lib/data-retention.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
-import { validateAllProfiles, formatReport } from './lib/profile-validator.js';
+import { validateAllProfiles, formatReport, enforceProfileDataVersionCompatibility } from './lib/profile-validator.js';
 import { validateProfileIntents, validateProfileRouting } from './lib/config.js';
 import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
 
@@ -127,6 +127,20 @@ try {
       console.error('[Startup] FATAL: Aborting startup due to profile data contamination (STRICT_PROFILE_VALIDATION=true)');
       process.exit(1);
     }
+  }
+}
+
+// US-114: Profile data schema version compatibility enforcement.
+// Validates that all JSON files in a profile's data directory have matching schema_version.
+// Prevents runtime failures from mismatched schema versions during startup.
+{
+  const profileName = process.env.BUSINESS_NAME || 'pelangi';
+  try {
+    enforceProfileDataVersionCompatibility(profileName, join(__dirname_main, '..'));
+    console.log(`[Startup] Profile "${profileName}" schema version compatibility check passed`);
+  } catch (err: any) {
+    console.error(`[Startup] FATAL: Profile schema version validation failed for "${profileName}":`, err.message);
+    process.exit(1);
   }
 }
 

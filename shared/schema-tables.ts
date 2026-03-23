@@ -181,6 +181,8 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   // US-155: WhatsApp message sending consent (Meta Cloud API requirement)
   whatsappOptedIn: boolean("whatsapp_opted_in").notNull().default(false), // Explicit consent to receive WhatsApp messages
   whatsappOptedInAt: timestamp("whatsapp_opted_in_at"),       // Timestamp when consent was given
+  // US-119: Guest language preference persistence
+  metadata: text("metadata"),                                  // JSON string for additional context (e.g., preferredLanguage)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),

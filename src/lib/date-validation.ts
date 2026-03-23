@@ -105,25 +105,6 @@ export function getDateOneMonthLater(fromDate: string): string {
     return formatToISO(tomorrow);
   }
 
-<<<<<<< Updated upstream
-  const year = parsed.getFullYear();
-  const month = parsed.getMonth();
-  const day = parsed.getDate();
-
-  // Calculate target month/year
-  let targetMonth = month + 1;
-  let targetYear = year;
-  if (targetMonth > 11) {
-    targetMonth = 0;
-    targetYear += 1;
-  }
-
-  // Get the last day of the target month
-  const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-  const targetDay = Math.min(day, lastDay);
-
-  const future = new Date(targetYear, targetMonth, targetDay);
-=======
   const future = new Date(parsed);
   const targetMonth = future.getMonth() + 1;
   const targetYear = targetMonth > 11 ? future.getFullYear() + 1 : future.getFullYear();
@@ -136,11 +117,6 @@ export function getDateOneMonthLater(fromDate: string): string {
   future.setFullYear(targetYear);
   future.setMonth(actualMonth);
   future.setDate(day);
-
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
   return formatToISO(future);
 }
 
@@ -204,24 +180,15 @@ export function validateBookingDates(
     hasErrors = true;
   }
 
-  const hasErrors = !!suggestedCheckIn || !!suggestedCheckOut;
-
   return {
     isValid: !hasErrors,
     checkInDate: finalCheckIn,
     checkOutDate: finalCheckOut,
     suggestedCheckIn,
     suggestedCheckOut,
-<<<<<<< Updated upstream
     reason: hasErrors
       ? 'Check-in date is today or earlier. Suggesting next available dates.'
       : undefined
-=======
-    reason:
-      hasErrors
-        ? 'Check-in date is today or earlier. Suggesting next available dates.'
-        : undefined
->>>>>>> Stashed changes
   };
 }
 
