@@ -1687,3 +1687,39 @@ There are no references to Frappe DocTypes, hooks, or Python files. The brief ca
 ### Gotchas
 - Previous attempt failed due to missing diagnosis block gate (not a code issue)
 - `require()` is used (not ESM import) for loading JSON in the ESM module context — works via esbuild bundling
+
+## Iteration [SPIRAL-35] - Story: US-106 Profile-Specific Intent Isolation
+
+### What was implemented
+- Created `tests/unit/profile-isolation.test.ts` with 6 comprehensive tests to verify profile isolation
+  - Validates data-makan profile is marked as cafe type
+  - Verifies NO hostel-specific intent categories present in cafe profile
+  - Confirms cafe-only intent types exist: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation
+  - Asserts 'menu' keyword exists but hostel keywords ('check-in', 'room-type') do NOT exist
+  - Checks for hostel keywords like 'booking', 'room', 'capsule', 'bed', 'checkout', 'checkin'
+  - Validates proper intent structure with required fields
+
+### Patterns discovered
+- Profile isolation is enforced at multiple layers:
+  1. Intent categories (HOSTEL_INTENT_CATEGORIES set in src/lib/config.ts)
+  2. Profile type mapping (PROFILE_TYPES object for cafe vs hostel)
+  3. Validation at startup (validateProfileIntents called in profile-registry.ts and index.ts)
+- Test file location matters: must be in tests/unit/ to be picked up by vitest
+- Import paths from tests use relative paths with ../../src/ pattern
+- Existing validation in src/lib/config.ts already handles contamination detection
+- The src/assistant/data/intents-makan.json file serves as a reference/template for cafe intents
+- Actual profile-specific intents are loaded from src/assistant/data-makan/intents.json per profiles.json config
+
+### Gotchas
+- Story mentioned creating src/lib/config-loader.ts but validation already exists in src/lib/config.ts
+- ActionableError class doesn't exist in codebase; regular Error is used and works fine
+- Profile type 'makan-moments' is defined in PROFILE_TYPES but must be registered in profiles.json for loading
+- Vitest config only includes tests from src/**/*.test.ts or tests/unit/**/*.test.ts paths
+
+### Quality checks
+✓ All 6 tests pass (profile type validation, hostel categories, cafe intents, keywords)
+✓ Build completes successfully (esbuild)
+✓ No new compilation errors
+✓ Validation functions properly integrated and called at startup
+✓ Existing validation mechanism already prevents cross-contamination
+
