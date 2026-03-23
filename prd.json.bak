@@ -62,7 +62,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T10:45:31Z"
+      "last_attempted": "2026-03-23T11:05:16Z"
     },
     {
       "id": "US-223",
@@ -269,40 +269,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-261",
-      "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
-      "priority": "high",
-      "description": "Create a CLI tool that analyzes per-profile intent classification accuracy at different confidence thresholds and recommends optimal settings per profile. Prevents over-escalation in high-accuracy profiles like Pelangi while protecting low-accuracy ones like Makan Moments.",
-      "acceptanceCriteria": [
-        "CLI command `npm run profile-threshold-calibrate [profile-name]` reads intent classification logs and outputs recommended confidence threshold with accuracy metrics",
-        "Creates/updates `src/assistant/data/settings.json` with per-profile threshold overrides under `profiles[profile].intentClassificationThreshold`",
-        "Unit test: threshold calibrator correctly identifies profile with >90% accuracy should use higher threshold (0.85+) vs profile with <75% accuracy uses lower threshold (0.65)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-262",
-      "title": "Conversation Context Message Decay Scorer for Multi-Turn Relevance",
-      "priority": "high",
-      "description": "Implement exponential decay function that assigns relevance scores to historical messages in multi-turn conversations. Newer messages receive higher relevance, older messages contribute less to AI context when token limits are reached.",
-      "acceptanceCriteria": [
-        "Implement `scoreMessageRelevance(message, messageIndex, totalMessages): number` in `src/assistant/lib/context.ts` returning 0-1 decay score (messages >5 turns old score <0.3)",
-        "Unit test: 10-message conversation scores message[0] < 0.5, message[9] = 1.0, following exponential decay with half-life of 3 messages",
-        "AI context builder in `src/assistant/pipeline/build-context.ts` uses decay scores to rank and truncate messages when exceeding 8000 token limit"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-263",
       "title": "Cross-Profile Message Routing Validator Middleware",
       "priority": "high",
@@ -354,14 +320,31 @@
       "model": "haiku"
     },
     {
-      "id": "US-266",
-      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
+      "id": "US-267",
+      "title": "Add Null Safety Validator to Conversation Context Pipeline",
       "priority": "high",
-      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
+      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
       "acceptanceCriteria": [
-        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
-        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
-        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
+        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
+        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
+        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-273",
+      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
+      "priority": "high",
+      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
+        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
+        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -371,14 +354,48 @@
       "model": "haiku"
     },
     {
-      "id": "US-267",
-      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "id": "US-274",
+      "title": "Booking Workflow Room Availability Race Condition Tester",
       "priority": "high",
-      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "description": "Detect and log potential race conditions when multiple guests attempt to book the same room simultaneously, ensuring booking workflow reliability",
       "acceptanceCriteria": [
-        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
-        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
-        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+        "New test file tests/integration/booking-race-conditions.test.ts simulates 5 concurrent booking requests for same room and validates isolation",
+        "Function simulateConcurrentBookings(roomId: string, count: number) in src/tools/booking-validator.ts executes parallel workflow steps",
+        "Test asserts: only 1 booking succeeds, others receive 'room unavailable' error, and audit log captures all 5 booking attempts with timestamps"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-275",
+      "title": "Profile Intent Keyword Scope Validator CLI",
+      "priority": "high",
+      "description": "Detect keywords that could potentially match intents across profiles, preventing cross-contamination false positives and enforcing strict profile separation",
+      "acceptanceCriteria": [
+        "CLI command npm run validate:keyword-scope compares intent-keywords.json across all profiles (pelangi, makan, southern), flags overlapping keywords",
+        "New file src/tools/keyword-scope-validator.ts outputs CSV: profile_a,profile_b,keyword,overlap_count,risk_level",
+        "Test asserts: shared keyword 'booking' between makan and pelangi is flagged HIGH risk, and validation runs on startup via src/lib/startup-validation.ts"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-278",
+      "title": "Remove Pelangi Hostel Keywords from Makan Moments Intent-Keywords File",
+      "priority": "high",
+      "description": "Makan Moments profile contains hostel-specific keywords (check-in, checkout, room type, nightly rate) that contaminate cafe-only intents. Audit and remove these to enforce strict profile separation.",
+      "acceptanceCriteria": [
+        "Script scans src/assistant/data/data-makan/intent-keywords.json and identifies 8+ hostel-specific keywords (e.g., 'checkin', 'checkout', 'room', 'amenities', 'nightly rate')",
+        "Generate cleaned file with hostel keywords removed while preserving cafe-specific ones (menu, table, reservation, promotion, order)",
+        "Validate cleaned file passes Zod schema validation in src/assistant/schemas.ts and all remaining intents resolve in routing.json"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -655,6 +672,57 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-261",
+      "title": "Profile-Specific Intent Classification Threshold Calibrator CLI",
+      "priority": "high",
+      "description": "Create a CLI tool that analyzes per-profile intent classification accuracy at different confidence thresholds and recommends optimal settings per profile. Prevents over-escalation in high-accuracy profiles like Pelangi while protecting low-accuracy ones like Makan Moments.",
+      "acceptanceCriteria": [
+        "CLI command `npm run profile-threshold-calibrate [profile-name]` reads intent classification logs and outputs recommended confidence threshold with accuracy metrics",
+        "Creates/updates `src/assistant/data/settings.json` with per-profile threshold overrides under `profiles[profile].intentClassificationThreshold`",
+        "Unit test: threshold calibrator correctly identifies profile with >90% accuracy should use higher threshold (0.85+) vs profile with <75% accuracy uses lower threshold (0.65)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-262",
+      "title": "Conversation Context Message Decay Scorer for Multi-Turn Relevance",
+      "priority": "high",
+      "description": "Implement exponential decay function that assigns relevance scores to historical messages in multi-turn conversations. Newer messages receive higher relevance, older messages contribute less to AI context when token limits are reached.",
+      "acceptanceCriteria": [
+        "Implement `scoreMessageRelevance(message, messageIndex, totalMessages): number` in `src/assistant/lib/context.ts` returning 0-1 decay score (messages >5 turns old score <0.3)",
+        "Unit test: 10-message conversation scores message[0] < 0.5, message[9] = 1.0, following exponential decay with half-life of 3 messages",
+        "AI context builder in `src/assistant/pipeline/build-context.ts` uses decay scores to rank and truncate messages when exceeding 8000 token limit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-266",
+      "title": "Add Confidence-Based Escalation Point Suggester for Low-Confidence Responses",
+      "priority": "high",
+      "description": "When intent classification confidence is below threshold, calculate escalation score and include suggested escalation prompt in fallback response to guide user toward staff escalation gracefully.",
+      "acceptanceCriteria": [
+        "Function calculateEscalationScore() in src/assistant/pipeline/escalation-scorer.ts returns {score: 0-100, reason: string, suggestedPrompt: string}",
+        "Fallback response includes escalation suggestion when confidence <0.55, e.g. 'I'm not sure about that. Would you like to speak with our team?'",
+        "Test: low-confidence booking intent (confidence=0.4) triggers escalation suggestion and routes to agent_escalation intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-213",
