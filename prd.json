@@ -59,11 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T11:37:51Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "last_attempted": "2026-03-23T11:29:54Z"
     },
     {
       "id": "US-224",
@@ -384,6 +383,96 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-291",
+      "title": "Build booking workflow failure hotspot analyzer with step-level breakdown",
+      "priority": "high",
+      "description": "Identify which booking workflow steps fail most frequently and correlate with failure reasons (timeout, validation, unavailability). Helps prioritize targeted improvements to workflows.json.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/booking-failures returns JSON with each booking step showing failure_count, attempt_count, failure_rate%, and top 3 failure_reasons grouped by reason",
+        "Example: {\"check-room-availability\": {\"failures\": 8, \"attempts\": 100, \"rate\": \"8.0%\", \"top_reasons\": [{\"reason\": \"room-not-available\", \"count\": 5}]}}",
+        "CLI: npm run analytics:booking-failures --since=7d --profile=pelangi outputs steps sorted by failure_rate descending",
+        "Test: assert step with 10 failures out of 100 attempts calculates to 10.0% failure_rate"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-292",
+      "title": "Add booking confirmation rate analyzer to identify profile-specific conversion bottlenecks",
+      "priority": "high",
+      "description": "Track which profiles have lowest booking confirmation rates and identify workflow steps where guests abandon the process most. Enables targeted workflow improvements by profile.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/booking-conversion-rates returns per-profile metrics: {\"profile_id\": \"pelangi\", \"booking_conversations\": 45, \"completed_bookings\": 36, \"completion_rate\": \"80%\", \"abandonment_step_breakdown\": {\"select-room\": 5, \"enter-dates\": 8, \"confirm-payment\": 1}}",
+        "Funnel visualization: show % of guests who reach each workflow step (e.g., 80% select room → 70% enter dates → 50% confirm payment → 36% finalize)",
+        "Test: assert conversation with 45 booking initiations and 36 completions calculates 80.0% completion_rate and 20.0% abandonment_rate",
+        "CLI: npm run analytics:booking-conversion --period=30d --compare-profiles outputs side-by-side completion funnels for all profiles"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-293",
+      "title": "Implement concurrent intent classification batch inferencing for 20% latency reduction",
+      "priority": "medium",
+      "description": "Queue incoming intent classification requests in 50ms windows and batch classify multiple intents together, reducing per-message latency from ~450ms to ~360ms via single model call.",
+      "acceptanceCriteria": [
+        "New module src/assistant/pipeline/batch-classifier.ts buffers classification requests in configurable windows (settings.json: batchWindow_ms), fires when window closes or batch reaches 10 messages",
+        "Send all buffered messages to AI model in single batch inference; return results in original request order with no result loss",
+        "Latency tracking: add performance log comparing P95 latencies; test suite asserts P95 < 400ms with batching enabled vs >450ms baseline",
+        "CLI: npm run profile:batch-inference runs 100 concurrent mock messages, reports average latency improvement %, batch efficiency, and throughput gain"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-294",
+      "title": "Build intent keyword effectiveness analyzer to identify weak classifier keywords",
+      "priority": "medium",
+      "description": "Analyze which intent keywords actually lead to correct classifications and which ones cause misclassifications. Identify weak or noisy keywords for removal or replacement.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/keyword-effectiveness returns keywords sorted by success_rate: [{\"keyword\": \"check availability\", \"intent\": \"booking\", \"success_rate\": \"92%\", \"correct_count\": 46, \"incorrect_count\": 4, \"profile_id\": \"pelangi\"}]",
+        "Filter by profile, specific intent, date range; only show keywords with minimum 5 uses (configurable); highlight keywords with success_rate < 70% as problematic",
+        "Test: assert keyword used 50 times that led to correct intent 46 times = 92% success_rate; keyword with 4/50 correct = 8% (flagged for review)",
+        "CLI: npm run analyze:keywords --profile=pelangi --intent=booking --min-samples=10 exports weak keywords with improvement suggestions to CSV"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-295",
+      "title": "Build escalation quality feedback loop to capture staff insights on failed responses",
+      "priority": "medium",
+      "description": "When staff handle an escalated conversation, collect structured feedback on what the bot should have done better, enabling continuous improvement of intent and fallback handling.",
+      "acceptanceCriteria": [
+        "Endpoint POST /admin/escalations/{escalationId}/feedback accepts: {\"feedback_type\": \"intent_misclassified\", \"correct_intent\": \"booking\", \"severity\": \"high\", \"notes\": \"guest asked for dates but bot said unavailable\"}",
+        "Feedback stored in table escalation_feedback with timestamp, staff_id, profile_id; generates suggestions like \"booking intent misclassified 8 times, suggest adding 'date' keyword\"",
+        "Dashboard GET /admin/analytics/escalation-insights shows most common failure patterns grouped by type, severity distribution, and actionable recommendations",
+        "CLI: npm run extract:escalation-insights --since=30d outputs improvement recommendations JSON with suggested keyword additions and intent routing fixes"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

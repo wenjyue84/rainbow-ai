@@ -547,3 +547,38 @@ FAILED diagnosis-block gate: Knowledge Base Content Validator with Profile Isola
 ### Gotchas
 - None encountered; implementation was complete and working
 
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the user story in a Frappe/Python context.
+
+**To:** Claude Code Agent
+**From:** Gemini
+**Subject:** Technical Brief for Story US-223: Knowledge Base Content Validator
+
+This brief outlines the implementation plan for validating knowledge base content within the `lhdn_payroll_integration` Frappe app.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/hooks.py`**: To trigger the validation logic on server startup.
+*   **`lhdn_payroll_integration/utils/knowledge_base_validator.py`** (New File): To house the core validation function that will be executed.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/knowledge_base_entry/knowledge_base_entry.py`**: For adding validation on the DocType's `validate` method as a secondary check.
+
+**2. Frappe DocTypes & Hooks Involved:**
+*   **Hook**: `on_startup` in `hooks.py`.
+*   **DocType (Assumed)**: `Knowledge Base Entry`. This DocType should have fields like `intent` (Data), `profile_id` (Link to a `Profile` DocType), and `response` (Text).
+
+**3. Recommended Implementation Approach:**
+1.  In `hooks.py`, add a new entry to the `on_startup` list pointing to `lhdn_payroll_integration.utils.knowledge_base_validator.run_validation`.
+2.  The `run_validation` function should use `frappe.get_all('Knowledge Base Entry', fields=['name', 'profile_id', 'response'])` to fetch all records.
+3.  Iterate through each entry, checking for mandatory fields (`profile_id`, `response` length > 5).
+4.  For cross-profile validation, define dictionaries of forbidden keywords for each profile (`'Makan'`, `'Southern'`).
+5.  If a critical violation (e.g., missing `profile_id`) is found, use `frappe.throw("Error Message")` to halt startup.
+6.  For non-critical issues, use `frappe.log_error("Warning Message")` to record the violation without stopping the server.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance**: Loading all entries on startup may be slow. Optimize the query and logic.
+*   **Keyword Rigidity**: Avoid hardcoding keywords. Consider making them manageable via a "Keyword" DocType linked to the Profile.
+*   **Clarity**: Ensure error logs clearly specify the `name` of the failing document.
+
+## Iteration 1 - Mon, Mar 23, 2026  7:40:08 PM
+FAILED diagnosis-block gate: Knowledge Base Content Validator with Profile Isolation Enforcement (ID: US-223) — no diagnosis block found — attempt 3/3
+
