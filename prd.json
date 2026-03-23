@@ -61,7 +61,9 @@
       "estimatedComplexity": "medium",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T04:46:47Z"
     },
     {
       "id": "US-127",
@@ -574,6 +576,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-207",
+      "title": "Intent Classifier Margin-of-Confidence Analyzer CLI with Distinction Difficulty Ranking",
+      "priority": "high",
+      "description": "Analyze intent classification accuracy by measuring when top-2 intent candidates have confidence margins below 0.15 (too close to safely decide). Query intent_analytics table to identify which intent pairs are hardest to distinguish. Generate per-intent confusion report showing co-occurrence rates with competing intents.",
+      "acceptanceCriteria": [
+        "CLI: npm run intent-margin-analyzer -- --profile pelangi outputs JSON with confusion matrix showing intent pairs with <0.15 confidence margin and frequency",
+        "Identifies hardest-to-distinguish intent pairs (e.g., booking_request vs check_availability) and recommends keyword refinement priorities",
+        "Test: src/assistant/validators/intent-margin-analyzer.test.ts verifies margin calculation and confusion matrix generation with sample intent_analytics rows"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-208",
+      "title": "Guest Sentiment-Triggered Fallback Escalation with Frustration Detection",
+      "priority": "high",
+      "description": "Add sentiment scoring to guest messages (positive/negative/neutral) using simple keyword matching. When sentiment is negative AND intent confidence is <0.5, immediately escalate to staff instead of sending generic fallback. Log escalation trigger reason (negative_sentiment + low_confidence) for effectiveness tracking.",
+      "acceptanceCriteria": [
+        "getGuestSentiment(message: string): {sentiment: 'positive'|'negative'|'neutral', keywords: string[]} uses src/assistant/data/sentiment-keywords.json database",
+        "Fallback routing checks if sentiment === 'negative' && confidence < 0.5, then escalates via escalationQueue.push() instead of sending fallback_template",
+        "Test: src/assistant/pipeline/__tests__/sentiment-escalation.test.ts verifies negative sentiment + low confidence triggers escalation, while negative + high confidence still uses response template"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-209",
+      "title": "Booking Confirmation Idempotency Token Validator with Duplicate Detection",
+      "priority": "high",
+      "description": "Prevent duplicate booking confirmations when network retries send the same booking confirmation twice. Implement idempotency key (hash of guest_id + check_in_date + room_type) checking before creating reservation. Test with intentional duplicate sends and verify only one reservation created.",
+      "acceptanceCriteria": [
+        "beforeConfirmBooking() generates idempotencyKey = hash(guest_id, check_in, room_type); checks if key exists in idempotency_log table before INSERT into reservations",
+        "Duplicate send (same idempotency_key within 5min window) returns cached result instead of creating new reservation; logs duplicate_attempt reason",
+        "Test: src/assistant/validators/booking-idempotency.test.ts verifies duplicate sends return same confirmation_id and no new row in reservations table"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-165",
       "title": "Implement automatic conversation context summarization for multi-turn dialogues exceeding message limits",
       "priority": "medium",
@@ -909,6 +962,40 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-210",
+      "title": "Conversation Topic Coherence Drift Detector with Manual Review Queue",
+      "priority": "medium",
+      "description": "Score conversation coherence by measuring semantic similarity between guest messages and original intent (booking vs inquiry). When coherence drops below 0.6 for 2+ consecutive turns, flag conversation for manual review instead of continuing auto-reply. Log coherence scores per turn for monitoring.",
+      "acceptanceCriteria": [
+        "calculateCoherence(currentMessage: string, originalIntent: string, conversationHistory: Message[]): number uses embedding similarity (0.0-1.0 scale)",
+        "Triggers review queue entry when coherence < 0.6 for 2 consecutive turns; logs reason (topic_drift) to rainbow_conversations.auto_review_triggered",
+        "Test: src/assistant/pipeline/__tests__/coherence-detector.test.ts verifies coherence calculation, manual review triggering on 2-turn drift, and preservation of conversation_id"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-211",
+      "title": "Multi-Profile Message Route Audit Query Endpoint with Decision Logging",
+      "priority": "medium",
+      "description": "Add admin endpoint GET /admin/audit/message-route/:conversationId that returns full routing decision trail: which profile was selected, which intent classified, confidence score, which handler executed, execution status. Help detect unexpected cross-profile routing or misconfigured intent routes.",
+      "acceptanceCriteria": [
+        "Endpoint returns JSON with message_route_trail: [{message_id, classified_intent, confidence, selected_profile, handler_name, execution_status, timestamp}] for all messages in conversation",
+        "Each pipeline message processing logs to message_route_audit table: message_id, conversation_id, profile, intent, confidence, handler, status",
+        "Test: src/routes/admin/__tests__/audit-routes.test.ts verifies endpoint returns complete trail for multi-turn conversation and detects unexpected profile switches"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
