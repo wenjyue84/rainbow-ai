@@ -21,6 +21,7 @@ import {
   detectContextLoss, logContextRecoveryEvent,
   CONTEXT_LOSS_CONFIDENCE_THRESHOLD,
 } from '../../context-loss-detector.js';
+import { filterStaleMessages } from '../context-ttl-filter.js';
 
 export interface SummarizationResult {
   contextMessages: ChatMessage[];
@@ -118,17 +119,31 @@ export async function applySummarization(
     );
   }
 
+  // Phase 2.5: US-299 — TTL-based stale message filter
+  // Removes messages older than conversationContextTtlSeconds (default 3600s)
+  // relative to the newest message timestamp. Reduces context drift in
+  // multi-turn booking dialogs.
+  const settings = context.getSettings();
+  const ttlSec = (settings as any).conversationContextTtlSeconds ?? 3600;
+  const preFilterCount = pruningResult.messages.length;
+  const ttlFiltered = filterStaleMessages(pruningResult.messages, ttlSec);
+  if (ttlFiltered.length < preFilterCount) {
+    console.log(
+      `[Summarization][US-299] TTL filter (${ttlSec}s): ${preFilterCount} -> ${ttlFiltered.length} messages`
+    );
+  }
+
   // Phase 3: US-1012 Context Loss Detection + Re-grounding
   // Check the most recent assistant message for context-loss signals.
   // If detected, inject a re-grounding message so the next LLM call re-anchors
   // to established session facts (name, dates, booking refs, etc.).
-  let contextMessages = pruningResult.messages;
+  let contextMessages = ttlFiltered;
   let contextRecoveryInjected = false;
 
-  const lastAssistantMsg = [...pruningResult.messages].reverse().find(m => m.role === 'assistant');
-  if (lastAssistantMsg && pruningResult.messages.length >= 3) {
+  const lastAssistantMsg = [...ttlFiltered].reverse().find(m => m.role === 'assistant');
+  if (lastAssistantMsg && ttlFiltered.length >= 3) {
     try {
-      const lossResult = detectContextLoss(lastAssistantMsg.content, pruningResult.messages);
+      const lossResult = detectContextLoss(lastAssistantMsg.content, ttlFiltered);
 
       if (lossResult.detected && lossResult.regroundingMessage) {
         console.log(

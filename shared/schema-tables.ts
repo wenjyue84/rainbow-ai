@@ -1382,6 +1382,52 @@ export const bookingExecutionAudit = pgTable("booking_execution_audit", {
 export type BookingExecutionAudit = typeof bookingExecutionAudit.$inferSelect;
 export type InsertBookingExecutionAudit = typeof bookingExecutionAudit.$inferInsert;
 
+// ─── Escalation Feedback (US-295) ────────────────────────────────────
+// Captures staff feedback on escalated conversations to improve intent
+// classification and fallback handling over time.
+
+export const escalationFeedback = pgTable("escalation_feedback", {
+  id: serial("id").primaryKey(),
+  escalationId: integer("escalation_id").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  staffId: text("staff_id"),
+  feedbackType: varchar("feedback_type", { length: 64 }).notNull(), // intent_misclassified, missing_knowledge, wrong_workflow, poor_response, other
+  correctIntent: varchar("correct_intent", { length: 64 }),
+  severity: varchar("severity", { length: 16 }).notNull().default('medium'), // low, medium, high, critical
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_escalation_feedback_escalation_id").on(table.escalationId),
+  index("idx_escalation_feedback_profile_id").on(table.profileId),
+  index("idx_escalation_feedback_type").on(table.feedbackType),
+  index("idx_escalation_feedback_severity").on(table.severity),
+  index("idx_escalation_feedback_created_at").on(table.createdAt),
+]));
+
+export type EscalationFeedback = typeof escalationFeedback.$inferSelect;
+export type InsertEscalationFeedback = typeof escalationFeedback.$inferInsert;
+
+// ─── Fallback Response Metrics (US-300) ─────────────────────────────
+// Tracks fallback response template effectiveness by measuring
+// escalation-to-resolution rates per template per profile.
+
+export const fallbackResponseMetrics = pgTable("fallback_response_metrics", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  templateId: text("template_id").notNull(),
+  escalationCount: integer("escalation_count").notNull().default(0),
+  resolutionCount: integer("resolution_count").notNull().default(0),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_fallback_resp_metrics_profile").on(table.profileId),
+  index("idx_fallback_resp_metrics_template").on(table.templateId),
+  index("idx_fallback_resp_metrics_timestamp").on(table.timestamp),
+  uniqueIndex("idx_fallback_resp_metrics_profile_template").on(table.profileId, table.templateId),
+]));
+
+export type FallbackResponseMetric = typeof fallbackResponseMetrics.$inferSelect;
+export type InsertFallbackResponseMetric = typeof fallbackResponseMetrics.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
