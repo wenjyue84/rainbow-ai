@@ -1266,3 +1266,23 @@ Based on the project's TypeScript stack, the following files are the most likely
 *   **Performance:** The insertion into `rainbow_lowconf_messages` adds a synchronous database write to the message processing pipeline. Monitor for any performance degradation.
 *   **Downstream Impact:** Ensure that archiving a message properly halts any subsequent processing, preventing duplicate or confusing behavior for the end-user.
 
+
+## Iteration N - Story: US-280 Low-Confidence Intent Archival System with QA Review Endpoint
+
+### What was implemented
+- Added `rainbowLowconfMessages` table to `shared/schema-tables.ts` with fields: id, profile, messageId, originalText, predictedIntent, confidence, correctIntent, reviewedAt, createdAt
+- Added fire-and-forget insert in `src/assistant/pipeline/intent-classifier.ts` at the metrics recording point (after confidence gate) — archives messages with confidence < 0.5
+- Created `src/routes/admin/lowconf-messages.ts` with:
+  - GET /lowconf-messages?profile=&reviewed=false|true&limit=N
+  - POST /lowconf-messages/:id/correct { correct_intent }
+- Registered route in `src/routes/admin/index.ts`
+
+### Patterns discovered
+- intent-classifier.ts is the right hook point for post-classification side effects — after the confidence gate and layer2 fallback, before routing
+- Existing pattern: db.insert(...).catch(() => {}) for fire-and-forget inserts (see US-043, US-212 examples in same file)
+- Admin routes follow: Router + ok/badRequest/notFound/serverError from http-utils.ts
+
+### Gotchas
+- Table schema goes in shared/schema-tables.ts (Drizzle-managed), not the raw pg tables
+- Need to run `npm run db:push` in production to create the table; build does not migrate the DB
+- msg.messageId may be undefined/null — used `?? null` to handle gracefully
