@@ -59,9 +59,11 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T10:19:46Z"
     },
     {
       "id": "US-213",
@@ -808,7 +810,16 @@
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-03-23T10:13:43Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nUS-209 already has `passes: true`. The next story is **US-212**. Let me read its full details and explore relevant code.\n\n## Current State\n\nUS-212 requires:\n1. `escalation_queue` table in DB schema\n2. Auto-insert when confidence < 40% in `src/assistant/pipeline/classification.ts`\n3. Log to `src/logs/escalation-flags.log`\n4. Admin endpoint `GET /admin/escalation-queue`\n\n## Problem Identified\n\nCreate an escalation queue for low-confidence intent classifications so human reviewers can quickly triage and improve keywords.\n\n## Planned Changes\n\n- `shared/schema-tables.ts` — add `escalationQueue` table definition\n- `src/assistant/pipeline/classification.ts` — insert to escalation_queue when confidence < 40%, log to file\n- `src/routes/admin/` — create new escalation-queue route\n- `src/routes/admin/index.ts` — register the new route\nNow I have enough context. Let me check the end of schema-tables.ts and look at classification stages for message preview context.\nNow I have enough context. Let me implement all parts of US-212.\nNow add the auto-insert logic in `intent-classifier.ts`. I'll insert after the existing `trackIntentPrediction` block (line ~177-188), adding the escalation queue logic for confidence < 0.4:\nNow create the admin route:\nNow register the route in `index.ts`. I'll add the import and router.use near the escalationsRoutes:\nNow run build to verify:\nPre-existing merge conflict in `cart.ts`. Let me check it:\nNeed to fix this pre-existing conflict first:\nBuild passes (1 warning is the pre-existing logger warning). Now run the server startup test:\nServer starts and loads (pre-existing profile validation crash is unrelated). Build passes. Now mark US-212 as complete and document:\nUS-212 is complete and committed. Here's a summary of what was implemented:\n\n**Story: US-212 — Intent Classification Escalation Queue with Low-Confidence Auto-Flagging**\n\n1. **`shared/schema-tables.ts`** — Added `escalationQueue` table with: `id`, `conversationId`, `originalIntent`, `confidenceScore`, `messagePreview` (first 200 chars), `recommendedKeywords` (JSON array of 3+ char words), `guestCorrectionIntent`, `profile`, `timestamp`\n\n2. **`src/assistant/pipeline/intent-classifier.ts`** — When `confidence < 0.4`, auto-inserts into `escalation_queue` (fire-and-forget) and appends a JSONL line to `src/logs/escalation-flags.log`\n\n3. **`src/routes/admin/escalation-queue.ts`** — New route `GET /admin/escalation-queue?limit=20&profile=makan` returns entries sorted by confidence ascending (most uncertain first), with parsed keyword arrays\n\n4. **`src/routes/admin/index.ts`** — Route registered\n\n**Bonus fix:** Resolved pre-existing merge conflict in `src/tools/cart.ts` that was blocking esbuild on every prior attempt."
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 679,
+        "tokensAfterMasking": 679,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-233",
