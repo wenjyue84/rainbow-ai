@@ -1531,3 +1531,47 @@ Created `src/assistant/middleware/profile-isolation-enforcer.ts` with:
 ## Iteration 1 - Tue, Mar 24, 2026  7:19:19 AM
 FAILED diagnosis-block gate: Profile Isolation Enforcement Runtime Middleware (ID: US-351) — no diagnosis block found — attempt 1/3
 
+
+## Iteration N - Story: Booking Workflow Step Failure Recovery (US-352)
+### What was implemented
+Created `src/assistant/booking/step-error-handler.ts` with:
+- `getProfileRecoveryMessage(profileId, language)` — generates profile-specific recovery messages
+  - Pelangi: "I couldn't confirm your booking. Our front desk will call you shortly..."
+  - Makan: "Unable to process your order. Our staff will follow up..."
+  - Southern: "Our team will reach out to you shortly..."
+  - Supports en/ms/zh languages
+- `createStepFailureEscalation(options)` — creates escalation event in rainbow_escalation_events table
+  - Captures structured metadata: error_type, error_message, step_id, workflow_id, input_values
+  - Logs to escalation_events table with trigger='booking_step_failure'
+  - Sets intentId to step_id for staff filtering
+- `executeWorkflowStepWithErrorRecovery(...)` — wrapper for safe step execution
+  - Returns {success, response, error?}
+  - On failure, creates escalation and returns profile-aware recovery message
+- Error categorization: timeout, payment, room, dates, guest, pricing, conflict, network, database
+
+### Tests created
+`src/assistant/__tests__/step-error-handler.test.ts` — 15 unit tests
+- Profile-specific message generation (pelangi, makan, southern)
+- Language support (en, ms, zh)
+- Error type categorization
+- Escalation event creation with metadata
+- Success/failure path handling
+
+### Patterns discovered
+- Profile recovery messages follow escalation template pattern in data-*.json
+- escalationEvents table has metadata JSON field for structured error details
+- No separate booking folder existed — created it for this module
+- Error categorization via string matching on error.message
+
+### Gotchas
+- WorkflowState import wasn't needed — removed to avoid circular dependencies
+- Schema-tables module path requires .js extension for vitest resolution
+- Server startup shows pre-existing data contamination warnings (US-353) but still runs
+
+### Acceptance criteria met
+✓ Catch step execution errors and create escalation event row with structured details
+✓ Generate profile-aware recovery messages (no generic fallback)
+✓ Unit tests verify error capture, escalation creation, profile-specific messages
+✓ Staff can view escalations in /admin/escalations via escalationEvents table
+✓ All 15 tests pass, build succeeds, server starts
+

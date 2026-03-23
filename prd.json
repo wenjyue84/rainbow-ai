@@ -59,10 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T23:30:02Z"
+      "last_attempted": "2026-03-23T23:34:08Z"
     },
     {
       "id": "US-353",
@@ -320,6 +320,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-378",
+      "title": "Intent Classification Explanation Generator with Feature Attribution",
+      "priority": "high",
+      "description": "Add explainability to intent classification decisions. When an intent is classified, generate a human-readable explanation showing which keywords matched, classifier confidence scores, and which patterns fired. Helps debugging misclassifications and improves user confidence in system reliability.",
+      "acceptanceCriteria": [
+        "Create src/lib/intent-explanation.ts exporting function that takes classification result and returns { top_keywords: string[], classifier_scores: Record<string, number>, matched_patterns: string[] }",
+        "Add endpoint POST /admin/debug/explain-intent accepting { message: string, intent: string } and returning explanation with top-3 contributing features",
+        "Unit test verifies booking message returns keywords like 'check-in', 'room', 'book' with non-zero scores; unit test verifies fallback intent has empty keywords list"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-379",
+      "title": "Booking Workflow Step Retry Configuration with Exponential Backoff",
+      "priority": "high",
+      "description": "Add resilience to booking workflow by allowing configurable retry behavior per step. Steps like room availability checks or payment confirmation can retry with exponential backoff on transient failures. Improves reliability without manual intervention.",
+      "acceptanceCriteria": [
+        "Extend workflow step JSON schema in src/assistant/schemas.ts to support optional retry: { max_attempts: 3, base_delay_ms: 100, backoff_multiplier: 2 }",
+        "Booking step executor wraps step invocation in retry loop, respects max_attempts and exponential backoff timing",
+        "Integration test verifies step with max_attempts=2 retries exactly 2 times on failure; step without retry config executes once and throws"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-380",
+      "title": "Profile Data Cross-File Semantic Consistency Validator",
+      "priority": "high",
+      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
+      "acceptanceCriteria": [
+        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
+        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
+        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-365",
       "title": "Build Booking Workflow Critical Path Analyzer CLI to Identify Bottleneck Steps",
       "priority": "medium",
@@ -335,57 +386,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
-    },
-    {
-      "id": "US-366",
-      "title": "Add Intent Classifier Confidence Calibration Measurement CLI",
-      "priority": "medium",
-      "description": "Measures whether reported confidence scores match actual accuracy. Tool evaluates classifier on labeled dataset and outputs calibration error per confidence bucket to improve intent classification reliability.",
-      "acceptanceCriteria": [
-        "CLI command `npm run validate:calibration --dataset src/__tests__/data/intent-calibration-dataset.json` loads test dataset, runs classifier, outputs calibration_error = |expected_accuracy - actual_accuracy| per confidence bucket (0-10%, 10-20%, ... 90-100%)",
-        "Buckets with calibration_error > 15% flagged as uncalibrated; suggests confidence threshold adjustments in report",
-        "Identifies if classifier is overconfident (predicts 95% but only 80% correct) or underconfident, enabling threshold recalibration"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-367",
-      "title": "Build Fallback Response Escalation Analyzer CLI to Identify Low-Performing Fallbacks",
-      "priority": "medium",
-      "description": "Analyzes production logs to track escalation rates for fallback responses by intent. Identifies which intents have highest escalation rates after fallback response, highlighting which fallbacks need improvement.",
-      "acceptanceCriteria": [
-        "CLI command `npm run analyze:fallback-escalations --output report.json` reads spiral_events.jsonl, filters for (fallback_response_used=true, escalation_within_2_turns=true) events, groups by (intent, fallback_response_id), computes escalation_rate",
-        "Output ranks intents by escalation_rate descending; flags intents with escalation_rate > 30% as needing better fallback responses with actionable suggestions",
-        "Report includes sample escalations (5-10 event IDs) for manual review per high-escalation intent, enabling targeted fallback improvement"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-368",
-      "title": "Implement Booking Confirmation Idempotency Validator CLI with Duplicate Detection",
-      "priority": "medium",
-      "description": "Validates idempotency implementation by submitting duplicate booking requests with same idempotency key and verifying only one reservation is created. Ensures booking workflow reliability against retry storms.",
-      "acceptanceCriteria": [
-        "CLI command `npm run validate:idempotency --booking-data '{\"roomId\":\"101\",\"checkIn\":\"2026-04-01\"}' --profile pelangi` submits identical booking twice with same idempotency key; verifies both responses return identical booking_id and database shows exactly 1 booking created (not 2)",
-        "Validator tests both REST API endpoint and WhatsApp message retry scenario (Baileys duplicate handling) to ensure idempotency works end-to-end",
-        "Test src/__tests__/booking-idempotency.test.ts validates concurrent duplicate requests with same idempotency key return consistent results and increment guest booking count by 1 only"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
     },
     {
       "id": "US-196",
