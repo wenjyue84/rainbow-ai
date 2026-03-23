@@ -761,3 +761,54 @@ This brief is for a Node.js/TypeScript project, as the user story's details (`np
 ### Gotchas
 - UnicodeDecodeError when writing prd.json with Python on Windows — must use encoding='utf-8'
 - Server startup FATAL on profile validation is pre-existing, not from our changes
+## Iteration 1 - Mon, Mar 23, 2026 11:30:51 PM
+FAILED diagnosis-block gate: Booking Intent Classification Failure Logger with Recovery Suggestions (ID: US-226) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-226 (Gemini 2.5 Pro)
+This brief is for a Node.js/TypeScript project, as the user story's details (`npm run db:push`, intent classification) align with the provided file listing, not a Frappe/Python environment.
+
+**Project:** `rainbow-ai` (Node.js/TypeScript with Drizzle ORM)
+**User Story:** US-226 - Booking Intent Classification Failure Logger
+
+### Technical Brief
+
+**1. Files to Modify:**
+*   **Schema Definition:** A new table, `bookingClassificationFailures`, should be added. Look for a schema definition file, likely located at `src/db/schema.ts` or a similar path.
+*   **Intent Classifier Logic:** The core logic for handling low-confidence booking intents needs to be modified. This is likely within a service or utility file, potentially `src/intent/classifier.service.ts` or `src/pipelines/message-processor.ts`.
+*   **API Routes:** A new admin-facing endpoint is required. This will involve creating a new route handler, probably in a new file like `src/routes/admin/debug.ts`.
+*   **Server Entrypoint:** The new admin route will need to be registered in the main Express app setup, likely in `src/server.ts` or `src/app.ts`.
+
+**2. Frappe Equivalents (DocTypes/Hooks):**
+*   **DocType:** The equivalent is the new `bookingClassificationFailures` table defined using the Drizzle ORM schema.
+*   **Hooks:** The "hook" will be a conditional block added directly into the intent classification processing pipeline, triggered after a classification result is generated but before a final response is composed.
+
+**3. Implementation Approach:**
+1.  **Schema:** In the primary schema file, define the `bookingClassificationFailures` table using Drizzle's syntax. Include fields for `messageId`, `rawInput` (text), `profileId`, `top3Candidates` (jsonb), and a `timestamp`. Run the `npm run db:push` command to sync the schema with the database.
+2.  **Classifier:** Locate the function that processes intent results. After the classifier runs, add logic to check if the top intent is related to "booking" and its confidence score is `< 0.65`. If so, use the Drizzle client to insert a new record into the `bookingClassificationFailures` table with the required data.
+3.  **Endpoint:** Create a new Express router for `/admin/debug/failed-bookings`. The `GET` handler should use the Drizzle client to query the `bookingClassificationFailures` table, filtering by the last 24 hours. Use an aggregation query to group results by `profile_id` and perform a basic frequency analysis on the `rawInput` text to identify common keywords.
+
+**4. Edge Cases & Gotchas:**
+*   **Security:** Ensure the new `/admin/*` endpoint is protected by an authentication/authorization middleware that verifies admin-level permissions.
+*   **Data Volume:** The keyword aggregation on the debug endpoint could be slow. Consider adding indexing to the `timestamp` and `profile_id` columns. For high-volume systems, this analysis might need to be pre-calculated and cached.
+*   **Keyword Analysis:** Simple text splitting for keyword analysis is a starting point, but a more robust solution should handle stop-words, punctuation, and case-insensitivity to yield meaningful patterns.
+*   **Booking Intent Scope:** The logic must correctly identify all intents that fall under the "booking" category, not just a single intent named `booking`. Check if a helper or enum for intent categories exists.
+
+
+## Iteration 2 - Story: US-226 Booking Intent Classification Failure Logger (PASS)
+### What was implemented
+- All code was already implemented in attempt 1 (commit fdb7cc5):
+  - `bookingClassificationFailures` table in shared/schema-tables.ts
+  - `src/assistant/booking-failure-logger.ts` — logger with BOOKING_INTENT_CATEGORIES set
+  - Integration in `src/assistant/pipeline/intent-classifier.ts` (fires when confidence < 0.65 for booking intents)
+  - `src/routes/admin/debug-failed-bookings.ts` — paginated GET endpoint with keyword frequency by profile
+  - Route registered in src/routes/admin/index.ts
+- Attempt 1 failed only due to DIAGNOSIS_BLOCK_MISSING gate (process issue, not code issue)
+- Attempt 2: verified build passes, server starts, marked passes=true
+
+### Patterns discovered
+- Schema barrel re-export in shared/schema.ts means new tables in schema-tables.ts are auto-exported
+- Server FATAL on profile validation is pre-existing and unrelated to this story
+
+### Gotchas
+- SPIRAL diagnosis-block gate requires outputting diagnosis headers BEFORE any file edits
