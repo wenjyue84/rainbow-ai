@@ -837,3 +837,56 @@ FAILED diagnosis-block gate: Build Profile Data Contamination Scanner CLI with P
 ## Iteration 1 - Mon, Mar 23, 2026 12:46:45 PM
 FAILED diagnosis-block gate: Build Profile Data Contamination Scanner CLI with Pre-Deploy Report (ID: US-196) — no diagnosis block found — attempt 2/3
 
+
+## Iteration [SPIRAL] - Story: US-131 Generate intent classification confusion matrix from production logs
+
+### What was implemented
+- **Confusion Matrix Generator Module** (`src/tools/confusion-matrix-generator.ts`):
+  - `generateConfusionMatrix()`: Queries intentPredictions table for misclassifications (wasCorrect=false)
+  - Filters by profile (e.g., 'pelangi', 'southern') and lookback window (days)
+  - Builds confusion matrix: Map<predictedIntent, Map<actualIntent, count>>
+  - Returns top 5 misclassified pairs with counts and percentages
+  - Calculates overall accuracy from evaluated messages
+
+- **CLI Script** (`scripts/metrics-confusion-matrix.ts`):
+  - Argument parsing: --profile and --days flags
+  - Outputs summary stats (total evaluated, misclassifications, accuracy)
+  - Outputs CSV format with top 5 pairs: PredictedIntent, ActualIntent, Count, Percentage
+  - Example: `npm run metrics:confusion-matrix -- --profile=pelangi --days=7`
+
+- **npm Script** (`package.json`):
+  - Added `"metrics:confusion-matrix": "tsx scripts/metrics-confusion-matrix.ts"` command
+
+- **Comprehensive Test Suite** (`src/tools/__tests__/confusion-matrix-generator.test.ts`):
+  - 7 tests covering all acceptance criteria:
+    - AC1: Top 5 misclassified pairs returned in frequency order
+    - AC2: Accuracy calculation verified (correct_count / total_count * 100)
+    - AC3: Confusion matrix structure built correctly
+    - AC4: Percentage calculations correct
+    - AC5: Profile and days filtering applied
+    - AC6: Handles empty results gracefully
+    - AC7: Identifies misclassifications with 95% accuracy on test dataset
+
+### Patterns discovered
+- intentPredictions table has both predictedIntent (model output) and actualIntent (user feedback)
+- wasCorrect field indicates classification accuracy
+- Confusion matrix filters only misclassifications (wasCorrect = false)
+- Profile-based filtering prevents cross-profile data contamination
+- Time-based window filtering enables trend analysis
+
+### Gotchas
+- Database pool must be properly connected before running queries
+- Query timeout could occur on large datasets; consider pagination for multi-year analysis
+- Percentages calculated relative to total misclassifications, not total messages
+- CSV output includes only top 5; full matrix available in matrix field of result
+
+### Quality checks
+✓ All 7 unit tests pass (100% coverage of acceptance criteria)
+✓ Build completes successfully (esbuild, 2.2mb bundle)
+✓ Server starts without errors
+✓ No new TypeScript errors
+✓ All acceptance criteria met:
+  - AC1: Top 5 misclassified pairs identified and sorted by frequency
+  - AC2: Accuracy calculated from intentPredictions table (wasCorrect field)
+  - AC3: CSV output format with PredictedIntent, ActualIntent, Count, Percentage
+  - AC4: Test dataset achieves 95% detection accuracy
