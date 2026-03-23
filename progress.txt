@@ -185,3 +185,48 @@ All components were already present from a previous partial attempt:
 ### Gotchas
 - The `intent_predictions` table queried by keyword-miner.ts may not exist in production yet; mining will return empty results gracefully
 - Atomic file writes use tmp-rename pattern to prevent corruption
+## Iteration 1 - Tue, Mar 24, 2026  4:43:39 AM
+FAILED diagnosis-block gate: Intent Keyword Auto-Miner from Production Misclassifications (ID: US-323) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-323 (Gemini 2.5 Pro)
+Here is a technical brief for user story US-323.
+
+**Project Type Analysis:** The user story specifies `npm run` commands and `*.json` file manipulations, strongly indicating a **Node.js/TypeScript** project, not Frappe/Python. The following brief is based on this assumption.
+
+---
+
+### **Technical Brief: US-323 - Intent Keyword Auto-Miner**
+
+**1. Python Files to Modify / Key Files:**
+*   **`package.json`**: To add the new `scripts` entry for `mine-keyword-suggestions`.
+*   **New File: `scripts/mine-keyword-suggestions.ts`**: Will contain the core logic for the CLI command to parse production logs and extract keywords.
+*   **New File: `src/services/keyword-suggestion-service.ts`**: To encapsulate the logic for approving, merging, and logging keyword updates.
+*   **API Router (e.g., `src/routes/admin-routes.ts`)**: To define the new `POST /admin/keywords/approve-suggestions` endpoint.
+*   **Target Data File: `src/assistant/data-{profile}/intent-keywords.json`**: The file to be programmatically updated.
+
+**2. Frappe DocTypes & Hooks / Project Concepts Involved:**
+*   This does not involve Frappe DocTypes. The main components are:
+    *   **CLI Script Runner**: Executed via `npm run`.
+    *   **Admin API Endpoint**: A new route on the existing web server (likely Express.js or similar).
+    *   **File I/O**: Reading from production logs and reading/writing to the `intent-keywords.json` configuration file.
+
+**3. Recommended Implementation Approach:**
+1.  **CLI Script (`mine-keyword-suggestions.ts`):**
+    *   Parse CLI args (`--profile`, `--window`) to define the scope of the search.
+    *   Implement a function to fetch and parse production logs (the source/format of these logs is a prerequisite).
+    *   Filter logs to find failed or low-confidence "booking" intents.
+    *   Extract candidate keywords, count their frequency, and check against existing keywords and the 14-day duplicate window.
+    *   Generate the final suggestion JSON file.
+2.  **Admin API Endpoint:**
+    *   Create a new authenticated and authorized route: `POST /admin/keywords/approve-suggestions`.
+    *   The route handler will call the `KeywordSuggestionService`.
+    *   The service will read the `intent-keywords.json` file for the specified profile, merge the approved new keywords, and write the file back.
+    *   Log the action to a designated audit trail (e.g., a separate log file or database table).
+
+**4. Edge Cases & Gotchas:**
+*   **Log Source Unspecified**: The location, format, and access method for production logs are critical and must be defined.
+*   **Security**: The `/admin/` endpoint must be strictly protected to prevent unauthorized modification of training data.
+*   **Concurrency**: File-based updates to `intent-keywords.json` could lead to a race condition if multiple admins act simultaneously. Implement a file lock or a queuing mechanism.
+*   **Data Validation**: The API must rigorously validate the incoming suggestion payload to prevent corrupting the JSON file.
+
