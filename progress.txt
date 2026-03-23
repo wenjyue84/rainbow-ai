@@ -1,4 +1,35 @@
-## Iteration [Current] - Story: Booking Workflow Step Execution Dry-Run Endpoint (US-290)
+## Iteration [Current] - Story: Booking Workflow Failure Hotspot Analyzer (US-291)
+
+### What was implemented
+- Created `src/routes/admin/analytics-booking-failures.ts` with GET `/analytics/booking-failures?profile=pelangi&days=7` endpoint
+- Queries `booking_execution_audit` table to analyze step execution failures
+- Calculates failure metrics per step: failures, attempts, failure_rate%, and top 3 failure reasons
+- Created `src/tools/analytics-booking-failures-cli.ts` for command-line analysis
+- Added npm script `analytics:booking-failures` to package.json
+- Registered routes in `src/routes/admin/index.ts`
+- Created comprehensive test suite: 26 passing unit tests
+
+### Patterns discovered
+- Pure functions for calculations (extractFailureReason, calculateFailureMetrics) are fully testable
+- Query returns raw bookingExecutionAudit rows and aggregate in-memory (follows pattern from analytics-booking-conversion)
+- Failure reason extraction tries errorCode → error → reason → message fields in order
+- CLI supports both --days and --since=Xd parameter formats
+- Both human-readable and JSON output modes (--json flag)
+
+### Gotchas
+- bookingExecutionAudit table tracks status as 'success' | 'error' | 'timeout' | 'skipped'
+- Output field is jsonb, needs type assertion as Record<string, unknown> | null
+- Failure reasons truncated to 50 chars to prevent noise from verbose error messages
+- Time window filtering uses executedAt >= since (inclusive), not >
+
+### Acceptance Criteria Met
+✓ AC1: GET /admin/analytics/booking-failures returns {step_id: {failures, attempts, rate, top_reasons}}
+✓ AC2: Example: {"check-room-availability": {"failures": 8, "attempts": 100, "rate": "8.0%", "top_reasons": [...]}}
+✓ AC3: CLI: npm run analytics:booking-failures --since=7d --profile=pelangi outputs steps sorted by failure_rate descending
+✓ AC4: Test: asserts step with 10 failures out of 100 attempts calculates to 10.0% failure_rate
+
+
+## Previous Iteration - Story: Booking Workflow Step Execution Dry-Run Endpoint (US-290)
 
 ### What was implemented
 - Created `src/routes/admin/workflows.ts` with POST `/debug/profile/:profile/workflow-dry-run` endpoint
