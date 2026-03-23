@@ -369,10 +369,16 @@ export const escalationEvents = pgTable("escalation_events", {
   // US-077: Fallback effectiveness tracking
   fallbackResponseTemplateId: text("fallback_response_template_id"), // template that was used before escalation
   escalationWithin2Msgs: boolean("escalation_within_2_msgs"),        // true if escalation within 2 msgs of fallback
+  // US-342: Context-aware fallback response generation
+  intentId: text("intent_id"), // the intent that triggered escalation (booking, check_in, pricing, etc.)
+  staffResolution: text("staff_resolution"), // successful resolution provided by staff member
+  guestFeedback: text("guest_feedback"), // feedback from guest about resolution
+  similarityScore: real("similarity_score"), // pre-calculated similarity score (0-1)
 }, (table) => ([
   index("idx_escalation_events_jid").on(table.jid),
   index("idx_escalation_events_trigger").on(table.trigger),
   index("idx_escalation_events_created_at").on(table.createdAt),
+  index("idx_escalation_events_profile_intent").on(table.profileId, table.intentId, table.createdAt),
 ]));
 
 // ─── Conversation Traces (US-427) ────────────────────────────────────
