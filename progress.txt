@@ -1,3 +1,34 @@
+## Iteration [Current] - Story: Booking Workflow Step Execution Dry-Run Endpoint (US-290)
+
+### What was implemented
+- Created `src/routes/admin/workflows.ts` with POST `/debug/profile/:profile/workflow-dry-run` endpoint
+- Executes workflow steps without database writes (dry-run simulation)
+- Supports both step-based (legacy) and node-based (new) workflow formats
+- Returns structured response: {workflowId, steps[], totalDurationMs, successCount, errorCount, skippedCount}
+- Each step includes: {stepId, stepName, output, status, durationMs, errorDetails?}
+- Error details contain precondition violations and actionable fix suggestions
+- Detects cycles in node-based workflows and prevents infinite loops
+- Registered endpoint in `src/routes/admin/index.ts`
+- Created comprehensive test suite: 11 passing unit tests
+
+### Patterns discovered
+- Dry-run logic separates step-based and node-based execution paths
+- Precondition validation checks required booking fields (guestName, guestCount, bookingDates)
+- Node traversal uses visited set + max steps limit to prevent infinite loops
+- All simulated actions marked with `[DRY-RUN]` prefix to signal no side effects
+- Error responses include both precondition violations list + single actionable fix message
+
+### Gotchas
+- ProfileRegistry integration needed for profile-specific config loading (updated during auto-formatting)
+- Node-based workflows require checking both node existence and reference resolution
+- Step-based workflow must validate array structure before executing
+- All actions, API calls, and database operations marked as "would_execute" not actually executed
+
+### Acceptance Criteria Met
+✓ AC1: Endpoint accepts test booking request payload
+✓ AC2: Returns {stepId, output, status, durationMs} for each step
+✓ AC3: Error details include precondition violations + actionable fixes
+
 
 ## Pre-analysis for US-213 (Gemini 2.5 Pro)
 <<<<<<< Updated upstream
