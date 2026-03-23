@@ -198,14 +198,8 @@ function formatDate(date: Date): string {
  */
 router.post('/bookings/preflight', async (req: Request, res: Response) => {
   try {
-    const bookingId = req.query.booking_id as string;
-
-    if (!bookingId) {
-      badRequest(res, 'booking_id query parameter is required');
-      return;
-    }
-
-    // Validate required fields in request body
+    // booking_id is optional — if provided, it's passed to validateBooking for context
+    // but body fields are still required
     const err = validateRequired(req.body, ['guestPhone', 'roomType', 'checkInDate', 'checkOutDate', 'totalPrice']);
     if (err) {
       badRequest(res, err);
