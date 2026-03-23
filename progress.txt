@@ -1905,3 +1905,30 @@ FAILED diagnosis-block gate: Persist individual intent prediction confidence sco
 ## Iteration 1 - Mon, Mar 23, 2026 11:21:44 AM
 FAILED diagnosis-block gate: Implement guest language preference persistence across conversation turns (ID: US-119) — no diagnosis block found — attempt 1/3
 
+
+## Pre-analysis for US-120 (Gemini 2.5 Pro)
+### LHDN Payroll Integration: Technical Brief for US-120
+
+**Objective:** Implement a timeout and automatic rollback mechanism for workflow step execution to prevent inconsistent database states from hung processes.
+
+**1. Likely Files to Modify:**
+-   `lhdn_payroll_integration/lhdn_payroll_integration/hooks.py`: To define a `doc_events` hook that triggers the workflow on a specific DocType event.
+-   `lhdn_payroll_integration/lhdn_payroll_integration/workflow_processor.py` (New File): A new module to contain the core logic for parsing workflow definitions and executing steps with timeouts.
+-   `lhdn_payroll_integration/doctype/payroll_entry/payroll_entry.py` (Example): The controller file for the primary DocType where the workflow logic will be initiated.
+
+**2. Frappe DocTypes & Hooks:**
+-   **Primary DocType:** The workflow will likely be attached to a core business DocType such as `Payroll Entry` or `Tax Submission`.
+-   **New DocType:** A new DocType named `Workflow Process Log` or similar should be created to log execution details, especially timeout failures, with fields like `step_id`, `actual_duration_ms`, `max_duration_ms`, `status`, and `error_context`.
+-   **Hook:** Use `doc_events` in `hooks.py` to trigger the workflow handler from a `validate` or `on_submit` event on the primary DocType.
+
+**3. Recommended Implementation:**
+-   Encapsulate each workflow step execution within a Frappe background job using `frappe.enqueue`. This is the most robust method for handling timeouts in a multi-worker environment.
+-   Pass the `max_duration_ms` from your workflow configuration as the `timeout` parameter in the `frappe.enqueue` call.
+-   The enqueued function should handle the step's business logic. If the job times out, Frappe's worker will terminate it. The calling process should handle the `JobTimeoutException` from the RQ library.
+-   Within an exception handler, call `frappe.db.rollback()` explicitly and create a new `Workflow Process Log` document to record the failure and escalate.
+
+**4. Edge Cases & Gotchas:**
+-   **Avoid `signal.alarm`:** Do not use Python's `signal` module for timeouts, as it is process-global and not safe for use in a concurrent web server like Gunicorn. Rely on `frappe.enqueue`'s built-in timeout feature.
+-   **Transaction Scope:** Frappe wraps web requests and background jobs in database transactions. A failure in an enqueued job will automatically roll back that job's transaction, preventing partial data writes.
+-   **User Feedback:** Ensure the user who initiated the action is notified of the timeout and escalation via `frappe.msgprint` or `frappe.throw`.
+
