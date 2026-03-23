@@ -1676,6 +1676,25 @@ export const routingAuditLogs = pgTable("routing_audit_logs", {
 export type RoutingAuditLog = typeof routingAuditLogs.$inferSelect;
 export type InsertRoutingAuditLog = typeof routingAuditLogs.$inferInsert;
 
+// ─── Guest Blacklist (US-346) ──────────────────────────────────────────────
+// Stores phones and names of guests who should be blocked from booking.
+// checkBlacklist() in src/lib/guest-validator.ts queries this table.
+
+export const guestBlacklist = pgTable("guest_blacklist", {
+  id: serial("id").primaryKey(),
+  phone: varchar("phone", { length: 64 }),      // optional — match by phone
+  name: text("name"),                            // optional — fuzzy-matched name
+  reason: text("reason").notNull(),              // why they were blacklisted
+  addedBy: varchar("added_by", { length: 128 }), // staff member who added entry
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_guest_blacklist_phone").on(table.phone),
+  index("idx_guest_blacklist_created_at").on(table.createdAt),
+]));
+
+export type GuestBlacklistEntry = typeof guestBlacklist.$inferSelect;
+export type InsertGuestBlacklistEntry = typeof guestBlacklist.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
