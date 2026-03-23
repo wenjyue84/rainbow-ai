@@ -1021,3 +1021,39 @@ PASSED: Multi-Turn Booking Clarification Dialog Manager (US-237) — attempt 2/3
 - Code was already implemented in attempt 1, just needed diagnosis block gate compliance
 - Verified: 16/16 tests pass, build succeeds, all acceptance criteria met
 
+
+## Iteration 6 - Story: Profile Isolation Violations Auto-Repair Tool (US-238)
+
+### What was implemented
+- Added `profile_isolation_repairs` table to shared/schema-tables.ts with fields for tracking violations and repairs
+- Created src/tools/repair-profile-isolation.ts with core logic:
+  - `detectGuestMultiProfileViolations()` — finds phone numbers appearing in multiple profiles
+  - `detectKeywordCrossProfileViolations()` — finds intent keywords in wrong profiles
+  - `detectWorkflowForeignRouteViolations()` — finds routing.json intents pointing to foreign workflows
+  - `repairGuestMultiProfileViolations()` — deletes messages from secondary profiles, keeps primary
+  - `repairKeywordCrossProfileViolations()` — flags for manual review (requires manual file edits)
+  - `repairWorkflowForeignRouteViolations()` — flags for manual review
+- Created src/tools/repair-profile-isolation-cli.ts with:
+  - CLI interface that checks for DATABASE_URL env var
+  - Calls repairProfileIsolation() and outputs JSON report
+  - Exit codes: 0 (no violations), 1 (violations flagged), 2 (DB error)
+- Added npm script `repair:profile-isolation` to package.json
+- Output includes JSON report with:
+  - violations_found, repairs_applied, repairs_flagged counts
+  - violations_by_type breakdown
+  - before/after message counts per profile
+  - detailed repairs array with action, details, and reason
+
+### Patterns discovered
+- Profile names: 'pelangi', 'makan', 'southern' — data directories at src/assistant/data, data-makan, data-southern
+- Guest tracking via phone number in rainbow_messages and rainbow_conversation_state tables
+- Intent definitions in intents.json, keywords in intent-keywords.json, workflows in workflows.json
+- Routing.json maps intents to actions (workflow_id references must exist in profile)
+- Violations handled differently: guest multi-profile → auto-delete, keyword/workflow → flag for review
+
+### Gotchas
+- Pre-existing TypeScript errors in codebase (dpa-registry, einvoice, etc.) from digiman era — build succeeds, errors don't affect new code
+- CLI properly validates DATABASE_URL before attempting connection
+- File-based keyword/workflow violations require manual editing (not auto-repaired via DB) since they're in JSON files
+- Guest violations auto-repaired by deleting messages from secondary profiles, keeping primary profile as source of truth
+
