@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-197",
-      "title": "Profile Data Contamination Regression Test Suite",
-      "priority": "high",
-      "description": "Comprehensive unit tests that detect and block any commits where Makan/Southern profile data files contain Pelangi Capsule keywords, intent names, or workflows. Prevents cross-profile contamination in future releases.",
-      "acceptanceCriteria": [
-        "Test file `src/__tests__/profile-contamination.test.ts` with >12 assertions checking for Pelangi terms ('capsule', 'pelangi', 'dorm', 'dormitory', 'hostel_booking') in `data-makan/**` and `data-southern/**` files",
-        "Tests assert Makan and Pelangi intent name sets are disjoint (no overlap) by comparing intent_configs files and routing.json intent references",
-        "CI/CD blocks merge if tests fail with error listing contaminated files and offending keywords for manual remediation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-202",
       "title": "Intent Classifier Low-Confidence Alert Threshold",
       "priority": "high",
@@ -76,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -455,6 +438,57 @@
       "model": "sonnet"
     },
     {
+      "id": "US-241",
+      "title": "Action Dispatch Menu Intent Handler for Makan Moments",
+      "priority": "high",
+      "description": "Implement dedicated handler in action dispatcher for menu inquiry intents in Makan Moments profile. Route menu-related questions directly to static response from knowledge.json instead of AI inference, reducing latency and improving response consistency.",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/stages/action-dispatch-menu.ts exports function that matches intent='menu_inquiry' and returns formatted menu from knowledge.json in <100ms",
+        "Test covers 5 menu query variations: 'What's on the menu?', 'Vegetarian options?', 'Do you have drinks?', 'Promo today?', 'Halal food?' — all return menu without AI fallback",
+        "Routing.json for Makan profile includes action 'menu_inquiry' → action-dispatch-menu handler with fallback to escalation if menu data missing"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-242",
+      "title": "Profile-Specific Action Dispatch Routing Validator",
+      "priority": "high",
+      "description": "Add startup validator that ensures every action referenced in each profile's routing.json actually exists and is callable. Prevents undefined handler crashes and enforces strict action availability per profile (Pelangi, Makan, Southern each have different action sets).",
+      "acceptanceCriteria": [
+        "Validator function in src/assistant/pipeline/stages/action-dispatch.ts scans routing.json for all actions and confirms each has corresponding handler file in action-dispatch*.ts; throws error with missing action details at startup",
+        "Test verifies: Makan routing validates against Makan actions only, referencing Pelangi-only action 'book_capsule' fails with 'Unsupported action for profile makan'",
+        "CI test includes profile-isolation check: each profile's routing resolves only actions belonging to that profile, no cross-contamination"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-243",
+      "title": "Booking Workflow Check-In Step Input Validator with Actionable Failures",
+      "priority": "high",
+      "description": "Implement pre-execution validator for booking workflow check-in step. Validates guest exists, check-in date is not past, room is available, and required fields present. Returns specific error message per violation type instead of generic failure.",
+      "acceptanceCriteria": [
+        "New file src/assistant/workflows/validators/checkin-validator.ts exports validateCheckinStep(booking) returning {valid: bool, errors: [{type, message, suggestion}]}; error types: past_date, guest_not_found, room_unavailable, missing_field",
+        "Test scenarios: (1) check-in tomorrow returns valid=true, (2) check-in yesterday returns error type='past_date' with message='Check-in date cannot be in past' and suggestion='Did you mean [tomorrow's date]?', (3) non-existent guest_id returns type='guest_not_found' with suggestion='Create guest first or verify guest_id'",
+        "Validator called in workflows.json booking flow before step execution; violations logged with guest_id and timestamp for analytics"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -778,6 +812,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-244",
+      "title": "Conversation Context Freshness Scorer for Multi-Turn Dialogs",
+      "priority": "medium",
+      "description": "Implement context quality scorer that measures conversation relevance before including it in AI prompt. Scores 0-100 based on message recency, intent consistency, and turn count. Filters stale context automatically to improve multi-turn dialog accuracy.",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/conversation-context-scorer.ts exports scoreContext(messages[], currentIntent) returning 0-100; scores <30 for conversations where last message >10 minutes old OR last intent differs from current by >2 turns OR message count >20",
+        "Test: 5-turn recent booking conversation (all within 5 min, consistent booking intent) scores 85+; 15-turn old conversation from 1 hour ago scores <40",
+        "Scorer is integrated in action-dispatch.ts: if score <35, context excluded from AI prompt but conversation history preserved in response"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-245",
+      "title": "Makan Profile Menu-Related Intent Accuracy Tracker",
+      "priority": "medium",
+      "description": "Implement tracker to monitor classification accuracy for Makan Moments menu and promotion inquiry intents specifically. Maintains rolling accuracy window and alerts when intent confusion occurs (e.g., menu inquiries misclassified as booking). Enables early detection of profile-specific regressions.",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/metrics/makan-intent-tracker.ts exports trackMakanIntent(classified_intent, message) which maintains 100-message sliding window per intent; calculates accuracy for menu_inquiry vs promo_inquiry vs booking based on keyword heuristic ground truth",
+        "Test: classifier correctly identifies 'Do you have vegan options?' as menu_inquiry (accuracy tracked), 'Promote my event' as promo_inquiry; misclassification tracked separately and alerts if window accuracy <80%",
+        "Metrics endpoint GET /admin/metrics/makan-intents returns {intent_type, accuracy_percent, sample_size, last_updated} for Makan profile only"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-201",
       "title": "Fallback Response Template Staleness and Quality Auditor",
       "priority": "low",
@@ -1062,6 +1130,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-197",
+      "title": "Profile Data Contamination Regression Test Suite",
+      "priority": "high",
+      "description": "Comprehensive unit tests that detect and block any commits where Makan/Southern profile data files contain Pelangi Capsule keywords, intent names, or workflows. Prevents cross-profile contamination in future releases.",
+      "acceptanceCriteria": [
+        "Test file `src/__tests__/profile-contamination.test.ts` with >12 assertions checking for Pelangi terms ('capsule', 'pelangi', 'dorm', 'dormitory', 'hostel_booking') in `data-makan/**` and `data-southern/**` files",
+        "Tests assert Makan and Pelangi intent name sets are disjoint (no overlap) by comparing intent_configs files and routing.json intent references",
+        "CI/CD blocks merge if tests fail with error listing contaminated files and offending keywords for manual remediation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_scopeCreep": true
     },
     {
       "id": "US-161",
