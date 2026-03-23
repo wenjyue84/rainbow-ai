@@ -82,6 +82,7 @@ import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport, enforceProfileDataVersionCompatibility } from './lib/profile-validator.js';
 import { validateProfileIntents, validateProfileRouting } from './lib/config.js';
 import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
+import { enforceProfileIntegrity } from './lib/profile-integrity.js';
 import { validateKnowledgeBase, formatValidationReport } from './lib/validate-knowledge-base.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
@@ -141,6 +142,19 @@ try {
     console.log(`[Startup] Profile "${profileName}" schema version compatibility check passed`);
   } catch (err: any) {
     console.error(`[Startup] FATAL: Profile schema version validation failed for "${profileName}":`, err.message);
+    process.exit(1);
+  }
+}
+
+// US-298: Profile data file integrity validation.
+// Compares SHA256 hashes of profile JSON files against stored baseline.
+// Blocks startup if any file has been modified without regenerating hashes.
+{
+  try {
+    enforceProfileIntegrity(join(__dirname_main, '..'));
+    console.log('[Startup] Profile data integrity check passed');
+  } catch (err: any) {
+    console.error(`[Startup] FATAL: ${err.message}`);
     process.exit(1);
   }
 }
