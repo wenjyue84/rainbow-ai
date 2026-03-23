@@ -340,3 +340,40 @@ Here is the technical brief for the Claude Code agent:
 *   **Concurrency:** Ensure the timeout logic is thread-safe and doesn't cause issues if multiple workflows run concurrently.
 *   **User Experience:** The `frappe.throw` message should be clear and actionable, guiding the user on the escalation and potential for retry.
 
+## Iteration 1 - Mon, Mar 23, 2026 11:44:23 AM
+FAILED diagnosis-block gate: Implement workflow step execution timeout with automatic rollback (ID: US-120) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-120 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the workflow timeout feature.
+
+**Project:** `rainbow-ai`
+**Story:** US-120: Implement workflow step execution timeout with automatic rollback
+
+### 1. Python Files to Modify:
+*   `src/integrations/frappe_client.py`: To handle API calls to the Frappe backend.
+*   `src/workers/lhdn_worker.py`: Assuming this is where the main workflow logic for LHDN integration resides, it will need to be updated to incorporate the timeout and rollback mechanism.
+*   `src/utils/decorators.py`: A good place to create a new `timeout` decorator to wrap workflow step execution.
+*   `tests/test_lhdn_workflow.py`: A new test file to add unit and integration tests for the timeout feature, ensuring rollback and escalation.
+
+### 2. Frappe DocTypes & Hooks:
+*   **DocTypes:**
+    *   `Payroll Entry`: The primary DocType likely being manipulated during the workflow.
+    *   `LHDN Submission`: A custom DocType that might be created to track the submission status.
+    *   `Log`: A custom DocType for logging errors and escalations.
+*   **Hooks (`hooks.py`):**
+    *   No direct hook modifications seem necessary if the logic is contained within the calling Python service. However, if using background jobs, `on_timeout` hooks for RQ might be relevant.
+
+### 3. Recommended Implementation Approach:
+1.  **Create a Timeout Decorator:** In `src/utils/decorators.py`, implement a `@timeout(seconds)` decorator using Python's `signal` library (`signal.alarm`).
+2.  **Wrap Workflow Steps:** Apply this decorator to the functions in `lhdn_worker.py` that execute individual workflow steps. The timeout duration should be read from a configuration file or passed as an argument.
+3.  **Implement Transaction Management:** Use Frappe's `frappe.db.transaction` context manager. Wrap the entire workflow execution in a `try...except TimeoutError` block.
+4.  **Handle Timeouts:** In the `except` block, call `frappe.db.rollback()` to revert database changes.
+5.  **Log Escalations:** After rolling back, use the `frappe_client.py` to create a new `Log` document in Frappe with details about the timeout (step ID, duration).
+
+### 4. Edge Cases & Gotchas:
+*   **Nested Transactions:** Be cautious of nested database transactions; rolling back the outer transaction should correctly handle inner ones.
+*   **External API Calls:** Timeouts during external API calls (e.g., to the LHDN portal) won't be rolled back by `frappe.db.rollback()`. Idempotency keys should be used to prevent duplicate submissions on retry.
+*   **Concurrency:** If workflows run concurrently, ensure that a timeout in one does not affect others. Database-level locks (`FOR UPDATE`) might be needed on key records.
+*   **Windows Incompatibility:** The `signal.alarm` mechanism is not available on Windows. For local development, consider a thread-based alternative or use WSL/Docker.
+
