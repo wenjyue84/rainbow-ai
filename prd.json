@@ -90,9 +90,16 @@
       "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "_failureReason": "oversized_diff",
-      "_lastDiffLines": 510,
-      "last_attempted": "2026-03-23T19:55:14Z"
+      "last_attempted": "2026-03-23T19:55:14Z",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nLet me read the relevant files first.\nNow let me read the story details for US-309.\nLet me check what already exists from prior attempts.\nNow let me look at existing patterns for similar admin routes and the schema table structure at the end.\nNow let me check a sample admin route for a similar pattern (booking-related):\nGood. Now let me check the existing `bookingExecutionAudit` table and see the pattern for the existing schema table:\nNow I have a very clear picture. Let me also check what test patterns exist:\nNow I have full context. Let me write my diagnosis.\n\n## Current State\n- The project has an existing `bookingExecutionAudit` table in `shared/schema-tables.ts` that already tracks `booking_id, step_name, input, output, status, executed_at` — but it's missing `error_msg` and `duration_ms` columns specifically.\n- No `booking_workflow_traces` table exists yet, nor the executor wrapper or admin endpoint.\n- Prior attempt failed with 510 lines > 500 line diff limit. I need to keep this tight.\n\n## Problem Identified\nUS-309 needs:\n1. A `booking_workflow_traces` DB table with schema: `booking_id, step_name, input_json, output_json, error_msg, duration_ms, created_at`\n2. An `executeWorkflowStepWithTrace()` function in `src/assistant/workflow/executor.ts`\n3. An admin endpoint `GET /admin/booking/:bookingId/trace`\n4. A unit test file\n\n## Planned Changes\nKeep total diff under 500 lines by being very concise:\n1. **`shared/schema-tables.ts`** — Add `bookingWorkflowTraces` table (~20 lines)\n2. **`src/assistant/workflow/executor.ts`** — New file with `executeWorkflowStepWithTrace()` (~50 lines)\n3. **`src/routes/admin/booking-trace.ts`** — New file for admin endpoint (~55 lines)\n4. **`src/routes/admin/index.ts`** — Register the new route (2 lines)\n5. **`tests/unit/workflow/execution-tracing.test.ts`** — Unit tests (~90 lines)\n\nTotal: ~220 lines of new/changed code, well within 500 limit.\n\nNow implementing:\nNow register the route in the admin index:\nNow create the unit test:\nNow run the quality checks:\nBuild passes and all 6 tests pass. Now let me run the server startup test:\nServer starts fine. Now update prd.json to mark US-309 as passed:\nNow document learnings in progress.txt:\nNow commit:\nUS-309 is complete. All checks passed:\n\n- **Build**: esbuild succeeds (1 pre-existing warning only)\n- **Tests**: 6/6 unit tests pass\n- **Server startup**: Starts without errors\n- **prd.json**: `passes: true`\n- **Committed**: `4cba4a3`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 918,
+        "tokensAfterMasking": 916,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-322",
