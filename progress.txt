@@ -1497,3 +1497,56 @@ Previous iteration (32) had already created all the required files. This iterati
 ### Gotchas
 - Failure reason was gate check (no diagnosis block), not broken implementation
 - Southern profile has ~93 violations and makan has ~30+ - these are pre-existing data issues
+
+## Iteration - Story: US-098 - Build per-profile intent classifier baseline accuracy tracker
+
+### What was implemented
+
+1. **intentClassifierBaselines table** (schema + migration):
+   - Added to shared/schema-tables.ts with columns: id, profile_id, intent_type, accuracy_pct, sample_count, baseline_date, created_at, updated_at
+   - Migration file: migrations/create-intent-classifier-baselines.sql
+   - Unique index on (profile_id, intent_type) to prevent duplicate baselines per profile/intent combo
+   - Indexes on profile_id, intent_type, and baseline_date for efficient querying
+
+2. **Analytics script** (scripts/analytics-classifier-baseline.ts):
+   - Queries intent_predictions table to calculate current accuracy per profile per intent
+   - Compares against stored baselines in intent_classifier_baselines
+   - Outputs delta report with: profile_id, intent_type, current %, baseline %, delta, status (pass/degraded/improved/new)
+   - CLI command: npm run analytics:classifier-baseline
+   - Includes per-profile isolation check to verify data segregation
+
+3. **Utility functions** (src/lib/analytics/classifier-accuracy.ts):
+   - calculateAccuracy(): Groups predictions by profile+intent, calculates accuracy %, sample count
+   - generateDeltaReport(): Compares current vs baseline, determines status (pass/degraded/improved/new)
+   - checkProfileIsolation(): Verifies no cross-contamination of profile data
+   - Custom degradation threshold support (default -5%)
+
+4. **Unit tests** (tests/unit/classifier-baseline.test.ts):
+   - 13 comprehensive tests covering:
+     ✅ Accuracy calculation: single profile/intent, 100%, 0%, 100-message dataset (50/profile)
+     ✅ Per-profile isolation: Pelangi independent from Southern, no cross-contamination
+     ✅ Delta reporting: degradation detection, improvement detection, pass status, new intents, custom thresholds
+     ✅ Profile isolation check: confirmation when profileId present, failure when missing
+   - All 13 tests passing
+
+### Quality checks
+
+- ✅ Build succeeded (esbuild) - 2 .js files, 2.2MB main bundle
+- ✅ All 13 unit tests passing
+- ✅ Server startup test completes (expected DB URL error in dev)
+- ✅ Script type-checks without errors (npx tsx --check)
+- ✅ npm script integrated: analytics:classifier-baseline
+
+### Patterns discovered
+
+- Drizzle ORM supports unique indexes for preventing duplicate baseline entries per profile/intent
+- Per-profile isolation verified through: grouping by profileId in queries, schema constraints, data segmentation
+- Delta threshold of -5% allows for normal variance while catching real degradation
+- Three-tier status system (degraded/pass/improved) with custom threshold support
+
+### Gotchas
+
+- None encountered during implementation
+- Database connection required for analytics script (expects DATABASE_URL env var)
+- Migration must be applied before running script (npm run db:push)
+
