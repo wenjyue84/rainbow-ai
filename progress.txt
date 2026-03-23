@@ -1,3 +1,53 @@
+## Iteration 14 - Tue, Mar 24, 2026 - Story: US-327 Build Intent Keyword Freshness Analyzer CLI — PASSED
+### What was implemented
+
+**CLI Script** (`scripts/analyze-keyword-freshness.ts`):
+- Parses CLI args: `/path/to/logs/ --days 30` (days optional, defaults to 30)
+- Loads all intent keywords from `src/assistant/data/intent-keywords.json` (and all profiles)
+- Streams log file with support for JSON log entries (fields: message, text, content, msg) and plain text
+- Matches messages against keywords (case-insensitive substring match)
+- Detects stale keywords (zero matches in N days window)
+- Detects coverage gaps (messages not matching any keyword)
+- Outputs: `stale_keywords.txt` and `coverage_gaps.txt`
+
+**Test Suite** (`src/__tests__/keyword-freshness.test.ts`):
+- 15 comprehensive tests validating analyzer functionality
+- 100+ realistic messages spanning 10 intent categories:
+  - greeting (15), booking (18), pricing (16), cancellation (14)
+  - check-in/out (12), special_requests (13), facilities (11), payment (10)
+  - general_inquiry (9), modifications (12)
+- Multi-language support (English, Malay, Chinese, Tamil)
+- Tests for stale keyword detection, coverage gap identification
+- Tests for JSON/plain text log parsing, empty line handling
+- Tests for frequency distribution tracking
+
+**Integration** (`package.json`):
+- Added npm script: `"analyze:keyword-freshness": "tsx scripts/analyze-keyword-freshness.ts"`
+
+### Acceptance Criteria Met
+✓ **AC1**: CLI command `npm run analyze:keyword-freshness /path/to/logs/ --days 30` parses logs
+✓ **AC1**: Measures per-keyword match frequency across all intents
+✓ **AC2**: Outputs `stale_keywords.txt` (keywords with zero matches)
+✓ **AC2**: Outputs `coverage_gaps.txt` (patterns not matching any keyword)
+✓ **AC3**: Test file with 100+ realistic messages spanning 10 intents
+
+### Patterns Discovered
+- Script auto-formatted by linter to add better root dir resolution (`import.meta.url`)
+- Keyword loading enhanced to support all profiles (pelangi, makan, southern)
+- Streaming approach handles large log files efficiently (no memory bloat)
+- Case-insensitive substring matching aligns with production intent detection
+
+### Gotchas
+- Log file format flexible: JSON with multiple message field names, or plain text
+- Keywords loaded from up to 3 profile files (if they exist)
+- Empty/whitespace lines gracefully ignored during parsing
+- Test file auto-executes and measures timestamp filtering
+
+### Quality Checks
+- ✓ 15/15 tests pass
+- ✓ Build clean (1 pre-existing warning on logger.ts)
+- ✓ CLI verified with test log (90% coverage, 1802 stale keywords from full keyword set)
+
 ## Iteration 13 - Tue, Mar 24, 2026 - Story: US-324 Booking Workflow Step Timeout Handler — PASSED (attempt 3, opus)
 ### What was implemented
 All code was already complete from Iteration 12. This attempt (opus model):
@@ -376,4 +426,70 @@ Based on the user story and the project structure, here is a technical brief.
 *   **State Management**: Ensure that if a step times out, it doesn't leave the system in an inconsistent state. The original `action` might still complete in the background; decide if its result should be discarded or logged for audit.
 *   **Fallback Failure**: If the `fallbackResponse` is dynamic or involves its own action, it could also fail. The ultimate fallback should be a simple, static message.
 *   **DB Connection Failure**: The timeout logging mechanism should gracefully handle database connection errors without crashing the main workflow.
+
+
+## Pre-analysis for US-327 (Gemini 2.5 Pro)
+This user story describes a **Node.js/TypeScript** CLI tool, not a Frappe/Python app. The `npm run` command and `.ts` test file path indicate a JavaScript/TypeScript environment.
+
+Here is the technical brief based on the provided JSON for that environment:
+
+**Project:** Node.js/TypeScript CLI Tool
+
+**1. Files to Create/Modify:**
+*   **Create:** `scripts/analyze-keyword-freshness.ts` - This new file will contain the core logic for the CLI tool that parses logs and analyzes keyword usage.
+*   **Create:** `src/__tests__/keyword-freshness.test.ts` - A new test suite to validate the analyzer's logic using mock log data.
+*   **Modify:** `package.json` - Add the new `analyze:keyword-freshness` command to the `"scripts"` section to execute the new script.
+
+**2. Key Modules & Data Sources:**
+*   **Node.js `fs` module:** To read production log files provided via a command-line path.
+*   **Intent Keyword Source:** The script will need to read the master list of intent keywords. These are likely stored in a configuration file or within the `.rainbow-kb/` directory structure.
+*   **CLI Argument Parser:** A library like `yargs` or `commander` will be needed to parse the log file path and `--days` flag.
+
+**3. Recommended Implementation Approach:**
+1.  In `package.json`, add: `"analyze:keyword-freshness": "ts-node scripts/analyze-keyword-freshness.ts"`.
+2.  In `scripts/analyze-keyword-freshness.ts`, implement the main function that:
+    a. Parses the CLI arguments for the log file path and days threshold.
+    b. Loads all defined intent keywords into memory.
+    c. Reads the specified log file line-by-line to handle large files efficiently.
+    d. For each log entry within the date range, try to match its message against the list of all keywords.
+    e. Track which keywords get matched and which messages fail to match any keyword.
+3.  After processing, write two output files: `stale_keywords.txt` (for keywords with 0 matches) and `coverage_gaps.txt` (for messages with 0 matches).
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** Log files can be very large. The script must use streaming (e.g., `readline`) to avoid loading entire files into memory.
+*   **Log Format:** The log parsing logic must be robust to handle potential inconsistencies or errors in the log's structure.
+*   **Date Filtering:** Ensure correct date parsing and timezone handling when filtering logs from the last N days.
+*   **Matching Logic:** The keyword matching algorithm (e.g., case-sensitivity, stemming) should precisely mirror the production intent detection logic to ensure the analysis is accurate.
+
+
+## Pre-analysis for US-327 (Gemini 2.5 Pro)
+This technical brief is for a **TypeScript/Node.js** project, as the user story references `npm` and `.ts` files.
+
+### Technical Brief: US-327 Keyword Freshness Analyzer
+
+**1. Key Files to Create/Modify:**
+*   **`scripts/analyze-keyword-freshness.ts`**: (New) The core CLI script containing the analysis logic.
+*   **`src/__tests__/keyword-freshness.test.ts`**: (New) As specified in the AC, for unit/integration testing the analyzer.
+*   **`package.json`**: Modify the `scripts` section to add the new `analyze:keyword-freshness` command.
+*   **`stale_keywords.txt` / `coverage_gaps.txt`**: (New) Output files generated by the script.
+
+**2. Key Data Sources & Modules:**
+*   **Intent Keywords:** The primary data source will be the set of intent keywords. These are likely sourced from markdown files within the `.rainbow-kb/` directory. The script must parse these files to build a master list of keywords.
+*   **Production Logs:** The script will consume log files (format to be determined, likely JSON or plain text) from a path provided as a CLI argument.
+
+**3. Recommended Implementation Approach:**
+1.  Use a library like `yargs` to define and parse CLI arguments (`logPath`, `days`).
+2.  Create a module to glob and parse keyword definitions from the `.rainbow-kb/**/*.md` files.
+3.  Implement the main script to stream-read and parse log files from the specified `logPath`.
+4.  For each log entry within the `days` window, iterate through the keyword list to find a match. Maintain a frequency map (`Map<string, number>`) for keyword hits.
+5.  Collect any messages that do not match any keyword into a separate list for the coverage gap report.
+6.  After processing, identify keywords with zero hits as "stale."
+7.  Write the results to `stale_keywords.txt` and `coverage_gaps.txt`.
+
+**4. Edge Cases & Gotchas:**
+*   **Log Parsing:** Log format may be inconsistent; the parser must be robust.
+*   **Performance:** Use streaming (e.g., `fs.createReadStream` and `readline`) to handle large log files without consuming excessive memory.
+*   **Date Handling:** Ensure correct date parsing from logs, accounting for potential timezone differences.
+*   **Matching Logic:** The keyword matching logic (e.g., case-insensitivity, whole word) should mirror the production intent detection engine's behavior for accurate analysis.
+*   **Coverage Gaps:** Simply listing all unique unmatched messages might be noisy. Consider basic clustering or frequency analysis of unmatched phrases for a more actionable report.
 

@@ -95,9 +95,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T21:11:55Z"
     },
     {
       "id": "US-328",
@@ -245,142 +246,6 @@
         "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
         "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
         "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-352",
-      "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
-      "priority": "high",
-      "description": "When a booking workflow step fails, capture structured error details (step name, input values, error type) and automatically generate guest-facing recovery suggestion + queue for staff review. Improves booking reliability.",
-      "acceptanceCriteria": [
-        "In src/assistant/booking/step-error-handler.ts, catch step execution errors and create rainbow_escalation_events row with {step_id, input_values, error_type, guest_recovery_msg, staff_notes}",
-        "Generate profile-aware recovery message (e.g., for Pelangi: 'I couldn't confirm your booking. Our front desk will call you shortly'; for Makan: 'Unable to process order. Our staff will follow up'). No generic messages.",
-        "Unit test: verify error is caught, escalation event created, recovery message is profile-specific, staff can view in /admin/escalations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-353",
-      "title": "Fix Makan Moments and Southern Homestay Profile Data Contamination",
-      "priority": "high",
-      "description": "Manually audit and remove all Pelangi Capsule Hostel-specific content from data-makan and data-southern profiles. Includes intents.json, intent-keywords.json, routing.json, and workflows.json. Document what was removed.",
-      "acceptanceCriteria": [
-        "Remove from data-makan: hostel-specific intents (check_in, check_out, room_service, hostel_amenities); remove hostel keywords; verify only cafe intents remain (order_inquiry, promotion_inquiry, menu_question, delivery_inquiry)",
-        "Remove from data-southern: Pelangi keywords and intents; add Southern Homestay-specific intents if needed. Verify data files contain zero Pelangi references (case-insensitive grep for 'pelangi', 'capsule', 'hostel room', 'bed', 'dorm')",
-        "Create CONTAMINATION_FIX_LOG.md documenting: files modified, lines removed, keywords purged, profile-specific content verified. Commit with message 'fix(data): remove Pelangi Capsule content from Makan and Southern profiles'"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-354",
-      "title": "Booking Workflow Step Input Schema Validator with Pre-Execution Type Check",
-      "priority": "high",
-      "description": "Validate each booking workflow step receives correctly-typed input before execution. Catch type mismatches early with actionable error messages showing expected vs actual input structure.",
-      "acceptanceCriteria": [
-        "Create validateStepInput(step: WorkflowStep, input: unknown): ValidationResult function in src/assistant/pipeline/workflow-executor.ts that checks input against step.inputSchema defined in workflows.json",
-        "Return error with step name, expected fields, and actual fields when validation fails (e.g., 'Step check-availability expects {roomType: string, checkIn: Date} but received {roomType: string, checkIn: \"2026-03-24\"}')",
-        "Add unit tests in tests/workflow-step-input-validation.test.ts covering type mismatches for 5+ booking workflow steps"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-355",
-      "title": "Intent Classifier Offline Evaluation CLI with Production Log Replay",
-      "priority": "high",
-      "description": "Build test dataset from production intent classifications and measure classifier accuracy regression by replaying past guest messages through the current model. Identify intents that have degraded.",
-      "acceptanceCriteria": [
-        "Implement npm run test:intent-regression command that exports last 500 intent classifications from rainbow_messages table with ground-truth labels from conversation feedback",
-        "Replay those messages through current classifier and compare predictions, outputting accuracy by intent type (booking: 87%, inquiry: 82%, etc.) vs baseline stored in src/data/intent-accuracy-baseline.json",
-        "Exit with non-zero status if any intent drops >5% accuracy, generating report in logs/intent-regression-report.json with detailed failure cases"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-356",
-      "title": "Profile Data Contamination Audit and Auto-Repair CLI with Review Checkpoint",
-      "priority": "high",
-      "description": "Scan all profile-specific data files (intent-keywords.json, knowledge.json, routing.json per profile) for cross-contamination, generate removal suggestions, and provide semi-automated cleanup with manual review step.",
-      "acceptanceCriteria": [
-        "Implement npm run audit:profile-contamination CLI that loads data-pelangi, data-makan, data-southern profiles and flags keywords/routes/knowledge entries that belong to a different profile (e.g., Pelangi room types in Makan Moments intent-keywords.json)",
-        "Generate audit/profile-contamination-report.json with violations grouped by profile and file, showing entry and suggested removal with confidence score",
-        "Add --fix flag to auto-remove low-confidence violations and log all changes to audit/profile-cleanup-log.json for review before commit"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-359",
-      "title": "Per-Intent Confidence Percentile Analytics Dashboard",
-      "priority": "high",
-      "description": "Add real-time observability into per-intent classification confidence distribution to identify which intents struggle most. Exposes p50, p95, p99 confidence percentiles per intent (booking, inquiry, escalation) across all profiles to guide classifier retraining.",
-      "acceptanceCriteria": [
-        "New endpoint GET /admin/analytics/intent-confidence-distribution returns {booking: {p50, p95, p99, sampleCount}, inquiry: {...}} with per-profile breakdown",
-        "CLI command 'npm run analyze:intent-accuracy -- --profile pelangi --intent booking' outputs distribution stats and 5 lowest-confidence misclassified messages",
-        "Unit test src/tests/analytics/confidence-percentile.test.ts verifies percentile calculation and handles edge cases (single sample, all high confidence)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-360",
-      "title": "Fallback Response Auto-Selection from Confidence Tiers",
-      "priority": "high",
-      "description": "Improve fallback quality by selecting appropriate response based on AI confidence tier (high/medium/low). Routes low-confidence queries to category-based static templates instead of generic 'I didn't understand' response.",
-      "acceptanceCriteria": [
-        "New function selectFallbackResponse(intent: string, confidence: number, category: string) in src/assistant/pipeline/fallbacks.ts returns confidence-tier-appropriate response",
-        "Tier mapping: confidence >= 0.8 = attempt AI response; 0.5-0.8 = use intent-specific template from knowledge.json; < 0.5 = escalate with 'Let me connect you with staff'",
-        "Unit test: low-confidence ambiguous booking query returns category-specific template (e.g., 'room availability' template) not generic fallback"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-363",
-      "title": "Create Profile-Specific Intent Whitelist Validator CLI",
-      "priority": "high",
-      "description": "Prevent profile contamination by validating that routing.json only routes to intents owned by each profile. Create canonical whitelist of pelangi, makan, and southern intents; reject any cross-profile references at deployment time.",
-      "acceptanceCriteria": [
-        "Create `src/data/profile-intent-whitelist.json` defining makan-owned intents (seasonal_inquiry, menu_question) separate from pelangi-owned intents (booking_request, room_inquiry)",
-        "CLI command `npm run validate:profile-intents` compares routing.json intent references against whitelist, reporting violations with filename, line number, and contaminating intent name",
-        "Integration test validates that makan routing.json is rejected if it contains pelangi_booking_inquiry route; exit code 1 on violation, 0 on pass"
       ],
       "technicalNotes": [],
       "dependencies": [],
