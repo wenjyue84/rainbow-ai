@@ -61,8 +61,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T08:10:49Z"
+      "model": "haiku"
     },
     {
       "id": "US-159",
@@ -379,6 +378,74 @@
         "CLI: npm run test:intent-accuracy -- --profile=data-pelangi --min-accuracy=0.82 reads confusion matrix from src/tools/__tests__/confusion-matrix-generator.test.ts output",
         "Store baseline thresholds in src/.intent-baselines/{profile}.json with per-intent F1 targets; CI exits(1) if any intent accuracy < threshold",
         "Test in src/__tests__/ci-validators/intent-baseline.test.ts asserts data-pelangi booking intent F1 >= 0.85 and data-makan menu_inquiry F1 >= 0.80"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-214",
+      "title": "Guest Language Auto-Detection from First Message for Multi-Lingual Context",
+      "priority": "medium",
+      "description": "Auto-detect guest's preferred language from initial message and persist across conversation turns. Use detected language in all subsequent AI prompts and responses to improve multi-turn dialogue coherence across Mandarin, Tamil, Malay, and English speakers.",
+      "acceptanceCriteria": [
+        "Implement detectLanguageFromMessage(text) function in src/assistant/pipeline/language.ts using language-detect npm package; store language_code (ISO 639-1) in conversations.guest_language column",
+        "Retrieve guest_language on every message and inject into AI prompt context (e.g., 'Respond in {guest_language}')",
+        "Unit test: assert >85% accuracy detecting Mandarin/Tamil/Malay on 50-word message samples from test/fixtures/multilingual-samples.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-215",
+      "title": "Booking Workflow Step SLA Monitoring Endpoint for Performance Tracking",
+      "priority": "medium",
+      "description": "Monitor execution time of booking workflow steps against configurable SLA thresholds. Identify steps that consistently exceed SLA for optimization prioritization. Lightweight alternative to full profiler for quick reliability checks.",
+      "acceptanceCriteria": [
+        "Admin endpoint GET /admin/workflows/:profile/sla-status returns [{step_id, avg_duration_ms, sla_threshold_ms, status: 'ok'|'warning'|'critical', run_count}]",
+        "SLA thresholds configurable in src/assistant/data/settings.json per step_id; defaults: validation=200ms, confirmation=500ms, room_check=300ms",
+        "Test: assert status='critical' when avg_duration_ms exceeds sla_threshold_ms by >50%; warning when 90-150% of threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-216",
+      "title": "Conversation Context Span Analyzer for Multi-Turn Window Recommendations",
+      "priority": "medium",
+      "description": "Analyze conversation history to assess context quality and recommend pruning strategy. Measures message count, age of oldest message, and semantic drift to guide context window optimization for multi-turn dialogues.",
+      "acceptanceCriteria": [
+        "Implement analyzeContextSpan(messages: Message[], currentIntent: string) in src/assistant/context/analyzer.ts returning {message_count, oldest_age_seconds, semantic_drift_score: 0-100, recommendation: 'keep_all'|'prune_old'|'truncate'}",
+        "Admin endpoint GET /admin/conversations/:id/context-analysis returns analysis result with actionable pruning recommendation",
+        "Test: assert recommendation='truncate' when message_count > 20; recommendation='prune_old' when 10-20 messages; recommendation='keep_all' when < 10"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-201",
+      "title": "Fallback Response Template Staleness and Quality Auditor",
+      "priority": "low",
+      "description": "CLI audit tool that identifies fallback response templates unchanged for >90 days or lacking helpful suggestions (action verbs, next steps). Flags templates for refresh to keep responses relevant and helpful.",
+      "acceptanceCriteria": [
+        "CLI command `npm run audit:fallback-staleness --profile=data-makan --days=90 --output=docs/` generates `fallback-staleness-{profile}.md` report",
+        "Report flags templates where: last_updated_at timestamp >90 days old, response text <30 chars, or response missing action verbs (help, contact, check, book, confirm)",
+        "Report includes template path, current text, suggestion based on top 5 misclassified intents from analytics table to guide refresh priority"
       ],
       "technicalNotes": [],
       "dependencies": [],
