@@ -1057,3 +1057,28 @@ PASSED: Multi-Turn Booking Clarification Dialog Manager (US-237) — attempt 2/3
 - File-based keyword/workflow violations require manual editing (not auto-repaired via DB) since they're in JSON files
 - Guest violations auto-repaired by deleting messages from secondary profiles, keeping primary profile as source of truth
 
+## Iteration 1 - Tue, Mar 24, 2026  1:03:43 AM
+FAILED diagnosis-block gate: Profile Isolation Violations Auto-Repair Tool (ID: US-238) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 7 - Story: Profile Isolation Violations Auto-Repair Tool (US-238) — PASSED
+
+### What was implemented
+- src/tools/repair-profile-isolation.ts: core detection/repair logic with pure functions
+- src/tools/repair-profile-isolation-cli.ts: CLI entry point (exit codes 0/1/2)
+- profile_isolation_repairs table created via CREATE TABLE IF NOT EXISTS
+- npm script repair:profile-isolation added to package.json
+
+### Acceptance criteria met
+✓ CLI command npm run repair:profile-isolation detects violations
+✓ Violations: guest_multi_profile (DB), keyword_cross_profile (JSON files), workflow_foreign_route (routing.json)
+✓ Repairs logged to profile_isolation_repairs table
+✓ JSON report with violations_found, repairs_applied, repairs_flagged, before/after counts, timestamp
+✓ Build passes (esbuild), server starts successfully
+
+### Patterns discovered
+- Previous attempt had all code correct but failed gate check (diagnosis block required)
+- On retry, code already exists — just needed diagnosis block compliance + verify + mark passes
+
+### Gotchas
+- Diagnosis block gate: must output plaintext diagnosis block BEFORE any file edits or bash commands that modify files

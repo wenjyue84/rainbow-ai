@@ -236,6 +236,8 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   // US-237: Multi-Turn Booking Clarification Dialog state
   clarificationState: text("clarification_state"),             // Current dialog state: need_dates | need_room_type | need_guest_count | ready_confirm
   clarificationData: text("clarification_data"),               // JSON blob of collected clarification data
+  // US-245: Turn-by-turn confidence scoring metadata
+  turnMetadata: jsonb("turn_metadata"),                        // [{turn_num, intent, confidence, fallback_used, tokens}] array updated on each message
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
