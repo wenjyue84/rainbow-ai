@@ -61,8 +61,7 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T10:24:38Z"
+      "model": "sonnet"
     },
     {
       "id": "US-217",
@@ -386,6 +385,261 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-264",
+      "title": "Booking Workflow Step Precondition Validator with Actionable Errors",
+      "priority": "high",
+      "description": "Validate all required preconditions before executing each booking workflow step. Return structured violation report with specific field, reason, and suggested values to guide users toward successful completion.",
+      "acceptanceCriteria": [
+        "Function `validateStepPreconditions(step: WorkflowStep, guestData, bookingData): { valid: boolean, violations: Violation[] }` in `src/assistant/lib/booking-validator.ts`; returns violations with { field, reason, suggestedValue }",
+        "Unit test: step 'confirm_booking' requires guest.name, guest.email, booking.checkIn, booking.roomType, booking.nights; missing checkIn generates violation with reason 'check-in date not provided' and suggestedValue 'tomorrow'",
+        "Booking executor calls validator before step execution; logs violations to `rainbow_messages` and returns user-friendly error with correction suggestions instead of failing silently"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-266",
+      "title": "Intent Classifier Per-Intent-Type Confidence Threshold Tuner CLI",
+      "priority": "high",
+      "description": "Analyze confidence distribution across all intents in production logs and suggest optimal per-intent thresholds that maximize true-positive rate while minimizing false positives and unnecessary escalations.",
+      "acceptanceCriteria": [
+        "CLI tool `npx ts-node src/tools/analyze-intent-confidence-distribution.ts --profile pelangi --output-file threshold-report.json` reads rainbow_messages table, groups predictions by intent type, calculates confidence percentiles (50th, 75th, 80th, 90th)",
+        "Report JSON includes recommended thresholds for each intent (e.g., booking: 0.72, inquiry: 0.65, escalation: 0.55) based on 80th percentile confidence with confidence count per intent",
+        "Unit test validates threshold calculation with mock confidence scores and asserts threshold values are within [0.5, 0.95] range"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-267",
+      "title": "Fallback Response Outcome Tracker with Effectiveness Scoring",
+      "priority": "high",
+      "description": "Track which fallback responses lead to guest escalations versus successful resolution within 2 turns; build effectiveness score for each fallback template to identify high-performing templates.",
+      "acceptanceCriteria": [
+        "Add `fallback_response_id` column to rainbow_messages table; track when fallback response is used and whether conversation escalates to staff within 2 subsequent user turns",
+        "New endpoint `GET /admin/fallback-effectiveness?profile=pelangi` returns array of fallback templates ranked by resolution rate (conversations that don't escalate = success) with counts: {template_id, success_count, escalation_count, effectiveness_score}",
+        "Test validates that fallback used at turn N followed by escalation at turn N+1 or N+2 marks it as low-effectiveness; resolution without escalation marks it as success"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-268",
+      "title": "Booking Workflow Step Execution Logger with Duration and Failure Tracking",
+      "priority": "high",
+      "description": "Log each booking workflow step execution (inputs, outputs, errors, duration) to database for debugging workflow failures and identifying bottleneck steps.",
+      "acceptanceCriteria": [
+        "Add new table `workflow_step_logs` with schema: step_id (UUID), step_name (string), profile (string), inputs (jsonb), outputs (jsonb), error_message (text), duration_ms (integer), created_at (timestamp); log event in workflow executor after each step execution",
+        "Test validates that failed step (e.g., `check-availability` returns HTTP 500) logs error_message and preserves inputs for manual retry; successful step logs NULL error_message",
+        "Admin endpoint `GET /admin/workflow-logs?profile=pelangi&status=failed&limit=20` returns failed steps sorted by frequency; test asserts endpoint returns only steps with error_message IS NOT NULL"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-271",
+      "title": "Intent Keyword Collision Fixer with Profile-Specific Variants",
+      "priority": "high",
+      "description": "Identify keywords shared across profiles and automatically generate profile-specific variants to prevent cross-contamination",
+      "acceptanceCriteria": [
+        "CLI 'npm run fix:keyword-collisions' detects shared keywords in src/assistant/data/*/intent-keywords.json and suggests profile-specific alternatives",
+        "For each collision, tool creates variant keywords mapping in src/assistant/data/{profile}/keyword-overrides.json without modifying source files",
+        "Test validates that keyword matching uses overrides first, then falls back to default, preventing profile bleed"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-258",
+      "title": "Implement Message Cost Tracking and Per-Profile Analytics Endpoint",
+      "priority": "medium",
+      "description": "Track operational costs (intent classification, AI inference, fallback routing) per message and profile. Enables admin dashboard to identify expensive intents and optimize AI provider usage across profiles.",
+      "acceptanceCriteria": [
+        "Create message_costs table: {message_id, profile_id, intent_type, cost_cents, ai_provider, created_at}",
+        "Implement GET /admin/api/analytics/costs?profile=pelangi&date=2026-03-23 returning {intent_type, message_count, total_cost, avg_cost}",
+        "Test asserts AI-based intents (via Kimi) show higher cost than keyword-based routing"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-259",
+      "title": "Implement Automated Conversation Data Retention and Scheduled Cleanup Job",
+      "priority": "medium",
+      "description": "Automatically delete messages and conversations older than 90 days per PDPA data minimization principle. Reduces database footprint and improves query performance over time.",
+      "acceptanceCriteria": [
+        "Add retention_policy.retention_days to src/assistant/data/settings.json (default: 90 days)",
+        "Implement src/lib/retention-cleanup-job.ts running daily at 02:00 UTC, deleting rainbow_messages with created_at > 90 days ago",
+        "Test asserts messages >90 days old deleted, messages <30 days retained, job logs deletion count"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-260",
+      "title": "Implement Booking Confirmation Webhook Events for External System Integration",
+      "priority": "medium",
+      "description": "Fire webhook events on booking confirmation for external system integration (PMS, CRM, email service, analytics). Decouples Rainbow AI from external dependencies and enables extensible event-driven architecture.",
+      "acceptanceCriteria": [
+        "Create webhook_endpoints table: {id, url, event_types, is_verified, last_fired_at, failure_count}",
+        "On booking_confirmed event, POST to all registered webhooks: {booking_id, guest_id, check_in, check_out, room_type, price}",
+        "Test asserts booking_confirmed webhook fires with correct payload and retries on 5XX (3x exponential backoff)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-265",
+      "title": "Fallback Response Effectiveness A/B Tracker and Weighted Router",
+      "priority": "medium",
+      "description": "Track which fallback responses lead to successful bookings vs dead-end escalations. Weight fallback response selection by historical success rate to improve booking completion rates.",
+      "acceptanceCriteria": [
+        "Add `fallback_response_id` and `fallback_response_outcome` columns to `rainbow_messages` table; log response ID when sent, mark outcome as 'booked', 'escalated', or 'abandoned' at conversation end",
+        "CLI command `npm run analyze-fallback-effectiveness` generates JSON report with per-response booking success rate (%), escalation rate (%), avg turns-to-booking",
+        "Fallback router in `src/assistant/pipeline/fallback.ts` weights candidate responses by success rate using weighted random selection (higher success = higher selection probability)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-269",
+      "title": "Conversation Context Auto-Pruning Engine with Multi-Turn Relevance Scoring",
+      "priority": "medium",
+      "description": "Automatically remove stale context from long conversations while preserving recent intent-relevant messages; reduce context window for AI inference to improve latency and cost.",
+      "acceptanceCriteria": [
+        "New function `pruneConversationContext(messages: Message[], currentIntent: string): Message[]` in src/assistant/pipeline/ keeps only last 10 messages OR all messages within last 2 hours (whichever is smaller); test validates pruned context contains intent-critical fields (room_type, check_in_date, guest_count for booking intent)",
+        "Messages below 10 turns are scored by relevance to current intent using keyword match (booking intent scores high for dates/room-types, low for off-topic chat); test asserts pruning reduces context by 30-50% on 30+ message conversations",
+        "Integration test verifies pruning is applied before AI inference in message pipeline and conversational accuracy is maintained (booking confirmation still succeeds with pruned context)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-270",
+      "title": "Intent Classification Feature Attribution Analyzer CLI with Keyword Importance Ranking",
+      "priority": "medium",
+      "description": "Analyze which keywords and features contribute most to correct intent classification; identify gaps in low-confidence intents and suggest missing keywords for each intent type.",
+      "acceptanceCriteria": [
+        "CLI tool `npx ts-node src/tools/analyze-intent-feature-importance.ts --intent booking --profile pelangi --output-file importance-report.json` reads intent-keywords.json and rainbow_messages table; ranks keywords by frequency in successful classifications (where booking was confirmed within 3 turns) versus failed ones (escalated as booking query)",
+        "Output JSON includes: {intent, profile, keywords_by_importance: [{keyword, success_frequency, failure_frequency, importance_score}], coverage_gaps: [list of domain terms NOT in keywords]} for identifying missing keywords",
+        "Test validates that high-frequency keywords (e.g., 'book', 'reservation') in successful bookings appear at top of importance ranking; assertion checks that at least 10 keywords are ranked per intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-272",
+      "title": "Booking Workflow Step Execution Time Bottleneck Profiler",
+      "priority": "medium",
+      "description": "Profile workflow step execution times and identify which steps exceed performance thresholds",
+      "acceptanceCriteria": [
+        "CLI 'npm run profile:workflow-bottlenecks' logs each booking workflow step duration in src/assistant/pipeline/workflow-executor.ts with step name and elapsed ms",
+        "Generates JSON report at src/reports/bottleneck-analysis-YYYYMMDD.json with step rankings, average duration, and steps >5s threshold",
+        "Test validates profiler overhead <5ms per step and correctly identifies slowest step in multi-step booking flow"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-273",
+      "title": "Guest Language Preference Auto-Detector from Initial Message",
+      "priority": "medium",
+      "description": "Automatically detect guest language preference from first message and persist across conversation turns",
+      "acceptanceCriteria": [
+        "Function in src/assistant/language-detector.ts analyzes first message text, detects language (en/ms/ta/zh), stores in conversation metadata",
+        "Integration test validates correct language detected for 10 test messages in different languages (Malay 'Berapa harga', Tamil 'Yaar naan', Mandarin '价格是多少')",
+        "Subsequent assistant responses use detected language for keywords and fallback response selection"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-274",
+      "title": "Orphaned Intent-Keywords Auto-Cleanup Tool with Validation",
+      "priority": "medium",
+      "description": "Remove intent keywords from intent-keywords.json that don't match any defined intent in intents.json",
+      "acceptanceCriteria": [
+        "CLI 'npm run clean:orphaned -- --dry-run' outputs list of orphaned keywords without modifying; '--apply' flag removes them",
+        "Creates backup file src/assistant/data/{profile}/intent-keywords.json.backup before applying changes",
+        "Test in src/tools/__tests__/clean-orphaned-keywords.test.ts verifies 100% of remaining keywords match intent definitions post-cleanup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-275",
+      "title": "Booking Workflow Step Dependency Cycle Detector and Validator",
+      "priority": "medium",
+      "description": "Detect and prevent circular dependencies in booking workflow step definitions to ensure workflow execution reliability",
+      "acceptanceCriteria": [
+        "CLI tool src/tools/validate-workflow-cycles.ts parses src/assistant/data/workflows.json step dependency graph and detects any cycles",
+        "Returns error if cycle found with path trace (e.g., 'payment -> confirmation -> payment'), prevents server startup on cyclic workflows",
+        "Test includes workflows with valid chains, validates 5-step booking flow completes without cycles, detects injected cycle"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",
