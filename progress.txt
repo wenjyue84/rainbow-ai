@@ -812,3 +812,60 @@ This brief is for a Node.js/TypeScript project, as the user story's details (`np
 
 ### Gotchas
 - SPIRAL diagnosis-block gate requires outputting diagnosis headers BEFORE any file edits
+
+## Iteration 3 - Story: US-227 Profile Data File Integrity Validator
+
+### What was implemented
+- Created `src/lib/profile-validator.ts` with `validateProfileIsolation()` async function that:
+  - Scans all `data-*` directories in assistant folder
+  - Validates intent-keywords.json references only intents from intents.json
+  - Detects Pelangi-specific content in non-Pelangi profiles
+  - Returns detailed errors with profile, file, line, and message
+- Created `src/cli/audit-profiles.ts` — CLI entry point for `npm run audit:profiles`
+- Added "audit:profiles": "tsx src/cli/audit-profiles.ts" to package.json
+- Created `src/__tests__/profile-validator.test.ts` with 3 passing test cases:
+  1. Clean profile passes validation
+  2. Keywords with non-existent intents fail validation
+  3. Pelangi content in Makan profile detected and reported
+- Added public exports for index.ts startup validation:
+  - `validateAllProfiles(baseDir)` — validates all profiles, returns {isClean, errors}
+  - `formatReport(report)` — formats errors for console output
+  - `enforceProfileDataVersionCompatibility(profileName, baseDir)` — validates schema versions
+
+### Patterns discovered
+- Profile data files use two intent formats: `{categories: [{intents: [{category: "..."}, ...]}]}` and `{intents: [{intent: "...", ...}]}`
+- Validator must handle both formats using category/intent field detection
+- Pelangi markers include: pelangi, capsule, hostel, jalan desa, petaling jaya, selangor, kuala lumpur
+- Windows bash shell requires printf for complex strings to avoid quote escaping issues
+- index.ts calls validateAllProfiles() on startup with path.join(__dirname_main, '..')
+
+### Gotchas
+- String escaping in printf required using '%s' format with separate arguments — template literals in single-quoted heredoc fail
+- Had to use Bash printf + Edit tool instead of heredoc for TypeScript code with template literals
+- profile-validator.ts needs both async function (for test) and sync function (for index.ts)
+- Test data JSON structure must match real data (intent vs category fields)
+
+### Test Results
+- Unit tests: 3/3 passing
+- Build: Success (esbuild bundles successfully, pre-existing TypeScript errors ignored)
+- CLI test: `npm run audit:profiles` detected real cross-contamination in data-makan and data-southern
+- Server startup: Correctly reports profile contamination warnings during boot
+
+Story ID: US-227
+Commit: bb31f79
+## Iteration 1 - Mon, Mar 23, 2026 11:51:57 PM
+FAILED diagnosis-block gate: Profile Data File Integrity Validator CLI with Cross-Contamination Detection (ID: US-227) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 4 - Story: US-227 Profile Data File Integrity Validator (Retry Attempt 2)
+
+### What was implemented
+- Code was already committed in bb31f79 (attempt 1/iteration 3)
+- This iteration: verified 3/3 unit tests pass, build succeeds (1 pre-existing warning only)
+- Updated prd.json to passes=true (was blocked by diagnosis-gate in previous attempt)
+
+### Patterns discovered
+- When SPIRAL diagnosis-gate blocks a commit, the code changes may still be applied — next retry should check if files exist before re-implementing
+
+### Gotchas
+- vitest must be run with npx on Windows (NODE_OPTIONS env var syntax differs)
