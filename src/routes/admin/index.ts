@@ -109,6 +109,7 @@ import { configAuditMiddleware } from './config-audit-log.js'; // US-257: Audit 
 import bookingPreflightRoutes from './booking-preflight.js'; // US-224: Booking pre-flight checklist
 import thresholdsRoutes from './thresholds.js'; // US-297: Per-intent confidence threshold configuration
 import violationsRoutes from './violations.js'; // US-310: Profile isolation violation audit
+import analyticsBookingConversionRoutes from './analytics-booking-conversion.js'; // US-292: Booking conversion rate analyzer
 
 const router = Router();
 
@@ -384,6 +385,7 @@ router.use(configAuditLogRoutes);         // US-257: Admin config audit trail wi
 router.use(bookingPreflightRoutes);       // US-224: Booking confirmation pre-flight checklist
 router.use(thresholdsRoutes);             // US-297: Per-intent confidence threshold configuration
 router.use(violationsRoutes);            // US-310: Profile isolation violation audit trail
+router.use(analyticsBookingConversionRoutes); // US-292: Booking conversion rate analyzer
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
