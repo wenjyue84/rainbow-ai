@@ -1530,3 +1530,34 @@ FAILED diagnosis-block gate: Fallback Response Template A/B Test Analysis CLI (I
 2. ✓ JSON output with template_a_booking_rate, template_b_booking_rate, statistical_significance, winner
 3. ✓ Queries rainbow_messages/rainbow_conversations with intent/profile/days filters
 4. ✓ 21 unit tests with mock data, all passing
+
+## Pre-analysis for US-285 (Gemini 2.5 Pro)
+This user story describes a **TypeScript/Node.js CLI tool**, not a Frappe/Python app. The file paths, commands, and table names all point to the current `rainbow-ai` project's stack.
+
+Here is a technical brief based on the *actual* story provided:
+
+**Technical Brief for US-285: Fallback Response Template A/B Test Analysis CLI**
+
+*   **Files to Modify:**
+    *   Create a new file: `src/tools/compare-fallback-templates.ts` for the CLI logic.
+    *   Create a corresponding test file: `src/tools/__tests__/compare-fallback-templates.test.ts`.
+
+*   **Data Sources Involved:**
+    *   This tool will query the project's PostgreSQL database directly.
+    *   Primary tables: `rainbow_messages` and `rainbow_conversations`.
+
+*   **Recommended Implementation Approach:**
+    1.  Use a CLI argument parsing library (e.g., `yargs`) in `compare-fallback-templates.ts` to handle the `--intent`, `--profile`, and `--days` inputs.
+    2.  Utilize the existing Drizzle ORM setup to build queries.
+    3.  Create a database query to select conversation data for the specified intent/profile within the date range.
+    4.  The query should join `rainbow_conversations` with `rainbow_messages` to identify which fallback variant (`A` or `B`) was used and whether a booking occurred.
+    5.  Calculate the booking rate and escalation rate for each template variant.
+    6.  Implement a statistical significance test (e.g., a Chi-squared test) to determine if the difference in performance is meaningful.
+    7.  The tool should output the results in the specified JSON format.
+
+*   **Edge Cases & Gotchas:**
+    *   Ensure database queries are optimized to handle a large volume of messages over the 30-day window.
+    *   Handle cases where an intent has no data for one or both variants to avoid division-by-zero errors.
+    *   The definition of "booking success" must be precise in the database query logic.
+    *   Ensure proper error handling for invalid CLI inputs or database connection issues.
+
