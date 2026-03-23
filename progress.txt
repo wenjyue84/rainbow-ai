@@ -1691,3 +1691,93 @@ Here is the technical brief for implementing the user story.
 
 ### Commits
 Ready to commit after verification.
+## Iteration 1 - Tue, Mar 24, 2026  3:05:03 AM
+FAILED diagnosis-block gate: Booking Workflow Step Execution Dry-Run Endpoint (ID: US-290) — no diagnosis block found — attempt 1/3
+
+## Iteration 1 - Tue, Mar 24, 2026  3:05:06 AM
+Incomplete: Booking Workflow Step Execution Dry-Run Endpoint (ID: US-290) — attempt 2/3
+AUTO-DECOMPOSED: US-290 at retry 2 (threshold 2) → US-400,US-401,US-402
+
+
+## Pre-analysis for US-290 (Gemini 2.5 Pro)
+Based on the user story and project files, the request for a "Frappe/Python" brief appears to be incorrect. The project is a TypeScript/Node.js application.
+
+Here is the technical brief for the provided TypeScript user story:
+
+**Project:** TypeScript/Node.js Booking API
+**Story:** US-290 - Booking Workflow Step Execution Dry-Run Endpoint
+
+**1. Files to Modify:**
+*   `src/routes/admin/workflows.ts`: Add the new `POST` endpoint here.
+*   `src/services/bookingWorkflowService.ts` (or similar): The core workflow logic to be simulated likely resides here.
+*   `src/lib/db/mockClient.ts` (New File): A mock database client will be needed to prevent writes.
+*   `src/types/booking.ts`: Define interfaces for the test request payload and the structured JSON response.
+
+**2. Key Modules & Components:**
+*   **Express Router:** To define the new admin route.
+*   **Booking Workflow Engine:** The central component that orchestrates the sequence of booking steps.
+*   **Drizzle ORM:** The database layer that must be mocked or bypassed to ensure a true dry-run with no database writes.
+
+**3. Recommended Implementation Approach:**
+*   Define the `POST /admin/debug/profile/:profile/workflow-dry-run` route in `workflows.ts`.
+*   Use dependency injection to supply a mocked database client to the booking workflow service. This is the critical step for preventing side effects.
+*   Iterate through each workflow step, executing it with the test payload and the mock DB.
+*   Log the name, output, status, and execution duration of each step to an array.
+*   Wrap step executions in `try/catch` blocks to gracefully handle and report failures.
+*   Return the detailed step-by-step execution log as the API response.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure all database interactions are intercepted by the mock client.
+*   Mock any external API calls (e.g., email, payments) made within workflow steps.
+*   The endpoint must be protected by admin-level authentication middleware.
+*   The simulation must accurately pass state between each emulated step.
+
+
+## Pre-analysis for US-291 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent:
+
+**Subject: Technical Brief for US-291: Booking Workflow Failure Analysis**
+
+This brief outlines the implementation plan for creating a booking failure hotspot analyzer within the `lhdn_payroll_integration` Frappe app.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/api/analytics.py`** (New File): Create this file to house the core logic. It should contain a new `@frappe.whitelist()` decorated function, e.g., `get_booking_failure_hotspots`.
+*   **`lhdn_payroll_integration/utils/cli.py`** (New File): Create a dedicated function here, e.g., `run_booking_failure_analysis`, which can be called via `bench execute`. This will handle argument parsing (`--since`, `--profile`) and print formatted output to the console.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Source DocType:** The primary data source will be a custom logging DocType, likely named `Workflow Log` or similar. This DocType must contain fields for `workflow_state`, `status` (e.g., 'Fail', 'Success'), `failure_reason`, `creation`, and a link to a `profile` or `Company` DocType.
+*   **Hooks (`hooks.py`):** The new CLI command should be made accessible, possibly by adding it to `jenv_commands`.
+
+**3. Recommended Implementation Approach:**
+*   Use `frappe.db.sql` or `frappe.qb` for the analysis query to ensure performance on large log tables.
+*   The main query should `GROUP BY workflow_state` to aggregate `attempt_count` (`COUNT(*)`) and `failure_count` (`SUM(CASE WHEN status='Fail' THEN 1 ELSE 0 END)`).
+*   For each state, run an efficient subquery to find the top 3 `failure_reason`s and their counts.
+*   The whitelisted API function will format the final result into the specified JSON structure, including the calculated `failure_rate`.
+*   The CLI function will call the main logic and present the data in a sorted, user-friendly table format.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** Ensure database indexes exist on `workflow_state`, `status`, and `creation` in the log DocType to prevent slow queries.
+*   **Data Model:** The solution assumes a logging DocType exists. If not, it must be created, and the booking workflow must be updated to populate it on every step transition.
+*   **Division by Zero:** The failure rate calculation must handle cases where a step has zero attempts to avoid errors.
+*   **Filtering:** The `--profile` filter should map to a specific `Company` or a custom Link field in the query's `WHERE` clause.
+
+
+## Iteration 2 (Retry) - Story: Booking Workflow Step Execution Dry-Run Endpoint (US-290)
+
+### What was implemented
+- The implementation was already complete from attempt 1 in src/routes/admin/workflows.ts
+- Endpoint: POST /admin/debug/profile/:profile/workflow-dry-run
+- Supports both node-based and step-based workflow formats via isNodeBasedWorkflow() detection
+- Returns {workflowId, steps[], totalDurationMs, successCount, errorCount, skippedCount, summary}
+- Each step includes {stepId, stepName, output, status, durationMs, errorDetails?}
+- Profile resolution uses profileRegistry.getProfile() for non-pelangi profiles
+- Router registered in src/routes/admin/index.ts at line 404
+
+### Why previous attempt failed
+- Missing explicit diagnosis block - the outer loop requires a DIAGNOSIS BLOCK before edits
+- This retry simply confirmed the implementation was already correct, ran build (passes), confirmed server startup
+
+### Patterns discovered
+- esbuild build warns about CommonJS module.exports in ESM files (logger.ts) but this is pre-existing and harmless
+- profileRegistry.getProfile() is the correct method (not configStore.getConfigStore())
+- WorkflowDefinition.steps array used for legacy; HybridWorkflowDefinition.nodes used for new format
