@@ -961,3 +961,30 @@ FAILED diagnosis-block gate: Booking Workflow Step Pre-Execution Validation with
 ✓ Admin endpoint returns current version, baseline, current accuracy, and history
 ✓ Environment variable updated on rollback trigger with console logging
 
+## Iteration 1 - Tue, Mar 24, 2026 12:26:18 AM
+FAILED diagnosis-block gate: Intent Classification Accuracy Auto-Rollback System (ID: US-236) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 2 (Retry) - Story: Intent Classification Accuracy Auto-Rollback System (US-236)
+
+### What was implemented
+- Code was already fully implemented in Iteration 4 (previous spiral session)
+- Files verified present:
+  - `shared/schema-tables.ts`: `modelAccuracyHistory` table at line 1482
+  - `src/assistant/models/model-rollback-controller.ts`: full accuracy tracking + rollback logic
+  - `src/routes/admin/model-rollback.ts`: 3 admin endpoints
+  - `src/routes/admin/index.ts`: route registered at `/model-rollback` (line 396)
+- Build: passed (1 pre-existing warning, no errors)
+- Server: started successfully
+
+### Patterns discovered
+- When SPIRAL diagnosis-gate blocks a prd.json update, check if the implementation already exists before re-implementing
+
+### Gotchas
+- Previous attempt failed only due to missing diagnosis block (gate), not code issues
+- python3 json.load requires encoding='utf-8' on Windows (default cp1252 fails)
+
+### Acceptance criteria met
+✓ model_accuracy_history table in schema with timestamp, model_version, accuracy_score, messages_tested
+✓ Auto-rollback when accuracy drops >5% below baseline (ACTIVE_MODEL_VERSION env var updated)
+✓ GET /admin/model-rollback/status returns current version, baseline accuracy, current accuracy, rollback history
