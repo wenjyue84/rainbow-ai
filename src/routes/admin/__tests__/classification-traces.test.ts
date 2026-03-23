@@ -24,25 +24,9 @@ describe('Classification Traces Admin API (US-122)', () => {
 
   describe('GET /admin/conversations/:conversationId/classification-trace', () => {
     it('should return empty array for unknown conversation', () => {
-      // Create a mock response object
-      const responses: any[] = [];
-      const mockRouter = classificationTracesRouter;
-
-      // Simulate the endpoint by calling the handler directly
-      // First, we need to test the actual implementation
-      const trace = buildClassificationTrace({
-        conversationId: 'conv-1',
-        inputText: 'hello',
-        detectedLanguage: 'en',
-        chosenIntent: 'greeting',
-        chosenConfidence: 0.95,
-        chosenSource: 'fuzzy',
-      });
-
-      recordClassificationTrace(trace);
-
-      // The endpoint logic is in the router, we test via integration
-      expect(true).toBe(true); // Placeholder for now
+      // Verify that unknown conversation returns empty
+      const traces = getClassificationTraces('unknown-conv-1');
+      expect(traces).toEqual([]);
     });
 
     it('should return classification traces for a conversation', () => {
@@ -92,9 +76,7 @@ describe('Classification Traces Admin API (US-122)', () => {
       }
 
       // Verify we can retrieve a limited subset
-      const traces = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const traces = getClassificationTraces(conversationId);
       expect(traces.length).toBe(10);
 
       // Simulate limit=5
@@ -121,9 +103,7 @@ describe('Classification Traces Admin API (US-122)', () => {
       });
 
       recordClassificationTrace(trace);
-      const stored = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const stored = getClassificationTraces(conversationId);
 
       expect(stored[0]).toHaveProperty('timestamp');
       expect(stored[0]).toHaveProperty('input_text');
@@ -157,14 +137,14 @@ describe('Classification Traces Admin API (US-122)', () => {
         recordClassificationTrace(trace);
       }
 
-      const tracedIds = require('../../../assistant/classification-tracer.js').getTracedConversationIds();
+      const tracedIds = getTracedConversationIds();
       for (const convId of convIds) {
         expect(tracedIds).toContain(convId);
       }
     });
 
     it('should return empty list when no traces recorded', () => {
-      const tracedIds = require('../../../assistant/classification-tracer.js').getTracedConversationIds();
+      const tracedIds = getTracedConversationIds();
       expect(tracedIds).toEqual([]);
     });
   });
@@ -189,9 +169,7 @@ describe('Classification Traces Admin API (US-122)', () => {
       });
 
       recordClassificationTrace(trace);
-      const traces = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const traces = getClassificationTraces(conversationId);
 
       // Verify Malaysian English variants are captured
       expect(traces[0].candidates[0].name).toBe('booking');
@@ -217,9 +195,7 @@ describe('Classification Traces Admin API (US-122)', () => {
       });
 
       recordClassificationTrace(trace);
-      const traces = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const traces = getClassificationTraces(conversationId);
 
       const candidateScores = traces[0].candidates.map((c: any) => c.confidence);
       const sum = candidateScores.reduce((a: number, b: number) => a + b, 0);
@@ -246,9 +222,7 @@ describe('Classification Traces Admin API (US-122)', () => {
       });
 
       recordClassificationTrace(trace);
-      const traces = require('../../../assistant/classification-tracer.js').getClassificationTraces(
-        conversationId
-      );
+      const traces = getClassificationTraces(conversationId);
 
       expect(traces[0].candidates[0].name).toBe('booking');
       expect(traces[0].chosen_intent).toBe('booking');
