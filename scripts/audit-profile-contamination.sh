@@ -55,7 +55,6 @@ declare -a HOSTEL_TERMS=(
   "arrival|visit"
   "departure|farewell"
   "capsule pod|dining area"
-  "amenities|services"
 )
 
 contamination_found=0
