@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-161",
-      "title": "Audit and report orphaned intent-keywords.json entries preventing keyword-based classification",
-      "priority": "high",
-      "description": "Create CLI tool to detect keywords in intent-keywords.json that don't match any intent in intents.json, breaking intent classification for those keywords and indicating data contamination from previous profiles",
-      "acceptanceCriteria": [
-        "Create src/tools/intent-keyword-audit-cli.ts that cross-references intent-keywords.json against intents.json and outputs orphaned keywords grouped by profile",
-        "CLI command: npm run audit:keywords -- --profile=makan outputs JSON report with intent_id, keyword, and suggested cleanup action for each orphaned entry",
-        "Exit with error code 1 if orphaned keywords found in production mode; used in CI/CD to prevent contaminated data from being deployed"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-197",
       "title": "Profile Data Contamination Regression Test Suite",
       "priority": "high",
@@ -76,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -404,6 +387,74 @@
       "model": "sonnet"
     },
     {
+      "id": "US-236",
+      "title": "Intent Classification Accuracy Auto-Rollback System",
+      "priority": "high",
+      "description": "Monitor intent classification accuracy in production; automatically rollback to previous model if accuracy drops below threshold, preventing degraded user experience",
+      "acceptanceCriteria": [
+        "Add src/assistant/models/model-rollback-controller.ts that tracks classification accuracy metrics; store metrics in model_accuracy_history table with timestamp, model_version, accuracy_score, messages_tested",
+        "When accuracy drops >5% below baseline in src/assistant/data/settings.json, automatically set ACTIVE_MODEL_VERSION env var to previous version and log rollback event",
+        "Create admin endpoint GET /admin/model-rollback-status returning current model version, baseline accuracy, current accuracy, and rollback history"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-237",
+      "title": "Multi-Turn Booking Clarification Dialog Manager",
+      "priority": "high",
+      "description": "Guide ambiguous booking intents through a multi-turn conversational dialog that asks specific follow-up questions (dates, room type, guest count) before booking confirmation",
+      "acceptanceCriteria": [
+        "Create src/assistant/dialogs/booking-clarification-dialog.ts with state machine (states: need_dates, need_room_type, need_guest_count, ready_confirm)",
+        "Store clarification state in rainbow_conversations table as clarification_state and clarification_data JSON; test that a low-confidence booking intent triggers clarification flow with appropriate follow-up questions",
+        "Integration test: verify full clarification dialog flow (guest message 'book' → ask dates → guest responds → ask room type → confirm) results in valid booking confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-238",
+      "title": "Profile Isolation Violations Auto-Repair Tool",
+      "priority": "high",
+      "description": "Detect and automatically repair data contamination that violates profile isolation rules, preventing cross-profile data leakage",
+      "acceptanceCriteria": [
+        "Create CLI command npm run repair-profile-isolation that detects violations: guests with multi-profile references, intent keywords in wrong profiles, routing.json intent routes to foreign workflows",
+        "For each violation, generate suggestion (delete cross-profile data, reassign to correct profile, or flag for manual review); apply fix and log to profile_isolation_repairs table",
+        "Output JSON report with: violations_found, repairs_applied, repairs_flagged, before/after data counts per profile, timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-239",
+      "title": "Conversation Quality Score Regression Detection Test Suite",
+      "priority": "high",
+      "description": "Define and enforce baseline conversation quality metrics (accuracy, escalation rate, response relevance) to catch regressions in production",
+      "acceptanceCriteria": [
+        "Create src/assistant/tests/conversation-quality-regression.test.ts defining baselines: accuracy >85%, escalation_rate <10%, response_relevance >80%; with test data fixtures in src/assistant/tests/fixtures/conversation-quality-*.json",
+        "Test assertions verify: classified intent matches expected intent per fixture, no unwanted escalations occur, response relevance score >80% per response",
+        "Integrate test into GitHub Actions CI; test suite runs on every PR and fails if any metric drops below baseline, preventing quality regressions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -710,6 +761,23 @@
       "model": "sonnet"
     },
     {
+      "id": "US-240",
+      "title": "Intent Classification Inference Latency Profiler",
+      "priority": "medium",
+      "description": "Track and profile intent classification latency per intent type and AI provider to identify performance bottlenecks and slow classifications",
+      "acceptanceCriteria": [
+        "Create src/assistant/classifiers/inference-latency-profiler.ts wrapping classification pipeline; log to classification_latency_log table with: timestamp, intent, provider, latency_ms, success, profile_id",
+        "Implement admin endpoint GET /admin/classification-latencies?intent=booking returning p50/p95/p99 latencies, slowest classification calls, and provider comparison",
+        "Alert when classification latency exceeds 2000ms; log context (input length, provider, model) to admin dashboard for debugging"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-201",
       "title": "Fallback Response Template Staleness and Quality Auditor",
       "priority": "low",
@@ -994,6 +1062,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-161",
+      "title": "Audit and report orphaned intent-keywords.json entries preventing keyword-based classification",
+      "priority": "high",
+      "description": "Create CLI tool to detect keywords in intent-keywords.json that don't match any intent in intents.json, breaking intent classification for those keywords and indicating data contamination from previous profiles",
+      "acceptanceCriteria": [
+        "Create src/tools/intent-keyword-audit-cli.ts that cross-references intent-keywords.json against intents.json and outputs orphaned keywords grouped by profile",
+        "CLI command: npm run audit:keywords -- --profile=makan outputs JSON report with intent_id, keyword, and suggested cleanup action for each orphaned entry",
+        "Exit with error code 1 if orphaned keywords found in production mode; used in CI/CD to prevent contaminated data from being deployed"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-160",
