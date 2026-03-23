@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-106",
-      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
-      "priority": "high",
-      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
-        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
-        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T01:25:50Z"
-    },
-    {
       "id": "US-108",
       "title": "Add Makan Moments seasonal promotion inquiry intent",
       "priority": "high",
@@ -79,8 +61,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T01:51:46Z"
+      "model": "haiku"
     },
     {
       "id": "US-113",
@@ -227,6 +208,403 @@
         "Implement GET /admin/intent-analytics/regression-check?days=7&threshold=0.05 endpoint that returns {status: 'regression_detected'|'healthy', intent, previous_accuracy, current_accuracy} by comparing 7-day rolling accuracy to baseline",
         "Add daily cron job in src/lib/monitoring/regression-detector.ts that runs check and logs WARN-level alert if any intent drops >5% accuracy",
         "Add test asserting regression detected when booking_request accuracy drops from 0.92 to 0.87 over 7 days"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-159",
+      "title": "Intent classifier regression detector with automatic admin notifications",
+      "priority": "high",
+      "description": "Automatically detect when intent classification accuracy drops unexpectedly compared to baseline and trigger admin alerts",
+      "acceptanceCriteria": [
+        "Add intent_classifier_baselines table storing profile_id, intent_type, baseline_accuracy (7-day rolling), last_updated; implement migration",
+        "Add regression detection logic triggered during nightly analytics job: alert if accuracy drops >5% from baseline, create record in regression_alerts table",
+        "Implement /admin/analytics/regression-alerts endpoint returning active/resolved regressions with affected intents, baseline accuracy, and current accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-160",
+      "title": "Profile-aware message routing validation middleware preventing cross-profile contamination",
+      "priority": "high",
+      "description": "Validate that incoming messages route to correct profile and log violations to audit trail to enforce strict business profile separation",
+      "acceptanceCriteria": [
+        "Add message routing validation middleware in src/assistant/pipeline/middleware/routing-validator.ts that asserts message.profile === target_profile before processing intent classification",
+        "Log all routing violations to rainbow_config_audit table with type 'cross_profile_routing', sender_id, intended_profile, actual_profile for investigation",
+        "Add src/tests/middleware/routing-validation.test.ts asserting middleware rejects messages where profile !== target and audit logs contain violation records with all required fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-161",
+      "title": "Add booking workflow confirmation idempotency checker to prevent double-bookings",
+      "priority": "high",
+      "description": "Before completing a booking workflow, verify that the guest is not already booked for the same check-in/check-out dates and room type. Prevents accidental duplicate reservations when guest or staff retry the workflow.",
+      "acceptanceCriteria": [
+        "New function verifyBookingIdempotency(guestId, checkIn, checkOut, roomType, profile) checks existing active reservations",
+        "Returns {valid: boolean, conflict?: {existingCheckIn, existingCheckOut, message}} with actionable error text",
+        "Unit test: second booking request for same guest+dates+room within 5 minutes is rejected with conflict message"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-166",
+      "title": "Implement exponential backoff retry logic for Baileys message delivery",
+      "priority": "high",
+      "description": "Add exponential backoff with jitter to handle transient message delivery failures in Baileys WebSocket client. When WhatsApp API returns 5xx errors or timeouts, retry with increasing delays (1s, 2s, 4s, 8s max) instead of failing immediately. Improves reliability during API fluctuations.",
+      "acceptanceCriteria": [
+        "Add retryConfig to src/lib/baileys-client.ts with maxRetries=5, baseDelayMs=1000, maxDelayMs=8000, jitterRatio=0.1",
+        "Failed sends trigger exponential backoff retries; success on any attempt resets counter; max 5 attempts exceeded logs to dead-letter queue",
+        "Unit test in tests/unit/baileys-retry.test.ts verifies retry timing: delays are 1s, 2s, 4s, 8s with ±10% jitter, no retry on 4xx errors",
+        "Integration test confirms idempotent message sends (no duplicates) after 1-3 retries on simulated transient failure"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/baileys-client.ts (sendMessage function) — wrap send call with exponential backoff wrapper using AbortSignal for timeout",
+        "File to edit: src/lib/retry-handler.ts (new file) — export createExponentialBackoffRetry(config) function using Math.random() for jitter",
+        "Test command: rtk npm run test:run -- tests/unit/baileys-retry.test.ts",
+        "Reference: https://jaytech.substack.com/p/retry-logic-and-exponential-backoff"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-167",
+      "title": "Create knowledge base modification validator with 30-day staleness detection and admin alerts",
+      "priority": "high",
+      "description": "Audit all markdown files in .rainbow-kb/ and .rainbow-kb-southern/ directories for modification dates; alert administrators via dashboard endpoint if any knowledge base file unchanged for 30+ days, preventing outdated information from being served to guests",
+      "acceptanceCriteria": [
+        "Create src/tools/kb-staleness-detector.ts with detectStaleKBFiles(profileId, staleDaysThreshold = 30) returning list of files with last-modified timestamps and days-since-modification",
+        "Add admin endpoint GET /api/admin/kb-staleness?profile=data-pelangi&threshold=30 returning JSON with filename, last_modified_date, days_since_modified, status (fresh|stale)",
+        "Test: npm run test:run -- kb-staleness.test.ts passes with 5 test cases covering: files < 30 days old marked fresh, files > 30 days marked stale, different profiles isolated, invalid profile paths handled gracefully"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-174",
+      "title": "Build profile data integrity scanner with contamination reporting",
+      "priority": "high",
+      "description": "Create a CLI tool that validates all profile data files (routing.json, intents.json, intent-keywords.json, knowledge.json, workflows.json) against business profile boundaries. Detect and report cross-profile content contamination with file paths and severity levels.",
+      "acceptanceCriteria": [
+        "CLI command `npm run scan:profile-integrity` scans src/assistant/data/ and data-*/profiles/ directories, outputs JSON report with contamination violations grouped by profile",
+        "Detect cross-profile keywords (e.g., 'check-in', 'room' in makan profile) using business-context word lists; report file path, line number, and contaminating phrase",
+        "Generate HTML report at ./profile-integrity-report.html with severity levels (critical: hostel intents in cafe, warning: overlapping keywords) and remediation links to specific JSON sections"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-175",
+      "title": "Implement conversation turn counter with context exhaustion alerts",
+      "priority": "high",
+      "description": "Add middleware to track conversation turn count (user + assistant message pairs) and trigger alerts when conversations exceed optimal context window size. Log turn metrics to database for analytics.",
+      "acceptanceCriteria": [
+        "Middleware in src/assistant/pipeline/ increments turn_count in rainbow_conversations table on each assistant response; log turn_count and message_tokens to rainbow_messages.metadata JSON field",
+        "Admin endpoint GET /admin/analytics/conversations/long-running returns conversations with >20 turns, sorted by age, with turn_count, total_tokens, intent_type, and profile fields; support ?profile=data-pelangi filter",
+        "Alert admins via escalation_events table when conversation exceeds 25 turns; include conversation_id, turn_count, and recommendation to archive context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-176",
+      "title": "Add intent classifier accuracy metrics admin endpoint",
+      "priority": "high",
+      "description": "Create admin API endpoint that aggregates intent classification metrics from production logs (confidence scores, top-3 candidate rankings, misclassifications). Expose accuracy by profile, intent type, and time window.",
+      "acceptanceCriteria": [
+        "Endpoint GET /admin/metrics/intent-accuracy?profile=data-pelangi&intent=booking_inquiry&days=7 queries rainbow_messages table, calculates accuracy (matched_intent == predicted_intent), and returns {profile, intent, accuracy_pct, total_samples, low_confidence_pct, top_confused_pairs}",
+        "Store classification trace data (predicted_intent, confidence, top_3_candidates) in rainbow_messages.metadata JSON on every classification in src/assistant/intent-classifier.ts",
+        "Dashboard view at /admin/intent-dashboard.html displays accuracy trends per profile and intent type using Chart.js; highlight intents with <85% accuracy in red"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-177",
+      "title": "Implement low-confidence fallback response effectiveness tracker",
+      "priority": "high",
+      "description": "Track which fallback responses are used when intent confidence is low (<0.7). Measure effectiveness by whether user reattempts their query vs escalates. Flag underperforming fallbacks for rewriting.",
+      "acceptanceCriteria": [
+        "Store fallback_response_id, confidence_score, user_reattempt (boolean), and escalation_flag in rainbow_messages.metadata when fallback is triggered in src/assistant/fallback-handler.ts",
+        "Admin endpoint GET /admin/analytics/fallback-effectiveness returns {fallback_id, template_text, usage_count, reattempt_rate_pct, escalation_rate_pct, effectiveness_score}; effectiveness = 100 * (1 - escalation_rate - 0.5*reattempt_rate)",
+        "Flag fallbacks with effectiveness_score <60 as red in admin dashboard at /admin/fallback-dashboard.html; include suggestions to revise templates and list top 10 fallback templates by usage"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-178",
+      "title": "Implement WhatsApp booking status notifications during workflow execution",
+      "priority": "high",
+      "description": "Add guest notification system to keep customers informed during booking workflow steps (confirmation, check-in reminder, room assigned). Improves goal 4 (booking workflow steps) by adding guest communication.",
+      "acceptanceCriteria": [
+        "Add notification_guest step type to src/assistant/data/workflows.json booking workflow with message template variable support ({{guest_name}}, {{check_in_date}}, {{room_number}})",
+        "Create src/assistant/notification-handler.ts with sendNotification(workflowStep, conversation) function that sends WhatsApp message via Baileys and logs delivery status",
+        "Unit test in tests/assistant/notification-handler.test.ts asserting notification is queued when booking workflow reaches notification_guest step and message contains expected template variables"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-179",
+      "title": "Create data contamination cleanup CLI tool with automated Pelangi baseline removal",
+      "priority": "high",
+      "description": "Build CLI tool that compares data-makan and data-southern profile files against known Pelangi Capsule Hostel keywords to identify and remove cross-contaminated content. Directly fixes goal 8 and supports profile separation.",
+      "acceptanceCriteria": [
+        "Create scripts/cleanup-profile-data.ts CLI that loads Pelangi keyword baseline and compares against target profile's intent-keywords.json, outputting detected contamination with line numbers and suggested deletions",
+        "CLI generates timestamped backup JSON before modifications and outputs detailed report showing removed keywords with confidence that they're hostel-specific (e.g., 'room booking', 'check-in time')",
+        "Integration test confirming CLI removes 5+ hostel-specific keywords from Makan cafe profile and produces validation report; dry-run mode prevents accidental modifications"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-183",
+      "title": "Implement multi-language intent matching with automatic language detection and English fallback",
+      "priority": "high",
+      "description": "Detect guest message language automatically, match intents in detected language first, fallback to English keywords if no match found. Improves classification accuracy for multilingual guests while maintaining reliability across Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Language detection adds 'detectedLanguage' and 'detectionConfidence' fields to message entity in rainbow_messages table, using textlang or similar library with >80% confidence threshold",
+        "Intent matching in src/assistant/pipeline/classify-intent.ts tries language-specific keywords from intent-keywords.json first (keys: 'en', 'ms', 'zh', 'ta'), falls back to English keywords if no match found with confidence >0.6",
+        "Log detected language and fallback events to intent_analytics table for debugging; test in tests/unit/multi-language-intent-matching.test.ts with 4+ language variants"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-184",
+      "title": "Add per-profile intent classification accuracy time-series analytics endpoint",
+      "priority": "high",
+      "description": "Provide admin dashboard endpoint tracking intent classification accuracy per profile (Pelangi, Makan, Southern) over hourly and daily windows. Detects accuracy degradation and profile-specific classifier issues in real time.",
+      "acceptanceCriteria": [
+        "New endpoint GET /admin/analytics/intent-accuracy-timeseries?profile={profile}&window={hour|day}&hours=24 returns JSON with hourly/daily accuracy buckets and confidence intervals from intent_analytics table",
+        "Endpoint calculates accuracy as (correct_classifications / total_classifications) per time bucket per profile; stores baseline in app_settings keyed 'intent_accuracy_baseline_{profile}'",
+        "Add alert logic: trigger admin notification if accuracy drops >5% from baseline in single hour for any profile; persist alert events in escalation_events table with profile_id"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-185",
+      "title": "Build semantic fallback response relevance validator for admin review",
+      "priority": "high",
+      "description": "Validate fallback responses address the original user intent using cosine similarity on embeddings. Prevents generic off-topic responses and improves reliability when confidence is low.",
+      "acceptanceCriteria": [
+        "New admin endpoint POST /admin/validate-fallback-response with body {intent, fallbackResponse} uses embedding library (e.g., sentence-transformers via Node.js bindings) to compute cosine similarity; returns relevanceScore (0-1)",
+        "Flag responses with similarity <0.5 as 'low relevance' requiring manual review; store validation results in new fallback_validation_log table with profile_id, intent_id, score, status",
+        "Integration test in tests/unit/fallback-relevance-validator.test.ts covering 3+ profiles (Pelangi, Makan, Southern) with 5+ test fallback pairs; assert all known-good responses score >0.6"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-186",
+      "title": "Add pre-booking workflow validation gate with required field and business rule checks",
+      "priority": "high",
+      "description": "Enforce validation before booking confirmation: verify all required fields present (guest_name, check_in_date, check_out_date, room_type), validate business rules (no past dates, room availability, length of stay constraints). Blocks invalid bookings before workflow execution.",
+      "acceptanceCriteria": [
+        "New validator function in src/assistant/pipeline/validate-booking-workflow.ts returns {isValid: boolean, violations: [{field, reason}]} checking: guest_name not empty, dates ISO-8601 parseable, check_in >= today, check_out > check_in, room_type in available_rooms for profile, length_of_stay ≤ max_stay (from settings.json per-profile)",
+        "Integrate validator into workflow step execution in src/assistant/pipeline/execute-workflow.ts; block confirmation step if violations detected, return actionable message: 'Cannot confirm: missing guest name and check-in date is in the past'",
+        "Test suite tests/unit/booking-workflow-validation.test.ts with 8+ edge cases covering: missing required fields (3 cases), invalid dates (3 cases), room unavailability (1 case), length-of-stay violation (1 case); assert all violations caught before DB write"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-188",
+      "title": "Add intent-level accuracy breakdown in metrics dashboard",
+      "priority": "high",
+      "description": "Track and visualize intent classification accuracy separately for each intent type (booking, inquiry, check-in, cancel) to identify which specific intents have accuracy drift or regression",
+      "acceptanceCriteria": [
+        "New database table `intent_accuracy_metrics` with columns: intent_name, profile_id, accuracy_percentage, total_predictions, correct_predictions, week_date; weekly cron job aggregates from `intent_analytics` table",
+        "Admin API `GET /api/admin/metrics/intent-accuracy?profile=makan` returns array of per-intent stats with week-over-week comparison to detect regression",
+        "Dashboard charts top 5 lowest-accuracy intents per profile with recommended keyword improvements"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-189",
+      "title": "Implement conversation reconnection handler to preserve context across Baileys disconnects",
+      "priority": "high",
+      "description": "Detect when same user reconnects within 5 minutes after Baileys WebSocket disconnect and restore conversation context to avoid forcing user to restart",
+      "acceptanceCriteria": [
+        "New function `src/lib/reconnection-handler.ts` with `detectUserReconnection(userId, maxGapSeconds)` that queries `rainbow_conversations` for unfinished conversations from same user in last N seconds",
+        "Message pipeline checks conversation status on new message: if `status='interrupted'` and reconnection within 5 min, restore context to `rainbow_messages.metadata.restored_context=true`",
+        "Admin API `GET /api/admin/conversations/{userId}/interruptions` logs all reconnection events with gap duration and context restored status"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-190",
+      "title": "Create flexible fallback response template system with profile-specific admin editor",
+      "priority": "high",
+      "description": "Move hardcoded fallback responses into a data-driven JSON template system supporting variable substitution (intent, confidence, guest name) and per-profile customization",
+      "acceptanceCriteria": [
+        "New data file `src/assistant/data/fallback-templates.json` with structure: {profile: 'makan', templates: [{id: 'low_confidence', text: 'I\\'m not sure about \"{intent}\". Can you clarify?', confidence_range: [0, 0.6]}]} with variants for each profile",
+        "Fallback handler in `src/assistant/pipeline/fallback-handler.ts` selects template by profile + confidence score + conversation context, substitutes variables using template engine",
+        "Admin API `POST /api/admin/{profile}/templates/fallback` allows editing templates; template changes logged to `rainbow_config_audit` table"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-180",
+      "title": "Implement fuzzy matching for intent keyword classification to handle typos and misspellings",
+      "priority": "medium",
+      "description": "Add Levenshtein distance-based fuzzy matching to improve intent classification accuracy when users misspell keywords like 'bokking' or 'chckout'. This advances goal 1 (improve intent classification accuracy) by catching typos.",
+      "acceptanceCriteria": [
+        "Create src/lib/fuzzy-match.ts with Levenshtein distance calculation supporting configurable match threshold (default 85%)",
+        "Modify src/assistant/classification.ts to use fuzzy matching as fallback when exact keyword match confidence < 0.6, ensuring 'bokking' matches 'booking' intent with 0.87+ confidence",
+        "Add unit test in tests/lib/fuzzy-match.test.ts asserting 'chckout' → 'checkout' and 'chck in' → 'check in' match with expected confidence scores"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-181",
+      "title": "Add conversation context relevance scoring to deprioritize stale and off-topic messages",
+      "priority": "medium",
+      "description": "Implement relevance scoring algorithm that weights message recency and semantic similarity to current intent, improving multi-turn dialogue handling by preventing old irrelevant context from affecting AI inference.",
+      "acceptanceCriteria": [
+        "Create src/assistant/context-relevance.ts with relevanceScore(message, currentIntent) function returning 0-1 score based on message age (exponential decay) and keyword overlap with intent patterns",
+        "Modify src/assistant/pipeline.ts to sort conversation history by relevance score before passing to AI inference, filtering messages below 0.3 threshold",
+        "Integration test confirming a 5-message-old context unrelated to current booking intent is deprioritized vs recent messages, with AI reasoning limited to top-3 relevant messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-182",
+      "title": "Add intent keyword collision detection to GitHub Actions CI pipeline",
+      "priority": "medium",
+      "description": "Implement pre-deployment validation that detects keywords appearing in multiple profiles, preventing profile contamination from reaching production. Enforces goal 7 (business profile separation) at CI level.",
+      "acceptanceCriteria": [
+        "Create scripts/detect-keyword-collisions.ts that parses src/assistant/data/*/intent-keywords.json files and identifies keywords appearing in 2+ profiles, outputting collision report with affected profiles and keywords",
+        "Add GitHub Actions step to .github/workflows/validate.yml that runs collision detector and fails deployment if collisions detected with clear error message listing which keywords (e.g., 'booking', 'check-in') are duplicated",
+        "Unit test asserting collision detector correctly identifies 'booking' keyword when present in both pelangi and makan profiles, but ignores same keyword within single profile's multiple intent types"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-187",
+      "title": "Implement conversation context consolidation CLI for token and cost optimization",
+      "priority": "medium",
+      "description": "Add npm script and CLI to consolidate old messages (>7 days) into semantic summaries while preserving booking intent and critical entities. Keeps conversation context window manageable without losing information.",
+      "acceptanceCriteria": [
+        "New CLI command 'npm run consolidate-context -- --profile={profile} --max-age-days=7' reads messages older than threshold from rainbow_messages, generates summary using LLM (Kimi/Ollama), stores consolidated_summary in rainbow_conversations table with original message IDs preserved for audit",
+        "Consolidation logic in src/tools/consolidate-context.ts extracts and preserves key entities (guest_name, check_in_date, check_out_date, room_type, booking_status) in summary; test in tests/unit/context-consolidation.test.ts validates entity extraction on 3+ real conversation samples",
+        "Verify token count reduction: measure average tokens before/after consolidation across 10+ test conversations; assert >30% reduction with zero information loss on critical fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-191",
+      "title": "Add booking workflow step input normalization with Zod schema validation",
+      "priority": "medium",
+      "description": "Normalize and validate user input at step entry points (date formats, room types, guest names) before passing to step handlers to prevent malformed data from breaking workflow execution",
+      "acceptanceCriteria": [
+        "New file `src/assistant/schemas/booking-step-inputs.ts` with Zod schemas: CheckInInput validates date (DDMMYY or Malaysian format), room_type (must match profile's room inventory), guest_name (alphanumeric + spaces only)",
+        "Workflow executor validates step input with `stepInputSchema.parse(input)` before handler execution; validation failure throws `StepInputValidationError` with field-level error details",
+        "Admin endpoint `GET /api/admin/workflows/booking/step-schemas` returns all step input schemas for client-side form generation and validation"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -484,6 +862,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-106",
+      "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
+      "priority": "high",
+      "description": "Define Makan Moments cafe-only intents (menu inquiry, food order, promotion, table reservation) in separate profile-scoped file to fully isolate from hostel data and prevent future contamination.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/intents-makan.json with cafe-only intent types: menu_inquiry, food_order, promotion_question, table_reservation, order_cancellation; remove all hostel/guest/room keywords from each intent definition",
+        "Add test in tests/profile-isolation.test.ts verifying data-makan profile loads ONLY from intents-makan.json, not hostel intents; assert 'menu' keyword exists but 'check-in' and 'room-type' keywords do NOT exist in any cafe intent",
+        "Add validation in src/lib/config-loader.ts throwing ActionableError with message 'Profile data-makan contains cross-contamination: found [check-in, booking] keywords in intents' if hostel keywords detected in cafe intents at startup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T01:25:50Z"
     },
     {
       "id": "US-098",
