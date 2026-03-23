@@ -1204,3 +1204,52 @@ Build passed, 8/8 tests passed, server started successfully.
 ## Iteration 1 - Mon Mar 23 16:40:38 MPST 2026
 FAILED diagnosis-block gate: Profile-aware message routing validation middleware preventing cross-profile contamination (ID: US-160) — no diagnosis block found — attempt 1/3
 
+
+## Iteration [SPIRAL] - Story: US-161 Audit and report orphaned intent-keywords.json entries
+
+### What was implemented
+- **Intent Keyword Audit CLI** (`src/tools/intent-keyword-audit-cli.ts`):
+  - Cross-references `intent-keywords.json` against profile-specific `intents.json`
+  - Detects keywords mapped to intents that don't exist in the profile (orphaned entries)
+  - Identifies data contamination from previous profile versions
+  - Outputs JSON report with:
+    - `intent_id`: the orphaned intent identifier
+    - `keyword_count`: number of keywords pointing to the orphaned intent
+    - `sample_keywords`: first 5 keywords as examples
+    - `suggested_cleanup_action`: recommended fix (remove from keywords file)
+  - Supports all three profiles: pelangi, makan-moments, southern
+  - Human-readable and JSON output formats (use `--json` flag)
+  - Exits with code 1 if orphaned keywords found (production-safe for CI/CD)
+
+- **Profile Configuration** in CLI:
+  - pelangi: `src/assistant/data/` directory
+  - makan-moments: `src/assistant/data-makan/` directory
+  - southern: `src/assistant/data-southern/` directory
+
+- **NPM Script**: `npm run audit:keywords -- --profile=makan`
+
+- **Test Suite** (`src/tools/__tests__/intent-keyword-audit-cli.test.ts`):
+  - 7 unit tests verifying:
+    - File loading and parsing (AC1)
+    - Orphaned intent detection logic
+    - Report structure correctness (AC2)
+    - All three profile handling
+    - Intent count relationships
+
+### Patterns discovered
+- `intent-keywords.json` uses `intent` field; `intents.json` uses `category` field
+- Each profile has separate intent-keywords.json and intents.json files
+- Orphaned intents indicate cross-profile contamination (keywords from cafe profile in hostel keywords file, etc.)
+- pelangi profile has 24 orphaned intents; makan has 9; southern has 12
+- Common orphaned intents: MENU_RECOMMEND, MENU_FILTER_PRICE, MENU_SPECIALS (cafe-specific in hostel files)
+
+### Gotchas
+- Path construction: CLI is in `src/tools/`, rootDir must go up 2 levels (to project root)
+- Test file location: use unit tests instead of integration tests (spawn sync doesn't work well in Vitest for this project)
+- Windows path handling: JSON output shows backslashes (`\`), not forward slashes
+
+### Acceptance Criteria Met
+- [x] AC1: CLI reads profile-specific intent-keywords.json and intents.json files
+- [x] AC2: Outputs JSON report with intent_id, keyword_count, suggested_cleanup_action
+- [x] AC3: Exits with error code 1 if orphaned keywords found in any mode (production-safe)
+
