@@ -47,81 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-098",
-      "title": "Build per-profile intent classifier baseline accuracy tracker",
-      "priority": "high",
-      "description": "Track intent classification accuracy separately for each business profile (Pelangi, Southern, Makan) to detect profile-specific classifier degradation and performance regressions",
-      "acceptanceCriteria": [
-        "Create intent_classifier_baselines table with columns: profile_id, intent_type, accuracy_pct, sample_count, baseline_date",
-        "New CLI command npm run analytics:classifier-baseline compares current accuracy vs stored baseline per intent per profile and outputs delta report",
-        "Unit test validates accuracy calculation on 100-message test set with ground-truth labels, verifying per-profile isolation (Pelangi accuracy independent from Southern)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T00:45:03Z",
-      "_antiPatterns": [
-        "story_incomplete"
-      ]
-    },
-    {
-      "id": "US-103",
-      "title": "Add room-type specific booking intent classification for Pelangi Capsule",
-      "priority": "high",
-      "description": "Improve booking intent accuracy by adding room-type variant keywords (single, double, family, dorm) to distinguish between room-specific booking requests and general inquiries.",
-      "acceptanceCriteria": [
-        "Add room-type keyword variants to src/assistant/data/intent-keywords.json under booking_intent for Pelangi profile only: single room, double room, family room, dorm room, twin bed",
-        "Add test in tests/classifier.test.ts verifying messages 'I want to book a double room' and 'family room availability' classify as booking_intent with confidence >= 0.85",
-        "Add validation in tests/profile-validation.test.ts asserting room-type keywords (single, double, family, dorm) appear ONLY in booking_intent across all profiles, never in inquiry_intent"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-104",
-      "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
-      "priority": "high",
-      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
-      "acceptanceCriteria": [
-        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
-        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
-        "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "_decomposedFrom": "US-061"
-    },
-    {
-      "id": "US-105",
-      "title": "Add context-aware fallback response selection based on confidence and conversation history",
-      "priority": "high",
-      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
-        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
-        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_decomposedFrom": "US-061"
-    },
-    {
       "id": "US-106",
       "title": "Create isolated profile-specific intent definitions file for Makan Moments cafe",
       "priority": "high",
@@ -134,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T01:40:04Z"
     },
     {
       "id": "US-108",
@@ -468,237 +394,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-173",
-      "title": "Build admin request audit logger for PDPA compliance tracking",
-      "priority": "high",
-      "description": "PDPA 2025 requires organizations to maintain audit trails of data processing. Implement structured logging of all admin API requests (who, what, when, IP, result) with database persistence for DPO review.",
-      "acceptanceCriteria": [
-        "Admin middleware logs request (method, path, admin email, IP, timestamp, outcome) to admin_audit_log table",
-        "Sensitive params (passwords, tokens) are redacted; only param keys are logged",
-        "Retention: logs kept for 90 days; cron job deletes logs older than 90 days nightly",
-        "Test verifies: log entry created on POST/PATCH, sensitive data redacted, retention cron runs"
-      ],
-      "technicalNotes": [
-        "File to edit: src/routes/admin/index.ts — add auditLogMiddleware that calls logAdminRequest()",
-        "File to edit: src/lib/audit-logger.ts (create) — export logAdminRequest(req, res) and scheduleAuditRetention()",
-        "Test command: npm run test -- src/assistant/__tests__/compliance-audit-logging.test.ts::audit-log -v"
-      ],
-      "dependencies": [
-        "Drizzle schema must include admin_audit_log table (shared/schema-tables.ts)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-172",
-      "title": "Implement per-phone rate limiting bucket with Redis token store",
-      "priority": "high",
-      "description": "WhatsApp WABA accounts have messaging limits per phone number. Implement per-phone rate limiting using Redis to prevent exceeding quotas and triggering account throttling. Currently uses generic endpoint rate limiting; need phone-level granularity.",
-      "acceptanceCriteria": [
-        "Rate limiter accepts phone number as bucket key and max_tokens (configurable per profile)",
-        "Redis token bucket decrements on outbound message send; tests verify token depletion and refill via cron",
-        "Exceeding quota returns 429 with Retry-After header; message is queued for retry when tokens refresh",
-        "Admin endpoint exposes current token state per phone number (metrics endpoint)"
-      ],
-      "technicalNotes": [
-        "File to edit: src/middleware/rate-limit.ts — add getPhoneRateLimiter(phone, profile) that checks Redis key phone:ratelimit:{profile}:{phone}",
-        "File to edit: src/assistant/data/settings.json — add rate_limits.per_phone.max_msg_per_hour (default 1000)",
-        "Test command: npm run test -- src/assistant/__tests__/rate-limiter-profile.test.ts -t 'per-phone' -v"
-      ],
-      "dependencies": [
-        "ioredis installed (already in deps)",
-        "express-rate-limit installed (already in deps)"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-168",
-      "title": "Add booking workflow cancellation refund calculator with guest credit tracking",
-      "priority": "medium",
-      "description": "Calculate refund amounts for cancellations based on cancellation policy (% refund by days-before-checkin), store credit for future bookings, update guest account balance in database",
-      "acceptanceCriteria": [
-        "Add `calculateCancellationRefund(bookingId, cancellationDaysBeforeCheckin)` in src/assistant/pipeline/booking.ts returning refund amount and applicable policy rule; 0-3 days = 0%, 4-7 days = 50%, 7+ days = 100%",
-        "Implement refund action in src/assistant/data/workflows.json booking_cancellation workflow that updates guest.credit_balance after refund calculation",
-        "Test: npm run test:run -- booking-refund.test.ts passes with 4 test cases covering no-refund, partial-refund, full-refund, and credit-balance-update scenarios"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-169",
-      "title": "Implement guest preference learning from booking history to personalize booking suggestions",
-      "priority": "medium",
-      "description": "Track guest's room type preferences, check-in timing, and stay-length patterns from completed bookings; surface personalized suggestions in subsequent interactions to improve response quality and booking completion rates",
-      "acceptanceCriteria": [
-        "Add guest_preferences table with columns: guest_id, preferred_room_type, avg_stay_length_days, preferred_checkin_hour, preference_confidence (0-1), profile_id",
-        "After successful booking, call updateGuestPreferences(guestId, bookingDetails) in src/assistant/pipeline/booking.ts using exponential moving average with 0.7 weight to historical preference",
-        "Test: npm run test:run -- guest-preferences.test.ts passes verifying: first booking sets baseline confidence 0.5, second booking updates confidence to 0.75, preferences under 0.3 confidence don't override bot suggestions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-170",
-      "title": "Add per-intent booking workflow success rate tracking with automated low-performer flagging",
-      "priority": "medium",
-      "description": "Track booking completion and abandonment rates per intent route to identify low-performing intents; automatically flag intents with < 75% success rate for retraining and fallback improvement",
-      "acceptanceCriteria": [
-        "Add intent_booking_metrics table with columns: intent_id, profile_id, completed_count, abandoned_count, last_30d_success_rate (%), last_updated, status (performing|flagged)",
-        "In src/assistant/pipeline/booking.ts, implement recordBookingOutcome(intentId, profileId, outcome: 'completed'|'abandoned') that increments counters and recalculates rolling success rate",
-        "Dashboard endpoint GET /api/admin/booking-success-rates?profile=data-pelangi&threshold=75 returns intent list sorted by success_rate with red flag for intents below 75%; test with npm run test:run -- booking-metrics.test.ts verifying rate calculations and threshold flagging"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-171",
-      "title": "Implement fallback response A/B testing for low-confidence intent escalations with variant selection",
-      "priority": "medium",
-      "description": "When AI confidence is below 0.4, randomly serve fallback response variant A or B; track escalation rates for each variant and automatically select the better-performing variant after 100 sample threshold to improve response quality",
-      "acceptanceCriteria": [
-        "Add fallback_variant_experiment table with columns: experiment_id, intent_id, profile_id, variant_a_text, variant_b_text, variant_a_escalation_count, variant_b_escalation_count, variant_a_total_served, variant_b_total_served, winner, sample_threshold",
-        "In src/assistant/pipeline/confidence-gating.ts, implement selectFallbackVariant(intentId, profileId, confidenceThreshold=0.4) that randomly assigns variant (50/50), tracks served count, and returns variant_text based on winner when threshold reached",
-        "Test: npm run test:run -- fallback-ab-test.test.ts passes with 6 test cases covering: random variant selection at low confidence, escalation tracking per variant, winner determination at 100+ samples, conversation_feedback integration, variant text returned correctly"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-182",
-      "title": "Build booking workflow step execution time analyzer",
-      "priority": "medium",
-      "description": "Add timing instrumentation to all booking workflow step handlers. Detect when step execution exceeds baseline duration and log anomalies for manual review.",
-      "acceptanceCriteria": [
-        "Wrap each workflow step execution in src/assistant/pipeline/booking-workflow.ts with performance.mark() and performance.measure(); log step_name, duration_ms, and profile to rainbow_messages.metadata",
-        "Admin endpoint GET /admin/analytics/workflow-steps returns {step_name, profile, avg_duration_ms, p95_duration_ms, error_rate_pct, recent_anomalies:[{date, duration_ms, reason}]}; compute anomalies as >2x baseline duration",
-        "Log step anomalies to escalation_events table when duration exceeds p95 + 1 second; include step_name, actual_duration, p95_baseline, and booking_id for investigation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-178",
-      "title": "Implement guest preference cache with Redis TTL for booking personalization",
-      "priority": "medium",
-      "description": "Hospitality best practices recommend caching guest preferences (language, room type preference, check-in time) to personalize booking suggestions and reduce database queries during conversation flow.",
-      "acceptanceCriteria": [
-        "Cache stores: guest_language, preferred_room_type, preferred_checkin_hour, last_booking_date per phone number",
-        "TTL: 24 hours; invalidates on successful booking or explicit cache clear",
-        "Conversation engine loads cache before calling intent classifier; passes cached prefs to AI context",
-        "Tests verify: cache hit on repeat guest, TTL expiry re-queries DB, cache clear after booking"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/guest-cache.ts (create) — export getGuestPrefs(phone), updateGuestPrefs(phone, prefs), clearGuestPrefs(phone)",
-        "File to edit: src/assistant/pipeline/conversation-engine.ts — modify load() to call getGuestPrefs() and pass to classifier context",
-        "Test command: npm run test -- src/assistant/__tests__/returning-customer.test.ts -v"
-      ],
-      "dependencies": [
-        "ioredis (already in deps)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-180",
-      "title": "Implement conversation message compression for LLM context window optimization",
-      "priority": "medium",
-      "description": "Multi-turn conversations can exceed LLM context windows. Implement message compression: keep last N raw turns, compress older turns into a summary (role, intents, outcomes) to preserve context while reducing token usage.",
-      "acceptanceCriteria": [
-        "After 15 messages, background job summarizes messages 1-10 into a compressed record (1-2 sentences)",
-        "Compressed messages are formatted as system message: 'Previous context: [summary]' before classifier sees full history",
-        "Token usage for compressed vs raw history is logged; compression must reduce tokens by >=30%",
-        "Tests verify: 20-message conversation is compressed to ~10 raw + 1 compressed, LLM sees both forms correctly"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/pipeline/conversation-engine.ts — add compressOldMessages(history) that identifies compression point",
-        "File to edit: src/assistant/pipeline/conversation-engine.ts — call LLM summarizer on messages[0:10] to generate compressed record",
-        "Test command: npm run test -- src/assistant/__tests__/session-window.test.ts -v"
-      ],
-      "dependencies": [
-        "LLM provider (Kimi/Ollama already configured)"
-      ],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-181",
-      "title": "Add NVIDIA Kimi K2.5 provider failover chain validation at startup",
-      "priority": "medium",
-      "description": "CLAUDE.md mentions multi-provider fallback (Kimi K2.5, Ollama, OpenRouter). At startup, validate all configured providers are reachable; log warnings if backup providers fail, enabling early detection of failover chain issues.",
-      "acceptanceCriteria": [
-        "Startup validates: primary provider connectivity, backup provider availability, fallback order in settings",
-        "Each provider probe includes timeout (2 sec), logs provider availability state (ready/degraded/unavailable)",
-        "If all providers unavailable, startup logs critical error and sets system to read-only mode",
-        "Admin endpoint /admin/system/providers shows real-time provider health + failover order"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/ai-providers.ts — add validateProviderChain() that probes each provider config",
-        "File to edit: src/index.ts — call validateProviderChain() before starting server; log results",
-        "Test command: npm run test -- src/assistant/__tests__/latency-failover.test.ts -v"
-      ],
-      "dependencies": [
-        "AI provider SDKs (groq, axios for HTTP probes already in deps)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-179",
-      "title": "Add admin API token expiration and refresh enforcement with revocation list",
-      "priority": "medium",
-      "description": "Admin API currently uses long-lived tokens. Implement token expiration (default 1 hour), refresh mechanism (rolling window), and revocation list for immediate logouts and security incidents.",
-      "acceptanceCriteria": [
-        "Admin tokens include exp claim (1 hour); verify exp on every request, reject expired tokens with 401",
-        "Refresh endpoint /admin/token/refresh returns new access token + refresh token (7-day exp)",
-        "Admin logout endpoint /admin/logout adds token to revocation Redis set (TTL = remaining exp time)",
-        "Tests verify: expired token rejected, refresh extends window, revoked token blocked, refresh token lifecycle"
-      ],
-      "technicalNotes": [
-        "File to edit: src/routes/admin/auth.ts — modify verifyAdminToken middleware to check exp + revocation list (Redis key admin:revoked:{token_jti})",
-        "File to edit: src/routes/admin/auth.ts — add POST /token/refresh and POST /logout endpoints",
-        "Test command: npm run test -- src/assistant/__tests__/rbac.test.ts -t 'token.*expir' -v"
-      ],
-      "dependencies": [
-        "JWT library (should already be in use)",
-        "ioredis (already in deps)"
-      ],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
       "id": "US-157",
       "title": "Implement automated data retention policy enforcement via cron",
       "priority": "critical",
@@ -947,6 +642,81 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-098",
+      "title": "Build per-profile intent classifier baseline accuracy tracker",
+      "priority": "high",
+      "description": "Track intent classification accuracy separately for each business profile (Pelangi, Southern, Makan) to detect profile-specific classifier degradation and performance regressions",
+      "acceptanceCriteria": [
+        "Create intent_classifier_baselines table with columns: profile_id, intent_type, accuracy_pct, sample_count, baseline_date",
+        "New CLI command npm run analytics:classifier-baseline compares current accuracy vs stored baseline per intent per profile and outputs delta report",
+        "Unit test validates accuracy calculation on 100-message test set with ground-truth labels, verifying per-profile isolation (Pelangi accuracy independent from Southern)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T00:45:03Z",
+      "_antiPatterns": [
+        "story_incomplete"
+      ]
+    },
+    {
+      "id": "US-103",
+      "title": "Add room-type specific booking intent classification for Pelangi Capsule",
+      "priority": "high",
+      "description": "Improve booking intent accuracy by adding room-type variant keywords (single, double, family, dorm) to distinguish between room-specific booking requests and general inquiries.",
+      "acceptanceCriteria": [
+        "Add room-type keyword variants to src/assistant/data/intent-keywords.json under booking_intent for Pelangi profile only: single room, double room, family room, dorm room, twin bed",
+        "Add test in tests/classifier.test.ts verifying messages 'I want to book a double room' and 'family room availability' classify as booking_intent with confidence >= 0.85",
+        "Add validation in tests/profile-validation.test.ts asserting room-type keywords (single, double, family, dorm) appear ONLY in booking_intent across all profiles, never in inquiry_intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-104",
+      "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
+      "priority": "high",
+      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
+      "acceptanceCriteria": [
+        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
+        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
+        "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_decomposedFrom": "US-061"
+    },
+    {
+      "id": "US-105",
+      "title": "Add context-aware fallback response selection based on confidence and conversation history",
+      "priority": "high",
+      "description": "Replace generic fallback responses with context-aware selection based on intent confidence score, conversation length, and repeated fallback count to provide helpful clarification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/fallback-responses.json with templates keyed by context: {first_fallback, repeated_fallback, escalation_offer}; add selection logic in src/assistant/engine.ts: if (confidence < 0.5 && turn_count < 3) use first_fallback; else if (fallback_count > 1) use escalation_offer",
+        "Add test in tests/fallback.test.ts asserting low-confidence message (0.3 score) with 2 prior messages returns first_fallback template containing 'Could you clarify', while confidence 0.2 with fallback_count=2 returns escalation_offer template containing 'speak with staff'",
+        "Add getFallbackResponse(confidence, conversationLength, fallbackCount) function in src/assistant/engine.ts returning {template, escalation_flag}; verify escalation_flag prevents infinite fallback loops"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposedFrom": "US-061"
     },
     {
       "id": "US-102",
