@@ -47,41 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-223",
-      "title": "Knowledge Base Content Validator with Profile Isolation Enforcement",
-      "priority": "high",
-      "description": "Implement startup validation that ensures knowledge.json files contain only profile-specific content with no cross-profile contamination. Detects Pelangi-specific phrases appearing in Makan or Southern profiles and enforces required fields, preventing stale content from being served.",
-      "acceptanceCriteria": [
-        "Create src/lib/validate-knowledge-base.ts called on server startup that loads all profile knowledge.json files and validates each entry has required fields: id, intent, profile_id, response (non-empty, length > 5 chars)",
-        "Tool detects Pelangi-specific phrases (hostel, check-in, room_type, capsule) in data-makan and data-southern knowledge files and logs violations with file path and corrective action",
-        "Startup fails with clear error message if critical violations found (missing profile_id field); logs warnings for non-critical issues (e.g., empty response descriptions) without blocking"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T11:29:54Z"
-    },
-    {
-      "id": "US-224",
-      "title": "Booking Confirmation Pre-flight Checklist with Detailed Violation Report",
-      "priority": "high",
-      "description": "Add admin endpoint that validates a booking against all business rules before confirmation: guest existence, room availability, date validity, no schedule conflicts, pricing accuracy. Returns detailed violation report with impact levels and suggested corrections to prevent booking errors.",
-      "acceptanceCriteria": [
-        "Create src/routes/admin/booking-preflight.ts with POST /admin/bookings/preflight?booking_id= endpoint returning { passed: bool, violations: [], warnings: [], estimated_revenue: number }",
-        "Validation checks: guest exists in database, selected room_type is valid for profile, check_in date is not in past, no overlapping bookings exist, guest age/profile restrictions met, pricing matches current rate card",
-        "For each violation, endpoint logs: violation_type (string), description (string), impact_level ('critical'|'warning'), suggested_fix (string); example: { violation_type: 'past_date', description: 'Check-in date 2026-03-20 is in past', impact_level: 'critical', suggested_fix: 'Select check-in date 2026-03-24 or later' }"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-226",
       "title": "Booking Intent Classification Failure Logger with Recovery Suggestions",
       "priority": "high",
@@ -96,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T12:04:53Z"
     },
     {
       "id": "US-227",
@@ -424,6 +390,124 @@
       "model": "haiku"
     },
     {
+      "id": "US-301",
+      "title": "Define violation schema and validation helpers",
+      "priority": "high",
+      "description": "Create TypeScript types and utility functions for violation reporting. Establish interfaces for Violation objects and the preflight response structure, then implement helper functions to generate violations and format reports.",
+      "acceptanceCriteria": [
+        "Create Violation interface: { violation_type: string, description: string, impact_level: 'critical'|'warning', suggested_fix: string }",
+        "Create preflight response interface: { passed: boolean, violations: Violation[], warnings: Violation[], estimated_revenue: number }",
+        "Implement helper functions: createViolation(type, desc, level, fix), separateByLevel(violations)"
+      ],
+      "technicalNotes": [
+        "Define types in src/types/validation.ts or src/assistant/schemas.ts",
+        "Helpers in src/lib/validation-helpers.ts",
+        "Export for use in Stories 2-4"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_decomposedFrom": "US-224",
+      "model": "haiku"
+    },
+    {
+      "id": "US-305",
+      "title": "Intent Keyword Conflict Scanner CLI with Cross-Intent Detection",
+      "priority": "high",
+      "description": "Detect same keywords appearing in multiple intents within a profile, creating classifier ambiguity. CLI reports conflicts and suggests removal from lower-priority intent.",
+      "acceptanceCriteria": [
+        "Add CLI command `npm run lint:intent-keywords` scanning all profile `intent-keywords.json` files in `src/assistant/data/`",
+        "Report format: CONFLICT: keyword \"booking\" appears in [booking_request, booking_inquiry] in profile data-pelangi (remove from booking_inquiry to disambiguate)",
+        "Add test in `src/__tests__/intent-keyword-lint.test.ts`: fixture with duplicate keywords, assert detection and exit code 1"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-302",
+      "title": "Implement guest and room validation checks",
+      "priority": "high",
+      "description": "Build validation functions to verify guest existence, validate room type for the guest's profile, and check age/profile restrictions against room requirements.",
+      "acceptanceCriteria": [
+        "Implement validateGuestExists(guest_id) — query database, return violation if not found",
+        "Implement validateRoomTypeValid(guest_id, room_type) — check profile supports room type",
+        "Implement validateGuestRestrictions(guest_id, room_type) — verify age/profile restrictions",
+        "All functions return Violation[] (empty if valid)"
+      ],
+      "technicalNotes": [
+        "Use Drizzle ORM to query guests/profiles tables",
+        "Use violation helpers from Story 1",
+        "Add suggested_fix for each violation (e.g. 'Select room type X instead')",
+        "Export functions for Story 4 integration"
+      ],
+      "dependencies": [
+        "US-301"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_decomposedFrom": "US-224",
+      "model": "haiku"
+    },
+    {
+      "id": "US-303",
+      "title": "Implement date and booking conflict checks",
+      "priority": "high",
+      "description": "Create validation functions to ensure check-in date is not in the past and detect overlapping or conflicting bookings on the same room.",
+      "acceptanceCriteria": [
+        "Implement validateCheckInDate(check_in_date) — reject dates in past, return violation if invalid",
+        "Implement validateNoOverlapBookings(room_id, check_in, check_out) — query bookings table for conflicts",
+        "Return detailed violation with suggested alternative dates when overlap detected",
+        "All functions return Violation[] (empty if valid)"
+      ],
+      "technicalNotes": [
+        "Compare check_in_date against new Date() for past detection",
+        "Query bookings where room_id matches AND date ranges overlap",
+        "Overlap logic: existing.check_in < new.check_out AND existing.check_out > new.check_in",
+        "Use Drizzle ORM for queries",
+        "Use violation helpers from Story 1"
+      ],
+      "dependencies": [
+        "US-302"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_decomposedFrom": "US-224",
+      "model": "haiku"
+    },
+    {
+      "id": "US-304",
+      "title": "Create preflight endpoint and integrate all checks",
+      "priority": "high",
+      "description": "Build the POST /admin/bookings/preflight endpoint that orchestrates all validation functions, calculates estimated revenue, and returns the complete preflight report.",
+      "acceptanceCriteria": [
+        "Create POST /admin/bookings/preflight?booking_id= endpoint in src/routes/admin/booking-preflight.ts",
+        "Call all validation functions from Stories 2-3 in sequence",
+        "Query rate card and calculate estimated_revenue for the booking",
+        "Separate violations (critical) from warnings (other impact levels)",
+        "Return { passed: boolean, violations: [], warnings: [], estimated_revenue: number } with passed=true only if violations is empty"
+      ],
+      "technicalNotes": [
+        "Import validation functions from Stories 2-3",
+        "Import helpers from Story 1",
+        "Fetch booking record by booking_id and validate it exists",
+        "Collect all violations from each validation function",
+        "Filter by impact_level to separate violations vs warnings",
+        "Query rate_cards table to calculate estimated_revenue",
+        "Follow existing Express patterns in src/routes/admin/*"
+      ],
+      "dependencies": [
+        "US-303"
+      ],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_decomposedFrom": "US-224",
+      "model": "haiku"
+    },
+    {
       "id": "US-293",
       "title": "Implement concurrent intent classification batch inferencing for 20% latency reduction",
       "priority": "medium",
@@ -503,6 +587,40 @@
         "Database table `fallback_response_metrics` stores: profile_id, template_id, escalation_count, resolution_count, timestamp; endpoint GET /api/admin/fallback-analysis/:profile calculates effectiveness ratio per template",
         "Fallback templates with <60% resolution rate (resolution_count / (escalation_count + resolution_count)) flagged as low-quality in admin response with recommended replacements",
         "Integration test verifies metrics recorded when fallback returned and escalation followed, then resolution endpoint confirms metric update"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-306",
+      "title": "Multi-Intent Confidence Comparison for Ambiguous Queries",
+      "priority": "medium",
+      "description": "When top-2 classified intents have similar confidence scores (diff <5%), log to tracking table for QA review. Helps identify classifier ambiguities and gaps in intent definitions.",
+      "acceptanceCriteria": [
+        "Create `ambiguous_intents` table: id, profile, input_message, top_intent, top_score, second_intent, second_score, created_at",
+        "Update classifier in `src/assistant/classifier.ts` to detect confidence diff <5% and insert ambiguous query into DB",
+        "Add admin endpoint GET `/api/admin/ambiguous-intents?profile=data-pelangi&days=7` returning grouped ambiguous queries with confidence pairs"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-307",
+      "title": "Conversation Context Truncation Logger with Profile Metrics",
+      "priority": "medium",
+      "description": "Log and track when conversations exceed context window limits. Identifies which profiles and intents generate longer multi-turn dialogues needing larger context windows.",
+      "acceptanceCriteria": [
+        "Log WARN in `src/assistant/pipeline/context-manager.ts` when turns exceed CONTEXT_WINDOW_SIZE (10), including profile, intent, turn_count",
+        "Add Prometheus counter `conversation_context_truncations_total` with labels for profile and intent",
+        "Add integration test in `src/assistant/__tests__/context-truncation.test.ts`: create 12-turn conversation, assert WARN log emitted and metric incremented"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -779,6 +897,48 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-223",
+      "title": "Knowledge Base Content Validator with Profile Isolation Enforcement",
+      "priority": "high",
+      "description": "Implement startup validation that ensures knowledge.json files contain only profile-specific content with no cross-profile contamination. Detects Pelangi-specific phrases appearing in Makan or Southern profiles and enforces required fields, preventing stale content from being served.",
+      "acceptanceCriteria": [
+        "Create src/lib/validate-knowledge-base.ts called on server startup that loads all profile knowledge.json files and validates each entry has required fields: id, intent, profile_id, response (non-empty, length > 5 chars)",
+        "Tool detects Pelangi-specific phrases (hostel, check-in, room_type, capsule) in data-makan and data-southern knowledge files and logs violations with file path and corrective action",
+        "Startup fails with clear error message if critical violations found (missing profile_id field); logs warnings for non-critical issues (e.g., empty response descriptions) without blocking"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T11:29:54Z"
+    },
+    {
+      "id": "US-224",
+      "title": "Booking Confirmation Pre-flight Checklist with Detailed Violation Report",
+      "priority": "high",
+      "description": "Add admin endpoint that validates a booking against all business rules before confirmation: guest existence, room availability, date validity, no schedule conflicts, pricing accuracy. Returns detailed violation report with impact levels and suggested corrections to prevent booking errors.",
+      "acceptanceCriteria": [
+        "Create src/routes/admin/booking-preflight.ts with POST /admin/bookings/preflight?booking_id= endpoint returning { passed: bool, violations: [], warnings: [], estimated_revenue: number }",
+        "Validation checks: guest exists in database, selected room_type is valid for profile, check_in date is not in past, no overlapping bookings exist, guest age/profile restrictions met, pricing matches current rate card",
+        "For each violation, endpoint logs: violation_type (string), description (string), impact_level ('critical'|'warning'), suggested_fix (string); example: { violation_type: 'past_date', description: 'Check-in date 2026-03-20 is in past', impact_level: 'critical', suggested_fix: 'Select check-in date 2026-03-24 or later' }"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_decomposed": true,
+      "_decomposedInto": [
+        "US-301",
+        "US-302",
+        "US-303",
+        "US-304"
+      ]
     },
     {
       "id": "US-274",
