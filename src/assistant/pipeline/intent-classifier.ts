@@ -27,6 +27,7 @@ import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics } from '../../../shared/schema-tables.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
+import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -116,6 +117,17 @@ export async function classifyAndRoute(
   devMetadata.model = result.model;
   devMetadata.responseTime = result.responseTime;
   devMetadata.usage = result.usage;
+
+  // ─── US-119: Store language preference from first non-greeting message ───
+  const isFirstMessage = convo.messages.length === 0;
+  const isGreeting = isFirstMessage || isGreetingMessage(state.processText, convo.messages.length);
+  const storedPreference = await getConversationPreferredLanguage(phone);
+
+  if (!isGreeting && !storedPreference && lang && lang !== 'unknown') {
+    // First non-greeting message and no stored preference → store detected language
+    await setConversationPreferredLanguage(phone, lang);
+    console.log(`[LangPref] Stored preferred language "${lang}" for ${phone.slice(-4)}`);
+  }
 
   // ─── Stage 4: Layer 2 Fallback ────────────────────────────────────
   result = await applyLayer2Fallback(

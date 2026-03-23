@@ -5,6 +5,8 @@ import { enhanceWorkflowStep, WorkflowEnhancerContext } from './workflow-enhance
 import { callAPI as httpClientCallAPI } from '../lib/http-client.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { executeWorkflowInTransaction, logTransactionMetrics, type TransactionMetrics } from './pipeline/workflow-transaction-handler.js';
+import { executeWithTimeout, WorkflowTimeoutError, logTimeoutFailure } from './workflow-timeout-handler.js';
+import { logMessage } from './conversation-logger.js';
 import type {
   HybridWorkflowDefinition, WorkflowNode, NodeWorkflowState,
   MessageNodeConfig, WaitReplyNodeConfig, WhatsAppSendNodeConfig,
@@ -358,12 +360,19 @@ export async function executeWorkflowStep(
       instanceId
     };
 
+    // US-120: Apply timeout to step execution
+    const maxDurationMs = (currentStep as any).max_duration_ms || 30000;
+
     try {
-      const enhanced = await enhanceWorkflowStep(
-        currentStep,
-        enhancerContext,
-        callAPIWrapper,
-        sendMessageFn
+      const enhanced = await executeWithTimeout(
+        () => enhanceWorkflowStep(
+          currentStep,
+          enhancerContext,
+          callAPIWrapper,
+          sendMessageFn!
+        ),
+        currentStep.id,
+        maxDurationMs
       );
 
       response = enhanced.message; // Use enhanced message
@@ -373,6 +382,51 @@ export async function executeWorkflowStep(
         console.log(`[WorkflowExecutor] Step ${currentStep.id} metadata:`, enhanced.metadata);
       }
     } catch (error) {
+      // US-120: Handle timeout with escalation
+      if (error instanceof WorkflowTimeoutError) {
+        console.error(`[WorkflowExecutor] US-120: Step timeout:`, error.message);
+
+        // Log escalation event to rainbow_messages
+        try {
+          const failureLog = logTimeoutFailure(
+            currentStep.id,
+            error.maxDurationMs,
+            error.actualDurationMs,
+            state.workflowId,
+            context.profileId
+          );
+
+          await logMessage(
+            phone,
+            pushName || 'Guest',
+            'assistant',
+            getTimeoutEscalationMessage(language),
+            {
+              messageType: 'escalation',
+              workflowId: state.workflowId,
+              stepId: currentStep.id,
+              action: 'timeout_escalation',
+              profileId: context.profileId,
+              // Store timeout details in the message metadata
+              source: 'workflow_timeout',
+              ...(failureLog as any)
+            }
+          );
+        } catch (logErr) {
+          console.error(`[WorkflowExecutor] US-120: Failed to log timeout event:`, logErr);
+        }
+
+        // Return escalation response and complete workflow
+        return {
+          response: getTimeoutEscalationMessage(language),
+          newState: null, // Complete the workflow
+          shouldForward: true, // Escalate to staff
+          workflowId: state.workflowId,
+          stepId: currentStep.id
+        };
+      }
+
+      // Handle other errors with graceful degradation
       console.error(`[WorkflowExecutor] Failed to enhance step ${currentStep.id}:`, error);
       // Continue with original message on error (graceful degradation)
     }
@@ -566,6 +620,9 @@ async function executeNodeWorkflowStep(
       case 'pelangi_api': {
         const config = node.config as PelangiApiNodeConfig;
 
+        // US-120: Apply timeout to node execution
+        const maxDurationMs = (node as any).max_duration_ms || 30000;
+
         try {
           // Use workflow enhancer context to call the API action
           const enhancerCtx: WorkflowEnhancerContext = {
@@ -587,11 +644,15 @@ async function executeNodeWorkflowStep(
             action: { type: config.action, params: config.params },
           };
 
-          const enhanced = await enhanceWorkflowStep(
-            syntheticStep,
-            enhancerCtx,
-            callAPIWrapper,
-            sendMessageFn!
+          const enhanced = await executeWithTimeout(
+            () => enhanceWorkflowStep(
+              syntheticStep,
+              enhancerCtx,
+              callAPIWrapper,
+              sendMessageFn!
+            ),
+            node.id,
+            maxDurationMs
           );
 
           // Store API outputs for downstream nodes
@@ -613,6 +674,51 @@ async function executeNodeWorkflowStep(
 
           state.currentNodeId = getNextNodeId(node, true);
         } catch (err) {
+          // US-120: Handle timeout with escalation
+          if (err instanceof WorkflowTimeoutError) {
+            console.error(`[NodeExecutor] US-120: Node timeout:`, err.message);
+
+            // Log escalation event
+            try {
+              const failureLog = logTimeoutFailure(
+                node.id,
+                err.maxDurationMs,
+                err.actualDurationMs,
+                state.workflowId
+              );
+
+              if (phone) {
+                await logMessage(
+                  phone,
+                  pushName || 'Guest',
+                  'assistant',
+                  getTimeoutEscalationMessage(language),
+                  {
+                    messageType: 'escalation',
+                    workflowId: state.workflowId,
+                    stepId: node.id,
+                    action: 'timeout_escalation',
+                    source: 'workflow_timeout',
+                    ...(failureLog as any)
+                  }
+                );
+              }
+            } catch (logErr) {
+              console.error(`[NodeExecutor] US-120: Failed to log timeout event:`, logErr);
+            }
+
+            // Return escalation and end workflow
+            responseParts.push(getTimeoutEscalationMessage(language));
+            return {
+              response: responseParts.join('\n\n'),
+              newState: null, // Complete workflow
+              shouldForward: true, // Escalate to staff
+              workflowId: state.workflowId,
+              stepId: node.id
+            };
+          }
+
+          // Handle other errors
           console.error(`[NodeExecutor] pelangi_api failed:`, err);
           nodeOutputs['apiError'] = err instanceof Error ? err.message : 'Unknown error';
 
@@ -791,6 +897,23 @@ export function hasAutoAdvanceSteps(workflow: WorkflowDefinition, fromIndex: num
     }
   }
   return true;
+}
+
+// ============================================================================
+// US-120: Timeout Escalation Message
+// ============================================================================
+
+/**
+ * Returns a localized escalation message when a workflow step times out.
+ * Includes information about contacting staff for manual assistance.
+ */
+function getTimeoutEscalationMessage(language: string): string {
+  const messages: Record<string, string> = {
+    en: 'Sorry, something took too long to process. Our team will handle your request manually. Please stand by.',
+    ms: 'Maaf, sesuatu mengambil terlalu lama untuk diproses. Tim kami akan mengendalikan permintaan anda secara manual. Sila tunggu.',
+    zh: '抱歉，处理过程花了太长时间。我们的团队将手动处理您的请求。请稍候。'
+  };
+  return messages[language] || messages.en;
 }
 
 // ============================================================================

@@ -12,6 +12,8 @@
 import type { IPipelineContext } from '../pipeline-context.js';
 import type { PipelineState, DevMetadata } from '../types.js';
 import type { ChatMessage } from '../../types.js';
+import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../../conversation-language-preference.js';
+import type { SupportedLanguage } from '../../language-router.js';
 
 export interface ClassificationResult {
   intent: string;
@@ -97,16 +99,30 @@ async function sendTypingIndicatorIfEnabled(
  * Fast tiers (regex/fuzzy/semantic) try to classify without LLM.
  * If a fast tier matches but the action requires a reply, generate one with LLM.
  * If no fast tier matches, fall through to full LLM classify+respond.
+ *
+ * US-119: Loads and uses conversation-level language preference for consistent intent classification.
  */
 async function classifyTieredPipeline(
   input: ClassificationInput,
   context: IPipelineContext,
   clearAckTimer: () => void
 ): Promise<ClassificationResult> {
-  const { processText, contextMessages, systemPrompt, lastIntent, devMetadata } = input;
+  const { processText, contextMessages, systemPrompt, lastIntent, devMetadata, phone } = input;
 
   const startTime = Date.now();
-  const tierResult = await context.classifyMessageWithContext(processText, contextMessages, lastIntent);
+
+  // US-119: Load conversation's preferred language for keyword matching
+  let preferredLanguage: SupportedLanguage | undefined;
+  if (phone) {
+    preferredLanguage = await getConversationPreferredLanguage(phone);
+  }
+
+  const tierResult = await (context.classifyMessageWithContext as any)(
+    processText,
+    contextMessages,
+    lastIntent,
+    preferredLanguage
+  );
   const classifyTime = Date.now() - startTime;
 
   const routingConfig = context.getRouting();

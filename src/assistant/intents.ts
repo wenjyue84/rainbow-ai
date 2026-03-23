@@ -83,11 +83,17 @@ export async function initIntents(): Promise<void> {
  * 2. Fuzzy keyword matching with context - fast path (<5ms)
  * 3. Semantic similarity with context - medium path (50-200ms)
  * 4. LLM classification with configurable context - fallback for complex queries
+ *
+ * @param text - User message text
+ * @param history - Previous messages for context
+ * @param lastIntent - Last detected intent
+ * @param preferredLanguage - Stored language preference from conversation metadata (US-119)
  */
 export async function classifyMessageWithContext(
   text: string,
   history: ChatMessage[] = [],
-  lastIntent: string | null = null
+  lastIntent: string | null = null,
+  preferredLanguage?: string
 ): Promise<IntentResult> {
   const config = getIntentConfig();
 
@@ -95,7 +101,12 @@ export async function classifyMessageWithContext(
   const detectedLang = languageRouter.detectLanguage(text);
   const langName = languageRouter.getLanguageName(detectedLang);
 
-  console.log(`[Intent] 🌍 Language: ${langName} (${detectedLang})`);
+  // US-119: Use preferred language if available, otherwise use detected language
+  const effectiveLang = (preferredLanguage && (preferredLanguage as any) !== 'unknown')
+    ? (preferredLanguage as any)
+    : detectedLang;
+
+  console.log(`[Intent] 🌍 Language: ${langName} (${detectedLang})${preferredLanguage ? ` [preferred: ${preferredLanguage}]` : ''}`);
 
   // US-062: Mandarin classifier — when zh detected, route through
   // language-filtered fuzzy match with Mandarin keyword variants
@@ -147,11 +158,12 @@ export async function classifyMessageWithContext(
   }
 
   // TIER 2: Fuzzy keyword matching WITH CONTEXT
+  // US-119: Use effective language (preferred or detected) for keyword filtering
   let fuzzyHighConfidenceResult: IntentResult | null = null;
   if (config.tiers.tier2_fuzzy.enabled && fuzzyMatcher) {
     const contextSize = config.tiers.tier2_fuzzy.contextMessages;
     const context = history.slice(-contextSize);
-    const languageFilter = detectedLang !== 'unknown' ? detectedLang : undefined;
+    const languageFilter = effectiveLang !== 'unknown' ? effectiveLang : undefined;
 
     const fuzzyResult = fuzzyMatcher.matchWithContext(
       processedText,

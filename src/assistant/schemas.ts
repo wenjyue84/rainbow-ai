@@ -196,6 +196,7 @@ export const workflowStepSchema = z.object({
     outcomes: z.record(z.string(), z.string()),
     defaultNextId: z.string(),
   }).optional(),
+  max_duration_ms: z.number().int().min(1000).optional(), // US-120: timeout duration (default 30000ms)
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 
@@ -210,6 +211,7 @@ export const workflowNodeSchema = z.object({
     z.object({ success: z.string(), error: z.string().optional() }),
   ]).optional(),
   outputs: z.record(z.string(), z.string()).optional(),
+  max_duration_ms: z.number().int().min(1000).optional(), // US-120: timeout duration (default 30000ms)
 });
 
 export const workflowDefinitionSchema = z.object({
