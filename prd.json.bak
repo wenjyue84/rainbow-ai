@@ -62,7 +62,10 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T00:45:03Z"
+      "last_attempted": "2026-03-23T00:45:03Z",
+      "_antiPatterns": [
+        "story_incomplete"
+      ]
     },
     {
       "id": "US-102",
@@ -77,7 +80,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -394,6 +397,91 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "research",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-167",
+      "title": "Create knowledge base modification validator with 30-day staleness detection and admin alerts",
+      "priority": "high",
+      "description": "Audit all markdown files in .rainbow-kb/ and .rainbow-kb-southern/ directories for modification dates; alert administrators via dashboard endpoint if any knowledge base file unchanged for 30+ days, preventing outdated information from being served to guests",
+      "acceptanceCriteria": [
+        "Create src/tools/kb-staleness-detector.ts with detectStaleKBFiles(profileId, staleDaysThreshold = 30) returning list of files with last-modified timestamps and days-since-modification",
+        "Add admin endpoint GET /api/admin/kb-staleness?profile=data-pelangi&threshold=30 returning JSON with filename, last_modified_date, days_since_modified, status (fresh|stale)",
+        "Test: npm run test:run -- kb-staleness.test.ts passes with 5 test cases covering: files < 30 days old marked fresh, files > 30 days marked stale, different profiles isolated, invalid profile paths handled gracefully"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-168",
+      "title": "Add booking workflow cancellation refund calculator with guest credit tracking",
+      "priority": "medium",
+      "description": "Calculate refund amounts for cancellations based on cancellation policy (% refund by days-before-checkin), store credit for future bookings, update guest account balance in database",
+      "acceptanceCriteria": [
+        "Add `calculateCancellationRefund(bookingId, cancellationDaysBeforeCheckin)` in src/assistant/pipeline/booking.ts returning refund amount and applicable policy rule; 0-3 days = 0%, 4-7 days = 50%, 7+ days = 100%",
+        "Implement refund action in src/assistant/data/workflows.json booking_cancellation workflow that updates guest.credit_balance after refund calculation",
+        "Test: npm run test:run -- booking-refund.test.ts passes with 4 test cases covering no-refund, partial-refund, full-refund, and credit-balance-update scenarios"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-169",
+      "title": "Implement guest preference learning from booking history to personalize booking suggestions",
+      "priority": "medium",
+      "description": "Track guest's room type preferences, check-in timing, and stay-length patterns from completed bookings; surface personalized suggestions in subsequent interactions to improve response quality and booking completion rates",
+      "acceptanceCriteria": [
+        "Add guest_preferences table with columns: guest_id, preferred_room_type, avg_stay_length_days, preferred_checkin_hour, preference_confidence (0-1), profile_id",
+        "After successful booking, call updateGuestPreferences(guestId, bookingDetails) in src/assistant/pipeline/booking.ts using exponential moving average with 0.7 weight to historical preference",
+        "Test: npm run test:run -- guest-preferences.test.ts passes verifying: first booking sets baseline confidence 0.5, second booking updates confidence to 0.75, preferences under 0.3 confidence don't override bot suggestions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-170",
+      "title": "Add per-intent booking workflow success rate tracking with automated low-performer flagging",
+      "priority": "medium",
+      "description": "Track booking completion and abandonment rates per intent route to identify low-performing intents; automatically flag intents with < 75% success rate for retraining and fallback improvement",
+      "acceptanceCriteria": [
+        "Add intent_booking_metrics table with columns: intent_id, profile_id, completed_count, abandoned_count, last_30d_success_rate (%), last_updated, status (performing|flagged)",
+        "In src/assistant/pipeline/booking.ts, implement recordBookingOutcome(intentId, profileId, outcome: 'completed'|'abandoned') that increments counters and recalculates rolling success rate",
+        "Dashboard endpoint GET /api/admin/booking-success-rates?profile=data-pelangi&threshold=75 returns intent list sorted by success_rate with red flag for intents below 75%; test with npm run test:run -- booking-metrics.test.ts verifying rate calculations and threshold flagging"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-171",
+      "title": "Implement fallback response A/B testing for low-confidence intent escalations with variant selection",
+      "priority": "medium",
+      "description": "When AI confidence is below 0.4, randomly serve fallback response variant A or B; track escalation rates for each variant and automatically select the better-performing variant after 100 sample threshold to improve response quality",
+      "acceptanceCriteria": [
+        "Add fallback_variant_experiment table with columns: experiment_id, intent_id, profile_id, variant_a_text, variant_b_text, variant_a_escalation_count, variant_b_escalation_count, variant_a_total_served, variant_b_total_served, winner, sample_threshold",
+        "In src/assistant/pipeline/confidence-gating.ts, implement selectFallbackVariant(intentId, profileId, confidenceThreshold=0.4) that randomly assigns variant (50/50), tracks served count, and returns variant_text based on winner when threshold reached",
+        "Test: npm run test:run -- fallback-ab-test.test.ts passes with 6 test cases covering: random variant selection at low confidence, escalation tracking per variant, winner determination at 100+ samples, conversation_feedback integration, variant text returned correctly"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
       "model": "sonnet"
     },
     {
