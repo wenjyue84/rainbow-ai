@@ -346,88 +346,6 @@ Here is a technical brief based on the **actual technology stack** described in 
 
 
 ## Pre-analysis for US-217 (Gemini 2.5 Pro)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-This user story (US-217) describes a task for a TypeScript/Node.js project, not a Frappe/Python one. The file paths (`.ts`, `.json`) and libraries (Vitest, Drizzle implied) referenced in the story belong to the `rainbow-ai` project structure.
-
-Here is the technical brief for that TypeScript project:
-
-**Project:** Rainbow AI (Node.js/TypeScript)
-**User Story:** US-217 - Booking Cancellation Workflow Test Suite
-
-**1. Files to Modify/Create:**
-*   **Primary Target (New):** `src/tests/workflows/booking-cancellation.integration.test.ts`
-*   **Core Logic (Reference/Debug):** `src/lib/workflow-executor.ts`
-*   **Workflow Definition (Reference):** `src/assistant/data/workflows.json`
-*   **DB Schema (Reference):** Files related to the `workflow_audit` table, likely using Drizzle ORM.
-
-**2. Key Components Involved:**
-*   **Workflow Engine:** The state machine defined in `workflow-executor.ts`.
-*   **Configuration:** The `booking_cancellation_workflow` definition in `workflows.json`.
-*   **Database Tables:** `bookings`, `credits`, `profiles`, and especially `workflow_audit`.
-*   **Testing Framework:** Vitest (inferred from `vitest.config.ts`).
-
-**3. Implementation Approach:**
-*   Develop integration tests in the new `...test.ts` file.
-*   Programmatically set up initial DB state for each scenario (e.g., create booking, set profile).
-*   Invoke the cancellation workflow via the `WorkflowExecutor` service.
-*   Assert on final DB state: booking status, credit calculations, and `workflow_audit` log entries.
-*   Use database transactions to isolate test cases.
-
-**4. Edge Cases & Gotchas:**
-*   **Profile-Specific Policies:** Cancellation rules differ for "Pelangi", "Makan", and "Southern" profiles. Each requires a dedicated test.
-*   **Transactional Integrity:** Ensure tests verify that failed workflow executions result in a full database rollback.
-*   **Concurrency:** Consider the system's behavior if a booking is modified while the cancellation workflow is running.
-
-
-## Iteration N - Story: US-278 Remove Pelangi Hostel Keywords from Makan Moments Intent-Keywords File
-
-### What was implemented
-- Added `intentKeywordEntrySchema` and `intentKeywordsDataSchema` to `src/assistant/schemas.ts`
-- Added `intent-keywords.json` to the CONFIG_SCHEMAS registry
-- Created `scripts/clean-makan-keywords.ts` — a CLI tool that:
-  - Scans `src/assistant/data-makan/intent-keywords.json` for hostel-specific keywords (blocklist-based)
-  - Reports all contaminated entries with intent/lang context
-  - Removes 18 hostel keywords from 8 intent/lang pairs in dry-run or --write mode
-  - Validates the cleaned file against Zod schema before writing
-- Added `clean:makan-keywords` npm script
-- Cleaned `data-makan/intent-keywords.json`: removed 18 hostel keywords (berapa harga satu malam, amenities, house rules, quiet hours, etc.)
-
-### Patterns discovered
-- `data-makan/` is a full profile-specific data directory (mirrors `data/` structure)
-- On Windows, atomic rename (fs.renameSync) can fail with EPERM; use direct writeFileSync instead
-- The blocklist approach (substring match) catches multi-language variants efficiently
-
-### Gotchas
-- `prd.json` must be read with `encoding='utf-8'` on Windows (contains non-ASCII characters)
-- The story referenced `src/assistant/data/data-makan/` but the real path is `src/assistant/data-makan/`
-
-
-## Iteration N - Story: US-217 Booking Workflow Cancellation State Machine Test Suite
-### What was implemented
-- Created `src/tests/workflows/booking-cancellation.integration.test.ts` with 10 test cases
-- Tests cover: guest decline, invalid date, advance/same-day cancellation, admin-initiated, profile mismatch, state consistency, multilingual, admin notification, cancel keyword mid-flow
-- Mocked: config-store, conversation-logger, workflow-profiler, admin-notifier, lib/config
-- All 10 tests pass; build succeeds
-
-### Patterns discovered
-- `process_booking_cancellation` uses node-based format; `createWorkflowState` auto-detects this and sets `isNodeBased=true`, `currentNodeId='confirm_cancellation'`
-- The `function` node type (calculate_credit) is unhandled in executor — falls to default/unknown, advances to next node
-- `convertRawPhonesToLinks` transforms phone numbers to wa.me URLs in outgoing messages
-- Dynamic imports (conversation-logger, date-normalizer) are intercepted by `vi.mock`
-
-### Gotchas
-- vi.mock must be declared before imports (hoisted by Vitest)
-- configStore singleton needs `vi.spyOn` on `getWorkflows()` and `getWorkflow()` since it's not initialized in tests
-- Profile mismatch check in executor requires workflow to have a `profileId` field
-## Iteration 1 - Mon Mar 23 19:17:11 MPST 2026
-FAILED diagnosis-block gate: Booking Workflow Cancellation State Machine Test Suite (ID: US-217) — no diagnosis block found — attempt 1/3
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 Based on the user story JSON, here is a technical brief for the engineering team.
 
 ***
@@ -458,11 +376,4 @@ This task involves creating a new integration test suite, not modifying existing
 *   **Profile-Specific Policies:** The cancellation logic branches based on the profile ("Pelangi", "Makan", "Southern"). Tests must validate the unique outcomes for each profile.
 *   **Transactional Rollbacks:** Create a test that intentionally fails mid-workflow to ensure all associated database changes are correctly rolled back, as stipulated in the acceptance criteria.
 *   **State Consistency:** Verify that the booking record, credit ledger, and audit logs are all perfectly synchronized after a workflow completes or fails.
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 

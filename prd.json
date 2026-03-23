@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-217",
-      "title": "Booking Workflow Cancellation State Machine Test Suite",
-      "priority": "high",
-      "description": "Comprehensive integration tests for the booking cancellation workflow covering state transitions, credit calculations, confirmation message routing, and profile-specific cancellation policies. Ensure workflow execution respects business rules for Pelangi, Makan, and Southern profiles.",
-      "acceptanceCriteria": [
-        "Create `src/tests/workflows/booking-cancellation.integration.test.ts` with 6+ test cases: same-day cancellation (no refund), advance cancellation (full refund), partial cancellation (split credit), admin-initiated vs guest-initiated, profile-specific policy enforcement, and database state consistency post-execution",
-        "Verify `src/assistant/data/workflows.json` booking_cancellation_workflow entries execute end-to-end without errors, all state transitions logged to workflow_audit table",
-        "Achieve >85% coverage of `src/lib/workflow-executor.ts` cancellation code paths; assert all database transactions rollback on failure"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T11:05:16Z"
-    },
-    {
       "id": "US-223",
       "title": "Knowledge Base Content Validator with Profile Isolation Enforcement",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T11:25:17Z"
     },
     {
       "id": "US-224",
@@ -269,23 +252,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-273",
-      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
-      "priority": "high",
-      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
-      "acceptanceCriteria": [
-        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
-        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
-        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-274",
       "title": "Booking Workflow Room Availability Race Condition Tester",
       "priority": "high",
@@ -388,14 +354,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-281",
-      "title": "Conversation Context Compression Effectiveness Analyzer CLI",
-      "priority": "medium",
-      "description": "Analyze how much conversation history can be safely pruned while maintaining intent classification accuracy, helping identify which messages are most valuable for predictions and optimizing context window usage.",
+      "id": "US-289",
+      "title": "Multi-Profile Intent Classification Ground Truth Test Dataset",
+      "priority": "high",
+      "description": "Create realistic test fixtures for each business profile containing authentic booking and inquiry phrases specific to that business. This enables profile-specific intent classification accuracy baseline tracking and regression detection.",
       "acceptanceCriteria": [
-        "Add npm script npm run analyze-context-compression --profile=pelangi --days=7 that queries rainbow_conversations from last N days and re-classifies each with progressively pruned message history",
-        "For each conversation, calculate compression_ratio = (original_message_count / pruned_message_count), accuracy_maintained = (accuracy_with_pruned / accuracy_with_full), and avg_pruned_message_age_hours",
-        "Output CSV to reports/context-compression-DDMMYY.csv with columns: conversation_id, compression_ratio, accuracy_maintained, avg_pruned_age, recommendation; identify conversations where 50% pruning maintains >= 95% accuracy"
+        "Create test/fixtures/intent-ground-truth-pelangi.json with 10 authentic booking patterns (check-in dates, room types, duration) and expected intent classifications",
+        "Create test/fixtures/intent-ground-truth-makan.json with 10 cafe-specific inquiry patterns (menu questions, promotion inquiries, booking tables) and expected intents",
+        "Implement test/assistant/intent-classification-ground-truth.test.ts with test cases that verify classifier returns expected intent for each phrase with confidence > 0.8"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -405,86 +371,18 @@
       "model": "haiku"
     },
     {
-      "id": "US-282",
-      "title": "Intent-to-Booking Success Rate Analytics Dashboard",
-      "priority": "medium",
-      "description": "Track success rates (successful bookings / total classifications) per intent type to identify which intents need retraining or workflow improvements, enabling data-driven prioritization of quality fixes.",
+      "id": "US-290",
+      "title": "Booking Workflow Step Execution Dry-Run Endpoint",
+      "priority": "high",
+      "description": "Add admin endpoint that simulates booking workflow execution against a test request without writing to the database. This enables rapid debugging of workflow step failures and provides visibility into step-by-step booking logic before deployment.",
       "acceptanceCriteria": [
-        "Create endpoint GET /api/admin/intent-success-rates?days=7&profile=pelangi&min_volume=5 that returns {intent, total_classifications, successful_bookings_24h, escalations, success_rate, confidence_avg}",
-        "Define 'successful booking' as: customer completed booking confirmation workflow within 24 hours of original intent classification (flag in rainbow_conversations as booking_completed=true)",
-        "Test: 7-day query returns intents sorted by success_rate ascending, clearly flags intents with < 50% success rate (e.g., 'room_extension' with 3/10 bookings = 30%) for QA review and retraining"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-283",
-      "title": "Makan Moments Seasonal Promotion Inquiry Workflow with Menu Integration",
-      "priority": "medium",
-      "description": "Create complete workflow for handling seasonal promotion questions specific to Makan Moments cafe, pulling current promotions from a dedicated data file and confirming interest before sending menu details. Improves fallback responses for cafe-specific inquiries.",
-      "acceptanceCriteria": [
-        "Add promotion_inquiry intent to src/assistant/data-makan/intents.json with cafe-specific keywords: ['current specials', 'happy hour', 'promotion', 'discount', 'what's on sale', 'special menu']",
-        "Create src/assistant/data-makan/seasonal-promotions.json with structure: {promotions: [{name, description, discount_percent, valid_until, applies_to_items}]} and load at startup in config validator",
-        "Add makan-seasonal-promotion workflow to src/assistant/data-makan/workflows.json with steps: [1) return promotion_inquiry knowledge template, 2) confirm_interest (yes/no), 3) if yes, include seasonal_promotions.json data in response; test: verify 'do you have specials?' triggers workflow and returns current promotions"
+        "Add POST /admin/debug/profile/:profile/workflow-dry-run endpoint in src/routes/admin/workflows.ts that accepts a test booking request payload",
+        "Execute each step in the booking workflow, log step name and output, and return JSON response with array of {stepId, output, status, durationMs} showing step-by-step execution without database writes",
+        "Include error details in response if any step fails, showing step precondition violations and actionable fix suggestions"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-286",
-      "title": "Intent Classification Decision Explanation API Endpoint",
-      "priority": "medium",
-      "description": "Create admin API endpoint to query why a message was classified as a specific intent, showing confidence, matched keywords, and alternative intents for debugging classification accuracy issues.",
-      "acceptanceCriteria": [
-        "GET /api/admin/intents/explain?message=<msg>&profile=<profile> returns {intent, confidence: number, matchedKeywords: string[], alternativeIntents: [{intent, confidence}]}",
-        "Logs all explain requests to intent_explain_requests table for future analytics and audit trail",
-        "Unit tests in src/routes/admin/__tests__/intents.test.ts with 4+ test cases covering normal messages, ambiguous intents, and low-confidence edge cases"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-287",
-      "title": "Conversation Context Relevance Decay Calibration Test Suite",
-      "priority": "medium",
-      "description": "Test suite validating that conversation context decay formula correctly deprioritizes old turns and doesn't cause false-positive intent matches from distant conversation history.",
-      "acceptanceCriteria": [
-        "Test file src/assistant/pipeline/__tests__/context-decay-calibration.test.ts with 5+ test cases verifying contextRelevanceScore decays by expected factor per turn and scores < 0.1 for turns > 8 steps back",
-        "Synthetic conversation history with 20+ turns confirms intent classification on turn N is unaffected by intent changes in turn N-15",
-        "Edge case tests for single-turn, empty context, and maximum context window (verify no off-by-one errors)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-288",
-      "title": "Guest Language Auto-Detection on First Message",
-      "priority": "medium",
-      "description": "Auto-detect guest language from first message and persist as preference, enabling multi-language conversations without requiring guests to pre-set language.",
-      "acceptanceCriteria": [
-        "Function detectLanguageFromFirstMessage(message) in src/lib/language-detector.ts returns {language: 'en'|'ms'|'ta'|'zh', confidence: number} with confidence >= 0.8",
-        "On first guest message, if guest has no language_preference in database, auto-insert detected language into guest_language_preferences with source='auto_detected'",
-        "Unit tests in src/lib/__tests__/language-detector.test.ts with 8+ examples (2+ per language: EN, MS, TA, ZH) plus edge cases: mixed-language messages, slang, numerals, emojis"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -757,6 +655,41 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-217",
+      "title": "Booking Workflow Cancellation State Machine Test Suite",
+      "priority": "high",
+      "description": "Comprehensive integration tests for the booking cancellation workflow covering state transitions, credit calculations, confirmation message routing, and profile-specific cancellation policies. Ensure workflow execution respects business rules for Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Create `src/tests/workflows/booking-cancellation.integration.test.ts` with 6+ test cases: same-day cancellation (no refund), advance cancellation (full refund), partial cancellation (split credit), admin-initiated vs guest-initiated, profile-specific policy enforcement, and database state consistency post-execution",
+        "Verify `src/assistant/data/workflows.json` booking_cancellation_workflow entries execute end-to-end without errors, all state transitions logged to workflow_audit table",
+        "Achieve >85% coverage of `src/lib/workflow-executor.ts` cancellation code paths; assert all database transactions rollback on failure"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T11:05:16Z"
+    },
+    {
+      "id": "US-273",
+      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
+      "priority": "high",
+      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
+        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
+        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-263",
