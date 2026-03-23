@@ -131,6 +131,32 @@ export const intentClassifierBaselines = pgTable("intent_classifier_baselines", 
 export type IntentClassifierBaseline = typeof intentClassifierBaselines.$inferSelect;
 export type InsertIntentClassifierBaseline = typeof intentClassifierBaselines.$inferInsert;
 
+// ─── Regression Alerts (US-159) ───────────────────────────────────
+// Stores alerts when intent classifier accuracy drops >5% from baseline
+// Status: active = unresolved regression, resolved = accuracy recovered
+
+export const regressionAlerts = pgTable("regression_alerts", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull(),
+  intentType: text("intent_type").notNull(),
+  baselineAccuracy: real("baseline_accuracy").notNull(),  // accuracy_pct at baseline
+  currentAccuracy: real("current_accuracy").notNull(),    // accuracy_pct at detection time
+  accuracyDrop: real("accuracy_drop").notNull(),          // drop in percentage points
+  status: text("status").notNull().default('active'),     // 'active' | 'resolved'
+  detectedAt: timestamp("detected_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_regression_alerts_profile_id").on(table.profileId),
+  index("idx_regression_alerts_intent_type").on(table.intentType),
+  index("idx_regression_alerts_status").on(table.status),
+  index("idx_regression_alerts_detected_at").on(table.detectedAt),
+]));
+
+export type RegressionAlert = typeof regressionAlerts.$inferSelect;
+export type InsertRegressionAlert = typeof regressionAlerts.$inferInsert;
+
 export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   phone: varchar("phone", { length: 32 }).primaryKey(),
   pushName: text("push_name").notNull(),

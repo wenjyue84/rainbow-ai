@@ -1,14 +1,16 @@
 /**
- * US-158: Intent Classifier Regression Detector
+ * US-158 / US-159: Intent Classifier Regression Detector
  *
- * Detects when intent classification accuracy drops below a threshold by
- * comparing current accuracy to a baseline period.
+ * US-158: Detects when intent classification accuracy drops unexpectedly by
+ * comparing rolling windows.
+ * US-159: Stores baselines in intent_classifier_baselines table and creates
+ * regression_alerts records when accuracy drops >5% from stored baseline.
  */
 
 import cron from 'node-cron';
 import { db } from '../db.js';
-import { intentPredictions } from '../../../shared/schema.js';
-import { and, gte, isNotNull, sql } from 'drizzle-orm';
+import { intentPredictions, intentClassifierBaselines, regressionAlerts } from '../../../shared/schema.js';
+import { and, gte, isNotNull, sql, eq } from 'drizzle-orm';
 
 export interface RegressionCheckResult {
   status: 'regression_detected' | 'healthy';
@@ -198,7 +200,181 @@ export async function checkRegressions(
 }
 
 /**
- * Start daily regression detection scheduler (US-158 AC2)
+ * US-159: Update intent_classifier_baselines table with 7-day rolling accuracy
+ * Queries intentPredictions for the last `days` days and upserts one row per (profile, intent).
+ */
+export async function updateBaselines(days: number = 7): Promise<number> {
+  try {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // Aggregate accuracy per (profile, intent) over the window
+    const rows = await db
+      .select({
+        profileId: sql<string>`coalesce(${intentPredictions.profile}, 'default')`,
+        intentType: intentPredictions.predictedIntent,
+        total: sql<number>`count(*)::int`,
+        correct: sql<number>`count(*) filter (where ${intentPredictions.wasCorrect} = true)::int`,
+      })
+      .from(intentPredictions)
+      .where(
+        and(
+          gte(intentPredictions.createdAt, windowStart),
+          isNotNull(intentPredictions.wasCorrect),
+        )
+      )
+      .groupBy(
+        sql`coalesce(${intentPredictions.profile}, 'default')`,
+        intentPredictions.predictedIntent,
+      );
+
+    let upserted = 0;
+    for (const row of rows) {
+      if (!row.intentType || row.total === 0) continue;
+      const accuracyPct = Math.round((row.correct / row.total) * 10000) / 100;
+
+      await db
+        .insert(intentClassifierBaselines)
+        .values({
+          profileId: row.profileId,
+          intentType: row.intentType,
+          accuracyPct,
+          sampleCount: row.total,
+          baselineDate: now,
+        })
+        .onConflictDoUpdate({
+          target: [intentClassifierBaselines.profileId, intentClassifierBaselines.intentType],
+          set: {
+            accuracyPct,
+            sampleCount: row.total,
+            baselineDate: now,
+            updatedAt: now,
+          },
+        });
+      upserted++;
+    }
+
+    console.log(`[Regression Detector] Updated ${upserted} baselines`);
+    return upserted;
+  } catch (error) {
+    console.error('[Regression Detector] Error updating baselines:', error);
+    throw error;
+  }
+}
+
+/**
+ * US-159: Detect regressions by comparing current accuracy against stored baselines.
+ * Creates/resolves regression_alerts records accordingly.
+ * Returns number of active regressions detected.
+ */
+export async function detectAndPersistRegressions(
+  days: number = 7,
+  threshold: number = 0.05
+): Promise<number> {
+  try {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // Get all stored baselines
+    const baselines = await db.select().from(intentClassifierBaselines);
+    if (baselines.length === 0) {
+      console.log('[Regression Detector] No baselines stored yet; skipping regression check');
+      return 0;
+    }
+
+    // Compute current accuracy for each (profile, intent) pair
+    const currentRows = await db
+      .select({
+        profileId: sql<string>`coalesce(${intentPredictions.profile}, 'default')`,
+        intentType: intentPredictions.predictedIntent,
+        total: sql<number>`count(*)::int`,
+        correct: sql<number>`count(*) filter (where ${intentPredictions.wasCorrect} = true)::int`,
+      })
+      .from(intentPredictions)
+      .where(
+        and(
+          gte(intentPredictions.createdAt, windowStart),
+          isNotNull(intentPredictions.wasCorrect),
+        )
+      )
+      .groupBy(
+        sql`coalesce(${intentPredictions.profile}, 'default')`,
+        intentPredictions.predictedIntent,
+      );
+
+    const currentMap = new Map<string, { accuracy: number; total: number }>();
+    for (const row of currentRows) {
+      if (!row.intentType || row.total === 0) continue;
+      const key = `${row.profileId}::${row.intentType}`;
+      const accuracy = Math.round((row.correct / row.total) * 10000) / 100;
+      currentMap.set(key, { accuracy, total: row.total });
+    }
+
+    let activeRegressions = 0;
+
+    for (const baseline of baselines) {
+      const key = `${baseline.profileId}::${baseline.intentType}`;
+      const current = currentMap.get(key);
+
+      if (!current) continue; // No current data for this intent
+
+      const drop = (baseline.accuracyPct - current.accuracy) / 100;
+      const isRegression = drop >= threshold;
+
+      if (isRegression) {
+        // Insert a new active regression alert (avoid duplicating active alerts)
+        const existing = await db
+          .select({ id: regressionAlerts.id })
+          .from(regressionAlerts)
+          .where(
+            and(
+              eq(regressionAlerts.profileId, baseline.profileId),
+              eq(regressionAlerts.intentType, baseline.intentType),
+              eq(regressionAlerts.status, 'active'),
+            )
+          );
+
+        if (existing.length === 0) {
+          const accuracyDrop = Math.round(drop * 10000) / 100;
+          await db.insert(regressionAlerts).values({
+            profileId: baseline.profileId,
+            intentType: baseline.intentType,
+            baselineAccuracy: baseline.accuracyPct,
+            currentAccuracy: current.accuracy,
+            accuracyDrop,
+            status: 'active',
+            detectedAt: now,
+          });
+          console.warn(
+            `[Regression Detector] WARN: "${baseline.intentType}" (${baseline.profileId}) dropped ` +
+            `from ${baseline.accuracyPct}% to ${current.accuracy}% (${accuracyDrop}pp)`
+          );
+        }
+        activeRegressions++;
+      } else {
+        // Resolve any active alerts for this intent if accuracy recovered
+        await db
+          .update(regressionAlerts)
+          .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(regressionAlerts.profileId, baseline.profileId),
+              eq(regressionAlerts.intentType, baseline.intentType),
+              eq(regressionAlerts.status, 'active'),
+            )
+          );
+      }
+    }
+
+    return activeRegressions;
+  } catch (error) {
+    console.error('[Regression Detector] Error detecting/persisting regressions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Start daily regression detection scheduler (US-158 AC2 + US-159)
  * Runs daily at a configurable time, logs WARN-level alerts for regressions
  */
 export function startRegressionDetectionScheduler(
@@ -209,10 +385,15 @@ export function startRegressionDetectionScheduler(
   cron.schedule(cronTime, async () => {
     try {
       console.log('[Regression Detector] Running daily regression check...');
+
+      // US-159: Update baselines first, then detect regressions from stored baselines
+      await updateBaselines(days);
+      const activeCount = await detectAndPersistRegressions(days, threshold);
+
+      // US-158: Also run in-memory rolling-window check for backward compat
       const result = await checkRegressions(days, threshold);
 
-      if (result.overallStatus === 'regression_detected') {
-        // Log WARN-level alerts for each detected regression
+      if (result.overallStatus === 'regression_detected' || activeCount > 0) {
         for (const regressionResult of result.intents) {
           if (regressionResult.status === 'regression_detected') {
             const message = `[Regression Detector] ⚠️ WARN: Intent "${regressionResult.intent}" accuracy dropped ` +
@@ -225,7 +406,7 @@ export function startRegressionDetectionScheduler(
         console.log('[Regression Detector] ✓ All intents healthy');
       }
 
-      console.log(`[Regression Detector] Daily check complete. Timestamp: ${result.timestamp}`);
+      console.log(`[Regression Detector] Daily check complete. Active regressions: ${activeCount}. Timestamp: ${result.timestamp}`);
     } catch (error) {
       console.error('[Regression Detector] Error in scheduled regression check:', error);
     }

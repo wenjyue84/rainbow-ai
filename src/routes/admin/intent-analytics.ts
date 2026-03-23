@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { db } from '../../lib/db.js';
-import { intentPredictions } from '../../../shared/schema.js';
-import { desc, eq, sql, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { intentPredictions, regressionAlerts } from '../../../shared/schema.js';
+import { desc, eq, sql, isNull, isNotNull, inArray, and } from 'drizzle-orm';
 import { serverError, badRequest, notFound } from './http-utils.js';
 import { safeReadJSON, atomicWriteJSON } from './file-utils.js';
 import { checkRegressions } from '../../lib/monitoring/regression-detector.js';
@@ -601,6 +601,69 @@ router.get('/intent/regression-check', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Intent Regression Check] Error:', error);
     serverError(res, 'Failed to check intent regressions');
+  }
+});
+
+// ─── GET /api/rainbow/analytics/regression-alerts ──────────────────────────
+// Returns active and/or resolved regression alerts stored in regression_alerts table
+// Query params:
+//   status: 'active' | 'resolved' | 'all' (default 'all')
+//   profile: string (optional) - filter by profile
+//   limit: number (default 50, max 200)
+router.get('/analytics/regression-alerts', async (req: Request, res: Response) => {
+  try {
+    const statusFilter = (req.query.status as string) || 'all';
+    const profile = req.query.profile as string | undefined;
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit as string) || 50));
+
+    const conditions: any[] = [];
+    if (statusFilter !== 'all') {
+      if (statusFilter !== 'active' && statusFilter !== 'resolved') {
+        return badRequest(res, 'status must be "active", "resolved", or "all"');
+      }
+      conditions.push(eq(regressionAlerts.status, statusFilter));
+    }
+    if (profile) {
+      conditions.push(eq(regressionAlerts.profileId, profile));
+    }
+
+    const alerts = await db
+      .select()
+      .from(regressionAlerts)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(regressionAlerts.detectedAt))
+      .limit(limit);
+
+    const active = alerts.filter(a => a.status === 'active');
+    const resolved = alerts.filter(a => a.status === 'resolved');
+
+    res.json({
+      success: true,
+      summary: {
+        total: alerts.length,
+        active: active.length,
+        resolved: resolved.length,
+      },
+      alerts: alerts.map(a => ({
+        id: a.id,
+        profileId: a.profileId,
+        intentType: a.intentType,
+        baselineAccuracy: a.baselineAccuracy,
+        currentAccuracy: a.currentAccuracy,
+        accuracyDrop: a.accuracyDrop,
+        status: a.status,
+        detectedAt: a.detectedAt,
+        resolvedAt: a.resolvedAt,
+      })),
+      filter: {
+        status: statusFilter,
+        profile: profile || 'all',
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error('[Regression Alerts] Error:', error);
+    serverError(res, 'Failed to fetch regression alerts');
   }
 });
 

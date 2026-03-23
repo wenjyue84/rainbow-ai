@@ -1116,3 +1116,27 @@ Build passed, 8/8 tests passed, server started successfully.
 - [x] AC1: GET /api/rainbow/intent/regression-check?days=7&threshold=0.05 endpoint implemented
 - [x] AC2: Daily cron at 2 AM MYT with WARN-level logging (startRegressionDetectionScheduler)
 - [x] AC3: 8 tests including booking_request regression detection test
+
+## Iteration N - Story: US-159 Intent classifier regression detector with automatic admin notifications
+
+### What was implemented
+- Added `regressionAlerts` table to `shared/schema-tables.ts` with fields: profileId, intentType, baselineAccuracy, currentAccuracy, accuracyDrop, status (active/resolved), detectedAt, resolvedAt
+- Updated `src/lib/monitoring/regression-detector.ts`:
+  - `updateBaselines(days)`: queries intentPredictions, upserts rolling accuracy into `intentClassifierBaselines`
+  - `detectAndPersistRegressions(days, threshold)`: compares current accuracy to stored baselines, inserts regression_alerts for >5% drops, auto-resolves recovered intents
+  - Updated scheduler to call both new functions
+- Added `GET /admin/analytics/regression-alerts` endpoint to `intent-analytics.ts` with status/profile/limit filters
+
+### Patterns discovered
+- `intentClassifierBaselines` had a unique index on (profileId, intentType), enabling clean upsert via `onConflictDoUpdate`
+- Used `coalesce(profile, 'default')` to normalize null profile values in SQL aggregations
+- Auto-resolve pattern: when current accuracy recovers, UPDATE existing active alert to 'resolved' + set resolvedAt
+
+### Gotchas
+- prd.json has non-ASCII characters — must open with encoding='utf-8' in Python
+- `regressionAlerts` uses no unique index on (profileId, intentType, status) to allow history; dedup handled by query before insert
+
+### Acceptance Criteria Met
+- [x] AC1: intent_classifier_baselines table exists in schema; regressionAlerts table added (migration via db:push)
+- [x] AC2: Nightly scheduler calls updateBaselines() + detectAndPersistRegressions(); WARN log on detection; auto-resolves recovered intents
+- [x] AC3: GET /admin/analytics/regression-alerts endpoint with active/resolved/all filter, profile filter, summary counts
