@@ -1561,3 +1561,62 @@ Here is a technical brief based on the *actual* story provided:
     *   The definition of "booking success" must be precise in the database query logic.
     *   Ensure proper error handling for invalid CLI inputs or database connection issues.
 
+
+## Pre-analysis for US-290 (Gemini 2.5 Pro)
+This is a technical brief for implementing a booking workflow dry-run endpoint based on the provided user story.
+
+### **Technical Implementation Brief: US-290**
+
+**1. Core Files to Modify:**
+*   `src/routes/admin/workflows.ts`: To add the new `POST /admin/debug/profile/:profile/workflow-dry-run` endpoint handler.
+*   `src/server/workflows/booking.ts`: The location of the core booking workflow engine. This will need to be adapted to support a `dryRun` mode.
+*   `src/server/workflows/steps/*`: Individual workflow step files may need modification to prevent side-effects (e.g., external API calls) when in dry-run mode.
+*   `src/server/services/WorkflowState.ts`: This service, which manages workflow state, will be central. The dry-run will involve instantiating or cloning this state without database persistence.
+
+**2. Involved Entities (Framework Analogues):**
+*   **"DocTypes"**: The primary data structures are the `BookingRequest` and `WorkflowState` TypeScript interfaces/types. The dry run will manipulate these objects in memory. The database schema is likely defined via Drizzle ORM (`drizzle.config.ts`), but interaction will be mocked.
+*   **"Hooks"**: Business logic is encapsulated in workflow steps and services. The new endpoint will hook into the main `booking` workflow orchestrator in `src/server/workflows/booking.ts`.
+
+**3. Recommended Implementation Approach:**
+1.  **Endpoint:** In `src/routes/admin/workflows.ts`, create the `POST` endpoint. Use a validation library (e.g., Zod) to parse and validate the incoming test `BookingRequest` payload.
+2.  **Dry-Run Mode:** Modify the main workflow execution function in `src/server/workflows/booking.ts` to accept an optional `options: { dryRun: true }` parameter.
+3.  **State Simulation:** When `dryRun` is true, the workflow should initialize its state from the test payload but use a mocked database client or repository layer that intercepts and logs database calls (e.g., `INSERT`, `UPDATE`) instead of executing them. The state that would have been written to the DB should be held in-memory and passed to subsequent steps.
+4.  **Instrumentation:** Wrap the execution of each step to time it (`durationMs`) and capture its `output` and `status` (`success` or `error`). Store this data in an array.
+5.  **Side-Effect Prevention:** Ensure that any services called by steps (e.g., for sending emails, making payments) are mocked out when `dryRun` is active.
+
+**4. Edge Cases & Gotchas:**
+*   **State Dependency:** Steps often rely on database state created by prior steps. The in-memory state simulation must accurately replicate what the database state would have been.
+*   **External Calls:** The dry run must not trigger real-world side effects like sending messages or calling third-party APIs. All external service calls within workflow steps must be identified and mocked.
+*   **Error Simulation:** The system should accurately report precondition violations. This requires the mocked state to be robust enough for validation logic to execute against it correctly.
+*   **Authentication:** Ensure the endpoint is strictly protected and accessible only to administrators, as it exposes internal business logic.
+
+
+## Pre-analysis for US-290 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the user story.
+
+### Technical Brief: US-290 Booking Workflow Dry-Run
+
+**1. Core Files to Modify:**
+*   **`src/routes/admin/workflows.ts`**: Add the new `POST /admin/debug/profile/:profile/workflow-dry-run` endpoint handler here.
+*   **`src/services/booking/workflows/booking-workflow-service.ts`** (or similar): This is the likely location for the main workflow execution logic that will need to be adapted for a dry-run mode.
+*   **`src/services/booking/workflows/steps/*.ts`**: Individual workflow steps may need to be made aware of the dry-run mode, especially if they have complex database interactions.
+*   **`src/lib/database/db.ts`** (or equivalent): May require a transaction or mocking mechanism to prevent writes during the simulation.
+
+**2. Involved DocTypes/Hooks (Conceptual Equivalents):**
+*   **Controller/Route:** The new endpoint in `workflows.ts` acts as the controller.
+*   **Service Layer:** The `BookingWorkflowService` orchestrates the simulation.
+*   **Entity/Repository:** The simulation will interact with repository patterns, but all `write`, `update`, or `save` methods must be stubbed or wrapped in a transaction that is always rolled back to prevent database changes.
+
+**3. Recommended Implementation Approach:**
+1.  **Create a Dry-Run Executor:** In the primary workflow service, implement a `executeDryRun` method. This method should accept the test payload and a "context" object.
+2.  **Dependency Injection for DB:** Use dependency injection to pass a mocked or "read-only" database client/transaction to the workflow steps. This is the cleanest way to prevent writes without `if (isDryRun)` checks scattered everywhere.
+3.  **Instrumentation:** Wrap the execution of each step to capture its `stepId`, `output`, `status` (success/failure), and `durationMs`. Store this data in an array.
+4.  **Error Handling:** Use a `try...catch` block around each step's execution. If a step throws an error, capture the error message, populate the failure `status`, and include precondition violation details as specified in the acceptance criteria.
+5.  **Return Value:** The endpoint controller should call this service and return the resulting array of step execution details as a JSON response.
+
+**4. Edge Cases & Gotchas:**
+*   **Inter-Step Dependency:** One step often relies on the database side-effects of a previous step. Since no writes occur, the dry-run must simulate the expected state changes in-memory and pass them to subsequent steps.
+*   **External API Calls:** Any workflow steps that make external API calls (e.g., payment gateways, external PMS) must be mocked to prevent real-world side effects.
+*   **Read Operations:** The dry-run will still perform read operations against the database. Ensure the test data is comprehensive enough to yield a realistic simulation.
+*   **Permissions:** This is an admin debugging endpoint. Ensure it is protected by appropriate authentication and authorization middleware.
+

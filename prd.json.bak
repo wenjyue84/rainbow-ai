@@ -47,26 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-280",
-      "title": "Low-Confidence Intent Archival System with QA Review Endpoint",
-      "priority": "high",
-      "description": "Automatically archive messages with intent confidence < 0.5 to a special review table for QA team analysis, creating a feedback loop for retraining and improving classification accuracy over time.",
-      "acceptanceCriteria": [
-        "Create new database table rainbow_lowconf_messages with schema: {id, profile, message_id, original_text, predicted_intent, confidence, correct_intent, reviewed_at, created_at}",
-        "When ConversationManager.classifyIntent() returns confidence < 0.5, insert message to rainbow_lowconf_messages instead of finalizing; allow QA to provide correct_intent for later retraining",
-        "Admin endpoint GET /api/admin/lowconf-messages?profile=pelangi&reviewed=false&limit=20 returns unreviewed messages; QA submits correction via POST /api/admin/lowconf-messages/:id/correct with {correct_intent}"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "_failureReason": "oversized_diff",
-      "_lastDiffLines": 1336,
-      "last_attempted": "2026-03-23T18:26:52Z"
-    },
-    {
       "id": "US-285",
       "title": "Fallback Response Template A/B Test Analysis CLI",
       "priority": "high",
@@ -79,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -723,6 +703,40 @@
         "Configuration in workflows-{profile}.json with room_type_overrides mapping room types to step skip/modify rules",
         "Booking step 2 inspection checks room_type and applies overrides before proceeding (e.g., skip amenities_selection for dorm_bed)",
         "Test suite validates different step execution paths for dorm vs private room in Pelangi and Makan profiles"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-395",
+      "title": "Profile-Specific Intent Keywords Conflict Detection at Startup",
+      "priority": "high",
+      "description": "Add validation to config loader that detects when keywords from one profile's intents appear in another profile's intent-keywords file. Fails fast with clear error messages during startup to prevent cross-profile contamination from reaching production.",
+      "acceptanceCriteria": [
+        "New function validateKeywordIsolation() in src/lib/config-loader.ts checks all three profiles' intent-keywords.json files for cross-profile keyword collisions",
+        "If any keyword appears in multiple profiles' intent-keywords files with different intent mappings, throw Error with conflict details: 'Keyword \"booking\" maps to [pelangi-intent, makan-intent] across profiles'",
+        "Add startup check to src/index.ts that runs validateKeywordIsolation() before server initialization; logs validation results at INFO level"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-396",
+      "title": "Intent Classification Cross-Profile Integration Test",
+      "priority": "high",
+      "description": "Create integration test that verifies intent classifier respects profile isolation boundaries. Tests that messages for Pelangi Capsule classify only to pelangi intents, Makan Moments to makan intents, and Southern Homestay to southern intents—catching cross-contamination bugs.",
+      "acceptanceCriteria": [
+        "New file test/intent-classifier-isolation.test.ts with vitest that classifies 5+ representative messages per profile (e.g., 'book a room' for pelangi, 'order nasi lemak' for makan, 'reserve bed' for southern)",
+        "Assert that pelangi messages classify only to pelangi intents (routing.json['pelangi-booking'], etc.), makan to makan intents only, southern to southern intents only",
+        "Test fails if any profile's message classifies to another profile's intent category; run via `npm run test -- intent-classifier-isolation.test.ts`"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -1399,6 +1413,125 @@
       "model": "haiku"
     },
     {
+      "id": "US-391",
+      "title": "Conversation Message Retention Policy CLI Tool with Per-Profile Time Limits",
+      "priority": "medium",
+      "description": "Create a CLI tool to configure and enforce message retention policies per business profile, enabling automatic cleanup of old conversation messages while maintaining strict profile isolation.",
+      "acceptanceCriteria": [
+        "Implement src/tools/message-retention-config.ts with commands: 'set-age-limit <profile> <hours>', 'show-config', 'cleanup-messages --dry-run' that reads/writes retention settings to src/assistant/data/settings.json",
+        "Ensure cleanup logic in src/assistant/pipeline/context-manager.ts verifies profile ownership before deleting messages—never delete messages from other profiles even if all fall outside retention window",
+        "Add test in src/tests/message-retention.test.ts creating mock conversations for 3 profiles with different retention limits, verifying correct messages are pruned and cross-profile contamination is prevented"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-392",
+      "title": "Intent Classifier Confidence Score Distribution Analyzer with Percentile Bucketing",
+      "priority": "medium",
+      "description": "Build a CLI tool that queries classification confidence scores from intent_analytics table and generates percentile distributions per profile, identifying confidence score outliers and low-confidence clusters.",
+      "acceptanceCriteria": [
+        "Implement src/tools/confidence-distribution-analyzer.ts querying SELECT confidence, profile FROM intent_analytics, grouping by profile to calculate p10/p25/p50/p75/p90 percentiles",
+        "Output report to logs/confidence-distribution.json with per-profile stats including: percentile breakdown, count of messages below 60% confidence, and top-3 intents with lowest median confidence",
+        "Add test in src/tests/confidence-analyzer.test.ts seeding mock intent_analytics rows with known confidence values, verifying percentile calculations match expected values"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-393",
+      "title": "Fallback Response Duplicate Detector with Levenshtein Similarity Scoring",
+      "priority": "medium",
+      "description": "Create a CLI tool that detects duplicate or semantically similar fallback responses across all intents in knowledge.json, helping eliminate redundant responses that confuse users.",
+      "acceptanceCriteria": [
+        "Implement src/tools/fallback-duplicate-detector.ts loading src/assistant/data/knowledge.json and comparing all fallback response pairs using Levenshtein distance, flagging pairs with >80% similarity",
+        "Output report to logs/fallback-duplicates.json with format: [{intent1, intent2, similarity, response1, response2, recommendation}] sorted by similarity descending—limit to top 20 findings",
+        "Add test in src/tests/fallback-detector.test.ts with 10 sample responses including 3 intentional duplicates ('sorry, we cannot help' variants) that are correctly identified with zero false negatives"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-394",
+      "title": "Booking Confirmation Data Integrity Pre-Validator with Actionable Error Messages",
+      "priority": "medium",
+      "description": "Create a preflight validator that checks all required booking confirmation data (guest, room, date, pricing) is present and valid before sending confirmation, producing detailed error messages for debugging.",
+      "acceptanceCriteria": [
+        "Implement src/lib/booking-confirmation-validator.ts with validate(bookingData, profile) returning {isValid, errors: [{field, reason, suggestion}]}—e.g., missing guest field returns reason='guest_id_null', suggestion='fetch from context before confirmation'",
+        "Add validator call to src/assistant/pipeline/booking-workflow-executor.ts before final confirmation step, logging validation result to workflow trace (see trace logger story)",
+        "Add test in src/tests/booking-validator.test.ts with 6 invalid booking objects (missing guest, past date, unknown room type, etc.) verifying each generates correct error message and suggestion"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-397",
+      "title": "Conversation Context Token-Budget Pruner CLI Tool",
+      "priority": "medium",
+      "description": "Build CLI tool that intelligently removes stale messages from multi-turn conversation history while preserving booking-critical context. Helps multi-turn dialogues stay within token budgets by removing messages older than N turns or below relevance threshold.",
+      "acceptanceCriteria": [
+        "New CLI script scripts/prune-conversation-context.ts that accepts JSON conversation array, removes messages older than --max-turns flag (default 15), outputs pruned array to stdout or --output file",
+        "Run: `npm run prune-context -- --max-turns 10 --input conversation.json --output pruned.json` successfully outputs conversation with only last 10 messages",
+        "Preserve messages with keywords ['booking', 'room', 'checkout', 'payment'] regardless of age; test with mock conversation array that has 30 messages, verify critical messages remain even beyond max-turns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-398",
+      "title": "Fallback Response Effectiveness Classifier from Escalation Logs",
+      "priority": "medium",
+      "description": "Analyze production logs to identify which fallback responses lead to immediate staff escalations vs. successful booking continuation. Build CLI report that ranks fallback responses by effectiveness and suggests response text improvements.",
+      "acceptanceCriteria": [
+        "New CLI script scripts/analyze-fallback-effectiveness.ts that parses rainbow_messages table, groups by fallback_response_id, counts downstream escalation_events within 3 messages",
+        "Output JSON report: `{fallback_id: 'xyz', text: '...', sent: 1250, escalated: 387, effectiveness_rate: 69%, suggestion: 'Add booking tip'}`",
+        "Run via `npm run analyze-fallbacks -- --days 7` to analyze last 7 days; report highlights responses with <60% effectiveness for review"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-399",
+      "title": "Booking Workflow Dependency Validator with Cycle Detection",
+      "priority": "medium",
+      "description": "Build CLI tool that parses workflows.json, detects circular step dependencies, validates all step references exist, and outputs human-readable violation report. Prevents broken workflows from reaching production.",
+      "acceptanceCriteria": [
+        "New CLI script scripts/validate-workflow-dependencies.ts that loads workflows.json, builds directed graph of step dependencies, runs cycle detection algorithm",
+        "Report format: `Step 'confirm_room' references missing step 'validate_date'; Step 'payment' → 'check_availability' → 'payment' (circular)` with file line numbers",
+        "Run via `npm run validate-workflows` as pre-deploy check; test with sample workflows.json containing a cycle (step A → B → A), verify cycle is detected and reported"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -1666,6 +1799,26 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-280",
+      "title": "Low-Confidence Intent Archival System with QA Review Endpoint",
+      "priority": "high",
+      "description": "Automatically archive messages with intent confidence < 0.5 to a special review table for QA team analysis, creating a feedback loop for retraining and improving classification accuracy over time.",
+      "acceptanceCriteria": [
+        "Create new database table rainbow_lowconf_messages with schema: {id, profile, message_id, original_text, predicted_intent, confidence, correct_intent, reviewed_at, created_at}",
+        "When ConversationManager.classifyIntent() returns confidence < 0.5, insert message to rainbow_lowconf_messages instead of finalizing; allow QA to provide correct_intent for later retraining",
+        "Admin endpoint GET /api/admin/lowconf-messages?profile=pelangi&reviewed=false&limit=20 returns unreviewed messages; QA submits correction via POST /api/admin/lowconf-messages/:id/correct with {correct_intent}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_failureReason": "oversized_diff",
+      "_lastDiffLines": 1336,
+      "last_attempted": "2026-03-23T18:26:52Z"
     },
     {
       "id": "US-279",

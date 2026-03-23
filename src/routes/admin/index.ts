@@ -117,6 +117,7 @@ import escalationFeedbackRoutes from './escalation-feedback.js'; // US-295: Esca
 import debugFailedBookingsRoutes from './debug-failed-bookings.js'; // US-226: Booking classification failure logger
 import modelRollbackRoutes from './model-rollback.js'; // US-236: Intent classification accuracy auto-rollback
 import lowconfMessagesRoutes from './lowconf-messages.js'; // US-280: Low-confidence message archival + QA review
+import workflowsRoutes from './workflows.js'; // US-290: Workflow dry-run endpoint
 
 const router = Router();
 
@@ -400,6 +401,7 @@ router.use(escalationFeedbackRoutes);        // US-295: Escalation quality feedb
 router.use(debugFailedBookingsRoutes);       // US-226: Booking classification failure logger
 router.use('/model-rollback', modelRollbackRoutes); // US-236: Intent classification accuracy auto-rollback
 router.use(lowconfMessagesRoutes);                 // US-280: Low-confidence message archival + QA review
+router.use(workflowsRoutes);                      // US-290: Workflow dry-run endpoint
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
