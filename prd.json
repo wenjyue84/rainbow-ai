@@ -62,8 +62,7 @@
       "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T02:14:54Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "last_attempted": "2026-03-23T02:08:16Z"
     },
     {
       "id": "US-114",
@@ -393,6 +392,91 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-180",
+      "title": "Add booking workflow conditional step branching support",
+      "priority": "high",
+      "description": "Enable workflow steps to execute conditionally based on guest data, room type, or previous step results. Improves booking workflow flexibility for different booking scenarios without duplicating steps.",
+      "acceptanceCriteria": [
+        "Add 'condition' and 'else_step' fields to workflow step schema in src/assistant/schemas.ts with Zod validation",
+        "Workflow executor in src/assistant/pipeline/booking-steps.ts evaluates condition expressions (e.g., 'room_type === 'suite'') before step execution",
+        "Unit test for workflow with branching: 'if room_type is suite, collect payment method; else, skip to confirmation'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-181",
+      "title": "Implement conversation context summarization for long multi-turn dialogues",
+      "priority": "high",
+      "description": "Automatically summarize older message pairs in conversations exceeding 10 turns into single synthetic message. Reduces token consumption by 35-45% for long booking dialogues.",
+      "acceptanceCriteria": [
+        "Create src/lib/context-summarizer.ts exporting summarizeConversationContext(messages: Message[], targetTurns: number) that condenses turns 0-4 into summary",
+        "Integration in src/assistant/pipeline/prepare-context.ts injects summary before AI inference step",
+        "Test: 18-turn conversation reduces to effective 12 turns in token count while preserving booking dates and guest preferences"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-182",
+      "title": "Implement real-time room availability webhook with cache invalidation",
+      "priority": "high",
+      "description": "Listen for room availability changes from external property management systems. Invalidate booking workflow cache to prevent stale availability data from blocking valid bookings.",
+      "acceptanceCriteria": [
+        "Create POST /webhooks/availability endpoint accepting {profileId, roomId, dateRange, availableCount} with signature verification",
+        "Webhook invalidates room cache in src/lib/room-availability-cache.ts for affected room_id+date range; logs invalidation event",
+        "Webhook rejects requests with mismatched profileId or invalid signature with 401 response; unit test validates cache hit rate restored"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-183",
+      "title": "Build intent classifier latency profiler with slow-intent detection",
+      "priority": "medium",
+      "description": "Profile intent classifier inference latency by intent type and input text length. Identify performance bottlenecks for optimization prioritization.",
+      "acceptanceCriteria": [
+        "Create src/tools/profile-classifier.ts with benchmark() function measuring latency for 8+ common intent types",
+        "CLI: npm run profile:classifier outputs per-intent p50/p95 latency, slowest intents ranked, and text-length sensitivity analysis",
+        "Add conditional profiling endpoint GET /admin/metrics/classifier-profile-results returning cached benchmark results with timestamp"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-184",
+      "title": "Add fallback response A/B testing framework with resolution tracking",
+      "priority": "medium",
+      "description": "Enable randomized A/B tests of fallback response templates. Track which variants achieve successful resolution (no escalation within 3 turns) to optimize fallback quality.",
+      "acceptanceCriteria": [
+        "Add ab_variant and ab_test_id columns to conversation_feedback; POST /admin/experiments/:testId/start creates A/B test record with variant weights",
+        "Fallback selector in src/assistant/pipeline/fallback-selector.ts randomly assigns variant, records selection in ab_variant column",
+        "GET /admin/experiments/:testId/results returns resolution rate by variant with sample counts and 95% confidence intervals"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-157",
