@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-217",
-      "title": "Booking Workflow Cancellation State Machine Test Suite",
-      "priority": "high",
-      "description": "Comprehensive integration tests for the booking cancellation workflow covering state transitions, credit calculations, confirmation message routing, and profile-specific cancellation policies. Ensure workflow execution respects business rules for Pelangi, Makan, and Southern profiles.",
-      "acceptanceCriteria": [
-        "Create `src/tests/workflows/booking-cancellation.integration.test.ts` with 6+ test cases: same-day cancellation (no refund), advance cancellation (full refund), partial cancellation (split credit), admin-initiated vs guest-initiated, profile-specific policy enforcement, and database state consistency post-execution",
-        "Verify `src/assistant/data/workflows.json` booking_cancellation_workflow entries execute end-to-end without errors, all state transitions logged to workflow_audit table",
-        "Achieve >85% coverage of `src/lib/workflow-executor.ts` cancellation code paths; assert all database transactions rollback on failure"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T11:05:16Z"
-    },
-    {
       "id": "US-223",
       "title": "Knowledge Base Content Validator with Profile Isolation Enforcement",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T11:29:54Z"
     },
     {
       "id": "US-224",
@@ -269,91 +252,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-263",
-      "title": "Cross-Profile Message Routing Validator Middleware",
-      "priority": "high",
-      "description": "Add middleware that validates each incoming message is routed to the correct profile's AI pipeline and data files. Prevents runtime cross-contamination between Pelangi, Makan Moments, and Southern Homestay profiles.",
-      "acceptanceCriteria": [
-        "Middleware in `src/routes/webhook.ts` validates `message.businessProfile` matches currently-loaded profile from `src/lib/config.ts` before passing to AI pipeline; rejects mismatches with detailed 400 error",
-        "Unit test: message with profile='data-southern' rejected if handler initialized with profile='data-makan' (error includes profile mismatch details)",
-        "Integration test: routing validator prevents Southern Homestay guest messages from being processed by Makan Moments knowledge.json and intent classifiers"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-264",
-      "title": "Implement Booking Workflow Step Timeout Detection with Auto-Rollback",
-      "priority": "high",
-      "description": "Add timeout handling to booking confirmation steps to prevent hanging requests. When a workflow step exceeds timeout threshold, automatically rollback guest booking state and return clear timeout error to user.",
-      "acceptanceCriteria": [
-        "Add timeout field to each booking step in src/assistant/data/workflows.json (default 5000ms) and implement stepExecutionTimer in src/assistant/pipeline/booking-executor.ts that triggers rollback on timeout",
-        "Response includes step_timeout reason code with recovery message e.g. 'Booking step took too long. Please try again or speak with staff.'",
-        "Unit test: booking confirmation step timeout triggers guest state rollback and prevents partial booking confirmation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-265",
-      "title": "Build Intent Classification Accuracy Regression Detector with Per-Profile Baselines",
-      "priority": "high",
-      "description": "Track intent classification accuracy per profile and alert when accuracy drops below baseline. Daily snapshot job measures accuracy and detects regressions to prevent silent quality degradation.",
-      "acceptanceCriteria": [
-        "Daily cron job in src/assistant/jobs/accuracy-snapshot.ts calculates classification accuracy per profile and stores in database table intent_accuracy_snapshots with {profile, date, accuracy, baseline}",
-        "Alert triggered when accuracy drops >5% from 30-day rolling baseline, logged to admin dashboard",
-        "CLI: npm run analyze:intent-accuracy-trends shows per-profile accuracy with regression indicators"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-267",
-      "title": "Add Null Safety Validator to Conversation Context Pipeline",
-      "priority": "high",
-      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
-      "acceptanceCriteria": [
-        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
-        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
-        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-273",
-      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
-      "priority": "high",
-      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
-      "acceptanceCriteria": [
-        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
-        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
-        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-274",
       "title": "Booking Workflow Room Availability Race Condition Tester",
       "priority": "high",
@@ -388,14 +286,48 @@
       "model": "haiku"
     },
     {
-      "id": "US-278",
-      "title": "Remove Pelangi Hostel Keywords from Makan Moments Intent-Keywords File",
+      "id": "US-279",
+      "title": "Intent Classifier Fallback Chain Configuration Admin Interface",
       "priority": "high",
-      "description": "Makan Moments profile contains hostel-specific keywords (check-in, checkout, room type, nightly rate) that contaminate cafe-only intents. Audit and remove these to enforce strict profile separation.",
+      "description": "Allow admins to define per-profile fallback chains specifying which intent classifiers to try in sequence with configurable confidence thresholds before escalating. Improves reliability by gracefully degrading to secondary classifiers when primary confidence is low.",
       "acceptanceCriteria": [
-        "Script scans src/assistant/data/data-makan/intent-keywords.json and identifies 8+ hostel-specific keywords (e.g., 'checkin', 'checkout', 'room', 'amenities', 'nightly rate')",
-        "Generate cleaned file with hostel keywords removed while preserving cafe-specific ones (menu, table, reservation, promotion, order)",
-        "Validate cleaned file passes Zod schema validation in src/assistant/schemas.ts and all remaining intents resolve in routing.json"
+        "Add fallback_chain configuration schema to src/assistant/data/settings.json with fields: {provider_name, min_confidence, timeout_ms, retry_count} allowing 2-3 provider chain definition",
+        "Modify IntentClassifier pipeline to iterate through fallback_chain: if primary provider returns confidence < threshold, try secondary provider; if both fail, route to knowledge.json pattern matching before escalation",
+        "Test: Message with primary classifier confidence=0.4 and fallback threshold=0.6 automatically tries secondary provider; if secondary also returns <0.6, falls through to knowledge.json match or escalation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-280",
+      "title": "Low-Confidence Intent Archival System with QA Review Endpoint",
+      "priority": "high",
+      "description": "Automatically archive messages with intent confidence < 0.5 to a special review table for QA team analysis, creating a feedback loop for retraining and improving classification accuracy over time.",
+      "acceptanceCriteria": [
+        "Create new database table rainbow_lowconf_messages with schema: {id, profile, message_id, original_text, predicted_intent, confidence, correct_intent, reviewed_at, created_at}",
+        "When ConversationManager.classifyIntent() returns confidence < 0.5, insert message to rainbow_lowconf_messages instead of finalizing; allow QA to provide correct_intent for later retraining",
+        "Admin endpoint GET /api/admin/lowconf-messages?profile=pelangi&reviewed=false&limit=20 returns unreviewed messages; QA submits correction via POST /api/admin/lowconf-messages/:id/correct with {correct_intent}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-284",
+      "title": "Booking Workflow Step Output Schema Validator",
+      "priority": "high",
+      "description": "Add runtime validation that booking workflow step outputs conform to expected schema before passing to next step, catching malformed data early and preventing downstream workflow failures.",
+      "acceptanceCriteria": [
+        "Function validateWorkflowStepOutput(stepId, output, profile) in src/assistant/pipeline/booking-executor.ts validates output against schema from workflows.json with detailed error messages",
+        "Validation failures logged to workflow_step_validation_errors table with step_id, expected_schema, actual_output, and timestamp for admin review",
+        "Unit tests in src/assistant/pipeline/__tests__/booking-step-schema.test.ts with 6+ test cases covering valid outputs, missing fields, type mismatches, and null values"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -403,6 +335,57 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-285",
+      "title": "Fallback Response Template A/B Test Analysis CLI",
+      "priority": "high",
+      "description": "CLI tool to compare two fallback response templates for the same intent, measuring booking conversion rate and escalation rate to validate which response template drives better outcomes.",
+      "acceptanceCriteria": [
+        "CLI tool npx tsx src/tools/compare-fallback-templates.ts --intent=<intent> --profile=<profile> --days=30 outputs JSON with template_a_booking_rate, template_b_booking_rate, statistical_significance, winner",
+        "Queries rainbow_messages and rainbow_conversations tables filtering by intent, fallback_response_variant, and booking success within date range",
+        "Unit tests in src/tools/__tests__/compare-fallback-templates.test.ts with mock conversation data showing correct rate calculation and statistical comparison"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-289",
+      "title": "Multi-Profile Intent Classification Ground Truth Test Dataset",
+      "priority": "high",
+      "description": "Create realistic test fixtures for each business profile containing authentic booking and inquiry phrases specific to that business. This enables profile-specific intent classification accuracy baseline tracking and regression detection.",
+      "acceptanceCriteria": [
+        "Create test/fixtures/intent-ground-truth-pelangi.json with 10 authentic booking patterns (check-in dates, room types, duration) and expected intent classifications",
+        "Create test/fixtures/intent-ground-truth-makan.json with 10 cafe-specific inquiry patterns (menu questions, promotion inquiries, booking tables) and expected intents",
+        "Implement test/assistant/intent-classification-ground-truth.test.ts with test cases that verify classifier returns expected intent for each phrase with confidence > 0.8"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-290",
+      "title": "Booking Workflow Step Execution Dry-Run Endpoint",
+      "priority": "high",
+      "description": "Add admin endpoint that simulates booking workflow execution against a test request without writing to the database. This enables rapid debugging of workflow step failures and provides visibility into step-by-step booking logic before deployment.",
+      "acceptanceCriteria": [
+        "Add POST /admin/debug/profile/:profile/workflow-dry-run endpoint in src/routes/admin/workflows.ts that accepts a test booking request payload",
+        "Execute each step in the booking workflow, log step name and output, and return JSON response with array of {stepId, output, status, durationMs} showing step-by-step execution without database writes",
+        "Include error details in response if any step fails, showing step precondition violations and actionable fix suggestions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -672,6 +655,126 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-217",
+      "title": "Booking Workflow Cancellation State Machine Test Suite",
+      "priority": "high",
+      "description": "Comprehensive integration tests for the booking cancellation workflow covering state transitions, credit calculations, confirmation message routing, and profile-specific cancellation policies. Ensure workflow execution respects business rules for Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Create `src/tests/workflows/booking-cancellation.integration.test.ts` with 6+ test cases: same-day cancellation (no refund), advance cancellation (full refund), partial cancellation (split credit), admin-initiated vs guest-initiated, profile-specific policy enforcement, and database state consistency post-execution",
+        "Verify `src/assistant/data/workflows.json` booking_cancellation_workflow entries execute end-to-end without errors, all state transitions logged to workflow_audit table",
+        "Achieve >85% coverage of `src/lib/workflow-executor.ts` cancellation code paths; assert all database transactions rollback on failure"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T11:05:16Z"
+    },
+    {
+      "id": "US-273",
+      "title": "Intent Classifier Input Sanitizer with Injection Detection CLI",
+      "priority": "high",
+      "description": "Add validation layer to catch prompt injection attempts in user messages before they reach the AI classifier, protecting reliability and security",
+      "acceptanceCriteria": [
+        "New file src/assistant/pipeline/injection-detector.ts exports detectInjectionRisk(message: string): {risk: 'high'|'low', reason?: string}",
+        "CLI command npm run test:injection-samples validates 20+ known injection payloads against intent classifier and reports detection rate",
+        "Test file tests/unit/injection-detector.test.ts covers: unicode tricks, role-play prompt injections, nested prompt attempts, and common jailbreak patterns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-263",
+      "title": "Cross-Profile Message Routing Validator Middleware",
+      "priority": "high",
+      "description": "Add middleware that validates each incoming message is routed to the correct profile's AI pipeline and data files. Prevents runtime cross-contamination between Pelangi, Makan Moments, and Southern Homestay profiles.",
+      "acceptanceCriteria": [
+        "Middleware in `src/routes/webhook.ts` validates `message.businessProfile` matches currently-loaded profile from `src/lib/config.ts` before passing to AI pipeline; rejects mismatches with detailed 400 error",
+        "Unit test: message with profile='data-southern' rejected if handler initialized with profile='data-makan' (error includes profile mismatch details)",
+        "Integration test: routing validator prevents Southern Homestay guest messages from being processed by Makan Moments knowledge.json and intent classifiers"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-264",
+      "title": "Implement Booking Workflow Step Timeout Detection with Auto-Rollback",
+      "priority": "high",
+      "description": "Add timeout handling to booking confirmation steps to prevent hanging requests. When a workflow step exceeds timeout threshold, automatically rollback guest booking state and return clear timeout error to user.",
+      "acceptanceCriteria": [
+        "Add timeout field to each booking step in src/assistant/data/workflows.json (default 5000ms) and implement stepExecutionTimer in src/assistant/pipeline/booking-executor.ts that triggers rollback on timeout",
+        "Response includes step_timeout reason code with recovery message e.g. 'Booking step took too long. Please try again or speak with staff.'",
+        "Unit test: booking confirmation step timeout triggers guest state rollback and prevents partial booking confirmation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-265",
+      "title": "Build Intent Classification Accuracy Regression Detector with Per-Profile Baselines",
+      "priority": "high",
+      "description": "Track intent classification accuracy per profile and alert when accuracy drops below baseline. Daily snapshot job measures accuracy and detects regressions to prevent silent quality degradation.",
+      "acceptanceCriteria": [
+        "Daily cron job in src/assistant/jobs/accuracy-snapshot.ts calculates classification accuracy per profile and stores in database table intent_accuracy_snapshots with {profile, date, accuracy, baseline}",
+        "Alert triggered when accuracy drops >5% from 30-day rolling baseline, logged to admin dashboard",
+        "CLI: npm run analyze:intent-accuracy-trends shows per-profile accuracy with regression indicators"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-278",
+      "title": "Remove Pelangi Hostel Keywords from Makan Moments Intent-Keywords File",
+      "priority": "high",
+      "description": "Makan Moments profile contains hostel-specific keywords (check-in, checkout, room type, nightly rate) that contaminate cafe-only intents. Audit and remove these to enforce strict profile separation.",
+      "acceptanceCriteria": [
+        "Script scans src/assistant/data/data-makan/intent-keywords.json and identifies 8+ hostel-specific keywords (e.g., 'checkin', 'checkout', 'room', 'amenities', 'nightly rate')",
+        "Generate cleaned file with hostel keywords removed while preserving cafe-specific ones (menu, table, reservation, promotion, order)",
+        "Validate cleaned file passes Zod schema validation in src/assistant/schemas.ts and all remaining intents resolve in routing.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-267",
+      "title": "Add Null Safety Validator to Conversation Context Pipeline",
+      "priority": "high",
+      "description": "Prevent undefined or null conversation context from reaching AI inference by validating context structure early in message processing pipeline. Catch and report context errors before AI call to improve reliability.",
+      "acceptanceCriteria": [
+        "Function validateConversationContext() in src/assistant/pipeline/context-validator.ts throws InvalidContextError with clear message if messages array is null or undefined",
+        "Integration test: message with null conversation context fails before AI inference reaches OpenRouter/Kimi provider",
+        "Response to user includes error_code 'invalid_context' and actionable message suggesting /admin/debug-conversation/:conversationId endpoint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-261",

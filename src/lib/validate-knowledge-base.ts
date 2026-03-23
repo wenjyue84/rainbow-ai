@@ -33,14 +33,18 @@ interface ValidationResult {
 }
 
 // Pelangi-specific phrases that should not appear in other profiles
-const PELANGI_FORBIDDEN_PHRASES = [
+const PELANGI_PHRASES_ALL_PROFILES = [
   'hostel',
-  'check-in',
-  'check-out',
   'room_type',
   'capsule',
-  'pelangi',
+  'pelangi capsule',
   'taman pelangi',
+];
+
+// Extended phrases only flagged for non-hospitality profiles (e.g., makan/cafe)
+const PELANGI_PHRASES_CAFE_ONLY = [
+  'check-in',
+  'check-out',
   'check in',
   'check out',
 ];
@@ -124,10 +128,15 @@ function validateKnowledgeFile(
         );
       }
 
-      // profile_id is CRITICAL - startup must fail without it
+      // profile_id missing — derived from directory path, so warn rather than block
       if (!entry.profile_id) {
+        warnings.push(
+          `${filePath}[${index}]: Missing 'profile_id' field for intent "${entry.intent}". Derived profile: "${profileId}". Corrective action: Add profile_id field with value "${profileId}".`
+        );
+      } else if (entry.profile_id !== profileId) {
+        // Explicit profile_id that conflicts with directory = CRITICAL contamination
         criticalViolations.push(
-          `${filePath}[${index}]: Missing 'profile_id' field for intent "${entry.intent}". Corrective action: Add profile_id field with value "${profileId}".`
+          `${filePath}[${index}]: profile_id "${entry.profile_id}" conflicts with directory profile "${profileId}" for intent "${entry.intent}". Corrective action: Fix profile_id to "${profileId}" or move entry to the correct profile directory.`
         );
       }
 
@@ -174,13 +183,17 @@ function validateKnowledgeFile(
 }
 
 /**
- * Find all knowledge.json files in profile directories
+ * Find all knowledge.json files in profile directories.
+ * Handles both project root (has src/assistant/) and src/ dir (has assistant/) as baseDir.
  */
 function findKnowledgeFiles(baseDir: string): Array<{ path: string; profile: string }> {
   const files: Array<{ path: string; profile: string }> = [];
 
-  // Look for knowledge.json files in src/assistant/data* directories
-  const assistantDataDir = join(baseDir, 'src', 'assistant');
+  // Try both project root layout and src-relative layout
+  let assistantDataDir = join(baseDir, 'src', 'assistant');
+  if (!existsSync(assistantDataDir)) {
+    assistantDataDir = join(baseDir, 'assistant');
+  }
 
   if (!existsSync(assistantDataDir)) {
     return files;
@@ -190,9 +203,10 @@ function findKnowledgeFiles(baseDir: string): Array<{ path: string; profile: str
     const entries = readdirSync(assistantDataDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Match 'data' or 'data-{profile}' directories
+      // Match 'data' or 'data-{profile}' directories, skip data-pms-* (PMS config, not KB)
       if (!entry.isDirectory()) continue;
       if (!entry.name.startsWith('data')) continue;
+      if (entry.name.startsWith('data-pms-')) continue;
 
       const dirPath = join(assistantDataDir, entry.name);
       const kbPath = join(dirPath, 'knowledge.json');

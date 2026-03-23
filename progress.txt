@@ -626,3 +626,36 @@ Here is the technical brief for implementing "US-223" in the existing TypeScript
 *   **Malformed JSON:** Wrap `JSON.parse()` in a `try...catch` to prevent a single broken file from crashing the entire validation process without a clear error indicating which file is corrupt.
 *   **False Positives:** Simple string matching for contamination can be brittle. Use case-insensitive regular expressions with word boundaries (e.g., `/\b(hostel|check-in)\b/i`) to improve accuracy.
 
+
+## Pre-analysis for US-224 (Gemini 2.5 Pro)
+Here is a technical brief for implementing story US-224 in a Frappe/Python environment.
+
+**Technical Brief: US-224 Booking Pre-flight Checklist**
+
+This story requires creating a whitelisted API endpoint to validate a `Booking` document before confirmation. The endpoint will return a detailed report of business rule violations.
+
+**1. Python Files to Modify:**
+*   **Primary Candidate:** Create a new file: `[your_app]/api/booking.py`. This keeps API-specific logic separate.
+*   **Alternative:** Add the method to the existing DocType controller: `[your_app]/doctype/booking/booking.py`.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Function:** A new `@frappe.whitelist()` function, e.g., `run_booking_preflight_check`.
+*   **Primary DocType:** `Booking` (the document to be validated).
+*   **Supporting DocTypes:** `Guest` (or `Customer`), `Room`, `Room Type`, `Pricing Rule` (or equivalent for rate cards) will be queried for validation.
+
+**3. Recommended Implementation Approach:**
+*   The whitelisted function should accept a `booking_id`.
+*   Use `frappe.get_doc('Booking', booking_id)` to fetch the document.
+*   Perform validations in sequence:
+    *   Check guest existence with `frappe.db.exists()`.
+    *   Verify dates are not in the past using `frappe.utils.nowdate()`.
+    *   Query for overlapping bookings using `frappe.get_all()` with filters on room and conflicting date ranges.
+    *   Recalculate the expected total by fetching the relevant `Pricing Rule` and comparing it to the booking's `total_amount`.
+*   Aggregate all failures into a list of dictionaries as specified in the acceptance criteria.
+*   Return a dictionary containing `{ "passed": ..., "violations": ..., "warnings": ... }`.
+
+**4. Edge Cases & Gotchas:**
+*   The query for overlapping bookings must be optimized to avoid performance issues, filtering by status (e.g., 'Confirmed', 'In-house') is crucial.
+*   Pricing logic can be complex; ensure all conditions (seasonal rates, guest count) are covered in the recalculation.
+*   This is a point-in-time check. The system state (e.g., room availability) could change between the check and the actual confirmation action.
+
