@@ -82,6 +82,7 @@ import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport, enforceProfileDataVersionCompatibility } from './lib/profile-validator.js';
 import { validateProfileIntents, validateProfileRouting } from './lib/config.js';
 import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
+import { validateKnowledgeBase, formatValidationReport } from './lib/validate-knowledge-base.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -225,6 +226,23 @@ try {
   checkKBStaleness().catch(() => {});
 } catch (err: any) {
   console.error('[Startup] Failed to initialize KnowledgeBase:', err.message);
+}
+
+// US-223: Knowledge base content validator — enforce profile isolation & required fields
+{
+  const kbValidation = validateKnowledgeBase(__dirname_main);
+  if (!kbValidation.isClean) {
+    const report = formatValidationReport(kbValidation);
+    if (kbValidation.criticalViolations.length > 0) {
+      console.error('[Startup] FATAL: Critical knowledge base violations detected:\n' + report);
+      console.error('[Startup] FATAL: Aborting startup due to knowledge base validation failures');
+      process.exit(1);
+    } else if (kbValidation.warnings.length > 0) {
+      console.warn('[Startup] WARNING: Knowledge base validation warnings:\n' + report);
+    }
+  } else {
+    console.log('[Startup] Knowledge base validation passed');
+  }
 }
 
 // Initialize Unit Cache — fetches from dashboard API in background

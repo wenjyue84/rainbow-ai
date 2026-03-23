@@ -1291,6 +1291,29 @@ export const adminAuditLog = pgTable("admin_audit_log", {
 export type AdminAuditLogEntry = typeof adminAuditLog.$inferSelect;
 export type InsertAdminAuditLogEntry = typeof adminAuditLog.$inferInsert;
 
+// ─── Workflow Step Validation Errors (US-284) ────────────────────────
+// Logs validation failures when booking workflow step outputs don't conform
+// to expected schema, enabling admin review and debugging
+
+export const workflowStepValidationErrors = pgTable("workflow_step_validation_errors", {
+  id: serial("id").primaryKey(),
+  stepId: text("step_id").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  expectedSchema: jsonb("expected_schema").notNull(),    // The schema the output should conform to
+  actualOutput: jsonb("actual_output").notNull(),         // The output that failed validation
+  errorMessages: jsonb("error_messages").notNull(),       // Array of detailed error strings
+  workflowId: text("workflow_id"),                        // Which workflow this step belongs to
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_wf_step_validation_step_id").on(table.stepId),
+  index("idx_wf_step_validation_profile_id").on(table.profileId),
+  index("idx_wf_step_validation_created_at").on(table.createdAt),
+  index("idx_wf_step_validation_step_profile").on(table.stepId, table.profileId),
+]));
+
+export type WorkflowStepValidationError = typeof workflowStepValidationErrors.$inferSelect;
+export type InsertWorkflowStepValidationError = typeof workflowStepValidationErrors.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:

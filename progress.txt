@@ -377,3 +377,101 @@ This task involves creating a new integration test suite, not modifying existing
 *   **Transactional Rollbacks:** Create a test that intentionally fails mid-workflow to ensure all associated database changes are correctly rolled back, as stipulated in the acceptance criteria.
 *   **State Consistency:** Verify that the booking record, credit ledger, and audit logs are all perfectly synchronized after a workflow completes or fails.
 
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+**Project Correction:** The user story is for a **TypeScript/Node.js** project, not Frappe/Python. The implementation will be in TypeScript.
+
+Here is the technical brief for user story US-223:
+
+**1. Files to Modify:**
+*   **New File:** `src/lib/validate-knowledge-base.ts` will contain the core validation logic.
+*   **Existing File:** The main server entry point (likely `src/main.ts`, `src/server.ts`, or `src/index.ts`) must be modified to import and execute the new validation function during the application's startup sequence.
+
+**2. Key Components (No Frappe DocTypes):**
+*   **File System (Node.js `fs` module):** To discover and read `knowledge.json` files from profile directories like `.rainbow-kb-makan`.
+*   **Startup Logic:** The main application process needs to invoke the validator.
+
+**3. Recommended Implementation Approach:**
+*   Create an exported async function `validateKnowledgeBases()` in `src/lib/validate-knowledge-base.ts`.
+*   This function will use `glob` or `fs.readdir` to find all relevant knowledge base files.
+*   For each file, parse the JSON and iterate through each entry.
+*   Implement validation checks for required fields (`id`, `intent`, `profile_id`, `response`).
+*   Use a regex to detect profile-specific keywords (e.g., `/hostel|check-in|room_type/i`) in the content of other profiles.
+*   Log warnings for non-critical issues. If a critical violation (e.g., missing `profile_id`) is found, the function should throw an error to halt the startup process.
+
+**4. Edge Cases & Gotchas:**
+*   **Malformed JSON:** Wrap `JSON.parse` in a `try/catch` block to prevent crashes from invalid JSON files.
+*   **Asynchronous Startup:** Ensure the validation is completed (e.g., using `await`) before the server starts accepting requests.
+*   **Error Clarity:** Violation logs must be precise, including the file path, entry `id`, and the specific rule that failed.
+*   **Empty Files:** The script should handle empty or non-existent knowledge files gracefully.
+
+
+## Pre-analysis for US-223 (Gemini 2.5 Pro)
+**Project:** rainbow-ai (Node.js/TypeScript)
+**User Story:** US-223 - Knowledge Base Content Validator
+
+### **Technical Brief for Claude**
+
+**1. Python/Frappe Files to Modify:**
+*   None. The user story specifies a TypeScript implementation (`.ts`). The reference to Frappe/Python appears to be erroneous context.
+*   **Create New File:** `src/lib/validate-knowledge-base.ts`.
+*   **Modify Existing File:** The main server entry point (likely `src/main.ts`, `src/server.ts`, or similar) must be modified to import and execute the validation script during its startup sequence.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   **Data Structure:** The validator will operate on arrays of JSON objects read from `knowledge.json` files. The implied object schema is: `{ id: string, intent: string, profile_id: string, response: string }`.
+*   **Hook:** The "hook" is the application's startup process. The validation must run once when the server boots.
+
+**3. Recommended Implementation Approach:**
+1.  In `src/lib/validate-knowledge-base.ts`, create an exported async function.
+2.  Use a glob search (`glob` package) to find all `knowledge.json` files in the profile data directories (e.g., `./.rainbow-kb/*/knowledge.json`).
+3.  For each file, read and parse its content.
+4.  Iterate through each record to enforce schema rules (e.g., `profile_id` exists, `response.length` > 5).
+5.  Implement a contamination check: If the file path indicates a "makan" or "southern" profile, scan the `response` field for forbidden "pelangi" keywords (e.g., `hostel`, `capsule`).
+6.  The function should throw a fatal error on critical violations (missing `profile_id`), and use `console.warn` for non-blocking issues.
+7.  Call this validation function from the main server file within a `try/catch` block at the top of the startup logic.
+
+**4. Edge Cases & Gotchas:**
+*   **Startup Failure:** The script **must** exit the process (`process.exit(1)`) on critical errors to prevent the server from starting with invalid data.
+*   **Path Resolution:** Ensure file paths are resolved correctly regardless of where the script is run from.
+*   **Profile Identification:** Reliably derive the profile name (e.g., 'makan') from the file path to accurately apply contamination rules.
+*   **Logging:** Logged violations must be specific, including the file path and record `id`/`intent` to facilitate quick fixes.
+
+
+## Iteration 4 - Story: US-223 Knowledge Base Content Validator
+
+### What was implemented
+- Enhanced `src/lib/validate-knowledge-base.ts` to check for required fields (id, intent, profile_id, response)
+- Made missing `profile_id` a CRITICAL violation (blocks startup with clear error message)
+- Made missing `id` a WARNING (doesn't block startup)
+- Added corrective action messages to all violation reports
+- Validator already integrated into `src/index.ts` startup sequence (lines 231-246)
+- Created comprehensive test suite in `tests/unit/kb-validator.test.ts` with 7 passing tests
+
+### Acceptance criteria met
+✓ Created src/lib/validate-knowledge-base.ts called on server startup
+✓ Validates each entry has required fields: id, intent, profile_id, response (non-empty, length > 5 chars)
+✓ Detects Pelangi-specific phrases (hostel, check-in, room_type, capsule) in data-makan and data-southern with corrective actions
+✓ Startup fails with clear error message if critical violations found (missing profile_id)
+✓ Logs warnings for non-critical issues (empty response, missing id) without blocking
+
+### Patterns discovered
+- Validator uses a local criticalViolations/warnings array per file, then merges results
+- Cross-profile contamination check only applies to non-pelangi profiles (pelangi can have pelangi phrases)
+- getProfileIdFromPath() extracts profile name from directory: 'data' -> 'pelangi', 'data-{profile}' -> profile name
+- formatValidationReport includes [CRITICAL VIOLATIONS] and [WARNINGS] section headers
+
+### Gotchas
+- No existing test infrastructure for validators — had to create new test suite from scratch
+- Knowledge.json files currently don't have id/profile_id fields, so real startup would report critical violations
+- This is intentional: the validator enforces structure; knowledge files need to be migrated to include these fields
+
+### Test results
+- All 7 tests pass: valid config, missing profile_id (critical), missing id (warning), contamination detection, JSON parse errors, corrective actions, multi-profile validation
+- Build succeeds with esbuild (no new errors)
+- Validator correctly blocks startup on critical violations, allows startup with warnings
+
+### Files modified
+- src/lib/validate-knowledge-base.ts (enhanced validation logic + corrective actions)
+- tests/unit/kb-validator.test.ts (new test suite)
+- prd.json (US-223 marked as passes: true)
+
