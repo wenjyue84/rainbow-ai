@@ -107,6 +107,29 @@ export const intentAnalytics = pgTable("intent_analytics", {
   index("idx_intent_analytics_created_at").on(table.createdAt),
 ]));
 
+// ─── Intent Classifier Baselines (US-098) ────────────────────────────
+// Stores baseline accuracy metrics per profile and intent type
+// Used to detect classifier degradation and performance regressions
+
+export const intentClassifierBaselines = pgTable("intent_classifier_baselines", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull(),
+  intentType: text("intent_type").notNull(),
+  accuracyPct: real("accuracy_pct").notNull(),  // percentage (0-100)
+  sampleCount: integer("sample_count").notNull(),  // number of messages evaluated
+  baselineDate: timestamp("baseline_date").notNull(),  // when this baseline was established
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_classifier_baselines_profile_intent").on(table.profileId, table.intentType),
+  index("idx_classifier_baselines_profile_id").on(table.profileId),
+  index("idx_classifier_baselines_intent_type").on(table.intentType),
+  index("idx_classifier_baselines_baseline_date").on(table.baselineDate),
+]));
+
+export type IntentClassifierBaseline = typeof intentClassifierBaselines.$inferSelect;
+export type InsertIntentClassifierBaseline = typeof intentClassifierBaselines.$inferInsert;
+
 export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   phone: varchar("phone", { length: 32 }).primaryKey(),
   pushName: text("push_name").notNull(),

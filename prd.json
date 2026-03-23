@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-097",
-      "title": "Integrate contamination detection into GitHub Actions CI pipeline",
-      "priority": "high",
-      "description": "Automate the existing profile contamination detection CLI by adding GitHub Actions workflow that blocks PRs with cross-profile intent routing violations, enforcing profile separation at merge time",
-      "acceptanceCriteria": [
-        "Create .github/workflows/data-validation.yml that triggers on every PR to main/master and executes npm run check:contamination",
-        "Workflow posts PR comment listing any cross-profile intent routing violations found (profile_id mismatch in routing.json mappings)",
-        "CI check fails with exit code 1 and blocks merge if violations detected in any profile's data files"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-098",
       "title": "Build per-profile intent classifier baseline accuracy tracker",
       "priority": "high",
@@ -76,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T00:45:25Z"
     },
     {
       "id": "US-102",
@@ -390,72 +374,27 @@
       "model": "haiku"
     },
     {
-      "id": "US-162",
-      "title": "Add real-time intent classification debug endpoint for ops teams",
-      "priority": "medium",
-      "description": "Expose POST /admin/debug/classify endpoint that accepts a message and returns the full intent classification result including top-3 candidate intents with confidence scores. This helps ops teams debug misclassifications and iterate on intent keywords without requiring code deployment.",
+      "id": "US-166",
+      "title": "Implement exponential backoff retry logic for Baileys message delivery",
+      "priority": "high",
+      "description": "Add exponential backoff with jitter to handle transient message delivery failures in Baileys WebSocket client. When WhatsApp API returns 5xx errors or timeouts, retry with increasing delays (1s, 2s, 4s, 8s max) instead of failing immediately. Improves reliability during API fluctuations.",
       "acceptanceCriteria": [
-        "POST /admin/debug/classify with {message, profile} returns {classified: {intent, score}, alternatives: [{intent, score}], timing_ms}",
-        "Returns top-3 intent candidates sorted by confidence score, filters scores <0.1",
-        "Unit test: classify 'got twin room?' returns booking intent with confidence >0.7 and two alternatives"
+        "Add retryConfig to src/lib/baileys-client.ts with maxRetries=5, baseDelayMs=1000, maxDelayMs=8000, jitterRatio=0.1",
+        "Failed sends trigger exponential backoff retries; success on any attempt resets counter; max 5 attempts exceeded logs to dead-letter queue",
+        "Unit test in tests/unit/baileys-retry.test.ts verifies retry timing: delays are 1s, 2s, 4s, 8s with ±10% jitter, no retry on 4xx errors",
+        "Integration test confirms idempotent message sends (no duplicates) after 1-3 retries on simulated transient failure"
       ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-163",
-      "title": "Implement per-language intent confidence thresholds in settings configuration",
-      "priority": "medium",
-      "description": "Add language-specific confidence thresholds to settings.json allowing different threshold values for English, Mandarin, Malay, and Tamil. This accounts for language-specific classification difficulty and reduces false fallbacks in non-English conversations.",
-      "acceptanceCriteria": [
-        "settings.json contains languageThresholds section: {en: 0.75, zh: 0.65, ms: 0.70, ta: 0.68}",
-        "Intent classifier calls language-detect on message, applies matching threshold before fallback decision",
-        "Unit test: Mandarin message with score 0.68 is accepted (>=0.65), English with 0.68 triggers fallback (<0.75)"
+      "technicalNotes": [
+        "File to edit: src/lib/baileys-client.ts (sendMessage function) — wrap send call with exponential backoff wrapper using AbortSignal for timeout",
+        "File to edit: src/lib/retry-handler.ts (new file) — export createExponentialBackoffRetry(config) function using Math.random() for jitter",
+        "Test command: rtk npm run test:run -- tests/unit/baileys-retry.test.ts",
+        "Reference: https://jaytech.substack.com/p/retry-logic-and-exponential-backoff"
       ],
-      "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-164",
-      "title": "Create fallback response template usage tracker with escalation outcome correlation",
-      "priority": "medium",
-      "description": "Track which fallback response templates are delivered and whether they lead to guest escalation to staff. Expose admin endpoint showing escalation rates per template, helping ops identify low-quality fallback text and prioritize improvements.",
-      "acceptanceCriteria": [
-        "rainbow_messages table adds fallback_template_id (UUID) and escalated_to_staff (boolean) columns",
-        "GET /admin/fallback-analytics?profile=pelangi returns [{templateId, text, usageCount, escalationRate, trend}]",
-        "Unit test: 12-message conversation with 2 fallbacks correctly reports escalation rates per template (e.g., 1/4=25%, 3/3=100%)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-165",
-      "title": "Implement conversation language shift detection to flag guest confusion patterns",
-      "priority": "low",
-      "description": "Detect when a guest switches primary language mid-conversation (e.g., Mandarin to English) which often indicates guest confusion or bot misunderstanding. Log shift events and recommend staff escalation if intent confidence drops after the switch.",
-      "acceptanceCriteria": [
-        "New function detectLanguageShift(previousMessage, currentMessage) in src/assistant/pipeline returns {shifted: boolean, from: string, to: string}",
-        "If language shift detected AND intent confidence drops >15%, append escalation_reason to inference context",
-        "Unit test: conversation [Mandarin booking query 0.85, English follow-up 0.58] detects shift and adds escalation signal"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "research",
+      "model": "sonnet"
     },
     {
       "id": "US-157",
@@ -706,6 +645,23 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-097",
+      "title": "Integrate contamination detection into GitHub Actions CI pipeline",
+      "priority": "high",
+      "description": "Automate the existing profile contamination detection CLI by adding GitHub Actions workflow that blocks PRs with cross-profile intent routing violations, enforcing profile separation at merge time",
+      "acceptanceCriteria": [
+        "Create .github/workflows/data-validation.yml that triggers on every PR to main/master and executes npm run check:contamination",
+        "Workflow posts PR comment listing any cross-profile intent routing violations found (profile_id mismatch in routing.json mappings)",
+        "CI check fails with exit code 1 and blocks merge if violations detected in any profile's data files"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-094",

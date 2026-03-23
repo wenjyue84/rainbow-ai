@@ -47,41 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-094",
-      "title": "Enforce profile routing isolation with pre-deployment intent route validator",
-      "priority": "high",
-      "description": "Create validator ensuring routing.json routes reference only intents from same profile, preventing cross-contamination at configuration layer and catching Makan/Southern Pelangi data leakage.",
-      "acceptanceCriteria": [
-        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
-        "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
-        "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T00:17:09Z"
-    },
-    {
-      "id": "US-097",
-      "title": "Integrate contamination detection into GitHub Actions CI pipeline",
-      "priority": "high",
-      "description": "Automate the existing profile contamination detection CLI by adding GitHub Actions workflow that blocks PRs with cross-profile intent routing violations, enforcing profile separation at merge time",
-      "acceptanceCriteria": [
-        "Create .github/workflows/data-validation.yml that triggers on every PR to main/master and executes npm run check:contamination",
-        "Workflow posts PR comment listing any cross-profile intent routing violations found (profile_id mismatch in routing.json mappings)",
-        "CI check fails with exit code 1 and blocks merge if violations detected in any profile's data files"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-098",
       "title": "Build per-profile intent classifier baseline accuracy tracker",
       "priority": "high",
@@ -96,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T00:45:03Z"
     },
     {
       "id": "US-102",
@@ -391,6 +357,46 @@
       "model": "haiku"
     },
     {
+      "id": "US-161",
+      "title": "Add booking workflow confirmation idempotency checker to prevent double-bookings",
+      "priority": "high",
+      "description": "Before completing a booking workflow, verify that the guest is not already booked for the same check-in/check-out dates and room type. Prevents accidental duplicate reservations when guest or staff retry the workflow.",
+      "acceptanceCriteria": [
+        "New function verifyBookingIdempotency(guestId, checkIn, checkOut, roomType, profile) checks existing active reservations",
+        "Returns {valid: boolean, conflict?: {existingCheckIn, existingCheckOut, message}} with actionable error text",
+        "Unit test: second booking request for same guest+dates+room within 5 minutes is rejected with conflict message"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-166",
+      "title": "Implement exponential backoff retry logic for Baileys message delivery",
+      "priority": "high",
+      "description": "Add exponential backoff with jitter to handle transient message delivery failures in Baileys WebSocket client. When WhatsApp API returns 5xx errors or timeouts, retry with increasing delays (1s, 2s, 4s, 8s max) instead of failing immediately. Improves reliability during API fluctuations.",
+      "acceptanceCriteria": [
+        "Add retryConfig to src/lib/baileys-client.ts with maxRetries=5, baseDelayMs=1000, maxDelayMs=8000, jitterRatio=0.1",
+        "Failed sends trigger exponential backoff retries; success on any attempt resets counter; max 5 attempts exceeded logs to dead-letter queue",
+        "Unit test in tests/unit/baileys-retry.test.ts verifies retry timing: delays are 1s, 2s, 4s, 8s with ±10% jitter, no retry on 4xx errors",
+        "Integration test confirms idempotent message sends (no duplicates) after 1-3 retries on simulated transient failure"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/baileys-client.ts (sendMessage function) — wrap send call with exponential backoff wrapper using AbortSignal for timeout",
+        "File to edit: src/lib/retry-handler.ts (new file) — export createExponentialBackoffRetry(config) function using Math.random() for jitter",
+        "Test command: rtk npm run test:run -- tests/unit/baileys-retry.test.ts",
+        "Reference: https://jaytech.substack.com/p/retry-logic-and-exponential-backoff"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "research",
+      "model": "sonnet"
+    },
+    {
       "id": "US-157",
       "title": "Implement automated data retention policy enforcement via cron",
       "priority": "critical",
@@ -639,6 +645,41 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-097",
+      "title": "Integrate contamination detection into GitHub Actions CI pipeline",
+      "priority": "high",
+      "description": "Automate the existing profile contamination detection CLI by adding GitHub Actions workflow that blocks PRs with cross-profile intent routing violations, enforcing profile separation at merge time",
+      "acceptanceCriteria": [
+        "Create .github/workflows/data-validation.yml that triggers on every PR to main/master and executes npm run check:contamination",
+        "Workflow posts PR comment listing any cross-profile intent routing violations found (profile_id mismatch in routing.json mappings)",
+        "CI check fails with exit code 1 and blocks merge if violations detected in any profile's data files"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-094",
+      "title": "Enforce profile routing isolation with pre-deployment intent route validator",
+      "priority": "high",
+      "description": "Create validator ensuring routing.json routes reference only intents from same profile, preventing cross-contamination at configuration layer and catching Makan/Southern Pelangi data leakage.",
+      "acceptanceCriteria": [
+        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
+        "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
+        "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T00:18:45Z"
     },
     {
       "id": "US-093",
