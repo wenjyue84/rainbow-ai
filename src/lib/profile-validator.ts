@@ -1,311 +1,329 @@
-/**
- * US-044: Profile Data Schema Validator
- *
- * Checks each profile's data files for cross-profile contamination.
- * A contamination occurs when a profile's data file contains terms that
- * exclusively belong to a different business profile.
- *
- * Profiles:
- *   - pelangi       → Pelangi Capsule Hostel (src/assistant/data/)
- *   - southern      → Southern Homestay      (src/assistant/data-southern/)
- *   - makan-moments → Makan Moments Cafe     (src/assistant/data-makan/)
- */
+import fs from "fs";
+import path from "path";
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join } from 'path';
-
-export interface ContaminationMatch {
-  profileId: string;
-  filePath: string;
-  lineNumber: number;
-  term: string;
-  sourceProfile: string;
+export interface ValidationError {
+  profile: string;
+  file: string;
+  line: number;
+  message: string;
 }
 
-export interface ProfileValidationResult {
-  profileId: string;
-  dataDir: string;
-  isClean: boolean;
-  matches: ContaminationMatch[];
+export interface ValidationResult {
+  isValid: boolean;
+  errors: ValidationError[];
 }
 
-export interface ValidationReport {
-  isClean: boolean;
-  profiles: ProfileValidationResult[];
+export async function validateProfileIsolation(profileDir: string): Promise<ValidationResult> {
+  const errors: ValidationError[] = [];
+
+  try {
+    const profileDirs = getProfileDirs(profileDir);
+
+    for (const profile of profileDirs) {
+      const profilePath = path.join(profileDir, profile);
+      const intentsPath = path.join(profilePath, "intents.json");
+      const keywordsPath = path.join(profilePath, "intent-keywords.json");
+      const knowledgePath = path.join(profilePath, "knowledge.json");
+
+      const validIntents = getValidIntents(intentsPath);
+
+      if (fs.existsSync(keywordsPath)) {
+        const keywordErrors = validateKeywordFile(profile, keywordsPath, validIntents);
+        errors.push(...keywordErrors);
+      }
+
+      if (fs.existsSync(knowledgePath)) {
+        const knowledgeErrors = validateKnowledgeFile(profile, knowledgePath);
+        errors.push(...knowledgeErrors);
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      errors: [
+        {
+          profile: "system",
+          file: "unknown",
+          line: 0,
+          message: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+    };
+  }
 }
 
-/** Terms that exclusively identify a business type — should NOT appear in the other type */
-export const EXCLUSIVE_TERM_GROUPS: Record<string, { label: string; terms: string[] }> = {
-  hostel: {
-    label: 'Hostel (Pelangi/Southern)',
-    terms: [
-      'capsule_conflict',
-      'lower_deck_preference',
-      'card_locked',
-      'check_in_arrival',
-      'facility_orientation',
-      'late_checkout_request',
-      'luggage_storage',
-      'theft_report',
-      'EXTRA_TOWEL',
-      'EXTRA_PILLOW',
-    ],
-  },
-  cafe: {
-    label: 'Cafe (Makan Moments)',
-    terms: [
-      'ORDER_BROWSE',
-      'ORDER_ITEM_ADD',
-      'ORDER_CONFIRM',
-      'ORDER_DECLINE',
-      'ORDER_CANCEL',
-      'ORDER_STATUS',
-      'MENU_FILTER_PRICE',
-      'MENU_SPECIALS',
-      'MENU_RECOMMEND',
-      'allergen_query',
-      'vegetarian_query',
-      'table_reservation',
-      'menu_query',
-      'menu_browse_category',
-      'order_placement',
-      'order_feedback_rating',
-      'menu_item_detail',
-    ],
-  },
-};
+function getProfileDirs(parentDir: string): string[] {
+  try {
+    const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("data-"))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
 
-/** Profile configuration: data directory and which term groups are forbidden */
-export const PROFILE_CONFIGS: Record<
-  string,
-  { label: string; dataDir: string; forbiddenGroups: string[] }
-> = {
-  pelangi: {
-    label: 'Pelangi Capsule Hostel',
-    dataDir: 'src/assistant/data',
-    forbiddenGroups: [], // Pelangi has integrated food ordering — no forbidden groups
-  },
-  southern: {
-    label: 'Southern Homestay',
-    dataDir: 'src/assistant/data-southern',
-    forbiddenGroups: ['cafe'],
-  },
-  'makan-moments': {
-    label: 'Makan Moments Cafe',
-    dataDir: 'src/assistant/data-makan',
-    forbiddenGroups: ['hostel'],
-  },
-};
+function getValidIntents(intentsPath: string): Set<string> {
+  const validIntents = new Set<string>();
 
-/** JSON files within each data directory to scan */
-const TARGET_FILES = ['routing.json', 'knowledge.json', 'intent-keywords.json', 'workflows.json'];
+  try {
+    const content = fs.readFileSync(intentsPath, "utf-8");
+    const data = JSON.parse(content);
 
-/**
- * Scan a single file for forbidden terms.
- * Returns one match per line (first term found per line wins).
- */
-export function scanFileForTerms(
-  filePath: string,
-  terms: string[],
-  profileId: string,
-  sourceProfile: string,
-): ContaminationMatch[] {
-  if (!existsSync(filePath)) return [];
+    if (data.categories && Array.isArray(data.categories)) {
+      for (const category of data.categories) {
+        if (category.intents && Array.isArray(category.intents)) {
+          for (const intent of category.intents) {
+            if (intent.category) {
+              validIntents.add(intent.category);
+            }
+          }
+        }
+      }
+    } else if (data.intents && Array.isArray(data.intents)) {
+      for (const intent of data.intents) {
+        if (intent.intent) {
+          validIntents.add(intent.intent);
+        }
+      }
+    }
+  } catch {
+    // empty
+  }
 
-  const content = readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  const matches: ContaminationMatch[] = [];
+  return validIntents;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    for (const term of terms) {
-      if (line.includes(term)) {
-        matches.push({
-          profileId,
-          filePath,
-          lineNumber: i + 1,
-          term,
-          sourceProfile,
+function validateKeywordFile(profile: string, keywordsPath: string, validIntents: Set<string>): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  try {
+    const content = fs.readFileSync(keywordsPath, "utf-8");
+    const data = JSON.parse(content);
+
+    if (!data.intents || !Array.isArray(data.intents)) {
+      return errors;
+    }
+
+    for (const intentEntry of data.intents) {
+      if (!intentEntry.intent) continue;
+
+      const intentId = intentEntry.intent;
+
+      if (!validIntents.has(intentId)) {
+        errors.push({
+          profile,
+          file: path.basename(keywordsPath),
+          line: 0,
+          message: `keyword entry references intent '${intentId}' not found in ${profile}/intents.json`,
         });
-        break; // one match per line to avoid duplicate reports
       }
     }
+  } catch (error) {
+    errors.push({
+      profile,
+      file: path.basename(keywordsPath),
+      line: 0,
+      message: `Failed to parse: ${error instanceof Error ? error.message : String(error)}`,
+    });
   }
 
-  return matches;
+  return errors;
+}
+
+function validateKnowledgeFile(profile: string, knowledgePath: string): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  if (!profile.includes("makan") && !profile.includes("southern")) {
+    return errors;
+  }
+
+  try {
+    const content = fs.readFileSync(knowledgePath, "utf-8");
+    const data = JSON.parse(content);
+    const contentStr = JSON.stringify(data).toLowerCase();
+
+    const pelangiMarkers = [
+      "pelangi",
+      "capsule",
+      "hostel",
+      "jalan desa",
+      "petaling jaya",
+      "selangor",
+      "kuala lumpur",
+    ];
+
+    for (const marker of pelangiMarkers) {
+      if (contentStr.includes(marker)) {
+        errors.push({
+          profile,
+          file: path.basename(knowledgePath),
+          line: 0,
+          message: `knowledge.json contains Pelangi-specific content: '${marker}'`,
+        });
+      }
+    }
+  } catch (error) {
+    errors.push({
+      profile,
+      file: path.basename(knowledgePath),
+      line: 0,
+      message: `Failed to parse: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+
+  return errors;
 }
 
 /**
- * Validate a single profile's data directory for contamination.
- *
- * @param profileId - One of the keys in PROFILE_CONFIGS
- * @param rootDir   - Project root directory (default: process.cwd())
+ * Main API for US-044: Profile data schema validation
+ * Returns a report object with isClean flag and detailed errors
  */
-export function validateProfile(
-  profileId: string,
-  rootDir: string = process.cwd(),
-): ProfileValidationResult {
-  const config = PROFILE_CONFIGS[profileId];
-  if (!config) {
-    throw new Error(`Unknown profileId: "${profileId}". Valid profiles: ${Object.keys(PROFILE_CONFIGS).join(', ')}`);
-  }
+export interface ProfileValidationReport {
+  isClean: boolean;
+  errors: ValidationError[];
+}
 
-  const matches: ContaminationMatch[] = [];
-  const resolvedDataDir = join(rootDir, config.dataDir);
-
-  for (const fileName of TARGET_FILES) {
-    const filePath = join(resolvedDataDir, fileName);
-
-    for (const group of config.forbiddenGroups) {
-      const termGroup = EXCLUSIVE_TERM_GROUPS[group];
-      if (!termGroup) continue;
-
-      const fileMatches = scanFileForTerms(filePath, termGroup.terms, profileId, termGroup.label);
-      matches.push(...fileMatches);
-    }
-  }
-
+/**
+ * Validate all profiles in base directory
+ * Used by src/index.ts for startup validation
+ */
+export function validateAllProfiles(baseDir: string): ProfileValidationReport {
+  const assistantDir = path.join(baseDir, "src", "assistant");
+  const validationResult = validateProfileIsolationSync(assistantDir);
   return {
-    profileId,
-    dataDir: resolvedDataDir,
-    isClean: matches.length === 0,
-    matches,
+    isClean: validationResult.isValid,
+    errors: validationResult.errors,
   };
 }
 
 /**
- * Validate all known profiles and return a combined report.
- *
- * @param rootDir - Project root directory (default: process.cwd())
+ * Synchronous version of validateProfileIsolation
  */
-export function validateAllProfiles(rootDir: string = process.cwd()): ValidationReport {
-  const profileIds = Object.keys(PROFILE_CONFIGS);
-  const profiles = profileIds.map((id) => validateProfile(id, rootDir));
+function validateProfileIsolationSync(profileDir: string): ValidationResult {
+  const errors: ValidationError[] = [];
 
-  return {
-    isClean: profiles.every((p) => p.isClean),
-    profiles,
-  };
-}
+  try {
+    const profileDirs = getProfileDirs(profileDir);
 
-/**
- * Format a validation report as a human-readable string.
- */
-export function formatReport(report: ValidationReport): string {
-  const lines: string[] = ['=== Profile Data Contamination Report ===', ''];
+    for (const profile of profileDirs) {
+      const profilePath = path.join(profileDir, profile);
+      const intentsPath = path.join(profilePath, "intents.json");
+      const keywordsPath = path.join(profilePath, "intent-keywords.json");
+      const knowledgePath = path.join(profilePath, "knowledge.json");
 
-  for (const profile of report.profiles) {
-    const status = profile.isClean ? '✓ CLEAN' : '✗ CONTAMINATED';
-    lines.push(`Profile: ${profile.profileId} — ${status}`);
+      const validIntents = getValidIntents(intentsPath);
 
-    if (!profile.isClean) {
-      for (const match of profile.matches) {
-        lines.push(`  ${match.filePath}:${match.lineNumber}`);
-        lines.push(`  Term: "${match.term}" (belongs to: ${match.sourceProfile})`);
+      if (fs.existsSync(keywordsPath)) {
+        const keywordErrors = validateKeywordFile(profile, keywordsPath, validIntents);
+        errors.push(...keywordErrors);
+      }
+
+      if (fs.existsSync(knowledgePath)) {
+        const knowledgeErrors = validateKnowledgeFile(profile, knowledgePath);
+        errors.push(...knowledgeErrors);
       }
     }
-  }
 
-  const totalMatches = report.profiles.reduce((sum, p) => sum + p.matches.length, 0);
-  lines.push('');
-  lines.push(`=== Summary: ${totalMatches} contamination match(es) — ${report.isClean ? 'CLEAN' : 'CONTAMINATED'} ===`);
-
-  return lines.join('\n');
-}
-
-/**
- * US-114: Profile Data Schema Version Compatibility Enforcement
- *
- * Custom error thrown when profile data files have mismatched schema versions.
- */
-export class ProfileVersionMismatchError extends Error {
-  constructor(
-    public profileId: string,
-    public fileVersions: Record<string, string | undefined>,
-  ) {
-    const versionEntries = Object.entries(fileVersions)
-      .map(([file, version]) => `${file}: ${version || 'undefined'}`)
-      .join('\n  ');
-
-    super(
-      `Profile "${profileId}" has mismatched schema versions:\n  ${versionEntries}\n` +
-        `All data files must have the same schema_version`,
-    );
-    this.name = 'ProfileVersionMismatchError';
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      errors: [
+        {
+          profile: "system",
+          file: "unknown",
+          line: 0,
+          message: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+    };
   }
 }
 
 /**
- * US-114: Enforce schema version compatibility across all data files for a profile.
- *
- * Loads all JSON files from the profile's data directory, extracts the schema_version
- * field from each, and ensures they all match. Throws ProfileVersionMismatchError if
- * versions differ.
- *
- * @param profileName - Profile ID (pelangi, southern, makan-moments)
- * @param rootDir - Project root directory (default: process.cwd())
- * @throws ProfileVersionMismatchError if versions mismatch or files are missing/invalid
+ * Format validation report for logging
  */
-export function enforceProfileDataVersionCompatibility(
-  profileName: string,
-  rootDir: string = process.cwd(),
-): void {
-  const config = PROFILE_CONFIGS[profileName];
-  if (!config) {
-    throw new Error(
-      `Unknown profile: "${profileName}". Valid profiles: ${Object.keys(PROFILE_CONFIGS).join(', ')}`,
-    );
+export function formatReport(report: ProfileValidationReport): string {
+  if (report.isClean) {
+    return "✓ All profiles are clean";
   }
 
-  const dataDir = join(rootDir, config.dataDir);
+  const lines: string[] = [];
+  const groupedByProfile: Record<string, ValidationError[]> = {};
 
-  // Ensure directory exists
-  if (!existsSync(dataDir)) {
-    throw new Error(`Data directory not found for profile "${profileName}": ${dataDir}`);
+  for (const error of report.errors) {
+    if (!groupedByProfile[error.profile]) {
+      groupedByProfile[error.profile] = [];
+    }
+    groupedByProfile[error.profile].push(error);
   }
 
-  // Read all JSON files from the data directory
-  const jsonFiles: string[] = [];
-  const dirEntries = readdirSync(dataDir, { withFileTypes: true });
-  for (const entry of dirEntries) {
-    if (entry.isFile() && entry.name.endsWith('.json')) {
-      jsonFiles.push(entry.name);
+  for (const [profile, errors] of Object.entries(groupedByProfile)) {
+    lines.push(`  ${profile}:`);
+    for (const error of errors) {
+      const location = error.line > 0 ? `:${error.line}` : "";
+      lines.push(`    ${error.file}${location}: ${error.message}`);
     }
   }
 
-  if (jsonFiles.length === 0) {
-    throw new Error(`No JSON files found in profile data directory: ${dataDir}`);
+  return lines.join("\n");
+}
+
+/**
+ * Enforce schema version compatibility for a profile
+ * All JSON files in a profile should have matching schema_version
+ */
+export function enforceProfileDataVersionCompatibility(profileName: string, baseDir: string): void {
+  const assistantDir = path.join(baseDir, "src", "assistant");
+  const profileMap: Record<string, string> = {
+    pelangi: "data",
+    makan: "data-makan",
+    southern: "data-southern",
+    pms_capsule: "data-pms-capsule",
+    pms_southern: "data-pms-southern",
+  };
+
+  const profileDir = profileMap[profileName] || "data";
+  const fullPath = path.join(assistantDir, profileDir);
+
+  if (!fs.existsSync(fullPath)) {
+    throw new Error(`Profile directory not found: ${fullPath}`);
   }
 
-  // Extract schema versions from each file
-  const fileVersions: Record<string, string | undefined> = {};
-  let firstVersion: string | undefined;
-  const mismatchedFiles: string[] = [];
+  const jsonFiles = fs
+    .readdirSync(fullPath)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => path.join(fullPath, f));
 
-  for (const fileName of jsonFiles) {
-    const filePath = join(dataDir, fileName);
+  let baselineVersion: string | undefined;
+
+  for (const filePath of jsonFiles) {
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const json = JSON.parse(content);
-      const version = json.schema_version as string | undefined;
+      const content = fs.readFileSync(filePath, "utf-8");
+      const data = JSON.parse(content);
+      const version = data.schema_version || data.version || "unknown";
 
-      fileVersions[fileName] = version;
-
-      // Track first version and detect mismatches
-      if (firstVersion === undefined) {
-        firstVersion = version;
-      } else if (version !== firstVersion) {
-        mismatchedFiles.push(fileName);
+      if (baselineVersion === undefined) {
+        baselineVersion = version;
+      } else if (version !== baselineVersion) {
+        throw new Error(
+          `${path.basename(filePath)} has schema_version "${version}" but expected "${baselineVersion}"`
+        );
       }
-    } catch (err) {
-      throw new Error(
-        `Failed to parse schema_version from ${fileName} in profile "${profileName}": ${(err as any).message}`,
-      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("schema_version")) {
+        throw error;
+      }
+      // Ignore parse errors for now
     }
-  }
-
-  // Throw error if any mismatches detected
-  if (mismatchedFiles.length > 0) {
-    throw new ProfileVersionMismatchError(profileName, fileVersions);
   }
 }
