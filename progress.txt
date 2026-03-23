@@ -493,3 +493,84 @@ This technical brief is for a **TypeScript/Node.js** project, as the user story 
 *   **Matching Logic:** The keyword matching logic (e.g., case-insensitivity, whole word) should mirror the production intent detection engine's behavior for accurate analysis.
 *   **Coverage Gaps:** Simply listing all unique unmatched messages might be noisy. Consider basic clustering or frequency analysis of unmatched phrases for a more actionable report.
 
+## Iteration 1 - Tue, Mar 24, 2026  5:17:42 AM
+FAILED diagnosis-block gate: Build Intent Keyword Freshness Analyzer CLI for Coverage Gap Detection (ID: US-327) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-327 (Gemini 2.5 Pro)
+This user story describes a TypeScript/Node.js CLI tool, not a Frappe/Python one. The technical brief is based on the project's actual stack.
+
+**Project:** `rainbow-ai` (TypeScript/Node.js)
+**User Story:** US-327 - Intent Keyword Freshness Analyzer
+
+### Technical Brief
+
+**1. Files to Modify/Create:**
+
+*   **New Script:** `scripts/analyze-keyword-freshness.ts` will contain the core logic for the CLI tool.
+*   **New Test:** `tests/keyword-freshness.test.ts` will house unit and integration tests for the analyzer.
+*   **Configuration:** `package.json` must be updated to add the new `analyze:keyword-freshness` npm script.
+*   **Output:** The script will generate `stale_keywords.txt` and `coverage_gaps.txt`.
+
+**2. Involved Systems (No Frappe DocTypes):**
+
+*   The script will interact with the file system to read production log files and likely the `.rainbow-kb/` directory to get the master list of intent keywords.
+*   It will use Node.js core modules (`fs`) and potentially a CLI argument parser like `yargs`.
+
+**3. Recommended Implementation Approach:**
+
+1.  Use `yargs` to define and parse CLI arguments (`log-path`, `days`).
+2.  Load all intent keywords from the `.rainbow-kb` structure into a master `Set`.
+3.  Recursively read and stream log files from the provided path.
+4.  For each log entry within the `days` threshold, check if the message matches any keyword. Maintain a `Map` to count matches for each keyword.
+5.  Log messages that don't match any keyword into a "coverage gaps" list.
+6.  Compare the master keyword `Set` with the match-count `Map` to identify keywords with zero matches ("stale keywords").
+7.  Write the results to `stale_keywords.txt` and `coverage_gaps.txt`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Log Format Consistency:** The script will be brittle if the log message format is inconsistent; parsing must be robust.
+*   **Performance:** Use streaming APIs for reading large log files to avoid high memory usage.
+*   **Date/Timezone:** Ensure correct handling of log timestamps and date comparisons, as timezone issues are common.
+*   **Matching Logic:** The keyword matching algorithm (e.g., case-sensitivity, whole/partial word) must precisely mirror the production implementation to be accurate.
+
+
+## Iteration 14 - US-327: Build Intent Keyword Freshness Analyzer CLI for Coverage Gap Detection — PASSED
+
+### What was implemented
+**Core CLI Script** (`scripts/analyze-keyword-freshness.ts`):
+- Loads keywords from all profiles (pelangi, makan, southern)
+- Parses JSON/plain-text logs with optional date window filtering
+- Matches messages against keywords (case-insensitive, substring matching)
+- Identifies stale keywords (zero matches) and coverage gaps (unmatched messages)
+- Outputs `stale_keywords.txt` and `coverage_gaps.txt`
+
+**Test Suite** (`src/__tests__/keyword-freshness.test.ts`):
+- 15 unit tests across 8 test cases
+- Validates detection with 100+ realistic messages spanning 10 intents
+- Tests: stale detection, coverage gaps, multilingual support, case-insensitivity, keyword counting
+- All tests pass (15/15)
+
+**Integration**:
+- npm script `analyze:keyword-freshness` already present in package.json (line 40)
+- CLI usage: `npm run analyze:keyword-freshness /path/to/logs/ --days 30`
+
+### Acceptance criteria met
+✓ **AC1**: CLI command parses logs and measures per-keyword match frequency
+✓ **AC2**: Reports output stale_keywords.txt and coverage_gaps.txt
+✓ **AC3**: Test file validates detection with 100+ messages spanning 10 intents
+✓ **Build**: esbuild passes (1 pre-existing warning in logger.ts, not related)
+✓ **Tests**: 15/15 tests pass
+
+### Patterns discovered
+- Keywords loaded from multiple profiles using Map<intent, keywords[]>
+- Matching uses case-insensitive substring + normalization (trim + lowercase)
+- Log parsing supports both JSON (with message/text/content fields) and plain text
+- Date window filtering uses cutoff date calculation (now - days)
+- Stale keywords identified via frequency count = 0
+
+### Gotchas
+- Windows NODE_OPTIONS env var doesn't work — use npx directly instead
+- Log parsing gracefully handles both JSON and plain text formats
+- All 70 intents loaded from profiles on startup (comprehensive coverage)
+
