@@ -59,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -234,6 +234,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-212",
+      "title": "Intent Classification Escalation Queue with Low-Confidence Auto-Flagging",
+      "priority": "high",
+      "description": "Automatically flag intent classifications with confidence < 40% for human review. Store in dedicated escalation queue with original intent, actual guest correction, and keyword improvement recommendations. Reduces fallback escalations by enabling quick manual triage.",
+      "acceptanceCriteria": [
+        "Create escalation_queue table with schema: id, conversation_id, original_intent, confidence_score, guest_correction_intent, timestamp, profile",
+        "In src/assistant/pipeline/classification.ts: when confidence < 40%, auto-insert into escalation_queue; log to src/logs/escalation-flags.log",
+        "Admin endpoint GET /admin/escalation-queue?limit=20&profile=makan returns array sorted by confidence ascending, including message preview and recommended keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-213",
+      "title": "Intent Keyword Suggestion Engine from Escalated Conversation Analysis",
+      "priority": "high",
+      "description": "Extract new keyword suggestions from escalated conversations to improve intent classifier accuracy. Analyzes misclassified messages using TF-IDF to recommend 2-3 high-impact keywords per intent, reducing classification errors.",
+      "acceptanceCriteria": [
+        "CLI command npm run suggest:keywords --profile makan --days 30 analyzes escalation_queue table; extracts candidate keywords from misclassified message text using TF-IDF scoring",
+        "Returns JSON output: {intent_id, current_keyword_count, suggested_keywords: [string], estimated_accuracy_boost_percent}",
+        "Test: assert suggested keywords are extracted from actual guest messages and not generic terms; verify output schema validates against schema.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-198",
       "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
       "priority": "medium",
@@ -344,6 +378,57 @@
         "CLI: npm run test:intent-accuracy -- --profile=data-pelangi --min-accuracy=0.82 reads confusion matrix from src/tools/__tests__/confusion-matrix-generator.test.ts output",
         "Store baseline thresholds in src/.intent-baselines/{profile}.json with per-intent F1 targets; CI exits(1) if any intent accuracy < threshold",
         "Test in src/__tests__/ci-validators/intent-baseline.test.ts asserts data-pelangi booking intent F1 >= 0.85 and data-makan menu_inquiry F1 >= 0.80"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-214",
+      "title": "Guest Language Auto-Detection from First Message for Multi-Lingual Context",
+      "priority": "medium",
+      "description": "Auto-detect guest's preferred language from initial message and persist across conversation turns. Use detected language in all subsequent AI prompts and responses to improve multi-turn dialogue coherence across Mandarin, Tamil, Malay, and English speakers.",
+      "acceptanceCriteria": [
+        "Implement detectLanguageFromMessage(text) function in src/assistant/pipeline/language.ts using language-detect npm package; store language_code (ISO 639-1) in conversations.guest_language column",
+        "Retrieve guest_language on every message and inject into AI prompt context (e.g., 'Respond in {guest_language}')",
+        "Unit test: assert >85% accuracy detecting Mandarin/Tamil/Malay on 50-word message samples from test/fixtures/multilingual-samples.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-215",
+      "title": "Booking Workflow Step SLA Monitoring Endpoint for Performance Tracking",
+      "priority": "medium",
+      "description": "Monitor execution time of booking workflow steps against configurable SLA thresholds. Identify steps that consistently exceed SLA for optimization prioritization. Lightweight alternative to full profiler for quick reliability checks.",
+      "acceptanceCriteria": [
+        "Admin endpoint GET /admin/workflows/:profile/sla-status returns [{step_id, avg_duration_ms, sla_threshold_ms, status: 'ok'|'warning'|'critical', run_count}]",
+        "SLA thresholds configurable in src/assistant/data/settings.json per step_id; defaults: validation=200ms, confirmation=500ms, room_check=300ms",
+        "Test: assert status='critical' when avg_duration_ms exceeds sla_threshold_ms by >50%; warning when 90-150% of threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-216",
+      "title": "Conversation Context Span Analyzer for Multi-Turn Window Recommendations",
+      "priority": "medium",
+      "description": "Analyze conversation history to assess context quality and recommend pruning strategy. Measures message count, age of oldest message, and semantic drift to guide context window optimization for multi-turn dialogues.",
+      "acceptanceCriteria": [
+        "Implement analyzeContextSpan(messages: Message[], currentIntent: string) in src/assistant/context/analyzer.ts returning {message_count, oldest_age_seconds, semantic_drift_score: 0-100, recommendation: 'keep_all'|'prune_old'|'truncate'}",
+        "Admin endpoint GET /admin/conversations/:id/context-analysis returns analysis result with actionable pruning recommendation",
+        "Test: assert recommendation='truncate' when message_count > 20; recommendation='prune_old' when 10-20 messages; recommendation='keep_all' when < 10"
       ],
       "technicalNotes": [],
       "dependencies": [],
