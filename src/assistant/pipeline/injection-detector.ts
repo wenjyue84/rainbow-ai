@@ -47,7 +47,7 @@ const INSTRUCTION_OVERRIDE_PATTERNS: RegExp[] = [
   /bypass\s+(?:your|all|the)\s+(?:instructions?|rules?|filters?|safety|restrictions?)/i,
   /new\s+instructions?\s*:/i,
   /do\s+not\s+follow\s+(?:your|the|any)/i,
-  /stop\s+being\s+(?:a\s+)?(?:helpful|assistant|bot|ai)/i,
+  /stop\s+being\s+(?:an?\s+)?(?:helpful|assistant|bot|ai)/i,
 ];
 
 /** Jailbreak patterns (DAN, developer mode, etc.) */
