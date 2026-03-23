@@ -47,41 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-226",
-      "title": "Booking Intent Classification Failure Logger with Recovery Suggestions",
-      "priority": "high",
-      "description": "When a booking intent classification falls below confidence threshold, log the raw message, context, and top-3 candidate intents to a debug table. Expose /admin/debug/failed-bookings endpoint to show patterns in misclassifications so product can improve keyword coverage.",
-      "acceptanceCriteria": [
-        "Add `booking_classification_failures` table to schema (message_id, raw_input, profile_id, top_3_candidates with scores, timestamp). Run `npm run db:push`.",
-        "Modify intent classifier to log failures when confidence < 0.65 for booking intents. Test with message that should trigger booking but doesn't.",
-        "Create GET /admin/debug/failed-bookings endpoint returning paginated failures (last 24h default) with most common failed keywords grouped by profile."
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-23T12:04:53Z"
-    },
-    {
-      "id": "US-227",
-      "title": "Profile Data File Integrity Validator CLI with Cross-Contamination Detection",
-      "priority": "high",
-      "description": "Create `npm run audit:profiles` command that validates each profile's data files (intents.json, intent-keywords.json, routing.json, knowledge.json) for zero cross-profile contamination. Must detect keywords referencing intents from other profiles and Pelangi Capsule Hostel content in Makan/Southern files.",
-      "acceptanceCriteria": [
-        "Implement `validateProfileIsolation()` function in `src/lib/profile-validator.ts` that parses all data files, cross-references intent IDs in keywords, and flags any external profile references.",
-        "CLI command `npm run audit:profiles` outputs violations by profile and exits with code 1 if any found. Example violation: 'data-makan/intent-keywords.json line 42: keyword for intent booking:room_check_in not found in data-makan/intents.json'.",
-        "Unit test `src/__tests__/profile-validator.test.ts` with 3 cases: clean profile passes, keywords with non-existent intent fails, Pelangi content in Makan file detected and reported."
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-228",
       "title": "Booking Workflow Step Pre-Execution Validation with Actionable Error Messages",
       "priority": "high",
@@ -94,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -576,6 +541,125 @@
       "model": "sonnet"
     },
     {
+      "id": "US-350",
+      "title": "Profile-Aware Fallback Response Context Matcher",
+      "priority": "high",
+      "description": "When confidence is low, select fallback response based on conversation history and guest context rather than generic templates. Match response tone to profile (cafe vs. hostel) and reference previous guest messages for continuity.",
+      "acceptanceCriteria": [
+        "Create src/assistant/pipeline/context-aware-fallback-selector.ts that scores conversation context relevance and selects profile-specific fallback from settings.json fallback_responses section",
+        "For Makan Moments profile, use cafe-friendly tone (e.g., 'Sorry, I'm not sure about that. Our staff can help with your order'); for Pelangi, use hostel tone. Log selection reason.",
+        "Unit test: verify Makan fallback excludes hostel keywords; verify Pelangi fallback excludes cafe keywords; verify low-confidence fallback actually triggers"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-351",
+      "title": "Profile Isolation Enforcement Runtime Middleware",
+      "priority": "high",
+      "description": "Add runtime middleware that blocks message routing to intents/workflows from different profile than authenticated user. Prevents accidental cross-profile message leakage at execution time.",
+      "acceptanceCriteria": [
+        "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
+        "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
+        "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-352",
+      "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
+      "priority": "high",
+      "description": "When a booking workflow step fails, capture structured error details (step name, input values, error type) and automatically generate guest-facing recovery suggestion + queue for staff review. Improves booking reliability.",
+      "acceptanceCriteria": [
+        "In src/assistant/booking/step-error-handler.ts, catch step execution errors and create rainbow_escalation_events row with {step_id, input_values, error_type, guest_recovery_msg, staff_notes}",
+        "Generate profile-aware recovery message (e.g., for Pelangi: 'I couldn't confirm your booking. Our front desk will call you shortly'; for Makan: 'Unable to process order. Our staff will follow up'). No generic messages.",
+        "Unit test: verify error is caught, escalation event created, recovery message is profile-specific, staff can view in /admin/escalations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-353",
+      "title": "Fix Makan Moments and Southern Homestay Profile Data Contamination",
+      "priority": "high",
+      "description": "Manually audit and remove all Pelangi Capsule Hostel-specific content from data-makan and data-southern profiles. Includes intents.json, intent-keywords.json, routing.json, and workflows.json. Document what was removed.",
+      "acceptanceCriteria": [
+        "Remove from data-makan: hostel-specific intents (check_in, check_out, room_service, hostel_amenities); remove hostel keywords; verify only cafe intents remain (order_inquiry, promotion_inquiry, menu_question, delivery_inquiry)",
+        "Remove from data-southern: Pelangi keywords and intents; add Southern Homestay-specific intents if needed. Verify data files contain zero Pelangi references (case-insensitive grep for 'pelangi', 'capsule', 'hostel room', 'bed', 'dorm')",
+        "Create CONTAMINATION_FIX_LOG.md documenting: files modified, lines removed, keywords purged, profile-specific content verified. Commit with message 'fix(data): remove Pelangi Capsule content from Makan and Southern profiles'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-354",
+      "title": "Booking Workflow Step Input Schema Validator with Pre-Execution Type Check",
+      "priority": "high",
+      "description": "Validate each booking workflow step receives correctly-typed input before execution. Catch type mismatches early with actionable error messages showing expected vs actual input structure.",
+      "acceptanceCriteria": [
+        "Create validateStepInput(step: WorkflowStep, input: unknown): ValidationResult function in src/assistant/pipeline/workflow-executor.ts that checks input against step.inputSchema defined in workflows.json",
+        "Return error with step name, expected fields, and actual fields when validation fails (e.g., 'Step check-availability expects {roomType: string, checkIn: Date} but received {roomType: string, checkIn: \"2026-03-24\"}')",
+        "Add unit tests in tests/workflow-step-input-validation.test.ts covering type mismatches for 5+ booking workflow steps"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-355",
+      "title": "Intent Classifier Offline Evaluation CLI with Production Log Replay",
+      "priority": "high",
+      "description": "Build test dataset from production intent classifications and measure classifier accuracy regression by replaying past guest messages through the current model. Identify intents that have degraded.",
+      "acceptanceCriteria": [
+        "Implement npm run test:intent-regression command that exports last 500 intent classifications from rainbow_messages table with ground-truth labels from conversation feedback",
+        "Replay those messages through current classifier and compare predictions, outputting accuracy by intent type (booking: 87%, inquiry: 82%, etc.) vs baseline stored in src/data/intent-accuracy-baseline.json",
+        "Exit with non-zero status if any intent drops >5% accuracy, generating report in logs/intent-regression-report.json with detailed failure cases"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-356",
+      "title": "Profile Data Contamination Audit and Auto-Repair CLI with Review Checkpoint",
+      "priority": "high",
+      "description": "Scan all profile-specific data files (intent-keywords.json, knowledge.json, routing.json per profile) for cross-contamination, generate removal suggestions, and provide semi-automated cleanup with manual review step.",
+      "acceptanceCriteria": [
+        "Implement npm run audit:profile-contamination CLI that loads data-pelangi, data-makan, data-southern profiles and flags keywords/routes/knowledge entries that belong to a different profile (e.g., Pelangi room types in Makan Moments intent-keywords.json)",
+        "Generate audit/profile-contamination-report.json with violations grouped by profile and file, showing entry and suggested removal with confidence score",
+        "Add --fix flag to auto-remove low-confidence violations and log all changes to audit/profile-cleanup-log.json for review before commit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-293",
       "title": "Implement concurrent intent classification batch inferencing for 20% latency reduction",
       "priority": "medium",
@@ -935,6 +1019,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-357",
+      "title": "Conversation Context Semantic Summarizer for Multi-Turn Token Budget Compliance",
+      "priority": "medium",
+      "description": "Compress long conversation histories (>8 messages) using extractive summarization to stay within token budgets while preserving booking details and key guest context. Reduces AI provider costs.",
+      "acceptanceCriteria": [
+        "Add summarizeConversationContext(messages: Message[], targetLength: number): SummaryResult function in src/assistant/pipeline/context-processor.ts that keeps check-in dates, room types, guest names, and removes greetings/small-talk",
+        "Maintain <10% information loss for booking-critical fields validated against original message text in unit tests",
+        "Log compression ratio and token savings per conversation to analytics for cost tracking"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-358",
+      "title": "Fallback Response Tone Adjuster Based on Conversation Frustration Signals",
+      "priority": "medium",
+      "description": "Detect guest frustration from conversation patterns (e.g., repeated questions, \"why\", complaint words) and select warmer/apologetic fallback responses. Improves customer experience on failed classifications.",
+      "acceptanceCriteria": [
+        "Add detectFrustrationSignals(conversation: Message[]): FrustrationLevel function in src/assistant/pipeline/ that scores frustration 0-1 based on keyword patterns (why, still, problem, annoyed, frustrated)",
+        "Fallback response router in src/assistant/pipeline/ selects warm_fallback.txt instead of default_fallback.txt when score > 0.6",
+        "Add unit tests validating frustration detection on 5+ real guest conversations with expected signals"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-196",
       "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
       "priority": "critical",
@@ -1202,6 +1320,41 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-227",
+      "title": "Profile Data File Integrity Validator CLI with Cross-Contamination Detection",
+      "priority": "high",
+      "description": "Create `npm run audit:profiles` command that validates each profile's data files (intents.json, intent-keywords.json, routing.json, knowledge.json) for zero cross-profile contamination. Must detect keywords referencing intents from other profiles and Pelangi Capsule Hostel content in Makan/Southern files.",
+      "acceptanceCriteria": [
+        "Implement `validateProfileIsolation()` function in `src/lib/profile-validator.ts` that parses all data files, cross-references intent IDs in keywords, and flags any external profile references.",
+        "CLI command `npm run audit:profiles` outputs violations by profile and exits with code 1 if any found. Example violation: 'data-makan/intent-keywords.json line 42: keyword for intent booking:room_check_in not found in data-makan/intents.json'.",
+        "Unit test `src/__tests__/profile-validator.test.ts` with 3 cases: clean profile passes, keywords with non-existent intent fails, Pelangi content in Makan file detected and reported."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-226",
+      "title": "Booking Intent Classification Failure Logger with Recovery Suggestions",
+      "priority": "high",
+      "description": "When a booking intent classification falls below confidence threshold, log the raw message, context, and top-3 candidate intents to a debug table. Expose /admin/debug/failed-bookings endpoint to show patterns in misclassifications so product can improve keyword coverage.",
+      "acceptanceCriteria": [
+        "Add `booking_classification_failures` table to schema (message_id, raw_input, profile_id, top_3_candidates with scores, timestamp). Run `npm run db:push`.",
+        "Modify intent classifier to log failures when confidence < 0.65 for booking intents. Test with message that should trigger booking but doesn't.",
+        "Create GET /admin/debug/failed-bookings endpoint returning paginated failures (last 24h default) with most common failed keywords grouped by profile."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T12:04:53Z"
     },
     {
       "id": "US-289",

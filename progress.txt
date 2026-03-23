@@ -926,3 +926,38 @@ FAILED diagnosis-block gate: Booking Workflow Step Pre-Execution Validation with
 ### Gotchas
 - python3 json.load requires explicit encoding='utf-8' on Windows (default cp1252 fails on unicode chars in prd.json)
 - Node -e has issues with ! in bash on Windows; use python3 for JSON manipulation
+
+## Iteration 4 - Story: Intent Classification Accuracy Auto-Rollback System (US-236)
+
+### What was implemented
+- Added `modelAccuracyHistory` table to `shared/schema-tables.ts` with fields:
+  - profileId, modelVersion, accuracyScore (0.0-1.0), messagesTested, timestamp
+  - Indexes on profile_id, model_version, and timestamp for efficient queries
+- Created `src/assistant/models/model-rollback-controller.ts` with:
+  - `recordAccuracyMetric()`: Stores accuracy measurements and triggers rollback if >5% drop below baseline
+  - `getRollbackStatus()`: Returns current version, baseline, and rollback history
+  - `getAccuracyHistory()`: Queries last N hours of accuracy metrics
+  - Automatic env var update (ACTIVE_MODEL_VERSION) on accuracy degradation
+- Created `src/routes/admin/model-rollback.ts` with 3 endpoints:
+  - GET /admin/model-rollback/status: Current rollback status
+  - POST /admin/model-rollback/record-accuracy: Record accuracy metric with auto-rollback check
+  - GET /admin/model-rollback/history: Query accuracy history by time window
+- Registered new route in admin router with `/model-rollback` prefix
+
+### Patterns discovered
+- Drizzle ORM queries use `(db as any)` for flexibility since full type inference not always available
+- Admin endpoints use consistent HTTP utils (`ok()`, `serverError()`) for JSON responses
+- Model version tracked via ACTIVE_MODEL_VERSION env var (fallback to MODEL_VERSION or 'default')
+- Baseline accuracy defaults to 85% unless provided per-request
+
+### Gotchas
+- Database table created in schema but not yet migrated (requires `npm run db:push`)
+- Rollback history currently logs to console/audit trail (ready for extension to audit table)
+- Previous model version lookup handles case where no prior version exists
+
+### Acceptance criteria met
+✓ Added schema table with timestamp, model_version, accuracy_score, messages_tested
+✓ Auto-rollback triggered when accuracy drops >5% below baseline (85%)
+✓ Admin endpoint returns current version, baseline, current accuracy, and history
+✓ Environment variable updated on rollback trigger with console logging
+

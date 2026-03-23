@@ -113,6 +113,7 @@ import analyticsBookingConversionRoutes from './analytics-booking-conversion.js'
 import fallbackAnalysisRoutes from './fallback-analysis.js'; // US-300: Fallback response effectiveness tracker
 import escalationFeedbackRoutes from './escalation-feedback.js'; // US-295: Escalation quality feedback loop
 import debugFailedBookingsRoutes from './debug-failed-bookings.js'; // US-226: Booking classification failure logger
+import modelRollbackRoutes from './model-rollback.js'; // US-236: Intent classification accuracy auto-rollback
 
 const router = Router();
 
@@ -392,6 +393,7 @@ router.use(analyticsBookingConversionRoutes); // US-292: Booking conversion rate
 router.use(fallbackAnalysisRoutes);           // US-300: Fallback response effectiveness tracker
 router.use(escalationFeedbackRoutes);        // US-295: Escalation quality feedback loop
 router.use(debugFailedBookingsRoutes);       // US-226: Booking classification failure logger
+router.use('/model-rollback', modelRollbackRoutes); // US-236: Intent classification accuracy auto-rollback
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

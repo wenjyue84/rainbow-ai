@@ -1475,6 +1475,27 @@ export const bookingClassificationFailures = pgTable("booking_classification_fai
 export type BookingClassificationFailure = typeof bookingClassificationFailures.$inferSelect;
 export type InsertBookingClassificationFailure = typeof bookingClassificationFailures.$inferInsert;
 
+// ─── Model Accuracy History (US-236) ────────────────────────────────────────
+// Tracks intent classification accuracy metrics over time for model rollback decisions.
+// Stores per-model-version accuracy snapshots to detect degradation and trigger rollbacks.
+
+export const modelAccuracyHistory = pgTable("model_accuracy_history", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  modelVersion: text("model_version").notNull(),
+  accuracyScore: real("accuracy_score").notNull(),  // 0.0-1.0 classification accuracy
+  messagesTested: integer("messages_tested").notNull(), // sample size for this accuracy score
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_model_accuracy_history_profile").on(table.profileId),
+  index("idx_model_accuracy_history_model_version").on(table.modelVersion),
+  index("idx_model_accuracy_history_timestamp").on(table.timestamp),
+  index("idx_model_accuracy_history_profile_timestamp").on(table.profileId, table.timestamp),
+]));
+
+export type ModelAccuracyRecord = typeof modelAccuracyHistory.$inferSelect;
+export type InsertModelAccuracyRecord = typeof modelAccuracyHistory.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
