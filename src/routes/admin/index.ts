@@ -121,6 +121,7 @@ import lowconfMessagesRoutes from './lowconf-messages.js'; // US-280: Low-confid
 import workflowsRoutes from './workflows.js'; // US-290: Workflow dry-run endpoint
 import contextStatsRoutes from './context-stats.js'; // US-308: Context relevance reranker stats
 import bookingTraceRoutes from './booking-trace.js'; // US-309: Booking workflow trace timeline
+import keywordMinerRoutes from './keyword-miner.js'; // US-323: Intent Keyword Auto-Miner
 
 const router = Router();
 
@@ -408,6 +409,7 @@ router.use(lowconfMessagesRoutes);                 // US-280: Low-confidence mes
 router.use(workflowsRoutes);                      // US-290: Workflow dry-run endpoint
 router.use(contextStatsRoutes);                   // US-308: Context relevance reranker stats
 router.use(bookingTraceRoutes);                   // US-309: Booking workflow trace timeline
+router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto-Miner
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

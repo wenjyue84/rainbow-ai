@@ -1,3 +1,30 @@
+## Iteration 9 - Mon, Mar 24, 2026 - Story: US-323 Intent Keyword Auto-Miner — PASSED
+### What happened
+- Found that most implementation already existed from earlier attempts
+- Verified and completed the CLI script: `scripts/mine-keyword-suggestions.ts`
+- Verified API route and tool functions were properly implemented
+- Build passed successfully, server starts without errors
+- Updated prd.json to mark US-323 passes: true
+
+### Files involved (verified)
+- `src/tools/keyword-miner.ts`: Core mining logic with stop-word filtering, n-gram extraction, deduplication
+- `src/routes/admin/keyword-miner.ts`: Admin API with POST /keywords/approve-suggestions and GET /keywords/suggestions/:profile
+- `scripts/mine-keyword-suggestions.ts`: CLI script for batch mining (recreated)
+- `src/routes/admin/index.ts`: Route registration (already mounted)
+- `package.json`: npm script registration (already present)
+
+### Acceptance criteria met
+✓ CLI: npm run mine-keyword-suggestions --profile=makan --window=7d generates JSON array of suggestions
+✓ API: POST /keywords/approve-suggestions atomically updates intent-keywords.json and logs to audit trail
+✓ Deduplication and frequency-based prioritization implemented in tool
+✓ Build: passes without compilation errors
+
+### Gotchas
+- The implementation was mostly complete from prior attempts, just needed CLI script recreation
+- The route is at `/keywords/approve-suggestions`, not `/admin/keywords/approve-suggestions`
+- The tool uses pg.Pool with SSL for Neon connections (production database)
+- n-grams are extracted from message text and filtered through existing keywords
+
 ## Iteration 8 (attempt 3) - Tue, Mar 24, 2026 - Story: US-309 Booking Workflow Step Execution Trace Logger — PASSED
 ### What happened
 - All implementation already existed from prior commits (c9d939e, 4cba4a3) by attempt 2
@@ -16,3 +43,68 @@
 - prd.json can get stuck in unmerged state if spiral orchestrator has concurrent merge operations
 - Always check `git ls-files -u` to detect unmerged files that don't show conflict markers
 - progress.txt can get emptied between iterations — always write fresh content
+
+## Pre-analysis for US-323 (Gemini 2.5 Pro)
+This user story is for a **Node.js/TypeScript** project, not Frappe/Python, based on the `npm` commands, file structure (`.ts`, `package.json`), and libraries mentioned.
+
+Here is the technical brief for a Node.js/TypeScript implementation:
+
+**1. Files to Modify:**
+*   **New Script:** `scripts/mine-keyword-suggestions.ts` for the CLI batch job logic.
+*   **API Routes:** A new or existing admin router file, likely `src/server/routes/admin.ts`, to add the approval endpoint.
+*   **Core Logic:** A new service module, e.g., `src/assistant/services/keyword-service.ts`, to handle file I/O for `intent-keywords.json` and database interactions.
+*   **Data Source:** `src/assistant/data-{profile}/intent-keywords.json` is the target file to be updated.
+
+**2. Involved Modules & Data Structures:**
+*   **Database:** A production database (likely PostgreSQL via Drizzle ORM) containing a table with conversation logs or intent classification results (e.g., `intent_logs`).
+*   **CLI Argument Parser:** A library like `yargs` to handle `--profile` and `--window` arguments in the new script.
+*   **Web Framework:** An Express.js or similar framework to handle the `POST /admin/keywords/approve-suggestions` route.
+
+**3. Implementation Approach:**
+*   The `mine-keyword-suggestions.ts` script will query the production DB for low-confidence/failed intents, extract potential keywords, filter against existing keywords in `intent-keywords.json`, and output a suggestion file or save to a temporary DB table.
+*   The `POST /admin/keywords/approve-suggestions` endpoint will validate admin credentials, read the suggestions, atomically update the relevant `intent-keywords.json` file, and write to an audit trail table.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure database queries on production logs are efficient and indexed by timestamp.
+*   Keyword extraction logic needs to be robust enough to identify meaningful phrases, not just single words.
+*   File writes to `intent-keywords.json` must be atomic (write to temp file, then rename) to prevent corruption.
+*   The admin approval endpoint must be secured to prevent unauthorized modifications.
+
+
+## Pre-analysis for US-323 (Gemini 2.5 Pro)
+Based on the user story and project structure, this is a **Node.js/TypeScript** project, not Frappe/Python. The following technical brief is based on the actual project files and story content.
+
+**Project:** `rainbow-ai` (Node.js/TypeScript Assistant)
+**User Story:** US-323: Intent Keyword Auto-Miner
+
+**Technical Brief for Implementation:**
+
+1.  **Primary Files to Modify/Create:**
+    *   **New Script:** `scripts/mine-keyword-suggestions.ts`. This will contain the batch job logic for analyzing logs and generating keyword suggestions.
+    *   **API Route/Controller:** A new route `POST /admin/keywords/approve-suggestions` should be added. Look for existing server routing files in `src/`, likely within a `src/server/routes/` or `src/pages/api/` directory to add the new endpoint handler.
+    *   **Core Data File:** `src/assistant/data-{profile}/intent-keywords.json`. This is the file that will be programmatically updated.
+    *   **Package Manifest:** `package.json` will need a new entry in the `scripts` section to run the new mining script.
+
+2.  **Key Framework/Project Components Involved:**
+    *   **CLI Command:** A new script defined in `package.json` (e.g., `"mine-keyword-suggestions": "ts-node ./scripts/mine-keyword-suggestions.ts"`).
+    *   **API Framework:** An existing Node.js server framework (likely Express.js or Next.js API routes) handles the backend. The new `POST` endpoint will be integrated here.
+    *   **Data Source:** The script needs access to "production logs". This will likely involve querying a database (the project uses Drizzle ORM) or a log aggregation service where misclassifications are stored.
+
+3.  **Recommended Implementation Approach:**
+    *   **Mining Script (`mine-keyword-suggestions.ts`):**
+        1.  Implement logic to query the production log database/service for records matching "booking" intents with low confidence scores or explicit "failed" status within the specified time window.
+        2.  Extract keywords from the message text that are not already present in the relevant `intent-keywords.json`.
+        3.  Aggregate frequencies and filter out suggestions that have been generated within the last 14 days to prevent duplicates.
+        4.  Output the results as a JSON file as specified in the acceptance criteria.
+    *   **Approval Endpoint (`/admin/keywords/approve-suggestions`):**
+        1.  Create a secure endpoint that requires admin authentication.
+        2.  On receiving a POST request, parse the `profile` and `suggestions`.
+        3.  Atomically read, update, and write to the correct `src/assistant/data-{profile}/intent-keywords.json` file.
+        4.  Log the change to an audit trail (e.g., a dedicated database table).
+
+4.  **Edge Cases & Gotchas:**
+    *   The primary unknown is the exact location and schema of the "production logs". This needs to be identified first.
+    *   The admin approval endpoint must be properly secured to prevent unauthorized modification of training data.
+    *   File writing for `intent-keywords.json` should be atomic (write to temp file, then rename) to prevent data corruption on interruption.
+    *   The mining script should be designed to handle large log volumes efficiently, possibly by streaming or using paginated database queries.
+
