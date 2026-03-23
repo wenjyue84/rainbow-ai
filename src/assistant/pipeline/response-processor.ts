@@ -48,6 +48,9 @@ import {
   checkMisinformationRisk, getMisinformationFallback, logMisinformationEvent,
   type MisinformationCheckResult,
 } from '../misinformation-guardrail.js';
+import {
+  detectTopicDrift, getTopicRefocusPrompt,
+} from './topic-drift-detector.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
@@ -84,6 +87,20 @@ export async function processAndSend(
 
   // ─── JSON safety: never send raw LLM JSON to guest ────────────
   response = ensureResponseText(response, lang);
+
+  // ─── US-093: Topic Drift Detection ───────────────────────────────
+  // Detect when conversation drifts from booking/inquiry context
+  const driftResult = detectTopicDrift(convo.messages, 0.7);
+  if (driftResult.drifted) {
+    console.log(
+      `[TopicDrift] Detected drift for ${phone} (confidence=${driftResult.confidence.toFixed(2)}) → using topic-refocus fallback`
+    );
+    // Replace response with topic refocus prompt
+    response = getTopicRefocusPrompt(lang);
+    recordFallbackUsed(phone, 'topic_drift_detected');
+    devMetadata.topicDriftDetected = true;
+    devMetadata.topicDriftConfidence = driftResult.confidence;
+  }
 
   // ─── Confidence thresholds + disclaimers ───────────────────────
   const llmSettings = getLLMSettings();

@@ -47,69 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-156",
-      "title": "Implement conversation audit trail logging for PDPA compliance",
-      "priority": "critical",
-      "description": "Log all conversation interactions (message content, intent, confidence, action taken, timestamp) to an audit table for regulatory compliance and debugging conversation quality issues.",
-      "acceptanceCriteria": [
-        "Audit table logs timestamp, guest_id, message, intent, confidence, action_taken",
-        "Audit logs are immutable (insert-only, no deletes except via data retention policy)",
-        "Admin endpoint provides audit trail export for specific date range",
-        "Test: audit table contains entry for each message with correct confidence score"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add conversation_audit table)",
-        "File to edit: src/lib/logger.ts (add auditLog function that writes to DB)",
-        "Test command: npm run test -- shared/schema-tables.test.ts -t 'audit table'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku",
-      "_scopeCreep": true
-    },
-    {
-      "id": "US-157",
-      "title": "Implement automated data retention policy enforcement via cron",
-      "priority": "critical",
-      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
-      "acceptanceCriteria": [
-        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
-        "Retention period is configurable via settings.json",
-        "Deletion is logged with count of deleted records in audit log",
-        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
-        "File to edit: ecosystem.config.cjs (add cron schedule)",
-        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "research",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T23:22:32Z"
-    },
-    {
-      "id": "US-092",
-      "title": "Build intent keyword collision detector CLI with cross-profile contamination detection",
-      "priority": "high",
-      "description": "Create CLI tool that scans intent-keywords.json across all profiles to detect keywords mapping to multiple intents within a profile and identical keywords appearing across profiles, preventing misclassification and data contamination.",
-      "acceptanceCriteria": [
-        "npm run validate:keywords scans all profiles and outputs JSON report with within-profile collisions and cross-profile duplicates",
-        "Detector identifies keywords in intent-keywords.json that appear in multiple intents within same profile and flags severity level",
-        "Detector flags when keyword appears identically across data-pelangi, data-makan, and data-southern profiles as cross-contamination risk"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-093",
       "title": "Add conversation topic drift detector to prevent off-topic context in AI inference",
       "priority": "high",
@@ -419,6 +356,164 @@
       "model": "haiku"
     },
     {
+      "id": "US-158",
+      "title": "Intent classifier accuracy regression alert system",
+      "priority": "high",
+      "description": "Add monitoring that detects when intent classification accuracy drops below baseline and triggers alerts, enabling early detection of classifier degradation in production.",
+      "acceptanceCriteria": [
+        "Implement GET /admin/intent-analytics/regression-check?days=7&threshold=0.05 endpoint that returns {status: 'regression_detected'|'healthy', intent, previous_accuracy, current_accuracy} by comparing 7-day rolling accuracy to baseline",
+        "Add daily cron job in src/lib/monitoring/regression-detector.ts that runs check and logs WARN-level alert if any intent drops >5% accuracy",
+        "Add test asserting regression detected when booking_request accuracy drops from 0.92 to 0.87 over 7 days"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-159",
+      "title": "Intent classifier regression detector with automatic admin notifications",
+      "priority": "high",
+      "description": "Automatically detect when intent classification accuracy drops unexpectedly compared to baseline and trigger admin alerts",
+      "acceptanceCriteria": [
+        "Add intent_classifier_baselines table storing profile_id, intent_type, baseline_accuracy (7-day rolling), last_updated; implement migration",
+        "Add regression detection logic triggered during nightly analytics job: alert if accuracy drops >5% from baseline, create record in regression_alerts table",
+        "Implement /admin/analytics/regression-alerts endpoint returning active/resolved regressions with affected intents, baseline accuracy, and current accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-160",
+      "title": "Profile-aware message routing validation middleware preventing cross-profile contamination",
+      "priority": "high",
+      "description": "Validate that incoming messages route to correct profile and log violations to audit trail to enforce strict business profile separation",
+      "acceptanceCriteria": [
+        "Add message routing validation middleware in src/assistant/pipeline/middleware/routing-validator.ts that asserts message.profile === target_profile before processing intent classification",
+        "Log all routing violations to rainbow_config_audit table with type 'cross_profile_routing', sender_id, intended_profile, actual_profile for investigation",
+        "Add src/tests/middleware/routing-validation.test.ts asserting middleware rejects messages where profile !== target and audit logs contain violation records with all required fields"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-161",
+      "title": "Real-time intent classification performance dashboard with per-profile metrics",
+      "priority": "medium",
+      "description": "Add admin dashboard showing intent classification accuracy trends per profile and intent type to help identify performance degradation early",
+      "acceptanceCriteria": [
+        "Implement /admin/analytics/dashboard/intent-performance endpoint returning accuracy trends with 24h/7d/30d windows per profile and intent type",
+        "Add simple HTML dashboard at /dashboard/intent-metrics consuming this endpoint with line chart visualization of accuracy over time",
+        "Store daily accuracy snapshots in database (new table intent_classification_metrics) computed from rainbow_messages.intent_predicted vs feedback data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-162",
+      "title": "Guest sentiment analysis with automatic escalation for negative interactions",
+      "priority": "medium",
+      "description": "Analyze guest message sentiment in real-time and escalate to staff immediately when negative sentiment detected instead of providing generic fallback",
+      "acceptanceCriteria": [
+        "Integrate sentiment analysis library (e.g., npm sentiment) into message pipeline in src/assistant/pipeline/message-processor.ts, compute sentiment_score (-1.0 to 1.0)",
+        "Add sentiment_score column to rainbow_messages table with migration; store sentiment on every user message insertion",
+        "Auto-escalate messages with sentiment_score < 0.3 as escalation_events with type 'negative_sentiment' and sentiment value in escalation_data JSON"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-163",
+      "title": "Booking confirmation email template customization endpoint for per-profile branding",
+      "priority": "medium",
+      "description": "Allow admins to customize booking confirmation emails per profile so each business sends branded, business-specific confirmations instead of generic templates",
+      "acceptanceCriteria": [
+        "Create booking_email_templates table (profile_id, subject, body_html, updated_at); implement Drizzle migration in shared/schema-tables.ts",
+        "Implement GET /admin/workflows/booking-email-template/:profileId and PUT /admin/workflows/booking-email-template/:profileId endpoints with Zod validation in src/routes/admin/workflows.ts",
+        "Update booking workflow email sender in src/assistant/pipeline/workflow-executor.ts to fetch custom template per profile; fall back to src/assistant/data/email-templates/booking-default.html if not configured"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-157",
+      "title": "Implement automated data retention policy enforcement via cron",
+      "priority": "critical",
+      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
+      "acceptanceCriteria": [
+        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
+        "Retention period is configurable via settings.json",
+        "Deletion is logged with count of deleted records in audit log",
+        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
+        "File to edit: ecosystem.config.cjs (add cron schedule)",
+        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "last_attempted": "2026-03-22T23:30:41Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 624,
+        "tokensAfterMasking": 622,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
+    },
+    {
+      "id": "US-156",
+      "title": "Implement conversation audit trail logging for PDPA compliance",
+      "priority": "critical",
+      "description": "Log all conversation interactions (message content, intent, confidence, action taken, timestamp) to an audit table for regulatory compliance and debugging conversation quality issues.",
+      "acceptanceCriteria": [
+        "Audit table logs timestamp, guest_id, message, intent, confidence, action_taken",
+        "Audit logs are immutable (insert-only, no deletes except via data retention policy)",
+        "Admin endpoint provides audit trail export for specific date range",
+        "Test: audit table contains entry for each message with correct confidence score"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add conversation_audit table)",
+        "File to edit: src/lib/logger.ts (add auditLog function that writes to DB)",
+        "Test command: npm run test -- shared/schema-tables.test.ts -t 'audit table'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "_scopeCreep": true
+    },
+    {
       "id": "US-155",
       "title": "Implement WhatsApp opt-in consent tracking and enforcement",
       "priority": "critical",
@@ -611,6 +706,27 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-092",
+      "title": "Build intent keyword collision detector CLI with cross-profile contamination detection",
+      "priority": "high",
+      "description": "Create CLI tool that scans intent-keywords.json across all profiles to detect keywords mapping to multiple intents within a profile and identical keywords appearing across profiles, preventing misclassification and data contamination.",
+      "acceptanceCriteria": [
+        "npm run validate:keywords scans all profiles and outputs JSON report with within-profile collisions and cross-profile duplicates",
+        "Detector identifies keywords in intent-keywords.json that appear in multiple intents within same profile and flags severity level",
+        "Detector flags when keyword appears identically across data-pelangi, data-makan, and data-southern profiles as cross-contamination risk"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-22T23:40:27Z",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n- `intent-keywords.json` exists in 3 profiles: `data` (pelangi), `data-makan`, `data-southern`\n- Structure: `{ intents: [{intent, keywords: {en: [], ms: [], zh: []}}] }`\n- `scripts/validate-profiles.ts` is an existing pattern to follow\n\n## Problem Identified\n- No `validate:keywords` npm script exists\n- No keyword collision/contamination detection tool\n\n## Planned Changes\n1. Create `scripts/validate-keywords.ts` — self-contained CLI\n2. Add `\"validate:keywords\": \"tsx scripts/validate-keywords.ts\"` to `package.json`\nNow add the npm script to `package.json`:\nNow test the script:\nThe script works correctly. Now run the build to confirm no type errors:\nGood — build passes. Now update `prd.json` to mark US-092 as passing:\nNow append to `progress.txt`:\nNow commit:\nUS-092 is complete. Here's what was implemented:\n\n**Story: US-092 — Intent Keyword Collision Detector CLI**\n\n- **New file:** `scripts/validate-keywords.ts` — self-contained CLI using `tsx`\n- **New script:** `npm run validate:keywords` in `package.json`\n\nThe tool:\n1. Loads `intent-keywords.json` from all 3 profiles (`data/`, `data-makan/`, `data-southern/`)\n2. Detects **within-profile collisions** — keywords mapped to multiple intents (severity: `high` for 3+ intents, `medium` for 2)\n3. Detects **cross-profile duplicates** — same keyword appearing across profiles\n4. Human-readable output by default; `--json` flag for machine-readable JSON\n5. Exit code 0 = clean, 1 = issues found (CI-ready)\n\nRunning it found real issues: 207 within-profile collisions and 1,359 cross-profile duplicates across the 3 profiles."
+      }
     },
     {
       "id": "US-089",

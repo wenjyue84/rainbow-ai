@@ -25,6 +25,10 @@ export interface DevMetadata {
   stepId?: string;
   multiIntent?: string;
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  /** US-093: Topic drift detection result */
+  topicDriftDetected?: boolean;
+  /** US-093: Topic drift confidence score */
+  topicDriftConfidence?: number;
 }
 
 export interface PipelineState {

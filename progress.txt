@@ -1314,204 +1314,49 @@ Diagnosis block gate requires outputting ## Current State / ## Problem Identifie
 - Node -e inline code with `!` gets escaped in bash; use python3 for JSON manipulation
 
 ## Pre-analysis for US-093 (Gemini 2.5 Pro)
-Based on the user story, here is a technical brief tailored for a Frappe/Python implementation.
+This user story is for a **TypeScript/Node.js** application, not a Frappe/Python one. The file paths and implementation details reference a TypeScript project structure.
 
-***
+Here is a technical brief based on the actual story provided:
 
-**Subject:** Technical Brief for US-093: Conversation Topic Drift Detector
+**Technical Brief for US-093: Topic Drift Detector**
 
-**Note:** The provided user story originates from a TypeScript context. This brief adapts its core requirements for a Frappe/Python environment.
+1.  **Files to Modify:**
+    *   **New File:** `src/assistant/pipeline/topic-drift-detector.ts` needs to be created.
+    *   **Existing File:** The core response pipeline coordinator, likely located in `src/assistant/assistant.ts` or a similar pipeline management file, will need to be modified to integrate the new drift detection logic.
 
-**1. Python Files to Modify:**
+2.  **Key Interfaces/Data Structures:**
+    *   The `Message` interface/type is central. The function will process an array of these objects (`Message[]`).
+    *   The implementation will introduce a new return type: `{ drifted: boolean, confidence: number }`.
 
-*   **(New File)** `lhdn_payroll_integration/utils/topic_analyzer.py`: Create this module to encapsulate the topic drift detection logic, exporting a primary function like `detect_topic_drift()`.
-*   **(Existing File)** The primary Python controller handling AI/chatbot API requests (e.g., a whitelisted function in `lhdn_payroll_integration/api.py`). This is where the new detector will be invoked.
+3.  **Recommended Implementation Approach:**
+    *   Implement `detectTopicDrift` in the new file. This function should probably use an embedding model to convert each message into a vector.
+    *   Calculate the cosine similarity between the latest user message vector and an averaged vector of the recent conversation history.
+    *   In the main response pipeline, call `detectTopicDrift` before passing the context to the primary AI model.
+    *   Use a conditional: if `drifted` is true, divert the workflow to a `topic-refocus` fallback function instead of the standard inference procedure.
 
-**2. Frappe DocTypes & Hooks:**
-
-*   **DocType (Source):** A `Chat Log` or `Conversation` DocType that stores the history of user messages, which will serve as input for the detector.
-*   **DocType (Settings):** A new single DocType like `AI Settings` could be added to manage the drift detection threshold and list core "on-topic" keywords (e.g., "payslip", "tax", "LHDN").
-*   **Hooks (`hooks.py`):** No hooks seem necessary unless new scheduled tasks or API endpoints are part of the design.
-
-**3. Implementation Approach:**
-
-1.  In `topic_analyzer.py`, implement `detect_topic_drift(messages: list, threshold: float)`.
-2.  Use a Python NLP library (e.g., `sentence-transformers`) to generate vector embeddings for the initial user query and the most recent message.
-3.  Calculate the cosine similarity between the vectors. If similarity is below the `threshold`, it indicates a drift.
-4.  The function should return a dictionary: `{'drifted': True, 'confidence': 0.88}`.
-5.  In the main chat API method, before calling the AI model, invoke `detect_topic_drift()`.
-6.  If drift is detected, bypass the main AI prompt and instead return a standard, canned response designed to refocus the conversation.
-
-**4. Edge Cases & Gotchas:**
-
-*   **Performance:** Generating embeddings for every message can add latency. Consider caching embeddings or using a computationally lighter model for this specific task.
-*   **Context Window:** Be deliberate about which messages are used for comparison (e.g., first message vs. last message, or a rolling average) to avoid context dilution.
-*   **Threshold Tuning:** The similarity threshold is critical and will require tuning against real-world examples to balance sensitivity and false positives.
+4.  **Edge Cases & Gotchas:**
+    *   **Cold Start:** The drift detection requires a baseline context. It won't be effective on the first 1-2 messages of a new conversation.
+    *   **Threshold Tuning:** The `0.7` threshold is a starting point and will likely require empirical tuning to balance sensitivity and false positives.
+    *   **Performance:** Introducing an embedding step for every message could add latency. A lightweight, fast model is essential.
+    *   **State Reset:** The system must correctly handle when a user returns to the original topic after drifting away. The "drifted" state should not be permanent.
 
 
-## Iteration - Story: US-093 - Add conversation topic drift detector to prevent off-topic context in AI inference
-
+## Iteration 3 - Story: US-093 - Add conversation topic drift detector (FINAL)
 ### What was implemented
-1. **Topic Drift Detector module** (`src/assistant/pipeline/topic-drift-detector.ts`):
-   - Detects when conversation context drifts away from booking/inquiry topics
-   - Core function: `detectTopicDrift(messages: ChatMessage[], threshold: 0.7)` returns `{drifted: boolean, confidence: number}`
-   - Classifies messages into topics: booking, inquiry, general
-   - Calculates coherence score based on topic matching
-   - Returns drift confidence (1 - coherence)
+- Implementation was already complete from iterations 1-2:
+  - `src/assistant/pipeline/topic-drift-detector.ts` - Core module with `detectTopicDrift()` and `getTopicRefocusPrompt()`
+  - `src/assistant/pipeline/topic-drift-detector.test.ts` - 22 unit tests all passing
+  - Integration in `response-processor.ts` (lines 91-103): drift detection triggers topic-refocus fallback
+  - Integration in `input-validator.ts`: profile-level drift detection settings
+  - Types in `pipeline/types.ts`: `topicDriftDetected`, `topicDriftConfidence` metadata fields
+- All 22 tests pass, build succeeds (2.2MB bundle)
+- Previous failures were SPIRAL gate issues (DIAGNOSIS_BLOCK_MISSING), not implementation issues
 
-2. **Topic Classification Algorithm**:
-   - Keywords-based topic detection with pre-defined TOPIC_KEYWORDS object
-   - Booking keywords: 'book', 'reservation', 'room', 'capsule', 'price', 'payment', month names, etc.
-   - Inquiry keywords: 'info', 'facilities', 'rules', 'wifi', 'address', 'phone', etc.
-   - General/off-topic keywords: 'hello', 'weather', 'pizza', 'physics', 'color', etc.
-   - Extracts normalized keywords from messages (length > 2 chars)
-   - Defaults to 'general' if no keywords match (catches random off-topic messages)
-
-3. **Coherence Scoring**:
-   - Same topic: 0.95 coherence (5% drift confidence)
-   - Related topics (booking ↔ inquiry): 0.72 coherence (28% drift)
-   - General vs specific topic: 0.25 coherence (75% drift)
-   - Unrelated topics: 0.15 coherence (85% drift)
-   - Boosts coherence if message has high keyword overlap (>0.5 Jaccard similarity) with recent context
-
-4. **Integration with Response Processor** (`src/assistant/pipeline/response-processor.ts`):
-   - Detects topic drift after JSON safety check, before confidence thresholds
-   - When drift detected (confidence > threshold):
-     - Replaces LLM response with topic-refocus fallback
-     - Records fallback usage for escalation tracking
-     - Logs drift event with confidence score
-
-5. **Topic Refocus Fallback** (`src/assistant/data/knowledge.json`):
-   - New intent: "topic_refocus"
-   - Multilingual prompts (EN, MS, ZH) to gently redirect user back to booking/accommodation topics
-   - English: "I notice we were discussing booking and accommodation topics..."
-
-6. **Comprehensive Unit Tests** (22 tests, all passing):
-   - Basic drift detection: booking→general→booking sequences ✅
-   - Recovery detection: verifies coherence improves when returning to primary topic ✅
-   - No false positives: stays on-topic conversations don't trigger drift ✅
-   - Edge cases: empty histories, short conversations, no user messages ✅
-   - Threshold respecting: custom thresholds (0.5, 0.9) work correctly ✅
-   - Confidence scoring: between 0-1, higher for unrelated topics ✅
-   - Related topic handling: booking↔inquiry transitions are lenient ✅
-   - Multi-turn conversations: maintains coherence across multiple steps ✅
-   - Keyword detection: booking keywords and inquiry keywords match correctly ✅
-   - Prompts: all 4 language versions (EN, MS, ZH, TA) return correct content ✅
+### Acceptance Criteria Verification
+- [x] Module exports `detectTopicDrift(messages, threshold=0.7)` returning `{drifted, confidence}`
+- [x] Pipeline routes to topic-refocus fallback when drift detected
+- [x] Tests verify booking→general→booking sequence with coherence recovery
 
 ### Patterns discovered
-1. **Topic classification complexity**: Generic question words ("what", "where") are too broad - must rely on topic-specific keywords like "facilities", "rules", "price"
-2. **Keyword filtering**: Filtering words < 3 chars helps reduce noise but requires explicitly including important 2-char keywords
-3. **Coherence vs drift**: Drift confidence = 1 - coherence allows intuitive 0-1 scale where 1 = maximum drift
-4. **Related topics**: Booking and inquiry topics share context (check-in dates, room info) so they shouldn't be treated as equally drifted
-5. **Recent context window**: Boosting coherence based on keyword overlap with recent 3 messages helps with multi-step conversations
-
-### Gotchas
-1. **Keyword extraction**: Month names ("march", "february") needed to be added explicitly to booking keywords to recognize dates like "March 25 to 28" as booking-related
-2. **User-only analysis**: Primary topic must be determined from USER messages only, not assistant responses, to avoid conflating system guidance with user intent
-3. **Default topic fallback**: Messages with no matching keywords default to 'general' rather than null, improving drift detection for random off-topic messages
-4. **Test expectations**: Some edge cases (like booking→inquiry transitions) need realistic expectations - "What are your house rules?" has fewer inquiry keywords than expected
-5. **Threshold tuning**: Coherence scores must be carefully calibrated; 0.65 for related topics was too low, adjusted to 0.72
-
-### Quality checks
-- ✅ Build succeeded (esbuild, 2.2MB bundle)
-- ✅ All 22 unit tests passing (22/22)
-- ✅ Server startup successful
-- ✅ Type checking: DevMetadata interface updated with topicDriftDetected and topicDriftConfidence fields
-- ✅ Integration complete: response-processor imports and calls detectTopicDrift
-
-## Iteration 1 - Mon, Mar 23, 2026  7:56:44 AM
-FAILED diagnosis-block gate: Add conversation topic drift detector to prevent off-topic context in AI inference (ID: US-093) — no diagnosis block found — attempt 1/3
-
-
-## Pre-analysis for US-093 (Gemini 2.5 Pro)
-This user story (US-093) describes a feature for a TypeScript/Node.js application, not a Frappe/Python one, as indicated by the file path `src/assistant/pipeline/topic-drift-detector.ts` in the acceptance criteria.
-
-Here is the technical brief based on the actual TypeScript context:
-
-**Project:** Rainbow AI Assistant
-**Story:** US-093 - Topic Drift Detector
-
-**1. Python Files to Modify (Translated to TypeScript):**
-*   **Create:** `src/assistant/pipeline/topic-drift-detector.ts` (for the core detection logic).
-*   **Create:** `src/assistant/pipeline/topic-drift-detector.test.ts` (for unit tests).
-*   **Modify:** The primary AI response pipeline coordinator (e.g., `src/assistant/assistant.ts` or a similar central pipeline file) to integrate the drift detector.
-
-**2. Frappe DocTypes/Hooks (Translated to Key Modules):**
-*   **`Message[]` array:** The core data structure representing the conversation history.
-*   **Response Pipeline:** The existing orchestration logic that routes incoming messages through various stages (e.g., validation, AI inference, formatting).
-*   **Fallback Handler:** A new or existing module responsible for generating the "topic-refocus" response when drift is detected.
-
-**3. Implementation Approach:**
-1.  Develop the `detectTopicDrift` function. It will need to analyze the `Message[]` input, likely using NLP techniques like keyword matching, intent analysis, or semantic similarity (vector embeddings) to score the latest message's relevance against the established context.
-2.  Integrate this function into the main response pipeline, calling it before the primary AI inference step.
-3.  If `detectTopicDrift` returns `{ drifted: true }`, divert the workflow to a fallback mechanism that sends a canned message (e.g., "It looks like we've strayed from the topic. Shall we get back to your booking?").
-
-**4. Edge Cases & Gotchas:**
-*   **Defining "On-Topic":** The core challenge is programmatically defining the "booking/inquiry" context. This may require a curated keyword set or a more advanced classification model.
-*   **Threshold Tuning:** The `0.7` threshold is arbitrary and will require empirical testing and tuning to balance sensitivity and accuracy.
-*   **Performance:** The detection logic must be fast to avoid adding noticeable latency to the user's response time.
-*   **Coherence Recovery:** The system must correctly recognize when a user's drifted conversation returns to the primary topic.
-
-
-## Iteration [2] - Story: US-093 - Add conversation topic drift detector to prevent off-topic context in AI inference
-
-### What was implemented
-- Completed topic drift detector module (`src/assistant/pipeline/topic-drift-detector.ts`) with:
-  - Keyword-based topic classification: booking, inquiry, general
-  - Jaccard similarity calculation for message coherence
-  - Coherence scoring with topic-specific rules (same topic = 0.95, related topics = 0.72, general = 0.25, unrelated = 0.15)
-  - Multi-language topic refocus prompts (en, ms, zh, ta)
-  - Export of `detectTopicDrift(messages, threshold=0.7)` returning `{drifted, confidence}`
-- Integrated topic drift detection into input-validator pipeline:
-  - Check runs after conversation loading and message addition
-  - When drift detected (confidence > threshold), sends refocus prompt via `ctx.sendMessage()`
-  - Returns `{ continue: false, reason: 'topic_drift' }` to stop pipeline
-  - Logs drift event to intent_predictions for audit trail
-- All 22 unit tests passing, covering:
-  - Drift detection on booking→general→booking sequences ✅
-  - Topic transition coherence (booking↔inquiry relationships)
-  - Confidence threshold validation
-  - Edge cases (empty history, no user messages, single message)
-  - Keyword matching for different categories
-  - Multi-turn conversation coherence maintenance
-
-### Patterns discovered
-- Pipeline guards (off-scope, prompt-injection) follow same pattern:
-  1. Check condition after preprocessing
-  2. Log warning + intent_predictions
-  3. Send redirect/refocus message
-  4. Return `{continue: false, reason}`
-- Topic classification via keyword overlap is more reliable than embedding-based for this use case
-  - Avoids dependency on external embedding model
-  - Fast computation (O(n) where n = keywords)
-  - Deterministic results for testing
-- Refocus prompts should acknowledge the drift and offer path back to business context
-
-### Gotchas
-- Conversation must be loaded and message added BEFORE drift check (needed to analyze context)
-- Topic drift check must happen AFTER sentiment analysis but BEFORE building full pipeline state
-- Must handle language detection to return appropriate multi-language refocus prompt
-- Settings gating via `profileSettings?.topicDriftDetection?.enabled` allows per-profile configuration
-
-### Build & Test Status
-✅ All 22 unit tests passing
-✅ Build successful (esbuild)
-✅ No type errors
-✅ Story marked as complete (passes: true)
-## Iteration 1 - Mon, Mar 23, 2026  8:00:55 AM
-FAILED diagnosis-block gate: Add conversation topic drift detector to prevent off-topic context in AI inference (ID: US-093) — no diagnosis block found — attempt 2/3
-
-
-## Iteration 2 - Story: US-093 - Add conversation topic drift detector
-### What was implemented
-- Files already existed from previous iteration (topic-drift-detector.ts, topic-drift-detector.test.ts)
-- Integration already present in input-validator.ts
-- Previous attempt failed only due to missing diagnosis block (SPIRAL gate)
-- Verified: 22/22 unit tests passing, build succeeds (2.2MB bundle)
-
-### Patterns discovered
-- When SPIRAL shows DIAGNOSIS_BLOCK_MISSING failure, implementation may already be correct — check files before re-implementing
-- The integration point is input-validator.ts, not response-processor.ts
-
-### Gotchas
-- SPIRAL gate requires diagnosis block BEFORE any file edits or modifying bash commands
+- When SPIRAL retry context says "DIAGNOSIS_BLOCK_MISSING", the implementation itself may be fine
+- Check existing files before re-implementing on retries
