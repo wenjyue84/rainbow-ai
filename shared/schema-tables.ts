@@ -233,6 +233,9 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   whatsappOptedInAt: timestamp("whatsapp_opted_in_at"),       // Timestamp when consent was given
   // US-119: Guest language preference persistence
   metadata: text("metadata"),                                  // JSON string for additional context (e.g., preferredLanguage)
+  // US-237: Multi-Turn Booking Clarification Dialog state
+  clarificationState: text("clarification_state"),             // Current dialog state: need_dates | need_room_type | need_guest_count | ready_confirm
+  clarificationData: text("clarification_data"),               // JSON blob of collected clarification data
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),

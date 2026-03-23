@@ -988,3 +988,28 @@ FAILED diagnosis-block gate: Intent Classification Accuracy Auto-Rollback System
 ✓ model_accuracy_history table in schema with timestamp, model_version, accuracy_score, messages_tested
 ✓ Auto-rollback when accuracy drops >5% below baseline (ACTIVE_MODEL_VERSION env var updated)
 ✓ GET /admin/model-rollback/status returns current version, baseline accuracy, current accuracy, rollback history
+
+## Iteration N - Story: Multi-Turn Booking Clarification Dialog Manager (US-237)
+
+### What was implemented
+- Created `src/assistant/dialogs/booking-clarification-dialog.ts` with 4-state machine:
+  - `need_dates` → `need_room_type` → `need_guest_count` → `ready_confirm`
+- Added `clarification_state` and `clarification_data` columns to `rainbow_conversations` schema (shared/schema-tables.ts)
+- Created 16-test integration suite in `src/assistant/__tests__/booking-clarification-dialog.test.ts`
+
+### Patterns discovered
+- Drizzle schema columns added to rainbowConversations table between `metadata` and `createdAt`
+- Dialog state stored as text columns (state name + JSON data blob), consistent with metadata pattern
+- ESM imports in tests use `.js` extension even for `.ts` source files
+
+### Gotchas
+- Date parsing covers ISO ranges ("2025-04-15 to 2025-04-18") and D-Mon ranges ("15 Apr – 18 Apr")
+- Room type patterns are regex-matched against common English terms (dorm/private/twin)
+- State machine ignores unrecognised input and re-prompts for same state (safe default)
+
+### Acceptance criteria met
+✓ Created src/assistant/dialogs/booking-clarification-dialog.ts with state machine
+✓ States: need_dates, need_room_type, need_guest_count, ready_confirm
+✓ clarification_state and clarification_data columns added to rainbow_conversations schema
+✓ Integration test verifies full dialog flow (book → dates → room type → count → confirm)
+✓ Build passes, 16/16 tests pass, server starts
