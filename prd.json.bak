@@ -47,43 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-350",
-      "title": "Profile-Aware Fallback Response Context Matcher",
-      "priority": "high",
-      "description": "When confidence is low, select fallback response based on conversation history and guest context rather than generic templates. Match response tone to profile (cafe vs. hostel) and reference previous guest messages for continuity.",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/context-aware-fallback-selector.ts that scores conversation context relevance and selects profile-specific fallback from settings.json fallback_responses section",
-        "For Makan Moments profile, use cafe-friendly tone (e.g., 'Sorry, I'm not sure about that. Our staff can help with your order'); for Pelangi, use hostel tone. Log selection reason.",
-        "Unit test: verify Makan fallback excludes hostel keywords; verify Pelangi fallback excludes cafe keywords; verify low-confidence fallback actually triggers"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-23T23:07:45Z",
-      "_passedCommit": "9b7603fc7f26db0368eba5bef65f69a71a49b2da"
-    },
-    {
-      "id": "US-351",
-      "title": "Profile Isolation Enforcement Runtime Middleware",
-      "priority": "high",
-      "description": "Add runtime middleware that blocks message routing to intents/workflows from different profile than authenticated user. Prevents accidental cross-profile message leakage at execution time.",
-      "acceptanceCriteria": [
-        "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
-        "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
-        "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-352",
       "title": "Booking Workflow Step Failure Recovery with Structured Error Output",
       "priority": "high",
@@ -98,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T23:30:02Z"
     },
     {
       "id": "US-353",
@@ -254,6 +218,159 @@
       "model": "haiku"
     },
     {
+      "id": "US-371",
+      "title": "Intent Keyword Overlap Conflict Analyzer CLI",
+      "priority": "high",
+      "description": "Scans intent-keywords.json for overlapping keywords across intents within a profile. Reports conflicts and suggests which keywords to remove or reassign to reduce misclassification.",
+      "acceptanceCriteria": [
+        "Command: `npm run analyze:keyword-conflicts -- --profile data-makan` reads intent-keywords.json and reports { keyword, intents_using_it, conflict_severity }",
+        "Flags keywords appearing in 3+ intents as high severity; 2+ intents as medium; reports confidence score for each conflicting keyword",
+        "Outputs JSON: `{ conflicting_keywords: [ {keyword, intents, recommendation} ], total_conflicts }` to stdout"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-372",
+      "title": "Booking Workflow Step Input Validator Test Generator",
+      "priority": "high",
+      "description": "Automatically generates Vitest test files from workflows.json step definitions. Creates test cases that validate each step's required inputs are present before execution.",
+      "acceptanceCriteria": [
+        "Command: `npm run generate:workflow-tests -- --profile data-pelangi` reads src/assistant/data/workflows.json and generates `src/__tests__/generated/workflows-[profile].test.ts`",
+        "For each workflow step, generates test: `expect step has required_inputs all present` and `expect step input_schema validates test data`",
+        "Generated tests cover: missing required_fields, invalid input types, null/undefined checks; tests runnable with `npm run test:run`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-373",
+      "title": "Low-Confidence Intent Auto-Escalation Router",
+      "priority": "high",
+      "description": "Routes messages with classification confidence below configurable threshold directly to escalation queue instead of attempting fallback responses. Reduces wasted AI calls and improves customer satisfaction.",
+      "acceptanceCriteria": [
+        "Add config to `src/assistant/data/settings.json`: `{ escalation: { low_confidence_threshold: 0.65, auto_escalate_below_threshold: true } }`",
+        "In src/assistant/pipeline/router.ts, check confidence before fallback logic: if confidence < threshold, push to escalation queue with reason 'low_confidence'",
+        "Test in `src/assistant/__tests__/low-confidence-escalation.test.ts`: assert messages with confidence 0.6 are escalated, 0.7+ are routed normally"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-374",
+      "title": "Profile Data Cross-Reference Integrity Checker CLI",
+      "priority": "high",
+      "description": "Validates that all intent IDs referenced in routing.json exist in intents.json, all workflow intent IDs exist in routing.json, and all knowledge.json keys reference valid intents. Detects orphaned entries and cross-profile contamination.",
+      "acceptanceCriteria": [
+        "Command: `npm run validate:cross-refs -- --profile data-southern --fix` checks: routing.json intent_id references all exist in intents.json, workflows.json step intent_ids all exist in routing.json, knowledge.json keys all in intents.json",
+        "Reports violations as JSON: `{ missing_intents: [...], orphaned_entries: [...], contaminated_keywords: [...] }` and exits code 1 if found",
+        "With `--fix` flag, backs up files and removes orphaned entries; reports changes made with option to review before commit"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-376",
+      "title": "Intent Classification Hard-Case Review Queue with Admin Labeling",
+      "priority": "high",
+      "description": "Create a feedback loop for classifier improvement by capturing low-confidence predictions (50-70%) from production, storing them in a review queue, and allowing admins to label correct intents for retraining. Addresses the need to improve intent classification accuracy through human feedback on ambiguous cases.",
+      "acceptanceCriteria": [
+        "Implement `HardCaseQueue` in `shared/schema-tables.ts` with fields: message_text, profile, predicted_intent, confidence, top_3_candidates, admin_label, created_at. Auto-insert when classifier confidence is between 50-70% during production inference.",
+        "Add admin endpoint GET `/admin/api/hard-cases?profile=pelangi&limit=20` returning sorted queue, and POST `/admin/api/hard-cases/:id/label?intent=booking` to record admin-provided ground truth label.",
+        "CLI command `npm run export:hard-case-labels <profile>` generates JSONL file with {message, predicted, admin_label} for classifier retraining, with logging of how many cases per intent type."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-377",
+      "title": "Conversation Context Window Size Optimizer CLI",
+      "priority": "high",
+      "description": "Analyze production conversations to determine optimal message context window size per profile, balancing conversation quality against token usage. Provides data-driven recommendations for context window tuning in settings.json to reduce inference cost.",
+      "acceptanceCriteria": [
+        "CLI command `npm run optimize:context-window <profile>` examines 100+ booking conversations from `rainbow_conversations` table, evaluates response quality (AI response length, booking progression success) at context window sizes 5, 10, 15, 20 messages.",
+        "Generate report showing: 'Profile pelangi: optimal window 10 messages (quality 0.87, tokens/conv 240). Window >12 shows no quality gain (+180 token cost).' Recommend specific size in settings.json.",
+        "Output includes breakdown: 'Messages 8-10 contribute X% to quality, messages 11-15 contribute Y%' to help justify the recommendation to the team."
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-378",
+      "title": "Intent Classification Explanation Generator with Feature Attribution",
+      "priority": "high",
+      "description": "Add explainability to intent classification decisions. When an intent is classified, generate a human-readable explanation showing which keywords matched, classifier confidence scores, and which patterns fired. Helps debugging misclassifications and improves user confidence in system reliability.",
+      "acceptanceCriteria": [
+        "Create src/lib/intent-explanation.ts exporting function that takes classification result and returns { top_keywords: string[], classifier_scores: Record<string, number>, matched_patterns: string[] }",
+        "Add endpoint POST /admin/debug/explain-intent accepting { message: string, intent: string } and returning explanation with top-3 contributing features",
+        "Unit test verifies booking message returns keywords like 'check-in', 'room', 'book' with non-zero scores; unit test verifies fallback intent has empty keywords list"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-379",
+      "title": "Booking Workflow Step Retry Configuration with Exponential Backoff",
+      "priority": "high",
+      "description": "Add resilience to booking workflow by allowing configurable retry behavior per step. Steps like room availability checks or payment confirmation can retry with exponential backoff on transient failures. Improves reliability without manual intervention.",
+      "acceptanceCriteria": [
+        "Extend workflow step JSON schema in src/assistant/schemas.ts to support optional retry: { max_attempts: 3, base_delay_ms: 100, backoff_multiplier: 2 }",
+        "Booking step executor wraps step invocation in retry loop, respects max_attempts and exponential backoff timing",
+        "Integration test verifies step with max_attempts=2 retries exactly 2 times on failure; step without retry config executes once and throws"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-380",
+      "title": "Profile Data Cross-File Semantic Consistency Validator",
+      "priority": "high",
+      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
+      "acceptanceCriteria": [
+        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
+        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
+        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-365",
       "title": "Build Booking Workflow Critical Path Analyzer CLI to Identify Bottleneck Steps",
       "priority": "medium",
@@ -322,21 +439,38 @@
       "model": "sonnet"
     },
     {
-      "id": "US-370",
-      "title": "Fallback Response Escalation Reason Logger with Admin Analytics Dashboard",
+      "id": "US-381",
+      "title": "Conversation Archival Scheduler with PDPA-Compliant Retention",
       "priority": "medium",
-      "description": "Tag each fallback response trigger with reason (low_confidence, intent_mismatch, timeout, provider_error, unknown) in database logs to enable analysis of escalation patterns and identify improvement areas.",
+      "description": "Implement automatic archival of inactive conversations >30 days old to cold storage. Moves conversation_messages from hot Postgres storage to DynamoDB/S3, keeping system responsive while maintaining audit trail. Supports PDPA compliance for data retention minimization.",
       "acceptanceCriteria": [
-        "Add `fallback_reason varchar(32)` column to `rainbow_messages` table; set reason in `src/assistant/pipeline/fallback.ts` before logging with values: 'low_confidence' (confidence < 0.5), 'intent_mismatch' (no intent found), 'timeout', 'provider_error'",
-        "Admin endpoint `GET /admin/analytics/fallback-reasons?profile=data_pelangi&days=30` returns JSON: {reason: count, trend_slope, top_affected_intents}",
-        "Test in `src/tests/fallback-reasons.test.ts`: verify reason_low_confidence set when confidence_score < 0.5, verify reason_intent_mismatch set when no intent routes match"
+        "Create src/tools/conversation-archival.ts with async function that queries conversations with no messages >30 days, archives to DynamoDB archive-conversations table, deletes from Neon",
+        "Add cron job to ecosystem.config.cjs running daily at 2 AM; logs archive count and duration to monitoring/stdout",
+        "Test verifies conversation created 31 days ago is archived; conversation created 29 days ago is not; archived conversation still queryable via admin API"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "sonnet"
+    },
+    {
+      "id": "US-382",
+      "title": "VIP Guest Priority Routing with Manager Approval Workflow",
+      "priority": "medium",
+      "description": "Implement VIP guest detection and priority handling. VIP bookings require manager approval before confirmation instead of auto-confirming. Supports customer tier differentiation and prevents high-value guest booking errors.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/vip-guests.json schema: { guests: [{ phone: string, is_vip: boolean, approval_required: boolean }] }",
+        "Booking workflow checks guest phone against VIP list; if is_vip=true, routes to new 'manager-approval' step before confirmation that blocks execution until manager responds",
+        "Test verifies non-VIP booking auto-confirms after room check; VIP booking pauses at approval step; approval_required=false bypasses approval even if is_vip=true"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-196",
@@ -606,6 +740,43 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-351",
+      "title": "Profile Isolation Enforcement Runtime Middleware",
+      "priority": "high",
+      "description": "Add runtime middleware that blocks message routing to intents/workflows from different profile than authenticated user. Prevents accidental cross-profile message leakage at execution time.",
+      "acceptanceCriteria": [
+        "Create src/assistant/middleware/profile-isolation-enforcer.ts. On each message, verify request.profile matches message.profile before routing to intent handler. Log violation to rainbow_config_audit with message preview and timestamp.",
+        "Unit test: send Makan profile message with pelangi intent routing; verify rejection and audit log entry",
+        "Integration test: multi-profile routing scenario; verify profile boundaries respected in workflow execution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-350",
+      "title": "Profile-Aware Fallback Response Context Matcher",
+      "priority": "high",
+      "description": "When confidence is low, select fallback response based on conversation history and guest context rather than generic templates. Match response tone to profile (cafe vs. hostel) and reference previous guest messages for continuity.",
+      "acceptanceCriteria": [
+        "Create src/assistant/pipeline/context-aware-fallback-selector.ts that scores conversation context relevance and selects profile-specific fallback from settings.json fallback_responses section",
+        "For Makan Moments profile, use cafe-friendly tone (e.g., 'Sorry, I'm not sure about that. Our staff can help with your order'); for Pelangi, use hostel tone. Log selection reason.",
+        "Unit test: verify Makan fallback excludes hostel keywords; verify Pelangi fallback excludes cafe keywords; verify low-confidence fallback actually triggers"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T23:07:45Z",
+      "_passedCommit": "9b7603fc7f26db0368eba5bef65f69a71a49b2da"
     },
     {
       "id": "US-347",
