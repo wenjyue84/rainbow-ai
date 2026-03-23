@@ -649,3 +649,88 @@ The previous iteration had fully implemented all code but failed the diagnosis-b
 - Tests expected guest_verified to pass with just guest_name (not requiring phone/email)
 - Tests expected room_available to pass with unit_selected (not just API confirmation)
 - Logging must match exact format: step_id=X (no quotes) in console.log output
+
+## Pre-analysis for US-196 (Gemini 2.5 Pro)
+This user story is for a Node.js/TypeScript project, not a Frappe/Python one. Here is the technical brief for a Node.js implementation:
+
+**Technical Brief: US-196 - Profile Data Contamination Scanner**
+
+1.  **Files to Modify/Create:**
+    *   **Create:** `scripts/validate-profiles.ts` (main scanner logic).
+    *   **Create:** `src/assistant/validators/profile-keywords.json` (keyword definitions).
+    *   **Modify:** `package.json` (add `validate:profiles` npm script).
+    *   **Modify:** `.github/workflows/ci.yml` (add CI step).
+
+2.  **Key Project Entities:**
+    *   **NPM Scripts:** The entry point will be an `npm run` command.
+    *   **Data Files:** The scanner will target `routing.json`, `workflows.json`, `knowledge.json`, and `intent-keywords.json` within profile-specific directories (e.g., `src/assistant/data/data-makan/`).
+
+3.  **Implementation Approach:**
+    *   The `validate-profiles.ts` script will use Node.js `fs` and `path` modules to recursively find and read the target JSON files in each profile's data directory.
+    *   It will load the keyword rules from `profile-keywords.json`, which should map profile names to forbidden terms.
+    *   For each file, it will perform regex searches for contamination based on these keywords and log any findings, including file path, offending keyword, and occurrence count.
+    *   Implement command-line argument parsing (e.g., with `yargs`) to handle `--strict` for CI and an optional `--fix` flag to automatically remove violating content.
+
+4.  **Edge Cases & Gotchas:**
+    *   **False Positives:** Be cautious with overly broad keywords; "hostel" might legitimately appear in a shared context. Use precise, unambiguous terms.
+    *   **Auto-fix (`--fix`):** The auto-fix logic must be robust to avoid corrupting JSON files. It should perform a "safe" removal, potentially leaving placeholders or requiring careful regex to avoid breaking file structure. Manual review after auto-fixing is critical.
+    *   **Performance:** For large datasets, reading and scanning many files could be slow. Consider optimizing file reads.
+
+
+## Iteration [SPIRAL] - Story: US-196 Build Profile Data Contamination Scanner CLI with Pre-Deploy Report
+
+### What was implemented
+- **Profile Keywords Configuration** (`src/assistant/validators/profile-keywords.json`):
+  - Defines profile-specific keywords for Pelangi Capsule Hostel, Makan Moments Cafe, Southern Homestay
+  - Each profile has `keywords` (identifiers) and `forbiddenKeywords` (terms that should not appear)
+  - Makan profile forbids Pelangi/Southern identifiers, etc.
+  - Pelangi forbids Makan/Southern identifiers
+
+- **Profile Contamination Scanner CLI** (`scripts/validate-profiles.ts`):
+  - Scans routing.json, workflows.json, knowledge.json, intent-keywords.json for cross-profile contamination
+  - Three modes:
+    - Default: report contaminations and exit with code 1
+    - `--strict`: report contaminations and exit with code 1 (for CI/build pipelines)
+    - `--fix`: auto-remove flagged terms and write cleaned files (for developers)
+  - Recursively searches JSON structures for forbidden keywords
+  - Counts occurrences and groups findings by file
+  - Provides actionable fix instructions
+
+- **Report Output Format**:
+  - Lists profiles with contamination status
+  - Groups findings by file (routing.json, workflows.json, etc.)
+  - Shows term, occurrence count, and removal instruction
+  - Summary section with total contaminations found
+  - Example: "src/assistant/data-makan/workflows.json contains cross-profile content: \"Pelangi Capsule Hostel\" (8 occurrence(s))"
+
+### Patterns discovered
+- Profile names (e.g., "Pelangi Capsule Hostel", "Makan Moments") are distinctive enough for contamination detection
+- Word-boundary regex (`\b...\b`) prevents false positives from partial matches
+- Recursive JSON traversal handles nested structures in workflow definitions and knowledge responses
+- Accumulating occurrence counts across nested objects provides accurate statistics
+- Exit codes align with CI expectations (0=clean, 1=contaminated, --strict forces exit 1)
+
+### Gotchas
+- Need to escape special regex characters in keyword patterns to avoid unintended pattern matching
+- Recursive removal must track count across all nested levels to report accurate removal statistics
+- File path handling differs between Windows (backslashes) and Unix (forward slashes) - used `path.join()` for portability
+- JSON.parse failures on malformed files are silently ignored (continue scanning next file)
+
+### Quality checks
+✓ Build completes successfully (esbuild, 2.2mb bundle)
+✓ Server starts without errors (DB connection, config loading)
+✓ validate:profiles detects 38 contaminations (legitimate cross-profile references)
+✓ validate:profiles --strict fails build with "Build failed" message
+✓ validate:profiles --fix removes 19 contaminated terms and shows which files were fixed
+✓ Reverted --fix changes verify detection still works correctly
+✓ npm script integration working (npm run validate:profiles)
+
+### Acceptance Criteria Met
+- AC1: npm run validate:profiles outputs report listing file paths with cross-contamination
+  - ✓ Format: "📄 {file} contains cross-profile content: \"{term}\" ({count} occurrence(s))"
+- AC2: Scanner checks profile-specific keywords defined in src/assistant/validators/profile-keywords.json
+  - ✓ Validates Pelangi, Makan, Southern profiles with forbidden keywords
+  - ✓ Verifies routing.json, workflows.json, knowledge.json, intent-keywords.json
+- AC3: GitHub Actions CI step runs validator in --strict mode; developers use --fix flag
+  - ✓ --strict mode fails build if contamination detected
+  - ✓ --fix flag auto-removes flagged terms with manual review instruction
