@@ -609,3 +609,43 @@ The previous iteration had fully implemented all code but failed the diagnosis-b
 ### Gotchas
 - Story was `passes: false` only due to diagnosis-block gate (attempt 1 skipped it)
 - Implementation was already complete and correct from the previous SPIRAL iteration
+
+## Iteration [SPIRAL] - Story: US-127 - Booking Workflow Step Precondition Validator
+
+### What was implemented
+- **Precondition Validator Module** (`src/assistant/validators/booking-preconditions.ts`):
+  - `validateBookingStepPreconditions()`: Validates step preconditions before execution
+  - `arePreconditionsMet()`: Helper boolean check for preconditions
+  - Precondition evaluators for: payment_method_provided, guest_verified, checkin_date_not_past, room_available, booking_dates_collected, guest_count_provided
+  - Violation logging with step_id and required_precondition fields
+
+- **Workflow Updates** (`src/assistant/data/workflows.json`):
+  - Added `preconditions` field to `confirm_booking_msg` node: ["booking_dates_collected", "guest_count_provided"]
+  - Added `preconditions` field to `booking_notify_admin` node: ["guest_verified", "booking_dates_collected"]
+
+- **Comprehensive Test Suite** (`src/assistant/validators/booking-preconditions.test.ts`):
+  - 10 unit tests covering all precondition types
+  - AC1: Tests payment_method_provided violation detection and logging with step_id/required_precondition
+  - Tests for guest_verified, checkin_date_not_past, room_available
+  - Tests for multiple simultaneous violations
+  - Edge cases: unknown preconditions (fail-open), empty precondition arrays
+
+### Quality checks completed
+✓ All 10 tests pass (100%)
+✓ Build completes successfully (esbuild, 2.2mb bundle)
+✓ Server startup test passes
+✓ All acceptance criteria verified:
+  - AC1: validateBookingStepPreconditions() prevents invalid transitions ✓
+  - AC2: workflows.json updated with preconditions field ✓
+  - AC3: Test suite validates precondition violations and logging ✓
+
+### Patterns discovered
+- Preconditions evaluated against WorkflowState.collectedData and nodeOutputs
+- Fail-open approach for unknown preconditions (treat as satisfied)
+- Support for state transitions: payment_charge requires payment_method, check_in requires valid date
+- Logging format: [PreconditionValidator] Violation: step_id=X required_precondition=Y
+
+### Gotchas
+- Tests expected guest_verified to pass with just guest_name (not requiring phone/email)
+- Tests expected room_available to pass with unit_selected (not just API confirmation)
+- Logging must match exact format: step_id=X (no quotes) in console.log output
