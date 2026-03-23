@@ -1,3 +1,58 @@
+## Iteration [SPIRAL] - Story: US-121 Add booking workflow performance profiler endpoint
+
+### What was implemented
+- **Workflow Profiler Module** (`src/assistant/workflow-profiler.ts`):
+  - `recordStepMetric()`: Records step execution metrics (duration, input/output size, state snapshot)
+  - `getAggregatedMetrics()`: Aggregates metrics across all steps showing avg, p95, p99 latencies
+  - `getWorkflowMetrics(workflowId)`: Filters metrics by workflow type
+  - `getRecentMetrics(minutesAgo)`: Filters metrics by time window for real-time analysis
+  - `generateOptimizationReport()`: Creates timing heatmap and optimization suggestions
+  - In-memory storage with 1000-metric-per-step limit to prevent memory leaks
+
+- **Integration in Workflow Executor** (`src/assistant/workflow-executor.ts`):
+  - Step-based workflow (lines 369-394): Wraps enhanceWorkflowStep with timing/profiling
+  - Node-based pelangi_api nodes (lines 646-718): Records node execution metrics with step type tracking
+  - Tracks step execution duration, input/output sizes, and state snapshots
+  - Profiles both legacy steps and modern node-based workflows
+
+- **Admin Endpoint** (`src/routes/admin/booking-sequence.ts`):
+  - `POST /api/bookings/profile`: Profiles booking workflow performance
+  - Request: Optional `workflowId` and `minutes` filters
+  - Response includes:
+    - Step-level metrics (avg/p95/p99 latencies, slow execution count, flagging)
+    - Summary (total steps, slow steps, execution count, avg latency)
+    - Optimization heatmap (top 10 bottlenecks by duration)
+    - Suggestions (steps to optimize, estimated gain in milliseconds)
+
+- **Comprehensive Test Suite** (`src/assistant/__tests__/workflow-profiler.test.ts`):
+  - 16 tests covering all profiling functions and acceptance criteria
+  - Tests metric recording, aggregation, percentile calculation, filtering
+  - Validates slow execution flagging (>2000ms threshold)
+  - Verifies optimization report generation and impact estimation
+
+### Patterns discovered
+- In-memory profiling suitable for real-time debugging (no DB writes needed)
+- Percentile calculation uses sorted array (efficient for reasonable metric counts)
+- Step type includes API action for node workflows (e.g., "pelangi_api:create_booking")
+- Profile filtering by workflowId or time window enables focused analysis
+- Optimization suggestions based on execution count and slow percentage helps prioritization
+
+### Gotchas
+- Metrics stored in-memory (lost on server restart) — acceptable for debugging/analytics
+- Max 1000 metrics per step prevents runaway memory (old metrics discarded)
+- Profiling introduces minimal overhead: only timing + JSON.stringify for snapshots
+- Real execution timing more accurate than logged latency due to direct measurement
+
+### Quality checks
+✓ Build completes successfully (esbuild, 2.2mb bundle)
+✓ All 16 profiler tests pass
+✓ Server starts without errors
+✓ All acceptance criteria met:
+  - AC1: POST /admin/bookings/profile profiles each step with duration/input/output/snapshot
+  - AC2: Aggregates per-step avg/p95/p99 latencies, flags steps >2000ms threshold
+  - AC3: Response includes timing heatmap and optimization suggestions with cumulative impact
+
+
 ## Iteration [SPIRAL] - Story: US-120 Workflow Step Execution Timeout with Automatic Rollback
 
 ### What was implemented
@@ -250,3 +305,38 @@ Here is a technical brief for the Claude agent.
 - Workflow nodes follow a clear pattern: message → wait_reply → condition/action → whatsapp_send
 - Template variables in workflows use `{{workflow.data.*}}` for collected data
 - WhatsApp integration uses `whatsapp_send` node type for staff notifications
+## Iteration 1 - Mon, Mar 23, 2026 11:40:48 AM
+FAILED diagnosis-block gate: Implement workflow step execution timeout with automatic rollback (ID: US-120) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-120 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent:
+
+### **Technical Brief: US-120 Workflow Timeout**
+
+**1. Python Files to Modify:**
+*   **Primary Candidate:** A central workflow execution file. Look for a file responsible for iterating through the steps defined in `workflows.json`. This could be a utility file like `.../utils/workflow_engine.py` or logic within a primary DocType's Python controller that manages a state machine.
+*   **Secondary Candidate:** The Python controller for the main DocType being processed by the workflow (e.g., a hypothetical `Booking` DocType), which will need to handle the timeout exception and provide user feedback.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   `rainbow_messages`: The target DocType for logging timeout escalations.
+    *   The business DocType that the workflow operates on (e.g., `Booking`).
+*   **Hooks (`hooks.py`):** The workflow is likely initiated from a whitelisted (`@frappe.whitelist()`) method rather than a standard Doc Event hook to allow for custom transaction control.
+
+**3. Recommended Implementation Approach:**
+1.  Wrap the core logic of the step execution function with a `try...finally` block.
+2.  Use Python's `threading.Timer` or a similar mechanism to interrupt the main thread if execution time exceeds `max_duration_ms`.
+3.  On timeout, the timer's callback should raise a custom `WorkflowTimeoutError`.
+4.  The main workflow runner will catch this `WorkflowTimeoutError`.
+5.  In the `except` block:
+    *   Immediately call `frappe.db.rollback()` to revert the transaction.
+    *   Create and save a new `rainbow_messages` document with the required context.
+    *   Use `frappe.throw()` to communicate the failure back to the UI.
+
+**4. Edge Cases & Gotchas:**
+*   **Transaction Scope:** The entire workflow should be wrapped in a single transaction. Do not commit after each step. The rollback must undo all changes from the start of the workflow.
+*   **External API Calls:** Database rollbacks will not undo external API calls. If a step involves external services, the timeout handler must also consider how to manage or flag the incomplete external action.
+*   **Concurrency:** Ensure the timeout logic is thread-safe and doesn't cause issues if multiple workflows run concurrently.
+*   **User Experience:** The `frappe.throw` message should be clear and actionable, guiding the user on the escalation and potential for retry.
+

@@ -7,6 +7,7 @@ import { notifyAdminConfigError } from '../lib/admin-notifier.js';
 import { executeWorkflowInTransaction, logTransactionMetrics, type TransactionMetrics } from './pipeline/workflow-transaction-handler.js';
 import { executeWithTimeout, WorkflowTimeoutError, logTimeoutFailure } from './workflow-timeout-handler.js';
 import { logMessage } from './conversation-logger.js';
+import { recordStepMetric } from './workflow-profiler.js';
 import type {
   HybridWorkflowDefinition, WorkflowNode, NodeWorkflowState,
   MessageNodeConfig, WaitReplyNodeConfig, WhatsAppSendNodeConfig,
@@ -363,6 +364,10 @@ export async function executeWorkflowStep(
     // US-120: Apply timeout to step execution
     const maxDurationMs = (currentStep as any).max_duration_ms || 30000;
 
+    // US-121: Start profiling this step
+    const stepStartTime = Date.now();
+    const inputSize = JSON.stringify(enhancerContext).length;
+
     try {
       const enhanced = await executeWithTimeout(
         () => enhanceWorkflowStep(
@@ -376,6 +381,24 @@ export async function executeWorkflowStep(
       );
 
       response = enhanced.message; // Use enhanced message
+
+      // US-121: Record step execution metrics
+      const stepDuration = Date.now() - stepStartTime;
+      const outputSize = response.length;
+      recordStepMetric({
+        stepId: currentStep.id,
+        stepType: currentStep.action?.type || 'unknown',
+        durationMs: stepDuration,
+        inputSize,
+        outputSize,
+        stateSnapshot: {
+          collectedDataKeys: Object.keys(state.collectedData),
+          workflowId: state.workflowId,
+        },
+        timestamp: Date.now(),
+        workflowId: state.workflowId,
+        conversationId: phone,
+      });
 
       // Log metadata for debugging
       if (enhanced.metadata) {
@@ -623,6 +646,10 @@ async function executeNodeWorkflowStep(
         // US-120: Apply timeout to node execution
         const maxDurationMs = (node as any).max_duration_ms || 30000;
 
+        // US-121: Start profiling this node
+        const nodeStartTime = Date.now();
+        const nodeInputSize = JSON.stringify({ collectedData: state.collectedData, nodeOutputs }).length;
+
         try {
           // Use workflow enhancer context to call the API action
           const enhancerCtx: WorkflowEnhancerContext = {
@@ -669,6 +696,25 @@ async function executeNodeWorkflowStep(
               nodeOutputs[outputName] = nodeOutputs[dataKey] ?? enhanced.metadata?.[dataKey] ?? '';
             }
           }
+
+          // US-121: Record node execution metrics
+          const nodeDuration = Date.now() - nodeStartTime;
+          const nodeOutputSize = JSON.stringify(nodeOutputs).length;
+          recordStepMetric({
+            stepId: node.id,
+            stepType: `pelangi_api:${config.action}`,
+            durationMs: nodeDuration,
+            inputSize: nodeInputSize,
+            outputSize: nodeOutputSize,
+            stateSnapshot: {
+              collectedDataKeys: Object.keys(state.collectedData),
+              nodeOutputKeys: Object.keys(nodeOutputs),
+              workflowId: state.workflowId,
+            },
+            timestamp: Date.now(),
+            workflowId: state.workflowId,
+            conversationId: phone,
+          });
 
           console.log(`[NodeExecutor] pelangi_api (${config.action}) completed, outputs:`, Object.keys(nodeOutputs));
 
