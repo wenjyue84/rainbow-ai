@@ -1206,3 +1206,80 @@ FAILED diagnosis-block gate: Live Message Routing Integrity Audit Endpoint (ID: 
 ## Iteration 1 - Tue, Mar 24, 2026  6:29:54 AM
 FAILED diagnosis-block gate: Live Message Routing Integrity Audit Endpoint (ID: US-343) — no diagnosis block found — attempt 2/3
 
+
+
+## Pre-analysis for US-347 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude agent:
+
+**Subject: Technical Brief for US-347: WhatsApp to SMS Fallback**
+
+This plan adapts the user story for a Frappe/Python environment within the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/utils/sms_gateway.py` (New File): Create this module to encapsulate the Twilio SMS sending logic. It will initialize the Twilio client using credentials from `site_config.json`.
+*   `lhdn_payroll_integration/events.py` or a dedicated background job file: This will contain the core message dispatch logic, including the retry mechanism and the fallback trigger.
+*   `lhdn_payroll_integration/hooks.py`: To enqueue the notification background job based on a DocType event.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Triggering DocType:** The logic will likely be triggered by an action on a core DocType like `Payroll Entry` or `Salary Slip` (e.g., on `on_submit`).
+*   **Hook:** Use the `on_submit` DocType event hook in `hooks.py` to call `frappe.enqueue`.
+*   **Supporting DocType (Recommended):** Create a "Notification Log" DocType to record each message attempt, its channel (WhatsApp/SMS), status, and retry count for auditing.
+
+**3. Implementation Approach:**
+1.  Define a background job function (e.g., `send_notification_with_fallback`) that accepts a document ID and a `retry_count`.
+2.  On DocType submission, enqueue this job with `retry_count=0`.
+3.  The job first attempts to send via WhatsApp.
+4.  On failure, if `retry_count` is less than 2, it re-enqueues itself with an incremented `retry_count`.
+5.  If the failure occurs on the final retry, it calls the SMS sending function from `sms_gateway.py`.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure phone numbers are correctly formatted for both WhatsApp and Twilio APIs.
+*   The system must handle records with missing phone numbers gracefully.
+*   Store Twilio credentials (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`) securely in `frappe.conf` or `site_config.json`, not in version control.
+*   Use Frappe's background job queue (RQ) for retries to prevent blocking UI threads.
+
+
+## Pre-analysis for US-347 (Gemini 2.5 Pro)
+**Technical Brief: US-347 WhatsApp SMS Fallback**
+
+**Note:** The provided user story (US-347) describes a task for a TypeScript/Node.js application, not a Frappe/Python one. The following brief is based on the technical details within the JSON.
+
+**1. Python Files to Modify:**
+Based on the story, the implementation is in TypeScript. The key files are:
+*   `src/assistant/pipeline/message-sender.ts` (Core logic)
+*   `src/lib/sms-sender.ts` (New Twilio integration)
+*   `src/lib/sms-sender.test.ts` (New unit tests)
+
+**2. Frappe DocTypes / Hooks Involved:**
+No Frappe elements are mentioned. The key components are:
+*   The message sending pipeline function in `message-sender.ts`.
+*   A new `SmsSender` service/class.
+*   Environment variables for Twilio credentials (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`).
+
+**3. Recommended Implementation Approach:**
+*   In `src/lib/sms-sender.ts`, create a dedicated class or module to initialize the Twilio client using environment variables. Expose a simple `send(to, body)` method.
+*   In `src/assistant/pipeline/message-sender.ts`, locate the message sending logic, specifically the retry mechanism.
+*   Wrap the existing WhatsApp send call in a `try/catch` block or modify the logic that checks the retry count.
+*   If the retry count reaches 2 and fails, invoke the new SMS sender module, passing the same message content.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure robust error logging if the Twilio SMS itself fails.
+*   Confirm the source for mapping a user/guest to a phone number.
+*   Prevent race conditions where a late WhatsApp success might follow an SMS fallback.
+*   Use mock APIs (like `msw` or Jest mocks) for Twilio in unit tests to validate logic without sending real SMS messages.
+
+
+## Iteration 20 - Story: US-347 WhatsApp Send Failure SMS Fallback Gateway
+### What was implemented
+- `src/lib/sms-sender.ts`: Twilio SMS gateway using plain HTTP fetch (no SDK). Reads TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER from env at call time. Exposes `sendSms()`, `loadSmsConfig()`, `isSmsConfigured()`.
+- `src/assistant/pipeline/message-sender.ts`: `withSmsFallback()` wraps any `SendMessageFn` with WhatsApp retry (via existing `withSendRetry`) + automatic SMS fallback if all retries fail.
+- `src/lib/sms-sender.test.ts`: 14 unit + integration tests covering config validation, HTTP call shape, auth headers, error handling, and the 2-retry-then-SMS flow.
+
+### Patterns discovered
+- `vi.stubGlobal('fetch', mockFn)` works well for mocking Twilio REST calls without any SDK.
+- `Object.assign(process.env, { key: undefined })` does NOT delete the key — it sets it to the string "undefined". Must iterate and call `delete process.env[key]` explicitly.
+- `withSendRetry` uses 3 maxAttempts by default (= 2 retries, then fail on attempt 3). SMS kicks in after that throw.
+
+### Gotchas
+- Twilio is NOT added as a package.json dependency — sms-sender uses native fetch (Node 18+).
+- SMS fallback is silently skipped (re-throws WA error) when Twilio env vars are absent, to avoid breaking environments that haven't configured SMS.
