@@ -47,25 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-212",
-      "title": "Intent Classification Escalation Queue with Low-Confidence Auto-Flagging",
-      "priority": "high",
-      "description": "Automatically flag intent classifications with confidence < 40% for human review. Store in dedicated escalation queue with original intent, actual guest correction, and keyword improvement recommendations. Reduces fallback escalations by enabling quick manual triage.",
-      "acceptanceCriteria": [
-        "Create escalation_queue table with schema: id, conversation_id, original_intent, confidence_score, guest_correction_intent, timestamp, profile",
-        "In src/assistant/pipeline/classification.ts: when confidence < 40%, auto-insert into escalation_queue; log to src/logs/escalation-flags.log",
-        "Admin endpoint GET /admin/escalation-queue?limit=20&profile=makan returns array sorted by confidence ascending, including message preview and recommended keywords"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-23T10:19:46Z"
-    },
-    {
       "id": "US-213",
       "title": "Intent Keyword Suggestion Engine from Escalated Conversation Analysis",
       "priority": "high",
@@ -80,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T10:24:38Z"
     },
     {
       "id": "US-217",
@@ -108,23 +90,6 @@
         "Add CLI command `npm run export-ground-truth -- --profile=pelangi --format=jsonl --days=90 --min-confidence=0.5 --output=ground-truth.jsonl` exporting: message_text, inferred_intent, confidence_score, actual_outcome, conversation_id, timestamp, language; filter `WHERE profile_name = 'pelangi'` only",
         "Validate export contains zero cross-profile contamination: scan exported keywords against `src/assistant/data/intent-keywords.json` from other profiles (makan, southern); fail export if any foreign keywords detected",
         "Output format: JSONL with 8 fields per record; sample export shows ≥200 records with diverse intents, confidence scores spanning 0.4-0.99 range, and all 3+ outcome types represented"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-222",
-      "title": "Intent Keyword Contamination Scanner CLI with Cross-Profile Report",
-      "priority": "high",
-      "description": "Implement a CLI tool that analyzes intent-keywords.json across all profiles (pelangi, southern, makan) to detect copy-pasted keywords indicating data contamination. Generates a report showing keyword duplicates with Levenshtein distance scores to help identify which profiles need data cleanup.",
-      "acceptanceCriteria": [
-        "Create src/tools/analyze-keyword-contamination.ts that loads all profile intent-keywords.json files and compares keywords across profiles, outputting CSV with columns: keyword, profile_a, profile_b, similarity_score (0-100)",
-        "CLI command 'npm run analyze:contamination' runs the tool and flags keywords with >70% similarity appearing in data-makan or data-southern profiles as 'CONTAMINATED'",
-        "Tool identifies specific contamination examples (e.g., 'hostel_checkin' appearing in both pelangi and makan profiles) with recommendations to remove from non-matching profiles"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -214,23 +179,6 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-231",
-      "title": "Multi-Language Booking Intent Keyword Expansion for Malay and Tamil",
-      "priority": "high",
-      "description": "Expand intent-keywords.json with 20+ Malay and 15+ Tamil keyword variants for booking and inquiry intents to improve classification accuracy for non-English guests at Pelangi Capsule and Southern Homestay.",
-      "acceptanceCriteria": [
-        "Add 20+ Malay variant keywords to booking and inquiry intent groups in src/assistant/data/intent-keywords.json (e.g., 'berapa harga', 'bilik', 'tarikh check-in', 'boleh ubah')",
-        "Add 15+ Tamil variant keywords with romanization support (e.g., 'yenna naal', 'viley kizhame', 'irukku', 'ondrum illai')",
-        "Unit test src/__tests__/intent-keywords-multilingual.test.ts validates: Malay phrase 'Berapa harga bilik?' classifies as inquiry intent, Tamil phrase 'Yenna naal check-in?' classifies as booking intent"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -438,176 +386,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
-    },
-    {
-      "id": "US-264",
-      "title": "Booking Workflow Step Precondition Validator with Actionable Errors",
-      "priority": "high",
-      "description": "Validate all required preconditions before executing each booking workflow step. Return structured violation report with specific field, reason, and suggested values to guide users toward successful completion.",
-      "acceptanceCriteria": [
-        "Function `validateStepPreconditions(step: WorkflowStep, guestData, bookingData): { valid: boolean, violations: Violation[] }` in `src/assistant/lib/booking-validator.ts`; returns violations with { field, reason, suggestedValue }",
-        "Unit test: step 'confirm_booking' requires guest.name, guest.email, booking.checkIn, booking.roomType, booking.nights; missing checkIn generates violation with reason 'check-in date not provided' and suggestedValue 'tomorrow'",
-        "Booking executor calls validator before step execution; logs violations to `rainbow_messages` and returns user-friendly error with correction suggestions instead of failing silently"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-266",
-      "title": "Intent Classifier Per-Intent-Type Confidence Threshold Tuner CLI",
-      "priority": "high",
-      "description": "Analyze confidence distribution across all intents in production logs and suggest optimal per-intent thresholds that maximize true-positive rate while minimizing false positives and unnecessary escalations.",
-      "acceptanceCriteria": [
-        "CLI tool `npx ts-node src/tools/analyze-intent-confidence-distribution.ts --profile pelangi --output-file threshold-report.json` reads rainbow_messages table, groups predictions by intent type, calculates confidence percentiles (50th, 75th, 80th, 90th)",
-        "Report JSON includes recommended thresholds for each intent (e.g., booking: 0.72, inquiry: 0.65, escalation: 0.55) based on 80th percentile confidence with confidence count per intent",
-        "Unit test validates threshold calculation with mock confidence scores and asserts threshold values are within [0.5, 0.95] range"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-267",
-      "title": "Fallback Response Outcome Tracker with Effectiveness Scoring",
-      "priority": "high",
-      "description": "Track which fallback responses lead to guest escalations versus successful resolution within 2 turns; build effectiveness score for each fallback template to identify high-performing templates.",
-      "acceptanceCriteria": [
-        "Add `fallback_response_id` column to rainbow_messages table; track when fallback response is used and whether conversation escalates to staff within 2 subsequent user turns",
-        "New endpoint `GET /admin/fallback-effectiveness?profile=pelangi` returns array of fallback templates ranked by resolution rate (conversations that don't escalate = success) with counts: {template_id, success_count, escalation_count, effectiveness_score}",
-        "Test validates that fallback used at turn N followed by escalation at turn N+1 or N+2 marks it as low-effectiveness; resolution without escalation marks it as success"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-268",
-      "title": "Booking Workflow Step Execution Logger with Duration and Failure Tracking",
-      "priority": "high",
-      "description": "Log each booking workflow step execution (inputs, outputs, errors, duration) to database for debugging workflow failures and identifying bottleneck steps.",
-      "acceptanceCriteria": [
-        "Add new table `workflow_step_logs` with schema: step_id (UUID), step_name (string), profile (string), inputs (jsonb), outputs (jsonb), error_message (text), duration_ms (integer), created_at (timestamp); log event in workflow executor after each step execution",
-        "Test validates that failed step (e.g., `check-availability` returns HTTP 500) logs error_message and preserves inputs for manual retry; successful step logs NULL error_message",
-        "Admin endpoint `GET /admin/workflow-logs?profile=pelangi&status=failed&limit=20` returns failed steps sorted by frequency; test asserts endpoint returns only steps with error_message IS NOT NULL"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-258",
-      "title": "Implement Message Cost Tracking and Per-Profile Analytics Endpoint",
-      "priority": "medium",
-      "description": "Track operational costs (intent classification, AI inference, fallback routing) per message and profile. Enables admin dashboard to identify expensive intents and optimize AI provider usage across profiles.",
-      "acceptanceCriteria": [
-        "Create message_costs table: {message_id, profile_id, intent_type, cost_cents, ai_provider, created_at}",
-        "Implement GET /admin/api/analytics/costs?profile=pelangi&date=2026-03-23 returning {intent_type, message_count, total_cost, avg_cost}",
-        "Test asserts AI-based intents (via Kimi) show higher cost than keyword-based routing"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-259",
-      "title": "Implement Automated Conversation Data Retention and Scheduled Cleanup Job",
-      "priority": "medium",
-      "description": "Automatically delete messages and conversations older than 90 days per PDPA data minimization principle. Reduces database footprint and improves query performance over time.",
-      "acceptanceCriteria": [
-        "Add retention_policy.retention_days to src/assistant/data/settings.json (default: 90 days)",
-        "Implement src/lib/retention-cleanup-job.ts running daily at 02:00 UTC, deleting rainbow_messages with created_at > 90 days ago",
-        "Test asserts messages >90 days old deleted, messages <30 days retained, job logs deletion count"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-260",
-      "title": "Implement Booking Confirmation Webhook Events for External System Integration",
-      "priority": "medium",
-      "description": "Fire webhook events on booking confirmation for external system integration (PMS, CRM, email service, analytics). Decouples Rainbow AI from external dependencies and enables extensible event-driven architecture.",
-      "acceptanceCriteria": [
-        "Create webhook_endpoints table: {id, url, event_types, is_verified, last_fired_at, failure_count}",
-        "On booking_confirmed event, POST to all registered webhooks: {booking_id, guest_id, check_in, check_out, room_type, price}",
-        "Test asserts booking_confirmed webhook fires with correct payload and retries on 5XX (3x exponential backoff)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-265",
-      "title": "Fallback Response Effectiveness A/B Tracker and Weighted Router",
-      "priority": "medium",
-      "description": "Track which fallback responses lead to successful bookings vs dead-end escalations. Weight fallback response selection by historical success rate to improve booking completion rates.",
-      "acceptanceCriteria": [
-        "Add `fallback_response_id` and `fallback_response_outcome` columns to `rainbow_messages` table; log response ID when sent, mark outcome as 'booked', 'escalated', or 'abandoned' at conversation end",
-        "CLI command `npm run analyze-fallback-effectiveness` generates JSON report with per-response booking success rate (%), escalation rate (%), avg turns-to-booking",
-        "Fallback router in `src/assistant/pipeline/fallback.ts` weights candidate responses by success rate using weighted random selection (higher success = higher selection probability)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-269",
-      "title": "Conversation Context Auto-Pruning Engine with Multi-Turn Relevance Scoring",
-      "priority": "medium",
-      "description": "Automatically remove stale context from long conversations while preserving recent intent-relevant messages; reduce context window for AI inference to improve latency and cost.",
-      "acceptanceCriteria": [
-        "New function `pruneConversationContext(messages: Message[], currentIntent: string): Message[]` in src/assistant/pipeline/ keeps only last 10 messages OR all messages within last 2 hours (whichever is smaller); test validates pruned context contains intent-critical fields (room_type, check_in_date, guest_count for booking intent)",
-        "Messages below 10 turns are scored by relevance to current intent using keyword match (booking intent scores high for dates/room-types, low for off-topic chat); test asserts pruning reduces context by 30-50% on 30+ message conversations",
-        "Integration test verifies pruning is applied before AI inference in message pipeline and conversational accuracy is maintained (booking confirmation still succeeds with pruned context)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-270",
-      "title": "Intent Classification Feature Attribution Analyzer CLI with Keyword Importance Ranking",
-      "priority": "medium",
-      "description": "Analyze which keywords and features contribute most to correct intent classification; identify gaps in low-confidence intents and suggest missing keywords for each intent type.",
-      "acceptanceCriteria": [
-        "CLI tool `npx ts-node src/tools/analyze-intent-feature-importance.ts --intent booking --profile pelangi --output-file importance-report.json` reads intent-keywords.json and rainbow_messages table; ranks keywords by frequency in successful classifications (where booking was confirmed within 3 turns) versus failed ones (escalated as booking query)",
-        "Output JSON includes: {intent, profile, keywords_by_importance: [{keyword, success_frequency, failure_frequency, importance_score}], coverage_gaps: [list of domain terms NOT in keywords]} for identifying missing keywords",
-        "Test validates that high-frequency keywords (e.g., 'book', 'reservation') in successful bookings appear at top of importance ranking; assertion checks that at least 10 keywords are ranked per intent"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-196",
@@ -877,6 +655,58 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-212",
+      "title": "Intent Classification Escalation Queue with Low-Confidence Auto-Flagging",
+      "priority": "high",
+      "description": "Automatically flag intent classifications with confidence < 40% for human review. Store in dedicated escalation queue with original intent, actual guest correction, and keyword improvement recommendations. Reduces fallback escalations by enabling quick manual triage.",
+      "acceptanceCriteria": [
+        "Create escalation_queue table with schema: id, conversation_id, original_intent, confidence_score, guest_correction_intent, timestamp, profile",
+        "In src/assistant/pipeline/classification.ts: when confidence < 40%, auto-insert into escalation_queue; log to src/logs/escalation-flags.log",
+        "Admin endpoint GET /admin/escalation-queue?limit=20&profile=makan returns array sorted by confidence ascending, including message preview and recommended keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-23T10:19:46Z"
+    },
+    {
+      "id": "US-222",
+      "title": "Intent Keyword Contamination Scanner CLI with Cross-Profile Report",
+      "priority": "high",
+      "description": "Implement a CLI tool that analyzes intent-keywords.json across all profiles (pelangi, southern, makan) to detect copy-pasted keywords indicating data contamination. Generates a report showing keyword duplicates with Levenshtein distance scores to help identify which profiles need data cleanup.",
+      "acceptanceCriteria": [
+        "Create src/tools/analyze-keyword-contamination.ts that loads all profile intent-keywords.json files and compares keywords across profiles, outputting CSV with columns: keyword, profile_a, profile_b, similarity_score (0-100)",
+        "CLI command 'npm run analyze:contamination' runs the tool and flags keywords with >70% similarity appearing in data-makan or data-southern profiles as 'CONTAMINATED'",
+        "Tool identifies specific contamination examples (e.g., 'hostel_checkin' appearing in both pelangi and makan profiles) with recommendations to remove from non-matching profiles"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-231",
+      "title": "Multi-Language Booking Intent Keyword Expansion for Malay and Tamil",
+      "priority": "high",
+      "description": "Expand intent-keywords.json with 20+ Malay and 15+ Tamil keyword variants for booking and inquiry intents to improve classification accuracy for non-English guests at Pelangi Capsule and Southern Homestay.",
+      "acceptanceCriteria": [
+        "Add 20+ Malay variant keywords to booking and inquiry intent groups in src/assistant/data/intent-keywords.json (e.g., 'berapa harga', 'bilik', 'tarikh check-in', 'boleh ubah')",
+        "Add 15+ Tamil variant keywords with romanization support (e.g., 'yenna naal', 'viley kizhame', 'irukku', 'ondrum illai')",
+        "Unit test src/__tests__/intent-keywords-multilingual.test.ts validates: Malay phrase 'Berapa harga bilik?' classifies as inquiry intent, Tamil phrase 'Yenna naal check-in?' classifies as booking intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-209",
