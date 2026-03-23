@@ -377,3 +377,35 @@ Here is the technical brief for implementing the workflow timeout feature.
 *   **Concurrency:** If workflows run concurrently, ensure that a timeout in one does not affect others. Database-level locks (`FOR UPDATE`) might be needed on key records.
 *   **Windows Incompatibility:** The `signal.alarm` mechanism is not available on Windows. For local development, consider a thread-based alternative or use WSL/Docker.
 
+
+## Pre-analysis for US-120 (Gemini 2.5 Pro)
+### Technical Brief: US-120 Workflow Timeout & Rollback
+
+**Objective:** Implement a timeout and automatic transaction rollback for workflow steps to prevent inconsistent database states from hung processes.
+
+**1. Python Files to Modify:**
+*   **`.../lhdn_payroll_integration/workflow_engine/executor.py`**: (Hypothesized) A central file for processing workflow steps is the most likely candidate for adding the timeout and `try/except/finally` logic.
+*   **`.../lhdn_payroll_integration/doctype/booking/booking.py`**: The controller for the 'Booking' DocType, which likely invokes the workflow engine.
+*   **`.../lhdn_payroll_integration/api.py`**: If workflows are triggered via API endpoints, this file will need to handle timeout errors gracefully.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   **`Booking`**: The primary document being modified by the workflow.
+    *   **`rainbow_messages`**: The target DocType for logging escalation events on timeout.
+*   **Hooks (`hooks.py`):**
+    *   Potentially a `doc_events` hook on the `Booking` DocType (e.g., `on_update` or `on_submit`) that triggers the workflow execution.
+
+**3. Recommended Implementation Approach:**
+*   Use Python's `signal` library for a robust timeout mechanism on each step.
+*   Wrap the step execution logic in a `try...except TimeoutError` block.
+*   In the `except` block:
+    1.  Immediately call `frappe.db.rollback()` to discard partial changes.
+    2.  Create a new `rainbow_messages` document (`frappe.new_doc(...)`) with the required context (`step_id`, `max_duration_ms`, etc.).
+    3.  Use `frappe.log_error()` for detailed server-side logging.
+*   Read the `max_duration_ms` value from the `workflows.json` configuration for each step, falling back to the 30s default if not specified.
+
+**4. Edge Cases & Gotchas:**
+*   **Threading:** `signal.alarm` only works in the main thread. If steps run in background workers (RQ), a different approach like a custom decorator using `threading.Timer` or a process pool with a timeout will be necessary.
+*   **External API Calls:** Timeouts must account for external API latencies within a step. Ensure these are wrapped correctly.
+*   **Transaction Integrity:** The entire workflow must be treated as a single transaction. Avoid any `frappe.db.commit()` calls inside individual steps; commit only after the entire workflow succeeds.
+

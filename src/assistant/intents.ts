@@ -15,6 +15,7 @@ export type { MultiIntentResult } from './multi-intent.js';
 import { loadEmergencyPatternsFromFile, getEmergencyIntent, getRegexDeflection } from './emergency-patterns.js';
 import { mapLLMIntentToSpecific } from './llm-intent-mapper.js';
 import { tryMultiIntentSplit, correctCheckInFalsePositive } from './multi-intent.js';
+import { buildClassificationTrace, recordClassificationTrace } from './classification-tracer.js';
 
 // ─── Fuzzy Keyword Matcher ────────────
 
@@ -88,14 +89,47 @@ export async function initIntents(): Promise<void> {
  * @param history - Previous messages for context
  * @param lastIntent - Last detected intent
  * @param preferredLanguage - Stored language preference from conversation metadata (US-119)
+ * @param conversationId - Optional conversation ID for classification tracing (US-122)
  */
 export async function classifyMessageWithContext(
   text: string,
   history: ChatMessage[] = [],
   lastIntent: string | null = null,
-  preferredLanguage?: string
+  preferredLanguage?: string,
+  conversationId?: string
 ): Promise<IntentResult> {
   const config = getIntentConfig();
+
+  // US-122: Collect tier candidates for classification tracing
+  const tierCandidates: Array<{ intent: string; score: number; matchedKeyword?: string; matchedExample?: string }> = [];
+
+  // US-122: Helper to trace and return result
+  function traceAndReturn(result: IntentResult, tieBreakReason?: string): IntentResult {
+    if (conversationId) {
+      try {
+        const trace = buildClassificationTrace({
+          conversationId,
+          inputText: text,
+          detectedLanguage: detectedLang || 'unknown',
+          chosenIntent: result.category,
+          chosenConfidence: result.confidence,
+          chosenSource: result.source,
+          matchedKeyword: result.matchedKeyword,
+          matchedExample: result.matchedExample,
+          fuzzyResults: tierCandidates.filter(c => c.matchedKeyword !== undefined),
+          semanticResults: tierCandidates.filter(c => c.matchedExample !== undefined),
+          llmResult: tierCandidates.find(c => !c.matchedKeyword && !c.matchedExample)
+            ? { category: tierCandidates.find(c => !c.matchedKeyword && !c.matchedExample)!.intent, confidence: tierCandidates.find(c => !c.matchedKeyword && !c.matchedExample)!.score }
+            : undefined,
+          tieBreakReason,
+        });
+        recordClassificationTrace(trace);
+      } catch (err) {
+        // Never let tracing break classification
+      }
+    }
+    return result;
+  }
 
   // TIER 0: Language Detection
   const detectedLang = languageRouter.detectLanguage(text);
@@ -135,25 +169,25 @@ export async function classifyMessageWithContext(
     const emergencyIntent = getEmergencyIntent(text);
     if (emergencyIntent !== null) {
       console.log(`[Intent] 🚨 EMERGENCY detected (regex) → ${emergencyIntent}`);
-      return {
+      return traceAndReturn({
         category: emergencyIntent as any,
         confidence: 1.0,
         entities: { emergency: 'true' },
         source: 'regex',
         detectedLanguage: detectedLang
-      };
+      }, 'Emergency/regex pattern matched — highest priority tier');
     }
     // Check for non-emergency regex deflections (e.g., prompt injection → greeting)
     const deflection = getRegexDeflection(text);
     if (deflection !== null) {
       console.log(`[Intent] 🛡️ Regex deflection → ${deflection}`);
-      return {
+      return traceAndReturn({
         category: deflection as any,
         confidence: 1.0,
         entities: {},
         source: 'regex',
         detectedLanguage: detectedLang
-      };
+      }, 'Regex deflection pattern matched');
     }
   }
 
@@ -171,6 +205,25 @@ export async function classifyMessageWithContext(
       lastIntent,
       languageFilter
     );
+
+    // US-122: Collect fuzzy candidates for tracing
+    if (fuzzyResult) {
+      tierCandidates.push({
+        intent: fuzzyResult.intent,
+        score: fuzzyResult.score,
+        matchedKeyword: fuzzyResult.matchedKeyword,
+      });
+
+      // Also collect top alternatives from the matcher
+      const allFuzzy = fuzzyMatcher.getTopMatches?.(processedText, 3, languageFilter);
+      if (allFuzzy) {
+        for (const alt of allFuzzy) {
+          if (alt.intent !== fuzzyResult.intent) {
+            tierCandidates.push({ intent: alt.intent, score: alt.score, matchedKeyword: alt.matchedKeyword });
+          }
+        }
+      }
+    }
 
     if (fuzzyResult && checkTierThreshold(
       fuzzyResult.intent,
@@ -190,14 +243,14 @@ export async function classifyMessageWithContext(
         );
       }
 
-      return {
+      return traceAndReturn({
         category: finalIntent as any,
         confidence: correctedIntent ? 0.88 : fuzzyResult.score,
         entities: {},
         source: 'fuzzy',
         matchedKeyword: fuzzyResult.matchedKeyword,
         detectedLanguage: detectedLang
-      };
+      }, `Fuzzy keyword match above threshold (keyword: "${fuzzyResult.matchedKeyword}")`);
     }
 
     // US-155: Skip semantic match if fuzzy confidence is already high (saves 100-300ms)
@@ -233,7 +286,7 @@ export async function classifyMessageWithContext(
 
   // US-155: If fuzzy had high confidence (>= 0.85), skip semantic tier entirely
   if (fuzzyHighConfidenceResult) {
-    return fuzzyHighConfidenceResult;
+    return traceAndReturn(fuzzyHighConfidenceResult, 'Fuzzy high-confidence shortcut (>= 85%)');
   }
 
   // TIER 3: Semantic similarity matching WITH CONTEXT

@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-119",
-      "title": "Implement guest language preference persistence across conversation turns",
-      "priority": "high",
-      "description": "Persist detected guest language preference (English/Malay/Mandarin) in conversation state to ensure consistent intent classification routing across multi-turn dialogues. Prevents misclassification when guests code-switch between languages mid-conversation or when conversation context is lost.",
-      "acceptanceCriteria": [
-        "Store 'preferred_language' detected from first non-greeting message in rainbow_conversations.metadata; language detection uses existing language model with fallback to keyword matching",
-        "Intent router weights keyword matching by preferred_language (e.g., prioritize Malay variants from intent-keywords.json if preferred_language='malay')",
-        "Test verifies code-switched queries (English-Malay mix) classify to correct intent based on preference, with regression test ensuring English-only and Malay-only conversations still classify accurately"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T03:07:42Z"
-    },
-    {
       "id": "US-120",
       "title": "Implement workflow step execution timeout with automatic rollback",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T03:31:39Z"
     },
     {
       "id": "US-121",
@@ -230,227 +213,6 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-163",
-      "title": "Build booking workflow precondition validator preventing invalid state transitions like past-date check-ins",
-      "priority": "high",
-      "description": "Add validation engine that checks preconditions (valid check-in date, room availability, guest verified) before executing each booking workflow step, preventing invalid bookings and providing actionable error messages",
-      "acceptanceCriteria": [
-        "Extend booking workflow steps in src/assistant/data/workflows.json with preconditions array: [{type: 'date_not_past', fields: ['check_in_date']}, {type: 'room_available', fields: ['room_type', 'check_in_date']}]",
-        "Create src/assistant/pipeline/workflow-precondition-validator.ts with evaluator function that checks each precondition and returns {passed: boolean, failureReason?: string, suggestedFix?: string}",
-        "Integration test in tests/integration/booking-workflow-preconditions.test.ts verifies: past-date check-in is rejected with alternative date suggestions; unavailable room returns available alternatives"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-164",
-      "title": "Create profile-specific data isolation regression test suite detecting Pelangi contamination in Makan/Southern profiles",
-      "priority": "high",
-      "description": "Add automated test suite that scans Makan Moments and Southern Homestay data files (knowledge.json, intents.json, routing.json) for Pelangi Capsule Hostel keywords and concepts, preventing accidental contamination during future updates",
-      "acceptanceCriteria": [
-        "Create tests/unit/profile-data-contamination-detector.test.ts with detector functions scanning each profile for hostel-specific keywords (check_in, check_out, room_types, guest_amenities, stay_duration); outputs contaminated field paths and values",
-        "Test suite includes: makanDetectionTest checking knowledge.json has zero hostel references, southernDetectionTest checking intents.json has zero Pelangi-specific intents, routingDetectionTest checking routing.json doesn't route to hostel workflows",
-        "Test assertions fail with detailed report listing contaminated entries by file, field, line number and suggested cleanup (e.g., 'Remove line 45 from knowledge.json: \"Check-in available from 2pm\"')"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-166",
-      "title": "Add booking confirmation retry mechanism with exponential backoff for network failures",
-      "priority": "high",
-      "description": "Implement retry logic with exponential backoff (1s, 2s, 4s) for booking confirmation API calls to improve reliability when Neon database or downstream services are temporarily unavailable. Tracks retry attempts in database for debugging.",
-      "acceptanceCriteria": [
-        "Create `BookingConfirmationRetry` table in `shared/schema-tables.ts` with fields: `id`, `bookingId`, `attempt`, `lastError`, `createdAt`",
-        "Implement retry handler in `src/routes/bookings/confirm.ts` with exponential backoff; max 3 retries before escalation",
-        "CLI validation: `npm run test -- src/routes/bookings.test.ts` includes test cases for retry exhaustion, transient failures, and success on retry-2"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-167",
-      "title": "Build intent classifier baseline accuracy validator blocking low-confidence deployments",
-      "priority": "high",
-      "description": "Validate that intent classifier meets per-intent accuracy thresholds before deployment. Compares recent classification results against baseline accuracy stored in Postgres. Blocks CI if any intent drops below 70% confidence.",
-      "acceptanceCriteria": [
-        "Create `src/assistant/validate-classifier-baselines.ts` reading from `intent_analytics` table for last 100 classifications per intent",
-        "Store baseline thresholds in `src/assistant/data/classifier-baseline.json` with format: `{\"booking\": 0.75, \"inquiry\": 0.70}`",
-        "Add `npm run validate:classifier-baselines` script that exits with code 1 if any intent has <70% recent accuracy; logs violations to stderr"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-168",
-      "title": "Add low-confidence fallback routing validator detecting inappropriate escalations",
-      "priority": "high",
-      "description": "Validate routing rules to ensure fallback responses for low-confidence predictions (confidence < 0.6) only use 'clarify' or 'escalate' actions, never direct actions like 'execute_booking' or 'send_static_reply'. Prevents silent failures and inappropriate automation.",
-      "acceptanceCriteria": [
-        "Create `src/assistant/validate-fallback-rules.ts` that loads `src/assistant/data/routing.json` and checks: for any intent with `confidenceThreshold < 0.6`, fallback action must be in `['clarify', 'escalate']`",
-        "Add `npm run validate:fallback-rules` CLI returning report with violations (if any) or success message",
-        "Unit test: passing a routing.json with booking intent fallback='execute_booking' and confidenceThreshold=0.5 fails validation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-169",
-      "title": "Build comprehensive multi-profile data isolation regression test suite",
-      "priority": "high",
-      "description": "Create test suite ensuring Makan, Southern, and Pelangi profiles never contaminate each other's data files, intents, keywords, or routing rules. Tests profile loader, intent classifier, and knowledge base queries to enforce strict separation.",
-      "acceptanceCriteria": [
-        "Create `src/assistant/__tests__/profile-isolation.test.ts` with 10+ test cases covering: intent duplication across profiles, keyword cross-contamination, routing rule scope isolation",
-        "Test: Loading profile 'makan' should NOT load any intents from `pelangi` or `southern` intent lists; verify via `listProfileIntents('makan')` returns only Makan-specific intents",
-        "Test: Querying Southern KB with keyword 'guest room' should NOT return Pelangi Capsule hostel responses; verify via `searchKB('southern', 'guest room')`"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-171",
-      "title": "Implement Fallback Response Templates Repository with Confidence-Based Selection",
-      "priority": "high",
-      "description": "Replace generic fallback responses with curated templates selected based on detected intent and confidence score. Low-confidence booking intents (40-70%) receive helpful clarification prompts rather than immediate escalation, reducing user friction.",
-      "acceptanceCriteria": [
-        "Create src/assistant/data/fallback-responses.json with template objects keyed by {intent, confidenceLevel}: booking-low-confidence, inquiry-mid-confidence, unknown-fallback",
-        "Implement confidence-based template selection in src/assistant/pipeline/response-generator.ts routing <60% confidence intents to suggestion templates",
-        "Add test in test/fallback-response.test.ts asserting correct template selection for 3 confidence tiers (low/medium/high) across 4 intent types"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-172",
-      "title": "Persist Intent Prediction Confidence Scores in Analytics Table for Calibration Validation",
-      "priority": "high",
-      "description": "Intent classification confidence scores are calculated at runtime but discarded. Persist these scores to enable confidence calibration validation, accuracy regression detection, and identification of overconfident predictions that fail in production.",
-      "acceptanceCriteria": [
-        "Add confidence_score (float 0-1) and top_3_intents (JSON array) columns to rainbow_messages table via Drizzle migration in shared/schema-tables.ts",
-        "Persist {intent, confidence, top_3_candidates} in src/assistant/pipeline/intent-classifier.ts during classification execution",
-        "Add analytics endpoint GET /admin/analytics/intent-confidence-calibration?profile=data-pelangi returning accuracy-by-confidence-quartile with p99 precision threshold alerting"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-165",
-      "title": "Implement automatic conversation context summarization for multi-turn dialogues exceeding message limits",
-      "priority": "medium",
-      "description": "When conversation exceeds 15 messages, automatically summarize earlier context and condense into summary prefix while preserving critical booking details (guest name, dates, room requirements), reducing token usage and preventing context exhaustion",
-      "acceptanceCriteria": [
-        "Create src/assistant/pipeline/conversation-summarizer.ts with function summarizeConversationContext(messages: Message[], maxMessages: number = 15) that extracts: guest name, original intent, booking dates, room type, any modifications discussed; returns {summary: string, retainedMessages: Message[]}",
-        "Integration point in src/assistant/pipeline/message-handler.ts: when conversation message count exceeds threshold, replace first N messages with summary message (role: 'system') containing extracted context",
-        "Unit test in tests/unit/conversation-summarizer.test.ts verifies: 20-message conversation with booking flow is condensed to summary + last 10 messages; test asserts guest name, check-in/out dates, and room count preserved in summary"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-170",
-      "title": "Implement conversation context token counter with automatic summarization trigger at 8000-token threshold",
-      "priority": "medium",
-      "description": "Track conversation token count for multi-turn dialogues. When exceeding 8000 tokens, automatically summarize the oldest messages using Kimi summarizer to prevent context overflow. Preserves conversation integrity while managing API costs.",
-      "acceptanceCriteria": [
-        "Add `countTokens(messages: ChatMessage[]): number` function to `src/lib/conversation.ts` using GPT token counter",
-        "In `src/assistant/pipeline/message-handler.ts`, trigger summarization when `tokenCount > 8000`; pass last 8+ messages to Kimi",
-        "Acceptance test: Load 15-message conversation, verify messages 1-7 are replaced with single summary; total tokens <8000"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-173",
-      "title": "Add Guest Capacity and Group Size Intent Classification for Booking Refinement",
-      "priority": "medium",
-      "description": "Many guest inquiries focus on group capacity and family sizing (e.g., 'can you fit 5 people?', 'I need space for 2 families'). This new intent helps route guests to appropriately-sized accommodations and improves booking workflow accuracy by distinguishing capacity inquiries from generic room inquiries.",
-      "acceptanceCriteria": [
-        "Add group-size-inquiry intent definition to src/assistant/data/intents.json with action routing to booking workflow",
-        "Update src/assistant/data/intent-keywords.json with 15+ keywords in English/Malay/Mandarin: 'group', 'family', 'orang', 'pax', '几个人', 'berapa orang'",
-        "Test on 30 historical group capacity messages verifying ≥80% intent classification accuracy with test assertion in test/intent-classifier.test.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-174",
-      "title": "Add Check-in Date Normalization for Malaysian Regional Date Formats",
-      "priority": "medium",
-      "description": "Guest check-in date messages use regional formats ('23/3', '23 Mac', '23 Januari', 'minggu depan'). Add parser to normalize these variations before workflow validation, reducing check-in date validation failures and improving booking confirmation accuracy.",
-      "acceptanceCriteria": [
-        "Implement date parser in src/lib/date-normalizer.ts handling: DD/M, D/M/YY, 'D BulanMelayu', 'D NamaBulan', day names, and relative dates ('minggu depan', 'esok')",
-        "Add ambiguous date confirmation prompt in booking workflow (e.g., 'Confirm 23 March 2026? Or suggest alternative dates')",
-        "Test with 20 regional date format examples in test/date-normalizer.test.ts verifying correct ISO 8601 output"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-175",
-      "title": "Build Workflow Step Performance Profiling with Slowdown Detection",
-      "priority": "medium",
-      "description": "Booking workflow steps may degrade in performance (payment gateway slowness, database latency, external API calls). Add instrumentation to detect and alert on slow steps, enabling proactive investigation and optimization.",
-      "acceptanceCriteria": [
-        "Add step_duration_ms field to workflow executor in src/assistant/pipeline/workflow-executor.ts, persisting to new rainbow_workflow_metrics table",
-        "Create admin endpoint GET /admin/analytics/workflow-performance?profile=data-pelangi&days=7 returning {step_name, p50_ms, p95_ms, p99_ms} with slowdown alerts when p95 increases >20%",
-        "Add test in test/workflow-performance.test.ts verifying metrics persisted correctly and queryable by step_name and time range"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -704,6 +466,25 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-119",
+      "title": "Implement guest language preference persistence across conversation turns",
+      "priority": "high",
+      "description": "Persist detected guest language preference (English/Malay/Mandarin) in conversation state to ensure consistent intent classification routing across multi-turn dialogues. Prevents misclassification when guests code-switch between languages mid-conversation or when conversation context is lost.",
+      "acceptanceCriteria": [
+        "Store 'preferred_language' detected from first non-greeting message in rainbow_conversations.metadata; language detection uses existing language model with fallback to keyword matching",
+        "Intent router weights keyword matching by preferred_language (e.g., prioritize Malay variants from intent-keywords.json if preferred_language='malay')",
+        "Test verifies code-switched queries (English-Malay mix) classify to correct intent based on preference, with regression test ensuring English-only and Malay-only conversations still classify accurately"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T03:07:42Z",
+      "_scopeCreep": true
     },
     {
       "id": "US-114",
