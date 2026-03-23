@@ -1798,3 +1798,29 @@ FAILED diagnosis-block gate: Add Makan Moments seasonal promotion inquiry intent
   - [x] profile field added to intent_predictions table
   - [x] classifyAndRoute saves predictions with confidence >= 0.4
   - [x] Test verifies sorting by confidence_score and accuracy calculation
+## Iteration 1 - Mon, Mar 23, 2026 10:14:53 AM
+FAILED diagnosis-block gate: Persist individual intent prediction confidence scores with classification outcome tracking (ID: US-113) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [SPIRAL-36] - Story: US-113 Persist intent prediction confidence scores
+
+### What was implemented
+- All components were already in place from previous iterations:
+  - `intent_predictions` table in `shared/schema-tables.ts` with all required fields (id, conversationId, predictedIntent, confidence, actualIntent/wasCorrect, profile, createdAt)
+  - `InsertIntentPrediction` type exported at line 458
+  - `trackIntentPrediction()` in `src/assistant/intent-tracker.ts` — batch queue with 5s flush interval, retry logic, BATCH_SIZE=50
+  - `classifyAndRoute()` in `src/assistant/pipeline/intent-classifier.ts` calls trackIntentPrediction for confidence >= 0.4 (lines 155-167)
+  - Test file `tests/unit/intent-prediction-persistence.test.ts` with 11 tests — all passing
+
+### Patterns discovered
+- The schema uses `confidence` (not `confidence_score`) and `actualIntent` (not `correct_intent`) — naming differs from AC but semantics are equivalent
+- Batch queue pattern: predictions are queued then flushed every 5s or when BATCH_SIZE=50 reached
+- Tests mock `../../src/lib/db.js` and import schema directly from `../../../shared/schema-tables.js`
+
+### Gotchas
+- Windows timeout cmd doesn't work same as Unix for server startup test; omit on Windows
+- Story was already fully implemented; needed only verification and marking as passing
+
+### Quality checks
+✓ 11/11 tests pass (vitest)
+✓ Build completes successfully (esbuild, 1 pre-existing warning)
