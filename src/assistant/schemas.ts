@@ -504,6 +504,19 @@ export function analyzeClassificationUncertainty(
   return contributions;
 }
 
+// ─── Intent Keywords ────────────────────────────────────────────────
+
+export const intentKeywordEntrySchema = z.object({
+  intent: z.string().min(1),
+  keywords: z.record(z.string(), z.array(z.string())),
+});
+export type IntentKeywordEntry = z.infer<typeof intentKeywordEntrySchema>;
+
+export const intentKeywordsDataSchema = z.object({
+  intents: z.array(intentKeywordEntrySchema),
+});
+export type IntentKeywordsData = z.infer<typeof intentKeywordsDataSchema>;
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {
@@ -514,4 +527,5 @@ export const CONFIG_SCHEMAS = {
   'workflow.json': workflowDataSchema,
   'workflows.json': workflowsDataSchema,
   'routing.json': routingDataSchema,
+  'intent-keywords.json': intentKeywordsDataSchema,
 } as const;

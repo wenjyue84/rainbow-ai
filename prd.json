@@ -59,10 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-23T11:08:22Z"
+      "last_attempted": "2026-03-23T11:05:16Z"
     },
     {
       "id": "US-223",
@@ -386,6 +386,91 @@
       "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-279",
+      "title": "Intent Classifier Fallback Chain Configuration Admin Interface",
+      "priority": "high",
+      "description": "Allow admins to define per-profile fallback chains specifying which intent classifiers to try in sequence with configurable confidence thresholds before escalating. Improves reliability by gracefully degrading to secondary classifiers when primary confidence is low.",
+      "acceptanceCriteria": [
+        "Add fallback_chain configuration schema to src/assistant/data/settings.json with fields: {provider_name, min_confidence, timeout_ms, retry_count} allowing 2-3 provider chain definition",
+        "Modify IntentClassifier pipeline to iterate through fallback_chain: if primary provider returns confidence < threshold, try secondary provider; if both fail, route to knowledge.json pattern matching before escalation",
+        "Test: Message with primary classifier confidence=0.4 and fallback threshold=0.6 automatically tries secondary provider; if secondary also returns <0.6, falls through to knowledge.json match or escalation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-280",
+      "title": "Low-Confidence Intent Archival System with QA Review Endpoint",
+      "priority": "high",
+      "description": "Automatically archive messages with intent confidence < 0.5 to a special review table for QA team analysis, creating a feedback loop for retraining and improving classification accuracy over time.",
+      "acceptanceCriteria": [
+        "Create new database table rainbow_lowconf_messages with schema: {id, profile, message_id, original_text, predicted_intent, confidence, correct_intent, reviewed_at, created_at}",
+        "When ConversationManager.classifyIntent() returns confidence < 0.5, insert message to rainbow_lowconf_messages instead of finalizing; allow QA to provide correct_intent for later retraining",
+        "Admin endpoint GET /api/admin/lowconf-messages?profile=pelangi&reviewed=false&limit=20 returns unreviewed messages; QA submits correction via POST /api/admin/lowconf-messages/:id/correct with {correct_intent}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-281",
+      "title": "Conversation Context Compression Effectiveness Analyzer CLI",
+      "priority": "medium",
+      "description": "Analyze how much conversation history can be safely pruned while maintaining intent classification accuracy, helping identify which messages are most valuable for predictions and optimizing context window usage.",
+      "acceptanceCriteria": [
+        "Add npm script npm run analyze-context-compression --profile=pelangi --days=7 that queries rainbow_conversations from last N days and re-classifies each with progressively pruned message history",
+        "For each conversation, calculate compression_ratio = (original_message_count / pruned_message_count), accuracy_maintained = (accuracy_with_pruned / accuracy_with_full), and avg_pruned_message_age_hours",
+        "Output CSV to reports/context-compression-DDMMYY.csv with columns: conversation_id, compression_ratio, accuracy_maintained, avg_pruned_age, recommendation; identify conversations where 50% pruning maintains >= 95% accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-282",
+      "title": "Intent-to-Booking Success Rate Analytics Dashboard",
+      "priority": "medium",
+      "description": "Track success rates (successful bookings / total classifications) per intent type to identify which intents need retraining or workflow improvements, enabling data-driven prioritization of quality fixes.",
+      "acceptanceCriteria": [
+        "Create endpoint GET /api/admin/intent-success-rates?days=7&profile=pelangi&min_volume=5 that returns {intent, total_classifications, successful_bookings_24h, escalations, success_rate, confidence_avg}",
+        "Define 'successful booking' as: customer completed booking confirmation workflow within 24 hours of original intent classification (flag in rainbow_conversations as booking_completed=true)",
+        "Test: 7-day query returns intents sorted by success_rate ascending, clearly flags intents with < 50% success rate (e.g., 'room_extension' with 3/10 bookings = 30%) for QA review and retraining"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-283",
+      "title": "Makan Moments Seasonal Promotion Inquiry Workflow with Menu Integration",
+      "priority": "medium",
+      "description": "Create complete workflow for handling seasonal promotion questions specific to Makan Moments cafe, pulling current promotions from a dedicated data file and confirming interest before sending menu details. Improves fallback responses for cafe-specific inquiries.",
+      "acceptanceCriteria": [
+        "Add promotion_inquiry intent to src/assistant/data-makan/intents.json with cafe-specific keywords: ['current specials', 'happy hour', 'promotion', 'discount', 'what's on sale', 'special menu']",
+        "Create src/assistant/data-makan/seasonal-promotions.json with structure: {promotions: [{name, description, discount_percent, valid_until, applies_to_items}]} and load at startup in config validator",
+        "Add makan-seasonal-promotion workflow to src/assistant/data-makan/workflows.json with steps: [1) return promotion_inquiry knowledge template, 2) confirm_interest (yes/no), 3) if yes, include seasonal_promotions.json data in response; test: verify 'do you have specials?' triggers workflow and returns current promotions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",
