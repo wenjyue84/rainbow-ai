@@ -110,6 +110,7 @@ import bookingPreflightRoutes from './booking-preflight.js'; // US-224: Booking 
 import thresholdsRoutes from './thresholds.js'; // US-297: Per-intent confidence threshold configuration
 import violationsRoutes from './violations.js'; // US-310: Profile isolation violation audit
 import analyticsBookingConversionRoutes from './analytics-booking-conversion.js'; // US-292: Booking conversion rate analyzer
+import analyticsBookingFailuresRoutes from './analytics-booking-failures.js'; // US-291: Booking workflow failure hotspot analyzer
 import analyticsConfidenceTrendRoutes from './analytics-confidence-trend.js'; // US-245: Turn-by-turn confidence trend
 import intentAccuracyRoutes from './intent-accuracy.js'; // US-247: Intent accuracy baseline tracker
 import fallbackAnalysisRoutes from './fallback-analysis.js'; // US-300: Fallback response effectiveness tracker
@@ -394,6 +395,7 @@ router.use(bookingPreflightRoutes);       // US-224: Booking confirmation pre-fl
 router.use(thresholdsRoutes);             // US-297: Per-intent confidence threshold configuration
 router.use(violationsRoutes);            // US-310: Profile isolation violation audit trail
 router.use(analyticsBookingConversionRoutes); // US-292: Booking conversion rate analyzer
+router.use(analyticsBookingFailuresRoutes); // US-291: Booking workflow failure hotspot analyzer
 router.use(analyticsConfidenceTrendRoutes); // US-245: Turn-by-turn confidence trend
 router.use(intentAccuracyRoutes);           // US-247: Intent accuracy baseline tracker
 router.use(fallbackAnalysisRoutes);           // US-300: Fallback response effectiveness tracker

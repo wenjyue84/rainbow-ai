@@ -1781,3 +1781,40 @@ This brief outlines the implementation plan for creating a booking failure hotsp
 - esbuild build warns about CommonJS module.exports in ESM files (logger.ts) but this is pre-existing and harmless
 - profileRegistry.getProfile() is the correct method (not configStore.getConfigStore())
 - WorkflowDefinition.steps array used for legacy; HybridWorkflowDefinition.nodes used for new format
+## Iteration 2 - Tue, Mar 24, 2026  3:09:36 AM
+FAILED diagnosis-block gate: Booking Workflow Step Execution Dry-Run Endpoint (ID: US-290) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-291 (Gemini 2.5 Pro)
+**Project:** Rainbow AI (Node.js/TypeScript), not Frappe/Python.
+
+**Objective:** Implement a booking workflow failure analyzer.
+
+**1. Files to Modify/Create:**
+
+*   **`scripts/analytics/booking-failures.ts` (New File):** Logic for the CLI tool.
+*   **`src/http/routes/admin/analytics.ts` (Likely New/Existing):** Add the `GET /admin/analytics/booking-failures` API endpoint.
+*   **`src/services/BookingAnalyticsService.ts` (New File):** Shared logic for calculating failure stats, used by both the API and CLI.
+*   **`package.json`:** Add the `analytics:booking-failures` npm script.
+
+**2. Key Components Involved:**
+
+*   **Data Source:** `spiral_events.jsonl`. This file appears to contain the raw event data needed to track workflow attempts and failures.
+*   **Configuration:** `workflows.json` should be used as the source of truth for the names and order of workflow steps.
+
+**3. Implementation Approach:**
+
+1.  Create a `BookingAnalyticsService` to encapsulate the analysis logic.
+2.  The service should stream-read and parse `spiral_events.jsonl` to handle potentially large files.
+3.  Aggregate event counts (attempts, failures) and failure reasons for each step defined in `workflows.json`.
+4.  Implement a function to calculate rates and determine the top 3 failure reasons per step.
+5.  Create the new API route in `src/http/routes/` to call the service and return the data as JSON.
+6.  Create the `scripts/analytics/booking-failures.ts` script to handle command-line arguments (like `--since`) and call the service, printing the output.
+
+**4. Edge Cases & Gotchas:**
+
+*   Ensure the date filtering (`--since`) is robust.
+*   The logic must handle division by zero if a step has zero attempts.
+*   Be defensive against inconsistent or malformed JSON objects within `spiral_events.jsonl`.
+*   The implementation should be memory-efficient by streaming the events file, not loading it all at once.
+
