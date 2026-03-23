@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-131",
-      "title": "Generate intent classification confusion matrix from production logs",
-      "priority": "high",
-      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
-      "acceptanceCriteria": [
-        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
-        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
-        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-23T04:59:44Z"
-    },
-    {
       "id": "US-158",
       "title": "Intent classifier accuracy regression alert system",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-23T05:11:08Z"
     },
     {
       "id": "US-159",
@@ -141,159 +124,6 @@
         "Test file `src/__tests__/profile-contamination.test.ts` with >12 assertions checking for Pelangi terms ('capsule', 'pelangi', 'dorm', 'dormitory', 'hostel_booking') in `data-makan/**` and `data-southern/**` files",
         "Tests assert Makan and Pelangi intent name sets are disjoint (no overlap) by comparing intent_configs files and routing.json intent references",
         "CI/CD blocks merge if tests fail with error listing contaminated files and offending keywords for manual remediation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-202",
-      "title": "Intent Classifier Low-Confidence Alert Threshold",
-      "priority": "high",
-      "description": "Add configurable per-intent confidence thresholds that trigger admin alerts when classifications fall below threshold, identifying weak intents requiring improvement or retraining.",
-      "acceptanceCriteria": [
-        "Add confidence_threshold (float, default: 0.7) field to each intent in src/assistant/data/intent-keywords.json with validation in Zod schema",
-        "Classification pipeline in src/assistant/pipeline/classify.ts checks confidence against threshold, inserts alert records into analytics table with intent_id and actual_confidence score",
-        "Admin endpoint GET /admin/alerts/low-confidence?days=7&profile=pelangi returns alert summary grouped by intent, sorted by frequency with percentage of low-confidence predictions"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-203",
-      "title": "Profile Intent Keyword Validation at Startup",
-      "priority": "high",
-      "description": "Validate that intent-keywords.json contains only keywords for intents defined in intents.json for that profile, preventing orphaned keywords and cross-profile keyword contamination.",
-      "acceptanceCriteria": [
-        "Add validation function in src/lib/validation.ts that on startup iterates intent-keywords.json keys and compares against intents.json for current profile, logs orphaned keywords with match counts",
-        "Validation runs during profile initialization in src/index.ts, warns to logs if orphaned keywords found without blocking startup, includes intent IDs and keyword strings",
-        "Test asserts validation detects keywords for non-existent intents, correctly identifies valid intent-keyword mappings, and passes validation for clean profiles without warnings"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-198",
-      "title": "Booking Workflow Step Execution Timeout Handler with Auto-Alert",
-      "priority": "medium",
-      "description": "Add timeout detection to booking workflow steps. If any step exceeds 5 seconds, log performance warning and alert admin via `/admin/workflow-performance` endpoint. Improves reliability visibility.",
-      "acceptanceCriteria": [
-        "Middleware in `src/assistant/pipeline/workflow-executor.ts` tracks step execution time and flags >5s as slow with step name, duration, and timestamp logged to `workflow_step_timings` table",
-        "Admin endpoint `GET /admin/workflow-performance?step=confirm_booking&days=7` returns p50/p95/p99 latencies per step with slow-step flag when >5s occurs",
-        "Cron job `scripts/workflow-performance-alert.ts` sends daily Slack alert if any step avg latency increases >50% from 7-day baseline"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-199",
-      "title": "Conversation Debug Timeline Visualization Generator",
-      "priority": "medium",
-      "description": "CLI tool that generates interactive HTML timeline showing conversation flow, intent classification at each turn, confidence scores, and AI response reasoning. Enables rapid debugging of multi-turn dialogue failures.",
-      "acceptanceCriteria": [
-        "CLI command `npm run debug:conversation --conversation-id=abc123 --output=/tmp/conv.html` generates HTML with message → detected_intent → confidence → action → response flow visualization",
-        "HTML includes collapsible intent confidence breakdown (top 3 candidates with scores) and context snippet for each message",
-        "Query `conversation_timeline` view in db returning message sequence with intent_id, confidence, executed_action_id for easy template rendering"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-200",
-      "title": "Automated Booking Clarification Question Generator for Low-Confidence Intents",
-      "priority": "medium",
-      "description": "When booking intent confidence is 0.60–0.79, generate context-aware clarification question instead of escalating. Reduces unnecessary support escalations while improving booking conversion.",
-      "acceptanceCriteria": [
-        "Function `generateClarificationQuestion(intent, messageContext, confidence)` in `src/assistant/pipeline/clarification-engine.ts` returns templated question with context variables filled (e.g., room type, date mentioned)",
-        "For intent='booking_inquiry', confidence=0.70, message='looking for a room': returns 'Are you interested in checking in this weekend or a specific date?'",
-        "Clarification template library at `src/assistant/data/clarification-templates.json` includes per-profile and per-intent variants; fallback to generic template if profile-specific not found"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-204",
-      "title": "Booking Workflow Step Execution Duration Histogram Endpoint",
-      "priority": "medium",
-      "description": "Add admin API endpoint that returns execution time distribution for each booking workflow step across recent bookings, enabling performance bottleneck identification and workflow optimization.",
-      "acceptanceCriteria": [
-        "Admin endpoint GET /admin/analytics/workflow-durations?profile=pelangi&days=7 returns JSON with step names and execution time percentiles (p50, p95, p99)",
-        "Endpoint queries rainbow_messages table timestamps, calculates histograms per workflow step with min/max/mean durations",
-        "Unit test mocks booking execution data with step timings, asserts response includes all booking workflow step names and valid percentile calculations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-205",
-      "title": "Conversation Context Window Tuning Configuration",
-      "priority": "medium",
-      "description": "Add configurable settings for conversation context window size, relevance threshold, and pruning strategy in settings.json to allow runtime optimization without code changes.",
-      "acceptanceCriteria": [
-        "Add context_window object to src/assistant/data/settings.json with max_messages (default: 10), relevance_threshold (default: 0.5), and pruning_strategy enum ('fifo' or 'relevance')",
-        "Conversation pipeline in src/assistant/pipeline/context-manager.ts reads settings on startup and applies pruning before sending context to AI provider",
-        "Unit test loads settings.json with different configurations, applies pruning with various max_messages values, asserts final context respects configured window size"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-206",
-      "title": "Fallback Response Suggestion Engine CLI",
-      "priority": "medium",
-      "description": "CLI tool that analyzes recent misclassified messages and generates suggestions for fallback response templates, with confidence scores and exact file paths for implementation.",
-      "acceptanceCriteria": [
-        "CLI command `npm run suggest:fallbacks -- --profile=pelangi --count=10` queries rainbow_messages for recent misclassifications, analyzes intent distribution of failures",
-        "Outputs JSON with suggested fallback templates grouped by failed_intent, includes confidence_deficit score and exact JSON path in src/assistant/data/knowledge.json for each suggestion",
-        "Test asserts suggestions generated only for intents with >2 recent misclassifications, output includes profile validation, and suggested templates contain actionable guidance"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-201",
-      "title": "Fallback Response Template Staleness and Quality Auditor",
-      "priority": "low",
-      "description": "CLI audit tool that identifies fallback response templates unchanged for >90 days or lacking helpful suggestions (action verbs, next steps). Flags templates for refresh to keep responses relevant and helpful.",
-      "acceptanceCriteria": [
-        "CLI command `npm run audit:fallback-staleness --profile=data-makan --days=90 --output=docs/` generates `fallback-staleness-{profile}.md` report",
-        "Report flags templates where: last_updated_at timestamp >90 days old, response text <30 chars, or response missing action verbs (help, contact, check, book, confirm)",
-        "Report includes template path, current text, suggestion based on top 5 misclassified intents from analytics table to guide refresh priority"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -570,6 +400,27 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-131",
+      "title": "Generate intent classification confusion matrix from production logs",
+      "priority": "high",
+      "description": "Build a CLI tool that analyzes intent misclassifications by comparing predicted vs. actual intents in production messages. Identifies which intent pairs are most commonly confused to guide keyword and classifier improvements.",
+      "acceptanceCriteria": [
+        "Create src/tools/confusion-matrix-generator.ts that reads rainbow_messages table and builds confusion matrix (predicted_intent vs actual_intent)",
+        "Add CLI command 'npm run metrics:confusion-matrix -- --profile=pelangi --days=7' that outputs top 5 misclassified intent pairs as CSV with confusion counts and percentages",
+        "Add unit test asserting confusion matrix correctly identifies test dataset intent pairs with 95% accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-23T04:59:44Z",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nThe `rainbow_messages` table in the database stores all messages with predicted intent and user feedback (actual intent). The `src/assistant/intents.ts` classifies messages and the admin routes handle feedback. There's no confusion matrix generation tool yet.\n\n## Problem Identified\n\nUS-131 requires building a CLI tool to analyze intent misclassifications by:\n1. Reading the `rainbow_messages` table\n2. Comparing predicted vs actual intents\n3. Identifying the top 5 most confused intent pairs\n4. Outputting as CSV with counts and percentages\n\n## Planned Changes\n\n- Create `src/tools/confusion-matrix-generator.ts` with functions to:\n  - Query `rainbow_messages` for messages with feedback\n  - Build confusion matrix (predicted vs actual intent pairs)\n  - Calculate confusion counts and percentages\n  - Format as CSV output\n- Add npm script in `package.json` for `metrics:confusion-matrix`\n- Add unit tests in `src/tools/__tests__/confusion-matrix-generator.test.ts`\n\nNow I'll implement the story. Let me start by reading the package.json to understand the CLI structure:\nLet me check the schema to understand the rainbow_messages table:\nLet me check if there's a feedback table or how actual intents are stored:\nNow I'll create the confusion matrix generator. Let me first check if there's a database utility:\nNow I'll create the confusion matrix generator:\nLet me verify the intent_predictions schema:\nNow I need to add the npm script to package.json:\nNow let me create unit tests for the confusion matrix generator:\nI see the script was duplicated. Let me fix that:\nNow let me run the tests to verify the implementation:\nLet me run tests with proper Windows syntax:\nLet me fix the failing tests:\nNow let's run the tests again:\nGreat! All tests pass. Now let's verify the build works:\nLet me run a type check instead:\nThere's a system memory issue with tsc. Let me verify the confusion matrix generator code is correct by checking syntax:\nI see there's a merge conflict in package.json. Let me fix it:\nNow let me verify the implementation is working by testing the CLI directly:\nI see the issue - the query is referencing a `profile` column that may not exist. Let me check the intent_predictions schema more carefully:\nThe profile column might not exist in the actual database. Let me update the confusion matrix generator to handle this more robustly:"
+      }
     },
     {
       "id": "US-127",
