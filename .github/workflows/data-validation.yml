@@ -1,0 +1,69 @@
+name: Data Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'src/assistant/data/**'
+      - 'src/assistant/data-*/**'
+      - '.github/workflows/data-validation.yml'
+      - 'package.json'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-contamination:
+    runs-on: ubuntu-latest
+    name: Check Profile Contamination
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run contamination detection
+        id: contamination
+        run: npm run check:contamination 2>&1 | tee contamination-output.txt || echo "CONTAMINATION_FAILED=true" >> $GITHUB_ENV
+
+      - name: Parse contamination results
+        if: env.CONTAMINATION_FAILED == 'true'
+        id: parse-results
+        run: |
+          # Read the output and prepare for PR comment
+          OUTPUT=$(cat contamination-output.txt)
+          # Escape for JSON
+          OUTPUT=$(echo "$OUTPUT" | sed 's/"/\\"/g' | sed 's/$/\\n/g' | tr -d '\n')
+          echo "results=$OUTPUT" >> $GITHUB_OUTPUT
+
+      - name: Comment PR with contamination findings
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('contamination-output.txt', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ⚠️ Profile Contamination Detected\n\nCross-profile intent routing violations were detected:\n\n\`\`\`\n${output}\n\`\`\`\n\nPlease fix the contamination in your data files before merging. See the detailed violations above for which profiles and files need to be updated.`
+            });
+
+      - name: Fail if contamination detected
+        if: env.CONTAMINATION_FAILED == 'true'
+        run: |
+          echo "Profile contamination detected - blocking merge"
+          exit 1

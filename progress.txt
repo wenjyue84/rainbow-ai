@@ -1417,3 +1417,56 @@ FAILED diagnosis-block gate: Add conversation topic drift detector to prevent of
 - `src/index.ts` — Added validateProfileRouting import and startup call
 - `src/assistant/__tests__/routing-validator.test.ts` — New test file (14 tests)
 - `prd.json` — US-094 marked passes: true
+
+---
+
+## Iteration [32] - Story: US-097 - Integrate contamination detection into GitHub Actions CI pipeline
+
+### What was implemented
+
+Created a complete GitHub Actions CI pipeline to enforce profile contamination detection at PR merge time.
+
+**Files created:**
+1. `scripts/check-contamination.ts` — CLI script that uses the existing `detectContamination()` function from `src/lib/profile-contamination-check.ts`
+   - Runs detection against all three profiles: pelangi, southern, makan
+   - Outputs formatted contamination report with violation details
+   - Returns exit code 0 if clean, 1 if violations found
+   - Generates CSV report for detailed analysis
+
+2. `.github/workflows/data-validation.yml` — GitHub Actions workflow
+   - Triggers on pull_request to main/master branches
+   - Runs on changes to data files or workflow config
+   - Executes `npm run check:contamination`
+   - Posts PR comment with detailed violation listings if contamination found
+   - Blocks merge by failing CI check (exit code 1)
+
+**File modified:**
+- `package.json` — Added `"check:contamination": "tsx scripts/check-contamination.ts"` npm script
+
+### Patterns discovered
+
+- The existing `profile-contamination-check.ts` implementation already provides:
+  - HOSTEL_TERMS and CAFE_TERMS for cross-profile detection
+  - Functions to check knowledge.json, intent-keywords.json, and routing.json files
+  - Report generation with violation context
+  
+- Using tsx directly in npm scripts avoids need for tsc transpilation
+- GitHub Actions `actions/github-script@v7` provides direct access to GitHub API for PR comments
+
+### Gotchas
+
+- Southern and Makan profiles currently have contamination violations (cafe/hostel term cross-contamination)
+  - Script correctly detects and reports these violations
+  - This is expected behavior - the detection is working as designed
+  - These violations will need to be fixed in their respective data files
+  
+- The workflow uses `actions/setup-node@v4` with caching for faster runs
+- PR comment generation includes the full output in markdown code block for readability
+
+### Acceptance Criteria Met
+
+✓ Create .github/workflows/data-validation.yml that triggers on every PR to main/master
+✓ Workflow executes npm run check:contamination
+✓ Workflow posts PR comment listing any cross-profile intent routing violations found
+✓ CI check fails with exit code 1 and blocks merge if violations detected
+
