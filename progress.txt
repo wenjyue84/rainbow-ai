@@ -1393,3 +1393,44 @@ Here is a technical brief for user story US-207, translated for a Frappe/Python 
 - Tests cannot run against live database until intent_hard_cases table is created
   - Tests designed to be database-agnostic but benefit from live DB for validation
 
+## Iteration 1 - Mon Mar 23 17:37:47 MPST 2026
+FAILED diagnosis-block gate: Add intent classification hard-case queue for manual product review (ID: US-207) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-207 (Gemini 2.5 Pro)
+Here is the technical brief for implementing user story US-207 in a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-207 - Add intent classification hard-case queue for manual product review.
+
+---
+
+### **Technical Implementation Brief**
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/api.py`**: Create this file if it doesn't exist. It will host the new whitelisted API methods for adding and retrieving hard cases.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/intent_hard_case/intent_hard_case.py`**: Server-side logic for the new DocType.
+*   **`lhdn_payroll_integration/tests/test_api.py`**: A new test file to create unit tests for the API endpoints.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **New DocType:** `Intent Hard Case`.
+    *   **Fields:** `conversation_id` (Data), `predicted_intent` (Data), `confidence` (Float), `reason` (Small Text), `candidates` (JSON or Table), `profile` (Data, for filtering).
+    *   Should be a "System" or "Submittable" DocType to ensure data integrity.
+*   **Hooks:** The API methods in `api.py` must be decorated with `@frappe.whitelist()` to be accessible via `/api/method/...`.
+
+**3. Recommended Implementation Approach:**
+
+1.  Create the `Intent Hard Case` DocType using the Frappe UI (`/app/doctype/new`).
+2.  In `api.py`, implement `add_intent_hard_case(conversationId, intentId, confidence, reason)` to create and save a new `Intent Hard Case` document.
+3.  In `api.py`, implement `get_intent_hard_cases(profile, limit=50)` using `frappe.db.get_list` to fetch records, applying filters for `profile` and `limit`.
+4.  Write unit tests in `test_api.py` that call these new API methods and assert the correct creation and retrieval of data from the database.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Permissions:** Ensure API methods check for "System Manager" or a custom admin role using `frappe.has_permission`.
+*   **Data Structure:** The `candidates` field should store the top-3 choices. A JSON field is flexible for storing `{intent: confidence}` pairs.
+*   **Filtering:** The `profile` field is critical for multi-tenant filtering and must be indexed for performance.
+*   **API Naming:** The Frappe endpoints will be `POST /api/method/lhdn_payroll_integration.api.add_intent_hard_case` and `GET /api/method/lhdn_payroll_integration.api.get_intent_hard_cases`.
+
