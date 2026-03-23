@@ -1499,6 +1499,30 @@ export const modelAccuracyHistory = pgTable("model_accuracy_history", {
 export type ModelAccuracyRecord = typeof modelAccuracyHistory.$inferSelect;
 export type InsertModelAccuracyRecord = typeof modelAccuracyHistory.$inferInsert;
 
+// ─── Profile Isolation Repairs (US-238) ────────────────────────────────
+// Logs data contamination repairs that fix profile isolation violations.
+// Tracks violations detected (guests with multi-profile references, keywords
+// in wrong profiles, foreign workflow routes) and repairs applied.
+
+export const profileIsolationRepairs = pgTable("profile_isolation_repairs", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull(),
+  violationType: text("violation_type").notNull(),  // 'guest_multi_profile' | 'keyword_cross_profile' | 'workflow_foreign_route'
+  violationDetails: jsonb("violation_details").notNull(),  // object with violation context
+  repairAction: text("repair_action").notNull(),  // 'delete' | 'reassign' | 'flag_for_review'
+  repairDetails: jsonb("repair_details").notNull(),  // what was changed
+  status: text("status").notNull().default('applied'),  // 'applied' | 'flagged' | 'pending_review'
+  appliedAt: timestamp("applied_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_profile_isolation_repairs_profile").on(table.profileId),
+  index("idx_profile_isolation_repairs_type").on(table.violationType),
+  index("idx_profile_isolation_repairs_status").on(table.status),
+  index("idx_profile_isolation_repairs_applied_at").on(table.appliedAt),
+]));
+
+export type ProfileIsolationRepair = typeof profileIsolationRepairs.$inferSelect;
+export type InsertProfileIsolationRepair = typeof profileIsolationRepairs.$inferInsert;
+
 /**
  * Returns room IDs that are occupied (status != 'cancelled') for any night
  * overlapping [checkIn, checkOut). Two reservations overlap when:
