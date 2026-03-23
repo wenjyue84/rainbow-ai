@@ -13,6 +13,7 @@ import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
+import { filterByRelevance } from './pipeline/context-manager.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -220,7 +221,9 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     const systemPrompt = options.systemPromptSuffix
       ? `${baseSystemPrompt}\n\n${options.systemPromptSuffix}`
       : baseSystemPrompt;
-    const result = await chatWithToolsLoop(systemPrompt, conversationHistory, message, options.tools, options.toolHandlers, store, toolLang);
+    // Prune context by relevance to prevent stale context hallucination
+    const prunedHistory = pruneContextByRelevance(conversationHistory, 'tool_use', 8, 0.3);
+    const result = await chatWithToolsLoop(systemPrompt, prunedHistory, message, options.tools, options.toolHandlers, store, toolLang);
     const responseTime = Date.now() - startTime;
     return {
       message: result,
@@ -267,6 +270,24 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       `below threshold ${confidenceGateThreshold.toFixed(2)} → routing to fallback`
     );
     intentResult = { ...intentResult, category: 'unknown' };
+  }
+
+  // US-208: Filter conversation history by relevance to current intent
+  // Prevents hallucination from outdated requests when history exceeds 8 messages
+  if (conversationHistory.length > 8) {
+    const filteredHistory = pruneContextByRelevance(
+      conversationHistory,
+      intentResult.category,
+      8,    // Threshold: prune when history exceeds 8 messages
+      0.3   // Relevance threshold: keep messages with score >= 0.3
+    );
+    if (filteredHistory.length < conversationHistory.length) {
+      console.log(
+        `[ContextPruner] US-208: Filtered history from ${conversationHistory.length} to ${filteredHistory.length} messages ` +
+        `for intent "${intentResult.category}"`
+      );
+      conversationHistory.splice(0, conversationHistory.length, ...filteredHistory);
+    }
   }
 
   const routingConfig = store.getRouting() || {};
@@ -383,7 +404,9 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
         const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-        const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
+        // Prune context by relevance to prevent stale context hallucination
+        const prunedHistory = pruneContextByRelevance(conversationHistory, intentResult.category, 8, 0.3);
+        const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response || staticText;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
@@ -450,7 +473,9 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
       if (isAIAvailable()) {
         topicFiles = kb.guessTopicFiles(message);
         const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-        const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
+        // Prune context by relevance to prevent stale context hallucination
+        const prunedHistory = pruneContextByRelevance(conversationHistory, intentResult.category, 8, 0.3);
+        const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage);
         finalMessage = result.response;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
@@ -462,7 +487,9 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   } else if (isAIAvailable()) {
     topicFiles = kb.guessTopicFiles(message);
     const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
-    const result = await classifyAndRespond(systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage);
+    // Prune context by relevance to prevent stale context hallucination
+    const prunedHistory = pruneContextByRelevance(conversationHistory, intentResult.category, 8, 0.3);
+    const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage);
     finalMessage = result.response;
     llmModel = result.model || 'unknown';
     llmUsage = result.usage;

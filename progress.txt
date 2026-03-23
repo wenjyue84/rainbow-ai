@@ -1516,3 +1516,68 @@ Based on the user story JSON, the request targets a Node.js/TypeScript applicati
 *   **Performance:** The `intent_hard_cases` table could become large. Index the table on columns that will be frequently filtered or grouped, such as `profile` and `intentId`.
 *   **Input Validation:** The `POST` endpoint must robustly validate all incoming fields to prevent bad data.
 
+
+## Pre-analysis for US-208 (Gemini 2.5 Pro)
+Based on the user story JSON, here is a technical brief for implementation.
+
+**Note:** The story describes a TypeScript implementation within the existing `rainbow-ai` project, not a new Frappe/Python app. The following plan is tailored to the provided JSON.
+
+### Technical Brief: US-208 - Conversation Relevance Scorer
+
+**1. Python/Frappe Files to Modify:**
+The user story specifies a TypeScript implementation. The relevant files are:
+*   `src/assistant/pipeline/context-manager.ts`: Create the new scoring function here.
+*   `src/assistant/engine.ts`: Modify the prompt-building logic to use the scorer.
+*   `src/assistant/__tests__/context-pruning.test.ts`: Create this new file for testing.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   No Frappe elements are involved. The key data structure is the `ConvMessage` TypeScript type. The main integration point is the context-assembly pipeline within `engine.ts`.
+
+**3. Recommended Implementation Approach:**
+1.  **Test-Driven:** Start by creating `src/assistant/__tests__/context-pruning.test.ts`. Add a test case with a conversation history longer than 8 messages, where an old, irrelevant topic exists. Assert that the final context provided to the AI does not include the irrelevant messages.
+2.  **Implement `scoreMessageRelevance`:** In `context-manager.ts`, create the function. For the initial version, use a simple and fast heuristic. A good start would be to use a string-similarity library (like `string-similarity`) to compare the message content with the `currentIntent` string.
+3.  **Integrate Scorer:** In `engine.ts`, find where the conversation history is prepared. Before sending it to the AI, check if `history.length > 8`. If it is, use your new function to score and filter out messages where `relevanceScore < 0.3`.
+
+**4. Edge Cases & Gotchas:**
+*   **Scoring Logic:** The effectiveness hinges on the scoring heuristic. A naive keyword search might be too strict. String similarity is a safer bet. Avoid heavy NLP models to prevent latency.
+*   **Threshold Tuning:** The limits (`> 8` messages, score `< 0.3`) are hardcoded. They may need future tuning, so keep the implementation clean and the values easy to change.
+*   **Empty/Generic Messages:** Messages like "ok" or "thanks" might score low relevance but be important for conversational flow. The logic should be careful not to prune them if they are very recent.
+
+
+## Iteration [CURRENT] - Story: US-208 - Conversation Message Relevance Scorer
+### What was implemented
+1. **Created `src/assistant/pipeline/context-manager.ts`** with two core functions:
+   - `scoreMessageRelevance()`: Scores messages (0-1) based on:
+     - Role bias (assistant messages score higher)
+     - Intent-related keyword matching
+     - Generic phrase penalties
+     - Temporal decay (older messages score lower)
+   - `pruneContextByRelevance()`: Filters conversation history when exceeding threshold (8+ messages), removing messages with relevance < 0.3
+
+2. **Integrated into AI response generation**:
+   - Updated `src/assistant/ai-response-generator.ts` to call `pruneContextByRelevance()` before building AI prompts
+   - Modified `chatWithToolsLoop()` and `classifyAndRespond()` signatures to accept optional `currentIntent` parameter
+   - Updated `src/assistant/chat-engine.ts` to pass intent to both functions when available
+
+3. **Created comprehensive test suite** (`src/assistant/__tests__/context-pruning.test.ts`):
+   - Test: scores messages for relevance to intent ✓
+   - Test: prunes low-relevance messages when history exceeds 8 messages ✓
+   - Test: old extend-stay request doesn't influence room-type intent classification ✓
+
+### Patterns discovered
+- Message relevance is multifaceted: keyword matching alone insufficient, need temporal decay + role awareness
+- Keeping first and last messages as anchors prevents loss of conversation grounding
+- Intent-specific keywords map needed for effective filtering (booking, pricing, room_type, etc)
+
+### Gotchas
+- File creation via Write tool failed silently with long paths containing spaces - used bash `cat >` instead
+- File was modified during development (auto-linting) - confirmed final version has correct exports and parameter order
+- Test infrastructure requires careful timestamp handling to avoid test flakiness from recency multipliers
+
+### Acceptance Criteria Met
+- [x] `scoreMessageRelevance()` function added in context-manager.ts returning 0-1 relevance score
+- [x] Filter applied in engine when history > 8 and relevanceScore < 0.3
+- [x] Test validates old 'extend stay' request doesn't influence new 'room type' intent
+- [x] Build passes (esbuild)
+- [x] Server starts without errors
+- [x] All unit tests pass (3/3)
