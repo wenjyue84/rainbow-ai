@@ -128,8 +128,34 @@
             "field": "{{workflow.data.booking_dates_normalized}}",
             "operator": "dbAvailabilityCheck",
             "value": null,
-            "trueNext": "confirm_booking_msg",
+            "trueNext": "check_blacklist",
             "falseNext": "room_unavailable_msg"
+          }
+        },
+        {
+          "id": "check_blacklist",
+          "type": "condition",
+          "label": "Check guest against blacklist",
+          "timeout": 5000,
+          "config": {
+            "field": "{{guest.phone}}",
+            "operator": "blacklistCheck",
+            "value": null,
+            "trueNext": "confirm_booking_msg",
+            "falseNext": "blacklist_rejected_msg"
+          }
+        },
+        {
+          "id": "blacklist_rejected_msg",
+          "type": "message",
+          "label": "Notify guest their booking cannot be processed",
+          "timeout": 5000,
+          "config": {
+            "message": {
+              "en": "We are sorry, but we are unable to process your booking at this time. Please contact us directly for further assistance.",
+              "ms": "Maaf, kami tidak dapat memproses tempahan anda pada masa ini. Sila hubungi kami secara langsung untuk bantuan lanjut.",
+              "zh": "非常抱歉，我们目前无法处理您的预订。请直接与我们联系以获取进一步帮助。"
+            }
           }
         },
         {
@@ -159,7 +185,7 @@
               "zh": "抱歉，我无法理解那些日期。请用清晰的格式输入日期，例如：\n- 入住：2月15日，退房：2月17日\n- 2026年2月15日至2026年2月17日"
             }
           },
-          "next": "confirm_booking_msg"
+          "next": "check_blacklist"
         },
         {
           "id": "confirm_booking_msg",

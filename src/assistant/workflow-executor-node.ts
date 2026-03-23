@@ -443,6 +443,28 @@ export async function executeNodeWorkflowStep(
             }
             break;
           }
+          case 'blacklistCheck': {
+            // US-346: Check guest phone/name against blacklist before booking confirmation
+            try {
+              const { checkBlacklist } = await import('../lib/guest-validator.js');
+              const guestPhone = phone || '';
+              const guestName = state.collectedData.guest_name || undefined;
+              const match = await checkBlacklist(guestPhone, guestName);
+              if (match) {
+                // Store the rejection reason in nodeOutputs for use in the message template
+                nodeOutputs['blacklistReason'] = match.reason;
+                nodeOutputs['blacklistMatchedOn'] = match.matchedOn;
+                conditionMet = false;  // falseNext → rejection message
+                console.log(`[NodeExecutor] Blacklist hit for ${guestPhone}/${guestName}: ${match.reason}`);
+              } else {
+                conditionMet = true;   // trueNext → confirm booking
+              }
+            } catch (err) {
+              console.error('[NodeExecutor] blacklistCheck operator failed (allowing booking):', err);
+              conditionMet = true;
+            }
+            break;
+          }
         }
 
         console.log(`[NodeExecutor] Condition: ${config.field} ${config.operator} ${config.value} → ${conditionMet}`);
