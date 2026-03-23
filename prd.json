@@ -62,7 +62,8 @@
       "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-23T10:12:34Z"
+      "last_attempted": "2026-03-23T10:13:43Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-212",
@@ -386,6 +387,74 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-257",
+      "title": "Implement Admin Configuration Audit Trail with Change Tracking",
+      "priority": "high",
+      "description": "Log all configuration file changes (settings.json, workflows.json, knowledge.json) with user, timestamp, and diff. Enables compliance auditing and rollback capabilities for accidental configuration breaks.",
+      "acceptanceCriteria": [
+        "Create admin_audit_log table: {id, config_file, changed_by, previous_hash, new_hash, diff_summary, timestamp}",
+        "Implement logging middleware capturing all POST /admin/config/:file changes with unified diff output",
+        "Implement GET /admin/api/audit-log?file=settings.json returning 20+ recent changes with diffs"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-258",
+      "title": "Implement Message Cost Tracking and Per-Profile Analytics Endpoint",
+      "priority": "medium",
+      "description": "Track operational costs (intent classification, AI inference, fallback routing) per message and profile. Enables admin dashboard to identify expensive intents and optimize AI provider usage across profiles.",
+      "acceptanceCriteria": [
+        "Create message_costs table: {message_id, profile_id, intent_type, cost_cents, ai_provider, created_at}",
+        "Implement GET /admin/api/analytics/costs?profile=pelangi&date=2026-03-23 returning {intent_type, message_count, total_cost, avg_cost}",
+        "Test asserts AI-based intents (via Kimi) show higher cost than keyword-based routing"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-259",
+      "title": "Implement Automated Conversation Data Retention and Scheduled Cleanup Job",
+      "priority": "medium",
+      "description": "Automatically delete messages and conversations older than 90 days per PDPA data minimization principle. Reduces database footprint and improves query performance over time.",
+      "acceptanceCriteria": [
+        "Add retention_policy.retention_days to src/assistant/data/settings.json (default: 90 days)",
+        "Implement src/lib/retention-cleanup-job.ts running daily at 02:00 UTC, deleting rainbow_messages with created_at > 90 days ago",
+        "Test asserts messages >90 days old deleted, messages <30 days retained, job logs deletion count"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-260",
+      "title": "Implement Booking Confirmation Webhook Events for External System Integration",
+      "priority": "medium",
+      "description": "Fire webhook events on booking confirmation for external system integration (PMS, CRM, email service, analytics). Decouples Rainbow AI from external dependencies and enables extensible event-driven architecture.",
+      "acceptanceCriteria": [
+        "Create webhook_endpoints table: {id, url, event_types, is_verified, last_fired_at, failure_count}",
+        "On booking_confirmed event, POST to all registered webhooks: {booking_id, guest_id, check_in, check_out, room_type, price}",
+        "Test asserts booking_confirmed webhook fires with correct payload and retries on 5XX (3x exponential backoff)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",
