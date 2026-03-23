@@ -1,3 +1,58 @@
+## Iteration [SPIRAL] - Story: US-131 Generate intent classification confusion matrix from production logs
+
+### What was implemented
+- **Confusion Matrix Generator** (`src/tools/confusion-matrix-generator.ts`):
+  - `buildConfusionMatrix()`: Pure function building confusion matrix from misclassification rows
+    - Takes array of `{predictedIntent, actualIntent}` pairs
+    - Aggregates by (predicted, actual) intent pairs
+    - Sorts by count descending, returns top N pairs
+  - `calculateAccuracy()`: Calculates overall accuracy percentage from total/misclassified counts
+    - Formula: `((total - misclassified) / total) * 100` rounded to 2 decimals
+    - Handles 0 total gracefully
+  - `generateConfusionMatrix()`: DB query function that analyzes intent_predictions table
+    - Queries records with `actual_intent IS NOT NULL AND was_correct = false`
+    - Filters by created_at within `days` window
+    - Supports optional profile filtering (skipped if profile='all')
+    - Returns ConfusionMatrixResult with total evaluated, misclassified, accuracy, top 5 pairs
+  - `formatAsCSV()`: Outputs confusion matrix as CSV with metadata header
+    - Comments (# prefix) with profile, days, totals, accuracy
+    - Followed by header row: predicted_intent,actual_intent,count,percentage
+    - Each confusion pair on one data row
+
+- **NPM Script**: `metrics:confusion-matrix` runs via `tsx src/tools/confusion-matrix-generator.ts`
+  - Arguments: `--profile=pelangi --days=7 --top=5`
+  - Outputs CSV to stdout, summary to stderr
+
+- **Unit Tests** (`src/tools/__tests__/confusion-matrix-generator.test.ts`):
+  - 16 tests covering:
+    - buildConfusionMatrix() with simple datasets, empty data, topN limits
+    - Aggregation of multiple misclassifications per pair
+    - calculateAccuracy() with various totals/misclassified ratios
+    - formatAsCSV() output structure and filtering
+    - Integration test: 95% accuracy dataset correctly identified top confusion pairs
+
+### Patterns discovered
+- Confusion matrix intentionally filters to `was_correct = false` (misclassifications only)
+- Profile filter is optional—when profile='all', SQL WHERE clause omits profile condition
+- Accuracy calculation rounds to 2 decimals: `Math.round((x / y) * 10000) / 100`
+- Top pairs sorted by count descending—highest confusion first
+- CSV format uses comment lines (#) for metadata, making it grep/grep-friendly
+
+### Gotchas
+- `intent_predictions.profile` column is optional in queries (can be nullable/missing in test envs)
+  - Solution: Dynamic WHERE clause construction based on profile parameter
+- Test filter for dataLines was catching header row (included 'predicted_intent' string)
+  - Solution: Filter explicitly excludes header and comment lines
+- Integration test data needed only misclassification rows (correct pairs not relevant to confusion matrix)
+  - Clarified that buildConfusionMatrix() only processes predicted != actual
+
+### Acceptance Criteria Met
+- [x] AC1: `src/tools/confusion-matrix-generator.ts` reads `intent_predictions` table, builds confusion matrix
+- [x] AC2: CLI command `npm run metrics:confusion-matrix -- --profile=pelangi --days=7` outputs top 5 pairs as CSV
+- [x] AC3: Unit tests assert 95% accuracy on test dataset (16 tests, all passing)
+
+---
+
 ## Iteration [SPIRAL] - Story: US-122 Build intent classification decision tracer
 
 ### What was implemented

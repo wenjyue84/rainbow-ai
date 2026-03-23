@@ -89,27 +89,37 @@ export async function generateConfusionMatrix(
   topN = 5
 ): Promise<ConfusionMatrixResult> {
   // Total evaluated (has actual_intent set)
+  // Build WHERE clause dynamically - profile filter is optional
+  let whereClause = `WHERE actual_intent IS NOT NULL AND created_at >= NOW() - ($1 || ' days')::interval`;
+  const params: (string | number)[] = [days];
+
+  if (profile !== 'all') {
+    whereClause += ` AND profile = $2`;
+    params.push(profile);
+  }
+
   const totalResult = await pool.query<{ total: string }>(
-    `SELECT COUNT(*) as total
-     FROM intent_predictions
-     WHERE actual_intent IS NOT NULL
-       AND ($1 = 'all' OR profile = $1)
-       AND created_at >= NOW() - ($2 || ' days')::interval`,
-    [profile, days]
+    `SELECT COUNT(*) as total FROM intent_predictions ${whereClause}`,
+    params
   );
 
   const totalEvaluated = parseInt(totalResult.rows[0]?.total ?? "0", 10);
 
   // Misclassified rows: predicted != actual
+  let misclassWhereClause = `WHERE actual_intent IS NOT NULL AND was_correct = false AND created_at >= NOW() - ($1 || ' days')::interval`;
+  const misclassParams: (string | number)[] = [days];
+
+  if (profile !== 'all') {
+    misclassWhereClause += ` AND profile = $2`;
+    misclassParams.push(profile);
+  }
+
   const misclassRows = await pool.query<{ predictedIntent: string; actualIntent: string }>(
     `SELECT predicted_intent as "predictedIntent", actual_intent as "actualIntent"
      FROM intent_predictions
-     WHERE actual_intent IS NOT NULL
-       AND was_correct = false
-       AND ($1 = 'all' OR profile = $1)
-       AND created_at >= NOW() - ($2 || ' days')::interval
+     ${misclassWhereClause}
      ORDER BY created_at DESC`,
-    [profile, days]
+    misclassParams
   );
 
   const totalMisclassified = misclassRows.rowCount ?? 0;
