@@ -111,6 +111,7 @@ import thresholdsRoutes from './thresholds.js'; // US-297: Per-intent confidence
 import violationsRoutes from './violations.js'; // US-310: Profile isolation violation audit
 import analyticsBookingConversionRoutes from './analytics-booking-conversion.js'; // US-292: Booking conversion rate analyzer
 import analyticsConfidenceTrendRoutes from './analytics-confidence-trend.js'; // US-245: Turn-by-turn confidence trend
+import intentAccuracyRoutes from './intent-accuracy.js'; // US-247: Intent accuracy baseline tracker
 import fallbackAnalysisRoutes from './fallback-analysis.js'; // US-300: Fallback response effectiveness tracker
 import escalationFeedbackRoutes from './escalation-feedback.js'; // US-295: Escalation quality feedback loop
 import debugFailedBookingsRoutes from './debug-failed-bookings.js'; // US-226: Booking classification failure logger
@@ -392,6 +393,7 @@ router.use(thresholdsRoutes);             // US-297: Per-intent confidence thres
 router.use(violationsRoutes);            // US-310: Profile isolation violation audit trail
 router.use(analyticsBookingConversionRoutes); // US-292: Booking conversion rate analyzer
 router.use(analyticsConfidenceTrendRoutes); // US-245: Turn-by-turn confidence trend
+router.use(intentAccuracyRoutes);           // US-247: Intent accuracy baseline tracker
 router.use(fallbackAnalysisRoutes);           // US-300: Fallback response effectiveness tracker
 router.use(escalationFeedbackRoutes);        // US-295: Escalation quality feedback loop
 router.use(debugFailedBookingsRoutes);       // US-226: Booking classification failure logger

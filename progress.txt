@@ -1086,3 +1086,20 @@ FAILED diagnosis-block gate: Profile Isolation Violations Auto-Repair Tool (ID: 
 FAILED quality gates: Profile Isolation Violations Auto-Repair Tool (ID: US-238) — attempt 2/3
 AUTO-DECOMPOSED: US-238 at retry 2 (threshold 2) → US-343,US-344,US-345
 
+
+## Iteration 8 - Story: Intent Classification Confidence Baseline Tracker (US-247) — PASSED
+
+### What was implemented
+- shared/schema-tables.ts: Added `intentAccuracyBaselines` table (`intent_accuracy_baseline`) with profile, intent, mean_confidence, min_confidence, threshold, sample_count, last_updated columns and unique index on (profile, intent)
+- src/assistant/intent-accuracy-baseline.ts: `computeIntentBaseline(profile, intent, recentPredictions[])` — upserts baseline using mean + p5-percentile as min_confidence
+- src/routes/admin/intent-accuracy.ts: GET /intent-accuracy/baselines?profile=X (with live regression detection) + POST /intent-accuracy/baselines/compute?profile=X&intent=Y
+- src/routes/admin/index.ts: Registered intentAccuracyRoutes
+
+### Patterns discovered
+- intentAnalytics table (profile_id col) already exists — used for live confidence comparison in GET endpoint
+- intentClassifierBaselines table also exists from US-098 but uses accuracy_pct, not confidence — US-247 needs its own confidence-based table
+- Regression detection: compares stored baseline mean vs live 7-day mean from intent_analytics; flags when drop > 0.05
+
+### Gotchas
+- Build uses esbuild (not tsc) — pre-existing type errors don't block build
+- intentAnalytics uses `profileId` column (Drizzle camelCase) but maps to `profile_id` in DB

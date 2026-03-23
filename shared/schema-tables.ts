@@ -181,6 +181,30 @@ export const intentHardCases = pgTable("intent_hard_cases", {
 export type IntentHardCase = typeof intentHardCases.$inferSelect;
 export type InsertIntentHardCase = typeof intentHardCases.$inferInsert;
 
+// ─── Intent Accuracy Baselines (US-247) ───────────────────────────────────
+// Tracks mean/min confidence baselines per profile and intent for regression detection
+// Threshold column stores the minimum acceptable confidence (default 0.70)
+
+export const intentAccuracyBaselines = pgTable("intent_accuracy_baseline", {
+  id: serial("id").primaryKey(),
+  profile: text("profile").notNull(),
+  intent: text("intent").notNull(),
+  meanConfidence: real("mean_confidence").notNull(),
+  minConfidence: real("min_confidence").notNull(),
+  threshold: real("threshold").notNull().default(0.70),
+  sampleCount: integer("sample_count").notNull().default(0),
+  lastUpdated: timestamp("last_updated").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_intent_accuracy_baseline_profile_intent").on(table.profile, table.intent),
+  index("idx_intent_accuracy_baseline_profile").on(table.profile),
+  index("idx_intent_accuracy_baseline_intent").on(table.intent),
+  index("idx_intent_accuracy_baseline_last_updated").on(table.lastUpdated),
+]));
+
+export type IntentAccuracyBaseline = typeof intentAccuracyBaselines.$inferSelect;
+export type InsertIntentAccuracyBaseline = typeof intentAccuracyBaselines.$inferInsert;
+
 export const rainbowConversationState = pgTable("rainbow_conversation_state", {
   phone: varchar("phone", { length: 32 }).primaryKey(),
   pushName: text("push_name").notNull(),
