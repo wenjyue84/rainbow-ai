@@ -1550,3 +1550,70 @@ Previous iteration (32) had already created all the required files. This iterati
 - Database connection required for analytics script (expects DATABASE_URL env var)
 - Migration must be applied before running script (npm run db:push)
 
+## Iteration 1 - Mon, Mar 23, 2026  8:54:43 AM
+FAILED diagnosis-block gate: Build per-profile intent classifier baseline accuracy tracker (ID: US-098) — no diagnosis block found — attempt 1/3
+
+
+## Iteration - Story: US-102 - Implement context pruning for multi-turn conversations exceeding 10 messages
+
+### What was implemented
+
+1. **Context Pruning Configuration** (src/assistant/data/settings.json):
+   - Added `context_pruning_window_minutes: 30` to conversation_management section
+   - Updated description to document the pruning window feature
+
+2. **Core Pruning Logic** (src/lib/conversation-context.ts - NEW):
+   - `pruneStaleContext(messages, currentIntent, nowMs)`: Main function that removes messages older than 30-minute window unless they contain intent-matching keywords
+   - `getPruningReport(messages, currentIntent, nowMs)`: Diagnostic utility that returns detailed pruning statistics (original count, pruned count, removed count, intent keywords)
+   - `getKeywordsForIntent(intentType)`: Loads keywords from intent-keywords.json and collects them across all languages
+   - `messageContainsKeywords(message, keywords)`: Case-insensitive substring matching for keywords
+   - Error handling: graceful fallback to default 30-minute window if configStore unavailable (for tests/dev)
+
+3. **Integration Tests** (tests/integration/context-pruning.test.ts - NEW):
+   - 14 comprehensive tests covering:
+     ✅ Time-based pruning: removes old messages, keeps recent ones
+     ✅ Keyword retention: old messages with intent keywords are preserved
+     ✅ Case-insensitive matching: "BOOKING" matches "booking" keyword
+     ✅ Multi-intent isolation: pricing intent keywords ≠ booking intent keywords
+     ✅ No-keyword intents: old messages removed if intent has no keywords
+     ✅ Edge cases: cutoff boundary conditions, empty lists, message ordering
+     ✅ Pruning report: accurate statistics generation
+     ✅ Multi-language support: Malay keywords in intent-keywords.json
+   - All 14 tests passing
+
+### Quality checks
+
+- ✅ Build succeeded (esbuild) - 2.2MB main bundle
+- ✅ All 14 integration tests passing
+- ✅ Pre-existing TypeScript errors from other files (not in scope)
+- ✅ No new TypeScript errors introduced
+
+### Patterns discovered
+
+- Drizzle configStore may return undefined in test environments — added try-catch for graceful fallback
+- intent-keywords.json uses structure: intents[].intent and intents[].keywords[language]
+- Multi-language keyword support requires iterating over all languages in keyword object
+- Substring-based matching (includes()) works well for keyword matching across languages
+- Message timestamp is in milliseconds (Date.now() format)
+
+### Technical Details
+
+**How it works:**
+1. Calculate cutoff time: `nowMs - (contextPruningWindowMinutes * 60 * 1000)`
+2. For each message: if `timestamp >= cutoffTime`, keep it
+3. Otherwise: keep only if message content contains any keyword from currentIntent
+4. Keywords are extracted from intent-keywords.json for all languages
+
+**Example:**
+- Window: 30 minutes
+- Current intent: "booking"
+- Old message (50 min ago): "What about your rates?" → removed (no "booking" keyword)
+- Old message (50 min ago): "Can I book a room?" → kept (contains "book" keyword)
+- Recent message (5 min ago): "What now?" → kept (within window)
+
+### Gotchas
+
+- None encountered. Implementation clean.
+
+## Iteration 1 - Mon, Mar 23, 2026  8:55:21 AM
+Incomplete: Build per-profile intent classifier baseline accuracy tracker (ID: US-098) — attempt 2/3

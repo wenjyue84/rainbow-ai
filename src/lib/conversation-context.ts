@@ -20,12 +20,19 @@ interface PruningConfig {
  * Get context pruning config from settings
  */
 function getPruningConfig(): PruningConfig {
-  const settings = configStore.getSettings();
-  const config = settings.conversation_management;
+  try {
+    const settings = configStore.getSettings();
+    const config = settings?.conversation_management;
 
-  return {
-    contextPruningWindowMinutes: (config as any)?.context_pruning_window_minutes ?? 30,
-  };
+    return {
+      contextPruningWindowMinutes: (config as any)?.context_pruning_window_minutes ?? 30,
+    };
+  } catch {
+    // Fallback for test environments or when settings are unavailable
+    return {
+      contextPruningWindowMinutes: 30,
+    };
+  }
 }
 
 /**

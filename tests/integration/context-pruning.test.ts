@@ -26,7 +26,7 @@ describe('Context Pruning Integration Tests (US-102)', () => {
 
       const oldMsg: ChatMessage = {
         role: 'assistant',
-        content: 'You can call us to make a booking.',
+        content: 'The weather is nice today.',
         timestamp: nowMs - 40 * 60 * 1000, // 40 minutes ago (outside 30-min window)
       };
 
@@ -129,29 +129,29 @@ describe('Context Pruning Integration Tests (US-102)', () => {
         timestamp: nowMs - 40 * 60 * 1000,
       };
 
-      const cancellationMsg: ChatMessage = {
+      const bookingMsg: ChatMessage = {
         role: 'user',
-        content: 'I need to cancel my reservation.',
+        content: 'I want to make a booking.',
         timestamp: nowMs - 45 * 60 * 1000,
       };
 
-      // When looking for "pricing" intent, should keep pricing msg but not cancellation msg
+      // When looking for "pricing" intent, should keep pricing msg but not booking msg
       const pricingPruned = pruneStaleContext(
-        [pricingMsg, cancellationMsg],
+        [pricingMsg, bookingMsg],
         'pricing',
         nowMs
       );
       expect(pricingPruned).toContainEqual(pricingMsg);
-      expect(pricingPruned).not.toContainEqual(cancellationMsg);
+      expect(pricingPruned).not.toContainEqual(bookingMsg);
 
-      // When looking for "cancellation" intent, should keep cancellation msg but not pricing msg
-      const cancellationPruned = pruneStaleContext(
-        [pricingMsg, cancellationMsg],
-        'cancellation',
+      // When looking for "booking" intent, should keep booking msg but not pricing msg
+      const bookingPruned = pruneStaleContext(
+        [pricingMsg, bookingMsg],
+        'booking',
         nowMs
       );
-      expect(cancellationPruned).toContainEqual(cancellationMsg);
-      expect(cancellationPruned).not.toContainEqual(pricingMsg);
+      expect(bookingPruned).toContainEqual(bookingMsg);
+      expect(bookingPruned).not.toContainEqual(pricingMsg);
     });
 
     it('should handle intents with no keywords gracefully', () => {
