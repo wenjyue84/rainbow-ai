@@ -331,8 +331,10 @@ export async function providerChat(
         result = validateProviderResponse(response, provider.name, startTime);
 
       } else if (provider.type === 'google-gemini') {
-        // Convert OpenAI-style messages to Gemini format
-        const contents = messages.map(msg => ({
+        // Convert OpenAI-style messages to Gemini format, separating system instruction
+        const systemMsg = messages.find(m => m.role === 'system');
+        const nonSystemMessages = messages.filter(m => m.role !== 'system');
+        const contents = nonSystemMessages.map(msg => ({
           role: msg.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: msg.content }]
         }));
@@ -343,11 +345,17 @@ export async function providerChat(
         };
 
         // Add JSON response format if requested
-        if (jsonMode) {
+        if (jsonMode || jsonSchema) {
           generationConfig.responseMimeType = 'application/json';
+          // Disable thinking mode for JSON calls — Gemini 2.5 Flash thinking tokens
+          // interfere with JSON output enforcement (produces plain text instead of JSON)
+          generationConfig.thinkingConfig = { thinkingBudget: 0 };
         }
 
-        const body = { contents, generationConfig };
+        const body: Record<string, unknown> = { contents, generationConfig };
+        if (systemMsg) {
+          body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+        }
 
         const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
         const axiosPromise = axios.post(url, body, {
