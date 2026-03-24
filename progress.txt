@@ -277,3 +277,53 @@ FAILED diagnosis-block gate: Create Profile-Specific Intent Whitelist Validator 
 - Test thresholds adjusted to realistic ranges (0.15-0.35) rather than optimistic values
 - Settings integration provides runtime configuration without code changes
 
+
+## Iteration [SPIRAL] - Story: Intent Keyword Overlap Conflict Analyzer CLI (US-371) ✓ COMPLETE
+### What was implemented
+- **Created `src/tools/analyze-keyword-conflicts-cli.ts`** with:
+  - `loadIntentKeywords(profileName)` — loads intent-keywords.json for any profile
+  - `analyzeKeywordConflicts(intentKeywordsFile)` — analyzes overlapping keywords
+  - ESM entry-point guard (prevents process.exit on import)
+  - CLI flags: `--profile data-makan` or `--profile makan` (both work)
+  - Output: JSON with conflicting_keywords array and total_conflicts count
+
+- **Keyword Conflict Detection**:
+  - Maps keywords across all languages (en, ms, zh, etc.)
+  - Normalizes to lowercase + trimmed for accurate matching
+  - Severity tiers: 3+ intents = HIGH, 2 intents = MEDIUM
+  - Intents sorted alphabetically in output
+  - Recommendations suggest which intent to remove from or reassign
+
+- **Added npm script**: `npm run analyze:keyword-conflicts -- --profile <profile>`
+
+- **Created comprehensive test suite** (`src/__tests__/keyword-conflicts-analyzer.test.ts`):
+  - 17 unit tests covering all acceptance criteria
+  - ✓ High/medium severity classification
+  - ✓ Keyword normalization (case, whitespace)
+  - ✓ Multi-language keyword handling
+  - ✓ JSON output format validation
+  - ✓ Sorting by severity then intent count
+  - ✓ Real-world edge cases (empty input, no keywords, 4+ intents)
+
+### Acceptance Criteria Met
+✅ Command: `npm run analyze:keyword-conflicts -- --profile data-makan` works
+✅ Reads intent-keywords.json and reports { keyword, intents, conflict_severity }
+✅ Flags 3+ intents as high severity; 2+ intents as medium severity
+✅ Outputs JSON: `{ conflicting_keywords: [ {keyword, intents, recommendation} ], total_conflicts }`
+✅ All 17 tests passing (0ms+ runtime)
+✅ CLI tested on makan (0 conflicts) and southern (12+ conflicts found)
+✅ prd.json marked passes=true for US-371
+
+### Patterns discovered
+- intent-keywords.json structure: `{ intents: [{ intent, keywords: { language: [array] } }] }`
+- Keywords stored per language; each language has independent keyword list
+- Overlaps detected by normalizing all keywords (all languages, all intents) into single map
+- Recommendations auto-generated based on severity level
+- Multiple conflicts for same intent pair sorted correctly (high conflicts first)
+
+### Gotchas avoided
+- ESM entry-point check: compare `__filename` with process.argv[1], both normalized (replace \ with /)
+- Keyword normalization essential for matching "check-in" vs "checkin" vs "check in" variants
+- Profile name handling: accepts both "data-makan" and "makan" formats
+- Southern profile has real conflicts (quiet hours used by 3 intents, check-in/checkin variants)
+
