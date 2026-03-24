@@ -478,7 +478,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
         const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
         // Prune context by relevance to prevent stale context hallucination
         const prunedHistory = pruneContextByRelevance(conversationHistory, intentResult.category, 8, 0.3);
-        const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage);
+        const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage, store);
         finalMessage = result.response;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
@@ -492,7 +492,7 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     const systemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
     // Prune context by relevance to prevent stale context hallucination
     const prunedHistory = pruneContextByRelevance(conversationHistory, intentResult.category, 8, 0.3);
-    const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage);
+    const result = await classifyAndRespond(systemPrompt, prunedHistory, message, intentResult.detectedLanguage as SupportedLanguage, store);
     finalMessage = result.response;
     llmModel = result.model || 'unknown';
     llmUsage = result.usage;

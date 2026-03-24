@@ -153,6 +153,24 @@ function injectLanguageInstruction(systemPrompt: string, lang?: SupportedLanguag
   return `${systemPrompt}\n\nIMPORTANT: The user is writing in ${name}. You MUST respond entirely in ${name}. Do not switch to English unless the user switches first.`;
 }
 
+/**
+ * Append structured-output instructions to the system prompt.
+ * Used by classifyAndRespond so the LLM knows the exact JSON schema to emit.
+ * When a non-English language is detected, the `response` field should be in
+ * that language while all other fields remain in English.
+ */
+function injectLanguageInstructionForJson(systemPrompt: string, lang?: SupportedLanguage): string {
+  const responseLangNote = (lang && lang !== 'unknown' && lang !== 'en')
+    ? `Write the "response" field value in ${LANGUAGE_NAMES[lang] || lang}. `
+    : '';
+  return `${systemPrompt}
+
+IMPORTANT — OUTPUT FORMAT: You MUST reply with ONLY a valid JSON object matching this exact structure (no other text before or after it):
+{"intent":"<short_intent_label>","action":"reply","response":"<your reply to the user>","confidence":<0.0-1.0>}
+
+${responseLangNote}All JSON field names and non-response values must be in English. The "response" value is your full reply to the user's question.`;
+}
+
 // ─── Chat (simple prompt → response) ────────────────────────────────
 
 export async function chat(
@@ -510,7 +528,8 @@ export async function classifyAndRespond(
   systemPrompt: string,
   history: ChatMessage[],
   userMessage: string,
-  detectedLanguage?: SupportedLanguage
+  detectedLanguage?: SupportedLanguage,
+  profileConfigStore?: ConfigStore
 ): Promise<AIResponse> {
   try {
     if (!isAIAvailable()) {
@@ -518,7 +537,7 @@ export async function classifyAndRespond(
     }
 
     const cw = getContextWindows();
-    const langPrompt = injectLanguageInstruction(systemPrompt, detectedLanguage);
+    const langPrompt = injectLanguageInstructionForJson(systemPrompt, detectedLanguage);
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: langPrompt }
     ];
@@ -529,18 +548,26 @@ export async function classifyAndRespond(
     }
     messages.push({ role: 'user', content: userMessage });
 
-    const aiCfg = getAISettings();
+    // Use profile-specific AI settings if available (multi-profile support)
+    const aiCfg = profileConfigStore ? profileConfigStore.getSettings().ai : getAISettings();
+    // Pass profile-specific provider IDs so chatWithFallback uses the profile's provider order
+    const profileProviderIds = profileConfigStore
+      ? (profileConfigStore.getSettings().ai.providers || [])
+          .filter(p => p.enabled)
+          .sort((a, b) => a.priority - b.priority)
+          .map(p => p.id)
+      : undefined;
     const startTime = Date.now();
 
     // Use generateWithValidation for self-healing retry on Zod failure (US-471, US-1015)
     const { data, raw, provider, usage, retried } = await generateWithValidation(
-      messages, aiResponseSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 2, 'aiResponse'
+      messages, aiResponseSchema, aiCfg.max_chat_tokens, aiCfg.chat_temperature, 2, 'aiResponse', profileProviderIds
     );
     const responseTime = Date.now() - startTime;
 
     if (data) {
-      // Validated response — apply intent routing check
-      const routing = configStore.getRouting();
+      // Validated response — apply intent routing check (use profile routing if available)
+      const routing = (profileConfigStore || configStore).getRouting();
       const definedIntents = Object.keys(routing);
       const intent = definedIntents.includes(data.intent) ? data.intent : 'general';
       const response = looksLikeJson(data.response) ? '' : data.response;
@@ -560,14 +587,15 @@ export async function classifyAndRespond(
       return result;
     }
 
-    console.warn('[AI] classifyAndRespond: all LLMs failed, using static fallback (all_llm_failed)');
-    return { intent: 'unknown', action: 'reply', response: UNKNOWN_FALLBACK_MESSAGES.en, confidence: 0, model: 'all_llm_failed', responseTime };
+    // Return empty response so the chat-engine catch-all can use the profile-aware fallback
+    console.warn('[AI] classifyAndRespond: all LLMs failed (all_llm_failed)');
+    return { intent: 'unknown', action: 'reply', response: '', confidence: 0, model: 'all_llm_failed', responseTime };
   } catch (err: any) {
     console.error('[AI] classifyAndRespond error:', err);
     return {
       intent: 'unknown',
       action: 'reply',
-      response: UNKNOWN_FALLBACK_MESSAGES.en,
+      response: '',
       confidence: 0,
       model: 'error',
       responseTime: 0
@@ -610,7 +638,7 @@ export async function classifyAndRespondWithSmartFallback(
     `${expandedHistory.length} context messages`
   );
 
-  const langPrompt = injectLanguageInstruction(systemPrompt, detectedLanguage);
+  const langPrompt = injectLanguageInstructionForJson(systemPrompt, detectedLanguage);
   const messages = [
     { role: 'system' as const, content: langPrompt },
     ...expandedHistory.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
@@ -706,11 +734,12 @@ export async function classifyAndRespondWithSmartFallback(
     }
   }
 
+  // Return empty response so the chat-engine catch-all can use the profile-aware fallback
   console.error('[AI] Smart fallback exhausted all providers (all_llm_failed)');
   return {
     intent: 'unknown',
     action: 'reply',
-    response: UNKNOWN_FALLBACK_MESSAGES.en,
+    response: '',
     confidence: 0,
     model: 'all_llm_failed',
     responseTime: Date.now() - startTime

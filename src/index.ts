@@ -458,6 +458,9 @@ app.use(helmet({
       baseUri: ["'self'"],
       formAction: ["'self'"],
       reportUri: '/csp-report',
+      // Note: upgrade-insecure-requests omitted intentionally.
+      // Server is HTTP-only (no TLS); including this directive would cause browsers to upgrade all
+      // HTTP API fetch calls to HTTPS, breaking webchat on plain HTTP deployments.
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -468,7 +471,9 @@ app.use(helmet({
   // US-1006: Referrer-Policy — Helmet default is no-referrer; override to strict-origin-when-cross-origin
   // to send origin on same-site requests and stripped referrer on cross-site.
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
+  // Disable HSTS: server is served over plain HTTP (no TLS termination at app level); sending HSTS
+  // on HTTP causes browser caching issues and doesn't provide security benefit.
+  hsts: false,
 }));
 
 // US-1006: Permissions-Policy — restrict sensitive browser APIs (Helmet v8 does not include this header natively)
