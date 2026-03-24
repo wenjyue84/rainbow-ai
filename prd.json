@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-383",
-      "title": "Booking Check-in Date Validator with Flexible Date Format Normalization",
-      "priority": "high",
-      "description": "Validates check-in dates in booking workflow (rejects past dates, validates format), normalizes various date inputs (DD/MM/YYYY, MM/DD/YYYY, text like 'tomorrow'), and suggests valid date ranges when input is invalid. Prevents invalid booking states.",
-      "acceptanceCriteria": [
-        "File 'src/assistant/pipeline/booking-checkin-date-validator.ts' exports validateCheckinDate(input, profile) that rejects dates before today, normalizes to ISO 8601, and throws ValidationError with alternative date suggestions",
-        "Unit tests in 'src/assistant/pipeline/booking-checkin-date-validator.test.ts' assert past date rejection, format normalization for DD/MM/YYYY and natural language ('tomorrow'), and valid range suggestions covering next 30 days",
-        "Integrated into booking workflow step execution with validation error messages returned to user before workflow continuation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-24T04:59:38Z"
-    },
-    {
       "id": "US-384",
       "title": "Profile Intent Keyword Coverage Audit CLI with Missing Variant Detection",
       "priority": "high",
@@ -79,7 +61,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-24T05:04:28Z"
     },
     {
       "id": "US-385",
@@ -307,6 +290,212 @@
       "model": "haiku"
     },
     {
+      "id": "US-408",
+      "title": "Booking Intent Confidence Threshold Auto-Tuner CLI",
+      "priority": "high",
+      "description": "Analyze production logs to determine optimal confidence thresholds for booking intent classification per profile, maximizing precision without losing recall.",
+      "acceptanceCriteria": [
+        "CLI script scripts/tune-booking-threshold.ts queries rainbow_messages table for booking_intent classifications, groups by profile_id, calculates precision/recall/F1 at thresholds 0.5-0.95",
+        "Output JSON report showing: profile_name, current_threshold, recommended_threshold, precision_at_recommended, recall_at_recommended, expected_escalation_rate_reduction",
+        "Generate confusion matrix breakdown: true_positives, false_positives, false_negatives per profile in reports/booking-threshold-analysis-{date}.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-409",
+      "title": "Booking Workflow Step Input Schema Validator at Runtime",
+      "priority": "high",
+      "description": "Validate booking workflow step inputs against Zod schemas immediately before execution, preventing runtime type errors and providing detailed error reports with missing/invalid field names.",
+      "acceptanceCriteria": [
+        "Implement src/assistant/pipeline/workflow-step-validator.ts exporting validateWorkflowStep(step: WorkflowStep, schema: ZodSchema): ValidationResult with fields: is_valid, error_type, missing_fields: string[], invalid_fields: {field_name, expected_type, actual_type}[]",
+        "Modify src/assistant/pipeline/workflow-executor.ts to call validator before step.execute(), log violations to database table workflow_step_violations with step_name, input_snapshot, error_details, profile_id",
+        "Unit tests verify: valid step passes, missing guest_id fails with error_type='missing_field', invalid check_in_date (string instead of ISO date) fails with error_type='type_mismatch'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-383",
+      "title": "Booking Check-in Date Validator with Flexible Date Format Normalization",
+      "priority": "high",
+      "description": "Validates check-in dates in booking workflow (rejects past dates, validates format), normalizes various date inputs (DD/MM/YYYY, MM/DD/YYYY, text like 'tomorrow'), and suggests valid date ranges when input is invalid. Prevents invalid booking states.",
+      "acceptanceCriteria": [
+        "File 'src/assistant/pipeline/booking-checkin-date-validator.ts' exports validateCheckinDate(input, profile) that rejects dates before today, normalizes to ISO 8601, and throws ValidationError with alternative date suggestions",
+        "Unit tests in 'src/assistant/pipeline/booking-checkin-date-validator.test.ts' assert past date rejection, format normalization for DD/MM/YYYY and natural language ('tomorrow'), and valid range suggestions covering next 30 days",
+        "Integrated into booking workflow step execution with validation error messages returned to user before workflow continuation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-24T04:59:38Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+    },
+    {
+      "id": "US-410",
+      "title": "Profile-Specific Intent Routing Validator Test Suite for Makan",
+      "priority": "high",
+      "description": "Create automated test suite ensuring data-makan profile routing.json contains only cafe-specific intents with zero Pelangi hostel contamination.",
+      "acceptanceCriteria": [
+        "Create `src/tests/profile-isolation/makan-routing.test.ts` with assertions validating all intent IDs in `src/assistant/data/data-makan/routing.json` match only cafe intents (inquiry, promotion-inquiry, order-inquiry)",
+        "Test fails if any hostel intent ID (booking, check-in, amenity-request) found in makan routing file",
+        "Test runs in CI pipeline and blocks deployment if contamination detected"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-411",
+      "title": "Low-Confidence Booking Intent Confidence Floor Enforcer",
+      "priority": "high",
+      "description": "Add configurable minimum confidence threshold for booking intents per profile, with admin endpoint to review low-confidence classifications that may indicate intent classifier drift.",
+      "acceptanceCriteria": [
+        "Add `minBookingConfidence` field to `src/assistant/data/settings.json` per profile (default 0.75 for hostel, 0.70 for cafe)",
+        "Booking intents below threshold logged to `low_confidence_bookings` table with confidence score, top_3_candidates, and guest message",
+        "Admin endpoint `GET /admin/low-confidence-bookings?profile=pelangi` returns last 50 with timestamp, confidence breakdown, and guest message text"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-412",
+      "title": "Booking Workflow Confirmation Idempotency Validator Test Suite",
+      "priority": "high",
+      "description": "Ensure booking workflow generates and validates idempotency keys to prevent duplicate booking confirmations on client retries or network glitches.",
+      "acceptanceCriteria": [
+        "Add idempotency key generation in `src/assistant/workflows/booking-workflow.ts` step 5 (confirmation) using UUID + guest_id + date",
+        "Test `src/tests/booking/idempotency.test.ts` sends identical booking request twice with same idempotency key, asserts only one booking record created in database",
+        "Endpoint returns 409 Conflict with `existingBookingId` on duplicate idempotency key instead of creating second booking"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-415",
+      "title": "Add Email Format Validation as Mandatory Booking Workflow Precondition with Error Recovery",
+      "priority": "high",
+      "description": "Enforce email validation before booking confirmation to prevent invalid email addresses from reaching downstream systems. Return actionable error message guiding guest to provide valid email.",
+      "acceptanceCriteria": [
+        "New validation function `validateBookingEmail()` in `src/assistant/pipeline/booking-validator.ts` checks email against /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/ regex pattern",
+        "Booking workflow step fails early with error message 'Email looks invalid (missing @ or domain). Can you provide it again?' instead of attempting confirmation",
+        "Test in `src/tests/booking-validator.test.ts` asserts rejection of invalid formats ('user@', 'user@.com', 'user') and acceptance of valid formats ('user@domain.com')"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-420",
+      "title": "Booking Confirmation Email Retry Queue with Exponential Backoff and Dead-Letter Log",
+      "priority": "high",
+      "description": "Implement resilient email sending for booking confirmations with automatic retry on failure, exponential backoff (1m, 5m, 15m), and admin visibility into permanently failed emails.",
+      "acceptanceCriteria": [
+        "Create `email_send_queue` table with columns: guest_id, attempt_count (0-3), next_retry_at, last_error, created_at; add cron job every 5 minutes to attempt queued emails",
+        "Implement `sendBookingEmailWithRetry()` in src/lib/email.ts with exponential backoff; log to logs/email-failures.log on max retries exceeded",
+        "Add admin endpoint GET `/admin/email-failures?days=7` returning [{guestId, attempts, lastError, nextRetry}] and allow manual retry via POST `/admin/email-failures/:queueId/retry`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-421",
+      "title": "Multi-Turn Booking Dialog Slot Tracker to Prevent Re-asking Filled Fields",
+      "priority": "high",
+      "description": "Track which booking fields (check-in date, room type, guest name) have been collected across conversation turns to avoid redundant follow-up questions and improve user experience.",
+      "acceptanceCriteria": [
+        "Add `BookingSlots` interface in src/assistant/schemas.ts with fields: checkInDate, roomType, guestName (all optional); store in conversation_context alongside intent",
+        "In src/assistant/pipeline/message-processor.ts, extract slot values from assistant output and update context; check context before generating follow-up questions",
+        "Unit test: conversation provides date in turn 1 and room_type in turn 3; turn 5 response should not re-ask for date, assertion: response.includes('date') === false"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-422",
+      "title": "Booking Check-in Date Normalizer Supporting Malaysian Formats and Natural Language",
+      "priority": "high",
+      "description": "Parse and normalize booking check-in dates from multiple formats (DD/MM/YYYY, DD-MM-YYYY, natural language like 'tomorrow') with past-date validation and helpful error messages.",
+      "acceptanceCriteria": [
+        "Implement `normalizeCheckInDate(input: string): {date: string, formatted: string} | {error: string}` in src/lib/dates.ts handling: '01/03/2026' → ISO, 'tomorrow' → ISO, '1/3' → assumes current year, invalid past dates → error 'Check-in date cannot be in the past'",
+        "Add to src/assistant/data/workflows.json booking workflow 'collect_date' step: call normalizer, on error show suggestion 'Did you mean [suggested_future_date]?'",
+        "Test cases: normalizeCheckInDate('01/03/2026') equals '2026-03-01'; normalizeCheckInDate('tomorrow') equals tomorrow's ISO date; normalizeCheckInDate('28/02/2025') returns error 'cannot be in the past'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-425",
+      "title": "Guest Email Validation with Common Typo Auto-Correction for Booking Workflow",
+      "priority": "high",
+      "description": "Validate email format during booking confirmation step and suggest corrections for common domain typos (e.g., @gmial.com → @gmail.com, @yahooo.com → @yahoo.com) before rejecting input. Improves booking success rate by helping guests correct mistakes without re-asking.",
+      "acceptanceCriteria": [
+        "Add validateGuestEmail(email: string): { valid: boolean; suggestion?: string } function in src/assistant/pipeline/booking-validators.ts that detects 10+ common domain typos and suggests corrections",
+        "Integrate validator into booking workflow step that collects guest email (likely step #2), include suggestion in response text when typo detected",
+        "Unit test: 'guestemail@gmial.com' returns suggestion '@gmail.com', 'user@yaho.com' returns '@yahoo.com', 'valid@outlook.com' returns valid: true"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-426",
+      "title": "Booking Confirmation Idempotency Key Validator to Prevent Duplicate Bookings from Concurrent Requests",
+      "priority": "high",
+      "description": "Implement idempotency key tracking for booking confirmations to prevent duplicate bookings when confirmation step is retried or executed concurrently. Validate incoming idempotency key, check for prior confirmation, and return existing result if match found.",
+      "acceptanceCriteria": [
+        "Add idempotency_key column to rainbow_messages table. Booking confirmation step generates/extracts UUID, checks booking_confirmations(idempotency_key = key) before executing step 4",
+        "If idempotency match found, return existing booking_id without re-executing (idempotent). If not found, execute step and insert row with generated key",
+        "Unit test: concurrent confirmation requests with same idempotency key both return same booking_id without creating duplicate bookings. Integration test with 5 concurrent requests shows 1 booking created, 4 return same result"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-389",
       "title": "Confidence Score Distribution Analyzer per Intent per Profile",
       "priority": "medium",
@@ -358,31 +547,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-398",
-      "title": "Fallback Response Clarity and Actionability Scorer",
+      "id": "US-413",
+      "title": "Booking Intent Context Carryover for Check-in Date Corrections",
       "priority": "medium",
-      "description": "Score each fallback response template on clarity (contains action verb), specificity (mentions booking/inquiry context), and helpfulness; flag low-scoring responses for improvement",
+      "description": "Preserve guest's room type and other booking context when check-in date validation fails, allowing seamless retry with corrected date without re-entering room preferences.",
       "acceptanceCriteria": [
-        "Function `scoreFallbackResponse(text)` in `src/assistant/pipeline/fallback-scorer.ts` returns score 0-100 based on presence of action verbs (let, can, try, help, please) and context-specific guidance",
-        "CLI `npm run score-fallback-responses` outputs JSON report with per-response scores; responses scoring <60 flagged for improvement with specific reasons",
-        "Test: generic response 'Sorry, I did not understand' scores <40; actionable response 'Let me connect you with staff to book your stay' scores >70"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-399",
-      "title": "Multi-Turn Conversation Context Auto-Trim for Token Efficiency",
-      "priority": "medium",
-      "description": "Remove stale and duplicate messages from conversation history before sending to AI; keep only last 5 turns or messages within 30 minutes to prevent token bloat and context pollution",
-      "acceptanceCriteria": [
-        "Function `trimConversationContext(messages, maxTurns=5, maxAgeMs=1800000)` in `src/assistant/pipeline/context-trimmer.ts` removes old and duplicate messages, returns trimmed array",
-        "Unit test: 15-message history with 3 duplicates is trimmed to 5 unique messages preserving most recent timestamps and booking context",
-        "Integration test: multi-turn booking flow (greeting → room inquiry → check-in date → confirmation) completes successfully with trimmed context"
+        "Add `previousBookingContext` field to conversation state in `shared/schema.ts` to track room type and guest count from failed booking attempt",
+        "Update `src/assistant/workflows/booking-workflow.ts` to restore room type from `previousBookingContext` when date validation fails on retry",
+        "Test in `src/tests/booking/context-carryover.test.ts` verifies room type is auto-filled on date correction without guest re-specifying it"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -392,14 +564,14 @@
       "model": "sonnet"
     },
     {
-      "id": "US-400",
-      "title": "Booking Precondition Violation Logger with Admin Query Endpoint",
+      "id": "US-414",
+      "title": "Conversation Message Relevance Scorer with Auto-Expiry for Multi-Turn",
       "priority": "medium",
-      "description": "Log detailed precondition check failures (missing guest name, invalid date, room unavailable) before workflow execution; provide admin endpoint to query violations grouped by failure reason and profile",
+      "description": "Score message relevance to current conversation and automatically expire messages older than 5 turns or with low semantic relevance to prevent stale context from polluting intent classification.",
       "acceptanceCriteria": [
-        "Function `logBookingViolation(reason, guestId, profile, context)` in `src/assistant/pipeline/booking-precondition-logger.ts` records violations to database table `booking_precondition_violations`",
-        "Endpoint `GET /admin/booking-violations?profile=data-makan&reason=missing_guest&limit=10` returns violations with count, example messages, and actionable fix (e.g., 'ask for name first')",
-        "Test: 10 missing-guest violations logged for data-makan; query returns count=10 and endpoint suggests 'Please ask guest name before confirming booking'"
+        "Add function `scoreMessageRelevance(message: Message, currentTurn: number): number` in `src/assistant/context.ts` returning 0-1 relevance score",
+        "Update `src/assistant/pipeline/process-message.ts` to filter conversation context before AI inference, removing messages where turn_age > 5 or relevance < 0.3",
+        "Test in `src/tests/context/message-expiry.test.ts` verifies 10-message conversation keeps only last 5 relevant messages for intent classifier input"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -409,14 +581,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-402",
-      "title": "Implement Conversation Message TTL Filter with Automatic Context Pruning",
+      "id": "US-416",
+      "title": "Add Multi-Turn Booking Date Correction Suggestion Engine with Validation Rationale",
       "priority": "medium",
-      "description": "Add configurable message age threshold to prevent stale context in multi-turn conversations. Messages older than configured TTL are automatically pruned, reducing multi-turn token waste and stale reference errors.",
+      "description": "When guest provides an invalid check-in date in a multi-turn dialogue, suggest the nearest valid alternative date with explanation. This improves conversation context handling by helping guests self-correct without explicit fallback responses.",
       "acceptanceCriteria": [
-        "Add `contextTTL: 900000` (milliseconds, default 15 min) to `src/assistant/data/settings.json`",
-        "Implement `pruneContextByTTL(messages, currentTime)` in `src/assistant/pipeline/context-manager.ts`: messages older than TTL are removed; context reset if ≤2 messages remain",
-        "Unit tests cover: message aged exactly at TTL boundary, message < TTL retained, entire context pruned when all messages stale"
+        "New function `suggestCorrectedBookingDate()` in `src/assistant/pipeline/multi-turn.ts` accepts guest date and returns { suggestedDate, reason } object with options like 'Tomorrow is available' or '+1 day from your request'",
+        "When intent is 'booking' and previous message contained rejected date, include suggestion in conversation pipeline before AI inference",
+        "Test in `src/tests/multi-turn-booking.test.ts` verifies suggestion is triggered when guest repeats invalid date and includes human-readable rationale"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -426,31 +598,99 @@
       "model": "haiku"
     },
     {
-      "id": "US-403",
-      "title": "Build Interactive Fallback Response Template Improvement Tool",
+      "id": "US-417",
+      "title": "Build Per-Profile Intent Confidence Baseline Calculator from Test Suite Results",
       "priority": "medium",
-      "description": "Create interactive CLI tool to audit, score, and improve fallback response templates in knowledge.json. Goal: increase clarity and actionability of responses when AI confidence is low.",
+      "description": "Generate baseline confidence percentiles (p50, p95) for each intent per business profile by analyzing test execution logs. This enables detection of regression when confidence drops below profile-specific baseline.",
       "acceptanceCriteria": [
-        "Tool scans `src/assistant/data/knowledge.json` for all fallback templates (booking-fallback, inquiry-fallback, etc.) and prompts user to rate clarity (1-5 scale)",
-        "For templates rated ≤3, suggest improvements focusing on: (a) explicit confidence disclaimer ('I'm not confident but...'), (b) actionable next step ('Call us at...' or 'Try asking...'), (c) escalation trigger option",
-        "User can approve rewritten template and verify updated template validates against Zod schema in `src/assistant/schemas.ts`; run `npm run build` to verify no type errors"
+        "CLI command `npm run analyze:confidence-baselines <profile>` reads Vitest output and JSON-exports confidence stats per intent (e.g., booking intent: p50=0.82, p95=0.65)",
+        "Output file `baselines/<profile>-confidence-baseline.json` includes: intentName, p50, p95, sampleSize, lastUpdated timestamp",
+        "Test in `src/tests/tools/confidence-baseline.test.ts` verifies analyzer correctly computes percentiles from mock test results array"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-418",
+      "title": "Add Conversation Context Duplicate Query Detection with Repetition Acknowledgment",
+      "priority": "medium",
+      "description": "Detect when guest asks the same intent twice within a 5-message window and flag it. This prevents wasted AI inference cycles and enables acknowledgment-based fallback responses that validate guest frustration.",
+      "acceptanceCriteria": [
+        "Middleware in `src/assistant/pipeline/context-filter.ts` adds `isDuplicateQuery: true` to message metadata when same intent appears twice in recent context",
+        "Fallback response in `src/assistant/data/knowledge.json` under 'duplicate_query' includes pattern like 'I see you're asking about [INTENT] again, let me help properly this time'",
+        "Test in `src/tests/pipeline/context-filter.test.ts` verifies duplicate detection correctly identifies repeated 'booking' and 'inquiry' intents in mock conversation history"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-419",
+      "title": "Add Profile-Scoped Fallback Response Usage Metric Tracking Endpoint",
+      "priority": "medium",
+      "description": "Track which business profile used fallback responses and at what confidence threshold. Enable product insights into fallback effectiveness per profile and identify where better training data is needed.",
+      "acceptanceCriteria": [
+        "New admin endpoint POST `/admin/metrics/fallback-usage` accepts { profileName, intentName, confidence, fallbackText } and logs to `rainbow_fallback_metrics` table with schema in `shared/schema-tables.ts`",
+        "Admin query endpoint GET `/admin/metrics/fallback-summary?profile=data-makan&days=30` returns { profileName, totalFallbacks, avgConfidence, topFallbackTexts[] } aggregated by profile",
+        "Test in `src/tests/admin/metrics.test.ts` verifies metrics endpoint correctly groups fallbacks by profile and calculates statistics across 50+ mock records"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-423",
+      "title": "Fallback Response Trigger Categorization CLI with Per-Profile Analysis Report",
+      "priority": "medium",
+      "description": "Categorize why fallback responses are triggered (low confidence vs. intent mismatch vs. no handler found) to identify patterns and improve response routing.",
+      "acceptanceCriteria": [
+        "Add fallback_reason enum to rainbow_messages schema: LOW_CONFIDENCE, NO_INTENT_MATCH, NO_HANDLER, EXECUTION_ERROR; populate during message processing based on trigger condition",
+        "Create CLI script `src/tools/fallback-analysis.ts` accepting `--profile makan --days 7` returning JSON: [{reason, count, avgConfidence, exampleMessages: [{text, intent, confidence}]}]",
+        "Test: 10 fallback messages with 6 LOW_CONFIDENCE, 3 NO_INTENT_MATCH, 1 NO_HANDLER; CLI report correctly groups by category and calculates avgConfidence per category"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-424",
+      "title": "Intent Classification Confidence Baseline Regression Detector with Daily Admin Alert",
+      "priority": "medium",
+      "description": "Establish per-profile, per-intent historical confidence baselines and automatically alert admin when classification accuracy drops below 90% of baseline, indicating potential regression.",
+      "acceptanceCriteria": [
+        "Create `intent_confidence_baselines` table with: profile_id, intent_name, baseline_median_confidence, baseline_date, update_date; compute on first deployment via `src/tools/compute-baselines.ts` from last 30 days of intent_analytics data",
+        "Add daily cron job (2am) computing rolling 7-day median confidence per profile/intent; compare vs baseline; if current < baseline * 0.9, log alert to logs/regression-alerts.log with {profile, intent, baseline, current, pctChange}",
+        "Admin endpoint GET `/admin/intent-regression?days=7` returns sorted array of regressions with profile, intent name, baseline, current confidence, and sample misclassified messages"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "haiku"
     },
     {
-      "id": "US-404",
-      "title": "Implement Intent Classification Confidence Trace Logger for Debugging",
+      "id": "US-427",
+      "title": "Booking Workflow Step Execution Time Profiler Endpoint for Performance Bottleneck Identification",
       "priority": "medium",
-      "description": "Log top-3 classification candidates with confidence scores and feature breakdown for each incoming message. Enables debugging of low-confidence misclassifications and confidence score calibration.",
+      "description": "Add admin endpoint to analyze step execution times and identify slow booking workflow steps. Tracks per-step execution duration (avg, p50, p99) to help prioritize optimization efforts. Supports per-profile and per-step analysis.",
       "acceptanceCriteria": [
-        "After intent classification, write JSON trace to `logs/classification-trace.json`: `{timestamp, profileId, message, topCandidates: [{intent, confidence, keywordMatch?, semanticScore?}], finalChoice, executionTimeMs}`",
-        "Trace includes why top candidate was chosen (e.g., keyword match in intent-keywords.json, semantic similarity score from AI provider)",
-        "Unit test: invoke classifier with test message, verify trace contains ≥3 candidates ranked by confidence descending, top candidate confidence ≥0.5 higher than 2nd place"
+        "Add middleware wrapper in src/assistant/pipeline/workflow-executor.ts that records step start/end timestamps and persists to workflow_step_metrics table (step_id, profile, duration_ms, timestamp)",
+        "Create POST /admin/workflow/:profile/step-analytics endpoint returning { steps: [{stepId, avgMs, p50Ms, p99Ms, sampleCount}], slowestSteps: top 3 by avgMs }",
+        "Unit test: workflow_step_metrics contains 100+ samples, endpoint returns correct percentiles and identifies slowest 3 steps accurately"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -460,14 +700,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-407",
-      "title": "Add Booking Workflow Step Precondition Validator with Pre-Execution Type Checking",
+      "id": "US-428",
+      "title": "Conversation Context Semantic Relevance Scorer for Intelligent Context Pruning in Multi-Turn Dialogs",
       "priority": "medium",
-      "description": "Validate booking workflow step input schemas before execution, checking required fields and types match step definitions in workflows.json, and log detailed violation report enabling debugging of invalid state transitions.",
+      "description": "Score each message in conversation history for semantic relevance to current intent. Automatically prune low-relevance messages before sending context to AI, reducing token bloat and improving focus on booking/inquiry details.",
       "acceptanceCriteria": [
-        "Create src/tools/booking-step-validator.ts with validateStepInput(stepName, inputData): {valid: bool, violations: [{field, expected_type, actual_type, message}]}; map step requirements from workflows.json schema",
-        "Add pre-execution check in booking executor: if !validateStepInput().valid, log violations and throw with structured error including step_name, field_violations, context_state",
-        "Unit test validating check-in step requires {room_id: string, guest_id: string, check_in_date: ISO8601} and rejects {room_id: 123, guest_id: null} with correct violation messages"
+        "Add function scoreMessageRelevance(message: string, currentIntent: string, conversationHistory: Message[]): number in src/assistant/pipeline/context-scorer.ts returning 0-1 confidence score. Use simple keyword overlap or embedding similarity",
+        "Integrate into message processing pipeline: prune messages with score < 0.25 before adding to AI context. Log pruned message count to intent_analytics",
+        "Unit test: booking intent with old off-topic messages (score 0.1) are pruned, recent guest name/date messages (score 0.9) retained. Test case shows context size reduced by 40% without losing booking details"
       ],
       "technicalNotes": [],
       "dependencies": [],
