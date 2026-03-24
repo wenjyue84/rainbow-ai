@@ -1633,6 +1633,7 @@ FAILED diagnosis-block gate: Booking Workflow Step Input Schema Validator with P
 
 
 ## Pre-analysis for US-355 (Gemini 2.5 Pro)
+<<<<<<< Updated upstream
 Here is the technical brief for implementing story US-355.
 
 **Subject: Technical Brief for US-355: Intent Classifier Regression Test CLI**
@@ -1827,3 +1828,85 @@ CLI tool that audits profile data files for cross-profile contamination and opti
 - Windows CMD doesn't support NODE_OPTIONS environment variable in npm scripts; used direct vitest invocation
 - Keyword matching is case-insensitive to catch variations
 - Confidence threshold tuned to avoid false positives on shared keywords like "check"
+=======
+This user story is for a TypeScript/Node.js project, not Frappe/Python. All technical details point to an `npm`-based environment.
+
+**Technical Brief: US-355 Intent Classifier Regression Test**
+
+1.  **Files to Modify/Create:**
+    *   **`scripts/intent-regression.ts`**: New CLI script to contain all logic.
+    *   **`package.json`**: Add a new `test:intent-regression` script entry.
+    *   **`src/intent/classifier.ts`** (or similar): The core intent classification logic will need to be imported and executed by the script.
+    *   **`src/db/client.ts`** (or similar): To be used for database access.
+
+2.  **Key Entities Involved:**
+    *   **Database Table:** `rainbow_messages` (source of production data and ground-truth labels).
+    *   **Input File:** `src/data/intent-accuracy-baseline.json` (stores baseline accuracy scores).
+    *   **Output File:** `logs/intent-regression-report.json` (for detailed failure analysis).
+
+3.  **Implementation Approach:**
+    *   Create `scripts/intent-regression.ts` runnable via `ts-node`.
+    *   Use the project's Drizzle ORM to query the last 500 messages from `rainbow_messages` where a feedback-validated intent exists.
+    *   For each message, invoke the current intent classifier to get a new prediction.
+    *   Group results by intent, calculate current accuracy, and compare against `intent-accuracy-baseline.json`.
+    *   Generate a `intent-regression-report.json` with messages, expected vs. actual intents for any regressions.
+    *   If any intent's accuracy drops >5%, the script should `process.exit(1)`.
+
+4.  **Gotchas to Watch For:**
+    *   The definition of a "ground-truth label" in the database must be clear; the query needs to be precise.
+    *   Ensure the script handles missing or new intents not present in the baseline file.
+    *   The classifier might require async initialization; the script must handle this.
+    *   The script should fail gracefully if the database connection fails or the baseline file is missing/corrupt.
+
+>>>>>>> Stashed changes
+## Iteration 1 - Tue, Mar 24, 2026  8:31:19 AM
+FAILED diagnosis-block gate: Intent Classifier Offline Evaluation CLI with Production Log Replay (ID: US-355) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-355 (Gemini 2.5 Pro)
+This technical brief is for a NodeJS/TypeScript project, as reflected in the user story and file system, not a Frappe/Python environment.
+
+**Subject:** Technical Brief for US-355: Intent Classifier Regression Testing CLI
+
+**1. Python Files to Modify:**
+This is a TypeScript project. The primary files will be:
+*   `scripts/intent-regression.ts`: This new or existing file will house the main logic for the CLI tool.
+*   `package.json`: To add the `test:intent-regression` npm script.
+*   A file within `src/` containing the intent classification logic will need to be imported (e.g., `src/lib/intent/classifier.ts`).
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   Not applicable. The core data source is the `rainbow_messages` PostgreSQL table, likely accessed via the Drizzle ORM.
+
+**3. Recommended Implementation Approach:**
+1.  In `scripts/intent-regression.ts`, use the existing database client to query the `rainbow_messages` table for the last 500 records containing message text and a ground-truth intent label.
+2.  Import and instantiate the current intent classifier from the `src` directory.
+3.  Read the performance baseline from `src/data/intent-accuracy-baseline.json`.
+4.  Iterate through the database records: replay each message through the classifier and compare the prediction against its ground-truth label.
+5.  Aggregate results to calculate the new accuracy percentage for each intent type.
+6.  Compare new accuracies against the baseline. If any intent's accuracy has dropped by more than 5%, generate a `logs/intent-regression-report.json` and exit with a non-zero status code.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the database query correctly identifies "ground-truth labels," which might be in a separate column from the original prediction (e.g., `corrected_intent`).
+*   Handle intents present in the test data but missing from the baseline JSON file.
+*   The script must correctly load environment variables (e.g., database connection strings) to run in a standalone CLI context.
+*   Confirm the structure of the `logs/intent-regression-report.json` to ensure it captures all necessary failure details for debugging.
+
+
+## Iteration 2 - US-355: Intent Classifier Offline Evaluation CLI with Production Log Replay
+### What was implemented
+- `scripts/intent-regression.ts` — already existed and fully implemented:
+  - Fetches last 500 user messages with intent labels from `rainbow_messages`
+  - Loads ground-truth corrections from `rainbow_feedback` (rating=-1 = misclassified)
+  - Replays messages through offline keyword-based classifier (`classifyOffline`)
+  - Compares per-intent accuracy vs baseline in `src/data/intent-accuracy-baseline.json`
+  - Outputs ASCII table + writes `logs/intent-regression-report.json`
+  - Exits 1 if any intent drops >5%, exits 0 otherwise
+- `src/data/intent-accuracy-baseline.json` — already existed with 31 intent baselines
+- `package.json` — `test:intent-regression` script already wired to `tsx scripts/intent-regression.ts`
+### Patterns discovered
+- Script handles empty DB gracefully (returns PASS when no data)
+- SSL warning from pg is cosmetic only (node-postgres sslmode deprecation notice)
+- Build uses esbuild, not tsc — no type errors block execution
+### Gotchas
+- Previous attempt failed due to diagnosis-block gate check; no actual code changes were needed
+- Story was already complete from a prior implementation; just needed verification + marking passes=true
