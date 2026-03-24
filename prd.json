@@ -59,7 +59,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -285,6 +285,108 @@
       "model": "haiku"
     },
     {
+      "id": "US-412",
+      "title": "Multi-Language Intent Keyword Translation Coverage Validator with Missing Detection",
+      "priority": "high",
+      "description": "Validate intent-keywords.json has keywords for all supported languages (en, ms, ta, zh) per intent, flag incomplete translations, report coverage percentages.",
+      "acceptanceCriteria": [
+        "Validator in src/lib/profile-data-validator.ts exports validateLanguageCoverage(profileId) returns coverage matrix {intent: {en: true, ms: false, ta: true, zh: false}}",
+        "Scans src/assistant/data/intent-keywords-${profile_id}.json checking all intent keys have arrays for each language code",
+        "CLI: npm run validate:language-coverage -- --profile makan outputs ASCII table with Intent rows, Language columns, flags <80% coverage cells with RED status"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-413",
+      "title": "Add comprehensive booking intent classification edge case tests",
+      "priority": "high",
+      "description": "Create test suite covering ambiguous booking inputs to improve classification accuracy across profiles. Tests will cover edge cases like \"book the room\", \"can i reserve?\", \"room available?\" with profile-specific expectations.",
+      "acceptanceCriteria": [
+        "Create src/assistant/tests/booking-intent-edge-cases.test.ts with 10+ test cases for ambiguous inputs",
+        "Assert correct intent classification with confidence > 0.8 for each test case",
+        "Include tests for all three profiles (pelangi, makan, southern) to ensure profile-specific classification accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-414",
+      "title": "Implement context message relevance filter for multi-turn conversations",
+      "priority": "high",
+      "description": "Remove stale or irrelevant messages from conversation context before AI inference to improve multi-turn dialogue quality. Filter messages older than 5 turns or with relevance score < 0.3.",
+      "acceptanceCriteria": [
+        "Create src/assistant/lib/context-relevance-filter.ts with function filterContextMessages(messages, maxAge=5, minRelevance=0.3)",
+        "Implement semantic similarity scorer using keyword matching to determine message relevance to booking workflow",
+        "Add test asserting off-topic messages like 'what is the weather' are removed from booking conversation context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-415",
+      "title": "Validate fallback response templates don't contain cross-profile content",
+      "priority": "high",
+      "description": "Scan fallback response JSON files for profile-specific hotel/cafe names, room types, and amenities to prevent content contamination between Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Create scripts/validate-fallback-content.js that loads src/assistant/data/fallbacks.json for each profile and scans for cross-profile keywords",
+        "Output violations with file path and line number: 'ERROR: Pelangi Capsule Hostel found in makan fallbacks.json:34'",
+        "Include --fix flag to interactively remove cross-profile content with user confirmation before rewriting files"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-416",
+      "title": "Implement Intent Classifier Feature Importance Analyzer CLI",
+      "priority": "high",
+      "description": "Build CLI tool to analyze which keywords and patterns drive intent classification decisions, helping identify if high-confidence bookings are driven by contaminated (cross-profile) keywords.",
+      "acceptanceCriteria": [
+        "CLI command npm run analyze:intent-importance -- --intent=booking --profile=makan outputs ranked list of keywords by classification weight with correlation scores",
+        "Queries intent_analytics table and routing.json to find keywords most correlated with correct/incorrect classifications, flags any keywords appearing in multiple profile intent-keywords.json files",
+        "Generates report highlighting top-5 keywords per intent and surfaces cross-profile keyword contamination for manual review"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-417",
+      "title": "Low-Confidence Intent Fallback Template Router with Confidence Tier Thresholds",
+      "priority": "high",
+      "description": "Implement smart fallback template selection that routes to different response templates based on intent classification confidence percentiles, reducing generic escalations. High confidence fallback (p75+) offers specific help; low confidence (p25-) asks user to rephrase with clarification examples.",
+      "acceptanceCriteria": [
+        "Router in src/assistant/confidence-tier-fallback-selector.ts reads intent_confidence score and selects template from tiers: [p75+='specific_help', p50-75='open_question', <p50='rephrase_request']",
+        "Low-confidence template includes 2-3 clarification examples matching detected partial intent (e.g., if 0.3 confidence on 'booking', suggest 'Do you want to check room availability or make a reservation?')",
+        "Add test in src/tests/fallback-router.test.ts with assertions for correct tier selection at confidence thresholds [0.3, 0.5, 0.75, 0.9]"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-397",
       "title": "Build Booking Workflow Step Performance Profiler with Bottleneck Report",
       "priority": "medium",
@@ -302,31 +404,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-398",
-      "title": "Implement Fallback Response A/B Test Framework with Escalation Rate Comparison",
+      "id": "US-418",
+      "title": "Makan Moments Seasonal Promotion Inquiry Intent Handler with Cafe-Specific Workflow",
       "priority": "medium",
-      "description": "Run controlled A/B tests on fallback response variants. Measure escalation rates and statistical confidence to identify which responses reduce customer frustration.",
+      "description": "Implement complete seasonal promotion inquiry handler for Makan Moments cafe profile, including intent routing, keywords, dynamic fallback templates suggesting current promotions from knowledge.json, and workflow integration to capture promotion interest analytics.",
       "acceptanceCriteria": [
-        "Endpoint `POST /admin/fallback-test/create` accepts JSON: { fallback_id, variant_a_text, variant_b_text, duration_days, min_sample_size }, creates test in fallback_ab_tests table, routes conversations to variants randomly (50/50 split)",
-        "After test ends, report: { fallback_id, variant_a_escalation_rate: 0.25, variant_b_escalation_rate: 0.18, winner: 'variant_b', confidence: '95%', significance_test: 'chi-square' }; store results in database for historical comparison",
-        "Unit test: variant_a with 200 samples (50 escalations) vs variant_b with 200 samples (36 escalations) correctly identifies variant_b as statistically better with confidence >= 90%"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-404",
-      "title": "Build Low-Confidence Intent Disambiguation Dialog Generator",
-      "priority": "medium",
-      "description": "When intent confidence falls below threshold, generate disambiguation prompts showing top 2-3 intent options with examples, improving classification accuracy through user feedback and reducing false positives.",
-      "acceptanceCriteria": [
-        "Function generateDisambiguationPrompt(topIntents: Intent[], userMessage: string, profile: string): string in src/assistant/pipeline/disambiguation.ts returns clarification message with intent options and examples",
-        "Config INTENT_CONFIDENCE_THRESHOLD in settings.json (default: 0.65); classification pipeline triggers disambiguation when max_confidence < threshold",
-        "Table intent_disambiguations tracks: disambiguation_id, profile, original_message, offered_intents, user_selection, created_at; test case: confidence=0.58 on 'help' triggers prompt offering 'booking', 'facilities', 'pricing'"
+        "Add 'seasonal_promo_inquiry' intent to src/assistant/data/data-makan/intents.json with cafe-specific description",
+        "Add 15+ Malay/English keywords to src/assistant/data/data-makan/intent-keywords.json (e.g., 'promosi apa ada', 'ada discount', 'current offer')",
+        "Routing resolves to fallback template pulling promo list from knowledge.json with dynamic suggestion (not hardcoded text); test in src/tests/intent-routing.test.ts"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -336,14 +421,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-408",
-      "title": "Implement Conversation Message Language Detection and Auto-Persistence",
+      "id": "US-419",
+      "title": "Booking Workflow Check-In Date Validator with Next-Available Auto-Suggest",
       "priority": "medium",
-      "description": "Detect guest language from first message in conversation, store in database, and inject into AI provider context for consistent multi-turn responses in guest's native language.",
+      "description": "Add pre-execution validator to booking confirmation workflow step that rejects past check-in dates and responds with helpful suggestion of next available date (e.g., 'You selected 2026-03-20, which is in the past. Next available: 2026-03-25'). Integrates with room availability lookup.",
       "acceptanceCriteria": [
-        "First user message analyzed via text-language-detect or similar; detected language code (en/ms/zh/ta) stored in rainbow_conversations.guest_language column on conversation creation",
-        "AI provider context injection at src/assistant/pipeline/message-processor.ts includes `guest_language: 'ms'` in system prompt, prompting Kimi to respond in detected language",
-        "Test asserts 5-turn booking dialog where first message is Malay produces all 5 responses in Malay language, guest_language persists across turns"
+        "Validator in src/assistant/workflows/booking-confirmation.ts checks check_in_date >= today before step execution",
+        "On rejection, queries database for earliest available check-in across room types and returns auto-suggested date in fallback response",
+        "Add test case src/tests/booking-workflow-date-validation.test.ts covering past date rejection and future date suggestion"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -353,14 +438,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-409",
-      "title": "Create Fallback Response Coverage Gap Report Generator CLI",
+      "id": "US-420",
+      "title": "Profile Intent-Keyword Language Coverage Validator CLI with Translation Gap Report",
       "priority": "medium",
-      "description": "Audit all intents across profiles for fallback response coverage, identifying missing templates and suggesting high-impact additions for low-confidence scenarios.",
+      "description": "Create CLI tool that validates each intent in a profile has keywords in all configured languages (English, Malay, Tamil), generates report of missing translations by intent, and suggests common domain keywords for cafe vs hostel profiles.",
       "acceptanceCriteria": [
-        "CLI command `npm run audit:fallback-coverage` reads all intents from routing.json and fallback configs from src/assistant/data/*/knowledge.json, outputs JSON report by profile",
-        "Report shows: intents with no fallback template, intents with <2 variant fallbacks, suggestion score (high=low-confidence intent with no fallback)",
-        "Test asserts output includes per-profile summary (e.g., 'data-makan: 3 intents missing fallbacks, 7 intents with <2 variants') and top-3 suggested additions ranked by impact"
+        "CLI command `npm run validate:intent-languages -- --profile data-makan` reports intent_id → missing_languages mapping and lists intents with <3 language variants",
+        "Report categorizes gaps by business domain (cafe-specific vs hostel-specific intents) and recommends keywords (e.g., for cafe inquiries suggest Malay 'makanan', 'minuman', 'harga')",
+        "Validator reads from src/assistant/data/{profile}/intent-keywords.json and cross-references against intents.json language_variants field"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -370,31 +455,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-411",
-      "title": "Create Booking Workflow Step Failure Rate Analytics Endpoint",
+      "id": "US-421",
+      "title": "Conversation Context Message Deduplication Filter for Token Optimization",
       "priority": "medium",
-      "description": "Add structured audit logging to each booking workflow step, then expose admin endpoint showing step-level success/failure rates to identify bottlenecks (e.g., 'guest validation failing 15% vs. room availability failing 3%').",
+      "description": "Implement deduplication filter in conversation context pipeline that removes exact duplicate messages (same text, same sender) before sending to AI, saving tokens on repeated user queries or system-echoed messages. Logs dedup stats per conversation.",
       "acceptanceCriteria": [
-        "New table `booking_workflow_step_audit` (columns: workflow_id, step_name, status, error_reason, duration_ms, executed_at); add to Drizzle schema in `shared/schema-tables.ts`",
-        "All workflow steps in `src/assistant/pipeline/execute-workflow.ts` log execution: `await logWorkflowStep(workflowId, stepName, status, errorMsg)`",
-        "New endpoint `GET /admin/analytics/booking-step-failures` returns JSON with step names, success rate %, avg duration ms, top 3 error reasons per step"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-399",
-      "title": "Add Conversation State Machine Visualizer Endpoint for Multi-Turn Booking Debugging",
-      "priority": "low",
-      "description": "Infer and visualize conversation state transitions (awaiting_details → awaiting_confirmation → booked) to help diagnose why multi-turn booking conversations fail or go off-track.",
-      "acceptanceCriteria": [
-        "Endpoint `GET /admin/conversation/:conversationId/state-graph?output=mermaid` parses conversation turns, classifies state at each turn (initial, awaiting_details, awaiting_confirmation, payment_pending, booked, escalated), returns state sequence array",
-        "Return JSON: { state_sequence: ['initial', 'awaiting_date', 'awaiting_confirmation', 'booked'], mermaid_graph: 'graph LR; initial-->awaiting_date-->awaiting_confirmation-->booked', divergences: [] }; detect invalid transitions and report as divergences",
-        "Unit test: 8-turn booking conversation transitions through expected states correctly; test detects invalid transition attempt (e.g., booked → awaiting_details) and flags in divergences array"
+        "Filter in src/assistant/context-deduplicator.ts removes consecutive duplicate messages (same sender, same text_hash) and marks first occurrence as canonical",
+        "Deduplication stats logged to database per conversation_id (duplicate_count, tokens_saved); queryable via admin API endpoint GET /admin/conversations/:id/dedup-stats",
+        "Test in src/tests/context-deduplication.test.ts verifies multi-turn conversation with repeated user clarifications reduces from 12 to 8 messages"
       ],
       "technicalNotes": [],
       "dependencies": [],
