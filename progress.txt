@@ -327,3 +327,35 @@ FAILED diagnosis-block gate: Create Profile-Specific Intent Whitelist Validator 
 - Profile name handling: accepts both "data-makan" and "makan" formats
 - Southern profile has real conflicts (quiet hours used by 3 intents, check-in/checkin variants)
 
+## Iteration 1 - Tue, Mar 24, 2026 10:09:30 AM
+FAILED diagnosis-block gate: Intent Keyword Overlap Conflict Analyzer CLI (ID: US-371) — no diagnosis block found — attempt 1/3
+
+
+
+## Iteration [Current] - Story: Intent Keyword Overlap Conflict Analyzer CLI (US-371) ✓ COMPLETE
+### What was implemented
+- Story was fully pre-implemented:
+  - CLI tool at `src/tools/analyze-keyword-conflicts-cli.ts` with complete keyword conflict detection
+  - npm script `analyze:keyword-conflicts` registered in package.json
+  - Comprehensive test suite: `src/__tests__/keyword-conflicts-analyzer.test.ts` with 17 tests
+- Verified all components work correctly:
+  - Build: ✓ esbuild 2.5MB dist/index.js (1 pre-existing warning)
+  - Tests: ✓ 17/17 passing
+  - CLI: ✓ Works for all profiles (makan, southern, yoongmei)
+  - Server: ✓ Startup verified with database connection
+
+### Patterns discovered
+- CLI detects keywords appearing in 3+ intents as HIGH severity, 2+ as MEDIUM
+- Keywords are normalized to lowercase for consistent conflict detection
+- Real conflicts identified in southern profile (e.g., 'quiet hours' in 3 intents, check-in/checkin in 2)
+- Tool correctly handles multi-language keywords across en, ms, zh
+
+### Acceptance Criteria Met
+✅ Command `npm run analyze:keyword-conflicts -- --profile <profile>` works
+✅ Reports { keyword, intents_using_it, conflict_severity }
+✅ Flags 3+ intents as high severity, 2+ as medium
+✅ Outputs JSON: { conflicting_keywords: [...], total_conflicts: N }
+✅ All 17 unit tests passing
+✅ CLI execution verified for makan (0 conflicts) and southern (17+ conflicts)
+✅ Build succeeds without breaking changes
+
