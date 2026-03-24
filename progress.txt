@@ -195,3 +195,37 @@ FAILED diagnosis-block gate: Create Profile-Specific Intent Whitelist Validator 
 - Intent structure is NOT a flat array — used extractIntents() helper to parse categories format
 - Pre-existing Vitest deprecation warnings for `poolOptions` are non-blocking (Vitest 4 migration)
 
+
+## Iteration [Spiral] - Story: Build Profile Data File Consistency Validator CLI (US-364) ✓ COMPLETE
+### What was implemented
+- Enhanced `scripts/validate-profile-data.ts` with cross-file consistency checks:
+  - intents_not_in_routing: intents in intents.json not referenced in routing.json
+  - routing_entries_missing_intents: routes in routing.json without matching intents
+  - orphaned_keywords: keywords without corresponding intents
+  - pelangi_keyword_contamination: detects Pelangi-specific keywords in Makan/Southern profiles
+- Correctly handles nested intents structure: `categories[].intents[].category`
+- Added npm script alias: `npm run validate:profile-data -- --profile <profile>`
+- Created `src/__tests__/profile-data-consistency.test.ts` with 9 comprehensive tests
+
+### Patterns discovered
+- intents.json uses structure: `{ categories: [{ intents: [{ category: name }] }] }`
+- routing.json uses flat key-value: `{ [intentName]: { action, ... } }`
+- Keywords are stored in intent-keywords.json with intent references
+- Validator correctly extracts all three structure formats (nested, flat, intents field)
+- Real data has actual inconsistencies (cafe_payment_info orphaned in makan, positive_review orphaned in routing)
+
+### Acceptance Criteria Met
+✅ CLI loads profile data files from src/assistant/data-{profile}/
+✅ Validates all four check types: intents_not_in_routing, routing_entries_missing_intents, orphaned_keywords, keyword_contamination
+✅ Reports violations with exact file locations and details
+✅ data-makan contains zero hostel-specific keywords (verified)
+✅ data-southern contains zero Pelangi references (verified)
+✅ Test suite: 9/9 tests passing
+✅ Build: Success (2.4MB dist/index.js, 1 pre-existing warning)
+✅ Server startup: Verified
+
+### Gotchas
+- Windows NODE_OPTIONS environment variable not supported in bash - run vitest directly
+- intents.json structure varies: can be nested categories OR flat arrays
+- loadIntents must handle multiple formats: categories[].intents[], flat array, or { intents: [...] }
+- Shared intents (greeting, thanks) appear in all profile intent-keywords.json but may not be in all intents.json files
