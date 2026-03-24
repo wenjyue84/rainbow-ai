@@ -47,6 +47,28 @@
   ],
   "userStories": [
     {
+      "id": "US-424",
+      "title": "Fix Webchat Conversations API — Remove Missing status Column Reference",
+      "description": "The GET /api/rainbow/webchat/conversations endpoint fails with \"column c.status does not exist\" because the SQL query references a status column that was never added to rainbow_conversations. Fix the query to remove or handle the missing column so the webchat sidebar loads.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "GET /api/rainbow/webchat/conversations returns 200 with conversation list",
+        "Webchat tab sidebar loads and displays sessions instead of infinite loading",
+        "Existing WhatsApp conversations are not affected"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/routes/admin/webchat.ts"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "webchat",
+        "bugfix"
+      ],
+      "model": "haiku"
+    },
+    {
       "id": "US-391",
       "title": "Intent Classification Error Pattern Grouper CLI",
       "priority": "high",
@@ -370,14 +392,82 @@
       "model": "haiku"
     },
     {
-      "id": "US-423",
-      "title": "Profile Data Startup Integrity Enforcer with Keyword Blocklist",
+      "id": "US-425",
+      "title": "Intent Classification A/B Test Results Analyzer CLI",
       "priority": "high",
-      "description": "At app startup, scan data-makan and data-southern profile files for Pelangi Capsule hostel keywords (room types, facilities, policies specific to hostels) and fail fast with detailed report if contamination detected, preventing production deployment of corrupted profiles.",
+      "description": "Analyze A/B test results from intent keyword variant experiments stored in rainbow_messages table. Calculates accuracy per variant, statistical significance, and recommends winning variant based on confidence intervals.",
       "acceptanceCriteria": [
-        "Create startup validator scanning: routing.json, workflows.json, intent-keywords.json, knowledge.json for 30+ Pelangi keywords (e.g. 'dorm', 'capsule', 'bunks', 'curfew')",
-        "If contamination detected, log error with file path, line number, and matched keyword; halt startup with message 'Profile data contamination detected in data-makan: 5 hostel keywords found'",
-        "Unit test verifying false positives avoided for legitimate cafe keywords ('counter', 'seating') while catching hostel keywords"
+        "CLI 'npm run analyze:intent-variants --intent booking --limit 500' reads rainbow_messages where intent_variant_tested IS NOT NULL and calculates accuracy, confidence_interval_95, and p_value per variant",
+        "Outputs CSV with columns: variant, sample_size, accuracy, confidence_interval_95, statistical_significance_p_value, recommended_winner",
+        "Implements analyzeVariantResults() in src/tools/analytics/intent-variant-analyzer.ts with support for filtering by date range and minimum sample size"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-426",
+      "title": "Admin Intent Confidence Threshold Runtime Tuner API",
+      "priority": "high",
+      "description": "REST API to adjust per-intent confidence escalation thresholds at runtime without server restart. Allows operators to dynamically tune fallback behavior for booking, inquiry, and other intents.",
+      "acceptanceCriteria": [
+        "POST /admin/intent/{intent}/confidence-threshold { threshold: 0.75 } persists to app_settings table; GET /admin/intent/{intent}/confidence-threshold returns { threshold, usage_count, updated_at }",
+        "Thresholds loaded on startup from app_settings and cached with 1-minute TTL to prevent excessive DB queries; cache invalidates immediately on POST updates",
+        "Unit tests in test/admin-confidence-api.test.ts verify threshold changes are applied to routing immediately and don't require server restart"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-427",
+      "title": "Profile Intent Route Isolation Enforcement Middleware",
+      "priority": "high",
+      "description": "Express middleware that prevents cross-profile intent routing at request time. Validates that messages from one business profile never route to another profile's intent handlers.",
+      "acceptanceCriteria": [
+        "Middleware in src/lib/middleware/profile-route-isolation.ts validates message.profile matches routing[intent].profile before handler dispatch; returns 403 Forbidden on mismatch with logged reason",
+        "Violations logged to intent_analytics table with type='CROSS_PROFILE_ROUTE', including message_id, expected_profile, actual_profile, attempted_intent, timestamp",
+        "Unit tests in test/profile-isolation.test.ts assert: (1) makan profile message routed to makan booking handler succeeds, (2) same message routed to southern booking handler is blocked and logged"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-428",
+      "title": "Booking Workflow Precondition Error Recovery Handler",
+      "priority": "medium",
+      "description": "When booking workflow steps fail validation checks (guest not found, date invalid, room unavailable), suggest recovery actions and escalate to staff with context and alternatives.",
+      "acceptanceCriteria": [
+        "Function recoveryHandler(validationError, step, context) in src/assistant/pipeline/booking-recovery.ts returns { recovery_action, escalation_message, suggested_alternatives } structured object",
+        "Example: date validation fails (past date) → returns array of 3 next-available dates, escalates message to staff with guest_id, phone, and original booking request",
+        "Integration test validates failed booking with invalid date logs recovery suggestion; staff retrieves suggestions via /admin/booking/{booking_id}/recovery-options endpoint"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-429",
+      "title": "Conversation Message Deduplication Unit Test Suite",
+      "priority": "medium",
+      "description": "Comprehensive test suite for conversation message deduplication filter. Ensures identical or near-identical messages don't inflate context window unnecessarily during multi-turn booking dialogues.",
+      "acceptanceCriteria": [
+        "Test file test/conversation-deduplication.test.ts with 15+ test cases: exact-match duplicates, messages within 60-second window, messages with >90% text similarity",
+        "Tests validate that deduplication preserves message order and timestamps; deduped messages are logged with dedup_reason (exact_match | temporal_proximity | semantic_similarity)",
+        "Test assertion example: given 3 messages asking 'what time do you open?', 'when do you open?', 'opening hours?', filter keeps first message, logs other 2 as duplicates with similarity score"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -4479,126 +4569,6 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
-    },
-    {
-      "id": "US-424",
-      "title": "Fix Webchat Conversations API — Remove Missing status Column Reference",
-      "description": "The GET /api/rainbow/webchat/conversations endpoint fails with \"column c.status does not exist\" because the SQL query references a status column that was never added to rainbow_conversations. Fix the query to remove or handle the missing column so the webchat sidebar loads.",
-      "priority": "critical",
-      "acceptanceCriteria": [
-        "GET /api/rainbow/webchat/conversations returns 200 with conversation list",
-        "Webchat tab sidebar loads and displays sessions instead of infinite loading",
-        "Existing WhatsApp conversations are not affected"
-      ],
-      "dependencies": [],
-      "passes": false,
-      "filesTouch": [
-        "src/routes/admin/webchat.ts"
-      ],
-      "estimatedComplexity": "small",
-      "tags": [
-        "webchat",
-        "bugfix"
-      ]
-    },
-    {
-      "id": "US-425",
-      "title": "Display Customer-Admin Message Thread with Role-Based Bubble Styling",
-      "description": "When admin clicks a webchat session in the sidebar, render the full conversation with distinct visual styling: customer messages left-aligned gray, AI assistant messages left-aligned blue, staff/admin messages right-aligned green. Each message shows sender name, timestamp, and role badge.",
-      "priority": "high",
-      "acceptanceCriteria": [
-        "Customer messages render left-aligned with gray bubbles and Customer badge",
-        "AI assistant messages render left-aligned with blue bubbles and Rainbow AI badge",
-        "Staff messages render right-aligned with green bubbles and Staff badge",
-        "Timestamps show relative time format"
-      ],
-      "dependencies": [
-        "US-424"
-      ],
-      "passes": false,
-      "filesTouch": [
-        "src/public/js/modules/webchat-admin.js",
-        "src/public/css/rainbow-livechat-ui.css"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "webchat",
-        "ui"
-      ]
-    },
-    {
-      "id": "US-426",
-      "title": "Admin Reply Input Box with Send for Webchat Conversations",
-      "description": "Show a message input box at the bottom of the webchat conversation panel. Admin types a reply and clicks Send or presses Enter. The reply POSTs to /webchat/conversations/:sessionId/reply and appears instantly in the thread with Staff badge.",
-      "priority": "high",
-      "acceptanceCriteria": [
-        "Reply input box appears when a webchat session is selected",
-        "Send button and Enter key submit the reply",
-        "Reply appears instantly in the thread with Staff role styling",
-        "Input clears after successful send"
-      ],
-      "dependencies": [
-        "US-424"
-      ],
-      "passes": false,
-      "filesTouch": [
-        "src/public/js/modules/webchat-admin.js",
-        "src/routes/admin/webchat.ts"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "webchat",
-        "ui"
-      ]
-    },
-    {
-      "id": "US-427",
-      "title": "Show Guest Name in Webchat Sidebar with Last Message Preview",
-      "description": "Display the guest pushName or collected guestName prominently in each sidebar conversation card. Show last message preview truncated to 60 chars, message count badge, and time since last activity. Anonymous guests show Anonymous Guest with truncated session ID.",
-      "priority": "high",
-      "acceptanceCriteria": [
-        "Sidebar cards show guest name prominently",
-        "Last message preview truncated to 60 characters",
-        "Message count and relative timestamp shown",
-        "Anonymous guests display fallback name with session ID"
-      ],
-      "dependencies": [
-        "US-424"
-      ],
-      "passes": false,
-      "filesTouch": [
-        "src/public/js/modules/webchat-admin.js"
-      ],
-      "estimatedComplexity": "small",
-      "tags": [
-        "webchat",
-        "ui"
-      ]
-    },
-    {
-      "id": "US-428",
-      "title": "Search and Filter Webchat Conversations by Guest Name",
-      "description": "Add a search input above the webchat sidebar that filters conversations by guest name with case-insensitive partial match. Add filter chips: All, Active, Unread. Typing yoong filters to show only Yoong Mei Trading conversations.",
-      "priority": "medium",
-      "acceptanceCriteria": [
-        "Search input filters sidebar conversations by guest name",
-        "Filter is case-insensitive and supports partial match",
-        "Filter chips for All, Active, Unread toggle conversation visibility",
-        "Empty search shows all conversations"
-      ],
-      "dependencies": [
-        "US-424",
-        "US-427"
-      ],
-      "passes": false,
-      "filesTouch": [
-        "src/public/js/modules/webchat-admin.js"
-      ],
-      "estimatedComplexity": "small",
-      "tags": [
-        "webchat",
-        "ui"
-      ]
     }
   ]
 }
