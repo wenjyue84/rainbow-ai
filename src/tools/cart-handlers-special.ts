@@ -23,7 +23,7 @@ import { fetchMenuItems } from './fnb-menu.js';
 
 type HandlerMap = Map<string, (args: any) => Promise<MCPToolResult>>;
 
-export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string): void {
+export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string, profileId: string): void {
 
   // ─── Set Meal Choice Handler (US-865) ─────────────────────────
   handlers.set('cart_set_meal_choose', async (args: any) => {
@@ -77,7 +77,7 @@ export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string)
       name: pending.name, code: pending.code, qty: pending.qty,
       price: pending.price, notes: pending.notes, components,
     };
-    const items = cartAddItem(sessionId, item);
+    const items = cartAddItem(profileId, sessionId, item);
     clearPendingSetMeal(sessionId);
     const summary = cartFormatSummary(items);
     return {
@@ -97,8 +97,8 @@ export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string)
       };
     }
     clearPendingAllergenItem(sessionId);
-    const items = cartAddItem(sessionId, pending.item);
-    transitionOrderStage(sessionId, 'ORDERING');
+    const items = cartAddItem(profileId, sessionId, pending.item);
+    transitionOrderStage(profileId, sessionId, 'ORDERING');
     const priceStr = pending.item.price !== undefined ? ` (RM ${pending.item.price.toFixed(2)})` : '';
     return {
       content: [{
@@ -129,13 +129,13 @@ export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string)
       return { content: [{ type: 'text', text: 'There is no recent order to modify. Would you like to start a new order?' }] };
     }
     for (const item of snapshot.items) {
-      cartAddItem(sessionId, { ...item });
+      cartAddItem(profileId, sessionId, { ...item });
     }
     if (snapshot.tableInfo) {
-      cartSetTableInfo(sessionId, snapshot.tableInfo);
+      cartSetTableInfo(profileId, sessionId, snapshot.tableInfo);
     }
-    transitionOrderStage(sessionId, 'ORDERING');
-    const summary = cartFormatSummary(cartGetItems(sessionId));
+    transitionOrderStage(profileId, sessionId, 'ORDERING');
+    const summary = cartFormatSummary(cartGetItems(profileId, sessionId));
     return {
       content: [{
         type: 'text',
@@ -147,7 +147,7 @@ export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string)
   // ─── US-897: Reorder Last Order ─────────────────────────────────
   handlers.set('reorder_last_order', async (_args: any) => {
     const { getLastOrder } = await import('../assistant/order-history-store.js');
-    const phone = 'webchat-' + sessionId;
+    const phone = `webchat-${profileId}-${sessionId}`;
     const lastOrder = await getLastOrder(phone);
     if (!lastOrder || lastOrder.items.length === 0) {
       return {
@@ -165,11 +165,11 @@ export function registerSpecialHandlers(handlers: HandlerMap, sessionId: string)
         omitted.push(item.name);
         continue;
       }
-      cartAddItem(sessionId, { name: item.name, code: item.code, qty: item.qty, price: item.price, notes: item.notes });
+      cartAddItem(profileId, sessionId, { name: item.name, code: item.code, qty: item.qty, price: item.price, notes: item.notes });
       added.push(`${item.qty}x ${item.name}`);
     }
-    if (added.length > 0) transitionOrderStage(sessionId, 'ORDERING');
-    const items = cartGetItems(sessionId);
+    if (added.length > 0) transitionOrderStage(profileId, sessionId, 'ORDERING');
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
     let response = `Welcome back! I've added your previous order to the cart:\n\n${summary}`;
     if (omitted.length > 0) {

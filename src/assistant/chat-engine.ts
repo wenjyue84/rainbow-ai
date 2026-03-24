@@ -27,6 +27,8 @@ export interface ChatOptions {
   message: string;
   history: ChatMessage[];
   sessionId?: string;
+  /** Profile ID — used to scope workflow state so profiles don't share session state. */
+  profileId?: string;
   configStore: ConfigStore;
   kb: KnowledgeBaseInstance;
   tools?: MCPTool[];
@@ -181,7 +183,7 @@ const EMERGENCY_INITIAL_RESPONSE = "URGENT — This is an emergency! Our staff h
  * Returns a ChatResult with all fields populated.
  */
 export async function processChat(options: ChatOptions): Promise<ChatResult> {
-  const { message, history, sessionId, configStore: store, kb } = options;
+  const { message, history, sessionId, profileId, configStore: store, kb } = options;
   const startTime = Date.now();
 
   const conversationHistory = history.map(msg => ({
@@ -239,8 +241,9 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     };
   }
 
-  // Check for active workflow
-  const lookupKey = sessionId || getSessionKey(conversationHistory);
+  // Check for active workflow — scope key by profileId to prevent cross-profile collision
+  const rawKey = sessionId || getSessionKey(conversationHistory);
+  const lookupKey = profileId ? `${profileId}:${rawKey}` : rawKey;
   const activeWorkflow = getWorkflowState(lookupKey);
 
   const { classifyMessage, getEmergencyIntent } = await import('./intents.js');

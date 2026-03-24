@@ -22,10 +22,12 @@ import {
 import { createCartHandlers } from '../../tools/cart.js';
 import { clearOrderStage, getOrderStage } from '../order-stage-store.js';
 
+const PID = 'test';
 // Load the Makan Moments intent patterns for regex testing
 import intentsData from '../data-makan/intents.json' assert { type: 'json' };
 import keywordsData from '../data-makan/intent-keywords.json' assert { type: 'json' };
 
+const PID = 'test';
 // Helper: check if a message matches an intent's patterns
 function matchesIntentPattern(message: string, intentCategory: string): boolean {
   for (const category of intentsData.categories) {
@@ -140,34 +142,34 @@ describe('US-866: cart_set_table Malay takeaway handling', () => {
 
   it('"bawa balik" sets orderType to takeaway', async () => {
     const s = sid();
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_table')!;
     const result = await handler({ orderType: 'bawa balik' });
     const text = result.content[0].text;
     expect(text).toContain('Takeaway');
-    const info = cartGetTableInfo(s);
+    const info = cartGetTableInfo(PID, s);
     expect(info?.orderType).toBe('takeaway');
   });
 
   it('"bungkus" sets orderType to takeaway', async () => {
     const s = sid();
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_table')!;
     const result = await handler({ orderType: 'bungkus' });
     const text = result.content[0].text;
     expect(text).toContain('Takeaway');
-    const info = cartGetTableInfo(s);
+    const info = cartGetTableInfo(PID, s);
     expect(info?.orderType).toBe('takeaway');
   });
 
   it('"tapau" sets orderType to takeaway', async () => {
     const s = sid();
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_table')!;
     const result = await handler({ orderType: 'tapau' });
     const text = result.content[0].text;
     expect(text).toContain('Takeaway');
-    const info = cartGetTableInfo(s);
+    const info = cartGetTableInfo(PID, s);
     expect(info?.orderType).toBe('takeaway');
   });
 });
@@ -180,9 +182,9 @@ describe('US-866: Malay special instructions via cart_set_item_notes', () => {
   it('stores translated Malay instruction "less sugar" for kurang manis', async () => {
     const s = sid();
     // Add an item first
-    cartAddItem(s, { name: 'Teh Tarik', qty: 1, code: 'DR01', price: 3.50 });
+    cartAddItem(PID, s, { name: 'Teh Tarik', qty: 1, code: 'DR01', price: 3.50 });
 
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_item_notes')!;
     // The LLM translates "kurang manis" to "less sugar" before calling the tool
     const result = await handler({ name: 'Teh Tarik', notes: 'less sugar' });
@@ -190,39 +192,39 @@ describe('US-866: Malay special instructions via cart_set_item_notes', () => {
     expect(text).toContain('less sugar');
     expect(text).toContain('Teh Tarik');
 
-    const items = cartGetItems(s);
+    const items = cartGetItems(PID, s);
     expect(items[0].notes).toContain('less sugar');
-    cartClear(s);
+    cartClear(PID, s);
   });
 
   it('stores translated Malay instruction "no onion" for tanpa bawang', async () => {
     const s = sid();
-    cartAddItem(s, { name: 'Mee Goreng', qty: 1, code: 'NR03', price: 8.00 });
+    cartAddItem(PID, s, { name: 'Mee Goreng', qty: 1, code: 'NR03', price: 8.00 });
 
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_item_notes')!;
     const result = await handler({ name: 'Mee Goreng', notes: 'no onion' });
     const text = result.content[0].text;
     expect(text).toContain('no onion');
 
-    const items = cartGetItems(s);
+    const items = cartGetItems(PID, s);
     expect(items[0].notes).toContain('no onion');
-    cartClear(s);
+    cartClear(PID, s);
   });
 
   it('stores translated Malay instruction "a little spicy" for pedas sikit', async () => {
     const s = sid();
-    cartAddItem(s, { name: 'Nasi Lemak', qty: 1, code: 'NR01', price: 8.50 });
+    cartAddItem(PID, s, { name: 'Nasi Lemak', qty: 1, code: 'NR01', price: 8.50 });
 
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
     const handler = handlers.get('cart_set_item_notes')!;
     const result = await handler({ name: 'Nasi Lemak', notes: 'a little spicy' });
     const text = result.content[0].text;
     expect(text).toContain('a little spicy');
 
-    const items = cartGetItems(s);
+    const items = cartGetItems(PID, s);
     expect(items[0].notes).toContain('a little spicy');
-    cartClear(s);
+    cartClear(PID, s);
   });
 });
 
@@ -231,7 +233,7 @@ describe('US-866: Malay special instructions via cart_set_item_notes', () => {
 describe('US-866: End-to-end Malay ordering flow', () => {
   it('complete Malay ordering: add item → set note → tapau → confirm', async () => {
     const s = 'malay-e2e-' + Date.now();
-    const handlers = createCartHandlers(s);
+    const handlers = createCartHandlers(s, PID);
 
     // 1. Add item (simulating "saya nak nasi lemak")
     const addResult = await handlers.get('cart_add_item')!({
@@ -241,7 +243,7 @@ describe('US-866: End-to-end Malay ordering flow', () => {
       price: 8.50,
     });
     expect(addResult.content[0].text).toContain('Nasi Lemak');
-    expect(getOrderStage(s)).toBe('ORDERING');
+    expect(getOrderStage(PID, s)).toBe('ORDERING');
 
     // 2. Set special instruction (translating "pedas sikit" → "a little spicy")
     const notesResult = await handlers.get('cart_set_item_notes')!({
@@ -255,10 +257,10 @@ describe('US-866: End-to-end Malay ordering flow', () => {
       orderType: 'bawa balik',
     });
     expect(tableResult.content[0].text).toContain('Takeaway');
-    expect(cartGetTableInfo(s)?.orderType).toBe('takeaway');
+    expect(cartGetTableInfo(PID, s)?.orderType).toBe('takeaway');
 
     // Cleanup
-    cartClear(s);
-    clearOrderStage(s);
+    cartClear(PID, s);
+    clearOrderStage(PID, s);
   });
 });

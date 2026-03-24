@@ -20,7 +20,7 @@ import { clearPendingSetMeal } from '../assistant/set-meal-store.js';
 
 type HandlerMap = Map<string, (args: any) => Promise<MCPToolResult>>;
 
-export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): void {
+export function registerCoreHandlers(handlers: HandlerMap, sessionId: string, profileId: string): void {
 
   handlers.set('cart_add_item', async (args: any) => {
     const item: CartItem = {
@@ -48,10 +48,10 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
     }
 
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
-    const items = cartAddItem(sessionId, item);
-    transitionOrderStage(sessionId, 'ORDERING');
+    const items = cartAddItem(profileId, sessionId, item);
+    transitionOrderStage(profileId, sessionId, 'ORDERING');
     const summary = cartFormatSummary(items);
     const allergenAdvisory = item.code
       ? ''
@@ -75,9 +75,9 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
 
   handlers.set('cart_remove_item', async (args: any) => {
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
-    const { removed, items } = cartRemoveItem(sessionId, args.name);
+    const { removed, items } = cartRemoveItem(profileId, sessionId, args.name);
     if (!removed) {
       return {
         content: [{ type: 'text', text: `"${args.name}" was not found in the cart.` }],
@@ -85,7 +85,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
     }
     // If cart is now empty, go back to BROWSING
     if (items.length === 0) {
-      transitionOrderStage(sessionId, 'BROWSING');
+      transitionOrderStage(profileId, sessionId, 'BROWSING');
     }
     const summary = cartFormatSummary(items);
     const cartMsg = items.length > 0 ? `\n\nUpdated cart:\n${summary}` : '\n\nYour cart is now empty.';
@@ -96,7 +96,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
 
   handlers.set('cart_update_qty', async (args: any) => {
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
     const name: string = String(args.name || '').trim();
     const qty: number = typeof args.qty === 'number' ? Math.max(0, Math.floor(args.qty)) : 0;
@@ -105,7 +105,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
       return { content: [{ type: 'text', text: 'Please tell me which item to update.' }] };
     }
 
-    const { found, removed, items } = cartUpdateItemQty(sessionId, name, qty);
+    const { found, removed, items } = cartUpdateItemQty(profileId, sessionId, name, qty);
 
     if (!found) {
       return {
@@ -118,7 +118,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
 
     if (removed) {
       if (items.length === 0) {
-        transitionOrderStage(sessionId, 'BROWSING');
+        transitionOrderStage(profileId, sessionId, 'BROWSING');
       }
       const cartMsg = items.length > 0
         ? `\n\nUpdated cart:\n${cartFormatSummary(items)}`
@@ -135,7 +135,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
   });
 
   handlers.set('cart_view', async (_args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
     return {
       content: [{ type: 'text', text: summary }],
@@ -143,9 +143,9 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
   });
 
   handlers.set('cart_clear', async (_args: any) => {
-    cartClear(sessionId);
+    cartClear(profileId, sessionId);
     clearPendingSetMeal(sessionId);
-    clearOrderStage(sessionId);
+    clearOrderStage(profileId, sessionId);
     return {
       content: [{ type: 'text', text: 'Cart cleared.' }],
     };
@@ -159,10 +159,10 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
       return { content: [{ type: 'text', text: 'Please specify which item and what special instruction to add.' }] };
     }
 
-    const { found, items } = cartSetItemNotes(sessionId, name, notes);
+    const { found, items } = cartSetItemNotes(profileId, sessionId, name, notes);
 
     if (!found) {
-      const currentItems = cartGetItems(sessionId);
+      const currentItems = cartGetItems(profileId, sessionId);
       if (currentItems.length === 1) {
         const only = currentItems[0];
         return {
@@ -214,7 +214,7 @@ export function registerCoreHandlers(handlers: HandlerMap, sessionId: string): v
       return { content: [{ type: 'text', text: 'Please provide a table number or specify takeaway/tapau.' }] };
     }
 
-    const saved = cartSetTableInfo(sessionId, info);
+    const saved = cartSetTableInfo(profileId, sessionId, info);
     const desc = saved.orderType === 'takeaway'
       ? 'Takeaway order noted!'
       : `Table ${saved.tableNumber || ''} noted!`.trim();

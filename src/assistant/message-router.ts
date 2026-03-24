@@ -82,7 +82,7 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
   // US-882: Intercept cart recovery replies ("Resume order" / "Clear cart")
   const recoveryAction = parseCartRecoveryReply(text);
   if (recoveryAction) {
-    const handled = await handleCartRecoveryReply(phone, recoveryAction, ctx.sendMessage);
+    const handled = await handleCartRecoveryReply(phone, recoveryAction, ctx.sendMessage, state.profileId);
     if (handled) return;
   }
 

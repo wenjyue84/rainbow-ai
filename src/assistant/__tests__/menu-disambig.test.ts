@@ -15,6 +15,7 @@ import {
   formatDisambiguationList, type DisambiguationState,
 } from '../disambiguation-store.js';
 
+const PID = 'test';
 // ─── levenshtein ──────────────────────────────────────────────────────────────
 
 describe('levenshtein()', () => {
@@ -117,11 +118,11 @@ describe('disambiguation-store', () => {
   const sessionId = 'test-session-123';
 
   beforeEach(() => {
-    clearDisambiguation(sessionId);
+    clearDisambiguation(PID, sessionId);
   });
 
   it('returns null when no state is set', () => {
-    expect(getDisambiguation(sessionId)).toBeNull();
+    expect(getDisambiguation(PID, sessionId)).toBeNull();
   });
 
   it('stores and retrieves disambiguation state', () => {
@@ -133,32 +134,32 @@ describe('disambiguation-store', () => {
       ],
       createdAt: Date.now(),
     };
-    setDisambiguation(sessionId, state);
-    const retrieved = getDisambiguation(sessionId);
+    setDisambiguation(PID, sessionId, state);
+    const retrieved = getDisambiguation(PID, sessionId);
     expect(retrieved).not.toBeNull();
     expect(retrieved!.pendingItem).toBe('chicken');
     expect(retrieved!.candidates).toHaveLength(2);
   });
 
   it('clears state after clearDisambiguation()', () => {
-    setDisambiguation(sessionId, {
+    setDisambiguation(PID, sessionId, {
       pendingItem: 'nasi',
       candidates: [{ name: 'Nasi Lemak' }],
       createdAt: Date.now(),
     });
-    clearDisambiguation(sessionId);
-    expect(getDisambiguation(sessionId)).toBeNull();
+    clearDisambiguation(PID, sessionId);
+    expect(getDisambiguation(PID, sessionId)).toBeNull();
   });
 
   it('isolates state by sessionId', () => {
     const session2 = 'other-session';
-    setDisambiguation(sessionId, {
+    setDisambiguation(PID, sessionId, {
       pendingItem: 'chicken',
       candidates: [{ name: 'Chicken Rice' }],
       createdAt: Date.now(),
     });
-    expect(getDisambiguation(session2)).toBeNull();
-    clearDisambiguation(session2);
+    expect(getDisambiguation(PID, session2)).toBeNull();
+    clearDisambiguation(PID, session2);
   });
 
   it('formatDisambiguationList outputs numbered list with prices', () => {
@@ -182,12 +183,12 @@ describe('disambiguation-store', () => {
 
   it('returns null for expired state (simulated via fake createdAt)', () => {
     const THIRTY_ONE_MINUTES_AGO = Date.now() - 31 * 60 * 1000;
-    setDisambiguation(sessionId, {
+    setDisambiguation(PID, sessionId, {
       pendingItem: 'old',
       candidates: [{ name: 'Old Item' }],
       createdAt: THIRTY_ONE_MINUTES_AGO,
     });
     // The store checks TTL on read
-    expect(getDisambiguation(sessionId)).toBeNull();
+    expect(getDisambiguation(PID, sessionId)).toBeNull();
   });
 });

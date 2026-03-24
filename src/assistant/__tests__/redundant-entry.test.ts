@@ -7,32 +7,33 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { cartSetTableInfo, cartGetTableInfo, cartClear } from '../cart-store.js';
 
+const PID = 'test';
 describe('US-921: Redundant Entry Prevention', () => {
   const sessionId = 'test_session_921';
 
   beforeEach(() => {
-    cartClear(sessionId);
+    cartClear(PID, sessionId);
   });
 
   describe('Table info persists across cart operations', () => {
     it('should retain table number after setting it', () => {
-      cartSetTableInfo(sessionId, { tableNumber: '5', orderType: 'dine-in' });
-      const info = cartGetTableInfo(sessionId);
+      cartSetTableInfo(PID, sessionId, { tableNumber: '5', orderType: 'dine-in' });
+      const info = cartGetTableInfo(PID, sessionId);
       expect(info).toBeDefined();
       expect(info!.tableNumber).toBe('5');
       expect(info!.orderType).toBe('dine-in');
     });
 
     it('should merge partial updates without overwriting existing fields', () => {
-      cartSetTableInfo(sessionId, { tableNumber: '5' });
-      cartSetTableInfo(sessionId, { orderType: 'dine-in' });
-      const info = cartGetTableInfo(sessionId);
+      cartSetTableInfo(PID, sessionId, { tableNumber: '5' });
+      cartSetTableInfo(PID, sessionId, { orderType: 'dine-in' });
+      const info = cartGetTableInfo(PID, sessionId);
       expect(info!.tableNumber).toBe('5');
       expect(info!.orderType).toBe('dine-in');
     });
 
     it('should return undefined for sessions with no table info', () => {
-      expect(cartGetTableInfo('nonexistent_session')).toBeUndefined();
+      expect(cartGetTableInfo(PID, 'nonexistent_session')).toBeUndefined();
     });
   });
 
@@ -90,10 +91,10 @@ describe('US-921: Redundant Entry Prevention', () => {
 
     it('should carry forward table info from previous orders in the same session', () => {
       // First order: set table
-      cartSetTableInfo(sessionId, { tableNumber: '5', orderType: 'dine-in' });
+      cartSetTableInfo(PID, sessionId, { tableNumber: '5', orderType: 'dine-in' });
 
       // Simulate order placed (cart cleared but session data should persist in session store)
-      const tableInfoBeforeClear = cartGetTableInfo(sessionId);
+      const tableInfoBeforeClear = cartGetTableInfo(PID, sessionId);
       expect(tableInfoBeforeClear!.tableNumber).toBe('5');
 
       // The server-side syncCartToSessionData function captures table info
@@ -104,8 +105,8 @@ describe('US-921: Redundant Entry Prevention', () => {
       };
 
       // Clear cart (simulates order placed)
-      cartClear(sessionId);
-      expect(cartGetTableInfo(sessionId)).toBeUndefined();
+      cartClear(PID, sessionId);
+      expect(cartGetTableInfo(PID, sessionId)).toBeUndefined();
 
       // But captured session data is still available
       expect(capturedData.tableNumber).toBe('5');

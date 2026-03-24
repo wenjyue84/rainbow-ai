@@ -18,6 +18,7 @@ import { cartGetItems, cartFormatSummary, cartGetTableInfo } from '../../assista
 import { getOrderStage, ORDER_STAGE_DESCRIPTIONS } from '../../assistant/order-stage-store.js';
 import { getSessionOrderId } from '../../assistant/order-id-store.js';
 import { getDisambiguation } from '../../assistant/disambiguation-store.js';
+import { sessionKey } from '../../assistant/session-key.js';
 import { setupSSEHeaders, sseEvent, sendStaticSSE, streamChatResponse, streamChatWithTools } from '../../assistant/chat-stream.js';
 import { checkWebchatIdle, resetWebchatSession } from '../../assistant/webchat-idle-timeout.js';
 import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js';
@@ -216,7 +217,7 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
   }
 
   // Already greeted this session
-  if (greetingSessions.has(sessionId)) {
+  if (greetingSessions.has(sessionKey(profileId, sessionId))) {
     res.json({ greeting: null, sessionId });
     return;
   }
@@ -226,7 +227,7 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
   const greeting: string = settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE;
 
   // Mark session as greeted
-  greetingSessions.set(sessionId, { sentAt: Date.now() });
+  greetingSessions.set(sessionKey(profileId, sessionId), { sentAt: Date.now() });
 
   // US-897: Check for returning customer's last order
   let lastOrder: { items: Array<{ name: string; qty: number; price?: number }>; orderId: string } | null = null;
@@ -248,7 +249,7 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
   }
 
   // US-921: Include any previously stored session data in greeting response
-  const existingSessionData = sessionDataStore.get(sessionId);
+  const existingSessionData = sessionDataStore.get(sessionKey(profileId, sessionId));
   res.json({ greeting, sessionId, lastOrder, sessionData: existingSessionData || null });
 });
 
@@ -260,13 +261,14 @@ router.get('/:profileId/greeting', async (req: Request, res: Response) => {
  * Query params: sessionId (required)
  */
 router.get('/:profileId/session-data', (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
   const sessionId = req.query.sessionId as string;
   if (!sessionId || typeof sessionId !== 'string') {
     res.status(400).json({ error: 'sessionId query parameter required' });
     return;
   }
 
-  const data = sessionDataStore.get(sessionId);
+  const data = sessionDataStore.get(sessionKey(profileId, sessionId));
   res.json({ sessionId, sessionData: data || null });
 });
 
@@ -278,13 +280,14 @@ router.get('/:profileId/session-data', (req: Request, res: Response) => {
  * Body: { sessionId, guestName?, tableNumber?, orderType?, deliveryAddress?, seatNumber? }
  */
 router.put('/:profileId/session-data', (req: Request, res: Response) => {
+  const profileId = req.params.profileId as string;
   const { sessionId, guestName, tableNumber, orderType, deliveryAddress, seatNumber } = req.body;
   if (!sessionId || typeof sessionId !== 'string') {
     res.status(400).json({ error: 'sessionId (string) required' });
     return;
   }
 
-  const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+  const existing = sessionDataStore.get(sessionKey(profileId, sessionId)) || { updatedAt: Date.now() };
   const updated: WebchatSessionData = {
     ...existing,
     updatedAt: Date.now(),
@@ -297,7 +300,7 @@ router.put('/:profileId/session-data', (req: Request, res: Response) => {
   if (deliveryAddress !== undefined) updated.deliveryAddress = String(deliveryAddress).slice(0, 500);
   if (seatNumber !== undefined) updated.seatNumber = String(seatNumber).slice(0, 20);
 
-  sessionDataStore.set(sessionId, updated);
+  sessionDataStore.set(sessionKey(profileId, sessionId), updated);
   res.json({ sessionId, sessionData: updated });
 });
 
@@ -330,7 +333,7 @@ router.get('/:profileId/config', (req: Request, res: Response) => {
 
 // ─── Makan-Moments Context Builder ─────────────────────────────────────
 // Extracted to reuse in both streaming and non-streaming paths.
-function buildMakanMomentsContext(sessionId: string) {
+function buildMakanMomentsContext(sessionId: string, profileId: string) {
   const fnbTools = toolRegistry.getToolsForProfile('makan-moments');
   const fnbHandlers = toolRegistry.getHandlersForProfile('makan-moments');
   const allTools = [...fnbTools, ...cartTools];
@@ -354,16 +357,16 @@ function buildMakanMomentsContext(sessionId: string) {
   const orderModWindowMinutes = makanSettings?.order_modification?.window_minutes ?? 2;
   const modificationWindowMs = orderModWindowMinutes * 60 * 1000;
 
-  const cartHandlers = createCartHandlers(sessionId, { paymentMethods, kitchenQueue, kds, modificationWindowMs });
+  const cartHandlers = createCartHandlers(sessionId, profileId, { paymentMethods, kitchenQueue, kds, modificationWindowMs });
   const allHandlers = new Map([...fnbHandlers, ...cartHandlers]);
 
-  const currentCartItems = cartGetItems(sessionId);
+  const currentCartItems = cartGetItems(profileId, sessionId);
   const cartSummary = cartFormatSummary(currentCartItems);
-  const currentStage = getOrderStage(sessionId);
+  const currentStage = getOrderStage(profileId, sessionId);
   const stageDescription = ORDER_STAGE_DESCRIPTIONS[currentStage];
-  const pendingDisambig = getDisambiguation(sessionId);
-  const tableInfo = cartGetTableInfo(sessionId);
-  const lastOrderId = getSessionOrderId(sessionId);
+  const pendingDisambig = getDisambiguation(profileId, sessionId);
+  const tableInfo = cartGetTableInfo(profileId, sessionId);
+  const lastOrderId = getSessionOrderId(profileId, sessionId);
 
   const disambigSection = pendingDisambig
     ? [
@@ -384,7 +387,7 @@ function buildMakanMomentsContext(sessionId: string) {
     : '\nTable/Order Type: Not yet captured';
 
   // US-921: Build session data context (WCAG 3.3.7 Redundant Entry prevention)
-  const sessionData = sessionDataStore.get(sessionId);
+  const sessionData = sessionDataStore.get(sessionKey(profileId, sessionId));
   const sessionDataLines: string[] = [];
   if (sessionData) {
     if (sessionData.guestName) sessionDataLines.push(`Guest Name: ${sessionData.guestName} (already provided — do NOT ask again)`);
@@ -521,11 +524,12 @@ function buildMakanMomentsContext(sessionId: string) {
  * Called after each message so that table/orderType captured via AI tool calls
  * are persisted and not re-asked on the next request.
  */
-function syncCartToSessionData(sessionId: string): void {
-  const tableInfo = cartGetTableInfo(sessionId);
+function syncCartToSessionData(sessionId: string, profileId: string): void {
+  const tableInfo = cartGetTableInfo(profileId, sessionId);
   if (!tableInfo) return;
 
-  const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+  const storeKey = sessionKey(profileId, sessionId);
+  const existing = sessionDataStore.get(storeKey) || { updatedAt: Date.now() };
   let changed = false;
 
   if (tableInfo.tableNumber && existing.tableNumber !== tableInfo.tableNumber) {
@@ -539,7 +543,7 @@ function syncCartToSessionData(sessionId: string): void {
 
   if (changed) {
     existing.updatedAt = Date.now();
-    sessionDataStore.set(sessionId, existing);
+    sessionDataStore.set(storeKey, existing);
   }
 }
 
@@ -575,14 +579,15 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
   // US-921: Merge client-side session data (name, table, address) into server store
   if (clientSessionData && typeof clientSessionData === 'object') {
-    const existing = sessionDataStore.get(sessionId) || { updatedAt: Date.now() };
+    const sdKey = sessionKey(profileId, sessionId);
+    const existing = sessionDataStore.get(sdKey) || { updatedAt: Date.now() };
     const merged: WebchatSessionData = { ...existing, updatedAt: Date.now() };
     if (clientSessionData.guestName) merged.guestName = String(clientSessionData.guestName).slice(0, 100);
     if (clientSessionData.tableNumber) merged.tableNumber = String(clientSessionData.tableNumber).slice(0, 20);
     if (clientSessionData.orderType) merged.orderType = String(clientSessionData.orderType).slice(0, 20);
     if (clientSessionData.deliveryAddress) merged.deliveryAddress = String(clientSessionData.deliveryAddress).slice(0, 500);
     if (clientSessionData.seatNumber) merged.seatNumber = String(clientSessionData.seatNumber).slice(0, 20);
-    sessionDataStore.set(sessionId, merged);
+    sessionDataStore.set(sdKey, merged);
   }
 
   // US-826: Reset idle/timed-out session when user sends a new message
@@ -639,7 +644,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
       if (isMakanMoments) {
         // Tool-calling path: stream with tools
-        const ctx = buildMakanMomentsContext(sessionId);
+        const ctx = buildMakanMomentsContext(sessionId, profileId);
         systemPrompt = `${systemPrompt}\n\n${ctx.systemPromptSuffix}`;
         fullText = await streamChatWithTools(
           res, systemPrompt, conversationHistory, sanitizedMessage,
@@ -653,6 +658,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
           message: sanitizedMessage,
           history: Array.isArray(history) ? history : [],
           sessionId: sessionId || undefined,
+          profileId,
           configStore: profile.configStore,
           kb: profile.kb,
           tools: [],
@@ -660,7 +666,9 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         });
         fullText = result.message;
         if (!disconnected) {
-          sendStaticSSE(res, fullText, result.responseTime, sessionId);
+          sseEvent(res, { token: fullText });
+          sseEvent(res, { done: true, responseTime: result.responseTime, sessionId });
+          res.end();
         }
       }
 
@@ -668,13 +676,13 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
       // US-921: Sync cart table info back to session data store
       if (isMakanMoments) {
-        syncCartToSessionData(sessionId);
+        syncCartToSessionData(sessionId, profileId);
       }
 
       if (!disconnected && isMakanMoments) {
         // makan-moments streaming already ends via sendStaticSSE above for non-makan paths;
         // only send the done event here for makan-moments tool path.
-        const updatedSessionData = sessionDataStore.get(sessionId) || null;
+        const updatedSessionData = sessionDataStore.get(sessionKey(profileId, sessionId)) || null;
         sseEvent(res, { done: true, responseTime, sessionId, sessionData: updatedSessionData });
         res.end();
       }
@@ -704,7 +712,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     let systemPromptSuffix: string | undefined;
 
     if (isMakanMoments) {
-      const ctx = buildMakanMomentsContext(sessionId);
+      const ctx = buildMakanMomentsContext(sessionId, profileId);
       allTools = ctx.allTools;
       allHandlers = ctx.allHandlers;
       systemPromptSuffix = ctx.systemPromptSuffix;
@@ -714,6 +722,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       message: sanitizedMessage,
       history: Array.isArray(history) ? history : [],
       sessionId: sessionId || undefined,
+      profileId,
       configStore: profile.configStore,
       kb: profile.kb,
       tools: allTools,
@@ -731,11 +740,11 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
     // US-921: Sync cart table info back to session data store
     if (isMakanMoments) {
-      syncCartToSessionData(sessionId);
+      syncCartToSessionData(sessionId, profileId);
     }
 
     // Return only public-safe fields + session data
-    const updatedSessionData = sessionDataStore.get(sessionId) || null;
+    const updatedSessionData = sessionDataStore.get(sessionKey(profileId, sessionId)) || null;
     res.json({
       message: result.message,
       responseTime: result.responseTime,

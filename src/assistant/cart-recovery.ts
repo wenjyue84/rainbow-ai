@@ -169,7 +169,7 @@ async function scanIdleCarts(): Promise<void> {
   const now = Date.now();
   const activeSessions = getActiveCartSessions();
 
-  for (const { sessionId, items, lastAccess } of activeSessions) {
+  for (const { profileId, sessionId, items, lastAccess } of activeSessions) {
     // Only WhatsApp sessions
     if (!isWhatsAppSession(sessionId)) continue;
 
@@ -182,8 +182,8 @@ async function scanIdleCarts(): Promise<void> {
     if (state?.recoveryMessageSent && state.sentAt) {
       if (now - state.sentAt > AUTO_CLEAR_MS) {
         console.log(`[CartRecovery] 24h auto-clear for ${sessionId} — no response after recovery message`);
-        cartClear(sessionId);
-        clearOrderStage(sessionId);
+        cartClear(profileId, sessionId);
+        clearOrderStage(profileId, sessionId);
         recoveryStates.delete(sessionId);
       }
       continue; // skip — already sent recovery for this session
@@ -290,7 +290,8 @@ export function parseCartRecoveryReply(text: string): 'resume' | 'clear' | null 
 export async function handleCartRecoveryReply(
   phone: string,
   action: 'resume' | 'clear',
-  send: SendMessageFn
+  send: SendMessageFn,
+  profileId: string = ''
 ): Promise<boolean> {
   const state = recoveryStates.get(phone);
   if (!state?.recoveryMessageSent) return false;
@@ -298,7 +299,7 @@ export async function handleCartRecoveryReply(
   if (action === 'resume') {
     // Cart items are still in the store — just reset the idle timer
     // by accessing the cart (cartGetItems updates lastAccess)
-    const items = cartGetItems(phone);
+    const items = cartGetItems(profileId, phone);
     recoveryStates.delete(phone);
 
     // US-917: Track recovery in DB
@@ -315,8 +316,8 @@ export async function handleCartRecoveryReply(
   }
 
   if (action === 'clear') {
-    cartClear(phone);
-    clearOrderStage(phone);
+    cartClear(profileId, phone);
+    clearOrderStage(profileId, phone);
     recoveryStates.delete(phone);
 
     // US-917: Track cleared cart in DB

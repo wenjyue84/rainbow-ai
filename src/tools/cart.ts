@@ -126,7 +126,7 @@ async function getKitchenWarning(queueThreshold: number, waitThreshold: number):
   return '';
 }
 
-export function createCartHandlers(sessionId: string, options?: CartHandlerOptions): Map<string, (args: any) => Promise<MCPToolResult>> {
+export function createCartHandlers(sessionId: string, profileId: string, options?: CartHandlerOptions): Map<string, (args: any) => Promise<MCPToolResult>> {
   const paymentMethods = options?.paymentMethods ?? ['cash'];
   const queueThreshold = options?.kitchenQueue?.queueWarningThreshold ?? 5;
   const waitThreshold = options?.kitchenQueue?.waitTimeWarningMinutes ?? 20;
@@ -164,12 +164,12 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
     // No allergen data — add item and show advisory
-    const items = cartAddItem(sessionId, item);
+    const items = cartAddItem(profileId, sessionId,item);
     // Transition stage to ORDERING when an item is added
-    transitionOrderStage(sessionId, 'ORDERING');
+    transitionOrderStage(profileId, sessionId,'ORDERING');
     const summary = cartFormatSummary(items);
     const allergenAdvisory = item.code
       ? '' // Known item with no allergen data on file — skip advisory to avoid noise
@@ -194,9 +194,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
 
   handlers.set('cart_remove_item', async (args: any) => {
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
-    const { removed, items } = cartRemoveItem(sessionId, args.name);
+    const { removed, items } = cartRemoveItem(profileId, sessionId,args.name);
     if (!removed) {
       return {
         content: [{ type: 'text', text: `"${args.name}" was not found in the cart.` }]
@@ -204,7 +204,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
     // If cart is now empty, go back to BROWSING
     if (items.length === 0) {
-      transitionOrderStage(sessionId, 'BROWSING');
+      transitionOrderStage(profileId, sessionId,'BROWSING');
     }
     const summary = cartFormatSummary(items);
     const cartMsg = items.length > 0 ? `\n\nUpdated cart:\n${summary}` : '\n\nYour cart is now empty.';
@@ -215,7 +215,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
 
   handlers.set('cart_update_qty', async (args: any) => {
     // US-902: If modifying cart while in CONFIRMING stage, record correction
-    if (getOrderStage(sessionId) === 'CONFIRMING') markCorrected(sessionId);
+    if (getOrderStage(profileId, sessionId) === 'CONFIRMING') markCorrected(sessionId);
 
     const name: string = String(args.name || '').trim();
     const qty: number = typeof args.qty === 'number' ? Math.max(0, Math.floor(args.qty)) : 0;
@@ -224,7 +224,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       return { content: [{ type: 'text', text: 'Please tell me which item to update.' }] };
     }
 
-    const { found, removed, items } = cartUpdateItemQty(sessionId, name, qty);
+    const { found, removed, items } = cartUpdateItemQty(profileId, sessionId,name, qty);
 
     if (!found) {
       return {
@@ -237,7 +237,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
 
     if (removed) {
       if (items.length === 0) {
-        transitionOrderStage(sessionId, 'BROWSING');
+        transitionOrderStage(profileId, sessionId,'BROWSING');
       }
       const cartMsg = items.length > 0
         ? `\n\nUpdated cart:\n${cartFormatSummary(items)}`
@@ -254,7 +254,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('cart_view', async (_args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
     return {
       content: [{ type: 'text', text: summary }]
@@ -262,9 +262,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('cart_clear', async (_args: any) => {
-    cartClear(sessionId);
+    cartClear(profileId, sessionId);
     clearPendingSetMeal(sessionId);
-    clearOrderStage(sessionId);
+    clearOrderStage(profileId, sessionId);
     return {
       content: [{ type: 'text', text: 'Cart cleared.' }]
     };
@@ -278,11 +278,11 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       return { content: [{ type: 'text', text: 'Please specify which item and what special instruction to add.' }] };
     }
 
-    const { found, items } = cartSetItemNotes(sessionId, name, notes);
+    const { found, items } = cartSetItemNotes(profileId, sessionId,name, notes);
 
     if (!found) {
       // If only one item in cart, suggest it
-      const currentItems = cartGetItems(sessionId);
+      const currentItems = cartGetItems(profileId, sessionId);
       if (currentItems.length === 1) {
         const only = currentItems[0];
         return {
@@ -334,7 +334,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       return { content: [{ type: 'text', text: 'Please provide a table number or specify takeaway/tapau.' }] };
     }
 
-    const saved = cartSetTableInfo(sessionId, info);
+    const saved = cartSetTableInfo(profileId, sessionId,info);
     const desc = saved.orderType === 'takeaway'
       ? 'Takeaway order noted!'
       : `Table ${saved.tableNumber || ''} noted!`.trim();
@@ -344,17 +344,17 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   // ─── Order Stage Handlers ────────────────────────────────────────
 
   handlers.set('order_request_confirmation', async (_args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     if (items.length === 0) {
       return {
         content: [{ type: 'text', text: 'The cart is empty. Please add items before placing an order.' }]
       };
     }
-    transitionOrderStage(sessionId, 'CONFIRMING');
+    transitionOrderStage(profileId, sessionId,'CONFIRMING');
     // US-902: Track that confirmation was shown for accuracy KPI
     markConfirmationShown(sessionId);
     const summary = cartFormatSummary(items);
-    const tableInfo = cartGetTableInfo(sessionId);
+    const tableInfo = cartGetTableInfo(profileId, sessionId);
     const tableLine = tableInfo
       ? tableInfo.orderType === 'takeaway'
         ? '\nOrder type: Takeaway'
@@ -375,7 +375,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('order_confirm_submit', async (args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     if (items.length === 0) {
       return {
         content: [{ type: 'text', text: 'The cart is empty. Nothing to submit.' }]
@@ -384,7 +384,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     const summary = cartFormatSummary(items);
 
     // Resolve table info: prefer stored session state, fall back to args
-    const storedTable = cartGetTableInfo(sessionId);
+    const storedTable = cartGetTableInfo(profileId, sessionId);
     const effectiveTableNumber = args.tableNumber || storedTable?.tableNumber;
     const effectiveOrderType = storedTable?.orderType || (args.tableNumber ? 'dine-in' : undefined);
 
@@ -436,7 +436,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
         const extractedOrderId = orderIdMatch ? (orderIdMatch[1] || orderIdMatch[0]) : placedOrderId;
         placedOrderId = extractedOrderId;
         if (orderIdMatch) {
-          setSessionOrderId(sessionId, extractedOrderId);
+          setSessionOrderId(profileId, sessionId,extractedOrderId);
         }
 
         // US-876: Fire-and-forget KDS webhook for kitchen display
@@ -483,9 +483,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     });
 
     // Transition to PLACED and clear cart
-    transitionOrderStage(sessionId, 'PLACED');
-    cartClear(sessionId);
-    clearOrderStage(sessionId);
+    transitionOrderStage(profileId, sessionId,'PLACED');
+    cartClear(profileId, sessionId);
+    clearOrderStage(profileId, sessionId);
 
     // US-881: Start modification window
     if (modificationWindowMs > 0) {
@@ -513,8 +513,8 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('order_back_to_cart', async (_args: any) => {
-    transitionOrderStage(sessionId, 'ORDERING');
-    const items = cartGetItems(sessionId);
+    transitionOrderStage(profileId, sessionId,'ORDERING');
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
     return {
       content: [{
@@ -525,7 +525,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   handlers.set('cart_cancel_order', async (_args: any) => {
-    const stage = getOrderStage(sessionId);
+    const stage = getOrderStage(profileId, sessionId);
 
     // Order already sent to kitchen — cannot cancel
     if (stage === 'PLACED') {
@@ -537,7 +537,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       };
     }
 
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
 
     // Nothing to cancel
     if (items.length === 0) {
@@ -550,9 +550,9 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     // Clear cart, pending set meals, and reset to BROWSING
-    cartClear(sessionId);
+    cartClear(profileId, sessionId);
     clearPendingSetMeal(sessionId);
-    clearOrderStage(sessionId);
+    clearOrderStage(profileId, sessionId);
     // US-902: Clear accuracy tracking on cancel (no order to count)
     clearAccuracyTracking(sessionId);
     return {
@@ -568,7 +568,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   handlers.set('order_check_status', async (args: any) => {
     // Resolve order ID: explicit arg > session store
     const orderId = (args.orderId && String(args.orderId).trim())
-      || getSessionOrderId(sessionId);
+      || getSessionOrderId(profileId, sessionId);
 
     if (!orderId) {
       return {
@@ -635,7 +635,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
   });
 
   // ─── Disambiguation Handlers (cart_search_item, cart_pick_item) ─────
-  registerSearchHandlers(handlers, sessionId);
+  registerSearchHandlers(handlers, sessionId, profileId);
 
   // ─── Set Meal Choice Handler (US-865) ─────────────────────────
 
@@ -723,7 +723,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       notes: pending.notes,
       components,
     };
-    const items = cartAddItem(sessionId, item);
+    const items = cartAddItem(profileId, sessionId,item);
     clearPendingSetMeal(sessionId);
 
     const summary = cartFormatSummary(items);
@@ -750,8 +750,8 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     clearPendingAllergenItem(sessionId);
-    const items = cartAddItem(sessionId, pending.item);
-    transitionOrderStage(sessionId, 'ORDERING');
+    const items = cartAddItem(profileId, sessionId,pending.item);
+    transitionOrderStage(profileId, sessionId,'ORDERING');
     const priceStr = pending.item.price !== undefined ? ` (RM ${pending.item.price.toFixed(2)})` : '';
     const summary = cartFormatSummary(items);
 
@@ -806,16 +806,16 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
 
     // Re-add items to cart
     for (const item of snapshot.items) {
-      cartAddItem(sessionId, { ...item });
+      cartAddItem(profileId, sessionId,{ ...item });
     }
     // Restore table info
     if (snapshot.tableInfo) {
-      cartSetTableInfo(sessionId, snapshot.tableInfo);
+      cartSetTableInfo(profileId, sessionId,snapshot.tableInfo);
     }
     // Set stage to ORDERING so the guest can add/remove/modify
-    transitionOrderStage(sessionId, 'ORDERING');
+    transitionOrderStage(profileId, sessionId,'ORDERING');
 
-    const summary = cartFormatSummary(cartGetItems(sessionId));
+    const summary = cartFormatSummary(cartGetItems(profileId, sessionId));
 
     return {
       content: [{
@@ -858,7 +858,7 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
       }
       // If menu was fetched and item is not found at all, still try to add
       // (menu structure may have changed but item could still exist)
-      cartAddItem(sessionId, {
+      cartAddItem(profileId, sessionId,{
         name: item.name,
         code: item.code,
         qty: item.qty,
@@ -869,10 +869,10 @@ export function createCartHandlers(sessionId: string, options?: CartHandlerOptio
     }
 
     if (added.length > 0) {
-      transitionOrderStage(sessionId, 'ORDERING');
+      transitionOrderStage(profileId, sessionId,'ORDERING');
     }
 
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
 
     let response = `Welcome back! I've added your previous order to the cart:\n\n${summary}`;

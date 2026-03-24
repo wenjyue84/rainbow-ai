@@ -69,19 +69,20 @@ async function getKitchenWarning(queueThreshold: number, waitThreshold: number):
 export function registerOrderHandlers(
   handlers: HandlerMap,
   sessionId: string,
+  profileId: string,
   ctx: CartOrderContext,
 ): void {
   const { paymentMethods, queueThreshold, waitThreshold, kdsEnabled, kdsOpsPhone, kdsProfileId, modificationWindowMs } = ctx;
 
   handlers.set('order_request_confirmation', async (_args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     if (items.length === 0) {
       return { content: [{ type: 'text', text: 'The cart is empty. Please add items before placing an order.' }] };
     }
-    transitionOrderStage(sessionId, 'CONFIRMING');
+    transitionOrderStage(profileId, sessionId, 'CONFIRMING');
     markConfirmationShown(sessionId);
     const summary = cartFormatSummary(items);
-    const tableInfo = cartGetTableInfo(sessionId);
+    const tableInfo = cartGetTableInfo(profileId, sessionId);
     const tableLine = tableInfo
       ? tableInfo.orderType === 'takeaway' ? '\nOrder type: Takeaway'
         : tableInfo.tableNumber ? `\nTable: ${tableInfo.tableNumber}` : '\nOrder type: Dine-in'
@@ -96,12 +97,12 @@ export function registerOrderHandlers(
   });
 
   handlers.set('order_confirm_submit', async (args: any) => {
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     if (items.length === 0) {
       return { content: [{ type: 'text', text: 'The cart is empty. Nothing to submit.' }] };
     }
     const summary = cartFormatSummary(items);
-    const storedTable = cartGetTableInfo(sessionId);
+    const storedTable = cartGetTableInfo(profileId, sessionId);
     const effectiveTableNumber = args.tableNumber || storedTable?.tableNumber;
     const effectiveOrderType = storedTable?.orderType || (args.tableNumber ? 'dine-in' : undefined);
     let tableDesc = '';
@@ -120,7 +121,7 @@ export function registerOrderHandlers(
     if (codedItems.length > 0) {
       const fnbResult = await fnbCreateOrder({
         items: codedItems,
-        phone: 'webchat-' + sessionId,
+        phone: `webchat-${profileId}-${sessionId}`,
         estimated_arrival: new Date().toISOString(),
         ...(fnbNotes.length > 0 ? { notes: fnbNotes.join(', ') } : {}),
         ...(effectiveTableNumber ? { tableNumber: effectiveTableNumber } : {}),
@@ -132,14 +133,14 @@ export function registerOrderHandlers(
         const orderIdMatch = fnbText.match(/\b(MM-[A-Z0-9]{4,})\b/i) || fnbText.match(/order\s*(?:id|#|number)?[:\s]*([A-Za-z0-9-]{4,})/i);
         const extractedOrderId = orderIdMatch ? (orderIdMatch[1] || orderIdMatch[0]) : placedOrderId;
         placedOrderId = extractedOrderId;
-        if (orderIdMatch) setSessionOrderId(sessionId, extractedOrderId);
+        if (orderIdMatch) setSessionOrderId(profileId, sessionId, extractedOrderId);
         if (kdsEnabled) {
           const kdsPayload = buildKdsPayload({
             orderId: extractedOrderId,
             items: items.map(i => ({ name: i.name, code: i.code, qty: i.qty, notes: i.notes })),
             tableNumber: effectiveTableNumber,
             orderType: effectiveOrderType,
-            jid: 'webchat-' + sessionId,
+            jid: `webchat-${profileId}-${sessionId}`,
             profileId: kdsProfileId,
           });
           sendToKds(kdsPayload, kdsOpsPhone).then((kdsResult: KdsWebhookResult) => {
@@ -159,15 +160,15 @@ export function registerOrderHandlers(
 
     const snapshotItems = items.map(i => ({ ...i }));
     const snapshotTable = storedTable ? { ...storedTable } : undefined;
-    saveOrderHistory('webchat-' + sessionId, placedOrderId, snapshotItems).catch(err => {
+    saveOrderHistory(`webchat-${profileId}-${sessionId}`, placedOrderId, snapshotItems).catch(err => {
       console.error('[OrderHistory] Save failed:', err.message);
     });
     recordOrderSubmitted(sessionId, kdsProfileId || 'makan-moments').catch(err => {
       console.error('[OrderAccuracy] Record failed:', err.message);
     });
-    transitionOrderStage(sessionId, 'PLACED');
-    cartClear(sessionId);
-    clearOrderStage(sessionId);
+    transitionOrderStage(profileId, sessionId, 'PLACED');
+    cartClear(profileId, sessionId);
+    clearOrderStage(profileId, sessionId);
     if (modificationWindowMs > 0) {
       startModificationWindow(sessionId, placedOrderId, snapshotItems, snapshotTable, modificationWindowMs);
     }
@@ -186,8 +187,8 @@ export function registerOrderHandlers(
   });
 
   handlers.set('order_back_to_cart', async (_args: any) => {
-    transitionOrderStage(sessionId, 'ORDERING');
-    const items = cartGetItems(sessionId);
+    transitionOrderStage(profileId, sessionId, 'ORDERING');
+    const items = cartGetItems(profileId, sessionId);
     const summary = cartFormatSummary(items);
     return {
       content: [{
@@ -198,7 +199,7 @@ export function registerOrderHandlers(
   });
 
   handlers.set('cart_cancel_order', async (_args: any) => {
-    const stage = getOrderStage(sessionId);
+    const stage = getOrderStage(profileId, sessionId);
     if (stage === 'PLACED') {
       return {
         content: [{
@@ -207,7 +208,7 @@ export function registerOrderHandlers(
         }]
       };
     }
-    const items = cartGetItems(sessionId);
+    const items = cartGetItems(profileId, sessionId);
     if (items.length === 0) {
       return {
         content: [{
@@ -216,9 +217,9 @@ export function registerOrderHandlers(
         }]
       };
     }
-    cartClear(sessionId);
+    cartClear(profileId, sessionId);
     clearPendingSetMeal(sessionId);
-    clearOrderStage(sessionId);
+    clearOrderStage(profileId, sessionId);
     clearAccuracyTracking(sessionId);
     return {
       content: [{ type: 'text', text: 'Your order has been cleared. Let me know if you would like to start a new order!' }]
@@ -226,7 +227,7 @@ export function registerOrderHandlers(
   });
 
   handlers.set('order_check_status', async (args: any) => {
-    const orderId = (args.orderId && String(args.orderId).trim()) || getSessionOrderId(sessionId);
+    const orderId = (args.orderId && String(args.orderId).trim()) || getSessionOrderId(profileId, sessionId);
     if (!orderId) {
       return {
         content: [{ type: 'text', text: 'There is no active order for you yet. Place an order first and then you can check its status!' }]

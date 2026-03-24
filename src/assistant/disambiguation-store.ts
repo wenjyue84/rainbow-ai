@@ -4,7 +4,12 @@
  * When a guest says something ambiguous like "I want the chicken" and there are
  * multiple chicken dishes, the AI waiter stores the candidate list here so the
  * guest can select by number or name in the next turn.
+ *
+ * All functions accept `profileId` as the first argument to ensure
+ * cross-profile isolation via composite keys.
  */
+
+import { sessionKey } from './session-key.js';
 
 export interface SetMealChoice {
   /** Choice group name, e.g. "Drink", "Side" */
@@ -46,24 +51,25 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /** Store disambiguation candidates for a session. */
-export function setDisambiguation(sessionId: string, state: DisambiguationState): void {
-  store.set(sessionId, state);
+export function setDisambiguation(profileId: string, sessionId: string, state: DisambiguationState): void {
+  store.set(sessionKey(profileId, sessionId), state);
 }
 
 /** Get pending disambiguation state, or null if expired/absent. */
-export function getDisambiguation(sessionId: string): DisambiguationState | null {
-  const s = store.get(sessionId);
+export function getDisambiguation(profileId: string, sessionId: string): DisambiguationState | null {
+  const key = sessionKey(profileId, sessionId);
+  const s = store.get(key);
   if (!s) return null;
   if (Date.now() - s.createdAt > DISAMBIG_TTL_MS) {
-    store.delete(sessionId);
+    store.delete(key);
     return null;
   }
   return s;
 }
 
 /** Clear disambiguation state after resolution or abandonment. */
-export function clearDisambiguation(sessionId: string): void {
-  store.delete(sessionId);
+export function clearDisambiguation(profileId: string, sessionId: string): void {
+  store.delete(sessionKey(profileId, sessionId));
 }
 
 /** Format disambiguation candidates as a numbered list for the AI response. */

@@ -27,7 +27,7 @@ import { setPendingAllergenItem } from '../lib/allergen-pending-store.js';
 
 type HandlerMap = Map<string, (args: any) => Promise<MCPToolResult>>;
 
-export function registerSearchHandlers(handlers: HandlerMap, sessionId: string): void {
+export function registerSearchHandlers(handlers: HandlerMap, sessionId: string, profileId: string): void {
   handlers.set('cart_search_item', async (args: any) => {
     const query: string = String(args.query || '').trim();
     const qty: number = typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1;
@@ -42,8 +42,8 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
 
     if (menuItems.length === 0) {
       // FnB system unavailable — fall back to direct cart_add_item behaviour
-      const items = cartAddItem(sessionId, { name: query, qty, notes });
-      transitionOrderStage(sessionId, 'ORDERING');
+      const items = cartAddItem(profileId, sessionId,{ name: query, qty, notes });
+      transitionOrderStage(profileId, sessionId,'ORDERING');
       return {
         content: [{
           type: 'text',
@@ -55,7 +55,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
     const matches = findMenuItemMatches(query, menuItems);
 
     if (matches.length === 0) {
-      clearDisambiguation(sessionId);
+      clearDisambiguation(profileId, sessionId);
       return {
         content: [{
           type: 'text',
@@ -71,7 +71,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
 
     // If the best match is unavailable (single match or top match is the one they wanted)
     if (matches.length === 1 && unavailableMatch) {
-      clearDisambiguation(sessionId);
+      clearDisambiguation(profileId, sessionId);
       // Fetch alternatives from the same category
       const category = unavailableMatch.category;
       let alternativesText = '';
@@ -85,7 +85,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
         if (alternatives.length > 0) {
           // Store alternatives as disambiguation so guest can pick one
           const state = { pendingItem: query, candidates: alternatives, createdAt: Date.now() };
-          setDisambiguation(sessionId, state);
+          setDisambiguation(profileId, sessionId,state);
           const list = formatDisambiguationList(state);
           alternativesText = `\n\nHere are some similar items from ${category} you might enjoy:\n\n${list}\n\nWould you like any of these instead? (Reply with a number or name)`;
         }
@@ -108,7 +108,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
 
     if (effectiveMatches.length === 1) {
       // Unambiguous match found
-      clearDisambiguation(sessionId);
+      clearDisambiguation(profileId, sessionId);
       const match = effectiveMatches[0];
 
       // US-865: Detect set meal / combo — if item has choices, start customisation flow
@@ -121,7 +121,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
           notes,
           choices: match.choices,
         });
-        transitionOrderStage(sessionId, 'ORDERING');
+        transitionOrderStage(profileId, sessionId,'ORDERING');
         const priceStr = match.price !== undefined ? ` (RM ${match.price.toFixed(2)})` : '';
         const prompt = formatChoicePrompt(pending);
         return {
@@ -151,8 +151,8 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
         }
       }
 
-      const items = cartAddItem(sessionId, item);
-      transitionOrderStage(sessionId, 'ORDERING');
+      const items = cartAddItem(profileId, sessionId,item);
+      transitionOrderStage(profileId, sessionId,'ORDERING');
       return {
         content: [{
           type: 'text',
@@ -163,7 +163,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
 
     // Multiple matches — store disambiguation state and ask guest to choose
     const state = { pendingItem: query, candidates: effectiveMatches, createdAt: Date.now() };
-    setDisambiguation(sessionId, state);
+    setDisambiguation(profileId, sessionId,state);
     const list = formatDisambiguationList(state);
 
     return {
@@ -179,7 +179,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
     const qty: number = typeof args.qty === 'number' && args.qty > 0 ? Math.floor(args.qty) : 1;
     const notes: string | undefined = args.notes || undefined;
 
-    const state = getDisambiguation(sessionId);
+    const state = getDisambiguation(profileId, sessionId);
 
     if (!state || state.candidates.length === 0) {
       return {
@@ -215,7 +215,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
       };
     }
 
-    clearDisambiguation(sessionId);
+    clearDisambiguation(profileId, sessionId);
 
     // US-865: If chosen item is a set meal, start customisation flow
     if (chosen.choices && chosen.choices.length > 0) {
@@ -227,7 +227,7 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
         notes,
         choices: chosen.choices,
       });
-      transitionOrderStage(sessionId, 'ORDERING');
+      transitionOrderStage(profileId, sessionId,'ORDERING');
       const priceStr = chosen.price !== undefined ? ` (RM ${chosen.price.toFixed(2)})` : '';
       const prompt = formatChoicePrompt(pending);
       return {
@@ -257,8 +257,8 @@ export function registerSearchHandlers(handlers: HandlerMap, sessionId: string):
       }
     }
 
-    const items = cartAddItem(sessionId, item);
-    transitionOrderStage(sessionId, 'ORDERING');
+    const items = cartAddItem(profileId, sessionId,item);
+    transitionOrderStage(profileId, sessionId,'ORDERING');
 
     return {
       content: [{

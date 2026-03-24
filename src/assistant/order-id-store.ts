@@ -4,11 +4,17 @@
  * After a successful order_confirm_submit, the FnB MCP response includes an
  * order ID (e.g. "MM-A1B2"). This store maps sessionId → orderId so the AI
  * can look up order status without the guest needing to remember the ID.
+ *
+ * All functions accept `profileId` as the first argument to ensure
+ * cross-profile isolation via composite keys.
  */
+
+import { sessionKey } from './session-key.js';
 
 interface OrderIdSession {
   orderId: string;
-  phone: string; // Phone or 'webchat-{sessionId}' (US-869: used for sending feedback)
+  profileId: string;
+  phone: string; // Phone or 'webchat-{profileId}-{sessionId}' (US-869: used for sending feedback)
   placedAt: number;
   lastAccess: number;
   feedbackRequested?: boolean; // US-869: Track if feedback was requested for this order
@@ -21,17 +27,18 @@ const orderIdSessions = new Map<string, OrderIdSession>();
 // Cleanup expired sessions every 15 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [sessionId, session] of orderIdSessions) {
+  for (const [key, session] of orderIdSessions) {
     if (now - session.lastAccess > ORDER_ID_TTL_MS) {
-      orderIdSessions.delete(sessionId);
+      orderIdSessions.delete(key);
     }
   }
 }, 15 * 60 * 1000);
 
 /** Store the placed order ID for a session. */
-export function setSessionOrderId(sessionId: string, orderId: string, phone: string = 'webchat-' + sessionId): void {
-  orderIdSessions.set(sessionId, {
+export function setSessionOrderId(profileId: string, sessionId: string, orderId: string, phone: string = `webchat-${profileId}-${sessionId}`): void {
+  orderIdSessions.set(sessionKey(profileId, sessionId), {
     orderId,
+    profileId,
     phone,
     placedAt: Date.now(),
     lastAccess: Date.now(),
@@ -39,8 +46,8 @@ export function setSessionOrderId(sessionId: string, orderId: string, phone: str
 }
 
 /** Get the stored order ID for a session. Returns undefined if no order placed. */
-export function getSessionOrderId(sessionId: string): string | undefined {
-  const session = orderIdSessions.get(sessionId);
+export function getSessionOrderId(profileId: string, sessionId: string): string | undefined {
+  const session = orderIdSessions.get(sessionKey(profileId, sessionId));
   if (session) {
     session.lastAccess = Date.now();
     return session.orderId;
@@ -49,18 +56,22 @@ export function getSessionOrderId(sessionId: string): string | undefined {
 }
 
 /** Clear the stored order ID (e.g. on session reset). */
-export function clearSessionOrderId(sessionId: string): void {
-  orderIdSessions.delete(sessionId);
+export function clearSessionOrderId(profileId: string, sessionId: string): void {
+  orderIdSessions.delete(sessionKey(profileId, sessionId));
 }
 
-/** Find the session ID by order ID (reverse lookup for webhooks). Returns undefined if not found. */
-export function getSessionIdByOrderId(orderId: string): string | undefined {
+/** Find the session by order ID (reverse lookup for webhooks). Returns undefined if not found. */
+export function getSessionIdByOrderId(orderId: string): { profileId: string; sessionId: string } | undefined {
   const now = Date.now();
-  for (const [sessionId, session] of orderIdSessions.entries()) {
-    // Check if session is not expired
+  for (const [key, session] of orderIdSessions.entries()) {
     if (now - session.lastAccess < ORDER_ID_TTL_MS && session.orderId === orderId) {
-      session.lastAccess = now; // Update last access
-      return sessionId;
+      session.lastAccess = now;
+      // Key format is "profileId:sessionId"
+      const colonIdx = key.indexOf(':');
+      return {
+        profileId: key.slice(0, colonIdx),
+        sessionId: key.slice(colonIdx + 1),
+      };
     }
   }
   return undefined;
