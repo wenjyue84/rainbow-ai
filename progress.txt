@@ -994,3 +994,31 @@ Here is the technical brief based on the `rainbow-ai` project structure:
 ✅ Schema extended with optional `retry: { max_attempts, base_delay_ms, backoff_multiplier }`
 ✅ Booking step executor wraps invocation in retry loop with exponential backoff
 ✅ Integration test verifies max_attempts=2 retries exactly 2 times; no retry config executes once and throws
+
+## Pre-analysis for US-380 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Subject: Technical Brief for US-380: Profile Data Consistency Validator**
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/utils/consistency_validator.py`: Create this new file to contain the core validation logic.
+*   `lhdn_payroll_integration/hooks.py`: Modify to register a new `bench` command, making the validator accessible via the command line.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Involved DocTypes:** The validation will target data within multiple DocTypes, likely including `Knowledge Base Profile`, `Workflow Profile`, and `Intent Keywords Profile`. These DocTypes store the amenity, room type, and intent data that needs cross-referencing.
+*   **Hooks:** The `get_app_commands` hook in `hooks.py` should be used to define the CLI endpoint, e.g., `bench lhdn_payroll_integration validate_profile --profile [profile_name]`.
+
+**3. Implementation Approach:**
+1.  Define a whitelisted Python function in `consistency_validator.py` that accepts a `profile` name.
+2.  Use `frappe.get_all` to fetch the relevant data sets (amenities, intents, etc.) from the specified profile's associated DocTypes.
+3.  Load the data into Python sets for efficient comparison.
+4.  Identify orphaned entries by calculating the differences between these sets.
+5.  Structure the findings into a dictionary matching the story's required JSON output format.
+6.  Print the resulting dictionary to `stdout` as a JSON string.
+
+**4. Edge Cases & Gotchas:**
+*   The script must handle cases where a specified profile does not exist.
+*   Be mindful of performance; fetch only the required fields from DocTypes instead of loading entire documents.
+*   Normalize all data before comparison to handle potential inconsistencies in casing or whitespace (e.g., 'deluxe-room' vs. 'Deluxe Room').
+*   Ensure the JSON output strictly conforms to the format specified in the acceptance criteria for downstream processing.
+

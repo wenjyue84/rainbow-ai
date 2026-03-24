@@ -59,10 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-24T04:11:05Z"
+      "last_attempted": "2026-03-24T04:28:40Z"
     },
     {
       "id": "US-383",
@@ -239,6 +239,57 @@
       "model": "haiku"
     },
     {
+      "id": "US-396",
+      "title": "Automated Hostel Content Remover for Cafe Profiles",
+      "priority": "high",
+      "description": "Scan data-makan and data-southern profile data files, automatically remove hostel-specific keywords and intent patterns (check-in, room-type, guest register), with dry-run safety before applying changes",
+      "acceptanceCriteria": [
+        "CLI command `npm run cleanup-profile-contamination -- --profile data-makan --dry-run` shows hostel keywords to be removed without modifying files",
+        "Removes hostel intent keywords from `src/assistant/data/intent-keywords.json` and `src/assistant/data/routing.json` for affected profiles (check-in, room availability, booking deposit)",
+        "Output diff report shows removed entries; test asserts cafe-only keywords (menu, promotion, reservation) remain intact after cleanup"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-397",
+      "title": "Profile Routing Isolation Runtime Test Suite",
+      "priority": "high",
+      "description": "Add unit tests ensuring that each profile's intents route only to that profile's workflows; catch cross-profile contamination regressions during CI runs",
+      "acceptanceCriteria": [
+        "Test file `src/__tests__/profile-routing-isolation.test.ts` with fixtures for data-makan and data-pelangi profiles testing intent → workflow routing",
+        "Test asserts booking intent for data-makan profile routes to makan workflow action, never hostel booking workflow step",
+        "Test asserts cafe-specific intents (menu inquiry, promotion question) for data-makan do not reference hostel concepts (check-in, room-type, guest register) in routing rules"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-401",
+      "title": "Diagnose Unit Test Failures with Categorized Root Cause Report",
+      "priority": "high",
+      "description": "Run the test suite and create a diagnostic report categorizing all failures by root cause type (mock data issues, type mismatches, database connection failures, assertion logic errors). This foundational work unblocks fixing failing tests.",
+      "acceptanceCriteria": [
+        "Run `npm run test:run 2>&1 | tee test-output.log` and analyze all failures",
+        "Create `docs/test-diagnostics.md` with: failure counts per module (src/assistant/*, src/routes/*, shared/*), categorized by type, and ≥1 specific remediation step per category",
+        "Report identifies which tests depend on unimplemented mocks or stale fixtures (e.g., database schema mismatches)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-389",
       "title": "Confidence Score Distribution Analyzer per Intent per Profile",
       "priority": "medium",
@@ -285,6 +336,108 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-398",
+      "title": "Fallback Response Clarity and Actionability Scorer",
+      "priority": "medium",
+      "description": "Score each fallback response template on clarity (contains action verb), specificity (mentions booking/inquiry context), and helpfulness; flag low-scoring responses for improvement",
+      "acceptanceCriteria": [
+        "Function `scoreFallbackResponse(text)` in `src/assistant/pipeline/fallback-scorer.ts` returns score 0-100 based on presence of action verbs (let, can, try, help, please) and context-specific guidance",
+        "CLI `npm run score-fallback-responses` outputs JSON report with per-response scores; responses scoring <60 flagged for improvement with specific reasons",
+        "Test: generic response 'Sorry, I did not understand' scores <40; actionable response 'Let me connect you with staff to book your stay' scores >70"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-399",
+      "title": "Multi-Turn Conversation Context Auto-Trim for Token Efficiency",
+      "priority": "medium",
+      "description": "Remove stale and duplicate messages from conversation history before sending to AI; keep only last 5 turns or messages within 30 minutes to prevent token bloat and context pollution",
+      "acceptanceCriteria": [
+        "Function `trimConversationContext(messages, maxTurns=5, maxAgeMs=1800000)` in `src/assistant/pipeline/context-trimmer.ts` removes old and duplicate messages, returns trimmed array",
+        "Unit test: 15-message history with 3 duplicates is trimmed to 5 unique messages preserving most recent timestamps and booking context",
+        "Integration test: multi-turn booking flow (greeting → room inquiry → check-in date → confirmation) completes successfully with trimmed context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-400",
+      "title": "Booking Precondition Violation Logger with Admin Query Endpoint",
+      "priority": "medium",
+      "description": "Log detailed precondition check failures (missing guest name, invalid date, room unavailable) before workflow execution; provide admin endpoint to query violations grouped by failure reason and profile",
+      "acceptanceCriteria": [
+        "Function `logBookingViolation(reason, guestId, profile, context)` in `src/assistant/pipeline/booking-precondition-logger.ts` records violations to database table `booking_precondition_violations`",
+        "Endpoint `GET /admin/booking-violations?profile=data-makan&reason=missing_guest&limit=10` returns violations with count, example messages, and actionable fix (e.g., 'ask for name first')",
+        "Test: 10 missing-guest violations logged for data-makan; query returns count=10 and endpoint suggests 'Please ask guest name before confirming booking'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-402",
+      "title": "Implement Conversation Message TTL Filter with Automatic Context Pruning",
+      "priority": "medium",
+      "description": "Add configurable message age threshold to prevent stale context in multi-turn conversations. Messages older than configured TTL are automatically pruned, reducing multi-turn token waste and stale reference errors.",
+      "acceptanceCriteria": [
+        "Add `contextTTL: 900000` (milliseconds, default 15 min) to `src/assistant/data/settings.json`",
+        "Implement `pruneContextByTTL(messages, currentTime)` in `src/assistant/pipeline/context-manager.ts`: messages older than TTL are removed; context reset if ≤2 messages remain",
+        "Unit tests cover: message aged exactly at TTL boundary, message < TTL retained, entire context pruned when all messages stale"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-403",
+      "title": "Build Interactive Fallback Response Template Improvement Tool",
+      "priority": "medium",
+      "description": "Create interactive CLI tool to audit, score, and improve fallback response templates in knowledge.json. Goal: increase clarity and actionability of responses when AI confidence is low.",
+      "acceptanceCriteria": [
+        "Tool scans `src/assistant/data/knowledge.json` for all fallback templates (booking-fallback, inquiry-fallback, etc.) and prompts user to rate clarity (1-5 scale)",
+        "For templates rated ≤3, suggest improvements focusing on: (a) explicit confidence disclaimer ('I'm not confident but...'), (b) actionable next step ('Call us at...' or 'Try asking...'), (c) escalation trigger option",
+        "User can approve rewritten template and verify updated template validates against Zod schema in `src/assistant/schemas.ts`; run `npm run build` to verify no type errors"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-404",
+      "title": "Implement Intent Classification Confidence Trace Logger for Debugging",
+      "priority": "medium",
+      "description": "Log top-3 classification candidates with confidence scores and feature breakdown for each incoming message. Enables debugging of low-confidence misclassifications and confidence score calibration.",
+      "acceptanceCriteria": [
+        "After intent classification, write JSON trace to `logs/classification-trace.json`: `{timestamp, profileId, message, topCandidates: [{intent, confidence, keywordMatch?, semanticScore?}], finalChoice, executionTimeMs}`",
+        "Trace includes why top candidate was chosen (e.g., keyword match in intent-keywords.json, semantic similarity score from AI provider)",
+        "Unit test: invoke classifier with test message, verify trace contains ≥3 candidates ranked by confidence descending, top candidate confidence ≥0.5 higher than 2nd place"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
