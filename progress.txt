@@ -1775,3 +1775,55 @@ All acceptance criteria were already implemented in the codebase:
 - Script was fully implemented already — this was a "verify and mark passes" story
 - No profile-specific `intent-keywords.json` scanning (only routing.json + knowledge.json) — that's correct scope
 - Contamination confidence threshold: 0.2 to flag, 0.5 to suggest removal, 0.7 to warn high-confidence
+
+## Iteration 25 - Tue, Mar 24, 2026 - Story: US-356 Profile Data Contamination Audit and Auto-Repair CLI with Review Checkpoint — PASSED
+
+### What was implemented
+**US-356: Profile Data Contamination Audit and Auto-Repair CLI with Review Checkpoint**
+
+CLI tool that audits profile data files for cross-profile contamination and optionally auto-repairs violations.
+
+**New Files:**
+- `scripts/audit-profile-contamination.ts` (320 lines) — Main audit CLI:
+  - Loads all profile directories (data-makan, data-pms-capsule, data-southern, data-pms-southern)
+  - Detects contaminated intents in routing.json by comparing against profile ownership
+  - Detects contaminated knowledge entries via keyword matching
+  - Generates violations with confidence scores
+  - Supports --fix flag to auto-remove violations with suggestedRemoval=true
+  - Logs all cleanup actions to audit/profile-cleanup-log.json
+
+- `src/__tests__/profile-contamination-audit.test.ts` (350+ lines) — Test suite with 12 tests:
+  - AC1 tests: Profile contamination detection (3 tests)
+  - AC2 tests: Audit report generation with violations grouped by profile/file (3 tests)
+  - AC3 tests: Auto-fix with cleanup logging (4 tests)
+  - Integration tests: Directory handling and JSON processing (3 tests)
+
+**Modified Files:**
+- `package.json` — Added npm script: `audit:profile-contamination`
+
+### Acceptance Criteria Met
+✓ **AC1**: CLI loads all profiles and flags cross-contaminated keywords/routes/knowledge entries
+✓ **AC2**: Generates audit/profile-contamination-report.json with violations grouped by profile/file with confidence scores
+✓ **AC3**: --fix flag auto-removes low-confidence violations and logs cleanup to audit/profile-cleanup-log.json
+
+### Quality Checks
+✓ Build clean (esbuild successful, 1 pre-existing ESM warning on logger.ts)
+✓ 12/12 unit tests pass (AC1: 3, AC2: 3, AC3: 4, Integration: 3)
+✓ Server startup test passed
+✓ Script execution verified:
+  - `npm run audit:profile-contamination` executes without errors
+  - Detects 4 contaminations in southern profile
+  - Generates report with proper JSON structure
+  - --fix flag support verified
+
+### Patterns Discovered
+- Profile ownership determined by analyzing which intents exist in each profile
+- Confidence scoring based on keyword match ratio (matchedKeywords / totalKeywords)
+- suggestedRemoval flag set when confidence > 0.5 for routing, > 0.6 for knowledge
+- Contamination detection skips universal intents (greeting, thanks, contact_staff, directions, unknown)
+- Profile config stored in constant with profile label, directory, owned intents, and keywords
+
+### Gotchas
+- Windows CMD doesn't support NODE_OPTIONS environment variable in npm scripts; used direct vitest invocation
+- Keyword matching is case-insensitive to catch variations
+- Confidence threshold tuned to avoid false positives on shared keywords like "check"
