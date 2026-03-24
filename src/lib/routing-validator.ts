@@ -124,6 +124,11 @@ export const PROFILE_CONFIGS: Record<
     dataDir: 'src/assistant/data-makan',
     forbiddenIntents: HOSTEL_INTENTS, // Makan is cafe-only
   },
+  yoongmei: {
+    label: 'Yoong Mei Trading And Transport',
+    dataDir: 'src/assistant/data-yoongmei',
+    forbiddenIntents: new Set(), // Logistics profile — no cross-contamination restrictions
+  },
 };
 
 /**
