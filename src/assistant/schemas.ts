@@ -200,6 +200,11 @@ export const workflowStepSchema = z.object({
   timeoutMs: z.number().int().min(1000).optional(),        // US-324: alias for max_duration_ms (takes precedence)
   fallbackResponse: z.string().optional(),                 // US-324: per-step fallback message on timeout
   inputSchema: z.record(z.string(), z.string()).optional(), // US-354: Expected input field types (e.g., {roomType: 'string', checkIn: 'Date'})
+  retry: z.object({                                        // US-379: Retry config with exponential backoff
+    max_attempts: z.number().int().min(1),
+    base_delay_ms: z.number().int().min(0),
+    backoff_multiplier: z.number().min(1),
+  }).optional(),
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 

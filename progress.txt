@@ -850,3 +850,80 @@ FAILED diagnosis-block gate: Conversation Context Window Size Optimizer CLI (ID:
   ✓ Booking message returns keywords like 'book', 'room', 'want' with non-zero scores
   ✓ Fallback intent returns empty keywords list
 
+## Iteration 1 - Tue, Mar 24, 2026 11:39:26 AM
+FAILED diagnosis-block gate: Intent Classification Explanation Generator with Feature Attribution (ID: US-378) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-379 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js application, not Frappe/Python. The technical brief has been adjusted accordingly.
+
+**Project:** rainbow-ai
+**User Story:** US-379: Booking Workflow Step Retry Configuration
+
+### Technical Brief
+
+**1. Objective:**
+Implement a configurable retry mechanism with exponential backoff for individual steps within the booking workflow to improve resilience against transient failures.
+
+**2. Files to Modify:**
+*   `src/assistant/schemas.ts`: Extend the `WorkflowStep` JSON schema to include an optional `retry` configuration object.
+*   `src/assistant/workflows/booking.ts`: This file likely contains the "booking step executor" logic that needs to be wrapped in the new retry loop.
+*   `tests/integration/booking_workflow.test.ts`: Add a new test case to verify the retry logic and failure paths.
+
+**3. Implementation Plan:**
+*   In `schemas.ts`, add an optional `retry: { max_attempts: number; base_delay_ms: number; backoff_multiplier: number; }` to the relevant step type definition.
+*   In the booking workflow executor, before running a step, check for the presence of `step.retry`.
+*   If `retry` is configured, wrap the step's execution in a `for` or `while` loop that iterates up to `max_attempts`.
+*   Use a `try/catch` block. On success, exit the loop. On failure, calculate the delay using the formula: `base_delay_ms * (backoff_multiplier ** attempt)`.
+*   Use a promise-based `setTimeout` to wait for the calculated delay before the next attempt.
+*   If all attempts fail, re-throw the final error.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the retry logic only applies to transient errors, not validation or permanent failures.
+*   The total execution time could increase significantly; be mindful of potential parent process timeouts.
+*   The integration test must reliably mock a function to fail a specific number of times before succeeding to validate the `max_attempts` behavior correctly.
+
+
+## Pre-analysis for US-379 (Gemini 2.5 Pro)
+This user story seems to be for a TypeScript/Node.js application, not a Frappe/Python one, based on the file paths (`src/assistant/schemas.ts`) and concepts mentioned.
+
+Here is the technical brief based on the `rainbow-ai` project structure:
+
+**Project:** rainbow-ai (TypeScript/Node.js)
+**User Story:** US-379 - Booking Workflow Step Retry Configuration
+
+**1. Files to Modify:**
+*   `src/assistant/schemas.ts`: To add the optional `retry` configuration object (`max_attempts`, `base_delay_ms`, `backoff_multiplier`) to the workflow step schema.
+*   `src/assistant/engine/WorkflowExecutor.ts` (or similar): This is the most likely place where step execution logic resides. It will need to be updated to read the new retry config.
+*   `src/assistant/engine/steps/BookingStep.ts` (or similar): The specific step implementation might need adjustments, but the core retry logic should be in the generic executor.
+*   `tests/integration/booking_workflow.test.ts`: A new integration test file should be created or an existing one modified to verify the retry behavior as per the acceptance criteria.
+
+**2. Key Components & Schemas:**
+*   **Workflow Step Schema:** The core JSON schema defining a step's structure, located in `src/assistant/schemas.ts`. This is the source of truth for step configuration.
+*   **WorkflowExecutor:** The engine responsible for interpreting and running the sequence of steps defined in a workflow. This is where the retry loop will be implemented.
+
+**3. Implementation Approach:**
+1.  **Schema Update:** In `src/assistant/schemas.ts`, add an optional `retry` object to the `WorkflowStep` interface/type. Use Zod or a similar validation library if the project uses one.
+2.  **Executor Logic:** In the `WorkflowExecutor`, before executing a step, check if `step.retry` is defined.
+3.  **Retry Loop:** If it is, wrap the step execution call in a `for` loop (from `i=0` to `max_attempts`). Use a `try/catch` block inside. If the step succeeds, `break` the loop. If it fails, calculate the delay (`base_delay_ms * (backoff_multiplier ** i)`) and use a promise-based `setTimeout` to wait before the next attempt.
+4.  **Failure:** If the loop completes without a success, re-throw the last error. If no retry config exists, the behavior remains as is (execute once).
+
+**4. Edge Cases & Gotchas:**
+*   **Stateful Steps:** Ensure that retrying a step doesn't cause unintended side effects (e.g., charging a credit card multiple times). The retry logic should only be for idempotent operations or transient failures where state isn't mutated on failure.
+*   **Error Types:** The retry should only trigger on specific "transient" errors (e.g., network timeouts, 503 Service Unavailable), not on permanent errors (e.g., 400 Bad Request, invalid input). The executor may need to inspect the error type to decide whether to retry.
+*   **Max Delay:** Consider capping the maximum delay to prevent excessively long waits in case of high multipliers or attempt counts.
+
+
+## Iteration N - Story: US-379 Booking Workflow Step Retry Configuration with Exponential Backoff
+### What was implemented
+- `src/assistant/schemas.ts`: Added optional `retry: { max_attempts, base_delay_ms, backoff_multiplier }` to `workflowStepSchema` (Zod)
+- `src/assistant/workflow-executor.ts`: Added `executeWithRetry<T>()` helper (lines 66-87) and integrated it into step execution via `executeWithRetry(() => executeWithTimeout(...), currentStep.retry)`
+- `tests/integration/booking-workflow-retry.test.ts`: 4 test cases covering max_attempts exhaustion, no-retry path, partial success, and max_attempts=1
+
+### Patterns discovered
+- Implementation was already partially in place from a previous iteration (files modified). Tests were untracked.
+- `executeWithRetry` uses 0-indexed loop so delay exponent starts at 0 (first retry has base_delay_ms * multiplier^0 = base_delay_ms)
+- `base_delay_ms: 0` in tests avoids timing delays in unit tests
+
+### Gotchas
+- prd.json has merge conflict markers (UU status) — must use Python with utf-8 encoding to parse/update it

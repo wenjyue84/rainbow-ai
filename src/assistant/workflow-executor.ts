@@ -56,6 +56,37 @@ export async function logWorkflowExecution(
 }
 
 
+// ─── US-379: Retry with Exponential Backoff ──────────────────────────
+
+/**
+ * US-379: Execute fn with retry loop and exponential backoff.
+ * If retry is undefined, executes fn once (no retries).
+ * max_attempts = total number of attempts (including the first).
+ */
+export async function executeWithRetry<T>(
+  fn: () => Promise<T>,
+  retry: { max_attempts: number; base_delay_ms: number; backoff_multiplier: number } | undefined
+): Promise<T> {
+  if (!retry) return fn();
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < retry.max_attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retry.max_attempts - 1) {
+        const delay = retry.base_delay_ms * Math.pow(retry.backoff_multiplier, attempt);
+        if (delay > 0) {
+          await new Promise<void>(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+  }
+  throw lastError;
+}
+
+
 export interface WorkflowState {
   workflowId: string;
   currentStepIndex: number;
@@ -359,15 +390,19 @@ export async function executeWorkflowStep(
     const inputSize = JSON.stringify(enhancerContext).length;
 
     try {
-      const enhanced = await executeWithTimeout(
-        () => enhanceWorkflowStep(
-          currentStep,
-          enhancerContext,
-          callAPIWrapper,
-          sendMessageFn!
+      // US-379: Wrap step execution in retry loop if retry config is present
+      const enhanced = await executeWithRetry(
+        () => executeWithTimeout(
+          () => enhanceWorkflowStep(
+            currentStep,
+            enhancerContext,
+            callAPIWrapper,
+            sendMessageFn!
+          ),
+          currentStep.id,
+          maxDurationMs
         ),
-        currentStep.id,
-        maxDurationMs
+        (currentStep as any).retry
       );
 
       response = enhanced.message; // Use enhanced message
