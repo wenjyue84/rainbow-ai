@@ -802,3 +802,51 @@ FAILED diagnosis-block gate: Conversation Context Window Size Optimizer CLI (ID:
 ## Iteration 1 - Tue, Mar 24, 2026 11:24:57 AM
 FAILED diagnosis-block gate: Conversation Context Window Size Optimizer CLI (ID: US-377) — no diagnosis block found — attempt 2/3
 
+
+## Iteration 19 - Story: Intent Classification Explanation Generator with Feature Attribution (US-378) ✓ COMPLETE
+### What was implemented
+- Created `src/lib/intent-explanation.ts` with:
+  - `generateIntentExplanation(message: string, intent: string)` function
+  - Extracts matched keywords from intent-keywords.json for given intent
+  - Calculates match scores (0.0-1.0) for each keyword using substring, partial, and fuzzy matching
+  - Detects patterns: booking_pattern, date_pattern, number_pattern, question_pattern
+  - Returns { top_keywords (max 3), classifier_scores (Record<string, number>), matched_patterns: string[] }
+  - Handles fallback/empty intent gracefully with empty results
+
+- Created `src/routes/admin/debug-explain-intent.ts`:
+  - POST /admin/debug/explain-intent endpoint
+  - Accepts { message: string, intent: string }
+  - Returns explanation with summary including intent, messageLength, keywordMatches count, topContributor
+
+- Registered route in src/routes/admin/index.ts:
+  - Imported debugExplainIntentRoutes
+  - Mounted at `/debug` path
+
+- Created comprehensive unit tests `src/__tests__/intent-explanation.test.ts`:
+  - 20 tests covering all acceptance criteria and edge cases
+  - Tests verify: fallback handling, keyword extraction, pattern detection, score ranges
+  - Tests for multi-language support (Malay, Mandarin)
+  - All tests passing ✓
+
+### Patterns discovered
+- Intent keywords in intent-keywords.json are keyed by intent name + language
+- "booking" is the intent name for booking requests (not "booking_request")
+- Each intent can have keywords in en, ms, zh, ta plus regional_variants
+- Pattern detection works well for domain-specific keywords (booking, date, number, question patterns)
+
+### Gotchas avoided
+- Used correct intent name "booking" instead of "booking_request"
+- Keyword matching uses substring/partial/fuzzy scoring to handle variations
+- Score normalization to 2 decimal places for consistency
+- Fallback intent returns empty explanation (per acceptance criteria)
+
+### Quality checks
+- Build: ✓ esbuild completed successfully (2.4MB dist/index.js)
+- Tests: ✓ 20/20 passing (19ms runtime)
+- Server startup: ✓ Verified database connection and admin router initialization
+- All acceptance criteria met:
+  ✓ Function exports intent explanation with top_keywords, classifier_scores, matched_patterns
+  ✓ Endpoint POST /admin/debug/explain-intent accepts message and intent
+  ✓ Booking message returns keywords like 'book', 'room', 'want' with non-zero scores
+  ✓ Fallback intent returns empty keywords list
+
