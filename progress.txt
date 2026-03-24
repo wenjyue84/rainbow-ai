@@ -682,3 +682,41 @@ Here is the technical brief for implementing user story US-376.
 ✅ npm run export:hard-case-labels <profile> generates JSONL
 ✅ Build: esbuild succeeded
 ✅ Server startup: verified
+## Iteration 1 - Tue, Mar 24, 2026 11:04:27 AM
+FAILED diagnosis-block gate: Intent Classification Hard-Case Review Queue with Admin Labeling (ID: US-376) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-376 (Gemini 2.5 Pro)
+Here is the technical brief for implementing user story US-376.
+
+### **Technical Brief: US-376 - Intent Classification Hard-Case Review**
+
+**1. Files to Modify:**
+
+*   **`shared/schema-tables.ts`**: To define the new `HardCaseQueue` Drizzle schema for storing low-confidence predictions.
+*   **`src/lib/classifier.ts`** (or similar): The core intent classification service where inference occurs. Logic will be added here to check the prediction confidence and insert records into the new queue.
+*   **`src/server/routers/admin.ts`** (new or existing): An Express/Hono router file where the new admin API endpoints will be implemented.
+*   **`scripts/export-hard-case-labels.ts`** (new file): A new CLI script to query the database and generate the JSONL export for retraining.
+*   **`package.json`**: To add the new `export:hard-case-labels` npm script.
+
+**2. Key DocTypes / Hooks (Project-Specific Analogs):**
+
+*   **Drizzle Schema Table**: The `HardCaseQueue` table, as defined in `shared/schema-tables.ts`, is the central data structure.
+*   **Post-Inference Hook**: A new procedural hook will be added within the main classification function to asynchronously write hard-cases to the database.
+
+**3. Implementation Approach:**
+
+1.  Define the `hardCasesQueue` table in `shared/schema-tables.ts` using Drizzle ORM syntax, including all specified fields.
+2.  Run `drizzle-kit` to generate the SQL migration script for the new table.
+3.  In the primary intent classification logic, after a prediction is made, add a non-blocking condition to check if `confidence` is between 0.5 and 0.7. If so, asynchronously insert the required data into the `hardCasesQueue` table.
+4.  Create a new admin-only API router. Implement a `GET /admin/api/hard-cases` endpoint to fetch paginated records and a `POST /admin/api/hard-cases/:id/label` endpoint to update the `admin_label` for a given record.
+5.  Develop the `scripts/export-hard-case-labels.ts` command. It should query all records with a non-null `admin_label`, format them into the specified JSONL structure, and write the output to a file or stdout.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Performance**: The database insert for the review queue must not add latency to the user-facing prediction. Execute it as a non-awaited async task ("fire-and-forget").
+*   **Authentication**: The new admin API endpoints must be protected and require administrator-level authentication.
+*   **Concurrency**: Handle potential race conditions if multiple admins are labeling cases simultaneously, though the risk is low.
+*   **Export Format**: Ensure the JSONL output format (`{message, predicted, admin_label}`) is strictly followed for compatibility with downstream retraining scripts.
+*   **Data Volume**: The `GET` endpoint should be paginated (`limit` parameter) to handle a potentially large queue.
+
