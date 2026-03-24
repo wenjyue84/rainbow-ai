@@ -47,26 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-386",
-      "title": "Runtime Intent Keyword Collision Detector with Conflict Log",
-      "priority": "high",
-      "description": "Detects when two different intents compete for the same keyword during message classification, logging keyword collisions and suggesting refinements to disambiguate overlapping intents.",
-      "acceptanceCriteria": [
-        "Implement collision detection in src/assistant/intent-classifier.ts that identifies keywords matching multiple intents; log collision event with {keyword, intent_id_1, intent_id_2, confidence_spread} to database table intent_keyword_collisions",
-        "CLI tool: `npx ts-node src/tools/keyword-collision-analyzer.ts --profile=pelangi` outputs CSV with columns: keyword, intent_1, intent_2, collision_count_7d, suggestion (merge/refine/remove)",
-        "Test case must assert that if both 'booking' intent and 'inquiry' intent match keyword 'available' in message 'is room available', collision is logged with both intent IDs"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-24T06:54:25Z",
-      "_skipped": true,
-      "_failureReason": "Repeatedly timed out (small story, 10+ min each attempt). Skipped by monitor."
-    },
-    {
       "id": "US-387",
       "title": "Turn-by-Turn Profile Context Validator Middleware",
       "priority": "high",
@@ -81,7 +61,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-03-24T07:10:05Z"
     },
     {
       "id": "US-388",
@@ -153,13 +134,30 @@
     },
     {
       "id": "US-394",
-      "title": "Profile Data Cross-Contamination Git History Analyzer",
+      "title": "Audit and Remove Pelangi Hostel Keywords from Makan Moments Profile",
       "priority": "high",
-      "description": "Analyze git history to identify commits that contaminated profile data files with cross-profile keywords or content, showing timeline and recovery recommendations.",
+      "description": "Remove all Pelangi Capsule hostel-specific keywords and intents from data-makan profile files (intent-keywords.json, intents.json, routing.json) to enforce strict profile separation",
       "acceptanceCriteria": [
-        "`npx spiral audit-contamination-history --profile data-makan --output report.html` scans git log to find commits adding Pelangi/Southern keywords to `src/assistant/data/intent-keywords.json`",
-        "Report displays suspect commits with diffs, authors, dates; flags specific Pelangi Capsule intent keywords found in Makan data files with counts",
-        "CLI flag `--suggest-fixes` outputs git revert commands and cherry-pick ranges to isolate cafe-only content"
+        "Audit script removes hostel keywords (check-in, room, booking, reservation, guest) from src/assistant/data/data-makan/intent-keywords.json; verify zero matches for hostel-related intent patterns",
+        "Add unit test in tests/profile-isolation.test.ts with assertion: makan profile contains zero Pelangi intents via grep 'pelangi' src/assistant/data/data-makan/*.json",
+        "Verify makan profile routing.json routes only to cafe intents (menu_inquiry, promotion, order) with no hostel actions"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-395",
+      "title": "Add Pre-Booking Workflow Step Input Schema Validator",
+      "priority": "high",
+      "description": "Validate input parameters to each booking workflow step against defined schema before execution, with detailed error messages for CI/CD and debugging",
+      "acceptanceCriteria": [
+        "Create src/lib/workflow-validator.ts with validateWorkflowStep(stepName, inputs, profile) function checking inputs against src/assistant/data/data-{profile}/workflow-schemas.json; reject step if required fields (checkInDate, guestName, roomType) missing",
+        "Add validation error logging in src/lib/logger.ts with format: { step, profile, error, expectedSchema, providedInputs }; include in booking workflow execution audit",
+        "Add test in tests/workflow-validator.test.ts asserting confirm_booking step rejects missing checkInDate with error message: 'Step confirm_booking requires checkInDate (ISO 8601 format)'"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -170,139 +168,54 @@
     },
     {
       "id": "US-396",
-      "title": "Automated Hostel Content Remover for Cafe Profiles",
+      "title": "Implement Per-Profile Intent Classifier Baseline Benchmark Test Suite",
       "priority": "high",
-      "description": "Scan data-makan and data-southern profile data files, automatically remove hostel-specific keywords and intent patterns (check-in, room-type, guest register), with dry-run safety before applying changes",
+      "description": "Create regression test suite with labeled intent classification datasets per profile, detecting accuracy drops >5% from baseline and failing CI to prevent classification degradation",
       "acceptanceCriteria": [
-        "CLI command `npm run cleanup-profile-contamination -- --profile data-makan --dry-run` shows hostel keywords to be removed without modifying files",
-        "Removes hostel intent keywords from `src/assistant/data/intent-keywords.json` and `src/assistant/data/routing.json` for affected profiles (check-in, room availability, booking deposit)",
-        "Output diff report shows removed entries; test asserts cafe-only keywords (menu, promotion, reservation) remain intact after cleanup"
+        "Add tests/intent-classifier-baseline.test.ts with labeled test datasets for each profile (pelangi: 50 samples, makan: 30 samples, southern: 30 samples); assert classification accuracy >= baseline thresholds (pelangi: 92%, makan: 86%, southern: 84%)",
+        "Generate and commit baseline.json file with per-profile accuracy metrics; update via CI with --update-baseline flag; test fails if current accuracy drops >5% from stored baseline",
+        "Add GitHub Actions job in .github/workflows/test.yml running intent-classifier-baseline.test.ts and rejecting PR if any profile accuracy < baseline threshold"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
     {
       "id": "US-397",
-      "title": "Profile Routing Isolation Runtime Test Suite",
-      "priority": "high",
-      "description": "Add unit tests ensuring that each profile's intents route only to that profile's workflows; catch cross-profile contamination regressions during CI runs",
-      "acceptanceCriteria": [
-        "Test file `src/__tests__/profile-routing-isolation.test.ts` with fixtures for data-makan and data-pelangi profiles testing intent → workflow routing",
-        "Test asserts booking intent for data-makan profile routes to makan workflow action, never hostel booking workflow step",
-        "Test asserts cafe-specific intents (menu inquiry, promotion question) for data-makan do not reference hostel concepts (check-in, room-type, guest register) in routing rules"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-401",
-      "title": "Diagnose Unit Test Failures with Categorized Root Cause Report",
-      "priority": "high",
-      "description": "Run the test suite and create a diagnostic report categorizing all failures by root cause type (mock data issues, type mismatches, database connection failures, assertion logic errors). This foundational work unblocks fixing failing tests.",
-      "acceptanceCriteria": [
-        "Run `npm run test:run 2>&1 | tee test-output.log` and analyze all failures",
-        "Create `docs/test-diagnostics.md` with: failure counts per module (src/assistant/*, src/routes/*, shared/*), categorized by type, and ≥1 specific remediation step per category",
-        "Report identifies which tests depend on unimplemented mocks or stale fixtures (e.g., database schema mismatches)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-402",
-      "title": "Create Makan Moments Cafe-Specific Intent Definitions with Cafe-Only Keywords",
-      "priority": "high",
-      "description": "Makan Moments currently uses Pelangi Capsule Hostel intents. Define cafe-specific intents (food ordering, table reservations, catering, promotions) with zero hostel terminology. Ensures profile separation and improves classification accuracy for cafe-specific queries.",
-      "acceptanceCriteria": [
-        "Create or update src/assistant/data/data-makan/intents.json with 5 cafe-specific intents: food_order, table_reservation, catering_inquiry, promotion_inquiry, menu_question",
-        "Add 15-20 keywords per intent in src/assistant/data/data-makan/intent-keywords.json (e.g., 'nasi kucing', 'roti canai', 'reservation', 'private function', 'catering') with zero hostel keywords like 'check-in' or 'room type'",
-        "Add unit test validating: café-specific queries route to correct intents, hostel-related queries do NOT match Makan intents, npm run test:run passes with 100% assertions passing"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-403",
-      "title": "Implement Confidence-Tiered Clarification Question Generator for Low-Confidence Classifications",
-      "priority": "high",
-      "description": "When intent classification confidence < 0.75, system currently escalates or returns generic fallback. Instead, generate targeted clarification questions that guide users toward correct intent (e.g., 'Are you ordering food or booking a table?'). Improves response quality and reduces unnecessary escalations.",
-      "acceptanceCriteria": [
-        "Create src/assistant/handlers/clarification-generator.ts with method generateClarificationQuestions(confidence: number, detectedIntents: Intent[], context: string) returning array of 2-3 clarifying questions",
-        "Implement confidence tiers: confidence < 0.6 → escalate, 0.6-0.75 → show 2 questions + offer escalation, 0.75+ → respond with caveat",
-        "Test: low-confidence booking query for ambiguous 'room' returns clarification ('Are you looking to book accommodation or a meeting room?') rather than generic fallback; test assertion: response.type === 'clarification' && response.questions.length >= 2"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-404",
-      "title": "Add Southern Homestay Profile Isolation Test Suite with Cross-Contamination Detection",
-      "priority": "high",
-      "description": "Ensure Southern Homestay profile data never contaminates other profiles (Pelangi, Makan) during classification and routing. Add tests that verify profile boundaries at intent classification, keyword matching, and workflow execution layers.",
-      "acceptanceCriteria": [
-        "Create src/assistant/__tests__/profile-isolation-southern.test.ts with 5 test cases: Southern keywords don't trigger Pelangi intents, Southern intents don't trigger Makan workflows, Southern guest data routed to correct knowledge base, profile routing middleware blocks cross-profile message processing, integration test: Southern message → correct Southern workflow",
-        "Add assertion: keyword 'homestay' in Southern profile does NOT match Pelangi 'capsule_hostel' intent; keyword 'menu' does NOT route Southern to Makan food_order intent",
-        "Execute npm run test:run -- src/assistant/__tests__/profile-isolation-southern.test.ts with all 5 tests passing; no cross-contamination failures"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-405",
-      "title": "Implement Booking Workflow Payment Method Validation Step Before Confirmation",
-      "priority": "high",
-      "description": "Current booking workflow in workflows.json lacks payment method validation before reservation confirmation. Add validation step to prevent confirming bookings with invalid/missing payment data, improving reliability and reducing booking failures.",
-      "acceptanceCriteria": [
-        "Add 'payment_validation' step to booking_room workflow in src/assistant/data/workflows.json after 'check_availability' step, with inputs: {payment_method: string, amount: number, currency: string} and outputs: {valid: boolean, error?: string}",
-        "Implement validation logic in src/assistant/handlers/booking-handler.ts method validatePaymentMethod(): checks method exists in approved list, amount > 0, currency matches booking region (MYR for Malaysia)",
-        "Unit test: booking confirmation fails with actionable error ('Payment method required') if payment data missing; succeeds if payment_method='card', amount=100, currency='MYR'; test file: src/assistant/__tests__/booking-workflow-payment.test.ts"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-406",
-      "title": "Build Menu Item Intent Keyword Coverage Report CLI for Makan Moments Profile",
+      "title": "Implement Conversation Context Message Pruner with Per-Profile TTL",
       "priority": "medium",
-      "description": "Makan Moments menu items (burgers, nasi kucing, roti canai) need keyword coverage in intent-keywords.json for food_order intent. Build CLI tool that identifies menu items lacking keywords and suggests additions, improving classification accuracy for food ordering.",
+      "description": "Add middleware to automatically prune old conversation messages based on configurable TTL and message count limits to prevent token overflow in multi-turn dialogs",
       "acceptanceCriteria": [
-        "Create src/tools/menu-keyword-coverage.ts CLI: reads menu items from src/assistant/data/data-makan/knowledge.json → extracts food items → checks coverage in intent-keywords.json food_order section → generates missing_keywords.json report with suggestions",
-        "Command: npx ts-node src/tools/menu-keyword-coverage.ts --profile=data-makan → outputs report.json showing items like 'roti canai' with recommended keywords ['roti', 'canai', 'flatbread']",
-        "Verify: report identifies at least 5 menu items with < 3 keywords, suggestions are cafe-relevant (no hostel terms), test: npm run test:run includes unit test validating report generation with mock knowledge base"
+        "Create src/lib/conversation-pruner.ts with pruneConversationContext(messages, profile) function removing messages older than profile-specific TTL (pelangi: 2h, makan: 1h, southern: 1.5h)",
+        "Add test in tests/conversation-pruner.test.ts verifying messages beyond limit (>20 messages) trigger pruning and oldest 5 messages are removed",
+        "Integrate pruner into src/assistant/pipeline/message-processor.ts before context is passed to AI intent classifier"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "sonnet"
+    },
+    {
+      "id": "US-398",
+      "title": "Build Fallback Response Effectiveness Metric Tracker Endpoint",
+      "priority": "medium",
+      "description": "Create admin API endpoint and tracking table to identify which fallback responses are most frequently used and correlate with low-confidence intents for quality improvement",
+      "acceptanceCriteria": [
+        "Add GET /admin/analytics/fallback-responses endpoint returning JSON with columns: { intent, fallbackResponse, usageCount, avgConfidence, profile } grouped by profile",
+        "Create rainbow_fallback_analytics table in Drizzle schema (shared/schema-tables.ts) tracking profile, intent, selectedResponse, confidence, timestamp; log on every fallback selection in src/assistant/pipeline/fallback-handler.ts",
+        "Add CLI export tool src/tools/fallback-metrics-export.js generating CSV report with intent-specific fallback usage patterns for each profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-196",
