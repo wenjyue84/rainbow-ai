@@ -71,6 +71,32 @@ Here is the technical brief based on the actual NestJS/TypeScript context:
 - Windows environment requires npm commands without NODE_OPTIONS in shell (use npx instead)
 - CLI script uses intentPredictions table, not intentAnalytics — endpoint uses intentAnalytics
 - Both implementations coexist and serve different query patterns (CLI for detailed misclassifications, endpoint for real-time p50/p95/p99)
+
+## Iteration 4 - Story: Fallback Response Auto-Selection from Confidence Tiers (US-360) ✓ COMPLETE
+### What was implemented
+- Created new module `src/assistant/pipeline/fallbacks.ts` with:
+  - `selectFallbackResponse(intent, confidence, category, language)` function
+  - Confidence tier logic: HIGH (≥0.8), MEDIUM (0.5-0.8), LOW (<0.5)
+  - Template loading from knowledge.json with language fallback support
+  - Escalation messages for low confidence with multi-language support
+  - Cache management for knowledge base
+- Created comprehensive unit tests `src/__tests__/fallback-confidence-tier-selection.test.ts`:
+  - 26 tests covering all tiers, boundaries, languages, and real-world scenarios
+  - Tests verify tier-specific behavior and template selection logic
+  - Edge cases tested: exact boundary values (0.5, 0.8), missing templates, language fallbacks
+
+### Patterns discovered
+- Knowledge.json structure: `{static: [{intent, response: {language: text}, ...}]}`
+- Intent templates have multi-language support — responses keyed by language code
+- Fallback cascade: primary intent → category-based → generic inquiry → escalation
+- Confidence tier thresholds match exact spec from acceptance criteria
+
+### Gotchas avoided
+- Knowledge base cached to avoid repeated file I/O
+- Language parameter defaults to 'en' for backward compatibility
+- Intent lookup uses substring matching for flexibility (e.g., 'booking_request' matches 'booking')
+- HIGH tier returns empty text — caller responsibility to use original AI response
+- Test boundary cases explicitly (0.5, 0.8 exact) to verify correct tier assignment
 - Vitest 4 deprecation warnings for `poolOptions` are pre-existing, non-blocking
 
 ### Gotchas
