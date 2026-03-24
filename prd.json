@@ -63,7 +63,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_decomposedFrom": "US-353",
       "model": "haiku"
     },
@@ -546,6 +546,40 @@
       "model": "sonnet"
     },
     {
+      "id": "US-432",
+      "title": "Per-Intent Confidence Threshold Auto-Calibrator",
+      "priority": "high",
+      "description": "Find optimal confidence threshold per intent type (booking, inquiry, etc.) by analyzing production classification feedback. Booking may need 0.75 threshold while inquiry works at 0.6, reducing false positives for critical intents.",
+      "acceptanceCriteria": [
+        "CLI: npm run calibrate:intent-thresholds analyzes rainbow_messages feedback data and tests thresholds 0.5-0.95 per intent type",
+        "Generate intent_confidence_thresholds.json with format {intent_name: {threshold: 0.75, false_positive_rate: 0.05}} for all intents",
+        "Report shows false positive rate trend per threshold; recommend threshold minimizing escalation rate while keeping false positives <10%"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-433",
+      "title": "Fallback Response Suggestion Engine with Template Variants",
+      "priority": "high",
+      "description": "Analyze low-performing fallback responses and auto-generate improved variants using conversation context patterns. Identify templates with <50% escalation resolution rate and suggest rewrites for staff approval before deployment.",
+      "acceptanceCriteria": [
+        "New endpoint: /admin/fallback-suggestions queries fallback_escalations table, lists templates with <50% successful_resolution_rate",
+        "Generate 2 improved variants per low-performing template that: preserve intent, add helpful next-step suggestions, reference conversation context (e.g., 'I'm unsure about check-in dates; would 2-day earlier work?')",
+        "Test: template 'I don't understand' with 40% success → generates variants with 70%+ estimated improvement based on similar successful templates"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-416",
       "title": "Booking Workflow Step Output Assertion Tracer",
       "priority": "medium",
@@ -690,6 +724,57 @@
         "Add step_duration_ms tracking to each workflow step execution in src/assistant/pipeline/booking-executor.ts with profile-tagged structured logs",
         "Create admin endpoint GET /api/admin/booking-step-sla?profile=data-makan returning {step_name, avg_duration_ms, p95_duration_ms, p99_duration_ms} for last 7 days",
         "Add test verifying booking_confirmation step on data-makan profile has avg_duration < 500ms AND test flags any step with p99 > 5000ms as 'PERFORMANCE_ALERT'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-434",
+      "title": "Conversation Abandonment Early Warning Detector",
+      "priority": "medium",
+      "description": "Proactively detect conversations likely to abandon (3+ failed classification attempts, user frustration signals) and escalate to staff before guest gives up. Reduce abandonment by offering immediate human help.",
+      "acceptanceCriteria": [
+        "New middleware in messagePipeline.ts tracks classification failures per conversation_id; escalate after 3 consecutive low-confidence (<0.5) classifications",
+        "Detect frustration signals in messages: 'help', 'human', 'confused', repeated identical queries; trigger escalation on 2+ signals in same conversation",
+        "Integration test: conversation with 3 failed bookings + 'please help' message auto-escalates with reason 'Suspected abandonment risk: repeated classification failures' logged to escalation_events"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-435",
+      "title": "Context Relevance Reranker for Multi-Turn AI Inference",
+      "priority": "medium",
+      "description": "Re-score conversation history for relevance to current user message before sending to AI. Promotes booking-critical context (dates, room types) and demotes off-topic chat, improving AI response quality while reducing token usage.",
+      "acceptanceCriteria": [
+        "New function: contextReranker.ts in src/tools/ scores each message (0-1) for relevance using semantic similarity to current_message + intent_type",
+        "Keep top-3 most relevant messages, demote older off-topic messages; preserve all messages from last 3 turns to maintain conversation flow",
+        "Integration test: 15-message conversation with booking details (dates, room type) in turns 3-5 are reranked to top; turn 14 off-topic chitchat demoted to bottom; check-in date preserved in final context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-436",
+      "title": "Booking Workflow Step Execution Cost Profiler",
+      "priority": "medium",
+      "description": "Track execution time and database write count per booking workflow step in production. Identify expensive steps (>500ms or >5 DB writes) and generate optimization recommendations for bottleneck resolution.",
+      "acceptanceCriteria": [
+        "Middleware logs step_id, duration_ms, db_query_count, step_result for each booking workflow execution; store in workflow_step_metrics table",
+        "CLI: npm run profile:booking-workflow aggregates data by step, shows median + p95 duration and query count; highlight steps >500ms or >5 queries as expensive",
+        "Report includes per-profile comparison (Pelangi vs Makan), identifies expensive steps (e.g., availability check taking 2s), suggests indexing or query optimization targets"
       ],
       "technicalNotes": [],
       "dependencies": [],
