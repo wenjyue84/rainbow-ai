@@ -47,23 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-422",
-      "title": "Profile Data Deployment Validator with Cross-Reference Check",
-      "priority": "critical",
-      "description": "Pre-deployment validation CLI that scans profile data files for keyword contamination from other profiles, preventing cross-profile data pollution before merging.",
-      "acceptanceCriteria": [
-        "Create src/tools/cli/profile-deployment-validator.ts that reads profile-specific keyword blacklist from src/assistant/data/profile-keywords-blacklist.json",
-        "Scan knowledge.json, intents.json, intent-keywords.json, and routing.json for blacklisted keywords, output file:line_number with matched text",
-        "CLI command: npm run validate:profile-deployment -- --profile makan-moments returns exit code 1 on contamination with remediation_suggestions.txt"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-391",
       "title": "Intent Classification Error Pattern Grouper CLI",
       "priority": "high",
@@ -404,53 +387,19 @@
       "model": "haiku"
     },
     {
-      "id": "US-424",
-      "title": "Intent Classification Confidence Quantile Tracker for Analytics",
-      "priority": "medium",
-      "description": "Store per-intent classification confidence scores in intent_analytics table and generate percentile reports (p50/p90/p99) to identify intents with consistently low confidence that need keyword improvements.",
+      "id": "US-422",
+      "title": "Profile Data Deployment Validator with Cross-Reference Check",
+      "priority": "critical",
+      "description": "Pre-deployment validation CLI that scans profile data files for keyword contamination from other profiles, preventing cross-profile data pollution before merging.",
       "acceptanceCriteria": [
-        "Modify intent classifier to log (intent, confidence, message_id, profile) to intent_analytics table for every classification",
-        "Create analytics query endpoint: GET /admin/intents/{intent}/confidence-quantiles returning {p50, p90, p99, sample_size}",
-        "Add unit test validating quantile calculations on 100-message test dataset with confidence threshold detection"
+        "Create src/tools/cli/profile-deployment-validator.ts that reads profile-specific keyword blacklist from src/assistant/data/profile-keywords-blacklist.json",
+        "Scan knowledge.json, intents.json, intent-keywords.json, and routing.json for blacklisted keywords, output file:line_number with matched text",
+        "CLI command: npm run validate:profile-deployment -- --profile makan-moments returns exit code 1 on contamination with remediation_suggestions.txt"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-425",
-      "title": "Fallback Response Escalation Reason Logger with Analytics",
-      "priority": "medium",
-      "description": "Log detailed escalation reason (low_confidence, intent_not_found, booking_conflict, validation_error) whenever a message is escalated to staff, enabling analysis of top failure patterns and targeted improvements.",
-      "acceptanceCriteria": [
-        "Modify fallback router to log (message_id, profile, reason, confidence_score, original_intent_attempt, timestamp) to escalation_events table",
-        "Create analytics endpoint: GET /admin/escalations/top-reasons returning {reason, count, avg_confidence} sorted by frequency",
-        "Add integration test verifying low_confidence escalations logged correctly for 3 different confidence levels"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-426",
-      "title": "Conversation Context Message Relevance Filter with Semantic Similarity",
-      "priority": "medium",
-      "description": "Filter conversation context to keep only messages semantically relevant to the current user message, preventing off-topic context from polluting AI inference and reducing token consumption on multi-turn conversations.",
-      "acceptanceCriteria": [
-        "Create relevance_filter.score(current_message, context_message) returning 0-1 similarity score using embedding comparison",
-        "Keep only context messages with relevance score ≥0.7; include most recent 3 messages regardless of score (recency override)",
-        "Add unit test with 10 context messages showing: on-topic messages retained, off-topic messages filtered, recent messages never dropped"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -4532,20 +4481,124 @@
       "passes": true
     },
     {
-      "id": "US-427",
-      "title": "Booking Workflow Step Performance Baseline Tracker",
-      "priority": "medium",
-      "description": "Database schema and CLI tool to track execution time per booking workflow step, detect performance regressions with automated alerts",
+      "id": "US-424",
+      "title": "Fix Webchat Conversations API — Remove Missing status Column Reference",
+      "description": "The GET /api/rainbow/webchat/conversations endpoint fails with \"column c.status does not exist\" because the SQL query references a status column that was never added to rainbow_conversations. Fix the query to remove or handle the missing column so the webchat sidebar loads.",
+      "priority": "critical",
       "acceptanceCriteria": [
-        "New table: workflow_step_metrics stores step_name, profile, execution_time_ms, timestamp for each booking workflow execution",
-        "CLI: npx tsx src/tools/workflow-perf-analyzer.ts --check compares current step times against baseline, alerts if >20% slower",
-        "Integration tests in src/__tests__/workflow-metrics.test.ts verify timing data collection and regression detection threshold logic"
+        "GET /api/rainbow/webchat/conversations returns 200 with conversation list",
+        "Webchat tab sidebar loads and displays sessions instead of infinite loading",
+        "Existing WhatsApp conversations are not affected"
       ],
-      "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "medium",
       "passes": false,
-      "_source": "ai-example"
+      "filesTouch": [
+        "src/routes/admin/webchat.ts"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "webchat",
+        "bugfix"
+      ]
+    },
+    {
+      "id": "US-425",
+      "title": "Display Customer-Admin Message Thread with Role-Based Bubble Styling",
+      "description": "When admin clicks a webchat session in the sidebar, render the full conversation with distinct visual styling: customer messages left-aligned gray, AI assistant messages left-aligned blue, staff/admin messages right-aligned green. Each message shows sender name, timestamp, and role badge.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Customer messages render left-aligned with gray bubbles and Customer badge",
+        "AI assistant messages render left-aligned with blue bubbles and Rainbow AI badge",
+        "Staff messages render right-aligned with green bubbles and Staff badge",
+        "Timestamps show relative time format"
+      ],
+      "dependencies": [
+        "US-424"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/public/js/modules/webchat-admin.js",
+        "src/public/css/rainbow-livechat-ui.css"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "webchat",
+        "ui"
+      ]
+    },
+    {
+      "id": "US-426",
+      "title": "Admin Reply Input Box with Send for Webchat Conversations",
+      "description": "Show a message input box at the bottom of the webchat conversation panel. Admin types a reply and clicks Send or presses Enter. The reply POSTs to /webchat/conversations/:sessionId/reply and appears instantly in the thread with Staff badge.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Reply input box appears when a webchat session is selected",
+        "Send button and Enter key submit the reply",
+        "Reply appears instantly in the thread with Staff role styling",
+        "Input clears after successful send"
+      ],
+      "dependencies": [
+        "US-424"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/public/js/modules/webchat-admin.js",
+        "src/routes/admin/webchat.ts"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "webchat",
+        "ui"
+      ]
+    },
+    {
+      "id": "US-427",
+      "title": "Show Guest Name in Webchat Sidebar with Last Message Preview",
+      "description": "Display the guest pushName or collected guestName prominently in each sidebar conversation card. Show last message preview truncated to 60 chars, message count badge, and time since last activity. Anonymous guests show Anonymous Guest with truncated session ID.",
+      "priority": "high",
+      "acceptanceCriteria": [
+        "Sidebar cards show guest name prominently",
+        "Last message preview truncated to 60 characters",
+        "Message count and relative timestamp shown",
+        "Anonymous guests display fallback name with session ID"
+      ],
+      "dependencies": [
+        "US-424"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/public/js/modules/webchat-admin.js"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "webchat",
+        "ui"
+      ]
+    },
+    {
+      "id": "US-428",
+      "title": "Search and Filter Webchat Conversations by Guest Name",
+      "description": "Add a search input above the webchat sidebar that filters conversations by guest name with case-insensitive partial match. Add filter chips: All, Active, Unread. Typing yoong filters to show only Yoong Mei Trading conversations.",
+      "priority": "medium",
+      "acceptanceCriteria": [
+        "Search input filters sidebar conversations by guest name",
+        "Filter is case-insensitive and supports partial match",
+        "Filter chips for All, Active, Unread toggle conversation visibility",
+        "Empty search shows all conversations"
+      ],
+      "dependencies": [
+        "US-424",
+        "US-427"
+      ],
+      "passes": false,
+      "filesTouch": [
+        "src/public/js/modules/webchat-admin.js"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "webchat",
+        "ui"
+      ]
     }
   ]
 }
