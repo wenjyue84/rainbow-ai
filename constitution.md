@@ -1,51 +1,79 @@
 # Rainbow AI — Spiral Constitution
-## Pre-Ordering Focus: Makan Moments Cafe
+## Yoong Mei Trading And Transport — Logistics Enquiry Assistant
 
-### Core Rule: Every Story Must Be Visible & Felt
-Every user story MUST produce a change that:
-- A customer can **see or feel** directly in their WhatsApp chat conversation, OR
-- An admin can **see or act on** in the kitchen notification or admin dashboard
-
-Reject or deprioritize: internal refactors, logging improvements, schema changes,
-or infrastructure work UNLESS they directly unblock a visible customer/admin feature.
+> **Full business requirements:** [docs/yoongmei-requirements.md](docs/yoongmei-requirements.md)
+> **Profile ID:** `yoongmei` | **Webchat:** `/chat/yoongmei`
 
 ---
 
-### Customer-Side Visible Improvements (WhatsApp Chat)
+### Core Rule: Every Story Must Be Visible & Felt
+
+Every user story MUST produce a change that:
+- A **customer** can see or feel directly in their webchat conversation, OR
+- A **staff member** receives as a WhatsApp notification or in the admin dashboard
+
+Reject or deprioritise: internal refactors, logging improvements, schema changes,
+or infrastructure work UNLESS they directly unblock a visible customer/staff feature.
+
+---
+
+### Customer-Side Visible Improvements (Webchat)
 
 Stories that improve these MUST be prioritised:
 
-1. **Menu browsing experience** — formatted menu cards with item name, price, and description in WhatsApp messages; emoji or bold text for visual hierarchy
-2. **Order confirmation UX** — after placing an order, the AI waiter MUST send a clear summary: items, quantities, estimated total, pickup/arrival time
-3. **Multi-item cart feedback** — as customers add items, show running cart state ("You have: 1x Nasi Lemak, 2x Teh Tarik — add more or confirm?")
-4. **Order disambiguation** — when customer is vague ("I want the usual"), ask clear follow-up questions, not generic "I don't understand"
-5. **Intent accuracy** — if the AI misunderstands an order intent, show a friendly correction prompt instead of silent failure
-6. **Order status updates** — send proactive WhatsApp messages when order status changes (confirmed → preparing → ready)
-7. **Language handling** — support Malay/English mix naturally (Manglish); don't break on "satu teh o ais kurang manis"
+1. **Enquiry collection flow** — The AI must guide customers through all 7 required fields
+   (name, pickup, delivery, commodity, quantity, weight, dimension, billing details)
+   in a natural conversational flow, not a rigid form dump
+2. **Partial progress persistence** — If a customer provides 3 out of 7 fields, the bot
+   must remember what was already given and only ask for what's missing
+3. **Pricing guidance** — When customers ask for rates, the bot must look up the correct
+   destination row from the pricing table and present it clearly, with the caveat that
+   final rates are confirmed by staff
+4. **Route not covered** — Graceful response when the destination is not in the price list:
+   collect full enquiry and escalate, do NOT invent a number
+5. **Language handling** — Support English and Malay naturally; don't break on mixed input
+6. **Escalation confirmation** — After collecting all fields, show a clear summary to the
+   customer and confirm it has been forwarded to the Yoong Mei team
 
-### Admin-Side Visible Improvements
+### Staff-Side Visible Improvements
 
 Stories that improve these MUST be prioritised:
 
-1. **Kitchen notification clarity** — notifications must show: table/customer name, order items, quantities, special requests, timestamp
-2. **Order dashboard readability** — orders listed with clear status indicators (pending, confirmed, preparing, done)
-3. **Error visibility** — if the AI fails to parse an order, admin sees an alert, not a silent drop
-4. **Order management actions** — admin can confirm, reject, or update order status with one tap/click
+1. **WhatsApp notification** — When all 7 enquiry fields are collected, staff receives a
+   formatted WhatsApp message with the complete enquiry details
+2. **Escalation for unknowns** — When the AI cannot answer, staff gets a notification with
+   the original question and customer context so they can follow up
+3. **Enquiry summary quality** — Notification must be structured and scannable:
+   customer name, origin, destination, commodity, qty/weight/dimensions, billing info
 
 ---
 
 ### What Is Out of Scope (Reject These Stories)
+
+- Stories that automate the actual quoting or booking — humans must confirm
 - Generic code quality improvements with no user-visible output
-- Abstract "improve architecture" stories
+- Features from the `pelangi`, `southern`, or `makan-moments` profiles bleeding into `yoongmei`
 - Stories touching only test files or config files with no UX change
 - Performance optimisations under 100ms that users cannot perceive
-- Stories that duplicate existing functionality without improvement
 
 ---
 
 ### Acceptance Criteria Standards
+
 Every story's acceptance criteria MUST include at least one of:
-- "Customer sees [X] in WhatsApp chat"
-- "Admin sees [X] in dashboard/notification"
-- "The order confirmation message shows [X]"
-- "When customer types [X], the bot responds with [Y]"
+- "Customer sees [X] in webchat"
+- "Staff receives [X] as WhatsApp notification"
+- "When customer provides [X], the bot responds with [Y]"
+- "When customer asks about rate to [destination], the bot shows [correct rate row]"
+- "After collecting all fields, bot sends summary [Z] to staff"
+
+---
+
+### Profile Isolation Rule
+
+All data and KB files for `yoongmei` live exclusively in:
+- KB: `.rainbow-kb-yoongmei/`
+- Data: `src/assistant/data-yoongmei/`
+
+Zero content from `pelangi`, `southern`, or `makan-moments` may appear here.
+Spiral MUST validate this before each commit.
