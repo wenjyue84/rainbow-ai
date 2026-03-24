@@ -124,6 +124,7 @@ import contextStatsRoutes from './context-stats.js'; // US-308: Context relevanc
 import bookingTraceRoutes from './booking-trace.js'; // US-309: Booking workflow trace timeline
 import keywordMinerRoutes from './keyword-miner.js'; // US-323: Intent Keyword Auto-Miner
 import routingAuditRoutes from './routing-audit.js'; // US-343: Live message routing integrity audit
+import hardCasesRoutes from './hard-cases.js'; // US-376: Hard-case review queue with admin labeling
 
 const router = Router();
 
@@ -414,6 +415,7 @@ router.use(contextStatsRoutes);                   // US-308: Context relevance r
 router.use(bookingTraceRoutes);                   // US-309: Booking workflow trace timeline
 router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto-Miner
 router.use(routingAuditRoutes);                   // US-343: Live message routing integrity audit
+router.use(hardCasesRoutes);                      // US-376: Hard-case review queue with admin labeling
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

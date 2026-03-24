@@ -28,7 +28,7 @@ import { escalateToStaff } from '../escalation.js';
 import { normalizeInput, logNormalization } from './input-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
-import { intentAnalytics, escalationQueue, rainbowLowconfMessages } from '../../../shared/schema-tables.js';
+import { intentAnalytics, escalationQueue, rainbowLowconfMessages, hardCaseQueue } from '../../../shared/schema-tables.js';
 import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
@@ -202,6 +202,17 @@ export async function classifyAndRoute(
       originalText: processText.slice(0, 2000),
       predictedIntent: result.intent,
       confidence: result.confidence,
+    }).catch(() => {}); // fire-and-forget, non-fatal
+  }
+
+  // ─── US-376: Hard-case review queue (50-70% confidence) ──────────
+  if (result.confidence >= 0.5 && result.confidence <= 0.7) {
+    db.insert(hardCaseQueue).values({
+      messageText: processText.slice(0, 2000),
+      profile: state.profileId,
+      predictedIntent: result.intent,
+      confidence: result.confidence,
+      top3Candidates: [] as any,
     }).catch(() => {}); // fire-and-forget, non-fatal
   }
 

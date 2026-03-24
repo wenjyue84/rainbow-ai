@@ -139,3 +139,25 @@ export const intentClassificationThresholds = pgTable("intent_classification_thr
 export type IntentClassificationThreshold = typeof intentClassificationThresholds.$inferSelect;
 export type InsertIntentClassificationThreshold = typeof intentClassificationThresholds.$inferInsert;
 
+// ─── US-376: Hard-Case Review Queue ─────────────────────────────────
+// Captures predictions where confidence is 50-70% for admin labeling + retraining.
+export const hardCaseQueue = pgTable("hard_case_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  messageText: text("message_text").notNull(),
+  profile: text("profile").notNull().default('pelangi'),
+  predictedIntent: text("predicted_intent").notNull(),
+  confidence: real("confidence").notNull(),
+  top3Candidates: jsonb("top_3_candidates").default('[]'),
+  adminLabel: text("admin_label"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_hard_case_queue_profile").on(table.profile),
+  index("idx_hard_case_queue_predicted_intent").on(table.predictedIntent),
+  index("idx_hard_case_queue_confidence").on(table.confidence),
+  index("idx_hard_case_queue_admin_label").on(table.adminLabel),
+  index("idx_hard_case_queue_created_at").on(table.createdAt),
+]));
+
+export type HardCaseQueue = typeof hardCaseQueue.$inferSelect;
+export type InsertHardCaseQueue = typeof hardCaseQueue.$inferInsert;
+

@@ -647,3 +647,38 @@ Here is the technical brief for implementing user story US-376.
 *   **Export Format**: Ensure the JSONL output format (`{message, predicted, admin_label}`) is strictly followed for compatibility with downstream retraining scripts.
 *   **Data Volume**: The `GET` endpoint should be paginated (`limit` parameter) to handle a potentially large queue.
 
+
+## Iteration [Current] - Story: Intent Classification Hard-Case Review Queue (US-376) ✓ COMPLETE
+### What was implemented
+- **Added `hardCaseQueue` table** to `shared/tables/intent-analytics.ts`:
+  - Fields: id (uuid), message_text, profile, predicted_intent, confidence, top_3_candidates (jsonb), admin_label, created_at
+  - Indexed on profile, predicted_intent, confidence, admin_label, created_at
+
+- **Auto-insert hook** in `src/assistant/pipeline/intent-classifier.ts`:
+  - Captures predictions where 0.5 <= confidence <= 0.7 (fire-and-forget, non-blocking)
+
+- **Admin API** in `src/routes/admin/hard-cases.ts`:
+  - GET `/admin/api/hard-cases?profile=pelangi&limit=20` — returns sorted queue
+  - POST `/admin/api/hard-cases/:id/label?intent=booking` — records admin label
+
+- **Export CLI** in `scripts/export-hard-case-labels.ts`:
+  - npm run export:hard-case-labels -- pelangi
+  - Generates JSONL: { message, predicted, admin_label }
+  - Logs count per intent type
+
+- **Registered** route in `src/routes/admin/index.ts`
+- **Added npm script** `export:hard-case-labels` to package.json
+
+### Patterns discovered
+- Hard case insert location: `intent-classifier.ts` lines 197-206 (after US-280 block) — has `state.profileId`, `processText`, `result.intent`, `result.confidence`
+- `DevMetadata` doesn't have top3Candidates; stored as empty array for now
+- Export CLI uses raw `pg` Pool (not Drizzle) — same pattern as other CLI scripts
+
+### Acceptance Criteria Met
+✅ hardCaseQueue table in shared/schema-tables.ts (via intent-analytics.ts)
+✅ Auto-insert when confidence 50-70% during production inference
+✅ GET /admin/api/hard-cases?profile=pelangi&limit=20
+✅ POST /admin/api/hard-cases/:id/label?intent=booking
+✅ npm run export:hard-case-labels <profile> generates JSONL
+✅ Build: esbuild succeeded
+✅ Server startup: verified
