@@ -47,6 +47,518 @@
   ],
   "userStories": [
     {
+      "id": "US-380",
+      "title": "Profile Data Cross-File Semantic Consistency Validator",
+      "priority": "high",
+      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
+      "acceptanceCriteria": [
+        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
+        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
+        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-24T04:11:05Z"
+    },
+    {
+      "id": "US-383",
+      "title": "Booking Check-in Date Validator with Flexible Date Format Normalization",
+      "priority": "high",
+      "description": "Validates check-in dates in booking workflow (rejects past dates, validates format), normalizes various date inputs (DD/MM/YYYY, MM/DD/YYYY, text like 'tomorrow'), and suggests valid date ranges when input is invalid. Prevents invalid booking states.",
+      "acceptanceCriteria": [
+        "File 'src/assistant/pipeline/booking-checkin-date-validator.ts' exports validateCheckinDate(input, profile) that rejects dates before today, normalizes to ISO 8601, and throws ValidationError with alternative date suggestions",
+        "Unit tests in 'src/assistant/pipeline/booking-checkin-date-validator.test.ts' assert past date rejection, format normalization for DD/MM/YYYY and natural language ('tomorrow'), and valid range suggestions covering next 30 days",
+        "Integrated into booking workflow step execution with validation error messages returned to user before workflow continuation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-384",
+      "title": "Profile Intent Keyword Coverage Audit CLI with Missing Variant Detection",
+      "priority": "high",
+      "description": "Audits each profile's intent-keywords.json against its intents.json to detect orphaned keywords, missing keyword variants, and cross-profile contamination. Generates report with actionable recommendations for keyword additions/removals.",
+      "acceptanceCriteria": [
+        "CLI 'npm run profile:audit-keyword-coverage --profile=data-makan' outputs JSON report showing coverage % per intent, orphaned keywords in intent-keywords.json with no matching intent, and keywords appearing in multiple profiles",
+        "Creates 'src/tools/profile-keyword-coverage-analyzer.ts' that compares intent-keywords.json structure against intents.json and flags missing keyword variants for intents with keyword entry count > 10",
+        "Test file 'src/tools/profile-keyword-coverage-analyzer.test.ts' includes assertions that data-makan hostel-specific keywords are detected as cross-profile contamination violations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-385",
+      "title": "Purge Pelangi Content from data-makan Profile",
+      "priority": "high",
+      "description": "Audit and remove all Pelangi Capsule Hostel-specific content from the data-makan profile files (intents.json, intent-keywords.json, routing.json, workflows.json). Only cafe-relevant intents should remain.",
+      "acceptanceCriteria": [
+        "Remove hostel-specific intents from data-makan: check_in, check_out, room_service, hostel_amenities",
+        "Remove hostel-related keywords from data-makan intent-keywords.json",
+        "Verify only cafe intents remain: order_inquiry, promotion_inquiry, menu_question, delivery_inquiry",
+        "Zero references to 'pelangi', 'capsule', 'hostel room', 'bed', 'dorm' in data-makan files (case-insensitive)"
+      ],
+      "technicalNotes": [
+        "Profile data files are in src/assistant/data/ or a profile-specific subdirectory — locate correct path before editing",
+        "Use case-insensitive grep to verify zero Pelangi references after changes"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_decomposedFrom": "US-353",
+      "model": "haiku"
+    },
+    {
+      "id": "US-386",
+      "title": "Runtime Intent Keyword Collision Detector with Conflict Log",
+      "priority": "high",
+      "description": "Detects when two different intents compete for the same keyword during message classification, logging keyword collisions and suggesting refinements to disambiguate overlapping intents.",
+      "acceptanceCriteria": [
+        "Implement collision detection in src/assistant/intent-classifier.ts that identifies keywords matching multiple intents; log collision event with {keyword, intent_id_1, intent_id_2, confidence_spread} to database table intent_keyword_collisions",
+        "CLI tool: `npx ts-node src/tools/keyword-collision-analyzer.ts --profile=pelangi` outputs CSV with columns: keyword, intent_1, intent_2, collision_count_7d, suggestion (merge/refine/remove)",
+        "Test case must assert that if both 'booking' intent and 'inquiry' intent match keyword 'available' in message 'is room available', collision is logged with both intent IDs"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-387",
+      "title": "Turn-by-Turn Profile Context Validator Middleware",
+      "priority": "high",
+      "description": "Validates that each assistant response is contextually appropriate for its profile. Detects and blocks responses mentioning wrong business's amenities, policies, or branding.",
+      "acceptanceCriteria": [
+        "Implement middleware at src/assistant/pipeline/profile-context-validator.ts that extracts profile-specific keywords from each profile's knowledge.json and validates response text against keywords from OTHER profiles",
+        "If response contains keyword from wrong profile (e.g., 'capsule' in makan-moments response), log violation with {profile_id, invalid_keywords, response_text} and return BLOCK action with escalation fallback",
+        "Test case: southern_homestay profile must block response containing 'cafe menu' or 'makan moments' keywords; pelangi profile must block responses containing 'seasonal promotion' keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-388",
+      "title": "Booking Confirmation Email Template Profile Validator CLI",
+      "priority": "high",
+      "description": "Scans booking confirmation email templates for hardcoded profile-specific content (business names, amenities, policies). Ensures templates use variables instead of hardcoded values to prevent cross-profile contamination.",
+      "acceptanceCriteria": [
+        "CLI tool: `npx ts-node src/tools/email-template-validator.ts --profile=makan-moments --template=booking-confirmation.html` scans template for hardcoded strings like 'Pelangi', 'capsule', 'hostel' and returns violations with line number and suggested {{PROFILE_NAME}} variable replacement",
+        "Validator must reject templates where profile-specific amenities or branding are hardcoded; must enforce that all profile names use {{PROFILE_NAME}} and profile amenities use {{PROFILE_AMENITIES}} variables",
+        "Test case: if booking-confirmation.html for makan_moments profile contains hardcoded 'Pelangi Capsule Check-in Instructions', validator must fail with violation list showing exact line and suggesting {{PROFILE_NAME}} replacement"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-391",
+      "title": "Intent Classification Error Pattern Grouper CLI",
+      "priority": "high",
+      "description": "CLI tool to parse production logs and group intent misclassifications by error type (false positives, false negatives, boundary confusions) with keywords and confidence ranges for actionable remediation.",
+      "acceptanceCriteria": [
+        "`npx spiral group-classification-errors --profile data-pelangi --output errors.json` clusters misclassifications by type, showing frequency, confidence ranges, and 3 example messages per cluster",
+        "Report identifies problematic keyword pairs (e.g., 'booking' vs 'inquiry') and suggests additions to `src/assistant/data/intent-keywords.json`",
+        "Integration test with sample misclassification log produces deterministic clustering with >80% inter-cluster separation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-392",
+      "title": "Fallback Response Tone Validator CLI",
+      "priority": "high",
+      "description": "Validate that fallback response templates in knowledge.json maintain appropriate tone per profile and intent type, flagging dismissive language and tone inconsistencies.",
+      "acceptanceCriteria": [
+        "`npx spiral validate-response-tone --profile data-makan --output tone-report.json` scans knowledge.json and flags dismissive patterns (e.g., 'cannot help', 'not possible')",
+        "Report shows tone distribution across intent groups with counts (booking responses should avg sentiment >0.6 apologetic, inquiry responses >0.7 helpful)",
+        "Generates suggested alternatives via `--suggest-fixes` flag, stored in `tone-suggestions.json`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-393",
+      "title": "Multi-Turn Conversation Context Debugger CLI",
+      "priority": "high",
+      "description": "Interactive CLI to replay conversations turn-by-turn, visualizing context window state, classifier decisions, and routing path at each step to diagnose multi-turn dialogue failures.",
+      "acceptanceCriteria": [
+        "`npx spiral debug-conversation --message-id <UUID> --profile data-pelangi` replays conversation showing context indices included/excluded, classified intent + confidence, routed action at each turn",
+        "Exports trace as JSON with per-turn state snapshot (context size, top-3 intent candidates, routing decision, confidence percentile)",
+        "Test validates trace against database `rainbow_messages` and `rainbow_conversations` records for 3-turn sample conversation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-394",
+      "title": "Profile Data Cross-Contamination Git History Analyzer",
+      "priority": "high",
+      "description": "Analyze git history to identify commits that contaminated profile data files with cross-profile keywords or content, showing timeline and recovery recommendations.",
+      "acceptanceCriteria": [
+        "`npx spiral audit-contamination-history --profile data-makan --output report.html` scans git log to find commits adding Pelangi/Southern keywords to `src/assistant/data/intent-keywords.json`",
+        "Report displays suspect commits with diffs, authors, dates; flags specific Pelangi Capsule intent keywords found in Makan data files with counts",
+        "CLI flag `--suggest-fixes` outputs git revert commands and cherry-pick ranges to isolate cafe-only content"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-389",
+      "title": "Confidence Score Distribution Analyzer per Intent per Profile",
+      "priority": "medium",
+      "description": "Analyzes histogram of confidence scores for each intent across all profiles. Identifies intents with bimodal confidence distribution and alerts on distribution degradation.",
+      "acceptanceCriteria": [
+        "Implement GET /admin/analytics/intent-confidence-distribution?intent_id=booking&profile=pelangi returning {percentiles: {p10, p25, p50, p75, p90}, mean, stddev, sample_count, distribution_shape}",
+        "Detect bimodal distribution when stddev < 0.25; detect degradation when p50 confidence drops >0.1 from baseline stored in database",
+        "Test case: 100 'booking' intents with 50 at confidence 0.95 and 50 at confidence 0.15 must return distribution_shape='BIMODAL' with alert_type='INVESTIGATE'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-390",
+      "title": "Guest Language Preference Auto-Expander for Intent Keywords",
+      "priority": "medium",
+      "description": "Automatically expands English intent keywords to Malay and Tamil variants using lookup table. Integrates into intent matching pipeline to improve keyword coverage for non-English speakers.",
+      "acceptanceCriteria": [
+        "Create src/lib/language-keyword-expander.ts with function expandKeywords(keyword: string): Map<string, string[]> using lookup table in src/assistant/data/language-keyword-variants.json with English, Malay, Tamil variants",
+        "Integrate into intent matching pipeline src/assistant/intent-classifier.ts so that Malay query 'boleh tempahan' matches English keyword 'booking' via variant expansion with same confidence score",
+        "Test case: keyword 'booking' must expand to variants {en: ['booking', 'book'], ms: ['tempahan', 'booking'], ta: ['புக்கிங்']} and Malay message 'boleh tempahan bilik' must match booking intent"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-395",
+      "title": "Booking Workflow Step SLA Monitor with Breach Detection",
+      "priority": "medium",
+      "description": "Track per-step execution time percentiles (P50, P95) for booking workflows and detect SLA breaches to identify reliability bottlenecks affecting booking success rates.",
+      "acceptanceCriteria": [
+        "New `GET /admin/workflow-sla` endpoint returns step timings with avg latency, P95 latency, SLA threshold, and breach count for last 7 days",
+        "Workflow step execution durations logged in `src/lib/logger.ts` via structured log entries with step name and duration_ms fields",
+        "Admin test suite validates endpoint identifies slowest 3 steps and calculates SLA breach % for each"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-196",
+      "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
+      "priority": "critical",
+      "description": "Create npm CLI command that scans all profile-specific data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) and reports cross-profile contamination (e.g., Pelangi Capsule Hostel content in Makan Moments profile) with actionable fix instructions.",
+      "acceptanceCriteria": [
+        "npm run validate:profiles outputs report listing file paths with cross-contamination, e.g. 'src/assistant/data/data-makan/knowledge.json contains \"Pelangi Capsule Hostel\" (5 occurrences) - remove or relocate to shared profile'",
+        "Scanner checks for profile-specific keywords defined in src/assistant/validators/profile-keywords.json (e.g., makan profile must not contain hostel-related terms) and verifies intent routes match profile context",
+        "GitHub Actions CI step runs validator in --strict mode and fails build if contamination detected; developers run locally with --fix flag to auto-remove flagged terms (with manual review before commit)"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-03-23T04:46:47Z"
+    },
+    {
+      "id": "US-157",
+      "title": "Implement automated data retention policy enforcement via cron",
+      "priority": "critical",
+      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
+      "acceptanceCriteria": [
+        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
+        "Retention period is configurable via settings.json",
+        "Deletion is logged with count of deleted records in audit log",
+        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
+        "File to edit: ecosystem.config.cjs (add cron schedule)",
+        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "last_attempted": "2026-03-22T23:30:41Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 624,
+        "tokensAfterMasking": 622,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
+    },
+    {
+      "id": "US-156",
+      "title": "Implement conversation audit trail logging for PDPA compliance",
+      "priority": "critical",
+      "description": "Log all conversation interactions (message content, intent, confidence, action taken, timestamp) to an audit table for regulatory compliance and debugging conversation quality issues.",
+      "acceptanceCriteria": [
+        "Audit table logs timestamp, guest_id, message, intent, confidence, action_taken",
+        "Audit logs are immutable (insert-only, no deletes except via data retention policy)",
+        "Admin endpoint provides audit trail export for specific date range",
+        "Test: audit table contains entry for each message with correct confidence score"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add conversation_audit table)",
+        "File to edit: src/lib/logger.ts (add auditLog function that writes to DB)",
+        "Test command: npm run test -- shared/schema-tables.test.ts -t 'audit table'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "_scopeCreep": true
+    },
+    {
+      "id": "US-155",
+      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
+      "priority": "critical",
+      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
+      "acceptanceCriteria": [
+        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
+        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
+        "Admin can view/manage opt-in status per guest via API",
+        "Inbound messages automatically set opted_in=true with audit log"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
+        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
+        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku",
+      "_scopeCreep": true
+    },
+    {
+      "id": "US-149",
+      "title": "Implement idempotent booking confirmation with idempotency keys",
+      "priority": "critical",
+      "description": "Booking confirmations must be idempotent to safely handle retries without creating duplicate charges or reservations. Implement idempotency key pattern (UUID generated by client) to detect and skip duplicate booking requests.",
+      "acceptanceCriteria": [
+        "Booking POST endpoint requires idempotency-key header or x-idempotency-key query param",
+        "npm run test:run -- tests/integration/booking-idempotency.test.ts exits with 0",
+        "Duplicate request with same idempotency-key returns cached response (200 + same booking_id)",
+        "Idempotency key cache expires after 24 hours"
+      ],
+      "technicalNotes": [
+        "File to edit: src/routes/booking-confirm.ts (add idempotency middleware)",
+        "File to edit: shared/schema-validation.ts (add idempotencyKey field to booking schema)",
+        "Test command: npm run test:run -- tests/integration/booking-idempotency.test.ts -v",
+        "Reference: WhatsApp Cloud API - Messaging Limits; Stripe idempotency pattern"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "research",
+      "model": "sonnet",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+    },
+    {
+      "id": "US-136",
+      "title": "Add database row-level isolation tests for profile separation",
+      "priority": "critical",
+      "description": "Create comprehensive test suite validating that all database queries properly filter by profile/tenant. Ensure zero cross-contamination between Pelangi, Southern Homestay, and Makan Moments profiles even if WHERE clauses are forgotten.",
+      "acceptanceCriteria": [
+        "npm run test:run src/__tests__/isolation.test.ts passes with 100% test coverage",
+        "Tests verify queries for conversations, messages, intents use profile filter",
+        "Test explicitly checks that removing profile WHERE clause fails the test"
+      ],
+      "technicalNotes": [
+        "File to edit: src/__tests__/isolation.test.ts (new file - isolation test suite)",
+        "File to edit: src/lib/db.ts (add test helper for query validation)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "research",
+      "model": "haiku"
+    },
+    {
+      "id": "US-005",
+      "title": "Fix .rej rejected patch files from previous Spiral run",
+      "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "All .rej files are removed from the repository",
+        "Changes from the .rej files are correctly applied to the target files",
+        "All target JSON files remain valid JSON after applying changes",
+        "No data loss â€” all intended additions from .rej files are preserved"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/assistant/data/intent-keywords.json",
+        "src/assistant/data/knowledge.json",
+        "src/assistant/data/routing.json",
+        "src/assistant/data/settings.json",
+        "src/assistant/data/templates.json",
+        "src/assistant/data/workflows.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "bug-fix",
+        "rej-files",
+        "cleanup",
+        "module-src"
+      ],
+      "epicId": "E-5"
+    },
+    {
+      "id": "US-008",
+      "title": "Fix failing unit tests in the test suite",
+      "description": "Run the test suite and fix any tests that are currently failing. Focus on tests related to intent classification, conversation handling, and pipeline logic.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "npm run test:run exits with code 0",
+        "All previously passing tests continue to pass",
+        "No test files are deleted as a fix â€” tests must pass legitimately",
+        "Test failure root causes are addressed in the implementation code"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/",
+        "shared/"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "testing",
+        "bug-fix",
+        "module-shared",
+        "module-src"
+      ],
+      "epicId": "E-5"
+    },
+    {
+      "id": "US-011",
+      "title": "Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hostel content",
+      "description": "The file src/assistant/data-makan/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content including WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', hostel address '26A Jalan Perang Taman Pelangi', capsule facilities, and hostel check-in/out info. Remove ALL Pelangi-specific content and replace with Makan Moments Cafe-appropriate responses: cafe opening hours, menu info, ordering process, and table/takeaway options. The cafe does not have WiFi-for-guests, capsules, or room check-ins.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "data-makan/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'Taman Pelangi', 'capsule', or 'youtube.com/watch?v=6Ux11oBZaQQ'",
+        "Cafe-specific intents (menu, ordering, allergens, feedback) have meaningful response templates",
+        "Responses are in English/Malay/Chinese mixed style consistent with cafe tone",
+        "knowledge.json remains valid JSON with the same schema structure"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/assistant/data-makan/knowledge.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "profile-separation",
+        "makan-moments",
+        "data-quality",
+        "module-src"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-012",
+      "title": "Fix Southern Homestay knowledge.json — remove Pelangi Capsule content",
+      "description": "The file src/assistant/data-southern/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content: WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', Pelangi address, Pelangi YouTube video link, and capsule-specific facilities. Remove ALL Pelangi-specific identifiers and replace with Southern Homestay-appropriate placeholder responses. Southern Homestay is a separate property and must have its own identity.",
+      "priority": "critical",
+      "acceptanceCriteria": [
+        "data-southern/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'youtube.com/watch?v=6Ux11oBZaQQ', or 'Taman Pelangi'",
+        "Responses reference 'Southern Homestay' or use neutral placeholders like '[Southern Homestay WiFi]' where actual values are unknown",
+        "Hostel-specific responses (check-in, directions) use Southern-specific framing",
+        "knowledge.json remains valid JSON with the same schema structure"
+      ],
+      "dependencies": [],
+      "passes": true,
+      "filesTouch": [
+        "src/assistant/data-southern/knowledge.json"
+      ],
+      "estimatedComplexity": "medium",
+      "tags": [
+        "profile-separation",
+        "southern-homestay",
+        "data-quality",
+        "module-src"
+      ],
+      "epicId": "E-6"
+    },
+    {
+      "id": "US-017",
+      "title": "Add emergency/SOS intent with immediate staff escalation",
+      "priority": "critical",
+      "description": "Guests may message in emergencies (medical, fire, security incident). The current intents.json has no emergency/SOS category. An unrecognized emergency message hitting the fallback pipeline introduces unacceptable delay. A dedicated T1 regex-matched intent should bypass all queues and immediately alert all staff phones.",
+      "acceptanceCriteria": [
+        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '救命', '急救'",
+        "Emergency intent bypasses confidence thresholds and routes directly to immediate escalation workflow",
+        "All staff phones in settings.json receive a WhatsApp alert within 10 seconds of the trigger",
+        "routing.json maps the emergency intent to a new 'emergency_escalate' workflow",
+        "A unit test verifies that emergency keywords always resolve to the emergency intent regardless of LLM confidence"
+      ],
+      "technicalNotes": [
+        "Add 'emergency' category to GENERAL_SUPPORT phase in intents.json with min_confidence: 0.0 and time_sensitive: true",
+        "Add 'emergency_escalate' workflow in workflows.json that sends multi-staff notification before any other step",
+        "The T1 regex check should run before rate-limiting and prompt injection guards"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true
+    },
+    {
       "id": "US-354",
       "title": "Booking Workflow Step Input Schema Validator with Pre-Execution Type Check",
       "priority": "high",
@@ -401,347 +913,6 @@
       }
     },
     {
-      "id": "US-380",
-      "title": "Profile Data Cross-File Semantic Consistency Validator",
-      "priority": "high",
-      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
-      "acceptanceCriteria": [
-        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
-        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
-        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-383",
-      "title": "Booking Check-in Date Validator with Flexible Date Format Normalization",
-      "priority": "high",
-      "description": "Validates check-in dates in booking workflow (rejects past dates, validates format), normalizes various date inputs (DD/MM/YYYY, MM/DD/YYYY, text like 'tomorrow'), and suggests valid date ranges when input is invalid. Prevents invalid booking states.",
-      "acceptanceCriteria": [
-        "File 'src/assistant/pipeline/booking-checkin-date-validator.ts' exports validateCheckinDate(input, profile) that rejects dates before today, normalizes to ISO 8601, and throws ValidationError with alternative date suggestions",
-        "Unit tests in 'src/assistant/pipeline/booking-checkin-date-validator.test.ts' assert past date rejection, format normalization for DD/MM/YYYY and natural language ('tomorrow'), and valid range suggestions covering next 30 days",
-        "Integrated into booking workflow step execution with validation error messages returned to user before workflow continuation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-384",
-      "title": "Profile Intent Keyword Coverage Audit CLI with Missing Variant Detection",
-      "priority": "high",
-      "description": "Audits each profile's intent-keywords.json against its intents.json to detect orphaned keywords, missing keyword variants, and cross-profile contamination. Generates report with actionable recommendations for keyword additions/removals.",
-      "acceptanceCriteria": [
-        "CLI 'npm run profile:audit-keyword-coverage --profile=data-makan' outputs JSON report showing coverage % per intent, orphaned keywords in intent-keywords.json with no matching intent, and keywords appearing in multiple profiles",
-        "Creates 'src/tools/profile-keyword-coverage-analyzer.ts' that compares intent-keywords.json structure against intents.json and flags missing keyword variants for intents with keyword entry count > 10",
-        "Test file 'src/tools/profile-keyword-coverage-analyzer.test.ts' includes assertions that data-makan hostel-specific keywords are detected as cross-profile contamination violations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-385",
-      "title": "Purge Pelangi Content from data-makan Profile",
-      "priority": "high",
-      "description": "Audit and remove all Pelangi Capsule Hostel-specific content from the data-makan profile files (intents.json, intent-keywords.json, routing.json, workflows.json). Only cafe-relevant intents should remain.",
-      "acceptanceCriteria": [
-        "Remove hostel-specific intents from data-makan: check_in, check_out, room_service, hostel_amenities",
-        "Remove hostel-related keywords from data-makan intent-keywords.json",
-        "Verify only cafe intents remain: order_inquiry, promotion_inquiry, menu_question, delivery_inquiry",
-        "Zero references to 'pelangi', 'capsule', 'hostel room', 'bed', 'dorm' in data-makan files (case-insensitive)"
-      ],
-      "technicalNotes": [
-        "Profile data files are in src/assistant/data/ or a profile-specific subdirectory — locate correct path before editing",
-        "Use case-insensitive grep to verify zero Pelangi references after changes"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_decomposedFrom": "US-353",
-      "model": "haiku"
-    },
-    {
-      "id": "US-196",
-      "title": "Build Profile Data Contamination Scanner CLI with Pre-Deploy Report",
-      "priority": "critical",
-      "description": "Create npm CLI command that scans all profile-specific data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) and reports cross-profile contamination (e.g., Pelangi Capsule Hostel content in Makan Moments profile) with actionable fix instructions.",
-      "acceptanceCriteria": [
-        "npm run validate:profiles outputs report listing file paths with cross-contamination, e.g. 'src/assistant/data/data-makan/knowledge.json contains \"Pelangi Capsule Hostel\" (5 occurrences) - remove or relocate to shared profile'",
-        "Scanner checks for profile-specific keywords defined in src/assistant/validators/profile-keywords.json (e.g., makan profile must not contain hostel-related terms) and verifies intent routes match profile context",
-        "GitHub Actions CI step runs validator in --strict mode and fails build if contamination detected; developers run locally with --fix flag to auto-remove flagged terms (with manual review before commit)"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "last_attempted": "2026-03-23T04:46:47Z"
-    },
-    {
-      "id": "US-157",
-      "title": "Implement automated data retention policy enforcement via cron",
-      "priority": "critical",
-      "description": "Automatically delete guest conversations older than 7 years per PDPA retention requirements using a scheduled cron job, ensuring compliance and reducing database size.",
-      "acceptanceCriteria": [
-        "Cron job runs daily at 2 AM, deletes conversations older than 7 years",
-        "Retention period is configurable via settings.json",
-        "Deletion is logged with count of deleted records in audit log",
-        "Test: conversation created 8 years ago is deleted, 6-year-old conversation is retained"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/db.ts (add deleteExpiredConversations function)",
-        "File to edit: ecosystem.config.cjs (add cron schedule)",
-        "Test command: npm run test -- src/lib/db.test.ts -t 'retention'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku",
-      "last_attempted": "2026-03-22T23:30:41Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 624,
-        "tokensAfterMasking": 622,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
-    },
-    {
-      "id": "US-156",
-      "title": "Implement conversation audit trail logging for PDPA compliance",
-      "priority": "critical",
-      "description": "Log all conversation interactions (message content, intent, confidence, action taken, timestamp) to an audit table for regulatory compliance and debugging conversation quality issues.",
-      "acceptanceCriteria": [
-        "Audit table logs timestamp, guest_id, message, intent, confidence, action_taken",
-        "Audit logs are immutable (insert-only, no deletes except via data retention policy)",
-        "Admin endpoint provides audit trail export for specific date range",
-        "Test: audit table contains entry for each message with correct confidence score"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add conversation_audit table)",
-        "File to edit: src/lib/logger.ts (add auditLog function that writes to DB)",
-        "Test command: npm run test -- shared/schema-tables.test.ts -t 'audit table'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku",
-      "_scopeCreep": true
-    },
-    {
-      "id": "US-155",
-      "title": "Implement WhatsApp opt-in consent tracking and enforcement",
-      "priority": "critical",
-      "description": "WhatsApp Business Platform requires explicit opt-in consent before sending messages. Track opt-in status per guest and prevent sending messages to guests without verified consent, ensuring regulatory compliance with Meta's messaging requirements.",
-      "acceptanceCriteria": [
-        "Guest table has 'whatsapp_opted_in' boolean field with timestamp",
-        "baileys-client refuses to send outbound messages when opted_in=false, logs violation",
-        "Admin can view/manage opt-in status per guest via API",
-        "Inbound messages automatically set opted_in=true with audit log"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add whatsapp_opted_in, opted_in_at to guests table)",
-        "File to edit: src/lib/baileys-client.ts (add consent check in send method)",
-        "Test command: npm run test -- src/lib/baileys-client.test.ts -t 'consent'"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku",
-      "_scopeCreep": true
-    },
-    {
-      "id": "US-149",
-      "title": "Implement idempotent booking confirmation with idempotency keys",
-      "priority": "critical",
-      "description": "Booking confirmations must be idempotent to safely handle retries without creating duplicate charges or reservations. Implement idempotency key pattern (UUID generated by client) to detect and skip duplicate booking requests.",
-      "acceptanceCriteria": [
-        "Booking POST endpoint requires idempotency-key header or x-idempotency-key query param",
-        "npm run test:run -- tests/integration/booking-idempotency.test.ts exits with 0",
-        "Duplicate request with same idempotency-key returns cached response (200 + same booking_id)",
-        "Idempotency key cache expires after 24 hours"
-      ],
-      "technicalNotes": [
-        "File to edit: src/routes/booking-confirm.ts (add idempotency middleware)",
-        "File to edit: shared/schema-validation.ts (add idempotencyKey field to booking schema)",
-        "Test command: npm run test:run -- tests/integration/booking-idempotency.test.ts -v",
-        "Reference: WhatsApp Cloud API - Messaging Limits; Stripe idempotency pattern"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "research",
-      "model": "sonnet",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
-    },
-    {
-      "id": "US-136",
-      "title": "Add database row-level isolation tests for profile separation",
-      "priority": "critical",
-      "description": "Create comprehensive test suite validating that all database queries properly filter by profile/tenant. Ensure zero cross-contamination between Pelangi, Southern Homestay, and Makan Moments profiles even if WHERE clauses are forgotten.",
-      "acceptanceCriteria": [
-        "npm run test:run src/__tests__/isolation.test.ts passes with 100% test coverage",
-        "Tests verify queries for conversations, messages, intents use profile filter",
-        "Test explicitly checks that removing profile WHERE clause fails the test"
-      ],
-      "technicalNotes": [
-        "File to edit: src/__tests__/isolation.test.ts (new file - isolation test suite)",
-        "File to edit: src/lib/db.ts (add test helper for query validation)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "research",
-      "model": "haiku"
-    },
-    {
-      "id": "US-005",
-      "title": "Fix .rej rejected patch files from previous Spiral run",
-      "description": "Review and resolve the .rej files left over from the previous Spiral worker run. These are patch conflicts in intent-keywords.json, knowledge.json, routing.json, settings.json, templates.json, and workflows.json. Apply the intended changes manually.",
-      "priority": "critical",
-      "acceptanceCriteria": [
-        "All .rej files are removed from the repository",
-        "Changes from the .rej files are correctly applied to the target files",
-        "All target JSON files remain valid JSON after applying changes",
-        "No data loss â€” all intended additions from .rej files are preserved"
-      ],
-      "dependencies": [],
-      "passes": true,
-      "filesTouch": [
-        "src/assistant/data/intent-keywords.json",
-        "src/assistant/data/knowledge.json",
-        "src/assistant/data/routing.json",
-        "src/assistant/data/settings.json",
-        "src/assistant/data/templates.json",
-        "src/assistant/data/workflows.json"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "bug-fix",
-        "rej-files",
-        "cleanup",
-        "module-src"
-      ],
-      "epicId": "E-5"
-    },
-    {
-      "id": "US-008",
-      "title": "Fix failing unit tests in the test suite",
-      "description": "Run the test suite and fix any tests that are currently failing. Focus on tests related to intent classification, conversation handling, and pipeline logic.",
-      "priority": "critical",
-      "acceptanceCriteria": [
-        "npm run test:run exits with code 0",
-        "All previously passing tests continue to pass",
-        "No test files are deleted as a fix â€” tests must pass legitimately",
-        "Test failure root causes are addressed in the implementation code"
-      ],
-      "dependencies": [],
-      "passes": true,
-      "filesTouch": [
-        "src/",
-        "shared/"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "testing",
-        "bug-fix",
-        "module-shared",
-        "module-src"
-      ],
-      "epicId": "E-5"
-    },
-    {
-      "id": "US-011",
-      "title": "Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hostel content",
-      "description": "The file src/assistant/data-makan/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content including WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', hostel address '26A Jalan Perang Taman Pelangi', capsule facilities, and hostel check-in/out info. Remove ALL Pelangi-specific content and replace with Makan Moments Cafe-appropriate responses: cafe opening hours, menu info, ordering process, and table/takeaway options. The cafe does not have WiFi-for-guests, capsules, or room check-ins.",
-      "priority": "critical",
-      "acceptanceCriteria": [
-        "data-makan/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'Taman Pelangi', 'capsule', or 'youtube.com/watch?v=6Ux11oBZaQQ'",
-        "Cafe-specific intents (menu, ordering, allergens, feedback) have meaningful response templates",
-        "Responses are in English/Malay/Chinese mixed style consistent with cafe tone",
-        "knowledge.json remains valid JSON with the same schema structure"
-      ],
-      "dependencies": [],
-      "passes": true,
-      "filesTouch": [
-        "src/assistant/data-makan/knowledge.json"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "profile-separation",
-        "makan-moments",
-        "data-quality",
-        "module-src"
-      ],
-      "epicId": "E-6"
-    },
-    {
-      "id": "US-012",
-      "title": "Fix Southern Homestay knowledge.json — remove Pelangi Capsule content",
-      "description": "The file src/assistant/data-southern/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content: WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', Pelangi address, Pelangi YouTube video link, and capsule-specific facilities. Remove ALL Pelangi-specific identifiers and replace with Southern Homestay-appropriate placeholder responses. Southern Homestay is a separate property and must have its own identity.",
-      "priority": "critical",
-      "acceptanceCriteria": [
-        "data-southern/knowledge.json contains zero references to 'pelangi capsule', 'ilovestaycapsule', '1270#', 'youtube.com/watch?v=6Ux11oBZaQQ', or 'Taman Pelangi'",
-        "Responses reference 'Southern Homestay' or use neutral placeholders like '[Southern Homestay WiFi]' where actual values are unknown",
-        "Hostel-specific responses (check-in, directions) use Southern-specific framing",
-        "knowledge.json remains valid JSON with the same schema structure"
-      ],
-      "dependencies": [],
-      "passes": true,
-      "filesTouch": [
-        "src/assistant/data-southern/knowledge.json"
-      ],
-      "estimatedComplexity": "medium",
-      "tags": [
-        "profile-separation",
-        "southern-homestay",
-        "data-quality",
-        "module-src"
-      ],
-      "epicId": "E-6"
-    },
-    {
-      "id": "US-017",
-      "title": "Add emergency/SOS intent with immediate staff escalation",
-      "priority": "critical",
-      "description": "Guests may message in emergencies (medical, fire, security incident). The current intents.json has no emergency/SOS category. An unrecognized emergency message hitting the fallback pipeline introduces unacceptable delay. A dedicated T1 regex-matched intent should bypass all queues and immediately alert all staff phones.",
-      "acceptanceCriteria": [
-        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '救命', '急救'",
-        "Emergency intent bypasses confidence thresholds and routes directly to immediate escalation workflow",
-        "All staff phones in settings.json receive a WhatsApp alert within 10 seconds of the trigger",
-        "routing.json maps the emergency intent to a new 'emergency_escalate' workflow",
-        "A unit test verifies that emergency keywords always resolve to the emergency intent regardless of LLM confidence"
-      ],
-      "technicalNotes": [
-        "Add 'emergency' category to GENERAL_SUPPORT phase in intents.json with min_confidence: 0.0 and time_sensitive: true",
-        "Add 'emergency_escalate' workflow in workflows.json that sends multi-staff notification before any other step",
-        "The T1 regex check should run before rate-limiting and prompt injection guards"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true
-    },
-    {
       "id": "US-353",
       "title": "Fix Makan Moments and Southern Homestay Profile Data Contamination",
       "priority": "high",
@@ -760,9 +931,7 @@
       "last_attempted": "2026-03-23T23:50:26Z",
       "_decomposed": true,
       "_decomposedInto": [
-        "US-385",
-        "US-386",
-        "US-387"
+        "US-385"
       ]
     },
     {
