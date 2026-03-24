@@ -310,11 +310,19 @@ export function enforceProfileDataVersionCompatibility(profileName: string, base
     try {
       const content = fs.readFileSync(filePath, "utf-8");
       const data = JSON.parse(content);
-      const version = data.schema_version || data.version || "unknown";
+      const version = data.schema_version;
+
+      // Skip files without an explicit schema_version field
+      if (version === undefined || version === null) {
+        continue;
+      }
+
+      // Normalize to major.minor for comparison (e.g. "1.0" == "1.0.0")
+      const normalizedVersion = String(version).split(".").slice(0, 2).join(".");
 
       if (baselineVersion === undefined) {
-        baselineVersion = version;
-      } else if (version !== baselineVersion) {
+        baselineVersion = normalizedVersion;
+      } else if (normalizedVersion !== baselineVersion) {
         throw new Error(
           `${path.basename(filePath)} has schema_version "${version}" but expected "${baselineVersion}"`
         );
