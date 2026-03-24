@@ -91,6 +91,7 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
     high_stakes_keyword: 'High-stakes keyword detected (refund/cancel/legal/urgent)',
     consecutive_low_confidence: 'AI confidence too low on consecutive messages',
     sentiment: 'Negative sentiment detected on consecutive messages',
+    low_confidence: 'Intent classification confidence below threshold',
   };
 
   const label = reasonLabels[context.reason] || 'Unknown reason';

@@ -23,6 +23,8 @@ import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
+import { shouldAutoEscalate, buildLowConfidenceEscalationContext } from './low-confidence-escalator.js';
+import { escalateToStaff } from '../escalation.js';
 import { normalizeInput, logNormalization } from './input-normalizer.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
@@ -280,6 +282,30 @@ export async function classifyAndRoute(
 
   // ─── US-023: Cancel ack before main response — prevents duplicate billing ──
   cancelAck();
+
+  // ─── US-373: Low-Confidence Auto-Escalation ───────────────────────
+  // Check if confidence is below threshold and auto-escalation is enabled
+  if (shouldAutoEscalate({ ...state, classificationResult: result }, context)) {
+    console.log(
+      `[LowConfidenceEscalation] Auto-escalating: confidence ${result.confidence.toFixed(2)} ` +
+      `below threshold`
+    );
+
+    const escalationContext = buildLowConfidenceEscalationContext(
+      { ...state, classificationResult: result },
+      context
+    );
+
+    try {
+      await escalateToStaff(escalationContext);
+      state.diaryEvent.escalated = true;
+      state.diaryEvent.escalationReason = 'low_confidence';
+      return;
+    } catch (err: any) {
+      console.error('[LowConfidenceEscalation] Failed to escalate:', err.message);
+      // Fall through to normal dispatch if escalation fails
+    }
+  }
 
   // ─── Stage 6: Action Dispatch ─────────────────────────────────────
   await dispatchAction(state, result, routing, context);

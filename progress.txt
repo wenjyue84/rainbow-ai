@@ -453,3 +453,58 @@ Pre-existing schema export errors unrelated to this story (llmCostDaily, rainbow
 - Dynamic workflowData population essential — static object would miss fields like booking_charges, extensions, cancellation_reasons
 - System/guest/external data also need dynamic population for lesser-used fields like staff phone numbers
 - ESM entry-point guard prevents process.exit on import (needed for test compatibility)
+
+## Iteration [Current] - Story: Low-Confidence Intent Auto-Escalation Router (US-373) ✓ COMPLETE
+### What was implemented
+- **Created `src/assistant/pipeline/low-confidence-escalator.ts`** with:
+  - `shouldAutoEscalate(state, context)` — checks if confidence < threshold and auto_escalate is enabled
+  - `buildLowConfidenceEscalationContext(state, context)` — creates EscalationContext with reason 'low_confidence'
+  - Supports configurable threshold via settings.json
+  - Handles missing classification results gracefully
+
+- **Updated `src/assistant/data/settings.json`**:
+  - Added escalation section with low_confidence_threshold: 0.65 and auto_escalate_below_threshold: true
+  - Configuration allows easy adjustment without code changes
+
+- **Updated `src/assistant/types.ts`**:
+  - Added 'low_confidence' to EscalationReason type
+
+- **Updated `src/assistant/escalation.ts`**:
+  - Added label for 'low_confidence' in reasonLabels mapping
+
+- **Integrated into `src/assistant/pipeline/intent-classifier.ts`**:
+  - Added check after routing, before action dispatch
+  - Calls escalateToStaff directly with low-confidence context
+  - Returns early from pipeline to skip fallback responses
+  - Logs escalation for debugging
+
+- **Test suite**: `src/assistant/__tests__/low-confidence-escalation.test.ts`
+  - 18 comprehensive tests covering all acceptance criteria
+  - Tests for boundary cases (0.64, 0.65, 0.66)
+  - Tests for disabled feature, missing config, custom thresholds
+  - Integration scenario tests
+  - All 18 tests passing ✓
+
+### Patterns discovered
+- shouldAutoEscalate returns boolean; buildLowConfidenceEscalationContext builds the context
+- Threshold comparison is strict (confidence < threshold), not <=
+- Default threshold 0.65 aligns with story requirements
+- Escalation happens before action dispatch, preventing fallback responses
+- Recent messages are included from conversation state for context
+
+### Acceptance Criteria Met
+✅ Config in `src/assistant/data/settings.json`: `{ escalation: { low_confidence_threshold: 0.65, auto_escalate_below_threshold: true } }`
+✅ Check in pipeline: if confidence < threshold, escalate with reason 'low_confidence'
+✅ Tests: messages with confidence 0.6 are escalated, 0.7+ are routed normally
+✅ All 18 unit tests passing
+✅ Build: esbuild succeeded (2.4MB dist/index.js)
+✅ Server startup: database connection verified
+✅ prd.json marked passes=true for US-373
+
+### Gotchas avoided
+- Node.js Windows environment: NODE_OPTIONS variable not supported in bash, use npx directly
+- Classification result not in PipelineState by default; created extended type PipelineStateWithResult
+- Escalation should happen AFTER routing to have complete context
+- Early return from pipeline when escalating prevents double-sending responses
+- Strict threshold comparison (< not <=) ensures 0.65 is not escalated
+

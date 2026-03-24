@@ -194,7 +194,7 @@ export interface RateLimitResult {
 }
 
 // ─── Escalation ─────────────────────────────────────────────────────
-export type EscalationReason = 'human_request' | 'complaint' | 'unknown_repeated' | 'group_booking' | 'error' | 'config_error' | 'high_stakes_keyword' | 'consecutive_low_confidence' | 'sentiment';
+export type EscalationReason = 'human_request' | 'complaint' | 'unknown_repeated' | 'group_booking' | 'error' | 'config_error' | 'high_stakes_keyword' | 'consecutive_low_confidence' | 'sentiment' | 'low_confidence';
 
 export interface EscalationContext {
   phone: string;
