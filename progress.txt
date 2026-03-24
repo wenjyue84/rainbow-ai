@@ -1580,3 +1580,52 @@ FAILED diagnosis-block gate: Booking Workflow Step Failure Recovery with Structu
 
 DECOMPOSED: US-353 after 3 failed attempts — sub-stories created
 
+
+## Iteration 24 - Tue, Mar 24, 2026 - Story: US-354 Booking Workflow Step Input Schema Validator — PASSED
+### What was implemented
+**US-354: Booking Workflow Step Input Schema Validator with Pre-Execution Type Check** — Input validation for booking workflow steps with early error detection.
+
+**New Files:**
+- `src/assistant/pipeline/workflow-executor.ts` — Core validation module:
+  - `validateStepInput(step: WorkflowStep, input: unknown): ValidationResult` — Validates input against step.inputSchema
+  - Supports type checking for: string, number, boolean, Date (accepts ISO strings), array, object, any
+  - Returns error with step name, expected fields, and actual fields on mismatch
+  - `getTypeName()` and `isTypeMatch()` helper functions
+
+- `tests/unit/workflow-step-input-validation.test.ts` — Comprehensive test suite:
+  - 24 unit tests covering all acceptance criteria
+  - Tests for 5+ booking workflow steps (check-availability, collect-guest-details, process-payment, confirm-booking, send-confirmation-email)
+  - Type mismatch validation (string/number/Date/boolean/array)
+  - Missing field detection and validation
+  - Invalid input type handling (null, array, primitives)
+  - Edge cases (boolean fields, permissive 'any' type, extra fields)
+
+**Modified Files:**
+- `src/assistant/schemas.ts` — Added `inputSchema: z.record(z.string(), z.string()).optional()` to workflowStepSchema
+
+### Acceptance Criteria Met
+✓ **AC1**: validateStepInput function validates input against step.inputSchema with type checking
+✓ **AC2**: Error messages include step name, expected fields, and actual fields (e.g., "Step check-availability expects {roomType: string, checkIn: Date}")
+✓ **AC3**: 24 comprehensive unit tests covering type mismatches for 5+ booking workflow steps
+
+### Quality Checks
+- ✓ 24/24 unit tests pass
+- ✓ Build clean (1 pre-existing ESM warning on logger.ts)
+- ✓ Server starts successfully
+
+### Patterns Discovered
+- WorkflowStep types defined in schemas.ts via Zod, re-exported from config-store.ts
+- Test file location must match vitest include patterns (tests/unit/ vs tests/)
+- Relative import paths need proper ../ depth from test file location
+- `typeof null === 'object'` in JavaScript — need explicit null checks and helper functions for accurate type names
+
+### Gotchas
+- Test file location matters for vitest discovery (must be in tests/unit/ with pattern **/*.test.ts)
+- Error messages need to use helper function getTypeName() rather than typeof operator for accurate type reporting
+- Vitest config uses multiple include patterns; place tests in correct location to be discovered
+
+### Verification Summary
+- Implementation from prior spiral iteration (commit b57e558) already fully complete and tested
+- Re-ran quality checks: ✓ all 24/24 tests pass, ✓ build clean, ✓ server starts
+- Confirmed prd.json already marked passes=true
+- Story completed successfully (estimate complexity: small)
