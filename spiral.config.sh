@@ -16,8 +16,10 @@ SPIRAL_GATE_MODE="proceed"
 # Workers
 SPIRAL_RALPH_WORKERS=1
 
-# Auto-stash uncommitted changes before Phase I
-SPIRAL_AUTO_STASH=true
+# Auto-stash disabled — was causing stash_pop_failed every iteration (prd.json
+# modified inside Phase I conflicts with stash restore). Commit prd.json before
+# Phase I instead (SPIRAL's checkpoint commits handle this).
+SPIRAL_AUTO_STASH=false
 
 # Max iterations
 MAX_SPIRAL_ITERS=20

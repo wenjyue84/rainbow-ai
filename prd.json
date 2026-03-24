@@ -47,26 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-384",
-      "title": "Profile Intent Keyword Coverage Audit CLI with Missing Variant Detection",
-      "priority": "high",
-      "description": "Audits each profile's intent-keywords.json against its intents.json to detect orphaned keywords, missing keyword variants, and cross-profile contamination. Generates report with actionable recommendations for keyword additions/removals.",
-      "acceptanceCriteria": [
-        "CLI 'npm run profile:audit-keyword-coverage --profile=data-makan' outputs JSON report showing coverage % per intent, orphaned keywords in intent-keywords.json with no matching intent, and keywords appearing in multiple profiles",
-        "Creates 'src/tools/profile-keyword-coverage-analyzer.ts' that compares intent-keywords.json structure against intents.json and flags missing keyword variants for intents with keyword entry count > 10",
-        "Test file 'src/tools/profile-keyword-coverage-analyzer.test.ts' includes assertions that data-makan hostel-specific keywords are detected as cross-profile contamination violations"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-03-24T05:48:30Z",
-      "_skipped": true,
-      "_failureReason": "Repeatedly timed out (2+ attempts). Skipped by monitor to unblock Phase I."
-    },
-    {
       "id": "US-385",
       "title": "Purge Pelangi Content from data-makan Profile",
       "priority": "high",
@@ -532,6 +512,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-427",
+      "title": "Multi-Profile Intent Routing Smoke Test Suite",
+      "priority": "high",
+      "description": "Create integration tests that verify each profile (data-pelangi, data-makan, data-southern) routes intents only to its own profile-specific workflows and never executes cross-profile booking steps.",
+      "acceptanceCriteria": [
+        "Create tests/integration/profile-intent-routing-smoke.test.ts with describe() blocks for each of 3 profiles, testing 10+ booking scenarios per profile",
+        "Verify that booking intent routed with profile=data-makan does NOT trigger pelangi_room_type_validator or pelangi_check_in_date_validator steps",
+        "Add assertion: assertEquals(message.profile, routedWorkflow.ownerProfile) for all test cases to prevent cross-profile workflow execution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-428",
+      "title": "Fallback Response Audit Trail Logging with Escalation Reason Tracking",
+      "priority": "high",
+      "description": "Add database audit logging for every fallback response with categorized reason (low_confidence, unknown_intent, timeout, error) to enable root-cause analysis of why fallbacks are triggered.",
+      "acceptanceCriteria": [
+        "Add fallback_response_audit table to shared/schema-tables.ts with columns: id, profile, timestamp, user_message, fallback_reason (enum), confidence_score, escalated_to_human",
+        "Implement logFallbackAudit() in src/assistant/fallback-audit-logger.ts called before sending each fallback response to user",
+        "Add test verifying low-confidence fallbacks are logged with reason='low_confidence' AND confidence_score < 0.6 in database"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-416",
       "title": "Booking Workflow Step Output Assertion Tracer",
       "priority": "medium",
@@ -629,6 +643,57 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-429",
+      "title": "Intent Classification Precision Tracker per Intent Type CLI",
+      "priority": "medium",
+      "description": "Create CLI tool that calculates precision (true positives / predicted positives) for each intent type from production classification logs, identifying intents with false positive issues.",
+      "acceptanceCriteria": [
+        "Create src/cli/analyze-intent-precision.ts callable as: npm run cli -- analyze-intent-precision --date=2026-03-24",
+        "Output shows precision per intent: {intent: 'booking', precision: 0.92, true_positives: 180, false_positives: 15} parsed from intent_analytics table",
+        "Add test verifying booking intent precision is correctly computed as tp/(tp+fp) and flags intents with precision < 0.80 with 'HIGH_FALSE_POSITIVE_RISK'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-430",
+      "title": "Conversation Context Sentiment Analyzer for Low-Confidence Intent Disambiguation",
+      "priority": "medium",
+      "description": "Implement sentiment-based intent disambiguation to break ties when multiple intents have similar confidence scores, improving accuracy for ambiguous customer messages.",
+      "acceptanceCriteria": [
+        "Implement analyzeSentimentDisambiguator() in src/assistant/sentiment-disambiguator.ts, triggered when top-2 intents have confidence within 0.15 of each other",
+        "Use sentiment polarity to prefer: neutral→booking, negative→complaint, positive→inquiry when breaking ties",
+        "Add test asserting message 'I want to book but the price is too high' disambiguates to 'booking' intent despite equal classifier confidence with 'complaint_rate'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-431",
+      "title": "Booking Workflow Step Execution Duration Tracker with Per-Profile SLA Dashboard",
+      "priority": "medium",
+      "description": "Implement step-level timing instrumentation in booking workflows to track execution duration per profile, identifying slow steps and enabling SLA-based performance monitoring.",
+      "acceptanceCriteria": [
+        "Add step_duration_ms tracking to each workflow step execution in src/assistant/pipeline/booking-executor.ts with profile-tagged structured logs",
+        "Create admin endpoint GET /api/admin/booking-step-sla?profile=data-makan returning {step_name, avg_duration_ms, p95_duration_ms, p99_duration_ms} for last 7 days",
+        "Add test verifying booking_confirmation step on data-makan profile has avg_duration < 500ms AND test flags any step with p99 > 5000ms as 'PERFORMANCE_ALERT'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -901,6 +966,26 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-384",
+      "title": "Profile Intent Keyword Coverage Audit CLI with Missing Variant Detection",
+      "priority": "high",
+      "description": "Audits each profile's intent-keywords.json against its intents.json to detect orphaned keywords, missing keyword variants, and cross-profile contamination. Generates report with actionable recommendations for keyword additions/removals.",
+      "acceptanceCriteria": [
+        "CLI 'npm run profile:audit-keyword-coverage --profile=data-makan' outputs JSON report showing coverage % per intent, orphaned keywords in intent-keywords.json with no matching intent, and keywords appearing in multiple profiles",
+        "Creates 'src/tools/profile-keyword-coverage-analyzer.ts' that compares intent-keywords.json structure against intents.json and flags missing keyword variants for intents with keyword entry count > 10",
+        "Test file 'src/tools/profile-keyword-coverage-analyzer.test.ts' includes assertions that data-makan hostel-specific keywords are detected as cross-profile contamination violations"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-03-24T05:48:30Z",
+      "_skipped": true,
+      "_failureReason": "Repeatedly timed out (2+ attempts). Skipped by monitor to unblock Phase I."
     },
     {
       "id": "US-380",
