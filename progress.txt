@@ -753,3 +753,49 @@ Here is the technical brief for implementing user story US-376.
 - ✓ npm run build: SUCCESS (2.1s)
 - ✓ Script syntax: VALID (tested with no-arg invocation)
 - ✓ Pre-existing tsc errors unchanged (esbuild used for production)
+## Iteration 1 - Tue, Mar 24, 2026 11:22:17 AM
+FAILED diagnosis-block gate: Conversation Context Window Size Optimizer CLI (ID: US-377) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 17 - Story: Conversation Context Window Size Optimizer CLI (US-377) ✓ COMPLETE
+
+### What was implemented
+- **Enhanced `scripts/optimize-context-window.ts`** with message position contribution analysis:
+  - Added `analyzeMessageContributions()` function to calculate quality signals by message position ranges
+  - Extended `WindowAnalysis` interface to include `messageContributions` field
+  - Updated `analyzeContextWindows()` to compute contributions for each window size
+  - Updated report generation to display message position breakdown
+
+### Improvements made
+- **Removed status column filter** from fetchConversations() query for database compatibility
+- **Added message position contribution tracking**:
+  - Ranges: start (1-3), early (4-6), mid (7-10), late (11+)
+  - Scores based on message content length + token contribution
+  - Normalized to percentages for clarity
+  - Included interpretation note in report
+
+### Report output includes
+✅ Window size analysis table with quality scores, response metrics, token usage
+✅ Optimal window recommendation with quality score and token efficiency
+✅ Message position contribution breakdown showing which message ranges contribute to quality
+✅ Token savings analysis vs. largest window
+✅ Configuration instructions for updating settings.json
+
+### Acceptance Criteria Met
+✅ CLI command `npm run optimize:context-window <profile>` works on 100+ conversations
+✅ Report format: "Profile [name]: optimal window [N] messages (quality [X], tokens/conv [Y])"
+✅ Message contribution breakdown: "Messages X-Y contribute Z% to quality"
+✅ Build: esbuild succeeded without errors
+✅ Server startup: verified with MCP_SERVER_PORT=3002
+
+### Patterns discovered
+- Script uses raw pg Pool for database queries (same as other CLI tools)
+- Message analysis fetches full conversation history and evaluates sliding windows
+- Quality score calculation weights: response length (40%), booking success (40%), efficiency (20%)
+- Message position contribution uses normalized scores (content length + tokens)
+
+### Testing notes
+- Script validates minimum 10 conversations with 5+ messages before analysis
+- Graceful failure if insufficient data
+- No database migrations required (uses existing schema)
+

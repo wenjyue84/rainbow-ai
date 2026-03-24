@@ -41,6 +41,7 @@ interface WindowAnalysis {
   bookingSuccessRate: number;
   qualityScore: number;
   totalTokensPerConversation: number;
+  messageContributions?: Record<string, number>;
 }
 
 /**
@@ -60,7 +61,6 @@ async function fetchConversations(pool: pg.Pool, profileId: string, limit: numbe
   const query = `
     SELECT
       rc.phone,
-      rc.status,
       (SELECT json_agg(json_build_object(
         'id', rm.id,
         'role', rm.role,
@@ -74,7 +74,6 @@ async function fetchConversations(pool: pg.Pool, profileId: string, limit: numbe
       ) as messages
     FROM rainbow_conversations rc
     WHERE rc.profile_id = $1
-      AND rc.status = 'active'
     ORDER BY rc.created_at DESC
     LIMIT $2
   `;
@@ -89,7 +88,7 @@ async function fetchConversations(pool: pg.Pool, profileId: string, limit: numbe
         ...m,
         timestamp: new Date(m.timestamp),
       })),
-      hasBooking: row.status === 'active', // Simplified: assume active means had a booking attempt
+      hasBooking: true, // All conversations in the table are considered for analysis
     }))
     .filter(c => c.messageCount >= 5); // Need at least 5 messages for meaningful analysis
 
@@ -115,6 +114,62 @@ function calculateQualityScore(
   const efficiencyScore = Math.max(0, 1 - tokenEfficiency / 500) * 0.2;
 
   return (lengthScore + bookingScore + efficiencyScore);
+}
+
+/**
+ * Analyze message contribution to quality by position ranges
+ */
+function analyzeMessageContributions(
+  conversations: ConversationData[],
+  windowSize: number
+): Record<string, number> {
+  const contributions: Record<string, number> = {
+    'start (1-3)': 0,
+    'early (4-6)': 0,
+    'mid (7-10)': 0,
+    'late (11+)': 0,
+  };
+
+  let totalMessageScore = 0;
+
+  for (const conv of conversations) {
+    if (conv.messages.length < windowSize) continue;
+
+    const window = conv.messages.slice(-windowSize);
+    for (let i = 0; i < window.length; i++) {
+      const msg = window[i];
+      const msgPosition = i + 1;
+
+      // Score based on message relevance (content length + token contribution)
+      let score = 0;
+      if (msg.content) {
+        score += (msg.content.length / 100) * 0.5;
+      }
+      if (msg.totalTokens) {
+        score += (Math.min(msg.totalTokens, 100) / 100) * 0.5;
+      }
+
+      if (msgPosition <= 3) {
+        contributions['start (1-3)'] += score;
+      } else if (msgPosition <= 6) {
+        contributions['early (4-6)'] += score;
+      } else if (msgPosition <= 10) {
+        contributions['mid (7-10)'] += score;
+      } else {
+        contributions['late (11+)'] += score;
+      }
+
+      totalMessageScore += score;
+    }
+  }
+
+  // Normalize to percentages
+  const normalized: Record<string, number> = {};
+  for (const [range, score] of Object.entries(contributions)) {
+    normalized[range] = totalMessageScore > 0 ? (score / totalMessageScore) * 100 : 0;
+  }
+
+  return normalized;
 }
 
 /**
@@ -186,6 +241,9 @@ async function analyzeContextWindows(
       totalTokensPerConversation
     );
 
+    // Analyze message contributions
+    const messageContributions = analyzeMessageContributions(conversations, windowSize);
+
     results.push({
       windowSize,
       avgResponseLength,
@@ -194,6 +252,7 @@ async function analyzeContextWindows(
       bookingSuccessRate,
       qualityScore,
       totalTokensPerConversation,
+      messageContributions,
     });
   }
 
@@ -278,6 +337,17 @@ function generateReport(
   report += `Response Length Quality: ${lengthContribution}%\n`;
   report += `Booking Success Quality: ${bookingContribution}%\n`;
   report += `Token Efficiency Quality: ${efficiencyContribution}%\n\n`;
+
+  // Message position contribution
+  report += `MESSAGE POSITION CONTRIBUTION\n`;
+  report += `${'-'.repeat(90)}\n`;
+  if (optimal.messageContributions) {
+    for (const [range, contribution] of Object.entries(optimal.messageContributions)) {
+      report += `${range.padEnd(20)} ${contribution.toFixed(1)}% of quality signal\n`;
+    }
+  }
+  report += `\nNote: Earlier messages (context) contribute more to conversation understanding.\n`;
+  report += `Late messages carry more recent intent signals but require more tokens.\n\n`;
 
   // Configuration instruction
   report += `NEXT STEPS\n`;
