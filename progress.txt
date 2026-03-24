@@ -1039,3 +1039,33 @@ Here is a technical brief for implementing the user story in a Frappe/Python env
 
 ### Gotchas
 - None — files were complete and all tests passed immediately
+
+## Iteration 22 - Story: US-388 Booking Confirmation Email Template Profile Validator CLI ✓ COMPLETE
+### What was implemented
+- `src/tools/email-template-validator.ts`: Core validation logic with `validateTemplate()`, `normalizeProfileName()`, and `formatValidationResult()` functions
+- `src/tools/email-template-validator-cli.ts`: CLI tool that accepts `--profile` and `--template` arguments, loads HTML templates, and reports violations with line numbers and suggestions
+- `src/assistant/data/email-templates/`: Created 3 test templates (booking-confirmation.pelangi-capsule.html, booking-confirmation.makan-moments.html, booking-confirmation.southern-homestay.html)
+- `src/tools/__tests__/email-template-validator.test.ts`: Comprehensive test suite with 19 tests covering validation, profile normalization, line number reporting, case-insensitivity, and real-world scenarios
+
+### Patterns discovered
+- Profile keywords are stored in a map (PROFILE_KEYWORDS) with array of strings for each profile
+- Keywords sorted by length (longest first) to match more specific patterns before generic ones
+- Case-insensitive keyword matching using `.toLowerCase()`
+- Template violations include lineNumber, content, detectedKeyword, and suggestion for {{PROFILE_NAME}} replacement
+- Normalized profile names are stored as 'pelangi-capsule', 'makan-moments', 'southern-homestay'
+
+### Quality checks
+- Tests: 19/19 passing (9ms runtime)
+- Build: ✓ esbuild completed successfully (2.4MB dist/index.js)
+- CLI validation:
+  - Pelangi template: Correctly detected 9 violations with line numbers and keyword suggestions
+  - Makan template: Correctly detected 7 violations
+  - Southern template: Correctly validated as clean (uses {{PROFILE_NAME}} variables)
+
+### Acceptance Criteria Met
+✅ CLI tool accessible via `npx tsx src/tools/email-template-validator-cli.ts --profile=X --template=Y`
+✅ Detects hardcoded profile-specific content (business names, amenities) with line numbers
+✅ Suggests {{PROFILE_NAME}} variable replacement
+✅ Validator rejects templates with hardcoded profile names for profile-name fields
+✅ Supports all profiles: pelangi-capsule, makan-moments, southern-homestay
+✅ Integration tests verify line number accuracy and violation detection
