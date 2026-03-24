@@ -62,7 +62,9 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-03-24T07:10:05Z"
+      "last_attempted": "2026-03-24T07:39:22Z",
+      "_skipped": true,
+      "_failureReason": "Timed out 3x. Permanently skipped via SPIRAL_SKIP_STORY_IDS."
     },
     {
       "id": "US-388",
@@ -184,6 +186,142 @@
       "model": "haiku"
     },
     {
+      "id": "US-399",
+      "title": "Intent-Specific Fallback Response Selector Based on Conversation Context",
+      "priority": "high",
+      "description": "Implement context-aware fallback response selection that chooses different fallback templates based on the failed intent type and conversation history (e.g., different fallback for booking vs. inquiry vs. amenity request). Returns more relevant fallback instead of generic response.",
+      "acceptanceCriteria": [
+        "Create src/assistant/fallback/contextSelector.ts with selectContextAwareFallback(failedIntent: string, conversationHistory: Message[]) that returns profile-specific template from src/assistant/data/knowledge.json based on intent category",
+        "Add intentFallbackMapping to routing.json that maps each intent to fallback response group (e.g., bookingFallbacks, inquiryFallbacks)",
+        "Integrate selector in src/assistant/pipeline/fallback.ts to use context-aware response instead of default when confidence < threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-400",
+      "title": "Booking Confirmation Email Validation and Failed-Send Retry Queue",
+      "priority": "high",
+      "description": "Implement email format validation before booking confirmation is sent and queue any failed sends for automatic retry with exponential backoff. Prevents invalid emails from breaking booking workflow and ensures delivery reliability.",
+      "acceptanceCriteria": [
+        "Create src/tools/booking/emailValidator.ts with validateEmailFormat(email: string): {valid: boolean, error?: string} using RFC 5322 regex validation",
+        "Add email retry queue to shared/schema-tables.ts with table emailRetryQueue (id, bookingId, email, attemptCount, nextRetryAt, createdAt)",
+        "Integrate validation in booking confirmation step in workflows.json that checks email before creating booking record and queues to retry if invalid"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-401",
+      "title": "Profile Data File Freshness and Modification-Time Validator at Startup",
+      "priority": "high",
+      "description": "Add startup validator that checks data file modification times and checksums against known good state to detect stale or corrupted profile data files. Fails gracefully with clear error messages if files appear outdated or from wrong profile.",
+      "acceptanceCriteria": [
+        "Create src/lib/validators/dataFileFreshness.ts that reads mtime of routing.json, workflows.json, intent-keywords.json and verifies each modified within last 7 days",
+        "Add checksum validation comparing SHA256 of each profile's routing.json against profile-specific expected checksum in config, fail startup if mismatch detected",
+        "Log audit entry to console on startup: 'Profile {profile} data files validated - {filename}: {date}' for each file, or throw DataFileStaleError if validation fails"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-404",
+      "title": "Build Booking Workflow Step Execution Time Profiler Endpoint",
+      "priority": "high",
+      "description": "Create an admin endpoint that profiles booking workflow execution, measuring time spent in each workflow step (check-in, payment, confirmation, etc.) to identify performance bottlenecks and optimization opportunities.",
+      "acceptanceCriteria": [
+        "GET /admin/analytics/workflow-profiler returns step-level latency metrics (p50, p95, p99) with sample counts per step across all profiles",
+        "Workflow steps logged with execution timestamps in `rainbow_messages.metadata.step_execution_times` JSON field during booking workflow execution",
+        "Endpoint highlights steps with p95 latency > 2s or failure rate > 5% as potential bottlenecks; returnformat: {step: string, p95_ms: number, failure_rate: number, sample_count: number}"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-405",
+      "title": "Create Cross-Profile Intent Keyword Collision Detector CLI",
+      "priority": "high",
+      "description": "Detect when the same keyword appears in intent-keywords.json files across different profiles (e.g., 'booking' in both data-makan and data-pelangi), which could cause cross-profile routing mistakes during message classification.",
+      "acceptanceCriteria": [
+        "CLI command: npm run check:keyword-collisions scans all intent-keywords.json files in src/assistant/data-*/intent-keywords.json and reports collisions",
+        "Output includes profile names, keyword, and associated intents: {keyword: 'room', profiles: [{name: 'data-pelangi', intent: 'booking'}, {name: 'data-makan', intent: 'inquiry'}]}",
+        "Exits with code 1 if any collisions found; integrates into CI/CD pipeline to block deployment on contamination"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-409",
+      "title": "Intent Keyword Coverage Gap Analyzer from Production Misclassifications",
+      "priority": "high",
+      "description": "Implement CLI tool that mines production conversation logs to identify low-confidence booking/inquiry classifications, extracts unmatched keyword patterns, and suggests new intent-keywords.json entries for improved coverage.",
+      "acceptanceCriteria": [
+        "CLI command: npm run analyze:keyword-gaps --intent=booking --confidence-threshold=0.65 scans rainbow_messages table for classifications with confidence < threshold, groups by intent_mismatch pattern",
+        "Output generates gap-report-{timestamp}.json with: {missing_keywords: [string], suggested_additions: [{keyword, sample_queries: []}], predicted_accuracy_improvement: number}",
+        "TEST: test/keyword-gap-analyzer.test.ts validates detection of 3 unmatched patterns in fixture data and generates actionable suggestions for intent-keywords.json"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-410",
+      "title": "Conversation Context Emotion Detection for Automated Complaint Escalation",
+      "priority": "high",
+      "description": "Add sentiment/emotion analysis to conversation context pipeline using Claude API to detect frustrated or angry guest indicators, automatically routing to staff escalation before fallback response generation.",
+      "acceptanceCriteria": [
+        "In src/assistant/pipeline/conversation-context.ts, after each guest message, call analyzeEmotionTone(message) returning {sentiment: 'positive'|'neutral'|'negative', confidence: number, escalation_recommended: bool}",
+        "If sentiment = 'negative' and confidence > 0.8, skip AI response and trigger staff escalation with emotion context (not fallback), store escalation_reason='guest_frustration' in escalation_events table",
+        "TEST: test/emotion-detection.test.ts with 4 assertions: (1) frustrated complaint detected correctly, (2) polite inquiry not mis-escalated, (3) borderline case confidence < 0.8 doesn't escalate, (4) escalation_events table records reason"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-411",
+      "title": "Booking Workflow Step Timeout Enforcer with Auto-Failure Recovery",
+      "priority": "high",
+      "description": "Implement per-step timeout detection in booking workflow execution, automatically failing slow steps after configurable timeout (default 30s) and triggering rollback with escalation to staff, preventing guest-facing hangs.",
+      "acceptanceCriteria": [
+        "Wrap each workflow step execution in executeWorkflowStepWithTimeout(step, timeout_ms) in src/assistant/pipeline/booking-workflow.ts, using Promise.race() to enforce timeout limit",
+        "On timeout, log workflow_step_timeout to escalation_events table with step_name, execution_duration_ms, and trigger staff escalation with 'slow_workflow_step' reason code",
+        "Add src/assistant/data/workflow-step-timeouts.json with per-step timeout config {check_availability: 25000, confirm_booking: 30000, send_confirmation: 20000}, load on startup, support admin override via API"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-397",
       "title": "Implement Conversation Context Message Pruner with Per-Profile TTL",
       "priority": "medium",
@@ -216,6 +354,108 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-402",
+      "title": "Conversation Context Compression with Message Summarization for Token Budget",
+      "priority": "medium",
+      "description": "Implement message compression that summarizes older conversation messages into single summary entries when conversation exceeds token budget threshold. Keeps recent messages intact while compressing old context to prevent token overflow in multi-turn dialogues.",
+      "acceptanceCriteria": [
+        "Create src/assistant/context/compressor.ts with compressConversationContext(messages: Message[], maxTokens: number) that groups messages older than 5 turns and creates single summary message",
+        "Add tokenBudgetThreshold to src/assistant/data/settings.json (default 6000 tokens) and compressionRatio config (default 0.7)",
+        "Integrate compressor in src/assistant/pipeline/context.ts before sending context to AI provider, with logging of compression ratio achieved"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-403",
+      "title": "Intent Classifier Batch Confidence Metrics Exporter with Per-Profile Dashboard",
+      "priority": "medium",
+      "description": "Implement metrics exporter that batch-collects intent classification confidence scores and exports them with per-profile breakdown. Enables monitoring of classifier drift and identification of low-confidence intents by profile.",
+      "acceptanceCriteria": [
+        "Create src/admin/routes/metrics/classifierConfidence.ts GET /admin/metrics/classifier-confidence?profile={profile}&since={ISO8601} endpoint returning {profile, totalClassifications, avgConfidence, confidencePercentiles, lowConfidenceIntents}",
+        "Add intent_classification_metrics table to shared/schema-tables.ts storing (id, profile, intent, confidence, timestamp, messageId) on each classification",
+        "Export metrics in 15-minute batches from src/lib/metrics/batcher.ts, aggregating confidence by intent and detecting any intent with avgConfidence < 0.65 for that profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-406",
+      "title": "Implement Conversation Context Relevance Reranker with Semantic Similarity Scoring",
+      "priority": "medium",
+      "description": "Score conversation history messages for relevance to the current user query using embedding similarity, automatically pruning messages below relevance threshold to reduce token usage and improve multi-turn context quality without losing critical booking details.",
+      "acceptanceCriteria": [
+        "Function in src/assistant/pipeline/context-pruner.ts receives conversation history and current query, returns pruned messages with relevance scores >= 0.6",
+        "Preserves all booking-related messages (intent=booking) regardless of score; removes off-topic messages to stay within 6-message context window",
+        "Logs pruned message count and tokens saved to `rainbow_analytics` table for per-profile optimization tracking"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-407",
+      "title": "Add Multi-Intent Ambiguity Detector for Low-Confidence Edge Cases",
+      "priority": "medium",
+      "description": "When intent classification confidence is below 0.75 or when multiple intents score within 0.1 of each other, flag the message as ambiguous and log top 3 intent candidates with confidence scores for manual review and intent keyword refinement.",
+      "acceptanceCriteria": [
+        "Classifier returns {intent: string, confidence: number, ambiguity_flag: boolean, candidates: [{intent: string, score: number}]} when top 2 scores differ by < 0.1 or primary confidence < 0.75",
+        "Ambiguous messages inserted into new `intent_ambiguity_queue` table with fields: message_id, profile, top_candidates, flagged_at, reviewed_by, resolution_intent",
+        "Admin endpoint GET /admin/queues/ambiguous-intents returns flagged messages grouped by profile; resolver can select correct intent to improve training data"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-408",
+      "title": "Build Admin Dashboard Data Quality Monitor with Profile-Specific Metrics",
+      "priority": "medium",
+      "description": "Create a real-time metrics dashboard showing per-profile data freshness (last update timestamp), intent keyword coverage gaps (intents missing keywords), and contamination risk score based on keyword overlap with other profiles.",
+      "acceptanceCriteria": [
+        "GET /admin/dashboard/data-quality returns per-profile metrics: {profile: 'data-makan', last_updated: '2026-03-24T10:30:00Z', intent_count: 12, keyword_count: 45, coverage_gap: ['refund_request', 'cancellation'], contamination_risk: 0.08}",
+        "Coverage gap identifies intents with < 3 keywords in intent-keywords.json; contamination risk calculated as keyword overlap % with other profiles",
+        "Metrics refresh every 5min; alerts if any profile not updated in 7 days or contamination risk > 0.15"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-412",
+      "title": "Fallback Response Effectiveness Tracker with Escalation-to-Resolution Correlation",
+      "priority": "medium",
+      "description": "Implement metrics collection tracking whether fallback responses successfully resolved guest inquiry (no escalation) or led to escalation, calculating fallback effectiveness per template and enabling data-driven response selection.",
+      "acceptanceCriteria": [
+        "Add fallback_response_outcomes table with columns: (fallback_id, template_used, guest_escalated_within_2_turns: bool, resolution_time_minutes: number, profile: string)",
+        "INSERT record to fallback_response_outcomes after every fallback, mark guest_escalated=true if escalation_event created within 2 subsequent messages",
+        "GET /admin/metrics/fallback-effectiveness returns {template_name: {usage_count, escalation_rate, avg_resolution_time}, top_5_templates_by_resolution_rate: []}, add TEST validating escalation_rate calculation accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-196",

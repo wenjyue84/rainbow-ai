@@ -51,3 +51,13 @@ SPIRAL_OPEN_DASHBOARD=1
 # Memory settings
 SPIRAL_WORKER_MEMORY_LIMIT=1024
 SPIRAL_LOW_POWER_MODE=1
+
+# Permanently skip stories that repeatedly timeout (CLI/validator builders ~10+ min each)
+# US-387: Turn-by-Turn Profile Context Validator Middleware (timed out 3x)
+SPIRAL_SKIP_STORY_IDS="US-387"
+
+# Raise story timeouts — defaults (small=300s, medium=600s) too short for this project
+# The test suite alone takes ~2 min; implementation needs room on top of that
+SPIRAL_STORY_TIMEOUT_SMALL=900
+SPIRAL_STORY_TIMEOUT_MEDIUM=1800
+SPIRAL_STORY_TIMEOUT_LARGE=2400
