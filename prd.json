@@ -47,18 +47,18 @@
   ],
   "userStories": [
     {
-      "id": "US-405",
-      "title": "Build Profile Data Contamination Auto-Fix CLI with Conflict Resolution",
+      "id": "US-422",
+      "title": "Profile Data Deployment Validator with Cross-Reference Check",
       "priority": "critical",
-      "description": "Detect and automatically remove cross-profile keyword contamination from intent-keywords.json, routing.json, and knowledge.json with user confirmation and before/after diff logging.",
+      "description": "Pre-deployment validation CLI that scans profile data files for keyword contamination from other profiles, preventing cross-profile data pollution before merging.",
       "acceptanceCriteria": [
-        "CLI command `npm run fix:contamination -- --profile=data-makan --confirm` scans src/assistant/data/data-makan/* for Pelangi hostel keywords (room types, check-in processes, amenities)",
-        "Generates and logs before/after JSON diff to stdout, removes contaminated keywords, commits to backup file with timestamp",
-        "Test asserts data-makan/intent-keywords.json no longer contains 'capsule', 'dormitory', 'shared-bathroom', 'check-in-time' after fix command runs"
+        "Create src/tools/cli/profile-deployment-validator.ts that reads profile-specific keyword blacklist from src/assistant/data/profile-keywords-blacklist.json",
+        "Scan knowledge.json, intents.json, intent-keywords.json, and routing.json for blacklisted keywords, output file:line_number with matched text",
+        "CLI command: npm run validate:profile-deployment -- --profile makan-moments returns exit code 1 on contamination with remediation_suggestions.txt"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "medium",
+      "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
       "model": "haiku"
@@ -387,14 +387,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-397",
-      "title": "Build Booking Workflow Step Performance Profiler with Bottleneck Report",
-      "priority": "medium",
-      "description": "Measure execution time for each booking workflow step in isolation. Identify slowest steps and critical path to debug multi-step booking delays.",
+      "id": "US-423",
+      "title": "Profile Data Startup Integrity Enforcer with Keyword Blocklist",
+      "priority": "high",
+      "description": "At app startup, scan data-makan and data-southern profile files for Pelangi Capsule hostel keywords (room types, facilities, policies specific to hostels) and fail fast with detailed report if contamination detected, preventing production deployment of corrupted profiles.",
       "acceptanceCriteria": [
-        "Endpoint `POST /admin/booking-workflow/profile?profile=pelangi` accepts workflow definition and sample inputs, executes each step individually, measures execution_time_ms with nanosecond precision",
-        "Return JSON: { steps: [{name: 'confirm_room', time_ms: 1200, percent_of_total: 35}, ...], critical_path_ms: 3400, slowest_step: 'confirm_room', bottleneck_suggestion: 'Add caching for room availability queries' }",
-        "Flag steps exceeding 500ms as bottlenecks; unit test verifies timing accuracy and identifies room availability check as slowest step in sample workflow"
+        "Create startup validator scanning: routing.json, workflows.json, intent-keywords.json, knowledge.json for 30+ Pelangi keywords (e.g. 'dorm', 'capsule', 'bunks', 'curfew')",
+        "If contamination detected, log error with file path, line number, and matched keyword; halt startup with message 'Profile data contamination detected in data-makan: 5 hostel keywords found'",
+        "Unit test verifying false positives avoided for legitimate cafe keywords ('counter', 'seating') while catching hostel keywords"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -404,14 +404,14 @@
       "model": "haiku"
     },
     {
-      "id": "US-418",
-      "title": "Makan Moments Seasonal Promotion Inquiry Intent Handler with Cafe-Specific Workflow",
+      "id": "US-424",
+      "title": "Intent Classification Confidence Quantile Tracker for Analytics",
       "priority": "medium",
-      "description": "Implement complete seasonal promotion inquiry handler for Makan Moments cafe profile, including intent routing, keywords, dynamic fallback templates suggesting current promotions from knowledge.json, and workflow integration to capture promotion interest analytics.",
+      "description": "Store per-intent classification confidence scores in intent_analytics table and generate percentile reports (p50/p90/p99) to identify intents with consistently low confidence that need keyword improvements.",
       "acceptanceCriteria": [
-        "Add 'seasonal_promo_inquiry' intent to src/assistant/data/data-makan/intents.json with cafe-specific description",
-        "Add 15+ Malay/English keywords to src/assistant/data/data-makan/intent-keywords.json (e.g., 'promosi apa ada', 'ada discount', 'current offer')",
-        "Routing resolves to fallback template pulling promo list from knowledge.json with dynamic suggestion (not hardcoded text); test in src/tests/intent-routing.test.ts"
+        "Modify intent classifier to log (intent, confidence, message_id, profile) to intent_analytics table for every classification",
+        "Create analytics query endpoint: GET /admin/intents/{intent}/confidence-quantiles returning {p50, p90, p99, sample_size}",
+        "Add unit test validating quantile calculations on 100-message test dataset with confidence threshold detection"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -421,53 +421,53 @@
       "model": "haiku"
     },
     {
-      "id": "US-419",
-      "title": "Booking Workflow Check-In Date Validator with Next-Available Auto-Suggest",
+      "id": "US-425",
+      "title": "Fallback Response Escalation Reason Logger with Analytics",
       "priority": "medium",
-      "description": "Add pre-execution validator to booking confirmation workflow step that rejects past check-in dates and responds with helpful suggestion of next available date (e.g., 'You selected 2026-03-20, which is in the past. Next available: 2026-03-25'). Integrates with room availability lookup.",
+      "description": "Log detailed escalation reason (low_confidence, intent_not_found, booking_conflict, validation_error) whenever a message is escalated to staff, enabling analysis of top failure patterns and targeted improvements.",
       "acceptanceCriteria": [
-        "Validator in src/assistant/workflows/booking-confirmation.ts checks check_in_date >= today before step execution",
-        "On rejection, queries database for earliest available check-in across room types and returns auto-suggested date in fallback response",
-        "Add test case src/tests/booking-workflow-date-validation.test.ts covering past date rejection and future date suggestion"
+        "Modify fallback router to log (message_id, profile, reason, confidence_score, original_intent_attempt, timestamp) to escalation_events table",
+        "Create analytics endpoint: GET /admin/escalations/top-reasons returning {reason, count, avg_confidence} sorted by frequency",
+        "Add integration test verifying low_confidence escalations logged correctly for 3 different confidence levels"
       ],
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "sonnet"
     },
     {
-      "id": "US-420",
-      "title": "Profile Intent-Keyword Language Coverage Validator CLI with Translation Gap Report",
+      "id": "US-426",
+      "title": "Conversation Context Message Relevance Filter with Semantic Similarity",
       "priority": "medium",
-      "description": "Create CLI tool that validates each intent in a profile has keywords in all configured languages (English, Malay, Tamil), generates report of missing translations by intent, and suggests common domain keywords for cafe vs hostel profiles.",
+      "description": "Filter conversation context to keep only messages semantically relevant to the current user message, preventing off-topic context from polluting AI inference and reducing token consumption on multi-turn conversations.",
       "acceptanceCriteria": [
-        "CLI command `npm run validate:intent-languages -- --profile data-makan` reports intent_id → missing_languages mapping and lists intents with <3 language variants",
-        "Report categorizes gaps by business domain (cafe-specific vs hostel-specific intents) and recommends keywords (e.g., for cafe inquiries suggest Malay 'makanan', 'minuman', 'harga')",
-        "Validator reads from src/assistant/data/{profile}/intent-keywords.json and cross-references against intents.json language_variants field"
+        "Create relevance_filter.score(current_message, context_message) returning 0-1 similarity score using embedding comparison",
+        "Keep only context messages with relevance score ≥0.7; include most recent 3 messages regardless of score (recency override)",
+        "Add unit test with 10 context messages showing: on-topic messages retained, off-topic messages filtered, recent messages never dropped"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
     {
-      "id": "US-421",
-      "title": "Conversation Context Message Deduplication Filter for Token Optimization",
-      "priority": "medium",
-      "description": "Implement deduplication filter in conversation context pipeline that removes exact duplicate messages (same text, same sender) before sending to AI, saving tokens on repeated user queries or system-echoed messages. Logs dedup stats per conversation.",
+      "id": "US-405",
+      "title": "Build Profile Data Contamination Auto-Fix CLI with Conflict Resolution",
+      "priority": "critical",
+      "description": "Detect and automatically remove cross-profile keyword contamination from intent-keywords.json, routing.json, and knowledge.json with user confirmation and before/after diff logging.",
       "acceptanceCriteria": [
-        "Filter in src/assistant/context-deduplicator.ts removes consecutive duplicate messages (same sender, same text_hash) and marks first occurrence as canonical",
-        "Deduplication stats logged to database per conversation_id (duplicate_count, tokens_saved); queryable via admin API endpoint GET /admin/conversations/:id/dedup-stats",
-        "Test in src/tests/context-deduplication.test.ts verifies multi-turn conversation with repeated user clarifications reduces from 12 to 8 messages"
+        "CLI command `npm run fix:contamination -- --profile=data-makan --confirm` scans src/assistant/data/data-makan/* for Pelangi hostel keywords (room types, check-in processes, amenities)",
+        "Generates and logs before/after JSON diff to stdout, removes contaminated keywords, commits to backup file with timestamp",
+        "Test asserts data-makan/intent-keywords.json no longer contains 'capsule', 'dormitory', 'shared-bathroom', 'check-in-time' after fix command runs"
       ],
       "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
+      "estimatedComplexity": "medium",
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -4530,6 +4530,22 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true
+    },
+    {
+      "id": "US-427",
+      "title": "Booking Workflow Step Performance Baseline Tracker",
+      "priority": "medium",
+      "description": "Database schema and CLI tool to track execution time per booking workflow step, detect performance regressions with automated alerts",
+      "acceptanceCriteria": [
+        "New table: workflow_step_metrics stores step_name, profile, execution_time_ms, timestamp for each booking workflow execution",
+        "CLI: npx tsx src/tools/workflow-perf-analyzer.ts --check compares current step times against baseline, alerts if >20% slower",
+        "Integration tests in src/__tests__/workflow-metrics.test.ts verify timing data collection and regression detection threshold logic"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
