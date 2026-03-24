@@ -62,7 +62,9 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet",
-      "last_attempted": "2026-03-24T06:03:54Z"
+      "last_attempted": "2026-03-24T05:48:30Z",
+      "_skipped": true,
+      "_failureReason": "Repeatedly timed out (2+ attempts). Skipped by monitor to unblock Phase I."
     },
     {
       "id": "US-385",
@@ -389,6 +391,244 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-413",
+      "title": "Intent Classification Tie-Breaker Engine with Conversation Context Preference",
+      "priority": "high",
+      "description": "When top-2 intent classifications are within 5% confidence, use conversation message similarity and historical intent frequency to break ties. Improves classification accuracy in ambiguous cases.",
+      "acceptanceCriteria": [
+        "CLI tool 'npm run classifier:tie-break -- <conversation-id>' analyzes conversation history and selects winning intent when confidence scores are within 5%",
+        "Tie-breaker decisions logged to logs/tie-breaker-decisions.jsonl with conversation_id, intent_1, intent_2, confidence_delta, selected_intent, and context_factors",
+        "Unit test tests/intent-classifier-tie-breaker.test.ts verifies context-based preference algorithm with 3 sample conversations where tied intents are correctly disambiguated"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-414",
+      "title": "Fallback Response Relevance Validator with Intent Alignment Scoring",
+      "priority": "high",
+      "description": "Before sending a fallback response, compute semantic relevance score between fallback text and original user intent. Log misaligned fallbacks to audit table for product review and quality improvement.",
+      "acceptanceCriteria": [
+        "Function scoreFallbackRelevance() in src/assistant/pipeline/fallback-engine.ts returns cosine similarity score (0-1) between fallback_text and original_intent from conversation context",
+        "Fallbacks scoring < 0.6 inserted into database table fallback_relevance_audit with user_id, original_intent, fallback_text, relevance_score, timestamp for product review",
+        "Unit test tests/fallback-relevance-validator.test.ts confirms misaligned fallbacks (e.g., booking-related fallback for cancellation intent) score below 0.6 threshold"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-415",
+      "title": "Makan/Southern Profile Data Validator and Remediation Orchestrator",
+      "priority": "high",
+      "description": "Comprehensive profile contamination audit for Makan Moments and Southern Homestay profiles. Generate HTML report identifying Pelangi hostel content, then execute guided remediation to purge contamination.",
+      "acceptanceCriteria": [
+        "CLI tool npm run profile:validate makan scans intents.json, intent-keywords.json, knowledge.json, routing.json for Pelangi-specific keywords (guest_name, unit_number, check_out_survey) and returns contamination count",
+        "Generates HTML report reports/makan-profile-audit.html listing each contaminated entry with file path, key, current_value, and suggested_remediation command for user review",
+        "Remediation script npm run profile:fix makan --auto applies fixes to files, outputs git diff for human review, and validates zero Pelangi keywords remain in all profile data files post-execution"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-418",
+      "title": "Per-Profile Booking Step Failure Rate Tracker with Daily Alerting",
+      "priority": "high",
+      "description": "Track which booking workflow steps fail most frequently (room availability validation, guest lookup, confirmation email) per profile. Generate daily report ranked by failure rate and alert when any step exceeds 15% failure threshold for that profile.",
+      "acceptanceCriteria": [
+        "Add tracking to src/assistant/workflows/booking-executor.ts that logs execution outcome to database table booking_step_executions with columns: step_name, profile, success, error_code, timestamp",
+        "CLI at src/cli/booking-failure-report.ts generates daily report showing failure_rate ranked by step per profile (makan, pelangi, southern) with threshold violations highlighted",
+        "Failing test case: step fails 3 of 20 times (15%) → included in report; step fails 4 of 20 times (20%) → alert message generated with sample error messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-419",
+      "title": "Cafe-Specific Makan Moments Booking Workflow Step Variant in workflows.json",
+      "priority": "high",
+      "description": "Create Makan Moments-specific booking workflow variant with cafe-focused steps (confirm party size, confirm date/time, select menu items, note special requests) separate from generic hostel booking. Enforces profile separation and improves booking relevance for cafe context.",
+      "acceptanceCriteria": [
+        "Add workflow definition 'makan_cafe_booking' to src/assistant/data/workflows.json with steps: [validate_date, confirm_party_size, check_table_availability, collect_menu_prefs, send_cafe_confirmation], each step has profile field = 'makan'",
+        "Test at tests/integration/makan-booking-isolation.test.ts asserts: makan_cafe_booking workflow never references hostel-specific steps (check_in, room_type, unit_selection), never routes to Pelangi workflows",
+        "Routing test: intent 'book table makan' → makan_cafe_booking; never routes to pelangi_hostel_booking workflow"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-423",
+      "title": "Booking Step Timeout Handler with Automatic Retry Logic",
+      "priority": "high",
+      "description": "Add timeout detection for booking workflow steps with exponential backoff retry mechanism. When a step exceeds timeout threshold, automatically retry up to 3 times with increasing delays to improve workflow reliability and reduce escalations.",
+      "acceptanceCriteria": [
+        "Timeout handler implemented in src/assistant/pipeline/booking-executor.ts with configurable timeout threshold (default 10s per step)",
+        "Exponential backoff retry logic applies 1s, 2s, and 4s delays between retries; 4th failure logs to escalation_events table with failure_reason='step_timeout'",
+        "Test suite verifies timeout triggers first retry after 1s, second retry after 2s, third after 4s, and final failure is escalated with state preserved"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-424",
+      "title": "Profile-Aware Intent Keyword Validator at Startup with Violation Report",
+      "priority": "high",
+      "description": "Enforce strict profile separation by validating intent-keywords.json at application startup. Detect cross-profile keywords (e.g., Pelangi hostel keywords in Makan Moments profile) and block startup with detailed violation report showing exact keywords and file locations.",
+      "acceptanceCriteria": [
+        "Validator added to src/lib/startup-checks.ts loads profile-specific keyword blocklists and checks intent-keywords.json against forbidden keywords per profile",
+        "Startup generates violation report with exact keywords, file paths, line numbers before throwing StartupError; report includes remediation suggestion (remove keyword X from intent Y)",
+        "Test verifies Makan profile startup fails with violation report if Pelangi keywords found; Southern profile startup succeeds with isolated cafe-only keywords"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-425",
+      "title": "Conversation Message Profile Isolation Enforcer Middleware with Audit Trail",
+      "priority": "high",
+      "description": "Implement middleware that prevents conversation message retrieval across business profiles (e.g., Makan should never access Pelangi conversations). Log all cross-profile access attempts to audit table for compliance and debugging.",
+      "acceptanceCriteria": [
+        "Middleware in src/middleware/profile-isolation.ts validates every database query's profile_id matches request.context.businessProfile; blocks mismatches before query execution",
+        "Cross-profile access attempts logged to rainbow_cross_profile_audit table with: timestamp, requested_profile, current_profile, request_user, endpoint, blocked=true",
+        "Test suite verifies request with businessProfile='makan' is blocked from querying messages where profile_id='pelangi'; audit entry created with blocked=true and cross_profile_violation reason"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-416",
+      "title": "Booking Workflow Step Output Assertion Tracer",
+      "priority": "medium",
+      "description": "Add runtime assertions to each booking workflow step to validate output schema completeness. Log assertion violations without failing the workflow for reliability diagnostics and debugging.",
+      "acceptanceCriteria": [
+        "Each booking workflow step in src/assistant/workflows/booking-executor.ts decorated with assertOutputSchema() validating required properties (guest_id, room_type, check_in_date, confirmation_code)",
+        "Step assertion violations logged to logs/booking-assertions.jsonl with step_name, actual_output_keys, expected_schema, violation_reason (missing_prop, null_value, type_mismatch)",
+        "Unit test tests/booking-workflow-assertions.test.ts validates all 6 booking steps (date_validation, guest_lookup, availability_check, confirmation, email_send, completion) emit correct output schemas"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-417",
+      "title": "Conversation Context Semantic Segmentation Tool for Intelligent Pruning",
+      "priority": "medium",
+      "description": "Automatically segment conversation messages into semantic topics using keyword clustering. Use topic segments to intelligently prune old context while preserving intent-critical messages.",
+      "acceptanceCriteria": [
+        "CLI tool npm run conversation:segment -- <conversation-id> outputs JSON with segments array containing topic_label, start_turn, end_turn, and detected_keywords for each semantic segment",
+        "Segmentation in src/lib/conversation-segmenter.ts uses keyword clustering to detect topics (booking_inquiry, date_clarification, confirmation, cancellation) and marks segment boundaries",
+        "Unit test tests/conversation-segmenter.test.ts with 3 sample conversations (booking→cancellation, multi-topic_inquiry, extended_negotiation) verifies correct segment labels and turn boundaries"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-420",
+      "title": "Conversation History Compression Summarizer for Long Multi-Turn Chats",
+      "priority": "medium",
+      "description": "Implement message summarizer that condenses conversation history exceeding 15 turns into synthetic summary messages ('User inquired about availability on Mar 1, asked 3 follow-ups about room types and pricing') reducing context window while preserving intent clarity. Improves token efficiency for long conversations.",
+      "acceptanceCriteria": [
+        "Summarizer function at src/lib/context-summarizer.ts that takes messages array with length >15 and returns compressed history with synthetic summary message preserving user intent",
+        "Integration test shows: 20-message conversation reduces to 8 messages + 1 summary, token count drops ≥40%, subsequent intent classification accuracy ≥95% on test cases",
+        "Admin endpoint GET /admin/test-summarizer?conversation_id=X displays before/after message sequences and estimated token savings"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-421",
+      "title": "Intent Keyword Variant Generator for Malaysian Date Formats",
+      "priority": "medium",
+      "description": "Build CLI that generates booking intent keyword variants for Malaysian date format variations ('3 March 2026', '3-03-26', '03/03/2026', 'tiga Mac') and validates no collisions across profiles. Improves date parsing accuracy for local guests familiar with local date conventions.",
+      "acceptanceCriteria": [
+        "CLI at src/cli/date-format-variant-generator.ts reads intent-keywords.json and generates regional date format variants for any keyword containing date/month patterns",
+        "Output CSV: base_keyword | generated_variants | collision_status (ok/conflict) | suggested_action (add_to_keywords/rename_existing)",
+        "Test case: keyword 'book on 1st January 2026' generates variants ['book on 1-1-26', 'book 1 Jan 2026', 'book 01/01/2026', 'buku pada 1 Jan 2026'] with collision detection against other intents"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-422",
+      "title": "Low-Confidence Intent Ambiguity Confusion Cluster Analyzer CLI",
+      "priority": "medium",
+      "description": "Build CLI that analyzes production intent classification logs and clusters low-confidence (<0.6) misclassifications by confusion pair (e.g., 'booking confused with inquiry 14 times'). Recommends disambiguating keywords for each high-frequency confusion cluster.",
+      "acceptanceCriteria": [
+        "CLI at src/cli/confusion-cluster-analyzer.ts reads JSON log file with intent classification results and groups by (predicted_intent, actual_intent) pairs where confidence <0.6",
+        "Output table shows: confusion_pair | count | example_messages (top 2 examples) | recommended_keywords (keywords to add to actual_intent to improve separation)",
+        "Per-profile breakdown: report which confusion pairs most frequent for makan vs pelangi vs southern profiles; test case shows 'inquiry vs booking confusion 12 times — recommend adding date/time keywords to booking'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-426",
+      "title": "Intent Classifier Confidence Distribution Analyzer CLI",
+      "priority": "medium",
+      "description": "Create CLI tool to analyze intent classification confidence distributions from production logs by profile and intent type. Identify accuracy patterns and calibration opportunities to improve intent classification reliability.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run analyze:confidence -- --profile=pelangi --days=7' generates histogram with confidence score distribution per intent (booking, inquiry, fallback) in src/tools/confidence-analyzer.ts",
+        "Output shows percentiles (p50, p95, p99), count of <0.5 (low), 0.5-0.8 (medium), >0.8 (high) confidence predictions grouped by intent",
+        "Test verifies 100 sample predictions with mixed confidence yields correct histogram counts; low-confidence intents identified separately"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
