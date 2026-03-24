@@ -1,18 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * US-325: Profile Data Contamination Validator with Auto-Fix
+ * US-364: Profile Data File Consistency Validator CLI
  *
- * Validates that each profile's intent-keywords.json does not contain
- * keywords or intents that belong to other profiles.
+ * Validates profile data files for cross-file consistency:
+ * - intents defined in intents.json exist in routing.json
+ * - routing.json entries have corresponding intents
+ * - intent-keywords.json keywords match intents
+ * - Zero Pelangi-specific content in Makan/Southern profiles
  *
  * Usage:
- *   npm run validate-profile-data             # Check mode (exit 1 if contaminated)
- *   npm run validate-profile-data -- --strict  # Same as default (strict check)
- *   npm run validate-profile-data -- --fix     # Auto-remove cross-profile keywords and log fixes
+ *   npm run validate:profile-data -- --profile makan     # Validate makan profile
+ *   npm run validate:profile-data -- --profile southern  # Validate southern profile
+ *   npm run validate:profile-data                        # Validate all profiles
  *
  * Exit codes:
- *   0 — All profiles clean, no contamination detected
- *   1 — Contamination detected (--strict) or fix applied (--fix)
+ *   0 — All profiles consistent
+ *   1 — Violations detected
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
@@ -30,6 +33,22 @@ interface IntentKeywordsFile {
   intents: IntentKeywordEntry[];
 }
 
+interface IntentEntry {
+  id: string;
+  name: string;
+  [key: string]: any;
+}
+
+interface RoutingEntry {
+  intent: string;
+  [key: string]: any;
+}
+
+interface KnowledgeEntry {
+  intent: string;
+  [key: string]: any;
+}
+
 interface ContaminationViolation {
   profile: string;
   intent: string;
@@ -37,6 +56,13 @@ interface ContaminationViolation {
   keyword: string;
   sourceProfile: string;
   reason: string;
+}
+
+interface ConsistencyViolation {
+  type: 'intents_not_in_routing' | 'routing_entries_missing_intents' | 'orphaned_keywords' | 'keyword_contamination';
+  profile: string;
+  details: string;
+  file?: string;
 }
 
 interface ContaminationFix {
@@ -217,6 +243,70 @@ function loadIntentKeywords(dataDir: string): IntentKeywordsFile | null {
   }
 }
 
+function loadIntents(dataDir: string): string[] {
+  const filePath = join(dataDir, 'intents.json');
+  if (!existsSync(filePath)) return [];
+  try {
+    const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const intentIds: string[] = [];
+
+    // Handle nested structure: { categories: [{ intents: [{ category: "name" }] }] }
+    if (data.categories && Array.isArray(data.categories)) {
+      for (const category of data.categories) {
+        if (category.intents && Array.isArray(category.intents)) {
+          for (const intent of category.intents) {
+            if (intent.category) {
+              intentIds.push(intent.category);
+            }
+          }
+        }
+      }
+    }
+
+    // Handle flat array structure
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item.id) intentIds.push(item.id);
+        if (item.name) intentIds.push(item.name);
+        if (item.category) intentIds.push(item.category);
+      }
+    }
+
+    // Handle { intents: [...] } structure
+    if (data.intents && Array.isArray(data.intents)) {
+      for (const item of data.intents) {
+        if (item.id) intentIds.push(item.id);
+        if (item.name) intentIds.push(item.name);
+        if (item.category) intentIds.push(item.category);
+      }
+    }
+
+    return intentIds;
+  } catch {
+    return [];
+  }
+}
+
+function loadRouting(dataDir: string): Record<string, any> {
+  const filePath = join(dataDir, 'routing.json');
+  if (!existsSync(filePath)) return {};
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function loadKnowledge(dataDir: string): any {
+  const filePath = join(dataDir, 'knowledge.json');
+  if (!existsSync(filePath)) return {};
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
 function getExclusiveKeywordsForProfile(profileType: 'hostel' | 'cafe'): { keywords: string[]; sourceLabel: string } {
   if (profileType === 'cafe') {
     // Cafe profiles should NOT have hostel keywords
@@ -236,6 +326,76 @@ function getExclusiveIntentsForProfile(profileType: 'hostel' | 'cafe'): Set<stri
     // Hostel profiles should NOT have makan-exclusive intents
     return MAKAN_EXCLUSIVE_INTENTS;
   }
+}
+
+/**
+ * Validates cross-file consistency within a profile.
+ * Checks:
+ * - intents in intents.json that don't appear in routing.json
+ * - routes in routing.json that aren't defined in intents.json
+ * - keywords in intent-keywords.json without matching intents
+ */
+export function validateConsistency(profile: ProfileDef): ConsistencyViolation[] {
+  const violations: ConsistencyViolation[] = [];
+
+  // Load all files
+  const intents = loadIntents(profile.dataDir);
+  const routing = loadRouting(profile.dataDir);
+  const keywords = loadIntentKeywords(profile.dataDir);
+  const knowledge = loadKnowledge(profile.dataDir);
+
+  // Create sets for quick lookup
+  const intentIds = new Set(intents.filter(i => i && i.length > 0));
+
+  // Extract intent references from routing.json
+  // routing format is { [intentName]: { action, ... } }
+  const routingIntents = new Set<string>();
+  for (const key of Object.keys(routing)) {
+    if (key !== 'routes' && typeof routing[key] === 'object' && routing[key] !== null) {
+      routingIntents.add(key);
+    }
+  }
+
+  // Check: intents in intents.json not in routing.json
+  for (const intentId of intentIds) {
+    if (intentId && !routingIntents.has(intentId)) {
+      violations.push({
+        type: 'intents_not_in_routing',
+        profile: profile.name,
+        details: `Intent "${intentId}" defined in intents.json but not found in routing.json`,
+        file: 'intents.json -> routing.json',
+      });
+    }
+  }
+
+  // Check: routes in routing.json not defined in intents.json
+  for (const routingIntent of routingIntents) {
+    if (routingIntent && !intentIds.has(routingIntent)) {
+      violations.push({
+        type: 'routing_entries_missing_intents',
+        profile: profile.name,
+        details: `Intent "${routingIntent}" referenced in routing.json but not defined in intents.json`,
+        file: 'routing.json -> intents.json',
+      });
+    }
+  }
+
+  // Check: keywords in intent-keywords.json without matching intents
+  if (keywords && keywords.intents) {
+    const keywordIntents = new Set(keywords.intents.map((k: IntentKeywordEntry) => k.intent));
+    for (const keywordIntent of keywordIntents) {
+      if (keywordIntent && !intentIds.has(keywordIntent)) {
+        violations.push({
+          type: 'orphaned_keywords',
+          profile: profile.name,
+          details: `Keywords defined for intent "${keywordIntent}" but intent not found in intents.json`,
+          file: 'intent-keywords.json -> intents.json',
+        });
+      }
+    }
+  }
+
+  return violations;
 }
 
 /**
@@ -379,74 +539,69 @@ export function fixAllProfiles(): ContaminationFix[] {
 function main(): void {
   const args = process.argv.slice(2);
   const isFixMode = args.includes('--fix');
-  // --strict is the default behavior (also triggered explicitly)
 
-  if (isFixMode) {
-    console.log('Profile Data Contamination Auto-Fix');
-    console.log('='.repeat(50));
+  // Parse --profile argument
+  const profileIdx = args.indexOf('--profile');
+  const targetProfile = profileIdx >= 0 && profileIdx < args.length - 1 ? args[profileIdx + 1] : null;
 
-    const fixes = fixAllProfiles();
-
-    if (fixes.length === 0) {
-      console.log('\nNo contamination found. All profiles are clean.');
-      process.exit(0);
+  // Determine which profiles to validate
+  let profilesToValidate = PROFILES;
+  if (targetProfile) {
+    profilesToValidate = PROFILES.filter(p => p.name === targetProfile);
+    if (profilesToValidate.length === 0) {
+      console.error(`ERROR: Unknown profile "${targetProfile}"`);
+      console.error(`Available profiles: ${PROFILES.map(p => p.name).join(', ')}`);
+      process.exit(1);
     }
-
-    // Log fixes to fixture file
-    const fixturesDir = join(PROJECT_ROOT, 'src', '__tests__', 'fixtures');
-    if (!existsSync(fixturesDir)) {
-      mkdirSync(fixturesDir, { recursive: true });
-    }
-    const fixesPath = join(fixturesDir, 'contamination-fixes.json');
-
-    // Append to existing fixes if file exists
-    let existingFixes: ContaminationFix[] = [];
-    if (existsSync(fixesPath)) {
-      try {
-        existingFixes = JSON.parse(readFileSync(fixesPath, 'utf-8'));
-      } catch {
-        existingFixes = [];
-      }
-    }
-    const allFixes = [...existingFixes, ...fixes];
-    writeFileSync(fixesPath, JSON.stringify(allFixes, null, 2) + '\n', 'utf-8');
-
-    console.log(`\nApplied ${fixes.length} fix(es):`);
-    for (const fix of fixes) {
-      console.log(`  - Removed "${fix.keyword}" from ${fix.profile}/${fix.intent} (${fix.language}) [source: ${fix.sourceProfile}]`);
-    }
-    console.log(`\nFixes logged to: ${fixesPath}`);
-    process.exit(0);
   }
 
-  // Strict/default mode: validate and report
-  console.log('Profile Data Contamination Validator (strict mode)');
-  console.log('='.repeat(50));
+  console.log('Profile Data File Consistency Validator');
+  console.log('='.repeat(60));
 
-  const results = validateAllProfiles();
   let totalViolations = 0;
+  let totalContamination = 0;
 
-  for (const [profileName, violations] of results) {
-    const status = violations.length === 0 ? 'CLEAN' : `CONTAMINATED (${violations.length} violations)`;
-    console.log(`\n${profileName.toUpperCase()}: ${status}`);
+  for (const profile of profilesToValidate) {
+    console.log(`\n📋 Validating profile: ${profile.name.toUpperCase()}`);
+    console.log('-'.repeat(60));
 
-    if (violations.length > 0) {
-      totalViolations += violations.length;
-      for (const v of violations) {
-        console.log(`  - [${v.intent}] (${v.language}) keyword "${v.keyword}" -> belongs to ${v.sourceProfile} profile`);
+    // Check contamination (keywords)
+    const contamViolations = validateProfile(profile);
+    if (contamViolations.length > 0) {
+      totalContamination += contamViolations.length;
+      console.log(`\n  ⚠️  Keyword Contamination (${contamViolations.length}):`);
+      for (const v of contamViolations) {
+        console.log(`     - [${v.intent}] (${v.language}) keyword "${v.keyword}" -> belongs to ${v.sourceProfile} profile`);
       }
+    }
+
+    // Check cross-file consistency
+    const consistencyViolations = validateConsistency(profile);
+    if (consistencyViolations.length > 0) {
+      totalViolations += consistencyViolations.length;
+      console.log(`\n  ⚠️  Cross-File Inconsistencies (${consistencyViolations.length}):`);
+      for (const v of consistencyViolations) {
+        console.log(`     - [${v.type}] ${v.details}`);
+        if (v.file) console.log(`       (${v.file})`);
+      }
+    }
+
+    if (contamViolations.length === 0 && consistencyViolations.length === 0) {
+      console.log('  ✅ Profile is clean (no violations detected)');
     }
   }
 
-  console.log('\n' + '='.repeat(50));
+  console.log('\n' + '='.repeat(60));
 
-  if (totalViolations > 0) {
-    console.error(`\nERROR: ${totalViolations} cross-profile contamination violation(s) detected.`);
-    console.error('Run "npm run validate-profile-data -- --fix" to auto-remove contaminated keywords.');
+  const totalIssues = totalViolations + totalContamination;
+  if (totalIssues > 0) {
+    console.error(`\n❌ FAILED: ${totalIssues} issue(s) detected`);
+    console.error(`  - ${totalContamination} keyword contamination violation(s)`);
+    console.error(`  - ${totalViolations} cross-file consistency violation(s)`);
     process.exit(1);
   }
 
-  console.log('\nAll profiles are clean. No cross-profile contamination detected.');
+  console.log('\n✅ All profiles are consistent and clean.');
   process.exit(0);
 }
 
