@@ -94,6 +94,27 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
+// ─── IP-Based Session Consolidation ──────────────────────────────────────────
+// Maps "profileId:clientIp" → sessionId so that visitors with the same IP
+// (e.g. same device in different browser, incognito, or cleared localStorage)
+// are routed to a single conversation instead of spawning duplicate sessions.
+const ipSessionMap = new Map<string, { sessionId: string; updatedAt: number }>();
+const IP_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of ipSessionMap) {
+    if (now - entry.updatedAt > IP_SESSION_TTL_MS) {
+      ipSessionMap.delete(key);
+    }
+  }
+}, 60 * 60 * 1000);
+
+function getClientIp(req: Request): string {
+  const raw = req.ip || (req.socket?.remoteAddress ?? 'unknown');
+  return raw.replace('::ffff:', '');
+}
+
 // ─── KB Context Cache ──────────────────────────────────────────────
 const kbContextCache = new Map<string, { systemPrompt: string; kbFiles: string[]; cachedAt: number }>();
 const KB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -572,10 +593,21 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     return;
   }
 
-  // Generate sessionId on server if not provided
+  // Resolve sessionId — prefer client-supplied value (localStorage), but fall back
+  // to an existing session for this IP so that the same visitor across different
+  // browsers / incognito / cleared localStorage lands in one conversation.
+  const clientIp = getClientIp(req);
+  const ipKey = `${profileId}:${clientIp}`;
+
   if (!sessionId || typeof sessionId !== 'string') {
-    sessionId = 'web_' + crypto.randomUUID().slice(0, 8) + '_' + Date.now();
+    const mapped = ipSessionMap.get(ipKey);
+    sessionId = mapped
+      ? mapped.sessionId
+      : 'web_' + crypto.randomUUID().slice(0, 8) + '_' + Date.now();
   }
+
+  // Always keep the IP map current so the next fresh session resolves here.
+  ipSessionMap.set(ipKey, { sessionId, updatedAt: Date.now() });
 
   // US-921: Merge client-side session data (name, table, address) into server store
   if (clientSessionData && typeof clientSessionData === 'object') {

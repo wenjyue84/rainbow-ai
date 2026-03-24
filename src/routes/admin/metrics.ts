@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getWhatsAppStatus, whatsappManager } from '../../lib/baileys-client.js';
 import { isAIAvailable } from '../../assistant/ai-client.js';
+import { profileRegistry } from '../../assistant/profile-registry.js';
 
 import { trackConfigReloaded } from '../../lib/activity-tracker.js';
 import { ok, getStore } from './http-utils.js';
@@ -24,9 +25,25 @@ router.post('/restart', (_req: Request, res: Response) => {
   setTimeout(() => process.exit(0), 1500);
 });
 
-router.get('/status', async (_req: Request, res: Response) => {
+router.get('/status', async (req: Request, res: Response) => {
   const wa = getWhatsAppStatus();
-  const instances = whatsappManager.getAllStatuses();
+  const allInstances = whatsappManager.getAllStatuses();
+
+  // Filter WhatsApp instances by profile when x-profile-id header is present
+  const profileId = res.locals.profileId as string | undefined;
+  let filteredInstances = allInstances;
+  if (profileId) {
+    const assignedId = profileRegistry.getInstanceForProfile(profileId);
+    const profileConfig = profileRegistry.getProfile(profileId)?.config;
+    const allowed = new Set<string>([
+      ...(assignedId ? [assignedId] : []),
+      ...(profileConfig?.instanceIds ?? [])
+    ]);
+    filteredInstances = allowed.size > 0
+      ? allInstances.filter(i => allowed.has(i.id))
+      : [];
+  }
+  // No profileId = default (pelangi) = return all instances
 
   const lastCheckedAt = new Date().toISOString();
   const settings = getStore(res).getSettings();
@@ -47,6 +64,8 @@ router.get('/status', async (_req: Request, res: Response) => {
     };
   });
 
+  const profileName = profileId ? profileRegistry.getProfile(profileId)?.name : undefined;
+
   res.json({
     servers: {
       mcp: {
@@ -62,7 +81,7 @@ router.get('/status', async (_req: Request, res: Response) => {
       state: wa.state,
       user: wa.user
     },
-    whatsappInstances: instances.map(i => ({
+    whatsappInstances: filteredInstances.map(i => ({
       id: i.id,
       label: i.label,
       state: i.state,
@@ -79,7 +98,7 @@ router.get('/status', async (_req: Request, res: Response) => {
     config_files: ['knowledge', 'intents', 'templates', 'settings', 'workflow', 'workflows', 'routing'],
     response_modes: settings.response_modes || { default_mode: 'autopilot' },
     isCloud: process.env.RAINBOW_ROLE === 'primary',
-    propertyName: process.env.BUSINESS_NAME || ''
+    propertyName: profileName || process.env.BUSINESS_NAME || ''
   });
 });
 
