@@ -1,0 +1,54 @@
+## Iteration 1 - Tue, Mar 24, 2026  8:45:05 AM
+FAILED diagnosis-block gate: Per-Intent Confidence Percentile Analytics Dashboard (ID: US-359) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-359 (Gemini 2.5 Pro)
+This user story describes a feature for a **NestJS/TypeScript** application, not a Frappe/Python one. The acceptance criteria reference `npm`, `.ts` test files, and a Node.js-style API endpoint.
+
+Here is the technical brief based on the actual NestJS/TypeScript context:
+
+**Project:** Rainbow AI (NestJS/TypeScript)
+**User Story:** US-359: Per-Intent Confidence Percentile Analytics
+
+**1. Files to Modify/Create:**
+*   **Controller:** `src/modules/admin/admin.controller.ts` or a new `src/modules/analytics/analytics.controller.ts` to add the `GET /admin/analytics/intent-confidence-distribution` endpoint.
+*   **Service:** A new `src/modules/analytics/intent-confidence.service.ts` to encapsulate the data fetching and percentile calculation logic.
+*   **Module:** The new service/controller will need to be registered in `src/modules/admin/admin.module.ts` or a new `analytics.module.ts`.
+*   **CLI Script:** Create `scripts/analyze-intent-accuracy.ts` to implement the command-line functionality.
+*   **Test File:** `src/tests/analytics/confidence-percentile.test.ts` for unit testing the service logic.
+
+**2. Key NestJS/Data Entities:**
+*   This will interact with the database entity that stores message classification results. Expect to query a table like `messages` or `classification_logs` containing `intent`, `confidence`, and `profile_id` columns.
+
+**3. Implementation Approach:**
+1.  In the new service, create a method to query the classification results table.
+2.  Group results by intent and profile, collecting an array of confidence scores for each group.
+3.  Use a statistics library (or a simple sorted array access) to calculate p50, p95, and p99 percentiles from each confidence score array.
+4.  The controller will call this service and format the data into the required JSON structure.
+5.  The CLI script will reuse the service, parse arguments (`--profile`, `--intent`), and format the output for the console.
+
+**4. Edge Cases & Gotchas:**
+*   **Performance:** The query on the classification table must be highly efficient. Ensure `intent` and `profile_id` are indexed. For very large datasets, consider if the database supports native percentile calculations.
+*   **No Data:** Handle cases where an intent has zero classifications gracefully (return `sampleCount: 0` and null percentiles).
+*   **Data Skew:** A low `sampleCount` can make percentile data misleading; the frontend should display the count for context.
+
+
+## Iteration 2 - Story: Per-Intent Confidence Percentile Analytics Dashboard (US-359)
+### What was implemented
+- Created `src/tests/analytics/confidence-percentile.test.ts` with 16 unit tests covering:
+  - `calculatePercentile`: p50, p95, p100, single value, empty array, boundary cases
+  - `calculateConfidencePercentiles`: normal dist, single sample, all-high, identical values, empty, p50<=p95<=p99 invariant
+  - `groupConfidencesByIntent`: grouping, empty input
+  - `generateDistributionReport`: multi-intent, single prediction
+- All other acceptance criteria were already implemented:
+  - Endpoint `GET /admin/analytics/intent-confidence-distribution` registered in admin router
+  - CLI `npm run analyze:intent-accuracy -- --profile pelangi --intent booking` wired up
+  - Core lib at `src/lib/analytics/confidence-percentile.ts`
+
+### Patterns discovered
+- Test directory lives at `src/tests/` flat structure; analytics subdirectory needed to be created
+- Pre-existing endpoint + CLI + lib were complete; only test file was missing
+- Vitest 4 deprecation warnings for `poolOptions` are pre-existing, non-blocking
+
+### Gotchas
+- Attempt 1 failed due to DIAGNOSIS_BLOCK_MISSING gate; diagnosis block must be output as plain text BEFORE any file edits
