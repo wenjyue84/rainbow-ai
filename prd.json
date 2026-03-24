@@ -47,24 +47,6 @@
   ],
   "userStories": [
     {
-      "id": "US-380",
-      "title": "Profile Data Cross-File Semantic Consistency Validator",
-      "priority": "high",
-      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
-      "acceptanceCriteria": [
-        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
-        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
-        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-24T04:28:40Z"
-    },
-    {
       "id": "US-383",
       "title": "Booking Check-in Date Validator with Flexible Date Format Normalization",
       "priority": "high",
@@ -77,9 +59,10 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-03-24T04:59:38Z"
     },
     {
       "id": "US-384",
@@ -290,6 +273,40 @@
       "model": "sonnet"
     },
     {
+      "id": "US-405",
+      "title": "Diagnose Failing Unit Tests with Root Cause Categorization and Fix Report",
+      "priority": "high",
+      "description": "Audit failing unit tests in test/ directory, categorize failures by root cause (assertion_failure, type_error, import_error, database_error, timeout), and generate actionable fix report with required changes per test file.",
+      "acceptanceCriteria": [
+        "Run npm run test:run and parse output to categorize each failure by root cause; output JSON report to artifacts/test-diagnostics-TIMESTAMP.json with: {test_file, test_name, root_cause, error_message, suggested_fix}",
+        "Identify at least 2 failing tests, document their root causes, and create corresponding fix issues with specific file paths and line numbers (e.g., 'src/assistant/schemas.ts:45 type mismatch')",
+        "CLI command npm run diagnose:tests generates comprehensive report showing total tests, passed count, failed count, failures grouped by root_cause, and prioritized list of files needing fixes"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-406",
+      "title": "Enforce Profile Intent Routing with Runtime Cross-Contamination Blocker",
+      "priority": "high",
+      "description": "Add runtime middleware validating that classified intents exist in the current profile's routing.json, blocking cross-profile intent execution and logging contamination attempts to audit trail for compliance monitoring.",
+      "acceptanceCriteria": [
+        "Create src/middleware/profile-routing-enforcer.ts that checks: intent_name in routing.json[current_profile_id]; if missing, log {timestamp, guest_id, intent, profile, severity: 'contamination_block'} to profile_contamination_audit table and return error",
+        "Database table profile_contamination_audit tracks all blocked routing attempts; endpoint GET /admin/audit/contamination-blocks returns last 30 days grouped by profile",
+        "Unit test verifying Makan profile blocks 'booking_hostel_room' intent, Southern profile blocks 'cafe_order' intent, both log to audit trail with correct severity"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-389",
       "title": "Confidence Score Distribution Analyzer per Intent per Profile",
       "priority": "medium",
@@ -441,6 +458,23 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-407",
+      "title": "Add Booking Workflow Step Precondition Validator with Pre-Execution Type Checking",
+      "priority": "medium",
+      "description": "Validate booking workflow step input schemas before execution, checking required fields and types match step definitions in workflows.json, and log detailed violation report enabling debugging of invalid state transitions.",
+      "acceptanceCriteria": [
+        "Create src/tools/booking-step-validator.ts with validateStepInput(stepName, inputData): {valid: bool, violations: [{field, expected_type, actual_type, message}]}; map step requirements from workflows.json schema",
+        "Add pre-execution check in booking executor: if !validateStepInput().valid, log violations and throw with structured error including step_name, field_violations, context_state",
+        "Unit test validating check-in step requires {room_id: string, guest_id: string, check_in_date: ISO8601} and rejects {room_id: 123, guest_id: null} with correct violation messages"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-196",
@@ -710,6 +744,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-380",
+      "title": "Profile Data Cross-File Semantic Consistency Validator",
+      "priority": "high",
+      "description": "Validate semantic consistency across profile data files (knowledge.json, workflows.json, intent-keywords.json). Detect orphaned amenity names, room types, or intent references that exist in one file but not others. Prevents profile contamination and data quality issues at source.",
+      "acceptanceCriteria": [
+        "CLI npm run validate:profile-consistency --profile=data-pelangi scans knowledge.json amenities against workflow steps, intent keywords against routing.json intents",
+        "Reports violations in JSON format: { orphaned_amenities: ['penthouse'], missing_intent_routes: ['modify-booking'], file_mismatches: [] }",
+        "Test verifies room type 'deluxe-room' in knowledge.json that's missing from workflows.json is detected; room type present in both passes validation"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-24T04:28:40Z"
     },
     {
       "id": "US-354",
