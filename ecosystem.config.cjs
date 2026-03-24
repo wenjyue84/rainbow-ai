@@ -39,7 +39,7 @@ module.exports = {
       out_file: '/var/www/rainbow-ai/logs/rainbow-ai-out.log',
       merge_logs: true,
       wait_ready: true,
-      listen_timeout: 15000,
+      listen_timeout: 60000, // 60s — startup loads embeddings for 6 profiles (~30s)
       kill_timeout: 12000, // Allow 10 s graceful drain + 2 s buffer (US-437)
     },
   ],
