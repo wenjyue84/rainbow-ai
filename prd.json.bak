@@ -47,20 +47,25 @@
   ],
   "userStories": [
     {
-      "id": "US-422",
-      "title": "Profile Data Deployment Validator with Cross-Reference Check",
+      "id": "US-424",
+      "title": "Fix Webchat Conversations API — Remove Missing status Column Reference",
+      "description": "The GET /api/rainbow/webchat/conversations endpoint fails with \"column c.status does not exist\" because the SQL query references a status column that was never added to rainbow_conversations. Fix the query to remove or handle the missing column so the webchat sidebar loads.",
       "priority": "critical",
-      "description": "Pre-deployment validation CLI that scans profile data files for keyword contamination from other profiles, preventing cross-profile data pollution before merging.",
       "acceptanceCriteria": [
-        "Create src/tools/cli/profile-deployment-validator.ts that reads profile-specific keyword blacklist from src/assistant/data/profile-keywords-blacklist.json",
-        "Scan knowledge.json, intents.json, intent-keywords.json, and routing.json for blacklisted keywords, output file:line_number with matched text",
-        "CLI command: npm run validate:profile-deployment -- --profile makan-moments returns exit code 1 on contamination with remediation_suggestions.txt"
+        "GET /api/rainbow/webchat/conversations returns 200 with conversation list",
+        "Webchat tab sidebar loads and displays sessions instead of infinite loading",
+        "Existing WhatsApp conversations are not affected"
       ],
-      "technicalNotes": [],
       "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
+      "filesTouch": [
+        "src/routes/admin/webchat.ts"
+      ],
+      "estimatedComplexity": "small",
+      "tags": [
+        "webchat",
+        "bugfix"
+      ],
       "model": "haiku"
     },
     {
@@ -128,6 +133,278 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-395",
+      "title": "Create Intent Classification Feedback Loop TUI for Support Staff Quick Labeling",
+      "priority": "high",
+      "description": "Build a terminal UI allowing support staff to quickly review low-confidence intent predictions and provide corrections. Feedback stored in conversation_feedback table for model improvement analysis.",
+      "acceptanceCriteria": [
+        "CLI tool `node src/tools/feedback-collector.js --profile pelangi` displays TUI with recent low-confidence predictions (confidence < 0.7), shows predicted intent and allows staff to override with correct intent",
+        "Save feedback to conversation_feedback table with columns: message_id, predicted_intent, correct_intent, confidence_score, staff_name, timestamp; persist feedback for weekly accuracy reporting",
+        "Weekly summary report showing per-profile, per-intent accuracy: 'booking: 847/900 correct (94%), inquiry: 412/450 (92%), escalation: 23/45 (51%)'"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-396",
+      "title": "Build Profile-Specific Intent Keyword Gap Analyzer with Cafe/Hostel Variant Suggestions",
+      "priority": "high",
+      "description": "Identify booking/inquiry keywords present in Pelangi Capsule profile but missing from Makan Moments or Southern Homestay. Suggest profile-specific keyword variants to prevent cross-profile contamination.",
+      "acceptanceCriteria": [
+        "CLI `node src/tools/keyword-gap-analyzer.js --source pelangi --target makan --intent booking` loads intent-keywords.json for both profiles, finds keywords in source absent from target, outputs: 'Missing in makan: [\"check-out\", \"extension\", \"early-check-in\"] (from pelangi)'",
+        "For each missing keyword, suggest profile-specific variant: { keyword: 'check-out', source_context: 'hostel', makan_variant: 'table-closing', confidence: 0.8 } based on profile business type (cafe vs hostel)",
+        "Unit test: Pelangi booking keywords include 'room-type' (hostel-specific), analyzer suggests Makan variant 'menu-item' (cafe-specific); verify 'check-out' maps to 'N/A' for cafe-only profile"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-400",
+      "title": "Build Intent Keyword A/B Test Framework for Safe Variant Experimentation",
+      "priority": "high",
+      "description": "Create a testing harness to safely evaluate new intent keyword variants by routing messages to control/test groups and measuring classification accuracy per variant, enabling data-driven keyword improvements.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run intent:ab-test register --intent booking --control-keywords [...] --test-keywords [...]' creates test in database with variant assignment logic",
+        "Endpoint GET /admin/intent-ab-tests/results?intent=booking returns accuracy_control, accuracy_test, confidence_improvement_pct with minimum 100 samples per variant",
+        "New table intent_ab_tests with columns: test_id, intent, variant_a_keywords, variant_b_keywords, created_at; messages routed to variants using consistent hash of user_id"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-401",
+      "title": "Implement Token Budget Enforcement for Multi-Turn Conversation Context",
+      "priority": "high",
+      "description": "Enforce maximum token budget for conversation history to prevent expensive context overflow, automatically pruning oldest messages while logging decisions for audit and cost tracking.",
+      "acceptanceCriteria": [
+        "Function calculateMessageTokens(message: string): number in src/lib/tokenizer.ts estimates tokens without calling LLM",
+        "Conversation pipeline invokes pruneContextByTokenBudget(messages, MAX_CONTEXT_TOKENS) before sending to AI; logs event with conversation_id, tokens_before, tokens_after, pruned_count",
+        "Config parameter MAX_CONTEXT_TOKENS in settings.json (default: 2000); pruning strategy: remove oldest messages until under budget"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-402",
+      "title": "Add Per-Profile Intent Accuracy Regression Detector with Admin Alerts",
+      "priority": "high",
+      "description": "Monitor intent classification accuracy per profile hourly to detect regressions from baseline, enabling rapid response to data contamination or keyword quality degradation.",
+      "acceptanceCriteria": [
+        "Endpoint GET /admin/metrics/intent-accuracy?profile=data-pelangi&days=7 returns accuracy trend, baseline accuracy, regression flag, and per-intent breakdown",
+        "Background job runs hourly; computes accuracy for each profile+intent; alerts admin when accuracy < (baseline - 5%) using existing escalation pipeline",
+        "New table intent_accuracy_metrics: profile, intent, accuracy_pct, sample_size, baseline_accuracy_pct, computed_at; queries require minimum 50 samples to report"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-403",
+      "title": "Implement Booking Workflow Step Typed Exception Handling with Recovery Strategies",
+      "priority": "high",
+      "description": "Replace generic error handling with specific exception types per booking step, enabling targeted recovery (retry, suggest alternatives, escalate) based on failure type to improve booking completion rates.",
+      "acceptanceCriteria": [
+        "File src/assistant/schemas/booking-exceptions.ts exports typed union: BookingException = InvalidRoom | DateConflict | GuestNotFound | PaymentFailed; step handlers throw these exceptions",
+        "Function handleBookingException(error: BookingException, step: string) in src/lib/booking-recovery.ts routes to strategy: InvalidRoom suggests 3 similar types, DateConflict escalates to staff, GuestNotFound requests email lookup",
+        "Workflow step handlers wrap queries in try-catch; log exception type with step context; example test: InvalidRoom exception at 'select-room' step triggers fallback offering alternatives"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-406",
+      "title": "Build Intent Classification Confidence Percentile Analyzer CLI",
+      "priority": "high",
+      "description": "Generate distribution reports of intent classification confidence scores by profile and intent type, identifying hard-to-classify intents and systematic weak patterns.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:confidence -- --profile=data-makan` reads intent_analytics table and outputs JSON with p50/p95/p99 confidence per intent_id",
+        "Report includes intent type, sample count, median confidence, and intents below 75% median confidence threshold",
+        "Test asserts Makan Moments booking intent has ≥3 confidence buckets with counts and all percentiles present"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-407",
+      "title": "Implement Booking Cancellation Workflow with Auto-Refund Calculator",
+      "priority": "high",
+      "description": "Add booking cancellation intent and workflow with tiered refund calculation based on days until check-in, enabling guest-initiated cancellations with automatic refund computation.",
+      "acceptanceCriteria": [
+        "Add `cancellation_request` intent to routing.json routing to new workflow; add `handle_booking_cancellation` step to workflows.json with guest_id and booking_id inputs",
+        "Refund calculator function in src/tools/booking-cancellation.ts returns: 100% if >14 days to check-in, 50% if 7-14 days, 0% if <7 days",
+        "Integration test asserts cancellation of booking 20 days out produces 100% refund, <7 days produces 0% refund, state transitions to `cancelled_refunded`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-410",
+      "title": "Build Intent Classifier Offline Regression Test Dataset from Production Logs",
+      "priority": "high",
+      "description": "Generate a regression test suite from production misclassifications to detect when intent classifier accuracy drops. Load recent messages from database, extract ground-truth intents from successful booking confirmations, store as JSON fixture, and run daily CLI validation.",
+      "acceptanceCriteria": [
+        "CLI command: `npx tsx src/tools/intent-regression-dataset-generator.ts --days=7` exports messages + confirmed intents to `src/__tests__/fixtures/intent-regression-cases.json`",
+        "Regression test in `src/__tests__/intent-classifier-regression.test.ts` validates classifier accuracy against fixture (must maintain ≥90% accuracy baseline)",
+        "Dataset includes at least 50 real booking and inquiry intent examples from database with confidence scores stored"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-412",
+      "title": "Multi-Language Intent Keyword Translation Coverage Validator with Missing Detection",
+      "priority": "high",
+      "description": "Validate intent-keywords.json has keywords for all supported languages (en, ms, ta, zh) per intent, flag incomplete translations, report coverage percentages.",
+      "acceptanceCriteria": [
+        "Validator in src/lib/profile-data-validator.ts exports validateLanguageCoverage(profileId) returns coverage matrix {intent: {en: true, ms: false, ta: true, zh: false}}",
+        "Scans src/assistant/data/intent-keywords-${profile_id}.json checking all intent keys have arrays for each language code",
+        "CLI: npm run validate:language-coverage -- --profile makan outputs ASCII table with Intent rows, Language columns, flags <80% coverage cells with RED status"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-413",
+      "title": "Add comprehensive booking intent classification edge case tests",
+      "priority": "high",
+      "description": "Create test suite covering ambiguous booking inputs to improve classification accuracy across profiles. Tests will cover edge cases like \"book the room\", \"can i reserve?\", \"room available?\" with profile-specific expectations.",
+      "acceptanceCriteria": [
+        "Create src/assistant/tests/booking-intent-edge-cases.test.ts with 10+ test cases for ambiguous inputs",
+        "Assert correct intent classification with confidence > 0.8 for each test case",
+        "Include tests for all three profiles (pelangi, makan, southern) to ensure profile-specific classification accuracy"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-414",
+      "title": "Implement context message relevance filter for multi-turn conversations",
+      "priority": "high",
+      "description": "Remove stale or irrelevant messages from conversation context before AI inference to improve multi-turn dialogue quality. Filter messages older than 5 turns or with relevance score < 0.3.",
+      "acceptanceCriteria": [
+        "Create src/assistant/lib/context-relevance-filter.ts with function filterContextMessages(messages, maxAge=5, minRelevance=0.3)",
+        "Implement semantic similarity scorer using keyword matching to determine message relevance to booking workflow",
+        "Add test asserting off-topic messages like 'what is the weather' are removed from booking conversation context"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-415",
+      "title": "Validate fallback response templates don't contain cross-profile content",
+      "priority": "high",
+      "description": "Scan fallback response JSON files for profile-specific hotel/cafe names, room types, and amenities to prevent content contamination between Pelangi, Makan, and Southern profiles.",
+      "acceptanceCriteria": [
+        "Create scripts/validate-fallback-content.js that loads src/assistant/data/fallbacks.json for each profile and scans for cross-profile keywords",
+        "Output violations with file path and line number: 'ERROR: Pelangi Capsule Hostel found in makan fallbacks.json:34'",
+        "Include --fix flag to interactively remove cross-profile content with user confirmation before rewriting files"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-416",
+      "title": "Implement Intent Classifier Feature Importance Analyzer CLI",
+      "priority": "high",
+      "description": "Build CLI tool to analyze which keywords and patterns drive intent classification decisions, helping identify if high-confidence bookings are driven by contaminated (cross-profile) keywords.",
+      "acceptanceCriteria": [
+        "CLI command npm run analyze:intent-importance -- --intent=booking --profile=makan outputs ranked list of keywords by classification weight with correlation scores",
+        "Queries intent_analytics table and routing.json to find keywords most correlated with correct/incorrect classifications, flags any keywords appearing in multiple profile intent-keywords.json files",
+        "Generates report highlighting top-5 keywords per intent and surfaces cross-profile keyword contamination for manual review"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-417",
+      "title": "Low-Confidence Intent Fallback Template Router with Confidence Tier Thresholds",
+      "priority": "high",
+      "description": "Implement smart fallback template selection that routes to different response templates based on intent classification confidence percentiles, reducing generic escalations. High confidence fallback (p75+) offers specific help; low confidence (p25-) asks user to rephrase with clarification examples.",
+      "acceptanceCriteria": [
+        "Router in src/assistant/confidence-tier-fallback-selector.ts reads intent_confidence score and selects template from tiers: [p75+='specific_help', p50-75='open_question', <p50='rephrase_request']",
+        "Low-confidence template includes 2-3 clarification examples matching detected partial intent (e.g., if 0.3 confidence on 'booking', suggest 'Do you want to check room availability or make a reservation?')",
+        "Add test in src/tests/fallback-router.test.ts with assertions for correct tier selection at confidence thresholds [0.3, 0.5, 0.75, 0.9]"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-422",
+      "title": "Profile Data Deployment Validator with Cross-Reference Check",
+      "priority": "critical",
+      "description": "Pre-deployment validation CLI that scans profile data files for keyword contamination from other profiles, preventing cross-profile data pollution before merging.",
+      "acceptanceCriteria": [
+        "Create src/tools/cli/profile-deployment-validator.ts that reads profile-specific keyword blacklist from src/assistant/data/profile-keywords-blacklist.json",
+        "Scan knowledge.json, intents.json, intent-keywords.json, and routing.json for blacklisted keywords, output file:line_number with matched text",
+        "CLI command: npm run validate:profile-deployment -- --profile makan-moments returns exit code 1 on contamination with remediation_suggestions.txt"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },

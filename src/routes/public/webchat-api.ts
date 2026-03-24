@@ -646,8 +646,22 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
           ctx.allTools, ctx.allHandlers
         );
       } else {
-        // Non-tool path: stream LLM response directly
-        fullText = await streamChatResponse(res, systemPrompt, conversationHistory, sanitizedMessage);
+        // Route through processChat so intent classification (static_reply, etc.) is respected.
+        // This prevents the LLM from being called for greetings/static intents and avoids
+        // the LLM hallucinating JSON debug blocks in its output.
+        const result = await processChat({
+          message: sanitizedMessage,
+          history: Array.isArray(history) ? history : [],
+          sessionId: sessionId || undefined,
+          configStore: profile.configStore,
+          kb: profile.kb,
+          tools: [],
+          toolHandlers: new Map(),
+        });
+        fullText = result.message;
+        if (!disconnected) {
+          sendStaticSSE(res, fullText, result.responseTime, sessionId);
+        }
       }
 
       const responseTime = Date.now() - startTime;
@@ -657,8 +671,9 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         syncCartToSessionData(sessionId);
       }
 
-      if (!disconnected) {
-        // US-921: Include updated session data in done event
+      if (!disconnected && isMakanMoments) {
+        // makan-moments streaming already ends via sendStaticSSE above for non-makan paths;
+        // only send the done event here for makan-moments tool path.
         const updatedSessionData = sessionDataStore.get(sessionId) || null;
         sseEvent(res, { done: true, responseTime, sessionId, sessionData: updatedSessionData });
         res.end();
