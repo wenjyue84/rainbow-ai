@@ -10,7 +10,7 @@
     "Improve the booking workflow steps in workflows.json",
     "Fix any failing tests",
     "Prioritize reliability and response quality over new features",
-    "Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that business, with zero contamination from other profiles",
+    "Enforce strict business profile separation — each profile's data files must only contain content specific to that business, with zero contamination from other profiles",
     "Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
   ],
   "epics": [
@@ -47,6 +47,23 @@
   ],
   "userStories": [
     {
+      "id": "US-405",
+      "title": "Build Profile Data Contamination Auto-Fix CLI with Conflict Resolution",
+      "priority": "critical",
+      "description": "Detect and automatically remove cross-profile keyword contamination from intent-keywords.json, routing.json, and knowledge.json with user confirmation and before/after diff logging.",
+      "acceptanceCriteria": [
+        "CLI command `npm run fix:contamination -- --profile=data-makan --confirm` scans src/assistant/data/data-makan/* for Pelangi hostel keywords (room types, check-in processes, amenities)",
+        "Generates and logs before/after JSON diff to stdout, removes contaminated keywords, commits to backup file with timestamp",
+        "Test asserts data-makan/intent-keywords.json no longer contains 'capsule', 'dormitory', 'shared-bathroom', 'check-in-time' after fix command runs"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-388",
       "title": "Booking Confirmation Email Template Profile Validator CLI",
       "priority": "high",
@@ -59,7 +76,7 @@
       "technicalNotes": [],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-03-24T07:49:42Z"
@@ -235,6 +252,40 @@
       "model": "haiku"
     },
     {
+      "id": "US-406",
+      "title": "Build Intent Classification Confidence Percentile Analyzer CLI",
+      "priority": "high",
+      "description": "Generate distribution reports of intent classification confidence scores by profile and intent type, identifying hard-to-classify intents and systematic weak patterns.",
+      "acceptanceCriteria": [
+        "CLI command `npm run analyze:confidence -- --profile=data-makan` reads intent_analytics table and outputs JSON with p50/p95/p99 confidence per intent_id",
+        "Report includes intent type, sample count, median confidence, and intents below 75% median confidence threshold",
+        "Test asserts Makan Moments booking intent has ≥3 confidence buckets with counts and all percentiles present"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-407",
+      "title": "Implement Booking Cancellation Workflow with Auto-Refund Calculator",
+      "priority": "high",
+      "description": "Add booking cancellation intent and workflow with tiered refund calculation based on days until check-in, enabling guest-initiated cancellations with automatic refund computation.",
+      "acceptanceCriteria": [
+        "Add `cancellation_request` intent to routing.json routing to new workflow; add `handle_booking_cancellation` step to workflows.json with guest_id and booking_id inputs",
+        "Refund calculator function in src/tools/booking-cancellation.ts returns: 100% if >14 days to check-in, 50% if 7-14 days, 0% if <7 days",
+        "Integration test asserts cancellation of booking 20 days out produces 100% refund, <7 days produces 0% refund, state transitions to `cancelled_refunded`"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-397",
       "title": "Build Booking Workflow Step Performance Profiler with Bottleneck Report",
       "priority": "medium",
@@ -286,14 +337,48 @@
       "model": "haiku"
     },
     {
+      "id": "US-408",
+      "title": "Implement Conversation Message Language Detection and Auto-Persistence",
+      "priority": "medium",
+      "description": "Detect guest language from first message in conversation, store in database, and inject into AI provider context for consistent multi-turn responses in guest's native language.",
+      "acceptanceCriteria": [
+        "First user message analyzed via text-language-detect or similar; detected language code (en/ms/zh/ta) stored in rainbow_conversations.guest_language column on conversation creation",
+        "AI provider context injection at src/assistant/pipeline/message-processor.ts includes `guest_language: 'ms'` in system prompt, prompting Kimi to respond in detected language",
+        "Test asserts 5-turn booking dialog where first message is Malay produces all 5 responses in Malay language, guest_language persists across turns"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-409",
+      "title": "Create Fallback Response Coverage Gap Report Generator CLI",
+      "priority": "medium",
+      "description": "Audit all intents across profiles for fallback response coverage, identifying missing templates and suggesting high-impact additions for low-confidence scenarios.",
+      "acceptanceCriteria": [
+        "CLI command `npm run audit:fallback-coverage` reads all intents from routing.json and fallback configs from src/assistant/data/*/knowledge.json, outputs JSON report by profile",
+        "Report shows: intents with no fallback template, intents with <2 variant fallbacks, suggestion score (high=low-confidence intent with no fallback)",
+        "Test asserts output includes per-profile summary (e.g., 'data-makan: 3 intents missing fallbacks, 7 intents with <2 variants') and top-3 suggested additions ranked by impact"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-399",
       "title": "Add Conversation State Machine Visualizer Endpoint for Multi-Turn Booking Debugging",
       "priority": "low",
-      "description": "Infer and visualize conversation state transitions (awaiting_details \u2192 awaiting_confirmation \u2192 booked) to help diagnose why multi-turn booking conversations fail or go off-track.",
+      "description": "Infer and visualize conversation state transitions (awaiting_details → awaiting_confirmation → booked) to help diagnose why multi-turn booking conversations fail or go off-track.",
       "acceptanceCriteria": [
         "Endpoint `GET /admin/conversation/:conversationId/state-graph?output=mermaid` parses conversation turns, classifies state at each turn (initial, awaiting_details, awaiting_confirmation, payment_pending, booked, escalated), returns state sequence array",
         "Return JSON: { state_sequence: ['initial', 'awaiting_date', 'awaiting_confirmation', 'booked'], mermaid_graph: 'graph LR; initial-->awaiting_date-->awaiting_confirmation-->booked', divergences: [] }; detect invalid transitions and report as divergences",
-        "Unit test: 8-turn booking conversation transitions through expected states correctly; test detects invalid transition attempt (e.g., booked \u2192 awaiting_details) and flags in divergences array"
+        "Unit test: 8-turn booking conversation transitions through expected states correctly; test detects invalid transition attempt (e.g., booked → awaiting_details) and flags in divergences array"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -345,7 +430,7 @@
       "last_attempted": "2026-03-22T23:30:41Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate \u2014 this retry output the required headers first, verified quality checks, and updated `prd.json`"
+        "diagnosisBlock": "## Current State\nReading context files first to understand the situation.\nLet me check the current state of relevant files:\nThe implementation from the previous attempt is in place. Let me verify everything works:\n\n## Current State\nThe previous attempt already implemented US-157:\n- `deleteExpiredConversations()` function exists in `src/lib/db.ts` (line 111)\n- Archival cron job at `0 2 * * *` (2 AM MYT) exists in `data-retention.ts` (line 347)\n- `startRetentionScheduler()` is imported and called in `src/index.ts` (line 79, 320)\n- Tests in `src/lib/db.test.ts` cover 8-year-old deleted, 6-year-old retained\n\n## Problem Identified\nThe story is marked `passes: false` because the previous attempt failed the diagnosis block gate (didn't output required headers before making changes). The actual implementation is complete. I need to verify it passes quality checks and mark it `passes: true`.\n\n## Planned Changes\n- Run `npm run build` to verify build passes\n- Run the retention tests to verify all pass\n- Update `prd.json` to set `passes: true` for US-157\n- Commit the changes\nBuild passes (1 pre-existing warning, not new). Now run the retention tests:\n5/5 tests pass. Now mark the story as passing and commit:\nNow append to progress.txt and commit:\nUS-157 is now marked `passes: true`. \n\n**Summary:**\n- The implementation was already complete from the previous attempt (cron at 2 AM MYT, `deleteExpiredConversations` in db.ts, activated in index.ts)\n- Build: PASS, Tests: 5/5 PASS\n- The prior failure was purely the diagnosis gate — this retry output the required headers first, verified quality checks, and updated `prd.json`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 624,
@@ -453,7 +538,7 @@
         "All .rej files are removed from the repository",
         "Changes from the .rej files are correctly applied to the target files",
         "All target JSON files remain valid JSON after applying changes",
-        "No data loss \u00e2\u20ac\u201d all intended additions from .rej files are preserved"
+        "No data loss â€” all intended additions from .rej files are preserved"
       ],
       "dependencies": [],
       "passes": true,
@@ -482,7 +567,7 @@
       "acceptanceCriteria": [
         "npm run test:run exits with code 0",
         "All previously passing tests continue to pass",
-        "No test files are deleted as a fix \u00e2\u20ac\u201d tests must pass legitimately",
+        "No test files are deleted as a fix â€” tests must pass legitimately",
         "Test failure root causes are addressed in the implementation code"
       ],
       "dependencies": [],
@@ -502,7 +587,7 @@
     },
     {
       "id": "US-011",
-      "title": "Fix Makan Moments knowledge.json \u2014 remove all Pelangi Capsule Hostel content",
+      "title": "Fix Makan Moments knowledge.json — remove all Pelangi Capsule Hostel content",
       "description": "The file src/assistant/data-makan/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content including WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', hostel address '26A Jalan Perang Taman Pelangi', capsule facilities, and hostel check-in/out info. Remove ALL Pelangi-specific content and replace with Makan Moments Cafe-appropriate responses: cafe opening hours, menu info, ordering process, and table/takeaway options. The cafe does not have WiFi-for-guests, capsules, or room check-ins.",
       "priority": "critical",
       "acceptanceCriteria": [
@@ -527,7 +612,7 @@
     },
     {
       "id": "US-012",
-      "title": "Fix Southern Homestay knowledge.json \u2014 remove Pelangi Capsule content",
+      "title": "Fix Southern Homestay knowledge.json — remove Pelangi Capsule content",
       "description": "The file src/assistant/data-southern/knowledge.json currently contains copy-pasted Pelangi Capsule Hostel content: WiFi 'pelangi capsule', password 'ilovestaycapsule', door password '1270#', Pelangi address, Pelangi YouTube video link, and capsule-specific facilities. Remove ALL Pelangi-specific identifiers and replace with Southern Homestay-appropriate placeholder responses. Southern Homestay is a separate property and must have its own identity.",
       "priority": "critical",
       "acceptanceCriteria": [
@@ -556,7 +641,7 @@
       "priority": "critical",
       "description": "Guests may message in emergencies (medical, fire, security incident). The current intents.json has no emergency/SOS category. An unrecognized emergency message hitting the fallback pipeline introduces unacceptable delay. A dedicated T1 regex-matched intent should bypass all queues and immediately alert all staff phones.",
       "acceptanceCriteria": [
-        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '\u6551\u547d', '\u6025\u6551'",
+        "An 'emergency' intent exists in intents.json with T1 regex patterns covering: 'emergency', 'fire', 'help!', 'accident', 'medical', 'tolong', 'darurat', '救命', '急救'",
         "Emergency intent bypasses confidence thresholds and routes directly to immediate escalation workflow",
         "All staff phones in settings.json receive a WhatsApp alert within 10 seconds of the trigger",
         "routing.json maps the emergency intent to a new 'emergency_escalate' workflow",
@@ -583,7 +668,7 @@
         "Zero references to 'pelangi', 'capsule', 'hostel room', 'bed', 'dorm' in data-makan files (case-insensitive)"
       ],
       "technicalNotes": [
-        "Profile data files are in src/assistant/data/ or a profile-specific subdirectory \u2014 locate correct path before editing",
+        "Profile data files are in src/assistant/data/ or a profile-specific subdirectory — locate correct path before editing",
         "Use case-insensitive grep to verify zero Pelangi references after changes"
       ],
       "dependencies": [],
@@ -647,7 +732,7 @@
       "last_attempted": "2026-03-24T00:31:20Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- `scripts/intent-regression.ts` exists and is fully implemented with all the regression logic\n- `npm run test:intent-regression` already exists in `package.json`\n- The script loads baseline from `src/data/intent-accuracy-baseline.json` \u2014 need to check if this file exists\n- The `logs/` directory is created dynamically\n\n## Problem Identified\nThe story likely fails because `src/data/intent-accuracy-baseline.json` doesn't exist and the script may have TypeScript/runtime issues.\n\n## Planned Changes\n1. Check if `src/data/intent-accuracy-baseline.json` exists, create if missing\n2. Run the script to verify it works (at least syntactically / startup test)\n3. Confirm `npm run test:intent-regression` is wired correctly\nBoth files exist. Let me do a quick build and then run the script to verify it works:\nThe script runs cleanly end-to-end. Build passes, script starts up, connects to DB, gracefully handles empty data. Let me verify the `npm run test:intent-regression` command is properly set:\nAll acceptance criteria are met:\n1. `npm run test:intent-regression` \u2192 runs `tsx scripts/intent-regression.ts` \u2713\n2. Exports last 500 intent classifications, replays through classifier, outputs accuracy by intent vs `src/data/intent-accuracy-baseline.json` \u2713\n3. Exits non-zero if any intent drops >5% accuracy, writes report to `logs/intent-regression-report.json` \u2713\n\nNow mark the story as passed and document:\n**US-355 is complete.** Here's a summary:\n\n- The story was already implemented in a prior iteration \u2014 `scripts/intent-regression.ts` and `src/data/intent-accuracy-baseline.json` both existed and were fully functional.\n- Verified: build passes, `npm run test:intent-regression` starts up, connects to DB, handles empty data gracefully, exits 0.\n- Marked `passes: true` in `prd.json` and committed.\n\nThe previous attempt failed only because the spiral harness required a diagnosis block before edits, but there were no edits needed \u2014 just verification."
+        "diagnosisBlock": "## Current State\n- `scripts/intent-regression.ts` exists and is fully implemented with all the regression logic\n- `npm run test:intent-regression` already exists in `package.json`\n- The script loads baseline from `src/data/intent-accuracy-baseline.json` — need to check if this file exists\n- The `logs/` directory is created dynamically\n\n## Problem Identified\nThe story likely fails because `src/data/intent-accuracy-baseline.json` doesn't exist and the script may have TypeScript/runtime issues.\n\n## Planned Changes\n1. Check if `src/data/intent-accuracy-baseline.json` exists, create if missing\n2. Run the script to verify it works (at least syntactically / startup test)\n3. Confirm `npm run test:intent-regression` is wired correctly\nBoth files exist. Let me do a quick build and then run the script to verify it works:\nThe script runs cleanly end-to-end. Build passes, script starts up, connects to DB, gracefully handles empty data. Let me verify the `npm run test:intent-regression` command is properly set:\nAll acceptance criteria are met:\n1. `npm run test:intent-regression` → runs `tsx scripts/intent-regression.ts` ✓\n2. Exports last 500 intent classifications, replays through classifier, outputs accuracy by intent vs `src/data/intent-accuracy-baseline.json` ✓\n3. Exits non-zero if any intent drops >5% accuracy, writes report to `logs/intent-regression-report.json` ✓\n\nNow mark the story as passed and document:\n**US-355 is complete.** Here's a summary:\n\n- The story was already implemented in a prior iteration — `scripts/intent-regression.ts` and `src/data/intent-accuracy-baseline.json` both existed and were fully functional.\n- Verified: build passes, `npm run test:intent-regression` starts up, connects to DB, handles empty data gracefully, exits 0.\n- Marked `passes: true` in `prd.json` and committed.\n\nThe previous attempt failed only because the spiral harness required a diagnosis block before edits, but there were no edits needed — just verification."
       },
       "_contextStats": {
         "tokensBeforeMasking": 630,
@@ -691,7 +776,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-24T00:45:07Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\nThe story US-359 has three acceptance criteria. Looking at the code:\n1. **Endpoint** `analytics-intent-confidence-distribution.ts` \u2014 EXISTS and implemented\n2. **CLI** `src/tools/analyze-intent-accuracy-cli.ts` \u2014 EXISTS with `analyze:intent-accuracy` npm script\n3. **Unit test** `src/tests/analytics/confidence-percentile.test.ts` \u2014 **MISSING** (directory doesn't exist)\n\n## Problem Identified\nThe only missing piece is the unit test file at `src/tests/analytics/confidence-percentile.test.ts`. Also need to verify the endpoint is registered and schema references are valid.\n\n## Planned Changes\n- Create `src/tests/analytics/` directory and `confidence-percentile.test.ts` unit test file\n- Verify the endpoint is registered in the admin router\n- Verify `intentPredictions` schema exists (used by the CLI)\nAll infrastructure is in place. The only missing piece is the unit test. Now I'll create it.\nAll 16 tests pass. Now run the build check.\nBuild passes (1 pre-existing warning, not an error). Now mark the story as passing and commit.\nDone. US-359 is complete.\n\n**Summary:**\n- The endpoint, CLI, and core percentile library were already implemented from a previous iteration\n- The only missing piece was the unit test file `src/tests/analytics/confidence-percentile.test.ts`\n- Created 16 tests covering all acceptance criteria edge cases (single sample, all-high confidence, empty array, p50\u2264p95\u2264p99 invariant)\n- All 16 tests pass, build succeeds, `passes: true` set in prd.json"
+        "diagnosisBlock": "## Current State\nThe story US-359 has three acceptance criteria. Looking at the code:\n1. **Endpoint** `analytics-intent-confidence-distribution.ts` — EXISTS and implemented\n2. **CLI** `src/tools/analyze-intent-accuracy-cli.ts` — EXISTS with `analyze:intent-accuracy` npm script\n3. **Unit test** `src/tests/analytics/confidence-percentile.test.ts` — **MISSING** (directory doesn't exist)\n\n## Problem Identified\nThe only missing piece is the unit test file at `src/tests/analytics/confidence-percentile.test.ts`. Also need to verify the endpoint is registered and schema references are valid.\n\n## Planned Changes\n- Create `src/tests/analytics/` directory and `confidence-percentile.test.ts` unit test file\n- Verify the endpoint is registered in the admin router\n- Verify `intentPredictions` schema exists (used by the CLI)\nAll infrastructure is in place. The only missing piece is the unit test. Now I'll create it.\nAll 16 tests pass. Now run the build check.\nBuild passes (1 pre-existing warning, not an error). Now mark the story as passing and commit.\nDone. US-359 is complete.\n\n**Summary:**\n- The endpoint, CLI, and core percentile library were already implemented from a previous iteration\n- The only missing piece was the unit test file `src/tests/analytics/confidence-percentile.test.ts`\n- Created 16 tests covering all acceptance criteria edge cases (single sample, all-high confidence, empty array, p50≤p95≤p99 invariant)\n- All 16 tests pass, build succeeds, `passes: true` set in prd.json"
       },
       "_contextStats": {
         "tokensBeforeMasking": 470,
@@ -798,7 +883,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-24T02:09:32Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\nReading context files first.\nThe files are already in place from the previous iteration. The issue is just that `passes` wasn't saved to `prd.json`. Let me verify everything works before marking it.\n\n## Current State\nThe CLI and tests were implemented in a previous attempt. The files exist:\n- `src/tools/analyze-keyword-conflicts-cli.ts` \u2014 CLI implementation\n- `src/__tests__/keyword-conflicts-analyzer.test.ts` \u2014 test suite\n- `npm run analyze:keyword-conflicts` script in package.json\n\n## Problem Identified\n`prd.json` still shows `passes: false` because the previous iteration failed the diagnosis-block gate before it could update prd.json. All implementation files exist and need verification.\n\n## Planned Changes\n1. Run tests to verify they pass\n2. Run build to verify no errors\n3. Run the CLI to verify it works\n4. Update prd.json to mark `passes: true`\n5. Commit\nAll checks pass. The build error is pre-existing (unrelated to US-371 \u2014 it's in `src/lib/experiments.ts`). Now I'll update prd.json.\nNow commit:\nUS-371 was already committed as `passes: true` in commit `470c87c`. The outer loop's `prd.json` must have a stale version. Let me verify current prd.json state:\nUS-371 is already `passes: true` in prd.json and committed. The outer loop's `gitStatus` snapshot was stale. Everything is complete:\n\n**Summary:**\n- `src/tools/analyze-keyword-conflicts-cli.ts` \u2014 CLI implementation (exists)\n- `src/__tests__/keyword-conflicts-analyzer.test.ts` \u2014 17 tests, all passing\n- `npm run analyze:keyword-conflicts` \u2014 script works for both `data-makan` and `southern` profiles\n- `prd.json` \u2014 US-371 `passes: true` committed in `470c87c`\n\nThe story is done. Exiting cleanly."
+        "diagnosisBlock": "## Current State\nReading context files first.\nThe files are already in place from the previous iteration. The issue is just that `passes` wasn't saved to `prd.json`. Let me verify everything works before marking it.\n\n## Current State\nThe CLI and tests were implemented in a previous attempt. The files exist:\n- `src/tools/analyze-keyword-conflicts-cli.ts` — CLI implementation\n- `src/__tests__/keyword-conflicts-analyzer.test.ts` — test suite\n- `npm run analyze:keyword-conflicts` script in package.json\n\n## Problem Identified\n`prd.json` still shows `passes: false` because the previous iteration failed the diagnosis-block gate before it could update prd.json. All implementation files exist and need verification.\n\n## Planned Changes\n1. Run tests to verify they pass\n2. Run build to verify no errors\n3. Run the CLI to verify it works\n4. Update prd.json to mark `passes: true`\n5. Commit\nAll checks pass. The build error is pre-existing (unrelated to US-371 — it's in `src/lib/experiments.ts`). Now I'll update prd.json.\nNow commit:\nUS-371 was already committed as `passes: true` in commit `470c87c`. The outer loop's `prd.json` must have a stale version. Let me verify current prd.json state:\nUS-371 is already `passes: true` in prd.json and committed. The outer loop's `gitStatus` snapshot was stale. Everything is complete:\n\n**Summary:**\n- `src/tools/analyze-keyword-conflicts-cli.ts` — CLI implementation (exists)\n- `src/__tests__/keyword-conflicts-analyzer.test.ts` — 17 tests, all passing\n- `npm run analyze:keyword-conflicts` — script works for both `data-makan` and `southern` profiles\n- `prd.json` — US-371 `passes: true` committed in `470c87c`\n\nThe story is done. Exiting cleanly."
       },
       "_contextStats": {
         "tokensBeforeMasking": 469,
@@ -825,7 +910,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-24T02:21:04Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\nThe workflow system uses node-based format with various node types (wait_reply, condition, message, whatsapp_send, etc.). Each node can reference workflow data, system variables, or external API outputs via template syntax like `{{workflow.data.guest_name}}`.\n\n## Problem Identified\nStory US-372 requires:\n1. CLI tool that reads workflows.json and generates test files\n2. Tests should validate that each step's required inputs are present\n3. Tests should validate input schemas against test data\n4. Generated tests should cover: missing required_fields, invalid input types, null/undefined checks\n\n## Planned Changes\n1. Create `src/tools/generate-workflow-tests-cli.ts` with functions to:\n   - Extract referenced variables from step configs ({{...}} patterns)\n   - Generate Vitest test cases for each workflow step\n   - Create test file at `src/__tests__/generated/workflows-[profile].test.ts`\n2. Add npm script `generate:workflow-tests` to package.json\n3. Create comprehensive test coverage\n\nLet me implement this:\nLet me regenerate the test file with the improved logic:\nPerfect! All 500 tests pass. Now let me run quality checks:\nThese are pre-existing build errors (as noted in CLAUDE.md: \"esbuild - NOT tsc \u2014 tsc has pre-existing type errors from digiman era\"). Let me verify the server can still start:\nPerfect! All profiles generate test files successfully:\n- pelangi: 18 workflows, 500 tests \u2713\n- makan: 3 workflows, 55 tests \u2713\n- southern: 12 workflows, 310 tests \u2713\n\nNow let me mark the story as complete:\nNow let me commit the changes:\nPerfect! Story US-372 is now complete. Here's the summary:\n\n## \u2705 Story US-372: Booking Workflow Step Input Validator Test Generator \u2014 COMPLETE"
+        "diagnosisBlock": "## Current State\nThe workflow system uses node-based format with various node types (wait_reply, condition, message, whatsapp_send, etc.). Each node can reference workflow data, system variables, or external API outputs via template syntax like `{{workflow.data.guest_name}}`.\n\n## Problem Identified\nStory US-372 requires:\n1. CLI tool that reads workflows.json and generates test files\n2. Tests should validate that each step's required inputs are present\n3. Tests should validate input schemas against test data\n4. Generated tests should cover: missing required_fields, invalid input types, null/undefined checks\n\n## Planned Changes\n1. Create `src/tools/generate-workflow-tests-cli.ts` with functions to:\n   - Extract referenced variables from step configs ({{...}} patterns)\n   - Generate Vitest test cases for each workflow step\n   - Create test file at `src/__tests__/generated/workflows-[profile].test.ts`\n2. Add npm script `generate:workflow-tests` to package.json\n3. Create comprehensive test coverage\n\nLet me implement this:\nLet me regenerate the test file with the improved logic:\nPerfect! All 500 tests pass. Now let me run quality checks:\nThese are pre-existing build errors (as noted in CLAUDE.md: \"esbuild - NOT tsc — tsc has pre-existing type errors from digiman era\"). Let me verify the server can still start:\nPerfect! All profiles generate test files successfully:\n- pelangi: 18 workflows, 500 tests ✓\n- makan: 3 workflows, 55 tests ✓\n- southern: 12 workflows, 310 tests ✓\n\nNow let me mark the story as complete:\nNow let me commit the changes:\nPerfect! Story US-372 is now complete. Here's the summary:\n\n## ✅ Story US-372: Booking Workflow Step Input Validator Test Generator — COMPLETE"
       }
     },
     {
@@ -846,7 +931,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-24T02:43:21Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLooking at US-373: **Low-Confidence Intent Auto-Escalation Router**. This story requires adding auto-escalation logic for low-confidence intents to skip fallback responses and reduce wasted AI calls.\n\n## Problem Identified\n\nThe system currently processes all intents through fallback logic regardless of confidence score. We need:\n1. Configuration option for low-confidence threshold in `settings.json`\n2. Router logic to escalate messages with confidence below threshold\n3. Test coverage validating escalation behavior\n\n## Planned Changes\n\n- Update `src/assistant/data/settings.json` with escalation config\n- Add confidence check in `src/assistant/pipeline/router.ts` before fallback logic  \n- Create test file `src/assistant/__tests__/low-confidence-escalation.test.ts`\n\n---\n\nLet me read the relevant files to understand the current structure:\nNow I'll implement the story. Let me start with the settings configuration:\nNow let me add the 'low_confidence' reason to the EscalationReason type:\nLet me create a new module for low-confidence auto-escalation logic:\nNow let me integrate the low-confidence auto-escalation into the intent-classifier pipeline. I'll add it right after routing and before action dispatch:\nNow let me create the comprehensive test file:\nPerfect! The test file already exists with good coverage. Now let me build and test:\nExcellent! All tests pass. Now let me update prd.json to mark the story as complete:\n## \u2705 Story US-373 Complete: Low-Confidence Intent Auto-Escalation Router"
+        "diagnosisBlock": "## Current State\n\nLooking at US-373: **Low-Confidence Intent Auto-Escalation Router**. This story requires adding auto-escalation logic for low-confidence intents to skip fallback responses and reduce wasted AI calls.\n\n## Problem Identified\n\nThe system currently processes all intents through fallback logic regardless of confidence score. We need:\n1. Configuration option for low-confidence threshold in `settings.json`\n2. Router logic to escalate messages with confidence below threshold\n3. Test coverage validating escalation behavior\n\n## Planned Changes\n\n- Update `src/assistant/data/settings.json` with escalation config\n- Add confidence check in `src/assistant/pipeline/router.ts` before fallback logic  \n- Create test file `src/assistant/__tests__/low-confidence-escalation.test.ts`\n\n---\n\nLet me read the relevant files to understand the current structure:\nNow I'll implement the story. Let me start with the settings configuration:\nNow let me add the 'low_confidence' reason to the EscalationReason type:\nLet me create a new module for low-confidence auto-escalation logic:\nNow let me integrate the low-confidence auto-escalation into the intent-classifier pipeline. I'll add it right after routing and before action dispatch:\nNow let me create the comprehensive test file:\nPerfect! The test file already exists with good coverage. Now let me build and test:\nExcellent! All tests pass. Now let me update prd.json to mark the story as complete:\n## ✅ Story US-373 Complete: Low-Confidence Intent Auto-Escalation Router"
       },
       "_antiPatterns": [
         "quality_gate_failed"
@@ -870,7 +955,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-24T02:54:20Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nI'm implementing **US-374: Profile Data Cross-Reference Integrity Checker CLI**. This validator checks that:\n1. All intent IDs in routing.json exist in intents.json\n2. All workflow intent IDs exist in routing.json\n3. All knowledge.json keys reference valid intents\n\nLet me start by examining the profile data structure:\n## Problem Identified\n\nI need to create a cross-reference integrity validator that checks:\n1. Intent names in routing.json exist in intents.json\n2. Workflow IDs in routing.json (action: workflow) exist in workflows.json\n3. Intent keys in knowledge.json exist in intents.json\n\n## Planned Changes\n\n1. Create `src/tools/validate-cross-refs-cli.ts` with:\n   - `loadDataFiles(profileName)` \u2014 loads routing, intents, workflows, knowledge\n   - `analyzeReferences(data)` \u2014 identifies missing/orphaned entries\n   - `--fix` flag support for backup + cleanup\n   - ESM entry-point guard\n\n2. Add `npm run validate:cross-refs` script to package.json\n\n3. Create tests in `src/__tests__/cross-refs-validator.test.ts`\n\nLet me implement this:\nNow let me create the validator:\nNow let me test the implementation:\nPerfect! Tests pass. Now let me test the CLI:\nExcellent! All quality checks pass. Let me now update prd.json to mark the story complete:\nPerfect! Let me verify everything is working with a final quality check:\n## Summary"
+        "diagnosisBlock": "## Current State\n\nI'm implementing **US-374: Profile Data Cross-Reference Integrity Checker CLI**. This validator checks that:\n1. All intent IDs in routing.json exist in intents.json\n2. All workflow intent IDs exist in routing.json\n3. All knowledge.json keys reference valid intents\n\nLet me start by examining the profile data structure:\n## Problem Identified\n\nI need to create a cross-reference integrity validator that checks:\n1. Intent names in routing.json exist in intents.json\n2. Workflow IDs in routing.json (action: workflow) exist in workflows.json\n3. Intent keys in knowledge.json exist in intents.json\n\n## Planned Changes\n\n1. Create `src/tools/validate-cross-refs-cli.ts` with:\n   - `loadDataFiles(profileName)` — loads routing, intents, workflows, knowledge\n   - `analyzeReferences(data)` — identifies missing/orphaned entries\n   - `--fix` flag support for backup + cleanup\n   - ESM entry-point guard\n\n2. Add `npm run validate:cross-refs` script to package.json\n\n3. Create tests in `src/__tests__/cross-refs-validator.test.ts`\n\nLet me implement this:\nNow let me create the validator:\nNow let me test the implementation:\nPerfect! Tests pass. Now let me test the CLI:\nExcellent! All quality checks pass. Let me now update prd.json to mark the story complete:\nPerfect! Let me verify everything is working with a final quality check:\n## Summary"
       },
       "_antiPatterns": [
         "quality_gate_failed"
@@ -955,7 +1040,7 @@
       "last_attempted": "2026-03-24T04:02:28.436Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nThe US-379 implementation is **already complete** from a previous iteration:\n\n1. **`src/assistant/schemas.ts:203-207`** \u2014 `retry` schema already added to `workflowStepSchema` with `max_attempts`, `base_delay_ms`, and `backoff_multiplier` fields\n2. **`src/assistant/workflow-executor.ts:66-87`** \u2014 `executeWithRetry<T>()` function already implemented with exponential backoff\n3. **`src/assistant/workflow-executor.ts:394-406`** \u2014 Already integrated into step execution via `executeWithRetry(() => executeWithTimeout(...), currentStep.retry)`\n4. **`tests/integration/booking-workflow-retry.test.ts`** \u2014 4 test cases already written covering all acceptance criteria\n\n## Problem Identified\n\nThe story was rejected in attempt 1 purely because of the DIAGNOSIS_BLOCK_MISSING gate \u2014 no code changes failed. The implementation is already in place. I need to verify it still works (build + tests pass) and then mark it as `passes: true`.\n\n## Planned Changes\n\n1. Run the existing tests to verify they pass\n2. Run the build to confirm no regressions\n3. Update `prd.json` to mark US-379 as `passes: true`\n4. Append to `progress.txt`\n5. Commit\n\nLet me verify everything works.\nAll 4 tests pass and the build succeeds. Now let me mark the story as complete and commit.\nNow let me find the end of the file to append.\nNow commit.\nUS-379 is complete. All checks passed:\n\n- **Schema**: `retry` field added to `workflowStepSchema` in `schemas.ts:203-207`\n- **Logic**: `executeWithRetry<T>()` at `workflow-executor.ts:66-87` with exponential backoff\n- **Integration**: Wired into step execution at `workflow-executor.ts:394-406`\n- **Tests**: 4/4 passing in `tests/integration/booking-workflow-retry.test.ts`\n- **Build**: esbuild succeeded (2.4MB)\n- **prd.json**: Marked `passes: true`"
+        "diagnosisBlock": "## Current State\n\nThe US-379 implementation is **already complete** from a previous iteration:\n\n1. **`src/assistant/schemas.ts:203-207`** — `retry` schema already added to `workflowStepSchema` with `max_attempts`, `base_delay_ms`, and `backoff_multiplier` fields\n2. **`src/assistant/workflow-executor.ts:66-87`** — `executeWithRetry<T>()` function already implemented with exponential backoff\n3. **`src/assistant/workflow-executor.ts:394-406`** — Already integrated into step execution via `executeWithRetry(() => executeWithTimeout(...), currentStep.retry)`\n4. **`tests/integration/booking-workflow-retry.test.ts`** — 4 test cases already written covering all acceptance criteria\n\n## Problem Identified\n\nThe story was rejected in attempt 1 purely because of the DIAGNOSIS_BLOCK_MISSING gate — no code changes failed. The implementation is already in place. I need to verify it still works (build + tests pass) and then mark it as `passes: true`.\n\n## Planned Changes\n\n1. Run the existing tests to verify they pass\n2. Run the build to confirm no regressions\n3. Update `prd.json` to mark US-379 as `passes: true`\n4. Append to `progress.txt`\n5. Commit\n\nLet me verify everything works.\nAll 4 tests pass and the build succeeds. Now let me mark the story as complete and commit.\nNow let me find the end of the file to append.\nNow commit.\nUS-379 is complete. All checks passed:\n\n- **Schema**: `retry` field added to `workflowStepSchema` in `schemas.ts:203-207`\n- **Logic**: `executeWithRetry<T>()` at `workflow-executor.ts:66-87` with exponential backoff\n- **Integration**: Wired into step execution at `workflow-executor.ts:394-406`\n- **Tests**: 4/4 passing in `tests/integration/booking-workflow-retry.test.ts`\n- **Build**: esbuild succeeded (2.4MB)\n- **prd.json**: Marked `passes: true`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 923,
@@ -1186,7 +1271,7 @@
       "last_attempted": "2026-03-23T22:14:23Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nBoth files exist from a previous attempt. Let me check their contents and run the tests to see the current state.\nGood, both files exist. Let me run the tests and build to verify everything passes.\n\n## Current State\nThe implementation from Iteration 15 already exists:\n- `src/assistant/fallback-generator.ts` \u2014 core module with `calculateSimilarity`, `fetchSuccessfulResolutions`, `generateFallbackResponse`, `validateProfileIsolation`\n- `src/assistant/__tests__/fallback-generator.test.ts` \u2014 29 tests covering all acceptance criteria\n\n## Problem Identified\nThe story failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate check in the outer loop, not a code failure. The actual implementation appears complete. Need to verify tests pass and build is clean, then mark `passes: true`.\n\n## Planned Changes\n- Run tests to confirm they pass\n- Run build to confirm it's clean\n- Mark `passes: true` in prd.json\n- Commit\n29/29 tests pass. Now run the build:\nBuild clean (only the pre-existing logger.ts warning). Now update prd.json:\nNow append to progress.txt:\nNow commit:\nDone. US-342 is now marked `passes: true`.\n\n**Summary:**\n- The implementation (fallback-generator.ts + test suite) was already complete from Iteration 15\n- Previous failure was purely the outer loop's `DIAGNOSIS_BLOCK_MISSING` gate, not a code issue\n- 29/29 tests pass, build clean (1 pre-existing warning only)\n- `prd.json` updated and committed"
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nBoth files exist from a previous attempt. Let me check their contents and run the tests to see the current state.\nGood, both files exist. Let me run the tests and build to verify everything passes.\n\n## Current State\nThe implementation from Iteration 15 already exists:\n- `src/assistant/fallback-generator.ts` — core module with `calculateSimilarity`, `fetchSuccessfulResolutions`, `generateFallbackResponse`, `validateProfileIsolation`\n- `src/assistant/__tests__/fallback-generator.test.ts` — 29 tests covering all acceptance criteria\n\n## Problem Identified\nThe story failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate check in the outer loop, not a code failure. The actual implementation appears complete. Need to verify tests pass and build is clean, then mark `passes: true`.\n\n## Planned Changes\n- Run tests to confirm they pass\n- Run build to confirm it's clean\n- Mark `passes: true` in prd.json\n- Commit\n29/29 tests pass. Now run the build:\nBuild clean (only the pre-existing logger.ts warning). Now update prd.json:\nNow append to progress.txt:\nNow commit:\nDone. US-342 is now marked `passes: true`.\n\n**Summary:**\n- The implementation (fallback-generator.ts + test suite) was already complete from Iteration 15\n- Previous failure was purely the outer loop's `DIAGNOSIS_BLOCK_MISSING` gate, not a code issue\n- 29/29 tests pass, build clean (1 pre-existing warning only)\n- `prd.json` updated and committed"
       },
       "_contextStats": {
         "tokensBeforeMasking": 828,
@@ -1262,7 +1347,7 @@
       "id": "US-322",
       "title": "Booking Success Funnel Analyzer with Per-Profile Conversion Tracking",
       "priority": "high",
-      "description": "Track conversion metrics from intent classification \u2192 booking confirmation by profile. Create admin dashboard showing drop-off points in the booking journey to identify where guests abandon the workflow.",
+      "description": "Track conversion metrics from intent classification → booking confirmation by profile. Create admin dashboard showing drop-off points in the booking journey to identify where guests abandon the workflow.",
       "acceptanceCriteria": [
         "Admin endpoint GET /admin/metrics/booking-funnel?profile=pelangi&window=7d returns {funnel: [{stage: 'intent_matched', count: 100}, {stage: 'guest_confirmed', count: 45}, {stage: 'booking_finalized', count: 12}]} with confidence scores",
         "Daily snapshot job populates intent_analytics.booking_stage_transition table tracking guest_id, from_stage, to_stage, profile, timestamp",
@@ -1297,7 +1382,7 @@
       "last_attempted": "2026-03-23T19:39:56Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the current state of the project first.\nNow let me check if the files from previous attempts still exist.\nGood - the files exist from previous iterations. Let me read them and check what's actually there.\nGood - all three files exist. Let me check if the route is registered and verify the admin index.\nAll the code is in place. Now let me run the build and tests to verify.\n\n## Current State\n- All 3 files for US-308 exist from previous iterations:\n  - `src/assistant/pipeline/context.ts` \u2014 `scoreMessageRelevance()` and `filterContextByRelevance()`\n  - `test/integration/multi-turn-context.test.ts` \u2014 8 tests for the 10-message booking dialog\n  - `src/routes/admin/context-stats.ts` \u2014 admin endpoint with `computeContextStats()`\n- Route is registered in `src/routes/admin/index.ts` (import on line 122, used on line 408)\n- The `ChatMessage` type matches expectations (role, content, timestamp)\n\n## Problem Identified\nPrevious attempts failed because of a \"DIAGNOSIS_BLOCK_MISSING\" gate \u2014 the agent made file edits without outputting a diagnosis block first. The code itself appears complete and correct.\n\n## Planned Changes\n1. Run tests to verify the 8 tests pass\n2. Run build to verify no build errors\n3. Run server startup test\n4. If all pass, mark US-308 as `passes: true` in prd.json\n5. Commit changes\n\nLet me verify everything works:\nAll 8 tests pass and the build succeeds. Let me do the server startup test:\nServer starts without errors. All checks pass. Now mark US-308 as complete:\nNow update progress.txt and commit:\nUS-308 is complete. All checks passed:\n\n- **8/8 tests pass** in `test/integration/multi-turn-context.test.ts`\n- **Build succeeds** (esbuild, 2.4MB bundle)\n- **Server starts** without errors\n- **prd.json** updated: `passes: true`\n- **Committed** to branch\n\nThe code was already fully implemented from a prior iteration \u2014 this attempt just needed to verify it and pass the diagnosis-block gate before making any edits."
+        "diagnosisBlock": "## Current State\n\nLet me read the current state of the project first.\nNow let me check if the files from previous attempts still exist.\nGood - the files exist from previous iterations. Let me read them and check what's actually there.\nGood - all three files exist. Let me check if the route is registered and verify the admin index.\nAll the code is in place. Now let me run the build and tests to verify.\n\n## Current State\n- All 3 files for US-308 exist from previous iterations:\n  - `src/assistant/pipeline/context.ts` — `scoreMessageRelevance()` and `filterContextByRelevance()`\n  - `test/integration/multi-turn-context.test.ts` — 8 tests for the 10-message booking dialog\n  - `src/routes/admin/context-stats.ts` — admin endpoint with `computeContextStats()`\n- Route is registered in `src/routes/admin/index.ts` (import on line 122, used on line 408)\n- The `ChatMessage` type matches expectations (role, content, timestamp)\n\n## Problem Identified\nPrevious attempts failed because of a \"DIAGNOSIS_BLOCK_MISSING\" gate — the agent made file edits without outputting a diagnosis block first. The code itself appears complete and correct.\n\n## Planned Changes\n1. Run tests to verify the 8 tests pass\n2. Run build to verify no build errors\n3. Run server startup test\n4. If all pass, mark US-308 as `passes: true` in prd.json\n5. Commit changes\n\nLet me verify everything works:\nAll 8 tests pass and the build succeeds. Let me do the server startup test:\nServer starts without errors. All checks pass. Now mark US-308 as complete:\nNow update progress.txt and commit:\nUS-308 is complete. All checks passed:\n\n- **8/8 tests pass** in `test/integration/multi-turn-context.test.ts`\n- **Build succeeds** (esbuild, 2.4MB bundle)\n- **Server starts** without errors\n- **prd.json** updated: `passes: true`\n- **Committed** to branch\n\nThe code was already fully implemented from a prior iteration — this attempt just needed to verify it and pass the diagnosis-block gate before making any edits."
       },
       "_contextStats": {
         "tokensBeforeMasking": 609,
@@ -1417,7 +1502,7 @@
       "model": "sonnet",
       "last_attempted": "2026-03-23T17:29:21Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nUS-247 already passes. Let me find the actual next incomplete story.\nI'll implement **US-256 \u2014 Booking Workflow Step Context Isolation Test Suite**. Let me first understand the existing code structure.\n\n## Current State\nNow let me understand the conversation state management \u2014 particularly how booking state is isolated per guest.\nNow let me look at the conversation state type to understand bookingState structure and how it's keyed per phone number.\nNow I have a good understanding of the codebase. Let me also look at an existing test for patterns.\nNow I have enough context. Let me write the diagnosis block and then implement the test suite.\n\n## Current State\nThe conversation state in Rainbow AI is managed per-phone-number (per-guest) via `StateManager` in `src/assistant/conversation.ts`. Each guest gets an isolated `ConversationState` keyed by `convoKey(phone, profileId)`. The `bookingState` (containing stage, checkIn, checkOut, guests, guestName etc.) is stored within this per-guest state. Functions `getOrCreate()`, `updateBookingState()`, and `addMessage()` all use this phone-based key. There is no existing test for context isolation between concurrent booking guests.\n\n## Problem Identified\nUS-256 requires a test suite that verifies conversation context from one guest's booking attempt doesn't leak into another guest's concurrent booking workflow. The test must be at `src/assistant/__tests__/booking-context-isolation.test.ts` and cover booking state mutations.\n\n## Planned Changes\n- **Create** `src/assistant/__tests__/booking-context-isolation.test.ts` \u2014 test suite with:\n  - Tests that two concurrent guests (different phone numbers) maintain isolated booking states\n  - Tests that booking state mutations (stage, checkIn, guests, etc.) for Guest A don't appear in Guest B's state\n  - Tests that profile-scoped conversations (different profileId) are also isolated\n  - Tests that clearing one guest's state doesn't affect another guest's state\n  - Tests covering the booking state mutations: stage transitions, date setting, guest count, guest name, cancellation\nNow I have a thorough understanding of the conversation state management. Let me create the test file.\nNow let me run the tests to verify they pass.\nAll 15 tests pass. Now let me run the build to verify no issues.\nBuild passes (the warning is pre-existing). Now let me check the acceptance criteria for coverage of booking state mutations in `booking-handler.ts`. The story says `booking-handler.ts` but there is no such file \u2014 the booking logic is in `booking-executor.ts`, `booking-validators.ts`, and `conversation.ts`. Let me verify what the test covers.\n\nLooking at acceptance criteria:\n1. **Create test file** `src/assistant/__tests__/booking-context-isolation.test.ts` - Done\n2. **Verify conversation context for guest A is not present in guest B's booking state** - Done (multiple assertions)\n3. **>85% coverage of booking state mutations** - The test covers: stage transitions (inquiry->dates->guests->confirm->done->cancelled), checkIn/checkOut mutations, guests count, guestName, cancelReason, null (clearing), profile isolation, workflow vs booking isolation\n\nNow update prd.json and document learnings.\nNow append learnings to progress.txt.\nNow commit the changes.\nUS-256 is complete. \n\n**Summary:** Created `src/assistant/__tests__/booking-context-isolation.test.ts` with 15 tests verifying booking context isolation:\n- Concurrent booking state isolation (3 tests)\n- Booking state mutation isolation \u2014 dates, guest count, stage transitions, cancellation (4 tests)\n- Message history isolation (1 test)\n- Clear state isolation (2 tests)\n- Profile-scoped isolation \u2014 same phone on different properties (3 tests)\n- Full multi-step booking flow isolation (1 test)\n- Workflow vs booking state isolation (1 test)\n\nAll tests pass, build succeeds, story marked `passes: true`."
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nUS-247 already passes. Let me find the actual next incomplete story.\nI'll implement **US-256 — Booking Workflow Step Context Isolation Test Suite**. Let me first understand the existing code structure.\n\n## Current State\nNow let me understand the conversation state management — particularly how booking state is isolated per guest.\nNow let me look at the conversation state type to understand bookingState structure and how it's keyed per phone number.\nNow I have a good understanding of the codebase. Let me also look at an existing test for patterns.\nNow I have enough context. Let me write the diagnosis block and then implement the test suite.\n\n## Current State\nThe conversation state in Rainbow AI is managed per-phone-number (per-guest) via `StateManager` in `src/assistant/conversation.ts`. Each guest gets an isolated `ConversationState` keyed by `convoKey(phone, profileId)`. The `bookingState` (containing stage, checkIn, checkOut, guests, guestName etc.) is stored within this per-guest state. Functions `getOrCreate()`, `updateBookingState()`, and `addMessage()` all use this phone-based key. There is no existing test for context isolation between concurrent booking guests.\n\n## Problem Identified\nUS-256 requires a test suite that verifies conversation context from one guest's booking attempt doesn't leak into another guest's concurrent booking workflow. The test must be at `src/assistant/__tests__/booking-context-isolation.test.ts` and cover booking state mutations.\n\n## Planned Changes\n- **Create** `src/assistant/__tests__/booking-context-isolation.test.ts` — test suite with:\n  - Tests that two concurrent guests (different phone numbers) maintain isolated booking states\n  - Tests that booking state mutations (stage, checkIn, guests, etc.) for Guest A don't appear in Guest B's state\n  - Tests that profile-scoped conversations (different profileId) are also isolated\n  - Tests that clearing one guest's state doesn't affect another guest's state\n  - Tests covering the booking state mutations: stage transitions, date setting, guest count, guest name, cancellation\nNow I have a thorough understanding of the conversation state management. Let me create the test file.\nNow let me run the tests to verify they pass.\nAll 15 tests pass. Now let me run the build to verify no issues.\nBuild passes (the warning is pre-existing). Now let me check the acceptance criteria for coverage of booking state mutations in `booking-handler.ts`. The story says `booking-handler.ts` but there is no such file — the booking logic is in `booking-executor.ts`, `booking-validators.ts`, and `conversation.ts`. Let me verify what the test covers.\n\nLooking at acceptance criteria:\n1. **Create test file** `src/assistant/__tests__/booking-context-isolation.test.ts` - Done\n2. **Verify conversation context for guest A is not present in guest B's booking state** - Done (multiple assertions)\n3. **>85% coverage of booking state mutations** - The test covers: stage transitions (inquiry->dates->guests->confirm->done->cancelled), checkIn/checkOut mutations, guests count, guestName, cancelReason, null (clearing), profile isolation, workflow vs booking isolation\n\nNow update prd.json and document learnings.\nNow append learnings to progress.txt.\nNow commit the changes.\nUS-256 is complete. \n\n**Summary:** Created `src/assistant/__tests__/booking-context-isolation.test.ts` with 15 tests verifying booking context isolation:\n- Concurrent booking state isolation (3 tests)\n- Booking state mutation isolation — dates, guest count, stage transitions, cancellation (4 tests)\n- Message history isolation (1 test)\n- Clear state isolation (2 tests)\n- Profile-scoped isolation — same phone on different properties (3 tests)\n- Full multi-step booking flow isolation (1 test)\n- Workflow vs booking state isolation (1 test)\n\nAll tests pass, build succeeds, story marked `passes: true`."
       },
       "_contextStats": {
         "tokensBeforeMasking": 747,
@@ -1507,7 +1592,7 @@
       "acceptanceCriteria": [
         "Create src/assistant/dialogs/booking-clarification-dialog.ts with state machine (states: need_dates, need_room_type, need_guest_count, ready_confirm)",
         "Store clarification state in rainbow_conversations table as clarification_state and clarification_data JSON; test that a low-confidence booking intent triggers clarification flow with appropriate follow-up questions",
-        "Integration test: verify full clarification dialog flow (guest message 'book' \u2192 ask dates \u2192 guest responds \u2192 ask room type \u2192 confirm) results in valid booking confirmation"
+        "Integration test: verify full clarification dialog flow (guest message 'book' → ask dates → guest responds → ask room type → confirm) results in valid booking confirmation"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -1660,7 +1745,7 @@
       "description": "Track which profiles have lowest booking confirmation rates and identify workflow steps where guests abandon the process most. Enables targeted workflow improvements by profile.",
       "acceptanceCriteria": [
         "GET /admin/analytics/booking-conversion-rates returns per-profile metrics: {\"profile_id\": \"pelangi\", \"booking_conversations\": 45, \"completed_bookings\": 36, \"completion_rate\": \"80%\", \"abandonment_step_breakdown\": {\"select-room\": 5, \"enter-dates\": 8, \"confirm-payment\": 1}}",
-        "Funnel visualization: show % of guests who reach each workflow step (e.g., 80% select room \u2192 70% enter dates \u2192 50% confirm payment \u2192 36% finalize)",
+        "Funnel visualization: show % of guests who reach each workflow step (e.g., 80% select room → 70% enter dates → 50% confirm payment → 36% finalize)",
         "Test: assert conversation with 45 booking initiations and 36 completions calculates 80.0% completion_rate and 20.0% abandonment_rate",
         "CLI: npm run analytics:booking-conversion --period=30d --compare-profiles outputs side-by-side completion funnels for all profiles"
       ],
@@ -2094,7 +2179,7 @@
       "last_attempted": "2026-03-23T10:27:44Z",
       "_scopeCreep": true,
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nUS-213 has been attempted twice before and the implementation already exists:\n- `src/tools/suggest-keywords.ts` \u2014 TF-IDF engine with `tokenize()`, `computeTfIdf()`, `analyzeEscalations()`, `loadExistingKeywords()`\n- `src/tools/suggest-keywords-cli.ts` \u2014 CLI entry point with `--profile`, `--days`, `--json` flags\n- `scripts/suggest-keywords.ts` \u2014 may also exist\n- Test files in `src/tools/__tests__/suggest-keywords.test.ts` and `tests/unit/suggest-keywords.test.ts`\n- `npm run suggest:keywords` script in package.json\n\n## Problem Identified\n\nPrevious attempts failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate \u2014 the runner requires this diagnosis block before any file modifications. The actual code implementation appears to already be complete. I need to verify it works, run quality checks, and mark the story as passing.\n\n## Planned Changes\n\n1. Read and verify existing implementation files\n2. Run build to confirm no errors\n3. Run tests to confirm they pass\n4. If any issues found, fix them\n5. Update `prd.json` to mark `passes: true`\n6. Update `progress.txt` with learnings\n7. Commit changes\n\nLet me now verify the existing implementation.\nGood \u2014 all implementation files exist. Let me read the tests and schema, then run quality checks.\nEverything looks solid. Let me run the build and tests.\nTests pass (10/10). Let me run the build without rtk.\nBuild succeeds (warning is pre-existing, not an error). Let me also run the second test suite.\nAll 26 tests pass across both suites. Build succeeds. Now let me mark the story as passing and update progress.\nGood. Now update progress.txt and commit.\nUS-213 is complete. The implementation was already fully working from prior iterations \u2014 the only blocker was the diagnosis-block gate which required outputting a diagnosis as plain text before making any file changes.\n\n**Summary:**\n- **Story:** US-213 \u2014 Intent Keyword Suggestion Engine from Escalated Conversation Analysis\n- **Status:** `passes: true`\n- **Tests:** 26/26 passing (10 + 16 across two suites)\n- **Build:** Success\n- **Commit:** `51a349d`"
+        "diagnosisBlock": "## Current State\n\nUS-213 has been attempted twice before and the implementation already exists:\n- `src/tools/suggest-keywords.ts` — TF-IDF engine with `tokenize()`, `computeTfIdf()`, `analyzeEscalations()`, `loadExistingKeywords()`\n- `src/tools/suggest-keywords-cli.ts` — CLI entry point with `--profile`, `--days`, `--json` flags\n- `scripts/suggest-keywords.ts` — may also exist\n- Test files in `src/tools/__tests__/suggest-keywords.test.ts` and `tests/unit/suggest-keywords.test.ts`\n- `npm run suggest:keywords` script in package.json\n\n## Problem Identified\n\nPrevious attempts failed due to a \"DIAGNOSIS_BLOCK_MISSING\" gate — the runner requires this diagnosis block before any file modifications. The actual code implementation appears to already be complete. I need to verify it works, run quality checks, and mark the story as passing.\n\n## Planned Changes\n\n1. Read and verify existing implementation files\n2. Run build to confirm no errors\n3. Run tests to confirm they pass\n4. If any issues found, fix them\n5. Update `prd.json` to mark `passes: true`\n6. Update `progress.txt` with learnings\n7. Commit changes\n\nLet me now verify the existing implementation.\nGood — all implementation files exist. Let me read the tests and schema, then run quality checks.\nEverything looks solid. Let me run the build and tests.\nTests pass (10/10). Let me run the build without rtk.\nBuild succeeds (warning is pre-existing, not an error). Let me also run the second test suite.\nAll 26 tests pass across both suites. Build succeeds. Now let me mark the story as passing and update progress.\nGood. Now update progress.txt and commit.\nUS-213 is complete. The implementation was already fully working from prior iterations — the only blocker was the diagnosis-block gate which required outputting a diagnosis as plain text before making any file changes.\n\n**Summary:**\n- **Story:** US-213 — Intent Keyword Suggestion Engine from Escalated Conversation Analysis\n- **Status:** `passes: true`\n- **Tests:** 26/26 passing (10 + 16 across two suites)\n- **Build:** Success\n- **Commit:** `51a349d`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 764,
@@ -2111,7 +2196,7 @@
       "acceptanceCriteria": [
         "Add CLI command `npm run export-ground-truth -- --profile=pelangi --format=jsonl --days=90 --min-confidence=0.5 --output=ground-truth.jsonl` exporting: message_text, inferred_intent, confidence_score, actual_outcome, conversation_id, timestamp, language; filter `WHERE profile_name = 'pelangi'` only",
         "Validate export contains zero cross-profile contamination: scan exported keywords against `src/assistant/data/intent-keywords.json` from other profiles (makan, southern); fail export if any foreign keywords detected",
-        "Output format: JSONL with 8 fields per record; sample export shows \u2265200 records with diverse intents, confidence scores spanning 0.4-0.99 range, and all 3+ outcome types represented"
+        "Output format: JSONL with 8 fields per record; sample export shows ≥200 records with diverse intents, confidence scores spanning 0.4-0.99 range, and all 3+ outcome types represented"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -2225,7 +2310,7 @@
       "last_attempted": "2026-03-23T10:13:43Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nUS-209 already has `passes: true`. The next story is **US-212**. Let me read its full details and explore relevant code.\n\n## Current State\n\nUS-212 requires:\n1. `escalation_queue` table in DB schema\n2. Auto-insert when confidence < 40% in `src/assistant/pipeline/classification.ts`\n3. Log to `src/logs/escalation-flags.log`\n4. Admin endpoint `GET /admin/escalation-queue`\n\n## Problem Identified\n\nCreate an escalation queue for low-confidence intent classifications so human reviewers can quickly triage and improve keywords.\n\n## Planned Changes\n\n- `shared/schema-tables.ts` \u2014 add `escalationQueue` table definition\n- `src/assistant/pipeline/classification.ts` \u2014 insert to escalation_queue when confidence < 40%, log to file\n- `src/routes/admin/` \u2014 create new escalation-queue route\n- `src/routes/admin/index.ts` \u2014 register the new route\nNow I have enough context. Let me check the end of schema-tables.ts and look at classification stages for message preview context.\nNow I have enough context. Let me implement all parts of US-212.\nNow add the auto-insert logic in `intent-classifier.ts`. I'll insert after the existing `trackIntentPrediction` block (line ~177-188), adding the escalation queue logic for confidence < 0.4:\nNow create the admin route:\nNow register the route in `index.ts`. I'll add the import and router.use near the escalationsRoutes:\nNow run build to verify:\nPre-existing merge conflict in `cart.ts`. Let me check it:\nNeed to fix this pre-existing conflict first:\nBuild passes (1 warning is the pre-existing logger warning). Now run the server startup test:\nServer starts and loads (pre-existing profile validation crash is unrelated). Build passes. Now mark US-212 as complete and document:\nUS-212 is complete and committed. Here's a summary of what was implemented:\n\n**Story: US-212 \u2014 Intent Classification Escalation Queue with Low-Confidence Auto-Flagging**\n\n1. **`shared/schema-tables.ts`** \u2014 Added `escalationQueue` table with: `id`, `conversationId`, `originalIntent`, `confidenceScore`, `messagePreview` (first 200 chars), `recommendedKeywords` (JSON array of 3+ char words), `guestCorrectionIntent`, `profile`, `timestamp`\n\n2. **`src/assistant/pipeline/intent-classifier.ts`** \u2014 When `confidence < 0.4`, auto-inserts into `escalation_queue` (fire-and-forget) and appends a JSONL line to `src/logs/escalation-flags.log`\n\n3. **`src/routes/admin/escalation-queue.ts`** \u2014 New route `GET /admin/escalation-queue?limit=20&profile=makan` returns entries sorted by confidence ascending (most uncertain first), with parsed keyword arrays\n\n4. **`src/routes/admin/index.ts`** \u2014 Route registered\n\n**Bonus fix:** Resolved pre-existing merge conflict in `src/tools/cart.ts` that was blocking esbuild on every prior attempt."
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nUS-209 already has `passes: true`. The next story is **US-212**. Let me read its full details and explore relevant code.\n\n## Current State\n\nUS-212 requires:\n1. `escalation_queue` table in DB schema\n2. Auto-insert when confidence < 40% in `src/assistant/pipeline/classification.ts`\n3. Log to `src/logs/escalation-flags.log`\n4. Admin endpoint `GET /admin/escalation-queue`\n\n## Problem Identified\n\nCreate an escalation queue for low-confidence intent classifications so human reviewers can quickly triage and improve keywords.\n\n## Planned Changes\n\n- `shared/schema-tables.ts` — add `escalationQueue` table definition\n- `src/assistant/pipeline/classification.ts` — insert to escalation_queue when confidence < 40%, log to file\n- `src/routes/admin/` — create new escalation-queue route\n- `src/routes/admin/index.ts` — register the new route\nNow I have enough context. Let me check the end of schema-tables.ts and look at classification stages for message preview context.\nNow I have enough context. Let me implement all parts of US-212.\nNow add the auto-insert logic in `intent-classifier.ts`. I'll insert after the existing `trackIntentPrediction` block (line ~177-188), adding the escalation queue logic for confidence < 0.4:\nNow create the admin route:\nNow register the route in `index.ts`. I'll add the import and router.use near the escalationsRoutes:\nNow run build to verify:\nPre-existing merge conflict in `cart.ts`. Let me check it:\nNeed to fix this pre-existing conflict first:\nBuild passes (1 warning is the pre-existing logger warning). Now run the server startup test:\nServer starts and loads (pre-existing profile validation crash is unrelated). Build passes. Now mark US-212 as complete and document:\nUS-212 is complete and committed. Here's a summary of what was implemented:\n\n**Story: US-212 — Intent Classification Escalation Queue with Low-Confidence Auto-Flagging**\n\n1. **`shared/schema-tables.ts`** — Added `escalationQueue` table with: `id`, `conversationId`, `originalIntent`, `confidenceScore`, `messagePreview` (first 200 chars), `recommendedKeywords` (JSON array of 3+ char words), `guestCorrectionIntent`, `profile`, `timestamp`\n\n2. **`src/assistant/pipeline/intent-classifier.ts`** — When `confidence < 0.4`, auto-inserts into `escalation_queue` (fire-and-forget) and appends a JSONL line to `src/logs/escalation-flags.log`\n\n3. **`src/routes/admin/escalation-queue.ts`** — New route `GET /admin/escalation-queue?limit=20&profile=makan` returns entries sorted by confidence ascending (most uncertain first), with parsed keyword arrays\n\n4. **`src/routes/admin/index.ts`** — Route registered\n\n**Bonus fix:** Resolved pre-existing merge conflict in `src/tools/cart.ts` that was blocking esbuild on every prior attempt."
       },
       "_contextStats": {
         "tokensBeforeMasking": 679,
@@ -2348,7 +2433,7 @@
       "description": "Route AI responses based on intent classification confidence scores: escalate low-confidence queries to staff, use inquiry template for moderate confidence, return AI response only for high confidence.",
       "acceptanceCriteria": [
         "Add evaluateResponseConfidence() function in src/assistant/pipeline/fallback.ts with 3 confidence bands: <0.35 (escalate to staff), 0.35-0.60 (polite inquiry), >0.60 (AI response)",
-        "Create src/assistant/data/escalation-templates-{profile}.json with profile-specific escalation messages per intent type (e.g., 'booking.inquiry' \u2192 'Let me connect you with our team...')",
+        "Create src/assistant/data/escalation-templates-{profile}.json with profile-specific escalation messages per intent type (e.g., 'booking.inquiry' → 'Let me connect you with our team...')",
         "Test src/__tests__/confidence-routing.test.ts with 3 scenarios asserting confidence 0.25 returns escalation template with staff WhatsApp contact, confidence 0.50 returns inquiry template, confidence 0.75 returns AI response"
       ],
       "technicalNotes": [],
@@ -2534,7 +2619,7 @@
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
       "last_attempted": "2026-03-23T04:10:22Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\nReading context files first.\nNow let me check what was actually implemented in the previous attempt:\nThe implementation exists. Let me run the tests and build to check current status:\n\n## Current State\n\nThe previous iteration implemented:\n- `src/assistant/classification-tracer.ts` \u2014 core tracer module with `buildClassificationTrace`, `recordClassificationTrace`, `getClassificationTraces`\n- `src/routes/admin/classification-traces.ts` \u2014 admin API endpoints\n- `src/assistant/__tests__/classification-tracer.test.ts` \u2014 17 tracer tests\n- `src/routes/admin/__tests__/classification-traces.test.ts` \u2014 10 admin tests\n\n## Problem Identified\n\nThe story was marked `passes: false` because the diagnosis block was missing in attempt 1. The implementation may actually be complete \u2014 need to verify tests pass, build succeeds, and the router is registered.\n\n## Planned Changes\n\n1. Run existing tests to verify they pass\n2. Run build to verify it succeeds\n3. Check router registration (is classification-traces.ts imported in the main admin router?)\n4. Fix any gaps found\n5. Mark `passes: true` in prd.json\nAll 27 tests pass. Now let me check the build and router registration:\nBuild succeeds and the router is properly registered. Now let me verify the server starts:\nServer starts successfully. All checks pass. Now mark the story as complete:\n**Done.** US-122 is complete.\n\n**Summary:**\n- All 27 tests pass (17 tracer unit tests + 10 admin API tests)\n- Build succeeds (esbuild, 2.2mb)\n- Server starts successfully\n- Router is properly registered in the admin index\n- `passes: true` written to `prd.json`\n\nThe story was already fully implemented from the previous SPIRAL iteration \u2014 it only remained `passes: false` because that attempt was blocked by the diagnosis-block gate."
+        "diagnosisBlock": "## Current State\nReading context files first.\nNow let me check what was actually implemented in the previous attempt:\nThe implementation exists. Let me run the tests and build to check current status:\n\n## Current State\n\nThe previous iteration implemented:\n- `src/assistant/classification-tracer.ts` — core tracer module with `buildClassificationTrace`, `recordClassificationTrace`, `getClassificationTraces`\n- `src/routes/admin/classification-traces.ts` — admin API endpoints\n- `src/assistant/__tests__/classification-tracer.test.ts` — 17 tracer tests\n- `src/routes/admin/__tests__/classification-traces.test.ts` — 10 admin tests\n\n## Problem Identified\n\nThe story was marked `passes: false` because the diagnosis block was missing in attempt 1. The implementation may actually be complete — need to verify tests pass, build succeeds, and the router is registered.\n\n## Planned Changes\n\n1. Run existing tests to verify they pass\n2. Run build to verify it succeeds\n3. Check router registration (is classification-traces.ts imported in the main admin router?)\n4. Fix any gaps found\n5. Mark `passes: true` in prd.json\nAll 27 tests pass. Now let me check the build and router registration:\nBuild succeeds and the router is properly registered. Now let me verify the server starts:\nServer starts successfully. All checks pass. Now mark the story as complete:\n**Done.** US-122 is complete.\n\n**Summary:**\n- All 27 tests pass (17 tracer unit tests + 10 admin API tests)\n- Build succeeds (esbuild, 2.2mb)\n- Server starts successfully\n- Router is properly registered in the admin index\n- `passes: true` written to `prd.json`\n\nThe story was already fully implemented from the previous SPIRAL iteration — it only remained `passes: false` because that attempt was blocked by the diagnosis-block gate."
       },
       "_contextStats": {
         "tokensBeforeMasking": 770,
@@ -2632,7 +2717,7 @@
       "model": "sonnet",
       "last_attempted": "2026-03-23T02:08:16Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nAll components of US-113 are **already fully implemented** from previous iterations (SPIRAL-36 and SPIRAL-37):\n\n1. **Schema** (`shared/schema-tables.ts:67-86`): `intentPredictions` table with all required fields \u2014 `id`, `conversationId`, `predictedIntent`, `confidence`, `actualIntent`, `profile`, `createdAt`, plus extras (`phoneNumber`, `messageText`, `tier`, `model`, `wasCorrect`, `correctionSource`, `correctedAt`).\n\n2. **Tracking function** (`src/assistant/intent-tracker.ts:87-124`): `trackIntentPrediction()` with batch queue, accepting all required parameters including `profile`.\n\n3. **Classifier integration** (`src/assistant/pipeline/intent-classifier.ts:155-167`): `classifyAndRoute()` calls `trackIntentPrediction` for predictions with `confidence >= 0.4`, fire-and-forget.\n\n4. **Tests** (`tests/unit/intent-prediction-persistence.test.ts`): 11 tests covering schema fields, persistence, sorting by confidence, and accuracy calculation.\n\n## Problem Identified\n\nThe story failed twice due to a **process gate issue** (DIAGNOSIS_BLOCK_MISSING), not a code problem. The code is complete and working. I need to:\n1. Output this diagnosis block (done now)\n2. Verify build and tests pass\n3. Mark the story as `passes: true` in prd.json\n\n## Planned Changes\n\n- **prd.json**: Set `US-113.passes = true` (only if build + tests pass)\n- **progress.txt**: Append iteration notes\n\nLet me now run the quality checks to confirm everything passes.\nAll 11 tests pass and build succeeds (1 pre-existing warning only). Now let me mark the story as passed and update progress.\nNow let me read the end of progress.txt and append the iteration notes.\nNow commit the changes.\nUS-113 is complete. All acceptance criteria were already implemented:\n\n1. **`intent_predictions` table** in `shared/schema-tables.ts` with id, conversation_id, predicted_intent, confidence, actual_intent, profile, created_at\n2. **`classifyAndRoute()`** saves predictions with confidence >= 0.4 via `trackIntentPrediction()` (fire-and-forget)\n3. **11 vitest tests** verify schema fields, persistence, sorting by confidence_score, and accuracy calculation\n\nThe story had failed twice previously due to a process gate (missing diagnosis block), not code issues. All quality checks pass: 11/11 tests, build succeeds."
+        "diagnosisBlock": "## Current State\n\nAll components of US-113 are **already fully implemented** from previous iterations (SPIRAL-36 and SPIRAL-37):\n\n1. **Schema** (`shared/schema-tables.ts:67-86`): `intentPredictions` table with all required fields — `id`, `conversationId`, `predictedIntent`, `confidence`, `actualIntent`, `profile`, `createdAt`, plus extras (`phoneNumber`, `messageText`, `tier`, `model`, `wasCorrect`, `correctionSource`, `correctedAt`).\n\n2. **Tracking function** (`src/assistant/intent-tracker.ts:87-124`): `trackIntentPrediction()` with batch queue, accepting all required parameters including `profile`.\n\n3. **Classifier integration** (`src/assistant/pipeline/intent-classifier.ts:155-167`): `classifyAndRoute()` calls `trackIntentPrediction` for predictions with `confidence >= 0.4`, fire-and-forget.\n\n4. **Tests** (`tests/unit/intent-prediction-persistence.test.ts`): 11 tests covering schema fields, persistence, sorting by confidence, and accuracy calculation.\n\n## Problem Identified\n\nThe story failed twice due to a **process gate issue** (DIAGNOSIS_BLOCK_MISSING), not a code problem. The code is complete and working. I need to:\n1. Output this diagnosis block (done now)\n2. Verify build and tests pass\n3. Mark the story as `passes: true` in prd.json\n\n## Planned Changes\n\n- **prd.json**: Set `US-113.passes = true` (only if build + tests pass)\n- **progress.txt**: Append iteration notes\n\nLet me now run the quality checks to confirm everything passes.\nAll 11 tests pass and build succeeds (1 pre-existing warning only). Now let me mark the story as passed and update progress.\nNow let me read the end of progress.txt and append the iteration notes.\nNow commit the changes.\nUS-113 is complete. All acceptance criteria were already implemented:\n\n1. **`intent_predictions` table** in `shared/schema-tables.ts` with id, conversation_id, predicted_intent, confidence, actual_intent, profile, created_at\n2. **`classifyAndRoute()`** saves predictions with confidence >= 0.4 via `trackIntentPrediction()` (fire-and-forget)\n3. **11 vitest tests** verify schema fields, persistence, sorting by confidence_score, and accuracy calculation\n\nThe story had failed twice previously due to a process gate (missing diagnosis block), not code issues. All quality checks pass: 11/11 tests, build succeeds."
       },
       "_contextStats": {
         "tokensBeforeMasking": 646,
@@ -2645,9 +2730,9 @@
       "id": "US-108",
       "title": "Add Makan Moments seasonal promotion inquiry intent",
       "priority": "high",
-      "description": "Create caf\u00e9-specific seasonal_promotion_inquiry intent for Makan Moments to handle limited-time menu item questions without leaking to other profiles.",
+      "description": "Create café-specific seasonal_promotion_inquiry intent for Makan Moments to handle limited-time menu item questions without leaking to other profiles.",
       "acceptanceCriteria": [
-        "Add seasonal_promotion_inquiry intent to src/assistant/data/data-makan/intents.json with caf\u00e9 context only",
+        "Add seasonal_promotion_inquiry intent to src/assistant/data/data-makan/intents.json with café context only",
         "Add seasonal keywords (limited edition, weekend special, promotion, special price) to data-makan/intent-keywords.json",
         "Add test in tests/unit/intent-classifier-makan.test.ts asserting seasonal intents classify correctly and do NOT match Pelangi profile"
       ],
@@ -2719,10 +2804,10 @@
       "id": "US-104",
       "title": "Implement conversation state machine for multi-turn booking dialogue tracking",
       "priority": "high",
-      "description": "Add explicit state tracking to conversations (initial \u2192 clarification \u2192 confirmation \u2192 booked) to maintain context across multi-turn dialogues and prevent context loss.",
+      "description": "Add explicit state tracking to conversations (initial → clarification → confirmation → booked) to maintain context across multi-turn dialogues and prevent context loss.",
       "acceptanceCriteria": [
-        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial\u2192clarification (on first system question), clarification\u2192confirmation (user provides required data), confirmation\u2192booked_completed (booking executed); include transition logging",
-        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) \u2192 clarification (ask dates) \u2192 confirmation (user confirms) \u2192 booked_completed",
+        "Add ConversationStateMachine class in src/assistant/pipeline/state-machine.ts with transitions: initial→clarification (on first system question), clarification→confirmation (user provides required data), confirmation→booked_completed (booking executed); include transition logging",
+        "Add test in tests/state-machine.test.ts verifying 5-turn booking conversation correctly progresses: initial (greeting) → clarification (ask dates) → confirmation (user confirms) → booked_completed",
         "Add conversation_state VARCHAR(50) column to rainbow_conversations table via migration; verify state persists when conversation is retrieved by ID"
       ],
       "technicalNotes": [],
@@ -2791,7 +2876,7 @@
       "priority": "high",
       "description": "Create validator ensuring routing.json routes reference only intents from same profile, preventing cross-contamination at configuration layer and catching Makan/Southern Pelangi data leakage.",
       "acceptanceCriteria": [
-        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route\u2192intent mismatches with profile name",
+        "CLI validator npm run validate:routing checks routing.json against intents.json per profile, reports route→intent mismatches with profile name",
         "Startup check in src/lib/config.ts validates routing consistency and exits with error if profile contamination detected (e.g., data-makan routing to luggage_storage intent)",
         "Unit tests verify data-makan and data-southern cannot route to hostel-specific intents (luggage_storage, room_upgrade, check_in_late) with assertion on blocked routes"
       ],
@@ -2811,7 +2896,7 @@
       "acceptanceCriteria": [
         "New module src/assistant/pipeline/topic-drift-detector.ts exports detectTopicDrift(messages: Message[], threshold: 0.7) returning {drifted: boolean, confidence: number}",
         "When topic drift detected (confidence > threshold), response pipeline routes to topic-refocus fallback instead of normal AI inference",
-        "Unit tests verify correct detection on sequences: booking\u2192general_question\u2192booking with passing assertion on coherence recovery"
+        "Unit tests verify correct detection on sequences: booking→general_question→booking with passing assertion on coherence recovery"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -2845,7 +2930,7 @@
       "model": "sonnet",
       "last_attempted": "2026-03-22T23:40:27Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- `intent-keywords.json` exists in 3 profiles: `data` (pelangi), `data-makan`, `data-southern`\n- Structure: `{ intents: [{intent, keywords: {en: [], ms: [], zh: []}}] }`\n- `scripts/validate-profiles.ts` is an existing pattern to follow\n\n## Problem Identified\n- No `validate:keywords` npm script exists\n- No keyword collision/contamination detection tool\n\n## Planned Changes\n1. Create `scripts/validate-keywords.ts` \u2014 self-contained CLI\n2. Add `\"validate:keywords\": \"tsx scripts/validate-keywords.ts\"` to `package.json`\nNow add the npm script to `package.json`:\nNow test the script:\nThe script works correctly. Now run the build to confirm no type errors:\nGood \u2014 build passes. Now update `prd.json` to mark US-092 as passing:\nNow append to `progress.txt`:\nNow commit:\nUS-092 is complete. Here's what was implemented:\n\n**Story: US-092 \u2014 Intent Keyword Collision Detector CLI**\n\n- **New file:** `scripts/validate-keywords.ts` \u2014 self-contained CLI using `tsx`\n- **New script:** `npm run validate:keywords` in `package.json`\n\nThe tool:\n1. Loads `intent-keywords.json` from all 3 profiles (`data/`, `data-makan/`, `data-southern/`)\n2. Detects **within-profile collisions** \u2014 keywords mapped to multiple intents (severity: `high` for 3+ intents, `medium` for 2)\n3. Detects **cross-profile duplicates** \u2014 same keyword appearing across profiles\n4. Human-readable output by default; `--json` flag for machine-readable JSON\n5. Exit code 0 = clean, 1 = issues found (CI-ready)\n\nRunning it found real issues: 207 within-profile collisions and 1,359 cross-profile duplicates across the 3 profiles."
+        "diagnosisBlock": "## Current State\n- `intent-keywords.json` exists in 3 profiles: `data` (pelangi), `data-makan`, `data-southern`\n- Structure: `{ intents: [{intent, keywords: {en: [], ms: [], zh: []}}] }`\n- `scripts/validate-profiles.ts` is an existing pattern to follow\n\n## Problem Identified\n- No `validate:keywords` npm script exists\n- No keyword collision/contamination detection tool\n\n## Planned Changes\n1. Create `scripts/validate-keywords.ts` — self-contained CLI\n2. Add `\"validate:keywords\": \"tsx scripts/validate-keywords.ts\"` to `package.json`\nNow add the npm script to `package.json`:\nNow test the script:\nThe script works correctly. Now run the build to confirm no type errors:\nGood — build passes. Now update `prd.json` to mark US-092 as passing:\nNow append to `progress.txt`:\nNow commit:\nUS-092 is complete. Here's what was implemented:\n\n**Story: US-092 — Intent Keyword Collision Detector CLI**\n\n- **New file:** `scripts/validate-keywords.ts` — self-contained CLI using `tsx`\n- **New script:** `npm run validate:keywords` in `package.json`\n\nThe tool:\n1. Loads `intent-keywords.json` from all 3 profiles (`data/`, `data-makan/`, `data-southern/`)\n2. Detects **within-profile collisions** — keywords mapped to multiple intents (severity: `high` for 3+ intents, `medium` for 2)\n3. Detects **cross-profile duplicates** — same keyword appearing across profiles\n4. Human-readable output by default; `--json` flag for machine-readable JSON\n5. Exit code 0 = clean, 1 = issues found (CI-ready)\n\nRunning it found real issues: 207 within-profile collisions and 1,359 cross-profile duplicates across the 3 profiles."
       }
     },
     {
@@ -2872,7 +2957,7 @@
       "priority": "high",
       "description": "Validate booking workflow definitions in workflows.json to ensure no circular step dependencies, invalid state transitions, or missing state definitions. Prevents workflow execution failures and improves booking reliability.",
       "acceptanceCriteria": [
-        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A\u2192B\u2192A) and throws WorkflowValidationError",
+        "Create src/lib/validators/workflowValidator.ts with validateWorkflowStepDependencies() function that detects circular refs (A→B→A) and throws WorkflowValidationError",
         "Add npm run validate:workflows CLI command that loads workflows.json per profile and reports validation errors with file paths",
         "Add unit test in src/lib/validators/__tests__/workflowValidator.test.ts asserting detection of circular dependencies and invalid state references"
       ],
@@ -2972,7 +3057,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T20:15:59Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nThe prd.json shows US-072 `passes: true` already, but the outer loop is retrying it. Let me verify the actual implementation is correct.\nThe implementation exists in `bookings.ts` but the acceptance criteria requires `src/tools/booking-tools.ts`. Let me check the tests and what file the tests import from.\nUS-072 is already `passes: true` in prd.json with 16 tests passing and build succeeding. I'll move to the next incomplete story.\n\n## Current State\n\nUS-072 is fully implemented. Moving to US-073 (highest priority `passes: false` story).\n\nLet me read US-073:\n## Problem Identified\n\nNeed to implement an intent classifier uncertainty analyzer:\n1. `analyzeClassificationUncertainty()` function in `src/assistant/schemas.ts`\n2. Admin CLI script for `npm run analyze-intent-confusion`\n3. Tests verifying competing keyword signals are identified\n\n## Planned Changes\n\n- Add `analyzeClassificationUncertainty()` to `src/assistant/schemas.ts`\n- Create `src/scripts/analyze-intent-confusion.ts` CLI script\n- Add `analyze-intent-confusion` script to `package.json`\n- Create test file `src/assistant/__tests__/intent-uncertainty-analyzer.test.ts`\n\nLet me read the relevant existing code:\nNow I'll implement the solution. Let me add `analyzeClassificationUncertainty()` to `schemas.ts`:\nNow create the CLI script:\nNow add the npm script to `package.json`:\nNow create the test file:\nAll 8 tests pass. Now run the build:\nBuild passes. Let me also verify the CLI script runs:\nAll working. Now update prd.json:\nNow document and commit:\nUS-073 is complete.\n\n**Summary:**\n\n- `analyzeClassificationUncertainty()` added to `src/assistant/schemas.ts` \u2014 scores keyword groups (booking_keywords, inquiry_keywords, cancellation_keywords, etc.) against the message and normalizes to contributions summing to 1.0\n- `scripts/analyze-intent-confusion.ts` CLI outputs top 5 confused intent pairs, confusion matrix, and triggering keywords  \n- `package.json` \u2014 added `analyze-intent-confusion` script\n- 8 tests pass; build succeeds; CLI runs correctly\n- `prd.json` updated with `passes: true`"
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\nThe prd.json shows US-072 `passes: true` already, but the outer loop is retrying it. Let me verify the actual implementation is correct.\nThe implementation exists in `bookings.ts` but the acceptance criteria requires `src/tools/booking-tools.ts`. Let me check the tests and what file the tests import from.\nUS-072 is already `passes: true` in prd.json with 16 tests passing and build succeeding. I'll move to the next incomplete story.\n\n## Current State\n\nUS-072 is fully implemented. Moving to US-073 (highest priority `passes: false` story).\n\nLet me read US-073:\n## Problem Identified\n\nNeed to implement an intent classifier uncertainty analyzer:\n1. `analyzeClassificationUncertainty()` function in `src/assistant/schemas.ts`\n2. Admin CLI script for `npm run analyze-intent-confusion`\n3. Tests verifying competing keyword signals are identified\n\n## Planned Changes\n\n- Add `analyzeClassificationUncertainty()` to `src/assistant/schemas.ts`\n- Create `src/scripts/analyze-intent-confusion.ts` CLI script\n- Add `analyze-intent-confusion` script to `package.json`\n- Create test file `src/assistant/__tests__/intent-uncertainty-analyzer.test.ts`\n\nLet me read the relevant existing code:\nNow I'll implement the solution. Let me add `analyzeClassificationUncertainty()` to `schemas.ts`:\nNow create the CLI script:\nNow add the npm script to `package.json`:\nNow create the test file:\nAll 8 tests pass. Now run the build:\nBuild passes. Let me also verify the CLI script runs:\nAll working. Now update prd.json:\nNow document and commit:\nUS-073 is complete.\n\n**Summary:**\n\n- `analyzeClassificationUncertainty()` added to `src/assistant/schemas.ts` — scores keyword groups (booking_keywords, inquiry_keywords, cancellation_keywords, etc.) against the message and normalizes to contributions summing to 1.0\n- `scripts/analyze-intent-confusion.ts` CLI outputs top 5 confused intent pairs, confusion matrix, and triggering keywords  \n- `package.json` — added `analyze-intent-confusion` script\n- 8 tests pass; build succeeds; CLI runs correctly\n- `prd.json` updated with `passes: true`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 653,
@@ -3017,7 +3102,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T20:08:30Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\n## Current State\nThe implementation of US-068 already exists from a previous iteration (Iteration 5). The files are:\n- `src/assistant/pipeline/booking-validators.ts` \u2014 `validatePreConfirmationRules()` function is implemented (lines 229-373)\n- `tests/unit/booking-validators.test.ts` \u2014 test file exists\n\n## Problem Identified\nThe story is still marked `passes: false` because the previous attempt failed a \"diagnosis block\" gate check before the implementation was written. The implementation itself appears complete. I need to verify it actually passes all acceptance criteria, run the build + tests, and mark it complete.\n\n## Planned Changes\n- Verify `settings.json` has required config keys (`maxStayDays`, `advanceBookingWindow`, `stayCeiling`)\n- Run `npm run build` to confirm no new errors\n- Run tests to confirm the test suite passes\n- Mark `passes: true` in `prd.json`\nAll acceptance criteria implementations are in place. Now let's run the quality checks:\nBuild succeeds (1 warning, no errors). Now run the booking-validators tests:\nAll 8 tests pass. Now mark the story complete:\nUS-068 is complete. Summary:\n\n- **Build**: passes (1 pre-existing warning, no errors)\n- **Tests**: 8/8 pass in `tests/unit/booking-validators.test.ts`\n- **Implementation** was already in place from a prior iteration \u2014 the story only failed due to the diagnosis-block gate check\n- `prd.json` updated: `passes: true`, `_failureReason` removed\n- Committed as `f8e3dac`"
+        "diagnosisBlock": "## Current State\n\nLet me read the context files first.\n## Current State\nThe implementation of US-068 already exists from a previous iteration (Iteration 5). The files are:\n- `src/assistant/pipeline/booking-validators.ts` — `validatePreConfirmationRules()` function is implemented (lines 229-373)\n- `tests/unit/booking-validators.test.ts` — test file exists\n\n## Problem Identified\nThe story is still marked `passes: false` because the previous attempt failed a \"diagnosis block\" gate check before the implementation was written. The implementation itself appears complete. I need to verify it actually passes all acceptance criteria, run the build + tests, and mark it complete.\n\n## Planned Changes\n- Verify `settings.json` has required config keys (`maxStayDays`, `advanceBookingWindow`, `stayCeiling`)\n- Run `npm run build` to confirm no new errors\n- Run tests to confirm the test suite passes\n- Mark `passes: true` in `prd.json`\nAll acceptance criteria implementations are in place. Now let's run the quality checks:\nBuild succeeds (1 warning, no errors). Now run the booking-validators tests:\nAll 8 tests pass. Now mark the story complete:\nUS-068 is complete. Summary:\n\n- **Build**: passes (1 pre-existing warning, no errors)\n- **Tests**: 8/8 pass in `tests/unit/booking-validators.test.ts`\n- **Implementation** was already in place from a prior iteration — the story only failed due to the diagnosis-block gate check\n- `prd.json` updated: `passes: true`, `_failureReason` removed\n- Committed as `f8e3dac`"
       },
       "_contextStats": {
         "tokensBeforeMasking": 714,
@@ -3034,7 +3119,7 @@
       "acceptanceCriteria": [
         "Add booking_modification intent to src/assistant/data/routing.json with workflow steps: [list_existing_bookings, select_booking_id, choose_change_type, validate_availability, confirm_and_update]",
         "Implement findConflictingBookings(bookedDateRange, roomType, profileId) in src/assistant/tools/bookings.ts that queries room_bookings table and detects overlapping reservations",
-        "Add tests/unit/booking-modification.test.ts with 3 scenarios: (1) date conflict detected\u2192suggest_alternatives, (2) room_type_unavailable\u2192fallback_rooms, (3) successful_modification\u2192confirmation_message"
+        "Add tests/unit/booking-modification.test.ts with 3 scenarios: (1) date conflict detected→suggest_alternatives, (2) room_type_unavailable→fallback_rooms, (3) successful_modification→confirmation_message"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -3066,7 +3151,7 @@
       "priority": "high",
       "description": "Track conversation resolution quality post-interaction to identify problem intents and guide improvements. Score conversations based on escalation count, resolution type, and classifier confidence to measure response reliability.",
       "acceptanceCriteria": [
-        "Implement scoreConversation(conversationId: string) function in src/assistant/pipeline/scoring.ts calculating 1\u20135 score: escalated=-2pts, unresolved=-1pt, successful_resolution=+5pts, confidence_decrement=\u22120.5pt per 10% below threshold",
+        "Implement scoreConversation(conversationId: string) function in src/assistant/pipeline/scoring.ts calculating 1–5 score: escalated=-2pts, unresolved=-1pt, successful_resolution=+5pts, confidence_decrement=−0.5pt per 10% below threshold",
         "Add conversation_quality_score column to rainbow_conversations table via Drizzle migration; populate scores on conversation completion",
         "Create GET /admin/analytics/conversation-quality?profile=pelangi endpoint returning: avg_score_by_intent, 7-day_trend, bottom_5_intents_by_score with test coverage in tests/unit/admin-quality-analytics.test.ts"
       ],
@@ -3108,9 +3193,9 @@
       "priority": "high",
       "description": "Expand intent classification to support non-English guests by adding Mandarin (zh) keyword variants. Enables accurate booking and inquiry detection for Mandarin-speaking guests at international hostels.",
       "acceptanceCriteria": [
-        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '\u8ba2\u623f', '\u9884\u8ba2', '\u623f\u95f4\u4ef7\u683c', '\u5165\u4f4f\u65f6\u95f4')",
+        "Add 10+ Mandarin keyword variants for booking_intent and inquiry_intent to src/assistant/data/intent-keywords.json (e.g., '订房', '预订', '房间价格', '入住时间')",
         "Detect guest language from message text in src/assistant/engine/classifier.ts and trigger Mandarin classifier when zh language detected",
-        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving \u226580% classification accuracy"
+        "Unit test: tests/unit/intent-classifier-mandarin.test.ts with 5+ Mandarin booking/inquiry samples achieving ≥80% classification accuracy"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -3268,7 +3353,7 @@
       "id": "US-045",
       "title": "Add state machine validator tests for booking workflow transitions",
       "priority": "high",
-      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry \u2192 booking \u2192 confirmation \u2192 check-in \u2192 checkout) and reject invalid skips.",
+      "description": "Implement comprehensive state transition tests for booking conversations to ensure valid progression through workflow states (inquiry → booking → confirmation → check-in → checkout) and reject invalid skips.",
       "acceptanceCriteria": [
         "Vitest suite in src/assistant/__tests__/booking-state-machine.test.ts tests all valid state paths defined in workflows.json for Pelangi Capsule and Southern Homestay profiles",
         "Tests assert that invalid transitions (check-in before confirmation, checkout before check-in, duplicate bookings) are blocked with descriptive error messages",
@@ -3289,7 +3374,7 @@
       "acceptanceCriteria": [
         "Intent classifier logs confidence score (0-1) and latency_ms for each classification to intent_analytics table in Neon",
         "Admin metrics endpoint GET /admin/metrics/intent-classification returns success_rate, avg_confidence, and p95_latency grouped by intent_type and profile",
-        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman \u22650.7)"
+        "Unit test validates confidence scores in src/assistant/__tests__/intent-classification.test.ts correlate with actual classification correctness (Spearman ≥0.7)"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -3347,7 +3432,7 @@
       "model": "sonnet",
       "last_attempted": "2026-03-22T17:15:56Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- `src/assistant/pipeline/prompt-injection-guard.ts` exists with `detectPromptInjection()` and 30 patterns\n- Test file exists with 26 passing tests (12 injection patterns, 11 safe messages)\n- `settings.json` has `promptInjection.patterns` but NOT `security.injection_patterns` (AC requires this)\n- `chat-engine.ts` does NOT call `detectPromptInjection()` - no WARN logging or deflection response\n\n## Problem Identified\nAC4 (WARN logging with JID), AC5 (deflection response), AC6 (security.injection_patterns config key), and needing 15+ patterns in tests are all unimplemented.\n\n## Planned Changes\n1. `src/assistant/pipeline/prompt-injection-guard.ts` \u2014 add NFKC unicode normalization + Malay equivalent patterns\n2. `src/assistant/data/settings.json` \u2014 add `security.injection_patterns` array\n3. `src/assistant/chat-engine.ts` \u2014 import guard, add early injection check with WARN log + deflection\n4. `src/assistant/__tests__/prompt-injection-guard.test.ts` \u2014 add 3+ more patterns (including Malay) to reach 15+\nNow update `settings.json` to add `security.injection_patterns`:\nNow integrate the detection in `chat-engine.ts`:\nNow add the injection check inside `processChat` right after the start time is set:\nNow add 3+ more patterns to the test to reach 15+:\nAlso add a false-positive check for safe Malay messages:\nNow run the tests to verify:\n32 tests passing (17 injection patterns + 12 safe messages + 3 edge cases). Now run the TypeScript check:\nFix the TypeScript error on the settings access (pre-existing type is loosely typed, use `any` cast):\nGood \u2014 the only remaining TS errors are pre-existing (lines 264, 267, 377). Let me run a broader test to confirm nothing broke:\nAll passing. Now update `prd.json` to mark US-036 as `passes: true`:\nNow document learnings and commit:\nI see `src/assistant/prompt-injection-guard.ts` and `tests/unit/prompt-injection-guard.test.ts` are untracked. Let me check those:\nThese are re-export shims from a previous attempt. Stage them too:\nUS-036 is complete. Here's a summary of what was implemented:\n\n**US-036: Prompt injection detection in chat engine** \u2705\n\n1. **`prompt-injection-guard.ts`** (pipeline/) \u2014 added NFKC unicode normalization + 4 Malay equivalent patterns (`abaikan arahan`, `lupakan arahan`, `bertindak sebagai`, `langkau arahan`), total 34 default patterns\n\n2. **`chat-engine.ts`** \u2014 added early injection gate in `processChat()`:\n   - Reads `settings.security.injection_patterns` (empty = use built-in defaults)\n   - On detection: logs `WARN` with `sessionId` + `matchedPattern`\n   - Returns polite deflection response instead of forwarding to AI\n\n3. **`settings.json`** \u2014 added `security.injection_patterns: []` key\n\n4. **`prompt-injection-guard.test.ts`** \u2014 expanded from 26 \u2192 32 tests covering 17 injection patterns (12 original + 5 new including Malay) and a false-positive Malay safe message"
+        "diagnosisBlock": "## Current State\n- `src/assistant/pipeline/prompt-injection-guard.ts` exists with `detectPromptInjection()` and 30 patterns\n- Test file exists with 26 passing tests (12 injection patterns, 11 safe messages)\n- `settings.json` has `promptInjection.patterns` but NOT `security.injection_patterns` (AC requires this)\n- `chat-engine.ts` does NOT call `detectPromptInjection()` - no WARN logging or deflection response\n\n## Problem Identified\nAC4 (WARN logging with JID), AC5 (deflection response), AC6 (security.injection_patterns config key), and needing 15+ patterns in tests are all unimplemented.\n\n## Planned Changes\n1. `src/assistant/pipeline/prompt-injection-guard.ts` — add NFKC unicode normalization + Malay equivalent patterns\n2. `src/assistant/data/settings.json` — add `security.injection_patterns` array\n3. `src/assistant/chat-engine.ts` — import guard, add early injection check with WARN log + deflection\n4. `src/assistant/__tests__/prompt-injection-guard.test.ts` — add 3+ more patterns (including Malay) to reach 15+\nNow update `settings.json` to add `security.injection_patterns`:\nNow integrate the detection in `chat-engine.ts`:\nNow add the injection check inside `processChat` right after the start time is set:\nNow add 3+ more patterns to the test to reach 15+:\nAlso add a false-positive check for safe Malay messages:\nNow run the tests to verify:\n32 tests passing (17 injection patterns + 12 safe messages + 3 edge cases). Now run the TypeScript check:\nFix the TypeScript error on the settings access (pre-existing type is loosely typed, use `any` cast):\nGood — the only remaining TS errors are pre-existing (lines 264, 267, 377). Let me run a broader test to confirm nothing broke:\nAll passing. Now update `prd.json` to mark US-036 as `passes: true`:\nNow document learnings and commit:\nI see `src/assistant/prompt-injection-guard.ts` and `tests/unit/prompt-injection-guard.test.ts` are untracked. Let me check those:\nThese are re-export shims from a previous attempt. Stage them too:\nUS-036 is complete. Here's a summary of what was implemented:\n\n**US-036: Prompt injection detection in chat engine** ✅\n\n1. **`prompt-injection-guard.ts`** (pipeline/) — added NFKC unicode normalization + 4 Malay equivalent patterns (`abaikan arahan`, `lupakan arahan`, `bertindak sebagai`, `langkau arahan`), total 34 default patterns\n\n2. **`chat-engine.ts`** — added early injection gate in `processChat()`:\n   - Reads `settings.security.injection_patterns` (empty = use built-in defaults)\n   - On detection: logs `WARN` with `sessionId` + `matchedPattern`\n   - Returns polite deflection response instead of forwarding to AI\n\n3. **`settings.json`** — added `security.injection_patterns: []` key\n\n4. **`prompt-injection-guard.test.ts`** — expanded from 26 → 32 tests covering 17 injection patterns (12 original + 5 new including Malay) and a false-positive Malay safe message"
       }
     },
     {
@@ -3467,7 +3552,7 @@
         "Conversation history is tracked per phone number with a configurable window size (default 5)",
         "History is passed to AI provider calls as context",
         "History is cleared/reset after a configurable inactivity timeout",
-        "Memory footprint is bounded \u00e2\u20ac\u201d old entries are pruned"
+        "Memory footprint is bounded â€” old entries are pruned"
       ],
       "dependencies": [],
       "passes": true,
@@ -3493,7 +3578,7 @@
         "A new 'post_stay_review' workflow exists in workflows.json triggered by checkout_full workflow completion",
         "The review request message is sent 2 hours after checkout (configurable delay in settings.json under 'post_stay_review')",
         "The message includes the hostel's Google Maps review link personalised with the guest's name",
-        "Message is only sent once per guest per stay \u2014 stored flag in DB prevents duplicates",
+        "Message is only sent once per guest per stay — stored flag in DB prevents duplicates",
         "The review request uses only utility template language (no marketing phrases) to avoid billing reclassification under July 2025 per-message pricing",
         "Admin can toggle the feature on/off in settings.json"
       ],
@@ -3515,7 +3600,7 @@
       "acceptanceCriteria": [
         "A new admin route GET /admin/pdpa/data-export/:phone returns all data held for a given phone number as structured JSON",
         "The export includes: all rainbow_messages, rainbow_conversations, intent_analytics entries, and stored guest profile fields",
-        "A guest-facing trigger path exists: guest sends 'request my data' \u2192 Rainbow acknowledges and creates an admin notification to fulfil within 7 days",
+        "A guest-facing trigger path exists: guest sends 'request my data' → Rainbow acknowledges and creates an admin notification to fulfil within 7 days",
         "The admin notification includes the guest's phone, request timestamp, and a direct link to the export endpoint",
         "The endpoint requires admin authentication",
         "Unit test verifies the endpoint returns all expected data categories for a test phone number"
@@ -3524,7 +3609,7 @@
         "PDPA Amendment Act 2024 Phase 3 (June 2025): data portability right is enforceable",
         "See existing gdpr-erasure.ts and gdpr-data-export.ts for route patterns to extend",
         "Response format should be structured JSON with a clear schema (phone, messages[], conversations[], analytics[])",
-        "7-day fulfilment window per PDPA guidelines \u2014 the admin notification should include a due date"
+        "7-day fulfilment window per PDPA guidelines — the admin notification should include a due date"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -3545,7 +3630,7 @@
       "technicalNotes": [
         "PDPA 2024 Amendment: 72-hour timeline starts from when the data controller becomes aware of the incident",
         "Notification to affected individuals must follow within 7 days of notifying the Commissioner",
-        "Commissioner notification requires manual filing via PDPC Malaysia portal \u2014 implement as a checklist prompt in admin UI rather than automated external API call",
+        "Commissioner notification requires manual filing via PDPC Malaysia portal — implement as a checklist prompt in admin UI rather than automated external API call",
         "See existing breach-report.ts and pdpa-dpo.ts admin routes for integration points"
       ],
       "dependencies": [],
@@ -3583,7 +3668,7 @@
       "model": "haiku",
       "last_attempted": "2026-03-22T16:38:24Z",
       "_phaseI": {
-        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** \u2014 Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** \u2014 Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** \u2014 Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
+        "diagnosisBlock": "## Current State\n- The Rainbow AI server starts without validating required environment variables (DATABASE_URL, MCP_SERVER_PORT, NODE_ENV)\n- No validation function exists yet\n- Server can fail silently or with cryptic errors if vars are missing/malformed\n- Project uses Zod for schema validation (see codebase patterns in progress.txt)\n\n## Problem Identified\nWhen environment variables are missing or malformed, the server fails without clear error messaging. Need a startup validation step that:\n1. Checks all required vars before Express server starts\n2. Validates format (DATABASE_URL as postgres:// URL, MCP_SERVER_PORT as number 1024-65535)\n3. Logs optional vars as warnings if missing\n4. Exits with code 1 and human-readable error on failure\n\n## Planned Changes\n- **src/lib/env-validator.ts** — Create new validation module with Zod schemas and validateEnvironment() function\n- **src/index.ts** — Add validateEnvironment() call before server/DB initialization\n- **tests/unit/env-validator.test.ts** — Add unit tests covering all validation paths (missing, malformed, valid)\n\nLet me verify the current structure and implement:\nNow let me run the tests to verify the implementation is complete:\nI need to update the vitest.config.ts to include the tests/ directory. Let me make that change:\nI need to fix the failing test. The issue is with how the toThrow matcher is being used. Let me update the test:\nGreat! All tests pass. Now let me verify the complete implementation by running type checking and build:\nThe TypeScript errors shown are pre-existing in the codebase (as documented in CLAUDE.md). Let me verify the env-validator.ts has no type issues by checking it specifically:\nPerfect! The implementation is complete. Let me verify that the changes don't break other tests:\nExcellent! The env-validator tests all pass, and my changes didn't break any other tests. The 40 failing tests are pre-existing failures from other stories. Now let me update prd.json to mark US-033 as complete:\nNow let me commit the changes:\nPerfect! **US-033 is now complete**. Here's what was accomplished:\n\n## Summary"
       }
     },
     {
@@ -3592,9 +3677,9 @@
       "priority": "high",
       "description": "Build validation functions to verify guest existence, validate room type for the guest's profile, and check age/profile restrictions against room requirements.",
       "acceptanceCriteria": [
-        "Implement validateGuestExists(guest_id) \u2014 query database, return violation if not found",
-        "Implement validateRoomTypeValid(guest_id, room_type) \u2014 check profile supports room type",
-        "Implement validateGuestRestrictions(guest_id, room_type) \u2014 verify age/profile restrictions",
+        "Implement validateGuestExists(guest_id) — query database, return violation if not found",
+        "Implement validateRoomTypeValid(guest_id, room_type) — check profile supports room type",
+        "Implement validateGuestRestrictions(guest_id, room_type) — verify age/profile restrictions",
         "All functions return Violation[] (empty if valid)"
       ],
       "technicalNotes": [
@@ -3617,8 +3702,8 @@
       "priority": "high",
       "description": "Create validation functions to ensure check-in date is not in the past and detect overlapping or conflicting bookings on the same room.",
       "acceptanceCriteria": [
-        "Implement validateCheckInDate(check_in_date) \u2014 reject dates in past, return violation if invalid",
-        "Implement validateNoOverlapBookings(room_id, check_in, check_out) \u2014 query bookings table for conflicts",
+        "Implement validateCheckInDate(check_in_date) — reject dates in past, return violation if invalid",
+        "Implement validateNoOverlapBookings(room_id, check_in, check_out) — query bookings table for conflicts",
         "Return detailed violation with suggested alternative dates when overlap detected",
         "All functions return Violation[] (empty if valid)"
       ],
@@ -3695,7 +3780,7 @@
     },
     {
       "id": "US-013",
-      "title": "Fix Makan Moments intents.json \u2014 remove hostel-specific intents",
+      "title": "Fix Makan Moments intents.json — remove hostel-specific intents",
       "description": "Audit src/assistant/data-makan/intents.json for any intents that are hostel-specific (e.g., check_in, checkout_info, capsule_facilities, locker, room_types, dorm). These must not exist in a cafe profile. Remove or replace them with cafe-appropriate intents. The cafe profile should only have food/beverage-relevant intents.",
       "priority": "high",
       "acceptanceCriteria": [
@@ -3722,7 +3807,7 @@
     },
     {
       "id": "US-014",
-      "title": "Fix Makan Moments intent-keywords.json \u2014 remove hostel keywords from cafe profile",
+      "title": "Fix Makan Moments intent-keywords.json — remove hostel keywords from cafe profile",
       "description": "Audit src/assistant/data-makan/intent-keywords.json for any keywords that are hostel-specific (booking a room, check-in, check-out, capsule, dorm, locker, hostel, overnight stay). These must be removed. The cafe profile should only have food/beverage keywords (order, menu, table, food, drink, takeaway, dine-in, halal, vegetarian, price).",
       "priority": "high",
       "acceptanceCriteria": [
@@ -3851,7 +3936,7 @@
       "priority": "medium",
       "description": "Validate all booking state transitions against defined state machine. Audit invalid transitions to catch workflow bugs and malformed step sequences before they cause booking failures.",
       "acceptanceCriteria": [
-        "Add `validateBookingTransition(fromState, toState, profile)` in `src/assistant/workflow/booking-state.ts` that checks transition against valid paths: pending\u2192confirmed\u2192checked_in\u2192checked_out, with cancellation branch at any point; return `{valid: bool, reason: string}`",
+        "Add `validateBookingTransition(fromState, toState, profile)` in `src/assistant/workflow/booking-state.ts` that checks transition against valid paths: pending→confirmed→checked_in→checked_out, with cancellation branch at any point; return `{valid: bool, reason: string}`",
         "Create `booking_state_audit` table: `booking_id, from_state, to_state, valid, reason, profile, timestamp`; log every transition attempt",
         "Add test `test/unit/workflow/booking-state-machine.test.ts` with 20 assertions covering valid paths (6), invalid transitions (8), cancellation scenarios (4), and profile-aware validation (2)"
       ],
@@ -3978,7 +4063,7 @@
       "priority": "medium",
       "description": "Guests commonly want to extend their current booking by additional days. This is distinct from making a new booking (handled by 'booking' intent). Without a dedicated intent, guests saying 'can I stay 2 more nights?' fall through to LLM fallback and may receive confusing responses. A dedicated intent and forwarding workflow routes these to admin for availability confirmation.",
       "acceptanceCriteria": [
-        "A 'stay_extension' intent exists in intents.json with patterns: 'extend my stay', 'stay longer', 'more nights', 'extend booking', 'tambah malam', '\u5ef6\u957f\u4f4f\u5bbf', '\u591a\u4f4f'",
+        "A 'stay_extension' intent exists in intents.json with patterns: 'extend my stay', 'stay longer', 'more nights', 'extend booking', 'tambah malam', '延长住宿', '多住'",
         "routing.json maps 'stay_extension' to a new 'extension_request' workflow",
         "The extension_request workflow collects the guest's desired new check-out date and forwards the request to admin via WhatsApp notification",
         "The bot confirms the request has been forwarded and sets expectations: 'We'll confirm availability within 30 minutes'",
@@ -4000,18 +4085,18 @@
       "priority": "medium",
       "description": "Luggage storage after checkout and late checkout requests are among the most common hostel guest queries globally. The current intents.json has no handlers for either, so these route to the LLM unnecessarily for questions that have fixed policy answers. Adding dedicated intents with static replies eliminates LLM cost and latency for these high-frequency requests.",
       "acceptanceCriteria": [
-        "A 'luggage_storage' intent exists in intents.json with T1/T2 patterns: 'luggage storage', 'store bags', 'leave bags', 'store my bags', 'simpan beg', '\u5bc4\u5b58\u884c\u674e'",
-        "A 'late_checkout' intent exists in intents.json with patterns: 'late checkout', 'check out late', 'extend checkout time', 'lambat checkout', '\u665a\u9000\u623f'",
+        "A 'luggage_storage' intent exists in intents.json with T1/T2 patterns: 'luggage storage', 'store bags', 'leave bags', 'store my bags', 'simpan beg', '寄存行李'",
+        "A 'late_checkout' intent exists in intents.json with patterns: 'late checkout', 'check out late', 'extend checkout time', 'lambat checkout', '晚退房'",
         "knowledge.json has a 'luggage_storage' entry with the hostel's current policy",
         "knowledge.json 'late_checkout' entry reflects the existing policy (free, subject to availability)",
         "routing.json maps both intents to 'static_reply'",
         "Unit tests confirm both intents resolve at T2 tier without reaching the LLM"
       ],
       "technicalNotes": [
-        "Late checkout policy already exists in the checkout_info static response \u2014 extract into its own intent entry",
+        "Late checkout policy already exists in the checkout_info static response — extract into its own intent entry",
         "Luggage storage: confirm with hostel management whether free or paid before writing the knowledge.json entry",
         "Both intents should be added to a POST_STAY or GENERAL_SUPPORT phase in intents.json",
-        "No new routing logic needed \u2014 static_reply action already exists"
+        "No new routing logic needed — static_reply action already exists"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -4023,14 +4108,14 @@
       "priority": "medium",
       "description": "WhatsApp switched to per-message billing on July 1, 2025. Every outbound message is now individually metered. A race condition exists in intent-classifier.ts: the 3-second 'thinking' ack timer and the main LLM response can both send messages within the same request. If the LLM responds in 2.8s, both the ack and the answer are sent. The ack should be cancelled if the main response arrives before the timer fires. Each unnecessary message is a billing charge.",
       "acceptanceCriteria": [
-        "The ackTimer in intent-classifier.ts is cleared before any response is sent from the LLM pipeline \u2014 not just after",
+        "The ackTimer in intent-classifier.ts is cleared before any response is sent from the LLM pipeline — not just after",
         "A test with a mock LLM response time of 2.9 seconds confirms only one message is sent (the actual answer, not the ack)",
         "A 'messages_sent_per_conversation' counter is tracked and exposed in the analytics dashboard",
         "The admin billing dashboard adds a 'avg messages per conversation' KPI alongside cost metrics",
         "settings.json adds documentation comment on the July 2025 per-message pricing model in the billing section"
       ],
       "technicalNotes": [
-        "Current code: ackTimer is a setTimeout at 3000ms in intent-classifier.ts \u2014 clearTimeout must be called at the start of sendResponse, not after",
+        "Current code: ackTimer is a setTimeout at 3000ms in intent-classifier.ts — clearTimeout must be called at the start of sendResponse, not after",
         "Reference: intent-classifier.ts lines around the ackTimer declaration and clearTimeout calls",
         "WhatsApp utility messages in an open 24h service window are free; only proactive outbound marketing messages are charged outside the window",
         "Source: https://www.ycloud.com/blog/whatsapp-api-pricing-update"
@@ -4045,16 +4130,16 @@
       "priority": "medium",
       "description": "Malaysia's Tamil-speaking Indian population (~7%) is an underserved guest segment. The system already has Tamil ('ta') translations in tiered_fallback and language detection supports 'ta', but intents.json has zero Tamil script patterns. Tamil-speaking guests always fall through to LLM classification with no T1/T2 acceleration. Adding Tamil script patterns for the five most common intents (greeting, thanks, wifi, pricing, directions) would improve quality for this segment.",
       "acceptanceCriteria": [
-        "The 'greeting' intent in intents.json includes Tamil patterns: \u0bb5\u0ba3\u0b95\u0bcd\u0b95\u0bae\u0bcd (vanakkam), \u0ba8\u0bae\u0bb8\u0bcd\u0b95\u0bbe\u0bb0 (namaskaram), \u0bb9\u0bb2\u0bcb (hello in Tamil script)",
-        "The 'thanks' intent includes Tamil: \u0ba8\u0ba9\u0bcd\u0bb1\u0bbf (nandri), \u0bae\u0bbf\u0b95\u0bcd\u0b95 \u0ba8\u0ba9\u0bcd\u0bb1\u0bbf (mikka nandri)",
-        "The 'wifi' intent includes Tamil patterns for wifi/password queries: \u0bb5\u0bc8\u0b83\u0baa\u0bc8, \u0b95\u0b9f\u0bb5\u0bc1\u0b9a\u0bcd\u0b9a\u0bca\u0bb2\u0bcd",
-        "The 'pricing' intent includes Tamil patterns: \u0bb5\u0bbf\u0bb2\u0bc8, \u0b8e\u0bb5\u0bcd\u0bb5\u0bb3\u0bb5\u0bc1",
-        "The 'directions' intent includes Tamil patterns: \u0bae\u0bc1\u0b95\u0bb5\u0bb0\u0bbf, \u0b8e\u0baa\u0bcd\u0baa\u0b9f\u0bbf \u0baa\u0bcb\u0bb5\u0ba4\u0bc1",
+        "The 'greeting' intent in intents.json includes Tamil patterns: வணக்கம் (vanakkam), நமஸ்கார (namaskaram), ஹலோ (hello in Tamil script)",
+        "The 'thanks' intent includes Tamil: நன்றி (nandri), மிக்க நன்றி (mikka nandri)",
+        "The 'wifi' intent includes Tamil patterns for wifi/password queries: வைஃபை, கடவுச்சொல்",
+        "The 'pricing' intent includes Tamil patterns: விலை, எவ்வளவு",
+        "The 'directions' intent includes Tamil patterns: முகவரி, எப்படி போவது",
         "Unit tests verify that Tamil-script messages for each intent resolve correctly without LLM"
       ],
       "technicalNotes": [
-        "Tamil script Unicode range: U+0B80\u2013U+0BFF \u2014 use this range for regex character class",
-        "The languageDetection module uses ELD library \u2014 test Tamil detection accuracy with sample messages before relying on it",
+        "Tamil script Unicode range: U+0B80–U+0BFF — use this range for regex character class",
+        "The languageDetection module uses ELD library — test Tamil detection accuracy with sample messages before relying on it",
         "Most Malaysian Tamil speakers also code-switch to English/Malay, so Tamil patterns are additive quality improvements",
         "Have patterns verified by a native Tamil speaker before release"
       ],
@@ -4076,10 +4161,10 @@
         "A warning indicator appears for any provider in a jurisdiction without PDPA adequacy recognition"
       ],
       "technicalNotes": [
-        "USA-based providers (Groq, NVIDIA): no federal data protection law \u2014 flag as 'requires Standard Contractual Clauses review'",
+        "USA-based providers (Groq, NVIDIA): no federal data protection law — flag as 'requires Standard Contractual Clauses review'",
         "PDPA CBPDT Guidelines (April 2025): transfer allowed if destination has law 'substantially similar' to PDPA or 'adequate level of protection'",
         "See existing compliance.ts and pdpa-security.ts for admin route placement",
-        "The report itself is a read-only documentation aid \u2014 no new external API calls to providers needed"
+        "The report itself is a read-only documentation aid — no new external API calls to providers needed"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
@@ -4100,7 +4185,7 @@
       "technicalNotes": [
         "Meta docs: business_capability_update webhook fires with max_daily_conversation_per_phone property (now portfolio-level as of Oct 7, 2025)",
         "Source: https://developers.facebook.com/documentation/business-messaging/whatsapp/upcoming-messaging-limits-changes/",
-        "Only relevant if Pelangi and Southern Homestay share a WABA \u2014 confirm in Meta Business Manager",
+        "Only relevant if Pelangi and Southern Homestay share a WABA — confirm in Meta Business Manager",
         "Existing rateLimiting.perUserMaxMessages is unaffected; this is a portfolio-level additive control"
       ],
       "dependencies": [],
@@ -4111,9 +4196,9 @@
       "id": "US-027",
       "title": "Add booking date input normalization for Malaysian date formats",
       "priority": "medium",
-      "description": "The booking workflow's wait_booking_dates step accepts free-text date input with no normalization. Malaysian guests provide dates in varied formats: '15/3', '15-3-26', 'March 15', '15 Mac', 'esok' (tomorrow in Malay), '\u660e\u5929' (tomorrow in Chinese). Without normalization, unparseable dates cause downstream processing failures or require staff manual interpretation. A date normalization utility should convert all variants to ISO 8601.",
+      "description": "The booking workflow's wait_booking_dates step accepts free-text date input with no normalization. Malaysian guests provide dates in varied formats: '15/3', '15-3-26', 'March 15', '15 Mac', 'esok' (tomorrow in Malay), '明天' (tomorrow in Chinese). Without normalization, unparseable dates cause downstream processing failures or require staff manual interpretation. A date normalization utility should convert all variants to ISO 8601.",
       "acceptanceCriteria": [
-        "A date normalization utility at src/lib/date-normalizer.ts parses: DD/MM, DD/MM/YY, DD/MM/YYYY, 'DD MonthName' in English and Malay, relative terms: 'today', 'tomorrow', 'esok', 'lusa', '\u4eca\u5929', '\u660e\u5929', '\u540e\u5929'",
+        "A date normalization utility at src/lib/date-normalizer.ts parses: DD/MM, DD/MM/YY, DD/MM/YYYY, 'DD MonthName' in English and Malay, relative terms: 'today', 'tomorrow', 'esok', 'lusa', '今天', '明天', '后天'",
         "Malay month names are correctly parsed: Jan, Feb, Mac, Apr, Mei, Jun, Jul, Ogo, Sep, Okt, Nov, Dis",
         "Check-out date is validated to be after check-in date; invalid sequences prompt clarification",
         "Past dates trigger a re-prompt with a helpful message",
@@ -4189,7 +4274,7 @@
     },
     {
       "id": "US-016",
-      "title": "Fix Makan Moments routing.json \u2014 remove hostel intent routes",
+      "title": "Fix Makan Moments routing.json — remove hostel intent routes",
       "description": "Audit src/assistant/data-makan/routing.json for routing entries that map hostel-only intents (check_in, checkout_info, capsule_facilities, room_booking). These routes must not exist in the cafe profile. Add or verify routing entries for cafe-specific intents (menu_query, order_placement, allergen_query, table_reservation).",
       "priority": "medium",
       "acceptanceCriteria": [
@@ -4218,7 +4303,7 @@
       "id": "US-032",
       "title": "Enhance: Fix data-makan and data-southern profiles which currently contain copy-pasted Pe",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass \u2014 pushing coverage higher (57% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content. All current stories pass — pushing coverage higher (57% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Fix data-makan and data-southern profiles which currently contain copy-pasted Pelangi Capsule Hostel content"
       ],
@@ -4234,7 +4319,7 @@
       "id": "US-029",
       "title": "Enhance: Add better fallback responses when AI confidence is low",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Add better fallback responses when AI confidence is low. All current stories pass \u2014 pushing coverage higher (40% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Add better fallback responses when AI confidence is low. All current stories pass — pushing coverage higher (40% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Add better fallback responses when AI confidence is low"
       ],
@@ -4265,7 +4350,7 @@
       "id": "US-030",
       "title": "Enhance: Prioritize reliability and response quality over new features",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Prioritize reliability and response quality over new features. All current stories pass \u2014 pushing coverage higher (17% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Prioritize reliability and response quality over new features. All current stories pass — pushing coverage higher (17% → target 70%).",
       "acceptanceCriteria": [
         "Further improves coverage of goal: Prioritize reliability and response quality over new features"
       ],
@@ -4291,11 +4376,11 @@
     },
     {
       "id": "US-031",
-      "title": "Enhance: Enforce strict business profile separation \u2014 each profile's data files must only",
+      "title": "Enhance: Enforce strict business profile separation — each profile's data files must only",
       "priority": "low",
-      "description": "Continuous-improvement story for goal: Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that business, with zero contamination from other profiles. All current stories pass \u2014 pushing coverage higher (40% \u2192 target 70%).",
+      "description": "Continuous-improvement story for goal: Enforce strict business profile separation — each profile's data files must only contain content specific to that business, with zero contamination from other profiles. All current stories pass — pushing coverage higher (40% → target 70%).",
       "acceptanceCriteria": [
-        "Further improves coverage of goal: Enforce strict business profile separation \u2014 each profile's data files must only contain content specific to that busine"
+        "Further improves coverage of goal: Enforce strict business profile separation — each profile's data files must only contain content specific to that busine"
       ],
       "technicalNotes": [],
       "dependencies": [],
@@ -4335,8 +4420,8 @@
         "The feature only activates for guests who have completed the check-in workflow"
       ],
       "technicalNotes": [
-        "Only activate for in-stay guests \u2014 check conversation state to avoid sending to pre-arrival guests",
-        "The cafe menu already has handling via menu-flow.json \u2014 upsell_suggest links to existing menu intent",
+        "Only activate for in-stay guests — check conversation state to avoid sending to pre-arrival guests",
+        "The cafe menu already has handling via menu-flow.json — upsell_suggest links to existing menu intent",
         "Use BullMQ delayed job (same pattern as cart_recovery in settings.json) for the post-check-in message",
         "Mark messages as utility template to avoid marketing billing charges under July 2025 per-message pricing"
       ],

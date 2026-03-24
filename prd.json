@@ -64,24 +64,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-388",
-      "title": "Booking Confirmation Email Template Profile Validator CLI",
-      "priority": "high",
-      "description": "Scans booking confirmation email templates for hardcoded profile-specific content (business names, amenities, policies). Ensures templates use variables instead of hardcoded values to prevent cross-profile contamination.",
-      "acceptanceCriteria": [
-        "CLI tool: `npx ts-node src/tools/email-template-validator.ts --profile=makan-moments --template=booking-confirmation.html` scans template for hardcoded strings like 'Pelangi', 'capsule', 'hostel' and returns violations with line number and suggested {{PROFILE_NAME}} variable replacement",
-        "Validator must reject templates where profile-specific amenities or branding are hardcoded; must enforce that all profile names use {{PROFILE_NAME}} and profile amenities use {{PROFILE_AMENITIES}} variables",
-        "Test case: if booking-confirmation.html for makan_moments profile contains hardcoded 'Pelangi Capsule Check-in Instructions', validator must fail with violation list showing exact line and suggesting {{PROFILE_NAME}} replacement"
-      ],
-      "technicalNotes": [],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": true,
-      "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-03-24T07:49:42Z"
-    },
-    {
       "id": "US-391",
       "title": "Intent Classification Error Pattern Grouper CLI",
       "priority": "high",
@@ -286,6 +268,23 @@
       "model": "sonnet"
     },
     {
+      "id": "US-410",
+      "title": "Build Intent Classifier Offline Regression Test Dataset from Production Logs",
+      "priority": "high",
+      "description": "Generate a regression test suite from production misclassifications to detect when intent classifier accuracy drops. Load recent messages from database, extract ground-truth intents from successful booking confirmations, store as JSON fixture, and run daily CLI validation.",
+      "acceptanceCriteria": [
+        "CLI command: `npx tsx src/tools/intent-regression-dataset-generator.ts --days=7` exports messages + confirmed intents to `src/__tests__/fixtures/intent-regression-cases.json`",
+        "Regression test in `src/__tests__/intent-classifier-regression.test.ts` validates classifier accuracy against fixture (must maintain ≥90% accuracy baseline)",
+        "Dataset includes at least 50 real booking and inquiry intent examples from database with confidence scores stored"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-397",
       "title": "Build Booking Workflow Step Performance Profiler with Bottleneck Report",
       "priority": "medium",
@@ -369,6 +368,23 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-411",
+      "title": "Create Booking Workflow Step Failure Rate Analytics Endpoint",
+      "priority": "medium",
+      "description": "Add structured audit logging to each booking workflow step, then expose admin endpoint showing step-level success/failure rates to identify bottlenecks (e.g., 'guest validation failing 15% vs. room availability failing 3%').",
+      "acceptanceCriteria": [
+        "New table `booking_workflow_step_audit` (columns: workflow_id, step_name, status, error_reason, duration_ms, executed_at); add to Drizzle schema in `shared/schema-tables.ts`",
+        "All workflow steps in `src/assistant/pipeline/execute-workflow.ts` log execution: `await logWorkflowStep(workflowId, stepName, status, errorMsg)`",
+        "New endpoint `GET /admin/analytics/booking-step-failures` returns JSON with step names, success rate %, avg duration ms, top 3 error reasons per step"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-399",
@@ -655,6 +671,24 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true
+    },
+    {
+      "id": "US-388",
+      "title": "Booking Confirmation Email Template Profile Validator CLI",
+      "priority": "high",
+      "description": "Scans booking confirmation email templates for hardcoded profile-specific content (business names, amenities, policies). Ensures templates use variables instead of hardcoded values to prevent cross-profile contamination.",
+      "acceptanceCriteria": [
+        "CLI tool: `npx ts-node src/tools/email-template-validator.ts --profile=makan-moments --template=booking-confirmation.html` scans template for hardcoded strings like 'Pelangi', 'capsule', 'hostel' and returns violations with line number and suggested {{PROFILE_NAME}} variable replacement",
+        "Validator must reject templates where profile-specific amenities or branding are hardcoded; must enforce that all profile names use {{PROFILE_NAME}} and profile amenities use {{PROFILE_AMENITIES}} variables",
+        "Test case: if booking-confirmation.html for makan_moments profile contains hardcoded 'Pelangi Capsule Check-in Instructions', validator must fail with violation list showing exact line and suggesting {{PROFILE_NAME}} replacement"
+      ],
+      "technicalNotes": [],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-03-24T07:49:42Z"
     },
     {
       "id": "US-385",

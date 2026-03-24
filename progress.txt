@@ -1069,3 +1069,43 @@ Here is a technical brief for implementing the user story in a Frappe/Python env
 ✅ Validator rejects templates with hardcoded profile names for profile-name fields
 ✅ Supports all profiles: pelangi-capsule, makan-moments, southern-homestay
 ✅ Integration tests verify line number accuracy and violation detection
+## Iteration 1 - Tue, Mar 24, 2026  3:57:15 PM
+FAILED diagnosis-block gate: Booking Confirmation Email Template Profile Validator CLI (ID: US-388) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-405 (Gemini 2.5 Pro)
+Based on the user story JSON, the request is for a **Node.js/TypeScript CLI script**, not a Frappe/Python one. The `npm run` command and `.json` file focus confirm this.
+
+Here is the technical brief for that task:
+
+**Project:** Node.js/TypeScript application
+**Objective:** Create a CLI script to clean cross-profile data contamination in JSON files.
+
+**1. Files to Modify/Create:**
+*   **Create:** `scripts/fix-contamination.ts` - This new file will contain the main script logic.
+*   **Modify:** `package.json` - To add the `fix:contamination` command to the `scripts` section.
+*   **Target Data Files (Read/Write):**
+    *   `src/assistant/data/[profile]/intent-keywords.json`
+    *   `src/assistant/data/[profile]/routing.json`
+    *   `src/assistant/data/[profile]/knowledge.json`
+
+**2. Involved Frameworks/Hooks (Node.js/TypeScript context):**
+*   **Framework:** Node.js for the runtime environment.
+*   **Hooks:** The `npm run fix:contamination` entry in `package.json`'s `scripts` object acts as the execution hook.
+*   **Libraries:** `yargs` or `commander` for robust CLI argument parsing (`--profile`, `--confirm`). `fs.promises` for file I/O. `jest-diff` for generating before/after diffs.
+
+**3. Recommended Implementation Approach:**
+1.  In `scripts/fix-contamination.ts`, parse CLI args to get `profile` and `confirm` flag.
+2.  Define a constant array of "contaminant" keywords (e.g., `['capsule', 'dormitory', 'shared-bathroom']`).
+3.  Load the three target `.json` files from the specified profile's directory.
+4.  Create deep copies of the original JSON objects for comparison.
+5.  Recursively iterate through the loaded JSON objects and remove any string values or keys that match the contaminant list.
+6.  Use a diffing library to generate a colorized before/after diff and print it to `stdout`.
+7.  If the `--confirm` flag is present, write the cleaned JSON objects back to their files and save timestamped backups of the originals (e.g., `intent-keywords.json.bak.20260324T...`).
+
+**4. Edge Cases & Gotchas:**
+*   The script must handle missing `--profile` argument gracefully.
+*   Implement a "dry run" mode where if `--confirm` is omitted, the script only prints the diff without writing files.
+*   Ensure file-not-found and invalid-JSON errors are caught and handled.
+*   The contamination check should match whole keywords, not substrings, to avoid false positives.
+
