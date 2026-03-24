@@ -18,7 +18,7 @@ window.PROFILE_SPECIFIC_TABS = PROFILE_SPECIFIC_TABS;
 
 // Default known profile IDs (updated by profile-switcher.js after API load)
 if (!window.KNOWN_PROFILE_IDS) {
-  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern'];
+  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern', 'yoongmei'];
 }
 
 /**
