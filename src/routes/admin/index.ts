@@ -61,6 +61,7 @@ import phoneQualityRoutes from './phone-quality.js';
 import whatsappCostRoutes from './whatsapp-cost.js';
 import analyticsLatencyRoutes from './analytics-latency.js';
 import analyticsKpisRoutes from './analytics-kpis.js';
+import analyticsIntentConfidenceDistributionRoutes from './analytics-intent-confidence-distribution.js'; // US-359: Per-intent confidence percentile analytics
 import slowQueriesRoutes from './slow-queries.js';
 import fallbackAlertRoutes from './fallback-alert.js';
 import jidRateLimiterRoutes from './jid-rate-limiter.js';
@@ -351,6 +352,7 @@ router.use(phoneQualityRoutes);
 router.use(whatsappCostRoutes);
 router.use(analyticsLatencyRoutes);
 router.use(analyticsKpisRoutes);
+router.use(analyticsIntentConfidenceDistributionRoutes); // US-359: Intent confidence percentile distribution
 router.use(slowQueriesRoutes);
 router.use(fallbackAlertRoutes);
 router.use(jidRateLimiterRoutes);
