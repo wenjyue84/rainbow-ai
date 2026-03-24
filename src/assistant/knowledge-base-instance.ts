@@ -112,7 +112,12 @@ export class KnowledgeBaseInstance {
     if (this.kbPatternsConfig) return this.kbPatternsConfig;
     try {
       const configPath = resolve(this.dataDir, 'kb-patterns.json');
-      this.kbPatternsConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const parsed = JSON.parse(readFileSync(configPath, 'utf-8'));
+      this.kbPatternsConfig = {
+        coreFiles: parsed.coreFiles || ['AGENTS.md', 'soul.md'],
+        defaultFallback: parsed.defaultFallback || 'faq.md',
+        patterns: parsed.patterns || [],
+      };
       console.log(`[KB:${this.profileId}] Loaded ${this.kbPatternsConfig!.patterns.length} topic patterns from kb-patterns.json`);
       return this.kbPatternsConfig!;
     } catch (err: any) {
