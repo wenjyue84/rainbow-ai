@@ -101,3 +101,48 @@ Here is the technical brief based on the actual NestJS/TypeScript context:
 
 ### Gotchas
 - Attempt 1 failed due to DIAGNOSIS_BLOCK_MISSING gate; diagnosis block must be output as plain text BEFORE any file edits
+
+## Iteration 5 - Story: Create Profile-Specific Intent Whitelist Validator CLI (US-363) ✓ COMPLETE
+### What was implemented
+- `src/data/profile-intent-whitelist.json` — already existed with well-structured canonical intent ownership per profile (makan, pelangi, southern + shared_intents)
+- `src/tools/validate-profile-intents-cli.ts` — already existed with full validation logic (loadWhitelist, validateRoutingContent, validateAllProfiles, findIntentLineNumber, findOwningProfile)
+- `npm run validate:profile-intents` — already in package.json
+- Created `src/__tests__/profile-intent-whitelist-validator.integration.test.ts` — 16 tests covering all acceptance criteria
+
+### Patterns discovered
+- Integration tests: named `*.integration.test.ts`, placed in `src/__tests__/`
+- rootDir from `src/__tests__/`: use `resolve(currentDir, '..', '..')` (2 levels up), NOT 3
+- Import path from `src/__tests__/` to `src/tools/`: use `../tools/` (not `../../tools/`)
+- CLI already detected real violations in southern routing.json (31 cross-profile contaminations)
+
+### Gotchas
+- Story was mostly pre-implemented; only integration test was missing
+- rootDir calculation off-by-one caused test failure on first run (3 levels vs 2 levels up)
+
+## Iteration 9 - Story: Create Profile-Specific Intent Whitelist Validator CLI (US-363) ✓ COMPLETE
+### What was implemented
+- Created `src/data/profile-intent-whitelist.json` with canonical intent ownership per profile:
+  - `shared_intents`: greeting, thanks, contact_staff, unknown, emergency, etc. (allowed in all profiles)
+  - `makan.owned_intents`: seasonal_inquiry, menu_question, menu_query, order_placement, etc.
+  - `pelangi.owned_intents`: booking_request, room_inquiry, checkin_info, pelangi_booking_inquiry, etc.
+  - `southern.owned_intents`: booking, availability, checkin_info, billing_inquiry, etc.
+- Created `src/tools/validate-profile-intents-cli.ts` with:
+  - `loadWhitelist()`, `validateRoutingContent()`, `findIntentLineNumber()`, `findOwningProfile()`, `validateAllProfiles()` — all exported for testing
+  - Reports violations with: filename, line number, intent name, contaminating profile
+  - Exit 0 on pass, 1 on violation
+  - Guards `main()` with ESM entry-point check (prevents process.exit on import)
+- Added `"validate:profile-intents"` to package.json scripts
+- Created `src/__tests__/profile-intent-whitelist-validator.test.ts` with 25 tests:
+  - Whitelist structure validation
+  - findIntentLineNumber / findOwningProfile unit tests
+  - validateRoutingContent with clean/contaminated/multi-violation fixtures
+  - Exit code simulation: makan routing with pelangi_booking_inquiry → exit 1
+
+### Patterns discovered
+- CLI entry-point guard needed in ESM: compare `fileURLToPath(import.meta.url)` with `process.argv[1]`
+- `main()` calling `process.exit()` breaks Vitest imports — always guard with isMain check
+- The actual routing files (pelangi + southern) have cross-profile intents (ORDER_BROWSE etc. in pelangi) — CLI correctly flags them as real contamination. Whitelist reflects aspirational ownership, not current state.
+
+### Gotchas
+- Windows path separators — replace `\` with `/` before comparing for ESM entry-point detection
+- prd.json requires utf-8 encoding in Python (has non-ASCII characters)
