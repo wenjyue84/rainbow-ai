@@ -139,18 +139,3 @@ export const intentClassificationThresholds = pgTable("intent_classification_thr
 export type IntentClassificationThreshold = typeof intentClassificationThresholds.$inferSelect;
 export type InsertIntentClassificationThreshold = typeof intentClassificationThresholds.$inferInsert;
 
-export const experimentMetrics = pgTable("experiment_metrics", {
-  id: serial("id").primaryKey(),
-  experimentId: varchar("experiment_id").notNull(),
-  metric: varchar("metric").notNull(),
-  value: real("value").notNull(),
-  variant: varchar("variant").notNull(),
-  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
-}, (table) => ([
-  index("idx_experiment_metrics_experiment_id").on(table.experimentId),
-  index("idx_experiment_metrics_variant").on(table.variant),
-  index("idx_experiment_metrics_recorded_at").on(table.recordedAt),
-]));
-
-export type ExperimentMetrics = typeof experimentMetrics.$inferSelect;
-export type InsertExperimentMetrics = typeof experimentMetrics.$inferInsert;
