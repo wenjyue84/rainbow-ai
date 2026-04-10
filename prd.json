@@ -321,12 +321,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-10T21:35:54Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\n- Database: PostgreSQL with `intent_analytics` table (profileId, intentType, confidence, createdAt)\n- Existing tools: Multiple analytics CLI tools in `src/tools/` using similar patterns\n- Missing: CLI tool `intent-confidence-analyzer.ts` to compute percentiles and generate tiered report\n\n## Problem Identified\n\nThe `intent_analytics` table exists but there's no CLI tool to:\n1. Query last 30 days of classifications\n2. Compute median/p25/p75 percentiles per intent type per profile\n3. Categorize into tiers: Low (<65%), Medium (65-80%), High (80%+)\n4. Identify top 5 struggling intents needing data augmentation\n\n## Planned Changes\n\n1. **`src/tools/intent-confidence-analyzer.ts`**: New CLI tool with SQL query, percentile calculations, tier categorization, and CSV export\n2. **`package.json`**: Add `analyze:intent-confidence` script pointing to the new tool\n3. **`src/__tests__/intent-confidence-analyzer.test.ts`**: Unit tests for percentile calculation logic and report generation\n4. Build & test to verify performance and accuracy\n\nLet me start by creating the analyzer:\nNow add the npm script to package.json:\nNow create comprehensive tests:\nNow let's run quality checks. First, run the tests:\nExcellent! All 20 tests pass. Now let's build and verify:\nPerfect! All quality checks pass. Now update prd.json to mark US-400 as complete:\nPerfect! **US-400: Intent Confidence Tier Analyzer** is now complete.\n\n## Summary"
-      },
-      "_passedCommit": "798fdf60ea7b2ef83aa5dd9d03d9ecaea5aef39c"
+      "model": "haiku"
     },
     {
       "id": "US-401",
@@ -348,8 +343,7 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-10T21:39:56Z"
+      "model": "haiku"
     },
     {
       "id": "US-402",
@@ -520,6 +514,441 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-411",
+      "title": "Booking Intent Required Fields Validator",
+      "priority": "high",
+      "description": "Validate that booking intents contain essential information (guest name, dates, room type) before proceeding with workflow steps. Returns list of missing required fields to guide conversation or reject incomplete booking intents.",
+      "acceptanceCriteria": [
+        "Create src/assistant/validators/booking-fields-validator.ts with validateBookingIntent(intent: Intent, profile: string) → {isValid: boolean, missingFields: string[]}",
+        "Function checks for required fields: guest_name, check_in_date, check_out_date, room_type; returns specific missing fields",
+        "Integrate validator into booking workflow stage via src/assistant/pipeline/stages/booking-validator.ts to reject booking intents with missing fields"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/validators/booking-fields-validator.ts",
+        "File to modify: src/assistant/pipeline/stages/booking-validator.ts (integrate validation check)",
+        "Test command: npm run test -- tests/validators/booking-fields-validator.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-412",
+      "title": "Confidence-Tiered Fallback Response Selector with Profile Isolation",
+      "priority": "high",
+      "description": "Create a fallback response selection system that chooses responses based on confidence score buckets and profile, preventing cross-profile contamination. Tier 0 (conf <0.3) escalates, Tier 1 (0.3-0.6) provides partial response with uncertainty disclaimer, Tier 2 (0.6+) provides full response.",
+      "acceptanceCriteria": [
+        "New file src/assistant/data/fallback-responses.json with structure { profile: { tier0: [...], tier1: [...], tier2: [...] } } containing profile-specific responses",
+        "Fallback selector in src/assistant/pipeline/fallback-selector.ts selects tier based on confidence score and retrieves response for current profile only",
+        "Test validates zero cross-profile contamination: scanning all tier responses for makan profile contains zero Pelangi Hostel keywords like 'hostel', 'check-in', 'room rate'"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/fallback-responses.json (JSON structure, no code)",
+        "File to create: src/assistant/pipeline/fallback-selector.ts (replaces simple fallback string selection with tier-based lookup)",
+        "Test command: uv run npm run test:run -- tests/pipeline/fallback-selector.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-413",
+      "title": "Booking Workflow Checkpoint Save and Resume System",
+      "priority": "high",
+      "description": "Add ability to save booking workflow state at critical steps and resume from checkpoints on failure. Enables recovery from transient errors without restarting the entire booking flow.",
+      "acceptanceCriteria": [
+        "New table booking_workflow_checkpoints with columns: id, profile, user_id, workflow_id, step_number, state_json, created_at, expires_at",
+        "Booking workflow saves checkpoint after steps 2 (validate inputs), 4 (confirm booking), 6 (process payment); checkpoint includes all user inputs and intermediate state",
+        "Test verifies: save checkpoint after step 3, simulate error, recover checkpoint, resume at step 4 with all previous inputs intact"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/booking-checkpoint.ts (saveCheckpoint, loadCheckpoint, resumeFromCheckpoint functions)",
+        "File to create: src/lib/checkpoint-store.ts (manages checkpoint DB operations with Drizzle)",
+        "File to modify: shared/schema-tables.ts (add booking_workflow_checkpoints table definition)",
+        "Test command: uv run npm run test:run -- tests/pipeline/booking-checkpoint.test.ts && npm run db:push"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-416",
+      "title": "Knowledge Base Profile Isolation Index Builder",
+      "priority": "high",
+      "description": "Create metadata index of all KB files by profile and detect cross-profile references, enforcing strict content isolation between Pelangi, Makan, and Southern businesses",
+      "acceptanceCriteria": [
+        "CLI `npm run index:kb-profiles` scans .rainbow-kb/ and .rainbow-kb-southern/ directories, generates isolation report with cross-profile keyword violations",
+        "Index identifies which KB files contain content specific to wrong profile (e.g., Pelangi keywords in Makan files)",
+        "Test: detect that 'Pelangi Capsule Hostel' keyword appears in data-makan profile files and reports file path with line number"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/kb-profile-indexer.ts (buildProfileIndex, detectCrossProfileReferences functions)",
+        "File to reference: .rainbow-kb/ and .rainbow-kb-southern/ (scan targets for contamination)",
+        "Test command: npm run test tests/unit/kb-profile-indexer.test.ts",
+        "Test command: npm run index:kb-profiles > kb-isolation-report.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-419",
+      "title": "Intent Classification F1 Score Regression Test Suite",
+      "priority": "high",
+      "description": "Automated test suite that verifies intent classification accuracy stays above baseline for each business profile. Fails if accuracy drops, reports confusion matrix of common misclassifications to guide improvements.",
+      "acceptanceCriteria": [
+        "Test file runs classification on 100+ labeled test cases per profile; fails if F1 score drops >5% from baseline",
+        "Reports confusion matrix showing which intents are most often misclassified (e.g., booking vs. inquiry)",
+        "Baselines stored in prd.json intentClassificationBaselines section; can be updated via --update-baseline flag"
+      ],
+      "technicalNotes": [
+        "File to create: tests/test_intent_regression.ts (full regression test suite with test case loader)",
+        "File to update: prd.json (add intentClassificationBaselines: {pelangi: {booking: 0.87}, makan: {booking: 0.82}})",
+        "Test command: npm run test:intent-regression (adds new script to package.json scripts section)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-421",
+      "title": "Booking Intent Entity Extraction Accuracy Test Suite",
+      "priority": "high",
+      "description": "Create comprehensive test suite validating that booking intents correctly extract required entities (guest name, check-in/check-out dates, room count) with edge case coverage and per-profile extraction accuracy reporting.",
+      "acceptanceCriteria": [
+        "Test suite in tests/test_booking_entity_extraction.ts validates extraction of guest_name, check_in_date, check_out_date, room_type from booking messages with >50 test cases covering partial dates, name variations, unclear formats, missing fields",
+        "CLI npm run test:booking-entities outputs JSON report with per-entity extraction precision/recall by profile (pelangi, makan, southern) and intent type",
+        "Integration test validates entity extractor against tests/fixtures/booking_messages.jsonl with assertions on field coverage >95% for valid messages"
+      ],
+      "technicalNotes": [
+        "File to edit: tests/test_booking_entity_extraction.ts (test fixtures and assertion helpers)",
+        "File to edit: src/assistant/schemas.ts (add BookingEntitySchema for runtime validation)",
+        "Test command: uv run npm run test -- tests/test_booking_entity_extraction.ts -v --reporter=verbose",
+        "Integration test: npm run test:booking-entities tests/fixtures/booking_messages.jsonl and validate output schema"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-422",
+      "title": "Intent-Specific Confidence Thresholds Configuration",
+      "priority": "high",
+      "description": "Add per-intent-type confidence thresholds to settings.json and integrate into classify-intent pipeline, allowing booking (0.75), inquiry (0.65), maintenance (0.70), escalation (0.80) to use intent-specific triggers instead of global fallback.",
+      "acceptanceCriteria": [
+        "Config src/assistant/data/settings.json adds confidence_thresholds object with threshold values per intent_type (booking, inquiry, maintenance, escalation, unknown_intent) that classification pipeline reads on startup",
+        "Pipeline stage src/assistant/pipeline/classify-intent.ts calls getIntentSpecificThreshold(intent_type, profile) to determine threshold before deciding fallback; logs decision with intent_type and actual threshold used at DEBUG level",
+        "Admin endpoints POST /admin/confidence-thresholds/{profile} updates thresholds (stores in DB and local config), GET /admin/confidence-thresholds returns current thresholds per profile; test validates threshold enforcement in classification logic"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/settings.json (add confidence_thresholds schema)",
+        "File to edit: src/assistant/pipeline/classify-intent.ts (add getIntentSpecificThreshold function, update classification logic)",
+        "File to edit: src/routes/admin/config.ts (POST/GET /admin/confidence-thresholds endpoints)",
+        "Test command: uv run npm run test -- tests/test_confidence_thresholds.ts -v --testNamePattern='threshold|fallback'",
+        "Verify fallback triggers on low confidence using intent-specific thresholds"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-423",
+      "title": "Conversation Turn Count Limiter with Smart Context Pruning",
+      "priority": "high",
+      "description": "Enforce maximum conversation turn limits to prevent context window explosion while preserving conversation coherence by intelligently pruning oldest message pairs",
+      "acceptanceCriteria": [
+        "Enforce configurable max turn count (default 20) in src/assistant/conversation/loader.ts when loading conversation history",
+        "Implement smart pruning that removes oldest user/assistant pairs while preserving system context and recent conversation flow",
+        "Track conversation turn count and pruning events in rainbow_conversations table and debug logs for analysis"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/config/index.ts - add max_conversation_turns config setting with default 20",
+        "File to edit: src/assistant/conversation/loader.ts - implement pruning logic in loadConversationHistory() after fetching messages from DB",
+        "Update shared/schema-tables.ts to add conversation_turn_count and last_pruned_at columns to rainbow_conversations table",
+        "Test command: uv run vitest tests/assistant/conversation/loader.test.ts --grep 'turn.*limit' -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-424",
+      "title": "Booking Workflow State Transition Validator with Path Coverage",
+      "priority": "high",
+      "description": "Validate that workflows.json defines correct state transitions for booking flows, detect unreachable states, and provide testing tools to ensure all paths are valid",
+      "acceptanceCriteria": [
+        "Parse workflows.json and build state transition graph, detect invalid jumps and unreachable states, report violations",
+        "Validate that each workflow step has valid next_step references and no cycles (except error-recovery loops)",
+        "CLI 'npm run validate:booking-workflows [--test-all-paths]' validates structure and optionally simulates all reachable booking paths"
+      ],
+      "technicalNotes": [
+        "New file: src/tools/booking/workflow-state-validator.ts - implement parseWorkflows() and validateTransitions() functions",
+        "Load workflows.json from src/assistant/data/workflows.json, build directed graph, detect cycles and unreachable nodes",
+        "Create src/cli/validate-booking-workflows.ts as CLI entry point with --test-all-paths flag for path coverage analysis",
+        "Test command: uv run vitest tests/tools/booking/workflow-state-validator.test.ts -v && npm run validate:booking-workflows --test-all-paths"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-425",
+      "title": "Profile-Aware Intent Keyword Validator with Cross-Profile Isolation",
+      "priority": "high",
+      "description": "Enforce strict keyword isolation across business profiles by detecting and preventing keyword contamination from other profiles (e.g., Pelangi keywords leaking into Makan profile)",
+      "acceptanceCriteria": [
+        "Detect duplicate or overlapping keywords across profiles in intent-keywords.json, flag contamination violations",
+        "Validate keyword semantic relevance to profile context (e.g., hostel terms shouldn't appear in cafe profile)",
+        "CLI 'npm run validate:profile-keywords [--profile <profile>] [--fix]' audits and optionally auto-removes contaminating keywords"
+      ],
+      "technicalNotes": [
+        "New file: src/lib/validation/profile-keyword-validator.ts - implement validateProfileKeywords(profile) and detectCrossProfileContamination() functions",
+        "Load intent-keywords.json per profile from src/assistant/data/<profile>/intent-keywords.json, compare keyword sets across all profiles",
+        "Create src/cli/validate-profile-keywords.ts as CLI entry point with --profile and --fix flags to audit or auto-repair contamination",
+        "Test command: uv run vitest tests/lib/validation/profile-keyword-validator.test.ts -v && npm run validate:profile-keywords --profile makan"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-426",
+      "title": "Intent Classification Latency Monitor with Percentile Tracking",
+      "priority": "medium",
+      "description": "Add monitoring to track how long each intent classification takes, identify performance bottlenecks, and alert when classification exceeds target SLAs by storing percentile metrics in database",
+      "acceptanceCriteria": [
+        "Track latency for each intent classification in src/assistant/pipeline/classifier.ts classify() function and store p50, p95, p99 percentiles",
+        "CLI command 'npm run analytics:intent-latency <intent> [--profile <profile>]' displays latency metrics and identifies slow intents",
+        "Intent classification metrics persisted in new intent_classification_metrics database table with intent_id, latency_ms, profile_id, and timestamp columns"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/classifier.ts - wrap classify() call with performance.now() timing",
+        "New file: src/lib/monitoring/latency-tracker.ts - export recordIntentLatency(intentId, durationMs, profileId) function",
+        "Update shared/schema-tables.ts to add intent_classification_metrics table schema",
+        "Test command: uv run vitest tests/monitoring/latency-tracker.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-427",
+      "title": "Fallback Response Diversity Checker with Repetition Prevention",
+      "priority": "medium",
+      "description": "Prevent fallback response fatigue by tracking recently-used fallbacks and rejecting semantically similar responses, ensuring users don't receive repetitive replies",
+      "acceptanceCriteria": [
+        "Maintain sliding window of last 5 fallbacks per conversation session in memory and compare against candidate fallbacks",
+        "Reject fallback candidates with semantic similarity > 0.85 (cosine distance) using AI embeddings or TF-IDF approximation",
+        "CLI 'npm run validate:fallback-diversity <profile>' audits all knowledge.json fallbacks to detect internal duplication and suggest alternatives"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/fallback/selector.ts - add diversity check in selectFallback() before returning candidate",
+        "New file: src/lib/embeddings/semantic-similarity.ts - implement similarity(text1, text2) using existing AI provider or TF-IDF",
+        "Create src/cli/validate-fallback-diversity.ts as CLI entry point to audit knowledge.json per profile",
+        "Test command: uv run vitest tests/assistant/fallback/selector.test.ts --grep 'diversity' -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-428",
+      "title": "Booking Step Execution Failure Recovery with Step-Specific Rollback",
+      "priority": "high",
+      "description": "When a booking workflow step fails, automatically rollback previous successful steps using step-specific undo logic defined in workflows.json. This ensures booking transactions remain consistent and users don't get charged for incomplete bookings.",
+      "acceptanceCriteria": [
+        "Payment step failure triggers automatic refund generation and stores refund record in app_settings",
+        "Room assignment step failure releases reserved unit back to availability in external system",
+        "Rollback sequence respects dependency order (reverse topological sort of steps)"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/workflows.json - add rollback_on_failure and rollback_steps fields to booking step schema",
+        "File to edit: src/assistant/pipeline/booking-execution.ts - implement rollback executor with step-specific handlers",
+        "File to create: tests/booking-rollback.test.ts - test rollback sequence and state consistency",
+        "Test command: uv run npm test -- booking-rollback.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-429",
+      "title": "Intent Classification Ambiguity Resolver with Multi-Intent Detection",
+      "priority": "high",
+      "description": "Detect when messages match multiple intents with confidence > 0.6, rank by confidence delta, and either ask clarifying questions or use highest-confidence intent with confidence-weighted context injection.",
+      "acceptanceCriteria": [
+        "System detects messages matching 2+ intents with confidence > 0.6 (e.g., booking + question about amenities)",
+        "Generate clarifying question if top 2 intents differ by < 0.2 confidence; otherwise auto-select highest confidence intent",
+        "All multi-intent detections logged to intent_analytics table with intent_pair, confidence_scores, and resolution_method fields"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts - add multi_intent_matches array to classifier output",
+        "File to create: src/assistant/pipeline/clarification-generator.ts - implement intent-pair clarification templates",
+        "File to create: tests/ambiguity-resolver.test.ts - test multi-intent detection and clarification triggers",
+        "Test command: uv run npm test -- ambiguity-resolver.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-430",
+      "title": "Booking Confirmation Retryable Step Timeout Handler with Admin Escalation",
+      "priority": "high",
+      "description": "For workflow steps waiting on external confirmation (payment approval, admin review), add configurable timeout with automatic escalation notification to admin and periodic user status messages.",
+      "acceptanceCriteria": [
+        "Payment confirmation step times out after 5 minutes, triggers admin WhatsApp notification via /escalations endpoint with booking details",
+        "User receives 'checking your payment' status message every 2 minutes during timeout period",
+        "Timeout and escalation config stored in workflows.json under each step with timeout_seconds and escalation_message fields"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/workflows.json - add timeout_seconds and escalation_message to confirmation step schema",
+        "File to edit: src/assistant/pipeline/step-executor.ts - implement timeout handler with setInterval status messages",
+        "File to edit: src/routes/admin/escalations.ts - add escalation trigger when timeout fires",
+        "Test command: uv run npm test -- step-timeout.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-431",
+      "title": "Multi-Turn Context Summarization for Long Conversations",
+      "priority": "medium",
+      "description": "Automatically summarize conversation history when messages exceed 15 turns to preserve booking context and user preferences while reducing token usage. Maintains full history in debug mode for transparency.",
+      "acceptanceCriteria": [
+        "Summary extraction captures booking details (dates, unit type, guest count) and user preferences with 100% accuracy on booking-related info",
+        "Summarized context injected into inference pipeline, reducing token count by 40-60% on long conversations",
+        "Full message history remains accessible via /debug/conversation/:id endpoint for support troubleshooting"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/context-summarizer.ts - implement turn-threshold detection and summary generation",
+        "File to edit: shared/schema-tables.ts - add conversation_summaries table with summary_text and turn_range fields",
+        "File to create: tests/context-summarizer.test.ts - test summary accuracy and history retrieval",
+        "Test command: uv run npm test -- context-summarizer.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-432",
+      "title": "Fallback Response A/B Testing Framework with Confidence Bucketing",
+      "priority": "medium",
+      "description": "For low-confidence scenarios (0.3-0.9), randomly assign users to variant A or B fallback responses, track user feedback on each variant, calculate weekly win-rate by profile to identify highest-performing fallback messages.",
+      "acceptanceCriteria": [
+        "Fallback response variants assigned by confidence bucket (0.3-0.5, 0.5-0.7, 0.7-0.9) using deterministic randomization based on conversation_id",
+        "Variant assignment and feedback stored in conversation_feedback table with variant_assigned and user_rating fields",
+        "Weekly /admin/ab-testing/report endpoint returns win-rate by variant and profile with sample size and statistical significance"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/fallback-selector.ts - add variant bucketing and deterministic randomization logic",
+        "File to edit: shared/schema-tables.ts - add variant_assigned field to conversation_feedback table",
+        "File to create: src/routes/admin/ab-testing.ts - implement /report endpoint with variant win-rate aggregation",
+        "Test command: uv run npm test -- ab-testing.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-433",
+      "title": "Fallback Response Escalation Router with Confidence Tiers and Handoff Thresholds",
+      "priority": "high",
+      "description": "Route low-confidence responses through escalation tiers (simple fallback → contextual fallback → human handoff) with profile-specific confidence thresholds to improve response quality",
+      "acceptanceCriteria": [
+        "Create src/assistant/fallback/escalation-router.ts with three tiers: SIMPLE (conf < 0.3), CONTEXTUAL (0.3-0.6), ESCALATE (>0.6 but still low), returning tier-appropriate response templates",
+        "Add profile-specific confidenceThresholds in src/assistant/data/settings.json for pelangi/makan/southern with JSON schema validation in src/lib/config.ts",
+        "Test in tests/integration/fallback-escalation.test.ts verifying correct tier selection per profile and zero cross-profile fallback contamination"
+      ],
+      "technicalNotes": [
+        "File to modify: src/assistant/pipeline/response-handler.ts (call escalation-router before sending response)",
+        "Load thresholds from settings.json on startup: {thresholds: {pelangi: {simple: 0.3, contextual: 0.6}, ...}}",
+        "Test command: uv run pytest tests/integration/fallback-escalation.test.ts::test_tier_selection_by_profile -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-434",
+      "title": "Booking Intent Slot-Filling State Machine with Progressive Field Prompting",
+      "priority": "medium",
+      "description": "Track required booking fields (guest name, check-in date, room type) across conversation turns and progressively prompt for missing fields to complete bookings with fewer user clarifications",
+      "acceptanceCriteria": [
+        "Create src/assistant/state/slot-filling.ts with BookingSlots enum and SlotFillingState class tracking filled/empty slots across turns",
+        "Implement in src/assistant/pipeline/intent-handler.ts: when booking intent detected with incomplete slots, queue targeted prompts for missing fields extracted from KB",
+        "Add test in tests/unit/slot-filling.test.ts verifying 3+ turn conversations correctly fill booking slots and generate contextual follow-up questions"
+      ],
+      "technicalNotes": [
+        "File to extend: src/assistant/schemas.ts (add slotFilling?: SlotFillingState to IntentContext)",
+        "Use regex patterns in .rainbow-kb/booking-fields.md to extract check-in date, guest name from user messages",
+        "Test command: uv run pytest tests/unit/slot-filling.test.ts::test_progressive_slot_filling -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-435",
+      "title": "Intent Classification Per-Profile Accuracy Metrics Dashboard CLI",
+      "priority": "medium",
+      "description": "Generate per-profile precision/recall/F1 scores for intent classification from recent message logs to identify which profiles and intents need improvement",
+      "acceptanceCriteria": [
+        "Create CLI tool at tools/cli/intent-metrics.ts that queries rainbow_messages table filtered by profile with --profile flag, calculates per-profile F1 scores from last 7 days",
+        "Dashboard output shows top 3 misclassified intents per profile with example messages and confidence distributions (JSON and human-readable table formats)",
+        "Add getMessagesByProfile(profile, days) function in src/lib/db.ts for metric calculation queries"
+      ],
+      "technicalNotes": [
+        "Query file: src/lib/db.ts (SELECT profile, predicted_intent, actual_intent FROM rainbow_messages WHERE created_at > now() - interval)",
+        "Metrics: accuracy = sum(correct)/total, precision = TP/(TP+FP), recall = TP/(TP+FN), F1 = 2*(precision*recall)/(precision+recall)",
+        "Test command: uv run npx tsx tools/cli/intent-metrics.ts --profile pelangi --output json --days 7"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

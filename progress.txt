@@ -1789,3 +1789,74 @@ SKIPPED: US-396 after 3 failed attempts
 ## Iteration 1 - Sat, Apr 11, 2026  5:39:55 AM
 Completed: Intent Confidence Tier Analyzer (ID: US-400) in 7m
 
+## Iteration 1 - Sat, Apr 11, 2026  5:40:54 AM
+Completed: Intent Confidence Tier Analyzer (ID: US-400) in 3m
+
+
+## Pre-analysis for US-401 (Gemini 2.5 Pro)
+Here is the technical brief for implementing US-401 in a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**Story:** US-401 - Multi-Turn Accuracy Baseline by Context Window Size
+
+**1. Python Files to Modify/Create:**
+
+*   **Create:** `lhdn_payroll_integration/lhdn_payroll_integration/scripts/context_window_benchmark.py`. This will be the main script to execute the benchmark logic.
+*   **Create:** `lhdn_payroll_integration/tests/fixtures/validation_conversations.jsonl`. This file will store the labeled conversation data for testing.
+*   **Modify:** A core classification service file, likely `lhdn_payroll_integration/lhdn_payroll_integration/services/intent_classifier.py` (or equivalent), to expose a method that accepts conversation history of a variable length.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType:** The benchmark might run per "Profile". This likely maps to an existing `Profile` DocType. The final recommendations should be linkable to it.
+*   **New DocType (Optional):** Consider a `Benchmark Report` DocType to store historical results, linking to a Profile and recording accuracy metrics.
+*   **Hooks (`hooks.py`):** The script can be exposed as a `bench` command. Add an entry to `get_app_commands` in `hooks.py` to make it runnable via `bench execute`.
+
+**3. Implementation Approach:**
+
+1.  In `context_window_benchmark.py`, implement a function to parse the `validation_conversations.jsonl` fixture.
+2.  Iterate through the specified context window sizes (3, 5, 10, 20).
+3.  For each size, loop through the validation dataset. Pass the conversation history, sliced to the current window size, to the intent classifier.
+4.  Compare the returned intent against the ground-truth label in the fixture to calculate accuracy.
+5.  Print a report to the console detailing accuracy deltas between window sizes.
+6.  Generate the final `recommendations.json` file with the optimal window size per profile.
+
+**4. Edge Cases & Gotchas:**
+
+*   Ensure the benchmark script properly initializes the Frappe framework (`frappe.init`) to access framework functions if needed, but it should primarily be a data-in, data-out process.
+*   The classification function must be stateless or reset for each conversation to avoid data contamination between tests.
+*   For large validation sets, the script could be long-running. Implement progress logging.
+*   Ensure statistical calculations for confidence intervals are correct; add `scipy` or `numpy` to `requirements.txt` if necessary.
+
+
+## Pre-analysis for US-401 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not a Frappe/Python application. The technical notes reference `.ts` files, `npm`, and a directory structure that matches the current workspace, not a Frappe app.
+
+Here is the technical brief based on the provided JSON, adapted for the actual TypeScript project:
+
+**Project:** Rainbow AI Assistant (TypeScript)
+**User Story:** US-401: Multi-Turn Accuracy Baseline
+
+**1. Files to Create / Modify:**
+*   **Create:** `tools/context-window-benchmark.ts`: The main benchmarking script.
+*   **Create:** `tests/fixtures/validation_conversations.jsonl`: Labeled dataset for validation.
+*   **Modify:** `src/assistant/knowledge-base-instance.ts`: To expose conversation history.
+*   **Create:** `tools/context-window-benchmark.test.ts`: Unit tests for the benchmark script itself.
+
+**2. Key Classes & Modules Involved:**
+*   `KnowledgeBaseInstance`: Core class to be modified to expose a `getConversationContext(count: number)` method, allowing controlled access to conversation history.
+*   Intent Classification Service: The underlying module that performs intent recognition, which will be invoked by the benchmark script.
+
+**3. Recommended Implementation Approach:**
+1.  Implement `getConversationContext(count: number)` in `KnowledgeBaseInstance` to return the last `count` messages.
+2.  Create the benchmark script in `tools/context-window-benchmark.ts`.
+3.  The script should load `validation_conversations.jsonl`, then for each conversation, loop through window sizes [3, 5, 10, 20].
+4.  In each loop, use the new method to get the specified conversation history and run intent classification.
+5.  Compare the result to the ground truth from the validation file, calculate accuracy stats, and log the report.
+6.  Generate the final JSON output with the optimal window size per profile.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the validation dataset is diverse enough to be representative.
+*   The benchmark script must handle conversations shorter than the target window size gracefully.
+*   The statistical calculation for the confidence interval must be correctly implemented.
+*   The process might be slow; consider streaming progress updates to the console during execution.
+

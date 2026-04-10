@@ -423,6 +423,22 @@ export class KnowledgeBaseInstance {
       .join('\n\n---\n\n');
   }
 
+  // ─── Conversation Context (US-401) ─────────────────────────────────
+
+  /**
+   * Extract the last N conversation turns for benchmarking context window sizes.
+   * Used by context-window-benchmark.ts to test classification accuracy with varying history lengths.
+   *
+   * @param history Full conversation history
+   * @param count Number of most recent turns to include
+   * @returns Sliced history with at most `count` most recent messages
+   */
+  getConversationContext(history: Array<{ role: string; content: string; timestamp?: number }>, count: number): Array<{ role: string; content: string; timestamp?: number }> {
+    if (count <= 0) return [];
+    if (history.length <= count) return history;
+    return history.slice(-count);
+  }
+
   // ─── System Prompt Cache ────────────────────────────────────────
 
   invalidateSystemPromptCache(): void {
