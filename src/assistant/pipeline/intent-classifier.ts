@@ -4,6 +4,7 @@
  * Thin orchestrator that calls pipeline stages in sequence:
  * 1. Summarization — reduce conversation context
  * 2. KB Loading — select relevant topic files, build system prompt
+ * 2.5. Context Loading — load last 3 messages and inject into system prompt
  * 3. Tier Classification — classify intent via tiered/split/default mode
  * 4. Layer 2 Fallback — retry with smarter model if confidence too low
  * 5. Routing — resolve intent → action mapping
@@ -17,6 +18,7 @@ import type { RouterContext, PipelineState } from './types.js';
 import { createPipelineContext } from './pipeline-context.js';
 import { applySummarization } from './stages/summarization.js';
 import { loadKnowledgeBase } from './stages/kb-loading.js';
+import { loadContextWindow, injectContextWindow } from './stages/context-loader.js';
 import { classifyWithTiers } from './stages/tier-classification.js';
 import { applyLayer2Fallback } from './stages/layer2-fallback.js';
 import { resolveRouting } from './stages/routing.js';
@@ -90,6 +92,13 @@ export async function classifyAndRoute(
   state.ragUsed = kb.ragUsed ?? false;
   state.ragTopicFiles = kb.topicFiles;
 
+  // ─── Stage 2.5: Multi-Turn Context Loader (US-396) ──────────────
+  // Load last 3 messages and inject into system prompt for multi-turn context awareness
+  const contextLoader = await loadContextWindow(state, context);
+  let enhancedSystemPrompt = injectContextWindow(kb.systemPrompt, contextLoader.contextWindow);
+  devMetadata.contextMessagesCount = contextLoader.messageCount;
+  devMetadata.contextMessagesFiltered = contextLoader.filteredCount;
+
   // ─── Ack Timer: send "thinking" message if LLM takes >3s ────────
   // US-023: ackCancelled flag prevents duplicate sends when LLM responds
   // just after the 3s timer fires (WhatsApp per-message billing since July 2025).
@@ -119,7 +128,7 @@ export async function classifyAndRoute(
     {
       processText,
       contextMessages: summarization.contextMessages,
-      systemPrompt: kb.systemPrompt,
+      systemPrompt: enhancedSystemPrompt,
       lastIntent: convo.lastIntent,
       devMetadata,
       phone,
