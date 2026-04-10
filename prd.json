@@ -61,17 +61,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-04-11T03:27:00Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nUS-391 requires a CLI tool that parses production intent classification data and groups misclassifications by error type (false positives, false negatives, boundary confusions). The previous attempts noted that the core logic and CLI files were created but then apparently lost (git reset or branch change). The files `src/tools/group-classification-errors.ts` and `src/tools/group-classification-errors-cli.ts` do **not** currently exist. The `package.json` has no `classify:group-errors` script.\n\nThe project has:\n- `intent_analytics` table with `profileId`, `intentType`, `confidence`, `wasCorrect` columns\n- `intentClassificationDecisions` table with `classifiedIntent`, `confidenceScore`, `actualIntent`, `messageHash`\n- Existing CLI tool patterns in `src/tools/` (pure logic module + CLI wrapper)\n- `intent-keywords.json` files per profile\n\n## Problem Identified\n\nImplement US-391: Intent Classification Error Pattern Grouper CLI that:\n1. Groups misclassifications by error type (false_positive >= 0.70, boundary_confusion 0.45-0.70, false_negative < 0.45)\n2. Shows frequency, confidence ranges, and 3 example messages per cluster\n3. Identifies problematic keyword pairs and suggests additions to intent-keywords.json\n4. Integration test with sample data produces deterministic clustering with >80% inter-cluster separation\n\n## Planned Changes\n\n1. **Create `src/tools/group-classification-errors.ts`** — Pure logic module with:\n   - `classifyErrorType(confidence)` — confidence band classification\n   - `groupIntoClusters(rows)` — group by (errorType, predictedIntent, actualIntent)\n   - `identifyProblematicPairs(rows, existingKeywords)` — top confused intent pairs\n   - `extractKeywordSuggestions(messages, existing)` — token frequency extraction\n   - `computeInterClusterSeparation(rows)` — cluster separation metric\n   - `buildReport(profile, rows, existingKeywords, outputPath)` — full JSON report\n\n2. **Create `src/tools/group-classification-errors-cli.ts`** — CLI wrapper with `--profile`, `--output`, `--days` flags\n\n3. **Create `src/tools/__tests__/group-classification-errors.test.ts`** — Integration tests with sample data\n\n4. **Edit `package.json`** — Add `classify:group-errors` script\n\nNow let me implement.\nNow create the test file.\nGood, now I'll create the test file.\nNow add the npm script and run tests.\nNow run the tests.\nOne test failure — \"want\" is not in the stop words list. Let me fix the stop words list to include \"want\" and \"know\".\nAll 32 tests pass. Now run the build.\nBuild succeeds. Now update prd.json and commit.\nNow append to progress.txt.\nNow commit.\nUS-391 is complete. Here's what was done:\n\n**Story US-391: Intent Classification Error Pattern Grouper CLI** - PASSED\n\n**Files created:**\n- `src/tools/group-classification-errors.ts` — Pure logic module with 6 exported functions\n- `src/tools/group-classification-errors-cli.ts` — CLI wrapper (`--profile`, `--output`, `--days`)\n- `src/tools/__tests__/group-classification-errors.test.ts` — 32 passing tests\n\n**Key results:**\n- Inter-cluster separation: **100%** (threshold: >80%)\n- Deterministic clustering verified\n- Build passes, all 32 tests pass"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 685,
-        "tokensAfterMasking": 679,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "model": "sonnet"
     },
     {
       "id": "US-392",
@@ -554,7 +544,8 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-413",
@@ -575,7 +566,8 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-414",
@@ -595,7 +587,8 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-415",
@@ -615,7 +608,116 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-416",
+      "title": "Knowledge Base Profile Isolation Index Builder",
+      "priority": "high",
+      "description": "Create metadata index of all KB files by profile and detect cross-profile references, enforcing strict content isolation between Pelangi, Makan, and Southern businesses",
+      "acceptanceCriteria": [
+        "CLI `npm run index:kb-profiles` scans .rainbow-kb/ and .rainbow-kb-southern/ directories, generates isolation report with cross-profile keyword violations",
+        "Index identifies which KB files contain content specific to wrong profile (e.g., Pelangi keywords in Makan files)",
+        "Test: detect that 'Pelangi Capsule Hostel' keyword appears in data-makan profile files and reports file path with line number"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/kb-profile-indexer.ts (buildProfileIndex, detectCrossProfileReferences functions)",
+        "File to reference: .rainbow-kb/ and .rainbow-kb-southern/ (scan targets for contamination)",
+        "Test command: npm run test tests/unit/kb-profile-indexer.test.ts",
+        "Test command: npm run index:kb-profiles > kb-isolation-report.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-417",
+      "title": "Intent Confidence Attribution Explainer",
+      "priority": "medium",
+      "description": "CLI tool to analyze why a message received a specific confidence score for a given intent, showing contributing keyword matches and similarity scores to aid debugging",
+      "acceptanceCriteria": [
+        "CLI `npm run debug:confidence --message='book a room' --intent=booking` outputs JSON with matched keywords, TF-IDF scores, and final confidence calculation",
+        "Shows top 5 contributing keywords from intent-keywords.json with individual match scores and weights",
+        "Test: message 'book a double room for 3 nights' with booking intent shows relevant keywords with breakdown"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/confidence-debugger.ts (explainConfidence function with keyword attribution)",
+        "File to reference: src/assistant/data/intent-keywords.json (keyword scoring source)",
+        "Test command: npm run test tests/unit/confidence-debugger.test.ts -- --reporter=verbose",
+        "Test command: npm run debug:confidence --message='test' --intent=inquiry"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-418",
+      "title": "Conversation Context Batch Retrieval Optimizer",
+      "priority": "medium",
+      "description": "Optimize database queries in context loader to fetch conversation history efficiently using message timestamp indexing and batch pagination",
+      "acceptanceCriteria": [
+        "Add message_timestamp and profile_id compound index on rainbow_messages table via Drizzle migration",
+        "Implement batchRetrieveContext function that fetches last N messages by profile in single optimized query",
+        "Test: retrieve 50 messages from 10K+ message conversation completes in <50ms with profile isolation enforced"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add index on messageTimestamp + profileId columns)",
+        "File to create: src/lib/context-loader.ts (batchRetrieveContext function with pagination)",
+        "Test command: npm run test tests/integration/context-retrieval.test.ts",
+        "Test command: npm run db:push (verify migration applies without errors)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-419",
+      "title": "Intent Classification F1 Score Regression Test Suite",
+      "priority": "high",
+      "description": "Automated test suite that verifies intent classification accuracy stays above baseline for each business profile. Fails if accuracy drops, reports confusion matrix of common misclassifications to guide improvements.",
+      "acceptanceCriteria": [
+        "Test file runs classification on 100+ labeled test cases per profile; fails if F1 score drops >5% from baseline",
+        "Reports confusion matrix showing which intents are most often misclassified (e.g., booking vs. inquiry)",
+        "Baselines stored in prd.json intentClassificationBaselines section; can be updated via --update-baseline flag"
+      ],
+      "technicalNotes": [
+        "File to create: tests/test_intent_regression.ts (full regression test suite with test case loader)",
+        "File to update: prd.json (add intentClassificationBaselines: {pelangi: {booking: 0.87}, makan: {booking: 0.82}})",
+        "Test command: npm run test:intent-regression (adds new script to package.json scripts section)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-420",
+      "title": "Booking Form Auto-Pre-Fill from Conversation Context",
+      "priority": "medium",
+      "description": "Extracts guest name, check-in/check-out dates, and room type from conversation history using regex and NER. When booking form is presented, shows pre-filled values with confidence score and allows user to confirm or change.",
+      "acceptanceCriteria": [
+        "Extracts guest_name, check_in_date, check_out_date, room_type from previous messages (regex for dates, NER for names)",
+        "When booking_guest_info step runs, shows 'We remember: John, April 12-15, Deluxe Room – confirm or change?' if extraction_confidence >0.85",
+        "Only auto-fills if confidence >0.85; lower confidence shows extraction as suggestion that user can reject"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/booking_context_extractor.ts (extractBookingContext function with regex date patterns)",
+        "File to update: src/assistant/data/workflows.json (update booking_guest_info step to call extractor and show confirmation)",
+        "Test command: uv run vitest run tests/test_booking_context_extractor.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
