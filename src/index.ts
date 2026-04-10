@@ -76,6 +76,7 @@ import { startBreachDetectionScheduler } from './lib/breach-detection.js';
 import { startConsentExpiryScheduler } from './lib/marketing-optin.js';
 import { startRetentionScheduler } from './lib/data-retention.js';
 import { runCanaryProbesOnStartup, startCanaryScheduler } from './assistant/canary-probe.js';
+import { scheduleBookingFunnelSnapshot } from './lib/booking-funnel-snapshot.js';
 import { initializeQueue } from './assistant/intent-tracker.js';
 import { validateAllProfiles, formatReport, enforceProfileDataVersionCompatibility } from './lib/profile-validator.js';
 import { validateProfileIntents, validateProfileRouting } from './lib/config.js';
@@ -389,6 +390,9 @@ runCanaryProbesOnStartup().catch(err =>
   console.warn('[canary-probe] Startup probe failed (non-fatal):', err.message)
 );
 startCanaryScheduler(); // daily at 03:00 MY time
+
+// US-322: Schedule daily booking funnel snapshot (runs at midnight UTC)
+scheduleBookingFunnelSnapshot();
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {
