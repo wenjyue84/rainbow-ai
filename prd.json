@@ -528,19 +528,18 @@
     },
     {
       "id": "US-412",
-      "title": "Multi-Intent Disambiguation Dialog for Booking vs Inquiry",
+      "title": "Confidence-Tiered Fallback Response Selector with Profile Isolation",
       "priority": "high",
-      "description": "When message classification produces similarly-scored booking and inquiry intents (confidence difference <15%), trigger a targeted disambiguation dialog asking the user to clarify their intent. Store disambiguation patterns per profile in configuration.",
+      "description": "Create a fallback response selection system that chooses responses based on confidence score buckets and profile, preventing cross-profile contamination. Tier 0 (conf <0.3) escalates, Tier 1 (0.3-0.6) provides partial response with uncertainty disclaimer, Tier 2 (0.6+) provides full response.",
       "acceptanceCriteria": [
-        "When bookingIntent confidence and inquiryIntent confidence differ by <15%, pipeline triggers disambiguation response instead of choosing highest-scored intent",
-        "Disambiguation patterns defined in src/assistant/data/disambiguation.json with profile-specific variants for pelangi, makan, southern profiles",
-        "Test supplies ambiguous message ('I want to book but also have questions'), verifies disambiguation prompt is returned"
+        "New file src/assistant/data/fallback-responses.json with structure { profile: { tier0: [...], tier1: [...], tier2: [...] } } containing profile-specific responses",
+        "Fallback selector in src/assistant/pipeline/fallback-selector.ts selects tier based on confidence score and retrieves response for current profile only",
+        "Test validates zero cross-profile contamination: scanning all tier responses for makan profile contains zero Pelangi Hostel keywords like 'hostel', 'check-in', 'room rate'"
       ],
       "technicalNotes": [
-        "File to create: src/assistant/data/disambiguation.json (pattern definitions by profile)",
-        "File to create: src/assistant/pipeline/stages/disambiguation.ts (confidence threshold check and prompt selection)",
-        "File to edit: src/assistant/intents.ts (add disambiguation intent type)",
-        "Test command: npm run test disambiguation.test.ts -- --grep='ambiguous'"
+        "File to create: src/assistant/data/fallback-responses.json (JSON structure, no code)",
+        "File to create: src/assistant/pipeline/fallback-selector.ts (replaces simple fallback string selection with tier-based lookup)",
+        "Test command: uv run npm run test:run -- tests/pipeline/fallback-selector.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -549,19 +548,39 @@
     },
     {
       "id": "US-413",
-      "title": "Profile-Specific Intent Keyword Validator and Deduplicator CLI",
+      "title": "Booking Workflow Checkpoint Save and Resume System",
       "priority": "high",
-      "description": "Create CLI tool to audit intent-keywords.json across all profiles, identify duplicate keywords within each profile and cross-profile contamination (same keyword appearing in multiple profiles). Generate audit report and remove duplicates to enforce profile isolation.",
+      "description": "Add ability to save booking workflow state at critical steps and resume from checkpoints on failure. Enables recovery from transient errors without restarting the entire booking flow.",
       "acceptanceCriteria": [
-        "CLI command 'npm run audit:keywords' reports duplicate keywords within each profile and removes them",
-        "CLI identifies and removes keywords appearing in 2+ profiles (cross-profile contamination), e.g., 'room' in both makan and pelangi",
-        "Audit report saved to audit-keywords-YYYY-MM-DD.json with sections per profile showing removed keywords"
+        "New table booking_workflow_checkpoints with columns: id, profile, user_id, workflow_id, step_number, state_json, created_at, expires_at",
+        "Booking workflow saves checkpoint after steps 2 (validate inputs), 4 (confirm booking), 6 (process payment); checkpoint includes all user inputs and intermediate state",
+        "Test verifies: save checkpoint after step 3, simulate error, recover checkpoint, resume at step 4 with all previous inputs intact"
       ],
       "technicalNotes": [
-        "File to create: src/tools/keyword-auditor.ts (parseKeywords, findDuplicates, findCrossProfileKeywords functions)",
-        "File to edit: src/assistant/data/intent-keywords.json (cleaned output)",
-        "File to create: scripts/audit-keywords.sh (CLI entry point)",
-        "Test command: npm run test keyword-auditor.test.ts -- --reporter=json"
+        "File to create: src/assistant/pipeline/booking-checkpoint.ts (saveCheckpoint, loadCheckpoint, resumeFromCheckpoint functions)",
+        "File to create: src/lib/checkpoint-store.ts (manages checkpoint DB operations with Drizzle)",
+        "File to modify: shared/schema-tables.ts (add booking_workflow_checkpoints table definition)",
+        "Test command: uv run npm run test:run -- tests/pipeline/booking-checkpoint.test.ts && npm run db:push"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-414",
+      "title": "Conversation Context Relevance Filter Pipeline Stage",
+      "priority": "medium",
+      "description": "Add a pipeline stage that filters conversation history to only the K most semantically relevant messages before sending context to the AI provider. This reduces token usage on long conversations while maintaining context quality.",
+      "acceptanceCriteria": [
+        "New settings `contextRelevanceFilter.enabled` (boolean) and `contextRelevanceFilter.topK` (default 5) in src/assistant/data/settings.json",
+        "Filter stage ranks conversation messages by semantic similarity to current user message and retains top K only",
+        "Test with 20-message conversation verifies filter reduces context to top 5 relevant messages while maintaining accuracy on test queries"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/context-relevance-filter.ts (uses TF-IDF or cosine similarity, no external deps)",
+        "File to modify: src/assistant/pipeline/index.ts (insert filter stage after context loader, before AI call)",
+        "Test command: uv run npm run test:run -- tests/pipeline/context-relevance-filter.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -569,23 +588,22 @@
       "_source": "ai-example"
     },
     {
-      "id": "US-414",
-      "title": "Conversation Context Window Size Analyzer CLI",
+      "id": "US-415",
+      "title": "Cross-Profile Intent Keyword Collision Detector with Remediation Report",
       "priority": "medium",
-      "description": "Create CLI tool to analyze production conversation data and determine the optimal message history window size for intent classification per profile. Test accuracy with window sizes 1, 3, 5, 10 messages and generate per-profile recommendations.",
+      "description": "Create a CLI tool that scans intent_keywords table to identify duplicate or highly similar keywords across different profiles (pelangi, makan, southern). Generates detailed report with collision severity and remediation suggestions.",
       "acceptanceCriteria": [
-        "CLI 'npm run analyze:context-window' reads rainbow_messages and rainbow_conversations tables, groups by profile, tests accuracy with window sizes [1,3,5,10]",
-        "Output includes per-profile accuracy metrics: profile | window_size | accuracy_percent | message_coverage",
-        "Recommends optimal window size per profile (e.g., 'pelangi: window=5 (87% accuracy)') and stores in src/assistant/data/settings.json under contextWindow"
+        "Command `npm run detect:keyword-collisions` outputs JSON with detected collisions showing: keyword, profiles containing it, similarity_score, and recommended action",
+        "Tool flags any keyword appearing in multiple profiles with similarity >0.8 to existing keywords in other profiles as 'critical collision'",
+        "Test verifies detection of test collisions (e.g., 'book' in both pelangi and makan, 'room rate' in pelangi contaminating makan profile)"
       ],
       "technicalNotes": [
-        "File to create: src/tools/context-analyzer.ts (getConversationsByProfile, testWindowSize, calculateAccuracy functions)",
-        "File to edit: src/lib/config-db.ts (add getConversationMessages and getConversationsByProfile queries)",
-        "File to edit: src/assistant/data/settings.json (add contextWindow.pelangi, contextWindow.makan)",
-        "Test command: npm run test context-analyzer.test.ts -- --timeout=30000"
+        "File to create: src/tools/keyword-collision-detector.ts (queries intent_keywords, computes Levenshtein distance for similarity, generates JSON report)",
+        "File to modify: package.json (add script 'detect:keyword-collisions': 'node dist/tools/keyword-collision-detector.js')",
+        "Test command: uv run npm run test:run -- tests/tools/keyword-collision-detector.test.ts"
       ],
       "dependencies": [],
-      "estimatedComplexity": "medium",
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example"
     }
