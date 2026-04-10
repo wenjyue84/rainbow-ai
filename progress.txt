@@ -1627,3 +1627,34 @@ Completed: Confidence Score Gating with Profile-Aware Escalation (ID: US-395) in
 - Enhanced system prompt passes through to tier classification via `ClassificationInput.systemPrompt` parameter
 - DevMetadata tracking added to pipeline for observability (context message counts, filtered counts)
 
+
+## Iteration [SPIRAL] - Story: Multi-Turn Context Loader Pipeline Stage (US-396) ✓ COMPLETE
+### What was implemented
+- **Created `src/assistant/pipeline/stages/context-loader.ts`** with:
+  - `loadContextWindow(state: PipelineState, context: IPipelineContext)` — loads last 3 messages filtered by 24-hour TTL
+  - `injectContextWindow(basePrompt: string, contextWindow: string)` — wraps context in `<conversation_context>` tags
+  - Formats context as "Previous messages:\nUser: X\nAssistant: Y"
+  - Filters messages older than 24 hours via `MESSAGE_AGE_THRESHOLD_MS`
+  - Returns metadata: messageCount, filteredCount
+
+### Acceptance Criteria Met
+✅ New pipeline stage loads last 3 messages per conversation
+✅ Context formatted as "Previous messages: User: X\nAssistant: Y"
+✅ Messages older than 24 hours excluded from context window
+✅ All 12 tests passing (100%)
+✅ Build: esbuild succeeded (2.5MB dist/index.js)
+✅ Server startup: Verified with database connection
+
+### Patterns discovered
+- ChatMessage.timestamp is in SECONDS (Unix epoch), not milliseconds
+- Convert to milliseconds when comparing with Date.now()
+- Context window takes last N messages after filtering (e.g., last 3 out of recent)
+- Empty context returns unchanged base prompt (no injection)
+- Pipeline state includes `state.convo?.messages` (conversation history)
+
+### Gotchas avoided
+- Timestamp conversion: message.timestamp * 1000 to compare with Date.now()
+- Message age calculation: `now - (timestamp * 1000)` in milliseconds
+- Preserve chronological order (most recent at end) via `slice(-CONTEXT_WINDOW_SIZE)`
+- Filter then window: filter by age, then take last N from filtered set
+
