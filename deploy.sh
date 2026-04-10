@@ -50,9 +50,16 @@ tar -czf "$TARBALL" \
   package-lock.json \
   profiles.json \
   deploy/certs/ \
+  src/assistant/data/ \
+  src/assistant/data-southern/ \
+  src/assistant/data-makan/ \
+  src/assistant/data-yoongmei/ \
+  src/assistant/data-pms-capsule/ \
+  src/assistant/data-pms-southern/ \
   .rainbow-kb/ \
   .rainbow-kb-southern/ \
-  .rainbow-kb-makan/
+  .rainbow-kb-makan/ \
+  .rainbow-kb-yoongmei/
 
 echo "    $(du -h "$TARBALL" | cut -f1) compressed"
 

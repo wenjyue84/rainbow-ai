@@ -37,12 +37,19 @@ export interface ChatOptions {
   systemPromptSuffix?: string;
 }
 
+export interface QuickSuggestion {
+  label: string;
+  payload: string;
+}
+
 export interface ChatResult {
   message: string;
   intent: string;
   confidence: number;
   responseTime: number;
   model: string;
+  /** Dynamic follow-up suggestions based on the response context */
+  suggestions?: QuickSuggestion[];
   // Extended fields (for admin preview)
   source?: string;
   action?: string;
@@ -171,6 +178,142 @@ function setWorkflowState(key: string, workflowId: string, stepIndex: number): v
 
 function deleteWorkflowState(key: string): void {
   workflowStates.delete(key);
+}
+
+// ─── Dynamic Suggestion Generator ───────────────────────────────────
+
+/**
+ * Generate dynamic follow-up suggestions based on the AI response, intent, and user message.
+ * Uses rule-based pattern matching — no extra LLM call needed.
+ *
+ * Strategy: Analyze both the response content and the detected intent to pick
+ * the most relevant 2-4 follow-up actions. Response-content analysis is the
+ * primary driver since intent classification may return "unknown" for many queries.
+ */
+function generateDynamicSuggestions(
+  response: string,
+  intent: string,
+  userMessage: string,
+  profileId?: string
+): QuickSuggestion[] {
+  const suggestions: QuickSuggestion[] = [];
+  const lowerResponse = response.toLowerCase();
+  const lowerMessage = userMessage.toLowerCase();
+  const combined = lowerResponse + ' ' + lowerMessage;
+
+  // Helper: add only if label not already present
+  const add = (label: string, payload: string) => {
+    if (!suggestions.some(s => s.label === label)) suggestions.push({ label, payload });
+  };
+
+  // ── 1. Response-content-based analysis (primary driver) ───────
+  // Scan what the AI talked about to suggest relevant follow-ups
+
+  // Services mentioned → offer drill-down
+  const mentionsServices = /\b(services?|lcl|fcl|charter|console|warehousing|transport|logistics|trucking|shipping|cross[- ]border)\b/i.test(response);
+  const mentionsPricing = /\b(rate|price|rm\s*\d|cost|charge|fee|pallet|per\s+ton)\b/i.test(response);
+  const mentionsQuote = /\b(quote|quotation|enquir|inquiry|details|share.*info)\b/i.test(response);
+  const mentionsContact = /\b(contact|whatsapp|call|phone|reach|email|office)\b/i.test(response);
+  const mentionsRoute = /\b(johor|jb|penang|melaka|singapore|thailand|selangor|kuala\s*lumpur|kl|nilai)\b/i.test(response);
+  const mentionsLCL = /\blcl\b/i.test(response);
+  const mentionsFCL = /\b(fcl|full\s+lorry|charter|full\s+load)\b/i.test(response);
+  const mentionsConsole = /\bconsole?\b/i.test(response);
+  const mentionsCrossBorder = /\b(cross[- ]border|singapore|thailand|international)\b/i.test(response);
+  const mentionsWarehouse = /\b(warehous|storage|stuffing|unstuffing|3pl|4pl)\b/i.test(response);
+
+  // If response covers services overview → suggest specific service drill-downs
+  if (mentionsServices && (mentionsLCL || mentionsFCL || mentionsConsole)) {
+    if (mentionsLCL) add('LCL Details', 'Tell me more about LCL pallet service');
+    if (mentionsFCL) add('Full Charter', 'Tell me more about full lorry charter');
+    if (mentionsConsole) add('Console Service', 'Tell me more about console service');
+    if (mentionsWarehouse) add('Warehousing', 'Tell me more about warehousing services');
+    if (mentionsCrossBorder) add('Cross-Border', 'Tell me about cross-border services to Singapore and Thailand');
+    add('Get a Quote', 'I need a shipping quote');
+  }
+
+  // If response talks about pricing/rates → suggest specific routes or quote
+  if (mentionsPricing) {
+    add('Get a Quote', 'I need a shipping quote');
+    if (!combined.includes('johor') && !combined.includes('jb'))
+      add('JB Rates', 'What are your freight rates to Johor Bahru?');
+    if (!combined.includes('penang'))
+      add('Penang Rates', 'What are your freight rates to Penang?');
+    if (!combined.includes('singapore') && !combined.includes('thailand'))
+      add('Cross-Border', 'What are the rates for cross-border shipping?');
+  }
+
+  // If response mentions specific route → suggest quote for that route + other routes
+  if (mentionsRoute) {
+    add('Get a Quote', 'I need a shipping quote');
+    if (!combined.includes('cross') && !combined.includes('singapore') && !combined.includes('thailand'))
+      add('Cross-Border', 'Tell me about cross-border services');
+    add('Check Rates', 'What are your freight rates?');
+  }
+
+  // If quote/enquiry mentioned → suggest providing details
+  if (mentionsQuote && suggestions.length < 3) {
+    add('Get a Quote', 'I need a shipping quote');
+    add('Check Rates', 'What are your freight rates?');
+  }
+
+  // If contact info mentioned → add contact option
+  if (mentionsContact && suggestions.length < 4) {
+    add('Contact Team', 'How do I contact the team directly?');
+  }
+
+  // ── 2. Intent-based enrichment (secondary) ────────────────────
+  // Use classified intent to fill remaining slots when content analysis
+  // didn't produce enough suggestions
+  if (suggestions.length < 2) {
+    switch (intent) {
+      case 'greeting':
+      case 'thanks':
+        add('Our Services', 'What services do you offer?');
+        add('Get a Quote', 'I need a shipping quote');
+        add('Check Rates', 'What are your freight rates?');
+        break;
+
+      case 'pricing_query':
+      case 'full_price_list':
+        add('Get a Quote', 'I need a shipping quote');
+        add('Cross-Border', 'What are the rates for cross-border shipping?');
+        break;
+
+      case 'services_query':
+        add('LCL Details', 'Tell me more about LCL pallet service');
+        add('Full Charter', 'Tell me more about full lorry charter');
+        add('Get a Quote', 'I need a shipping quote');
+        break;
+
+      case 'transport_enquiry':
+        add('Get a Quote', 'I need a shipping quote');
+        add('Check Rates', 'What are your freight rates?');
+        break;
+
+      case 'company_info':
+        add('Our Services', 'What services do you offer?');
+        add('Get a Quote', 'I need a shipping quote');
+        break;
+
+      case 'escalate_human':
+        add('Contact Team', 'How do I contact the team directly?');
+        add('Operating Hours', 'What are your operating hours?');
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  // ── 3. Fallback: always ensure at least 2 suggestions ─────────
+  if (suggestions.length < 2) {
+    add('Our Services', 'What services do you offer?');
+    add('Get a Quote', 'I need a shipping quote');
+    add('Contact Team', 'How do I contact the team directly?');
+  }
+
+  // Limit to 4 suggestions max
+  return suggestions.slice(0, 4);
 }
 
 // ─── Core Chat Processing ───────────────────────────────────────────
@@ -556,12 +699,16 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     }
   }
 
+  // Generate dynamic follow-up suggestions based on response context
+  const suggestions = generateDynamicSuggestions(finalMessage, intentResult.category, message, profileId);
+
   return {
     message: finalMessage,
     intent: intentResult.category,
     confidence: intentResult.confidence,
     responseTime,
     model: llmModel,
+    suggestions,
     source: intentResult.source,
     action: routedAction,
     routedAction,

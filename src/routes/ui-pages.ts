@@ -50,7 +50,7 @@ async function getDashboardHtml(
   const adminKey = process.env.RAINBOW_ADMIN_KEY || '';
   const interceptorScript = `<script nonce="${nonce}">
 window.__ADMIN_KEY__=${JSON.stringify(adminKey)};
-(function(){var _f=window.fetch;window.fetch=function(url,opts){opts=opts||{};if(typeof url==='string'&&url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var h=Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},opts.headers||{});opts=Object.assign({},opts,{headers:h});}return _f.call(this,url,opts);};})();
+(function(){var _f=window.fetch;window.fetch=function(url,opts){opts=opts||{};if(typeof url==='string'&&url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var h=Object.assign({'x-admin-key':window.__ADMIN_KEY__},opts.headers||{});opts=Object.assign({},opts,{headers:h});}return _f.call(this,url,opts);};})();
 </script>`;
   html = html.replace('<head>', `<head>\n  ${interceptorScript}`);
   return html;

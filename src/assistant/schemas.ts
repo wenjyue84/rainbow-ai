@@ -225,8 +225,8 @@ export const workflowNodeSchema = z.object({
 export const workflowDefinitionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  profileId: z.enum(['pelangi', 'makan', 'southern']),  // US-054: Profile ownership validation
-  steps: z.array(workflowStepSchema),
+  profileId: z.enum(['pelangi', 'makan', 'southern', 'yoongmei']),  // US-054: Profile ownership validation
+  steps: z.array(workflowStepSchema).optional(),
   // Node-based workflow fields (optional — only for format: 'nodes')
   format: z.enum(['steps', 'nodes']).optional(),
   startNodeId: z.string().optional(),

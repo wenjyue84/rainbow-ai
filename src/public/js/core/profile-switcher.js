@@ -74,7 +74,8 @@
       //    Use replaceState to avoid triggering hashchange loop
       var profileTabs = window.PROFILE_SPECIFIC_TABS || [];
       if (profileTabs.indexOf(tabInfo.main) !== -1) {
-        var newHash = '#' + tabInfo.main + '/' + profileId + (tabInfo.sub ? '/' + tabInfo.sub : '');
+        var sub = (tabInfo.sub && tabInfo.sub !== profileId) ? '/' + tabInfo.sub : '';
+        var newHash = '#' + tabInfo.main + '/' + profileId + sub;
         history.replaceState(null, '', newHash);
       }
 
@@ -165,8 +166,11 @@
     /** Load profiles from API and initialize */
     init: function () {
       var self = this;
-      fetch(API + '/profiles', { cache: 'no-store' })
-        .then(function (res) { return res.json(); })
+      fetch(API + '/profiles', { cache: 'no-store', headers: { 'x-admin-key': (window.__ADMIN_KEY__ || '') } })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
         .then(function (data) {
           profiles = (data.profiles || []).filter(function (p) { return p.enabled; });
           defaultProfileId = data.defaultProfileId || 'pelangi';
@@ -199,9 +203,33 @@
           }
         })
         .catch(function (err) {
-          console.warn('[ProfileSwitcher] Failed to load profiles:', err.message);
+          console.error('[ProfileSwitcher] Failed to load profiles:', err.message, '| key set:', !!window.__ADMIN_KEY__);
           var label = document.getElementById('profile-switcher-label');
           if (label) label.textContent = 'Pelangi Capsule Hostel';
+          // Retry once after 2s (handles transient 503/429 after server restart)
+          setTimeout(function () {
+            fetch(API + '/profiles', { cache: 'no-store', headers: { 'x-admin-key': (window.__ADMIN_KEY__ || '') } })
+              .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+              })
+              .then(function (data) {
+                profiles = (data.profiles || []).filter(function (p) { return p.enabled; });
+                defaultProfileId = data.defaultProfileId || 'pelangi';
+                if (activeProfileId && !profiles.find(function (p) { return p.id === activeProfileId; })) {
+                  activeProfileId = '';
+                  localStorage.removeItem(STORAGE_KEY);
+                }
+                self.renderLabel();
+                self.renderDropdown();
+                var el = document.getElementById('profile-switcher');
+                if (el) el.style.display = '';
+                window.KNOWN_PROFILE_IDS = profiles.map(function (p) { return p.id; });
+              })
+              .catch(function (err2) {
+                console.error('[ProfileSwitcher] Retry also failed:', err2.message);
+              });
+          }, 2000);
         });
     }
   };
@@ -319,7 +347,7 @@
 
     fetch(API + '/profiles/' + encodeURIComponent(wizardState.sourceId) + '/clone', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': (window.__ADMIN_KEY__ || '') },
       body: JSON.stringify({ newProfileId: wizardState.profileId, displayName: wizardState.name })
     })
       .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })

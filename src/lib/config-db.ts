@@ -171,6 +171,40 @@ export async function loadConfigFromDB(key: string): Promise<any | null> {
   }
 }
 
+/**
+ * Fetch version numbers for all config keys (or filtered by prefix).
+ * Used by config-sync poller to detect remote changes without loading full data.
+ */
+export async function getConfigVersions(): Promise<Map<string, number>> {
+  if (!hasDB()) return new Map();
+  try {
+    const { rows } = await pool.query('SELECT key, version FROM rainbow_configs');
+    const map = new Map<string, number>();
+    for (const row of rows) map.set(row.key as string, row.version as number);
+    return map;
+  } catch (err: any) {
+    console.error('[ConfigDB] getConfigVersions() failed:', err.message);
+    return new Map();
+  }
+}
+
+/**
+ * Load config data AND its version number from DB.
+ */
+export async function loadConfigWithVersion(key: string): Promise<{ data: any; version: number } | null> {
+  if (!hasDB()) return null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT data, version FROM rainbow_configs WHERE key = $1',
+      [key]
+    );
+    return rows.length > 0 ? { data: rows[0].data, version: rows[0].version as number } : null;
+  } catch (err: any) {
+    console.error(`[ConfigDB] loadConfigWithVersion(${key}) failed:`, err.message);
+    return null;
+  }
+}
+
 export async function saveConfigToDB(
   key: string,
   data: unknown,
@@ -214,10 +248,13 @@ export async function saveConfigToDB(
 
 // ─── KB File CRUD ───────────────────────────────────────────────────
 
-export async function loadAllKBFromDB(): Promise<Map<string, string> | null> {
+export async function loadAllKBFromDB(profileId: string = 'pelangi'): Promise<Map<string, string> | null> {
   if (!hasDB()) return null;
   try {
-    const { rows } = await pool.query('SELECT filename, content FROM rainbow_kb_files');
+    const { rows } = await pool.query(
+      'SELECT filename, content FROM rainbow_kb_files WHERE profile_id = $1',
+      [profileId]
+    );
     if (rows.length === 0) return null;
     const map = new Map<string, string>();
     for (const row of rows) {
@@ -225,23 +262,45 @@ export async function loadAllKBFromDB(): Promise<Map<string, string> | null> {
     }
     return map;
   } catch (err: any) {
-    console.error('[ConfigDB] loadAllKBFromDB() failed:', err.message);
-    return null;
+    // Fallback for servers where profile_id column may not exist yet
+    console.warn('[ConfigDB] loadAllKBFromDB() profile filter failed, falling back to unfiltered:', err.message);
+    try {
+      const { rows } = await pool.query('SELECT filename, content FROM rainbow_kb_files');
+      if (rows.length === 0) return null;
+      const map = new Map<string, string>();
+      for (const row of rows) map.set(row.filename, row.content);
+      return map;
+    } catch (err2: any) {
+      console.error('[ConfigDB] loadAllKBFromDB() failed:', err2.message);
+      return null;
+    }
   }
 }
 
-export async function saveKBFileToDB(filename: string, content: string, lastModifiedAt?: Date): Promise<void> {
+export async function saveKBFileToDB(filename: string, content: string, lastModifiedAt?: Date, profileId: string = 'pelangi'): Promise<void> {
   if (!hasDB()) return;
   try {
     await pool.query(
-      `INSERT INTO rainbow_kb_files (filename, content, updated_at, last_modified_at)
-       VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (filename)
+      `INSERT INTO rainbow_kb_files (filename, content, updated_at, last_modified_at, profile_id)
+       VALUES ($1, $2, NOW(), $3, $4)
+       ON CONFLICT (filename, profile_id)
        DO UPDATE SET content = $2, updated_at = NOW(), last_modified_at = COALESCE($3, rainbow_kb_files.last_modified_at)`,
-      [filename, content, lastModifiedAt || null]
+      [filename, content, lastModifiedAt || null, profileId]
     );
   } catch (err: any) {
-    console.error(`[ConfigDB] saveKBFileToDB(${filename}) failed:`, err.message);
+    // Fallback for servers where profile_id unique constraint may not exist yet
+    console.warn(`[ConfigDB] saveKBFileToDB(${filename}) with profile failed, trying without:`, err.message);
+    try {
+      await pool.query(
+        `INSERT INTO rainbow_kb_files (filename, content, updated_at, last_modified_at)
+         VALUES ($1, $2, NOW(), $3)
+         ON CONFLICT (filename)
+         DO UPDATE SET content = $2, updated_at = NOW(), last_modified_at = COALESCE($3, rainbow_kb_files.last_modified_at)`,
+        [filename, content, lastModifiedAt || null]
+      );
+    } catch (err2: any) {
+      console.error(`[ConfigDB] saveKBFileToDB(${filename}) failed:`, err2.message);
+    }
   }
 }
 

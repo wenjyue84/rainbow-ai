@@ -121,7 +121,7 @@ export async function loadKnowledgeBase(
   // Instructs the model to refuse guessing on factual questions without KB support.
   const misinfoSettings = (settings as any).misinformation_guardrail;
   if (misinfoSettings?.enabled !== false) {
-    systemPrompt += `\n\nFACTUAL ACCURACY RULE: For any factual question about prices, availability, policies, operating hours, facilities, contact information, check-in/check-out procedures, or menu items — you MUST only answer based on the knowledge base content provided above. If the information is not in the provided context, say: "I don't have that specific information right now. Please contact us directly at +60 11-1072 1703 and our team will help you." NEVER guess, estimate, or fabricate factual details.`;
+    systemPrompt += `\n\nFACTUAL ACCURACY RULE: For any factual question about prices, availability, policies, operating hours, or contact information — you MUST only answer based on the knowledge base content provided above. If the information is not in the provided context, acknowledge you don't have that specific information and direct the customer to the contact details shown in the knowledge base. NEVER guess, estimate, or fabricate factual details.`;
   }
 
   // Inject language instruction (US-418 + US-462)

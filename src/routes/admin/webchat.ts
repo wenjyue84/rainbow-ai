@@ -199,4 +199,61 @@ router.post('/webchat/conversations/:sessionId/reply', async (req: Request, res:
   }
 });
 
+/**
+ * GET /webchat/sessions-merged
+ * Fetch messages from multiple webchat sessions merged chronologically.
+ * Used by the admin UI to show all sessions from the same IP as one conversation.
+ * Query: ?sessions=id1,id2,id3 (comma-separated session IDs, max 20)
+ */
+router.get('/webchat/sessions-merged', async (req: Request, res: Response) => {
+  try {
+    const sessionsParam = req.query.sessions as string;
+    if (!sessionsParam) {
+      badRequest(res, 'sessions (comma-separated session IDs) required');
+      return;
+    }
+
+    const sessionIds = sessionsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20);
+    if (sessionIds.length === 0) {
+      badRequest(res, 'At least one session ID required');
+      return;
+    }
+
+    const phones = sessionIds.map(id => 'webchat-' + id);
+    const placeholders = phones.map((_: any, i: number) => `$${i + 1}`).join(', ');
+
+    const [msgResult, convoResult] = await Promise.all([
+      pool.query(
+        `SELECT id, phone, role, content, timestamp, staff_name, source
+         FROM rainbow_messages
+         WHERE phone IN (${placeholders})
+         ORDER BY timestamp ASC`,
+        phones
+      ),
+      pool.query(
+        `SELECT push_name FROM rainbow_conversations
+         WHERE phone IN (${placeholders})
+         ORDER BY updated_at DESC LIMIT 1`,
+        phones
+      ),
+    ]);
+
+    const pushName = convoResult.rows[0]?.push_name || 'Web Visitor';
+
+    const messages = msgResult.rows.map((r: any) => ({
+      id: r.id,
+      sessionId: (r.phone as string).replace('webchat-', ''),
+      role: r.role,
+      content: r.content,
+      timestamp: r.timestamp instanceof Date ? r.timestamp.getTime() : new Date(r.timestamp).getTime(),
+      staffName: r.staff_name || null,
+      source: r.source || null,
+    }));
+
+    res.json({ sessions: sessionIds, pushName, messages });
+  } catch (err: any) {
+    serverError(res, err);
+  }
+});
+
 export default router;

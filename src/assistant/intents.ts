@@ -46,7 +46,7 @@ function initFuzzyMatcher(): void {
   }
 
   fuzzyMatcher = new FuzzyIntentMatcher(keywordIntents);
-  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups');
+  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list)');
 }
 
 // ─── Init (enhanced with fuzzy + semantic matching) ────────────────

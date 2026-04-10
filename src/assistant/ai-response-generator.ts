@@ -160,8 +160,9 @@ function injectLanguageInstruction(systemPrompt: string, lang?: SupportedLanguag
  * that language while all other fields remain in English.
  */
 function injectLanguageInstructionForJson(systemPrompt: string, lang?: SupportedLanguage): string {
-  const responseLangNote = (lang && lang !== 'unknown' && lang !== 'en')
-    ? `Write the "response" field value in ${LANGUAGE_NAMES[lang] || lang}. `
+  const langName = (lang && lang !== 'unknown' && lang !== 'en') ? (LANGUAGE_NAMES[lang] || lang) : '';
+  const responseLangNote = langName
+    ? `CRITICAL LANGUAGE RULE: The user is writing in ${langName}. The "response" field value MUST be written entirely in ${langName}. Do NOT respond in English or any other language — use ${langName} only. `
     : '';
   return `${systemPrompt}
 

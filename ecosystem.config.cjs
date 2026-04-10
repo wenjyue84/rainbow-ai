@@ -33,13 +33,13 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,
-      max_memory_restart: '500M',
+      max_memory_restart: '800M', // increased from 500M — 6-profile startup with embeddings peaks at ~550MB
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       error_file: '/var/www/rainbow-ai/logs/rainbow-ai-error.log',
       out_file: '/var/www/rainbow-ai/logs/rainbow-ai-out.log',
       merge_logs: true,
       wait_ready: true,
-      listen_timeout: 60000, // 60s — startup loads embeddings for 6 profiles (~30s)
+      listen_timeout: 90000, // 90s — startup loads embeddings for 6 profiles (~60s on cold start)
       kill_timeout: 12000, // Allow 10 s graceful drain + 2 s buffer (US-437)
     },
   ],

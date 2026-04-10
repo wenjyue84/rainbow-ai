@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from '
 import { join } from 'path';
 import type { ZodType } from 'zod';
 import { getDefaultConfig } from './default-configs.js';
-import { loadConfigFromDB, saveConfigToDB } from '../lib/config-db.js';
+import { loadConfigFromDB, loadConfigWithVersion, saveConfigToDB, getConfigVersions } from '../lib/config-db.js';
 import { validateProfileRouting } from '../lib/config.js';
 
 // Types are now defined via Zod schemas in schemas.ts
@@ -41,6 +41,7 @@ export class ConfigStore extends EventEmitter {
   private workflows!: WorkflowsData;
   private routing!: RoutingData;
   private corruptedFiles: string[] = []; // Track corrupted files for admin notification
+  private knownVersions: Map<string, number> = new Map(); // DB version tracking for config-sync
 
   readonly profileId: string;
   private readonly dataDir: string;
@@ -217,6 +218,32 @@ export class ConfigStore extends EventEmitter {
     console.log(`[ConfigStore:${this.profileId}] Force reloaded all config files (DB-first, files synced to DB state)`);
   }
 
+  // ─── Config Sync (version-based change detection) ─────────────
+
+  /**
+   * Check if any config has been updated in the DB since last load.
+   * Accepts an optional pre-fetched version map to avoid redundant queries.
+   * Returns true if changes were detected and forceReload() was called.
+   */
+  async checkForUpdates(preloadedVersions?: Map<string, number>): Promise<boolean> {
+    const CONFIG_FILES = [
+      'knowledge.json', 'intents.json', 'templates.json',
+      'settings.json', 'workflow.json', 'workflows.json', 'routing.json'
+    ];
+
+    const versions = preloadedVersions || await getConfigVersions();
+    for (const file of CONFIG_FILES) {
+      const key = this.dbKey(file);
+      const dbVersion = versions.get(key);
+      const knownVersion = this.knownVersions.get(key);
+      if (dbVersion !== undefined && (knownVersion === undefined || dbVersion > knownVersion)) {
+        await this.forceReload();
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ─── DB Key Prefixing ──────────────────────────────────────────
 
   /** Prefix DB keys for non-default profiles to avoid collisions */
@@ -295,19 +322,33 @@ export class ConfigStore extends EventEmitter {
    */
   private async loadJSONAsync<T>(filename: string, schema?: ZodType<T>): Promise<T> {
     try {
-      const dbData = await loadConfigFromDB(this.dbKey(filename));
-      if (dbData !== null) {
-        // Validate DB data against schema
+      const dbResult = await loadConfigWithVersion(this.dbKey(filename));
+      if (dbResult !== null) {
+        // Track the DB version for config-sync polling
+        this.knownVersions.set(this.dbKey(filename), dbResult.version);
+
+        // Merge: JSON file provides top-level defaults for keys absent from DB.
+        // This ensures new keys added to JSON files (e.g. webchat_onboarding) are
+        // picked up even when an older DB snapshot pre-dates them. DB wins on conflicts.
+        let merged: unknown = dbResult.data;
+        try {
+          const raw = readFileSync(join(this.dataDir, filename), 'utf-8');
+          const fileData = JSON.parse(raw) as Record<string, unknown>;
+          merged = { ...fileData, ...(dbResult.data as Record<string, unknown>) };
+        } catch {
+          // File missing or unreadable — use DB data as-is
+        }
+
         if (schema) {
-          const result = schema.safeParse(dbData);
+          const result = schema.safeParse(merged);
           if (result.success) {
-            console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB`);
+            console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB (v${dbResult.version})`);
             return result.data;
           }
           console.warn(`[ConfigStore:${this.profileId}] ⚠️ DB data for ${filename} failed validation, falling back to file`);
         } else {
-          console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB (no schema)`);
-          return dbData as T;
+          console.log(`[ConfigStore:${this.profileId}] ✅ Loaded ${filename} from DB (v${dbResult.version}, no schema)`);
+          return merged as T;
         }
       }
     } catch (err: any) {

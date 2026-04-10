@@ -75,7 +75,8 @@ export function switchSettingsTab(tabId, updateHash = true) {
 
   // Update URL hash if requested (replaceState avoids triggering hashchange)
   if (updateHash) {
-    const newHash = `settings/${tabId}`;
+    const profileId = window.profileSwitcher && window.profileSwitcher.getActiveProfileId();
+    const newHash = profileId ? `settings/${profileId}/${tabId}` : `settings/${tabId}`;
     if (window.location.hash.slice(1) !== newHash) {
       history.replaceState(null, '', '#' + newHash);
     }

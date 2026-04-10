@@ -13,6 +13,10 @@
 Consolidated shipments billed by pallet. Suitable for customers who don't need to fill
 an entire lorry. Cost-effective for 1–10 pallets.
 
+### LTL — Less Than Truckload
+Shipments that don't fill a full truck. Similar to LCL in concept — cargo is consolidated
+with other shipments. Suitable for medium volumes that don't justify a full charter.
+
 ### FCL — Full Container Load / Full Lorry Charter
 Charter an entire lorry for your shipment. Available vehicle sizes:
 - **8-ton lorry** — suitable for smaller full loads (Melaka routes)
@@ -24,8 +28,29 @@ Shared lorry service on fixed scheduled runs. Available in 20ft and 30ft console
 More economical than full charter for medium volumes.
 
 ### Cross-Border Services
-- **Singapore** — cross-border logistics available
-- **Thailand** — cross-border logistics available
+- **Singapore** — cross-border trucking available
+- **Thailand** — cross-border trucking available (Bangkok, Sadao)
+- **Vietnam** — cross-border trucking available (Hanoi)
+- **China** — cross-border trucking available (Changsha)
+- **Laos** — cross-border trucking available
+- **Indonesia** — international shipping available (Jakarta, Cengkareng)
+
+### Warehousing Services
+- General storage facilities (14 warehouse locations worldwide)
+- Stuffing & unstuffing services
+- 3PL / 4PL logistics services
+- Distribution
+- Packing services
+
+### Customs Declaration Services
+- Import / Export documentation and forwarding
+- Shipping declarations
+
+### International Shipping (Import Services)
+- Consoled import services from China, Indonesia, Thailand, Vietnam
+- FCL import services
+- LCL import services
+- Countries: China (Yiwu, Guangzhou, Humen), Indonesia (Jakarta), Thailand (Bangkok), Vietnam (Hanoi)
 
 ## Coverage (Origin: Nilai, Negeri Sembilan)
 

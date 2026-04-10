@@ -38,6 +38,15 @@ const FIRE_BENIGN_OVERRIDES: RegExp[] = [
   /\b(fire\s+for|for\s+fire)\s+(the\s+)?(cake|candle)/i,
   /\bbirthday\s+(cake\s+)?(fire|candle)/i,
   /\b(candle|lighter|match)\s+.*\s+fire\b/i,
+  // US-XXX: Non-emergency "fire" contexts (insurance, protection, risk, safety)
+  /\b(against|insur|protect|risk|prevent|safety|damage|cover)\w*\s+.*\bfire\b/i,
+  /\bfire\s+(insur|protect|risk|prevent|safety|damage|cover|extinguish|drill|escape|exit|alarm|rated)/i,
+  // Malay: non-emergency "kebakaran" (sebab kebakaran = due to fire, risiko/insurans kebakaran)
+  /\b(sebab|risiko|insurans|perlindungan|kerosakan|akibat)\s+kebakaran\b/i,
+  /\bkebakaran\s+(insurans|perlindungan|risiko)\b/i,
+  // Chinese: non-emergency 火灾/着火 (火灾保险 = fire insurance, 火灾风险 = fire risk)
+  /(火灾|着火).*(保险|保护|风险|损坏|预防|安全)/,
+  /(保险|保护|风险|损坏|预防|安全).*(火灾|着火)/,
 ];
 
 function parseRegexPattern(patternStr: string): RegExp | null {

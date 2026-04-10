@@ -7,6 +7,8 @@ import { updateRoutingRequestSchema, updateSingleRouteRequestSchema } from '../.
 import { deepMerge } from './utils.js';
 import { ok, badRequest, notFound, conflict, serverError, getStore } from './http-utils.js';
 import { auditConfigChange } from '../../lib/config-db.js';
+import { profileRegistry } from '../../assistant/profile-registry.js';
+import { configStore } from '../../assistant/config-store.js';
 
 const router = Router();
 
@@ -684,6 +686,45 @@ router.patch('/settings/kds', (req: Request, res: Response) => {
   store.setSettings(settings);
   auditConfigChange(getAdminUser(req), 'PATCH /api/rainbow/settings/kds', before, settings.kds);
   ok(res, { kds: { ...settings.kds, webhookAuthToken: settings.kds.webhookAuthToken ? '••••••••' : '' } });
+});
+
+// ─── Config Reload (live sync without redeploy) ──────────────────────
+
+/**
+ * POST /api/rainbow/config/reload
+ * Force-reload all configs from DB for a specific profile or all profiles.
+ * Query params: ?profile=yoongmei (optional, reloads all if omitted)
+ */
+router.post('/config/reload', async (req: Request, res: Response) => {
+  const profileId = req.query.profile as string | undefined;
+
+  try {
+    const reloaded: string[] = [];
+
+    if (profileId) {
+      const profile = profileRegistry.getProfile(profileId);
+      if (!profile) {
+        notFound(res, `Profile "${profileId}"`);
+        return;
+      }
+      await profile.configStore.forceReload();
+      reloaded.push(profileId);
+    } else {
+      // Reload all profiles
+      for (const profile of profileRegistry.listProfiles()) {
+        await profile.configStore.forceReload();
+        reloaded.push(profile.id);
+      }
+      // Also reload the default singleton configStore
+      await configStore.forceReload();
+      reloaded.push('default');
+    }
+
+    auditConfigChange(getAdminUser(req), 'POST /api/rainbow/config/reload', null, { profiles: reloaded });
+    ok(res, { reloaded, message: `Config reloaded from DB for ${reloaded.length} profile(s)` });
+  } catch (err: any) {
+    serverError(res, err);
+  }
 });
 
 export default router;

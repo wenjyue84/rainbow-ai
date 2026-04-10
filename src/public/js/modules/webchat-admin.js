@@ -20,6 +20,10 @@ let _wcSearchDebounceTimer = null;
 let _wcMsgSearchMatches = [];
 let _wcMsgSearchIndex = -1;
 
+// IP grouping state
+let _wcActiveIp = null;      // Currently active IP group key
+let _wcActiveSessions = [];  // All session IDs for the active IP group
+
 const WC_LIST_POLL_MS = 10000;  // 10s
 const WC_MSG_POLL_MS = 5000;    // 5s
 
@@ -63,6 +67,45 @@ function wcTimeAgo(ts) {
 
 function wcFormatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── IP Grouping Helpers ──────────────────────────────────────────
+
+/** Extract IP from "Web Visitor (1.2.3.4)" format. Returns null if not found. */
+function extractIp(pushName) {
+  const match = (pushName || '').match(/\(([^)]+)\)$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Group a flat conversation list by IP address (extracted from pushName).
+ * Sessions without a recognisable IP are kept as their own group.
+ * Each group is sorted by lastMessageAt DESC.
+ */
+function groupConversationsByIp(conversations) {
+  const groups = new Map();
+  for (const c of conversations) {
+    const ip = extractIp(c.pushName) || ('__' + c.sessionId);
+    if (!groups.has(ip)) {
+      groups.set(ip, {
+        ip,
+        sessions: [],
+        totalUnread: 0,
+        lastMessageAt: 0,
+        lastMessage: '',
+        pushName: c.pushName || 'Web Visitor',
+      });
+    }
+    const g = groups.get(ip);
+    g.sessions.push(c);
+    g.totalUnread += c.unreadCount;
+    if (c.lastMessageAt > g.lastMessageAt) {
+      g.lastMessageAt = c.lastMessageAt;
+      g.lastMessage = c.lastMessage;
+      g.pushName = c.pushName || 'Web Visitor';
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
 }
 
 // ─── Sub-tab Switching ────────────────────────────────────────────
@@ -120,8 +163,8 @@ export async function loadWebchatAdmin() {
 async function fetchWebchatList() {
   try {
     const headers = { 'Cache-Control': 'no-cache' };
-    const profileId = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
-    if (profileId) headers['x-profile-id'] = profileId;
+    // Don't filter webchat by profile — show all profiles' webchat conversations
+    // so the admin can see yoongmei, pelangi, etc. sessions in one place.
 
     const resp = await fetch('/api/rainbow/webchat/conversations', { headers });
     if (!resp.ok) return;
@@ -158,7 +201,10 @@ function renderWebchatSidebar() {
     });
   }
 
-  if (filtered.length === 0) {
+  // Group by IP address so the same visitor across sessions appears once
+  const groups = groupConversationsByIp(filtered);
+
+  if (groups.length === 0) {
     const emptyMsg = _wcFilter === 'unread'
       ? 'No unread conversations'
       : (q ? 'No sessions match your search' : 'No webchat conversations yet');
@@ -169,16 +215,24 @@ function renderWebchatSidebar() {
     return;
   }
 
-  listEl.innerHTML = filtered.map(c => {
-    const isActive = _wcActiveSession === c.sessionId;
-    const timeStr = wcTimeAgo(c.lastMessageAt);
-    const unreadBadge = c.unreadCount > 0
-      ? `<span class="lc-unread-badge">${c.unreadCount}</span>`
+  listEl.innerHTML = groups.map(g => {
+    const isActive = _wcActiveIp === g.ip;
+    const timeStr = wcTimeAgo(g.lastMessageAt);
+    const unreadBadge = g.totalUnread > 0
+      ? `<span class="lc-unread-badge">${g.totalUnread}</span>`
       : '';
-    const avatarColor = wcAvatarColor(c.sessionId);
+    // Badge showing how many sessions are merged under this IP
+    const sessionsBadge = g.sessions.length > 1
+      ? `<span class="wc-sessions-badge" title="${g.sessions.length} sessions from same IP">${g.sessions.length}</span>`
+      : '';
+    const avatarColor = wcAvatarColor(g.ip);
+    // Pass session IDs as comma-separated string in onclick; API sorts by time DESC so index 0 = latest
+    const sessionIdsStr = g.sessions.map(s => s.sessionId).join(',');
+    const ip = extractIp(g.pushName);
+    const displayName = ip ? `Web Visitor (${wcEsc(ip)})` : wcEsc(g.pushName);
 
     return `
-      <div class="lc-conv-item ${isActive ? 'lc-conv-active' : ''}" onclick="wcOpenConversation('${wcAttr(c.sessionId)}')">
+      <div class="lc-conv-item ${isActive ? 'lc-conv-active' : ''}" onclick="wcOpenIpGroup('${wcAttr(g.ip)}', '${wcAttr(sessionIdsStr)}')">
         <div class="lc-conv-avatar" style="background:${avatarColor};">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="2">
             <circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
@@ -186,12 +240,12 @@ function renderWebchatSidebar() {
         </div>
         <div class="lc-conv-info">
           <div class="lc-conv-top">
-            <span class="lc-conv-name">${wcEsc(c.pushName || 'Web Visitor')}</span>
+            <span class="lc-conv-name">${displayName}</span>
             <span class="lc-conv-time">${timeStr}</span>
           </div>
           <div class="lc-conv-bottom">
-            <span class="lc-conv-preview">${wcEsc(c.lastMessage)}</span>
-            ${unreadBadge}
+            <span class="lc-conv-preview">${wcEsc(g.lastMessage)}</span>
+            ${unreadBadge}${sessionsBadge}
           </div>
         </div>
       </div>
@@ -265,6 +319,8 @@ export async function wcMarkAllRead() {
 
 export async function openWebchatConversation(sessionId) {
   _wcActiveSession = sessionId;
+  _wcActiveIp = null;
+  _wcActiveSessions = [];
 
   // Reset message search
   _wcMsgSearchMatches = [];
@@ -304,6 +360,82 @@ export async function openWebchatConversation(sessionId) {
   _wcMsgInterval = setInterval(() => fetchWebchatMessages(sessionId), WC_MSG_POLL_MS);
 }
 
+// ─── Open IP Group (combined sessions from same IP) ──────────────
+
+/**
+ * Opens a combined view for all sessions that share the same IP address.
+ * sessionIdsStr is a comma-separated list sorted by lastMessageAt DESC (most recent first).
+ */
+export async function openWebchatIpGroup(ip, sessionIdsStr) {
+  const sessionIds = (sessionIdsStr || '').split(',').filter(Boolean);
+  if (sessionIds.length === 0) return;
+
+  _wcActiveIp = ip;
+  _wcActiveSessions = sessionIds;
+  // Most recent session receives staff replies
+  _wcActiveSession = sessionIds[0];
+
+  // Reset message search
+  _wcMsgSearchMatches = [];
+  _wcMsgSearchIndex = -1;
+  const searchBar = document.getElementById('wc-msg-search-bar');
+  if (searchBar) searchBar.style.display = 'none';
+  const searchInput = document.getElementById('wc-msg-search-input');
+  if (searchInput) searchInput.value = '';
+  const searchCount = document.getElementById('wc-msg-search-count');
+  if (searchCount) searchCount.textContent = '';
+
+  if (_wcMsgInterval) { clearInterval(_wcMsgInterval); _wcMsgInterval = null; }
+
+  const placeholder = document.getElementById('wc-chat-placeholder');
+  const chatView = document.getElementById('wc-chat-view');
+  if (placeholder) placeholder.classList.add('hidden');
+  if (chatView) chatView.classList.remove('hidden');
+
+  // Mark all sessions in the group as read
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    const profileId = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+    if (profileId) headers['x-profile-id'] = profileId;
+    sessionIds.forEach(sid => {
+      fetch(`/api/rainbow/webchat/conversations/${encodeURIComponent(sid)}/read`, {
+        method: 'PATCH', headers,
+      }).catch(() => {});
+    });
+  } catch {}
+
+  await fetchMergedMessages(sessionIds);
+  renderWebchatSidebar();
+
+  _wcMsgInterval = setInterval(() => fetchMergedMessages(_wcActiveSessions), WC_MSG_POLL_MS);
+}
+
+async function fetchMergedMessages(sessionIds) {
+  if (!sessionIds || sessionIds.length === 0) return;
+  try {
+    const headers = { 'Cache-Control': 'no-cache' };
+    const profileId = window.profileSwitcher ? window.profileSwitcher.getActiveProfileId() : null;
+    if (profileId) headers['x-profile-id'] = profileId;
+
+    if (sessionIds.length === 1) {
+      // Single session — use existing single-session endpoint
+      const resp = await fetch(`/api/rainbow/webchat/conversations/${encodeURIComponent(sessionIds[0])}`, { headers });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderWebchatMessages(data, sessionIds);
+    } else {
+      // Multiple sessions — use merged endpoint
+      const param = encodeURIComponent(sessionIds.join(','));
+      const resp = await fetch(`/api/rainbow/webchat/sessions-merged?sessions=${param}`, { headers });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderWebchatMessages(data, sessionIds);
+    }
+  } catch (err) {
+    console.error('[WebchatAdmin] Failed to fetch merged messages:', err);
+  }
+}
+
 async function fetchWebchatMessages(sessionId) {
   try {
     const headers = { 'Cache-Control': 'no-cache' };
@@ -320,15 +452,20 @@ async function fetchWebchatMessages(sessionId) {
   }
 }
 
-function renderWebchatMessages(data) {
+function renderWebchatMessages(data, sessionIds) {
   // Update header
   const headerName = document.getElementById('wc-chat-header-name');
   const headerMeta = document.getElementById('wc-chat-header-meta');
   if (headerName) headerName.textContent = data.pushName || 'Web Visitor';
-  if (headerMeta) headerMeta.textContent = `${data.profileId ? data.profileId + ' \u00B7 ' : ''}${data.sessionId}`;
+
+  const ip = extractIp(data.pushName);
+  const sessCount = sessionIds && sessionIds.length > 1 ? ` \u00B7 ${sessionIds.length} sessions` : '';
+  const metaBase = ip ? ip : (data.profileId ? data.profileId + ' \u00B7 ' + (data.sessionId || '') : (data.sessionId || ''));
+  if (headerMeta) headerMeta.textContent = metaBase + sessCount;
+
   // Apply matching avatar color to header
   const headerAvatar = document.querySelector('#wc-chat-view .lc-chat-header-avatar');
-  if (headerAvatar) headerAvatar.style.background = wcAvatarColor(data.sessionId);
+  if (headerAvatar) headerAvatar.style.background = wcAvatarColor(ip || data.sessionId || (sessionIds && sessionIds[0]) || '');
 
   const container = document.getElementById('wc-messages');
   if (!container) return;
@@ -337,7 +474,23 @@ function renderWebchatMessages(data) {
   const searchInput = document.getElementById('wc-msg-search-input');
   const activeQuery = searchInput ? searchInput.value.trim() : '';
 
-  container.innerHTML = data.messages.map(msg => {
+  const messages = data.messages || [];
+  const isMultiSession = sessionIds && sessionIds.length > 1;
+  let lastSessionId = null;
+  let html = '';
+
+  for (const msg of messages) {
+    // Insert a separator line when the session changes (multi-session merged view)
+    if (isMultiSession && msg.sessionId && msg.sessionId !== lastSessionId) {
+      if (lastSessionId !== null) {
+        const d = new Date(msg.timestamp);
+        const sepLabel = d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+          + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        html += `<div class="wc-session-separator"><span>New session \u00B7 ${wcEsc(sepLabel)}</span></div>`;
+      }
+      lastSessionId = msg.sessionId;
+    }
+
     const isUser = msg.role === 'user';
     const isStaff = msg.role === 'staff';
     const isBot = msg.role === 'assistant';
@@ -362,7 +515,7 @@ function renderWebchatMessages(data) {
       ? window.linkifyUrls(wcEsc(msg.content))
       : wcEsc(msg.content);
 
-    return `
+    html += `
       <div class="lc-msg ${alignClass}">
         ${label}
         <div class="lc-bubble ${bubbleClass}">
@@ -371,7 +524,9 @@ function renderWebchatMessages(data) {
         </div>
       </div>
     `;
-  }).join('');
+  }
+
+  container.innerHTML = html;
 
   // Re-apply search highlights if search is active
   if (activeQuery) {
@@ -407,7 +562,9 @@ function wcCloseHeaderMenuOnOutside(e) {
 export async function wcRefresh() {
   const dd = document.getElementById('wc-header-dropdown');
   if (dd) dd.style.display = 'none';
-  if (_wcActiveSession) {
+  if (_wcActiveSessions.length > 0) {
+    await fetchMergedMessages(_wcActiveSessions);
+  } else if (_wcActiveSession) {
     await fetchWebchatMessages(_wcActiveSession);
   }
 }
@@ -522,8 +679,12 @@ export async function sendWebchatReply(sessionId) {
     });
 
     if (resp.ok) {
-      // Refresh messages immediately
-      await fetchWebchatMessages(sessionId);
+      // Refresh messages immediately — use merged view if multiple sessions active
+      if (_wcActiveSessions.length > 0) {
+        await fetchMergedMessages(_wcActiveSessions);
+      } else {
+        await fetchWebchatMessages(sessionId);
+      }
     }
   } catch (err) {
     console.error('[WebchatAdmin] Failed to send reply:', err);
@@ -541,6 +702,7 @@ export function cleanupWebchatAdmin() {
 
 window.switchLiveChatTab = switchLiveChatTab;
 window.wcOpenConversation = openWebchatConversation;
+window.wcOpenIpGroup = openWebchatIpGroup;
 window.wcSendReply = function () { sendWebchatReply(_wcActiveSession); };
 window.wcReplyKeydown = function (e) {
   if (e.key === 'Enter' && !e.shiftKey) {

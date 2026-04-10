@@ -229,6 +229,10 @@ try {
   console.warn('[Startup] ProfileRegistry init failed, falling back to single-profile mode:', err.message);
 }
 
+// Start background config-sync poller (live sync from DB without redeploy)
+import { startConfigSync, stopConfigSync } from './lib/config-sync.js';
+startConfigSync();
+
 // Initialize default profile's Knowledge Base (backward compat for code using global imports)
 try {
   initKnowledgeBase();
@@ -458,9 +462,10 @@ app.use(helmet({
       baseUri: ["'self'"],
       formAction: ["'self'"],
       reportUri: '/csp-report',
-      // Note: upgrade-insecure-requests omitted intentionally.
-      // Server is HTTP-only (no TLS); including this directive would cause browsers to upgrade all
-      // HTTP API fetch calls to HTTPS, breaking webchat on plain HTTP deployments.
+      // Explicitly disable upgrade-insecure-requests (Helmet v8 adds it by default).
+      // Server is HTTP-only (no TLS); this directive causes browsers to upgrade all
+      // HTTP sub-resource fetches to HTTPS, breaking CSS/JS loading on plain HTTP deployments.
+      upgradeInsecureRequests: null,
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -505,7 +510,7 @@ app.use(compression({
   filter: (req, res) => {
     // Never compress SSE streams — compression buffers the response,
     // preventing EventSource clients from receiving events in real time.
-    if (req.headers.accept === 'text/event-stream' || req.url.endsWith('/activity/stream')) return false;
+    if (req.headers.accept === 'text/event-stream' || req.url.endsWith('/activity/stream') || res.getHeader('Content-Type')?.toString().includes('text/event-stream')) return false;
     return compression.filter(req, res);
   }
 }));
@@ -859,6 +864,7 @@ server.on('connection', (conn) => {
 const shutdown = async (signal: string) => {
   if (isShuttingDown) return; // prevent double-entry
   isShuttingDown = true;
+  stopConfigSync();
   console.log(`\n[SHUTDOWN] Received ${signal}. Draining connections...`);
 
   // 1. Set Connection: close on all in-flight responses so keep-alive clients disconnect

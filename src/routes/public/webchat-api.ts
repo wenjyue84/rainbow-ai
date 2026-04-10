@@ -66,7 +66,6 @@ const webchatLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.use(webchatLimiter);
 router.use((_req, _res, next) => { ensureProfileIdColumn(); next(); });
 
 // ─── US-921: Session Data Store (WCAG 3.3.7 Redundant Entry) ─────────────────
@@ -575,7 +574,7 @@ function syncCartToSessionData(sessionId: string, profileId: string): void {
  * Supports SSE streaming when `stream: true` is in the request body.
  * Returns only public-safe fields (no intent/debug data).
  */
-router.post('/:profileId/message', async (req: Request, res: Response) => {
+router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Response) => {
   const profileId = req.params.profileId as string;
   const { message, history, sessionData: clientSessionData } = req.body;
   let { sessionId } = req.body;
@@ -699,7 +698,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         fullText = result.message;
         if (!disconnected) {
           sseEvent(res, { token: fullText });
-          sseEvent(res, { done: true, responseTime: result.responseTime, sessionId });
+          sseEvent(res, { done: true, responseTime: result.responseTime, sessionId, suggestions: result.suggestions });
           res.end();
         }
       }
@@ -782,6 +781,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       responseTime: result.responseTime,
       sessionId,
       sessionData: updatedSessionData,
+      suggestions: result.suggestions,
     });
   } catch (err: any) {
     console.error(`[Webchat] Error processing message for ${profileId}:`, err);

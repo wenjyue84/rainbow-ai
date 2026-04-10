@@ -140,18 +140,14 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
     return;
   }
 
-  // Reject locked-out IPs before any key check
-  if (authBruteForceStore.isLockedOut(ip)) {
-    res.status(429).json({ error: 'Too Many Requests: IP temporarily locked after repeated failed auth attempts' });
-    return;
-  }
-
   const adminKey = process.env.RAINBOW_ADMIN_KEY;
   if (!adminKey) {
     res.status(401).json({ error: 'Unauthorized: RAINBOW_ADMIN_KEY not configured for remote access' });
     return;
   }
 
+  // Check key FIRST — a valid key always succeeds regardless of lockout state.
+  // This prevents multi-tab usage from locking out authenticated admins.
   const provided = req.headers['x-admin-key'];
   if (typeof provided === 'string' && provided.length > 0) {
     const providedBuf = Buffer.from(provided);
@@ -162,6 +158,12 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
       next();
       return;
     }
+  }
+
+  // Key missing or invalid — now apply lockout check
+  if (authBruteForceStore.isLockedOut(ip)) {
+    res.status(429).json({ error: 'Too Many Requests: IP temporarily locked after repeated failed auth attempts' });
+    return;
   }
 
   // Auth failed: record attempt and log

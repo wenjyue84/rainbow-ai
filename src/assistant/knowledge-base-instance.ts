@@ -10,6 +10,7 @@ import { readFileSync, readdirSync, existsSync, watch, mkdirSync, statSync } fro
 import { join, resolve } from 'path';
 import type { ConfigStore } from './config-store.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
+import { PROFILE_TYPES } from '../lib/config.js';
 import { loadAllKBFromDB, saveKBFileToDB, getKBFilesHealth } from '../lib/config-db.js';
 import { HybridRetriever } from './rag/hybrid-retriever.js';
 import type { RetrievalResult } from './rag/hybrid-retriever.js';
@@ -191,7 +192,7 @@ export class KnowledgeBaseInstance {
         const content = readFileSync(filePath, 'utf-8');
         const mtime = statSync(filePath).mtime;
         this.kbCache.set(normalizedName, content);
-        saveKBFileToDB(normalizedName, content, mtime).catch(() => {});
+        saveKBFileToDB(normalizedName, content, mtime, this.profileId).catch(() => {});
         console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
         this.invalidateSystemPromptCache();
       }
@@ -202,7 +203,7 @@ export class KnowledgeBaseInstance {
       const content = readFileSync(filePath, 'utf-8');
       const mtime = statSync(filePath).mtime;
       this.kbCache.set(filename, content);
-      saveKBFileToDB(filename, content, mtime).catch(() => {});
+      saveKBFileToDB(filename, content, mtime, this.profileId).catch(() => {});
       console.log(`[KB:${this.profileId}] Reloaded ${filename}`);
       const CORE_FILES = this.getCoreFiles();
       if (CORE_FILES.includes(filename) || filename === DURABLE_MEMORY_FILE) {
@@ -222,7 +223,7 @@ export class KnowledgeBaseInstance {
       const content = readFileSync(filePath, 'utf-8');
       const mtime = statSync(filePath).mtime;
       this.kbCache.set(file, content);
-      saveKBFileToDB(file, content, mtime).catch(() => {});
+      saveKBFileToDB(file, content, mtime, this.profileId).catch(() => {});
     }
 
     if (existsSync(this.memoryDir)) {
@@ -272,7 +273,7 @@ export class KnowledgeBaseInstance {
 
   async initKBFromDB(): Promise<void> {
     try {
-      const dbKB = await loadAllKBFromDB();
+      const dbKB = await loadAllKBFromDB(this.profileId);
       if (dbKB && dbKB.size > 0) {
         for (const [filename, content] of dbKB) {
           this.kbCache.set(filename, content);
@@ -451,6 +452,8 @@ export class KnowledgeBaseInstance {
 
     const routingLines = intents.map(i => `  - "${i}" → ${routing[i].action}`).join('\n');
 
+    const isHostelProfile = PROFILE_TYPES[this.profileId] === 'hostel';
+
     const CORE_FILES = this.getCoreFiles();
     const missingCoreFiles = CORE_FILES.filter(f => !this.kbCache.get(f));
     if (missingCoreFiles.length > 0) {
@@ -533,9 +536,8 @@ Examples of INCORRECT behavior (NEVER do this):
 GENERAL RULES:
 - Respond in the same language the guest uses (English, Malay, Chinese, or any other language)
 - Be warm, concise, and helpful (under 500 chars unless details are needed)
-- Sign off as "— Rainbow 🌈" (only for llm_reply intents)
-- NEVER invent prices, availability, or policies
-- Do not provide info about other hotels or hostels
+${isHostelProfile ? '- Sign off as "— Rainbow 🌈" (only for llm_reply intents)\n' : ''}- NEVER invent prices, availability, or policies
+${isHostelProfile ? '- Do not provide info about other hotels or hostels\n' : ''}
 - Use operational memory for context about current operations, known issues, and staff notes
 - CONVERSATION MEMORY: Always use the conversation history to recall guest details (name, booking dates, capsule number, previous requests). If the guest told you their name earlier, remember and use it. The KB constraint applies to hostel facts and policies, NOT to information the guest has shared in this conversation.
 
