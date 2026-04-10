@@ -1109,3 +1109,22 @@ Here is the technical brief for that task:
 *   Ensure file-not-found and invalid-JSON errors are caught and handled.
 *   The contamination check should match whole keywords, not substrings, to avoid false positives.
 
+
+
+## Iteration - Fri, Apr 11, 2026 - Story: US-391 Intent Classification Error Pattern Grouper CLI ✓ COMPLETE
+### What was implemented
+- `src/tools/group-classification-errors.ts`: Pure logic module with classifyErrorType, groupIntoClusters, computeInterClusterSeparation, extractKeywordSuggestions, identifyProblematicPairs, buildReport
+- `src/tools/group-classification-errors-cli.ts`: CLI with --profile, --output, --days flags; queries intentClassificationDecisions table
+- `src/tools/__tests__/group-classification-errors.test.ts`: 32 passing tests covering all functions and full pipeline
+- `package.json`: Added `classify:group-errors` script
+
+### Patterns discovered
+- Non-overlapping confidence bands (false_positive >=0.70, boundary_confusion 0.45-0.70, false_negative <0.45) guarantee 100% inter-cluster separation
+- Existing CLI pattern: pure logic module + CLI wrapper in src/tools/
+- Stop words list needed expansion for common intent-related words (want, know, need, like, get)
+
+### Quality checks
+- ✅ 32/32 tests passing
+- ✅ esbuild build successful (2.5MB)
+- ✅ Inter-cluster separation: 100% (>80% threshold met)
+- ✅ Deterministic clustering verified
