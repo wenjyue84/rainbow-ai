@@ -1128,3 +1128,24 @@ Here is the technical brief for that task:
 - ✅ esbuild build successful (2.5MB)
 - ✅ Inter-cluster separation: 100% (>80% threshold met)
 - ✅ Deterministic clustering verified
+
+## Iteration 23 - Story: US-391 Intent Classification Error Pattern Grouper CLI ✓ COMPLETE
+### What was implemented
+- `src/tools/classification-error-grouper.ts`: Pure core logic — `classifyErrorType`, `groupMisclassifications`, `identifyProblematicPairs`, `aggregateKeywordSuggestions`, `buildErrorReport`, `computeInterClusterSeparation`
+- `src/tools/classification-error-grouper-cli.ts`: CLI tool accepting `--profile data-pelangi --output errors.json --input <file.jsonl>`. Normalises "data-pelangi" → "pelangi". Falls back to built-in sample data when no --input provided.
+- `src/tools/__tests__/classification-error-grouper.test.ts`: 29 tests covering all functions and integration scenario.
+
+### Patterns discovered
+- Three error types: `false_positive` (wrong intent predicted), `false_negative` (unknown/fallback predicted), `boundary_confusion` (predicted and actual in same INTENT_GROUPS group)
+- INTENT_GROUPS map defines semantic groups: booking, checkin, payment, complaint, facilities, info, feedback
+- CLI profile normalisation: strip "data-" prefix
+- Sample data (17 records) built into CLI for demo/test without DB
+
+### Quality checks
+- Tests: 29/29 passing (27ms runtime)
+- Build: ✓ esbuild completed successfully (2.5MB dist/index.js, pre-existing warning only)
+
+### Acceptance Criteria Met
+✅ CLI clusters misclassifications by type (false_positive, false_negative, boundary_confusion) with frequency, confidence ranges, 3 examples per cluster
+✅ Report identifies problematic keyword pairs and suggests keyword additions to intent-keywords.json
+✅ Integration test with sample log produces deterministic clustering with >80% inter-cluster separation (100% actual)
