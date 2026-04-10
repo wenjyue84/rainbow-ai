@@ -13,18 +13,15 @@ import * as path from 'path';
 // ─── Mock Fixture Data ────────────────────────────────────────────────
 
 const mockValidationConversation = {
-  profileId: 'pelangi',
-  conversationId: 'test-001',
-  turns: [
-    { role: 'user' as const, content: 'Hi, can you help me?', expectedIntent: 'greeting' },
+  profile_id: 'pelangi',
+  conversation_id: 'test-001',
+  messages: [
+    { role: 'user' as const, content: 'Hi, can you help me?', ground_truth_intent: 'greeting' },
     { role: 'assistant' as const, content: 'Of course! How can I help?' },
-    { role: 'user' as const, content: 'Do you have rooms available?', expectedIntent: 'availability' },
+    { role: 'user' as const, content: 'Do you have rooms available?', ground_truth_intent: 'availability' },
     { role: 'assistant' as const, content: 'Yes, we have availability. When would you like to check in?' },
-    { role: 'user' as const, content: 'Tomorrow afternoon', expectedIntent: 'booking' }
-  ],
-  expectedCategory: 'booking',
-  label: 'availability_to_booking_flow',
-  difficulty: 'medium'
+    { role: 'user' as const, content: 'Tomorrow afternoon', ground_truth_intent: 'booking' }
+  ]
 };
 
 const mockJSONLContent = `${JSON.stringify(mockValidationConversation)}
@@ -37,37 +34,21 @@ ${JSON.stringify({ ...mockValidationConversation, profileId: 'southern', convers
  * Build conversation context (extracted from benchmark.ts for testing)
  */
 function buildContextHistory(
-  turns: Array<{ role: string; content: string; expectedIntent?: string }>,
+  messages: Array<{ role: string; content: string; ground_truth_intent?: string }>,
   upToIndex: number,
   contextWindowSize: number
 ): Array<{ role: string; content: string; timestamp: number }> {
-  const history: Array<{ role: string; content: string; timestamp: number }> = [];
-  let turnCount = 0;
+  if (contextWindowSize <= 0 || upToIndex <= 0) return [];
 
-  for (let i = 0; i < upToIndex; i++) {
-    if (turns[i] && turns[i].role === 'user') {
-      if (turnCount < contextWindowSize) {
-        history.push({
-          role: 'user',
-          content: turns[i].content,
-          timestamp: Date.now() - (upToIndex - i) * 1000
-        });
+  const messagesBefore = messages.slice(0, upToIndex);
+  const startIdx = Math.max(0, messagesBefore.length - contextWindowSize);
+  const slicedMessages = messagesBefore.slice(startIdx);
 
-        if (i + 1 < upToIndex && turns[i + 1] && turns[i + 1].role === 'assistant') {
-          history.push({
-            role: 'assistant',
-            content: turns[i + 1].content,
-            timestamp: Date.now() - (upToIndex - i - 1) * 1000
-          });
-          i++;
-        }
-
-        turnCount++;
-      }
-    }
-  }
-
-  return history;
+  return slicedMessages.map((msg, idx) => ({
+    role: msg.role,
+    content: msg.content,
+    timestamp: Date.now() - (slicedMessages.length - idx) * 1000
+  }));
 }
 
 /**
@@ -100,26 +81,25 @@ function intentMatches(classified: string, expected: string): boolean {
 describe('Context Window Benchmark', () => {
   describe('buildContextHistory', () => {
     it('should return empty list when windowSize is 0', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 5, 0);
+      const result = buildContextHistory(mockValidationConversation.messages, 5, 0);
       expect(result).toEqual([]);
     });
 
     it('should return fewer messages when upToIndex is smaller', () => {
-      const result3 = buildContextHistory(mockValidationConversation.turns, 3, 10);
-      const result5 = buildContextHistory(mockValidationConversation.turns, 5, 10);
+      const result3 = buildContextHistory(mockValidationConversation.messages, 3, 10);
+      const result5 = buildContextHistory(mockValidationConversation.messages, 5, 10);
 
       expect(result3.length).toBeLessThan(result5.length);
     });
 
     it('should limit context to windowSize', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 5, 2);
-      // Max 2 user messages (4 total including assistant responses) but we stop at upToIndex=5
-      const userMessages = result.filter(m => m.role === 'user');
-      expect(userMessages.length).toBeLessThanOrEqual(2);
+      const result = buildContextHistory(mockValidationConversation.messages, 5, 2);
+      // Max 2 messages when windowSize=2
+      expect(result.length).toBeLessThanOrEqual(2);
     });
 
     it('should include both user and assistant messages in history', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 4, 10);
+      const result = buildContextHistory(mockValidationConversation.messages, 4, 10);
 
       expect(result.length).toBeGreaterThan(0);
       expect(result.some(m => m.role === 'user')).toBe(true);
@@ -127,10 +107,11 @@ describe('Context Window Benchmark', () => {
     });
 
     it('should preserve message order (chronological)', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 5, 10);
+      const result = buildContextHistory(mockValidationConversation.messages, 5, 10);
 
+      // Messages should be in chronological order (older first, newer last)
       for (let i = 1; i < result.length; i++) {
-        expect(result[i].timestamp).toBeLessThanOrEqual(result[i - 1].timestamp);
+        expect(result[i].timestamp).toBeGreaterThanOrEqual(result[i - 1].timestamp);
       }
     });
   });
@@ -164,48 +145,46 @@ describe('Context Window Benchmark', () => {
 
   describe('Fixture Data', () => {
     it('should have valid validation conversation structure', () => {
-      expect(mockValidationConversation.profileId).toBeDefined();
-      expect(mockValidationConversation.turns).toBeInstanceOf(Array);
-      expect(mockValidationConversation.expectedCategory).toBeDefined();
-      expect(mockValidationConversation.label).toBeDefined();
-      expect(mockValidationConversation.difficulty).toBeDefined();
+      expect(mockValidationConversation.profile_id).toBeDefined();
+      expect(mockValidationConversation.messages).toBeInstanceOf(Array);
+      expect(mockValidationConversation.conversation_id).toBeDefined();
     });
 
-    it('should have turns with user and assistant roles', () => {
-      const roles = new Set(mockValidationConversation.turns.map(t => t.role));
+    it('should have messages with user and assistant roles', () => {
+      const roles = new Set(mockValidationConversation.messages.map(m => m.role));
       expect(roles.has('user')).toBe(true);
       expect(roles.has('assistant')).toBe(true);
     });
 
-    it('should have expectedIntent for user messages', () => {
-      const userTurns = mockValidationConversation.turns.filter(t => t.role === 'user');
-      expect(userTurns.length).toBeGreaterThan(0);
+    it('should have ground_truth_intent for user messages', () => {
+      const userMessages = mockValidationConversation.messages.filter(m => m.role === 'user');
+      expect(userMessages.length).toBeGreaterThan(0);
 
-      for (const turn of userTurns) {
-        expect(turn.expectedIntent).toBeDefined();
+      for (const msg of userMessages) {
+        expect(msg.ground_truth_intent).toBeDefined();
       }
     });
 
-    it('should not have expectedIntent for assistant messages', () => {
-      const assistantTurns = mockValidationConversation.turns.filter(t => t.role === 'assistant');
+    it('should not have ground_truth_intent for assistant messages', () => {
+      const assistantMessages = mockValidationConversation.messages.filter(m => m.role === 'assistant');
 
-      for (const turn of assistantTurns) {
-        expect(turn.expectedIntent).toBeUndefined();
+      for (const msg of assistantMessages) {
+        expect(msg.ground_truth_intent).toBeUndefined();
       }
     });
   });
 
   describe('Multi-turn conversation flow', () => {
     it('should extract context at each message', () => {
-      const turns = mockValidationConversation.turns;
-      const userMessageIndices = turns
-        .map((t, i) => t.role === 'user' ? i : -1)
+      const messages = mockValidationConversation.messages;
+      const userMessageIndices = messages
+        .map((m, i) => m.role === 'user' ? i : -1)
         .filter(i => i >= 0);
 
       expect(userMessageIndices.length).toBeGreaterThan(1);
 
       // Each user message should have different context
-      const contexts = userMessageIndices.map(idx => buildContextHistory(turns, idx, 10));
+      const contexts = userMessageIndices.map(idx => buildContextHistory(messages, idx, 10));
 
       for (let i = 0; i < contexts.length - 1; i++) {
         expect(contexts[i].length).toBeLessThanOrEqual(contexts[i + 1].length);
@@ -215,23 +194,23 @@ describe('Context Window Benchmark', () => {
 
   describe('Window size comparisons', () => {
     it('should show increasing context size with larger windows', () => {
-      const turns = mockValidationConversation.turns;
+      const messages = mockValidationConversation.messages;
       const messageIndex = 4;
 
-      const window3 = buildContextHistory(turns, messageIndex, 3);
-      const window5 = buildContextHistory(turns, messageIndex, 5);
-      const window10 = buildContextHistory(turns, messageIndex, 10);
+      const window3 = buildContextHistory(messages, messageIndex, 3);
+      const window5 = buildContextHistory(messages, messageIndex, 5);
+      const window10 = buildContextHistory(messages, messageIndex, 10);
 
       expect(window3.length).toBeLessThanOrEqual(window5.length);
       expect(window5.length).toBeLessThanOrEqual(window10.length);
     });
 
     it('should cap at actual conversation length', () => {
-      const turns = mockValidationConversation.turns;
+      const messages = mockValidationConversation.messages;
       const messageIndex = 5;
 
       // Requesting 100 messages but only 5 exist
-      const result = buildContextHistory(turns, messageIndex, 100);
+      const result = buildContextHistory(messages, messageIndex, 100);
 
       // Should return at most all messages up to messageIndex
       expect(result.length).toBeLessThanOrEqual(messageIndex);
@@ -239,22 +218,22 @@ describe('Context Window Benchmark', () => {
   });
 
   describe('Edge cases', () => {
-    it('should handle empty turns array', () => {
+    it('should handle empty messages array', () => {
       expect(() => buildContextHistory([], 0, 5)).not.toThrow();
       expect(buildContextHistory([], 0, 5)).toEqual([]);
     });
 
     it('should handle upToIndex = 0', () => {
-      expect(buildContextHistory(mockValidationConversation.turns, 0, 10)).toEqual([]);
+      expect(buildContextHistory(mockValidationConversation.messages, 0, 10)).toEqual([]);
     });
 
     it('should handle large context windows', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 5, 1000);
+      const result = buildContextHistory(mockValidationConversation.messages, 5, 1000);
       expect(result).toBeInstanceOf(Array);
     });
 
     it('should handle negative context window gracefully', () => {
-      const result = buildContextHistory(mockValidationConversation.turns, 5, -1);
+      const result = buildContextHistory(mockValidationConversation.messages, 5, -1);
       expect(result).toEqual([]);
     });
   });

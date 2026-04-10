@@ -25,19 +25,16 @@ const OUTPUT_DIR = resolve('benchmark-results');
 const REPORT_FILE = resolve(OUTPUT_DIR, 'context-window-accuracy-report.json');
 const CSV_FILE = resolve(OUTPUT_DIR, 'context-window-accuracy.csv');
 
-interface ValidationTurn {
+interface ValidationMessage {
   role: 'user' | 'assistant';
   content: string;
-  expectedIntent?: string;
+  ground_truth_intent?: string;
 }
 
 interface ValidationConversation {
-  profileId: string;
-  conversationId: string;
-  turns: ValidationTurn[];
-  expectedCategory: string;
-  label: string;
-  difficulty: string;
+  profile_id: string;
+  conversation_id: string;
+  messages: ValidationMessage[];
 }
 
 interface WindowAccuracy {
@@ -97,41 +94,25 @@ function loadValidationDataset(): ValidationConversation[] {
 // ─── Conversation Context Building ────────────────────────────────────
 
 /**
- * Extract the last N turns from conversation history, excluding the current message.
- * Each turn consists of user + assistant messages.
+ * Extract the last N messages from conversation history, limiting to contextWindowSize.
+ * Returns the most recent contextWindowSize messages up to the current message index.
  */
-function buildContextHistory(turns: ValidationTurn[], upToIndex: number, contextWindowSize: number): ChatMessage[] {
-  const history: ChatMessage[] = [];
+function buildContextHistory(messages: ValidationMessage[], upToIndex: number, contextWindowSize: number): ChatMessage[] {
+  if (contextWindowSize <= 0 || upToIndex <= 0) return [];
 
-  // Count complete turns (user + assistant pairs) before current message
-  let turnCount = 0;
+  // Get all messages before upToIndex
+  const messagesBefore = messages.slice(0, upToIndex);
 
-  for (let i = 0; i < upToIndex; i++) {
-    // User turn
-    if (turns[i] && turns[i].role === 'user') {
-      if (turnCount < contextWindowSize) {
-        history.push({
-          role: 'user',
-          content: turns[i].content,
-          timestamp: Date.now() - (upToIndex - i) * 1000  // Fake older timestamps
-        });
+  // Get the last contextWindowSize messages
+  const startIdx = Math.max(0, messagesBefore.length - contextWindowSize);
+  const slicedMessages = messagesBefore.slice(startIdx);
 
-        // Assistant response (if available)
-        if (i + 1 < upToIndex && turns[i + 1] && turns[i + 1].role === 'assistant') {
-          history.push({
-            role: 'assistant',
-            content: turns[i + 1].content,
-            timestamp: Date.now() - (upToIndex - i - 1) * 1000
-          });
-          i++;  // Skip the assistant turn we just added
-        }
-
-        turnCount++;
-      }
-    }
-  }
-
-  return history;
+  // Convert to ChatMessage format with timestamps
+  return slicedMessages.map((msg, idx) => ({
+    role: msg.role,
+    content: msg.content,
+    timestamp: Date.now() - (slicedMessages.length - idx) * 1000  // Older messages get earlier timestamps
+  }));
 }
 
 // ─── Intent Matching ──────────────────────────────────────────────────
@@ -175,26 +156,26 @@ async function benchmarkConversation(
   let correct = 0;
   let total = 0;
 
-  for (let i = 0; i < conversation.turns.length; i++) {
-    const turn = conversation.turns[i];
+  for (let i = 0; i < conversation.messages.length; i++) {
+    const message = conversation.messages[i];
 
-    // Only test user messages
-    if (turn.role === 'user' && turn.expectedIntent) {
+    // Only test user messages with ground truth intent
+    if (message.role === 'user' && message.ground_truth_intent) {
       total++;
 
-      // Build context history up to this turn
-      const history = buildContextHistory(conversation.turns, i, windowSize);
+      // Build context history up to this message (excluding the current message)
+      const history = buildContextHistory(conversation.messages, i, windowSize);
 
       try {
         // Classify the message
-        const result: IntentResult = await classifyMessage(turn.content, history);
+        const result: IntentResult = await classifyMessage(message.content, history);
 
         // Check if it matches expected intent
-        if (intentMatches(result.category, turn.expectedIntent)) {
+        if (intentMatches(result.category, message.ground_truth_intent)) {
           correct++;
         }
       } catch (err) {
-        console.warn(`Classification failed for message: "${turn.content.substring(0, 50)}..."`);
+        console.warn(`Classification failed for message: "${message.content.substring(0, 50)}..."`);
       }
     }
   }
@@ -215,7 +196,7 @@ async function benchmarkProfile(
 
   // Benchmark each conversation with each window size
   for (const conversation of conversations) {
-    if (conversation.profileId !== profileId) continue;
+    if (conversation.profile_id !== profileId) continue;
 
     for (const windowSize of CONTEXT_WINDOWS) {
       const result = await benchmarkConversation(conversation, windowSize);
@@ -250,7 +231,7 @@ async function benchmarkProfile(
   const p = maxAccuracy;
   const n = optimalResult.total;
   const z = 1.96;  // 95% CI
-  const se = Math.sqrt((p * (1 - p)) / n);
+  const se = n > 0 ? Math.sqrt((p * (1 - p)) / n) : 0;
   const margin = z * se;
 
   return {
@@ -305,7 +286,7 @@ function generateReport(profiles: ProfileResults[]): BenchmarkReport {
     totalSamples,
     profiles,
     globalStats: {
-      avgAccuracyBy Window: avgByWindow,
+      avgAccuracyByWindow: avgByWindow,
       recommendedWindow
     }
   };
@@ -326,8 +307,9 @@ function formatAccuracyReport(report: BenchmarkReport): string {
   lines.push('GLOBAL ACCURACY BY WINDOW SIZE');
   lines.push('-'.repeat(80));
   for (const window of CONTEXT_WINDOWS) {
-    const accuracy = report.globalStats.avgAccuracyBy Window[window] * 100;
-    lines.push(`  Window=${window:2}:  ${accuracy.toFixed(2)}%`);
+    const accuracy = report.globalStats.avgAccuracyByWindow[window] * 100;
+    const paddedWindow = String(window).padStart(2);
+    lines.push(`  Window=${paddedWindow}:  ${accuracy.toFixed(2)}%`);
   }
   lines.push(`  ► Recommended: Window=${report.globalStats.recommendedWindow}`);
   lines.push('');
@@ -410,7 +392,7 @@ async function main() {
     console.log(`Loaded ${conversations.length} conversations`);
 
     // Get unique profiles
-    const profiles = Array.from(new Set(conversations.map(c => c.profileId)));
+    const profiles = Array.from(new Set(conversations.map(c => c.profile_id)));
     const profilesToTest = filterProfile ? [filterProfile] : profiles;
 
     console.log(`\nTesting profiles: ${profilesToTest.join(', ')}`);

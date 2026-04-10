@@ -341,7 +341,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -952,6 +952,90 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-436",
+      "title": "Booking Verification Code Generator and SMS Notifier Step",
+      "priority": "high",
+      "description": "Add workflow step that generates a unique 6-digit verification code after booking confirmation, stores it in the database, and sends it to the guest via SMS for booking verification purposes.",
+      "acceptanceCriteria": [
+        "Generate and store 6-digit verification code in database with expiry timestamp (15 minutes)",
+        "Send verification code via SMS provider API with error handling and retry logic",
+        "Add workflow step configuration to workflows.json with SMS provider settings and timeout behavior"
+      ],
+      "technicalNotes": [
+        "Add verification_codes table to shared/schema-tables.ts: id, booking_id, code (CHAR(6)), guest_phone, created_at, expires_at, used_at, profile",
+        "File to edit: src/tools/verification-code-generator.ts (generateVerificationCode, sendVerificationSMS functions)",
+        "Modify: src/assistant/data/workflows.json - add verification_step with sms_provider configuration",
+        "Test command: uv run pytest tests/test_verification_code.py::test_code_generation -v && uv run pytest tests/test_verification_code.py::test_sms_provider_fallback -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-437",
+      "title": "Conversation Replay Debugger CLI for Intent Classification Analysis",
+      "priority": "high",
+      "description": "Build CLI tool to replay a conversation from the database, re-run intent classification at each message step with detailed logs showing confidence scores, extracted entities, and decision reasoning for debugging failed intents.",
+      "acceptanceCriteria": [
+        "Load conversation messages from rainbow_conversations table by conversation_id, replay in chronological order with full context",
+        "Output detailed classification report for each message: detected intent, confidence score, extracted entities, matching keywords, decision path",
+        "Generate summary highlighting message indices where confidence dropped below threshold or intent changed unexpectedly"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/conversation-replay.ts (replayConversation, generateDebugReport, formatClassificationLog functions)",
+        "Database query: SELECT * FROM rainbow_conversations WHERE id = ? AND profile = ? ORDER BY created_at ASC",
+        "File to edit: src/assistant/intent-classifier.ts (add debug_mode parameter to return detailed reasoning)",
+        "Test command: uv run pytest tests/test_conversation_replay.py::test_replay_with_fixture_conversation -v && uv run pytest tests/test_conversation_replay.py::test_confidence_drop_detection -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-438",
+      "title": "Conversation Satisfaction Feedback Collector",
+      "priority": "medium",
+      "description": "Implement post-completion feedback collection for booking and inquiry conversations. Store satisfaction scores (1-5 scale) linked to conversation and intent type, enabling analysis of response quality per profile and intent.",
+      "acceptanceCriteria": [
+        "Store feedback with profile, intent_type, user_phone, conversation_id, score (1-5), and timestamp in database",
+        "Provide API endpoint (GET /admin/feedback/stats) to retrieve average satisfaction score grouped by profile and intent_type",
+        "Trigger feedback request message automatically after booking success with emoji reaction scoring (1-5 emojis)"
+      ],
+      "technicalNotes": [
+        "Add conversation_feedback table to shared/schema-tables.ts: id, conversation_id, profile, intent_type, user_phone, score (INT), created_at, feedback_text (nullable)",
+        "File to create: src/routes/admin/feedback.ts (GET /feedback/stats with filters by profile, date_range, intent_type)",
+        "File to edit: src/assistant/pipeline/conversation-completer.ts (trigger feedback request after booking completion)",
+        "Test command: uv run pytest tests/test_feedback_routes.py::test_feedback_stats_query -v && uv run pytest tests/test_feedback_collector.py::test_feedback_trigger -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-439",
+      "title": "Per-Profile Language Tone Configuration and Response Formatter",
+      "priority": "medium",
+      "description": "Add tone configuration (formal, friendly, casual) to each profile's settings.json. Implement response formatter that applies tone adjustments to fallback responses and booking confirmations to maintain profile-specific voice and personality.",
+      "acceptanceCriteria": [
+        "Add 'tone' property to each profile in settings.json with enum values: 'formal' | 'friendly' | 'casual'",
+        "Apply tone transformation to all fallback responses before sending: formal removes emojis and contractions, friendly adds encouragement, casual uses contractions and emojis",
+        "Verify tone consistency: formal responses never contain emojis, friendly responses always contain at least one emoji, casual responses use contractions"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/settings.json (add tone: 'friendly' | 'formal' | 'casual' to each profile's config object)",
+        "File to create: src/assistant/pipeline/response-formatter.ts (applyToneToResponse function with tone-specific transformation rules)",
+        "File to edit: src/assistant/pipeline/message-processor.ts (call formatter.applyToneToResponse() before sending response)",
+        "Test command: uv run pytest tests/test_response_formatter.py::test_tone_emoji_rules -v && uv run pytest tests/test_response_formatter.py::test_tone_per_profile -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
