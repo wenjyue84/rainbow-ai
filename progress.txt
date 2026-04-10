@@ -1326,3 +1326,47 @@ SPIRAL's diagnosis gate required an explicit `## Current State / ## Problem Iden
 ✅ CLI replays conversation with context indices, classified intent + confidence, routed action per turn  
 ✅ Exports JSON trace with per-turn snapshots: contextSize, intentCandidates, confidencePercentile, routedAction  
 ✅ Tests validate trace against rainbow_messages and rainbow_conversations for 3-turn sample conversation
+
+## Iteration [N] - Story: Audit and Remove Pelangi Hostel Keywords from Makan Moments Profile (US-394) ✓ COMPLETE
+
+### What was implemented
+- **Enhanced tests in tests/unit/profile-isolation.test.ts** with comprehensive profile isolation assertions:
+  - Added test: "should contain ZERO references to pelangi (hostel profile) in any patterns or categories (US-394)"
+  - Added test suite "Intent Keywords isolation (US-394)":
+    - Verifies zero hostel-specific keywords in data-makan/intent-keywords.json
+    - Verifies zero pelangi references in intent-keywords.json
+  - Added test suite "Routing isolation (US-394)":
+    - Routes only to cafe intents (no hostel workflows like check-in, checkout, room booking)
+    - Contains only cafe-expected intents (menu_query, order_placement, table_reservation, etc.)
+    - Zero pelangi references in routing.json
+  - Added test suite "Profile file system isolation (US-394)":
+    - Verifies all data-makan/*.json files contain zero 'pelangi' references
+- Total: 13 passing tests (7 pre-existing + 6 new tests for US-394)
+
+### Acceptance Criteria Met
+1. ✓ Audit script: Ran `scripts/audit-profile-contamination.ts` - Makan profile reported 0 contaminations
+2. ✓ Hostel keywords audit: Verified via grep that intent-keywords.json has zero matches for 'check-in', 'room', 'booking', 'reservation', 'guest'
+3. ✓ Unit tests: Added assertions in tests/profile-isolation.test.ts validating:
+   - Zero Pelangi references via explicit string matching on 'pelangi'/'capsule'
+   - Zero hostel keywords in intent-keywords.json
+   - Routing.json contains only cafe intents
+4. ✓ Routing verification: Confirmed data-makan/routing.json routes to cafe intents only (menu_query, order_placement, table_reservation, etc.)
+
+### Patterns Discovered
+- Data-makan profile was already properly cleaned up (previous story US-353)
+- Profile-specific directories exist: data-makan/, data-southern/, with their own JSON files
+- Audit script at scripts/audit-profile-contamination.ts provides confidence-weighted contamination detection
+- Test framework (Vitest) handles JSON imports via `assert { type: 'json' }`
+
+### Gotchas Avoided
+- Audit script reported Southern Homestay has 4 contaminations (not in scope for US-394)
+- Windows bash environment: use `mv` not `move` for file operations
+- Test expected intents list had to include all actual cafe intents in routing.json (menu_browse_category, order_status, etc.)
+- Server startup shows warnings about Southern profile but Makan profile is clean
+
+### Quality Checks
+✓ Build: `npm run build` completed successfully (2.5MB bundle)
+✓ Tests: 13/13 passing in profile-isolation.test.ts (13ms)
+✓ Server startup: MCP_SERVER_PORT=3002 server initialized successfully
+✓ Audit: Makan profile shows 0 contaminations
+
