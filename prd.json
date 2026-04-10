@@ -525,6 +525,69 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-412",
+      "title": "Multi-Intent Disambiguation Dialog for Booking vs Inquiry",
+      "priority": "high",
+      "description": "When message classification produces similarly-scored booking and inquiry intents (confidence difference <15%), trigger a targeted disambiguation dialog asking the user to clarify their intent. Store disambiguation patterns per profile in configuration.",
+      "acceptanceCriteria": [
+        "When bookingIntent confidence and inquiryIntent confidence differ by <15%, pipeline triggers disambiguation response instead of choosing highest-scored intent",
+        "Disambiguation patterns defined in src/assistant/data/disambiguation.json with profile-specific variants for pelangi, makan, southern profiles",
+        "Test supplies ambiguous message ('I want to book but also have questions'), verifies disambiguation prompt is returned"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/disambiguation.json (pattern definitions by profile)",
+        "File to create: src/assistant/pipeline/stages/disambiguation.ts (confidence threshold check and prompt selection)",
+        "File to edit: src/assistant/intents.ts (add disambiguation intent type)",
+        "Test command: npm run test disambiguation.test.ts -- --grep='ambiguous'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-413",
+      "title": "Profile-Specific Intent Keyword Validator and Deduplicator CLI",
+      "priority": "high",
+      "description": "Create CLI tool to audit intent-keywords.json across all profiles, identify duplicate keywords within each profile and cross-profile contamination (same keyword appearing in multiple profiles). Generate audit report and remove duplicates to enforce profile isolation.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run audit:keywords' reports duplicate keywords within each profile and removes them",
+        "CLI identifies and removes keywords appearing in 2+ profiles (cross-profile contamination), e.g., 'room' in both makan and pelangi",
+        "Audit report saved to audit-keywords-YYYY-MM-DD.json with sections per profile showing removed keywords"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/keyword-auditor.ts (parseKeywords, findDuplicates, findCrossProfileKeywords functions)",
+        "File to edit: src/assistant/data/intent-keywords.json (cleaned output)",
+        "File to create: scripts/audit-keywords.sh (CLI entry point)",
+        "Test command: npm run test keyword-auditor.test.ts -- --reporter=json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-414",
+      "title": "Conversation Context Window Size Analyzer CLI",
+      "priority": "medium",
+      "description": "Create CLI tool to analyze production conversation data and determine the optimal message history window size for intent classification per profile. Test accuracy with window sizes 1, 3, 5, 10 messages and generate per-profile recommendations.",
+      "acceptanceCriteria": [
+        "CLI 'npm run analyze:context-window' reads rainbow_messages and rainbow_conversations tables, groups by profile, tests accuracy with window sizes [1,3,5,10]",
+        "Output includes per-profile accuracy metrics: profile | window_size | accuracy_percent | message_coverage",
+        "Recommends optimal window size per profile (e.g., 'pelangi: window=5 (87% accuracy)') and stores in src/assistant/data/settings.json under contextWindow"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/context-analyzer.ts (getConversationsByProfile, testWindowSize, calculateAccuracy functions)",
+        "File to edit: src/lib/config-db.ts (add getConversationMessages and getConversationsByProfile queries)",
+        "File to edit: src/assistant/data/settings.json (add contextWindow.pelangi, contextWindow.makan)",
+        "Test command: npm run test context-analyzer.test.ts -- --timeout=30000"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
