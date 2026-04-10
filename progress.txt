@@ -108,3 +108,35 @@ This task involves creating a standalone Node.js CLI script to audit the semanti
 ### Gotcha: Windows NODE_OPTIONS syntax
 - `npm run test:run` uses `NODE_OPTIONS='--max-old-space-size=4096'` (bash syntax) which fails on Windows
 - Solution: Use `npx vitest run <file>` directly to bypass the npm script
+## Iteration 4 - Sat, Apr 11, 2026  7:06:34 AM
+Completed: Fallback Response Semantic Relevance Scorer (ID: US-402) in 2m
+
+
+## Pre-analysis for US-403 (Gemini 2.5 Pro)
+### Technical Brief: US-403 - Context-Aware Fallback Selector
+
+**Project Context:** The user story (US-403) describes a NodeJS/TypeScript implementation, not a Frappe/Python one. The following brief is based on the provided JSON, which specifies a TypeScript environment. No Python files or Frappe DocTypes are involved.
+
+**1. Files to Modify/Create:**
+    *   **Create:** `src/assistant/fallback-selector.ts` - This will contain the new context-aware scoring and selection logic.
+    *   **Modify:** `src/assistant/ai-response-generator.ts` - Integrate the new fallback selector when intent confidence is below the threshold (0.70).
+    *   **Modify:** `src/routes/admin/messages.ts` - Update the API response to include `fallback_relevance_score` and `escalation_reason`.
+
+**2. Involved Entities (Not Frappe DocTypes):**
+    *   **Input:** `knowledge.json` - Source for all available fallback options.
+    *   **Database:** `rainbow_messages` table - The `confidence_score` column needs to be updated with the calculated fallback relevance.
+    *   **Data Object:** The main response object, which needs `escalation_required=true` set when no relevant fallback is found.
+
+**3. Recommended Approach:**
+    *   In `fallback-selector.ts`, implement a function that accepts the conversation history (last 5 messages).
+    *   This function should load fallback options from `knowledge.json`.
+    *   Use a semantic similarity or keyword extraction library to score each fallback's relevance against the conversation context.
+    *   Return the highest-scoring fallback and its score, or a null/escalation indicator if the score is below the 0.55 threshold.
+    *   In `ai-response-generator.ts`, call this new function when intent confidence is low and process the result.
+
+**4. Edge Cases & Gotchas:**
+    *   **Performance:** Scoring all fallbacks in `knowledge.json` on every low-confidence message could be slow. Consider caching or optimizing the scoring mechanism.
+    *   **Relevance Scoring:** The quality of the semantic relevance calculation is critical. Start with a simple keyword-based approach and refine as needed.
+    *   **No Match:** Ensure the system gracefully handles cases where no fallback meets the minimum relevance threshold (0.55), correctly setting the escalation flag.
+    *   **Short Conversations:** The logic must not fail if the conversation history contains fewer than 5 messages.
+
