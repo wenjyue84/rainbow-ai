@@ -1149,3 +1149,23 @@ Here is the technical brief for that task:
 ✅ CLI clusters misclassifications by type (false_positive, false_negative, boundary_confusion) with frequency, confidence ranges, 3 examples per cluster
 ✅ Report identifies problematic keyword pairs and suggests keyword additions to intent-keywords.json
 ✅ Integration test with sample log produces deterministic clustering with >80% inter-cluster separation (100% actual)
+
+
+## Iteration - Sat, Apr 11, 2026 - Story: US-392 Fallback Response Tone Validator CLI ✓ COMPLETE
+### What was implemented
+- `src/tools/validate-response-tone.ts`: Pure logic module — DISMISSIVE_PATTERNS, APOLOGETIC_WORDS, HELPFUL_WORDS, INTENT_GROUPS, analyzeResponseTone, analyzeKnowledge, buildToneReport, buildSuggestionsReport, suggestAlternatives
+- `src/tools/validate-response-tone-cli.ts`: CLI with --profile, --output, --suggest-fixes flags; loads knowledge.json; writes tone-report.json and tone-suggestions.json
+- `src/tools/__tests__/validate-response-tone.test.ts`: 23 tests passing
+- `package.json`: `validate:response-tone` script
+
+### Patterns discovered
+- Attempt 1 had already created all files correctly — 23/23 tests passed
+- Retry approach: verify existing files first before implementing from scratch
+- CLI correctly handles profile normalization: "data-makan" → "makan", tries profile-specific directory first then falls back to shared data/knowledge.json
+- Sentiment scoring: dismissive patterns dominate with heavy negative weight; apologetic + helpful words give positive score
+- Intent groups have different sentiment thresholds: booking ≥ 0.6, inquiry ≥ 0.7
+
+### Quality checks
+- ✅ 23/23 tests passing
+- ✅ esbuild build successful (2.5MB)
+- ✅ CLI smoke test: data-makan profile, --output and --suggest-fixes flags work
