@@ -495,7 +495,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1126,6 +1126,72 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-443",
+      "title": "Intent Keyword Overlap Detector for Same Profile",
+      "priority": "high",
+      "description": "Create CLI tool to detect when different intents within the same profile share overlapping keywords, causing classification confusion. This improves intent accuracy by identifying disambiguation opportunities.",
+      "acceptanceCriteria": [
+        "CLI tool in src/tools/intent-overlap-detector.ts reads intent-keywords.json and reports overlapping keywords between different intents for same profile",
+        "Report shows which intent pairs have keyword collisions with specific keyword examples (e.g., 'booking' appears in both booking_intent and inquiry_intent)",
+        "Tool integrates with CI/CD to warn when new keywords create overlaps, preventing regression"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/intent-overlap-detector.ts (function detectKeywordOverlaps)",
+        "File to read: src/assistant/data/intent-keywords.json (data source)",
+        "Test command: uv run pytest tests/intent-overlap-detector.test.ts -v",
+        "Use Set intersection algorithm to find overlapping keywords across all intent pairs"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-444",
+      "title": "Message Processing Dead-Letter Queue Handler",
+      "priority": "high",
+      "description": "Capture and store failed messages in a dead-letter queue for debugging and recovery. Improves reliability by providing visibility into message processing failures.",
+      "acceptanceCriteria": [
+        "DLQ handler in src/lib/dead-letter-queue.ts captures failed messages with full error stack, timestamp, and message content into PostgreSQL table rainbow_dlq",
+        "Admin endpoint POST /admin/dlq/retry/:id accepts DLQ message ID and re-enqueues it for reprocessing with optional configuration override",
+        "Integration test verifies that a failing message is captured to DLQ, then successfully retried and processed without data loss"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/dead-letter-queue.ts (functions captureFailed, retryFromDLQ)",
+        "File to create: src/routes/admin/dlq-routes.ts (POST /admin/dlq/retry/:id endpoint)",
+        "File to edit: shared/schema-tables.ts (add rainbow_dlq table with id, error, message, profile_id, created_at)",
+        "Test command: uv run pytest tests/dead-letter-queue.test.ts::test_message_capture_and_retry -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-445",
+      "title": "Conversation Session Reinitialization Detector",
+      "priority": "medium",
+      "description": "Detect when a user has restarted a conversation (new session), preventing stale context from previous conversations from contaminating responses. Improves multi-turn context handling for long-running chats.",
+      "acceptanceCriteria": [
+        "Detector in src/assistant/pipeline/session-detector.ts identifies session boundaries using timestamp gaps (>24h), greeting patterns ('hi', 'hello', 'assalam'), and topic shifts",
+        "When session restart detected, previous conversation context is cleared and conversation state is reset to initial state",
+        "Test detector against conversation history fixture (1000+ messages) showing correct detection of 3+ distinct session boundaries with <5% false positive rate"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/session-detector.ts (function detectSessionRestart)",
+        "File to edit: src/assistant/pipeline/conversation-loader.ts (integrate detector before context retrieval)",
+        "Test command: uv run pytest tests/session-detector.test.ts::test_multipart_conversation -v",
+        "Algorithm: check timestamp gaps >24h, incoming message greeting patterns, and semantic coherence with previous message"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
