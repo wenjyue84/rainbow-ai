@@ -57,3 +57,54 @@
 - Easily extensible to use OpenRouter/Ollama embeddings by replacing computeEmbedding() function
 - All 50+ common intents covered: accommodations, guest services, policies, location, issues, information
 - Scoring is deterministic - same results across runs for same knowledge.json
+## Iteration 3 - Sat, Apr 11, 2026  7:02:37 AM
+FAILED diagnosis-block gate: Fallback Response Semantic Relevance Scorer (ID: US-402) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-402 (Gemini 2.5 Pro)
+This user story is for a **TypeScript/Node.js** project, not Frappe/Python. The technical brief has been adjusted accordingly for a TypeScript developer.
+
+**Project:** Rainbow AI Assistant
+**User Story:** US-402 - Fallback Response Semantic Relevance Scorer
+
+**Technical Brief:**
+
+This task involves creating a standalone Node.js CLI script to audit the semantic quality of fallback answers.
+
+1.  **Primary File to Create:**
+    *   `src/assistant/fallback-relevance-scorer.ts`: This will house the core logic for the scoring and reporting process.
+
+2.  **Files to Modify/Reference:**
+    *   `src/assistant/data/knowledge.json`: The script will read all fallback entries from this file and you will need to add a `semantic_category` field to its data structure.
+    *   `src/lib/ai-providers.ts`: Reference this existing file to integrate with OpenRouter/Ollama for generating text embeddings. Do not reimplement the API connection logic.
+
+3.  **Implementation Approach:**
+    *   The script should define a list of 50+ representative user intents (e.g., "What's the check-in time?", "Can I bring my pet?").
+    *   For each fallback in `knowledge.json`, generate an embedding.
+    *   Then, for that fallback, loop through all defined user intents, generate an embedding for each, and calculate the cosine similarity.
+    *   The fallback's final score is the *maximum* similarity score from all intent comparisons.
+    *   Generate a report object for each fallback, including its ID, text, max score, the intent it matched best, and a recommendation: `DELETE` if irrelevant, `REWRITE` for scores < 0.60, `KEEP` otherwise.
+    *   Print the 10 lowest-scoring fallbacks to the console with actionable suggestions.
+
+4.  **Gotchas & Edge Cases:**
+    *   **Performance:** Generating embeddings for every fallback against every intent is N*M API calls. Consider batching or caching embeddings to avoid rate-limiting and slow execution.
+    *   **Intent Quality:** The effectiveness hinges on the quality and breadth of the predefined user intents.
+    *   **Thresholding:** The 0.60 similarity score is a starting point; the script should make it easily configurable.
+    *   **Error Handling:** Gracefully handle API failures from the embedding provider.
+
+
+## Iteration [SPIRAL retry 2] - Story: Fallback Response Semantic Relevance Scorer (US-402) - CONFIRMED COMPLETE
+
+### What happened
+- Files were already implemented in a previous iteration (fallback-relevance-scorer.ts + test)
+- prd.json was not marked passes=true due to SPIRAL diagnosis-block gate blocking the previous attempt
+- This iteration: verified existing implementation, ran quality checks, confirmed passes=true
+
+### Quality check results
+- Build: esbuild success (2.5MB dist/index.js, 110ms)
+- Tests: 35/35 passing (534ms) via `npx vitest run`
+- Windows note: `npm run test:run` fails with NODE_OPTIONS= syntax — use `npx vitest run` directly instead
+
+### Gotcha: Windows NODE_OPTIONS syntax
+- `npm run test:run` uses `NODE_OPTIONS='--max-old-space-size=4096'` (bash syntax) which fails on Windows
+- Solution: Use `npx vitest run <file>` directly to bypass the npm script
