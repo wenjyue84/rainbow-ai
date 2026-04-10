@@ -1550,3 +1550,32 @@ FAILED diff-guard: Audit and Remove Pelangi Hostel Keywords from Makan Moments P
 - The core confidence gating logic was already implemented; this story ensured the configuration field was properly added to settings.json
 - Escalation routing is handled through the existing routing system: low-confidence intents become 'unknown' which then routes to the configured handler
 - The implementation aligns with existing architecture patterns (store.getSettings() for config, routing-based action dispatch)
+## Iteration 1 - Sat, Apr 11, 2026  4:53:10 AM
+FAILED diagnosis-block gate: Confidence Score Gating with Profile-Aware Escalation (ID: US-395) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 7 - Story: Confidence Score Gating with Profile-Aware Escalation (US-395) ✓ COMPLETE
+
+### What was implemented
+- **IntentResult.alternatives field** added to `src/assistant/types.ts`: `alternatives?: Array<{ intent: string; confidence: number }>` — satisfies AC1 requirement for `{intent, confidence, alternatives}` return shape
+- **Populated in traceAndReturn()** in `src/assistant/intents.ts`: top-3 alternative candidates (excluding chosen intent) sorted by score, attached to every classification result
+- **Confidence gating** was already in `chat-engine.ts` (lines 411-419) from previous iteration
+- **settings.json** already had `confidence_threshold: 0.7` from previous iteration
+
+### Root cause of previous failure
+Previous iteration implemented the logic correctly but the automated gate required a diagnosis block header BEFORE any edits. The implementation was correct; only the gate requirement was missed.
+
+### Patterns discovered
+- `tierCandidates` array in `intents.ts` already accumulates all tier candidates (fuzzy, semantic, LLM) during classification — easy source for alternatives
+- `traceAndReturn()` is the single exit point for all classification results, ideal place to attach alternatives
+- `alternatives` is optional (`?`) so all existing callers that spread/destructure IntentResult are unaffected
+
+### Quality checks
+- **Build:** ✓ esbuild successful (2.5MB, pre-existing warning only)
+- **Server startup:** ✓ starts cleanly, loads confidence_threshold=0.7 from settings
+- **Type safety:** ✓ alternatives field is optional, no breaking changes
+
+### Acceptance Criteria Met
+✓ classifyIntent() returns {intent, confidence, alternatives} object — alternatives field added to IntentResult type and populated
+✓ chat-engine.ts routes to escalation when confidence < CONFIDENCE_THRESHOLD (0.7, configurable per-profile)
+✓ Escalation uses profile-aware templates via routing system ('unknown' intent routes to knowledge.json escalation handler)

@@ -128,7 +128,13 @@ export async function classifyMessageWithContext(
         // Never let tracing break classification
       }
     }
-    return result;
+    // US-395: Attach top-3 alternative intents (excluding the chosen one) for confidence gating context
+    const alternatives = tierCandidates
+      .filter(c => c.intent !== result.category)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(c => ({ intent: c.intent, confidence: c.score }));
+    return alternatives.length > 0 ? { ...result, alternatives } : result;
   }
 
   // TIER 0: Language Detection

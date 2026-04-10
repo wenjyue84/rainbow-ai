@@ -93,6 +93,7 @@ export interface IntentResult {
   matchedKeyword?: string;  // For fuzzy matches
   matchedExample?: string;  // For semantic matches (Phase 3)
   detectedLanguage?: 'en' | 'ms' | 'zh' | 'ta' | 'unknown';  // Phase 2: Language detection
+  alternatives?: Array<{ intent: string; confidence: number }>;  // US-395: Top alternative intents considered during classification
   usage?: {  // Token usage for LLM tier (US-019)
     prompt_tokens?: number;
     completion_tokens?: number;
