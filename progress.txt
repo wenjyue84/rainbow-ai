@@ -1944,3 +1944,47 @@ Here is the technical brief based on the provided JSON, adapted for the actual T
 *   The process might be slow; consider streaming progress updates to the console during execution.
 
 
+
+## Iteration [SPIRAL] - Story: Confidence-Tiered Fallback Response Selector with Profile Isolation (US-412) ✓ COMPLETE
+### What was implemented
+- **Verified and completed** all components for US-412:
+  - ✓ Data file: `src/assistant/data/fallback-responses.json` with profile-specific tiered responses (makan-moments, pelangi, southern)
+  - ✓ Fallback selector: `src/assistant/pipeline/fallback-selector.ts` with:
+    - `determineConfidenceTier(confidence)` — maps confidence scores to tier0/tier1/tier2
+    - `selectFallbackResponse(profile, confidence, language)` — retrieves profile-specific response from file
+    - Profile isolation enforced via key lookup — only reads data for specified profile
+  - ✓ Comprehensive tests: `tests/pipeline/fallback-selector.test.ts` with 18 passing tests covering:
+    - Tier boundaries: tier0 (<0.3), tier1 (0.3-0.6), tier2 (0.6+)
+    - Profile isolation: different responses for makan vs pelangi
+    - Cross-profile contamination check: makan responses contain zero Pelangi keywords (hostel, check-in, room rate)
+    - Language fallback to English for unknown language codes
+    - Unknown profile handling with generic safe response
+
+### Confidence tier mapping
+- **Tier 0** (confidence < 0.3): Escalates to staff contact message
+- **Tier 1** (0.3 ≤ confidence < 0.6): Uncertain response with clarification request
+- **Tier 2** (confidence ≥ 0.6): Full response
+
+### Quality checks
+✅ All 18 unit tests passing (36ms runtime)
+✅ Build: esbuild completed successfully (2.5MB dist/index.js, 1 pre-existing warning)
+✅ Server startup: Database connection established, config loaded
+✅ prd.json marked passes=true for US-412
+
+### Acceptance criteria met
+✅ AC1: Fallback responses file with { profile: { tier0, tier1, tier2 } } structure — each contains multilingual responses
+✅ AC2: Fallback selector selects tier based on confidence and retrieves response for current profile only
+✅ AC3: Cross-profile contamination test validates zero Pelangi keywords in makan tier responses
+
+### Patterns discovered
+- Tier thresholds are strict inequalities: tier0 [0, 0.3), tier1 [0.3, 0.6), tier2 [0.6, 1.0]
+- Profile isolation enforced at data access level (key lookup only reads one profile)
+- Multilingual support: fallback.json includes en, ms, zh, ta responses per tier per profile
+- Language fallback: if requested language unavailable, uses English (???) operator
+- Profile normalization: "pelangi-capsule" → "pelangi" via `normaliseProfileId()`
+
+### Gotchas avoided
+- Test function must be async when using await for dynamic imports
+- Windows NODE_OPTIONS workaround: use npx vitest directly instead of npm run test:run
+- Profile data uses different profiles and tiers compared to US-360 (fallbacks.ts) — both coexist independently
+- ESM module resolution: fallback-selector.ts uses createRequire() for require() in ESM context
