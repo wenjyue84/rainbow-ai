@@ -1,0 +1,30 @@
+
+## Pre-analysis for US-416 (Gemini 2.5 Pro)
+Based on the user story, here is a technical brief for the agent.
+
+**Project:** Knowledge Base Profile Isolation Indexer
+**Tech Stack:** Node.js / TypeScript (Not Frappe/Python)
+
+**1. Files to Create/Modify:**
+*   **New File:** `src/tools/kb-profile-indexer.ts`. This will contain the core logic for the indexing and violation detection.
+*   **New Functions:** `buildProfileIndex` and `detectCrossProfileReferences`.
+*   **New Test File:** `tests/unit/kb-profile-indexer.test.ts` to validate the logic.
+*   **Configuration:** `package.json` will need a new script entry for `index:kb-profiles`.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   None. The user story specifies a Node.js/TypeScript implementation. The primary data sources are filesystem directories: `.rainbow-kb/`, `.rainbow-kb-makan/`, and `.rainbow-kb-southern/`.
+
+**3. Recommended Implementation Approach:**
+1.  Define a configuration map that associates profiles (e.g., 'pelangi', 'makan', 'southern') with their respective directories and a unique set of identifying keywords (e.g., 'Pelangi Capsule Hostel' for the 'pelangi' profile).
+2.  The `buildProfileIndex` function should recursively scan the target KB directories.
+3.  For each file found, the `detectCrossProfileReferences` function should read its content line by line.
+4.  It must then check if any keywords from *other* profiles exist in the current file.
+5.  If a violation is found, log an object to an array containing the file path, line number, and the detected cross-profile keyword.
+6.  The main script, executed by `npm run index:kb-profiles`, should output this array as a JSON report.
+
+**4. Edge Cases & Gotchas:**
+*   **Tech Stack Mismatch:** The request mentions Frappe/Python, but all technical evidence in the story points to a TypeScript/Node.js project. The implementation must be in TypeScript.
+*   **Keyword Specificity:** Keywords must be specific enough to avoid false positives (e.g., avoid common words).
+*   **Profile Definitions:** The mapping between directories, profiles, and keywords must be clearly defined and easily updatable.
+*   **Report Format:** The final output must be structured (JSON as per `kb-isolation-report.json`) to be machine-readable for CI/CD checks.
+
