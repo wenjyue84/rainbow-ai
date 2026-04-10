@@ -1259,3 +1259,70 @@ This user story describes a Node.js/TypeScript CLI tool, not a Frappe/Python one
 - ✅ Build: esbuild completed (2.5MB dist/index.js, 1 pre-existing warning)
 - ✅ Tests: 8/8 passing (4.8s runtime)
 - ✅ Server startup: MCP_SERVER_PORT=3002 initializes successfully
+## Iteration 1 - Sat, Apr 11, 2026  4:12:22 AM
+FAILED diagnosis-block gate: Multi-Turn Conversation Context Debugger CLI (ID: US-393) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-393 (Gemini 2.5 Pro)
+This user story describes a Node.js/TypeScript CLI tool, not a Frappe/Python one. The implementation will be within the existing `spiral` CLI tool.
+
+**Technical Brief for US-393: Multi-Turn Conversation Context Debugger CLI**
+
+**1. Python Files to Modify / Key TypeScript Files:**
+
+*   **`package.json`**: To add the new `debug-conversation` command to the `spiral` bin entry, ensuring it's executable via `npx`.
+*   **`src/cli/debug-conversation.ts` (New File)**: This file will contain the primary logic for the new command, handling argument parsing (`--message-id`, `--profile`), orchestrating the replay, and formatting the output.
+*   **`src/core/context-builder.ts`**: The replay logic will need to import and use the context selection functions from this module to accurately simulate the context window at each turn.
+*   **`src/core/intent-classifier.ts`**: The debugger will call the classification function from this module to show what intent was detected for each message in the conversation.
+*   **`src/core/router.ts`**: To show the routing decision, the debugger will use the routing logic defined here.
+*   **`src/db/queries.ts`**: Functions to fetch a full conversation thread from the `rainbow_messages` and `rainbow_conversations` tables will be needed. This module is the correct place for such database logic.
+
+**2. Frappe DocTypes / Involved Components:**
+
+*   **Tables**: `rainbow_messages` and `rainbow_conversations`. The tool will heavily query these tables to retrieve the conversation history for replay.
+*   **CLI Framework**: The existing CLI framework (likely `yargs` or `commander`, check `package.json`) will be extended with the `debug-conversation` command.
+*   **Drizzle ORM**: The database queries in `src/db/queries.ts` will be constructed using Drizzle to fetch conversation data.
+
+**3. Recommended Implementation Approach:**
+
+1.  Define the `debug-conversation` command in the CLI framework, pointing to the new `src/cli/debug-conversation.ts` file.
+2.  In the new command file, parse the `--message-id` argument.
+3.  Use a new function in `src/db/queries.ts` to fetch all messages associated with the conversation of the given message ID, ordered chronologically.
+4.  Iterate through each message in the retrieved conversation history. For each message ("turn"):
+    a.  Invoke the context builder with the list of messages up to the *previous* turn to reconstruct the exact context window.
+    b.  Run the classifier on the current message's content to get the intent.
+    c.  Execute the router logic to determine the action taken.
+    d.  Print the state for the turn to the console, including context size, intent, and routing path.
+5.  Implement a `--json` flag to compile the turn-by-turn data into an array and output it as a JSON string.
+6.  Add a new test file `tests/debug-conversation.test.ts` to validate the CLI output against a pre-defined 3-turn conversation seeded in the test database.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Logic Re-entrancy**: The core classification and routing logic must be stateless and re-entrant to ensure the replayed simulation accurately matches the original execution. Avoid any in-memory state.
+*   **Profile Handling**: The `--profile` flag implies a multi-tenant or multi-configuration setup. The database connection and any profile-specific logic must be correctly initialized based on this flag.
+*   **Data Consistency**: The tool assumes the integrity of the conversation data in the database. Errors could occur if messages or conversation records are malformed or missing.
+*   **Performance**: For conversations with hundreds of turns, re-running the logic for each step may be slow. This is acceptable for a debug tool but should be kept in mind.
+
+
+## Iteration 8 - Story: Multi-Turn Conversation Context Debugger CLI (US-393) ✓ COMPLETE (Attempt 2)
+
+### What was implemented
+Implementation was already complete from a prior commit. This attempt:
+- Confirmed all 8 tests pass: `npx vitest run src/tools/debug-conversation-cli.test.ts`
+- Confirmed build passes: `npm run build`
+- Confirmed server startup: `MCP_SERVER_PORT=3002 npx tsx src/index.ts`
+- Updated `prd.json` to mark `passes: true`
+
+### Files from previous implementation
+- `src/tools/debug-conversation.ts` — Core module: loadConversationMessages, replayConversationTurns, buildConversationTrace, types
+- `src/tools/debug-conversation-cli.ts` — CLI entry: --message-id, --phone, --profile, --output, --limit flags
+- `src/tools/debug-conversation-cli.test.ts` — 8 integration tests against rainbow_messages DB
+- `package.json` — Added `"debug:conversation": "tsx src/tools/debug-conversation-cli.ts"` script
+
+### Why attempt 1 failed
+SPIRAL's diagnosis gate required an explicit `## Current State / ## Problem Identified / ## Planned Changes` block before any file edits. The previous agent skipped the gate and went straight to implementation. Fixed by outputting the diagnosis block as plain text first.
+
+### Acceptance criteria met
+✅ CLI replays conversation with context indices, classified intent + confidence, routed action per turn  
+✅ Exports JSON trace with per-turn snapshots: contextSize, intentCandidates, confidencePercentile, routedAction  
+✅ Tests validate trace against rainbow_messages and rainbow_conversations for 3-turn sample conversation
