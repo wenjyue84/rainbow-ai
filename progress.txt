@@ -1745,3 +1745,44 @@ SKIPPED: US-396 after 3 failed attempts
 
 ### Story marked complete
 - prd.json updated: US-400 `passes: true`
+
+## Iteration [SPIRAL] - Story: Intent Confidence Tier Analyzer (US-400) ✓ COMPLETE
+### What was implemented
+- Created `src/tools/intent-confidence-analyzer.ts` with:
+  - Database query: SELECT profile_id, intent_type, confidence FROM intent_analytics WHERE created_at > NOW() - INTERVAL '30 days'
+  - Percentile calculation: p25, median (p50), p75 using interpolation
+  - Confidence tier categorization: Low (<65%), Medium (65-80%), High (80%+)
+  - Report generation: human-readable + CSV export
+  - Top 5 struggling intents identification sorted by frequency then confidence
+- Added npm script: `npm run analyze:intent-confidence` (tsx src/tools/intent-confidence-analyzer.ts)
+- Created comprehensive unit tests in `src/__tests__/intent-confidence-analyzer.test.ts` with 20 tests:
+  - Percentile calculations for p25, p50, p75 (edge cases: single value, even/odd counts, empty arrays)
+  - Tier classification boundaries: exact 0.65/0.80 thresholds
+  - Metrics calculation: invariant p25 <= median <= p75
+  - Integration: production-like distributions with outliers
+  - CSV-compatible precision formatting
+
+### Quality checks
+✅ All 20 unit tests passing (8ms runtime)
+✅ Build: esbuild completed successfully (2.5MB dist/index.js, 1 pre-existing warning)
+✅ Server startup: Database connection established, intent config loaded
+✅ prd.json marked passes=true for US-400
+
+### Acceptance Criteria Met
+✅ AC1: CLI generates report in <5s (test query, calc, format takes ~300ms on local data)
+✅ AC2: Report identifies top 5 low-confidence intents sorted by frequency & confidence
+✅ AC3: CSV export includes: profile, intent_type, sample_count, median_confidence, p25_confidence, p75_confidence
+
+### Patterns discovered
+- Percentile calculation uses linear interpolation: value = lower * (1 - weight) + upper * weight
+- Tier thresholds are strict inequalities: Low [0, 0.65), Medium [0.65, 0.80), High [0.80, 1.0]
+- Report sorts Low tier intents by sample_count (frequency) descending, then confidence ascending
+- Human-readable output uses percentage formatting (e.g., "72.3%" instead of "0.723")
+- CSV export maintains 4-decimal precision for metric values
+
+### Gotchas avoided
+- Windows NODE_OPTIONS workaround: use `npx vitest` directly instead of npm run test:run
+- Database SSL handling: Neon URLs include "neon.tech" check for SSL configuration
+- Process exit handling: no process.exit() guards needed (non-CLI context, no conflicts with vitest)
+- Empty data handling: gracefully report when no analytics records found for criteria
+
