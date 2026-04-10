@@ -539,7 +539,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1195,6 +1195,72 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-446",
+      "title": "Conversation Abandonment Detector with Smart Re-engagement",
+      "priority": "high",
+      "description": "Detect conversations idle for >10 minutes, automatically send re-engagement message with context summary to recover abandoned bookings and inquiries.",
+      "acceptanceCriteria": [
+        "Pipeline middleware in src/assistant/pipeline/conversation-lifecycle.ts tracks last_message_timestamp and detects idle threshold",
+        "Re-engagement trigger calls src/tools/conversation-recovery.ts to summarize conversation and send 'Come back' message with original intent summary",
+        "Admin CLI tool abandonment-monitor.ts reports daily: total abandoned conversations, recovery success rate, top abandonment reasons by intent"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/conversation-lifecycle.ts (check_abandonment_status, trigger_re_engagement functions, ~120 lines)",
+        "File to create: src/tools/conversation-recovery.ts (summarize_conversation, send_re_engagement_message, ~80 lines)",
+        "File to modify: src/assistant/pipeline/message-pipeline.ts (add abandonment check before response)",
+        "Test command: uv run pytest tests/test_abandonment_recovery.py::test_idle_detection -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-447",
+      "title": "Real-Time Booking Conflict Detector for Profile-Specific Units",
+      "priority": "high",
+      "description": "Check for date/unit overlaps within the same profile's booking data before confirming booking to enforce strict profile separation and prevent double-bookings.",
+      "acceptanceCriteria": [
+        "New src/tools/booking-conflict-checker.ts exports check_booking_conflict(profile_id, unit_id, check_in, check_out) returning boolean and conflict reason",
+        "Function queries Neon DB for overlapping bookings using: SELECT * FROM rainbow_bookings WHERE profile_id = $1 AND unit_id = $2 AND (check_in < $3 AND check_out > $4)",
+        "Booking workflow step calls conflict checker before step_confirm_booking; escalates to admin if conflict detected with reason 'UNIT_UNAVAILABLE'"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/booking-conflict-checker.ts (check_booking_conflict, query_unit_availability functions, ~90 lines)",
+        "File to modify: src/assistant/data/workflows.json (add check_availability step before confirm_booking in booking_new workflow)",
+        "File to modify: src/assistant/pipeline/workflow-executor.ts (call conflict checker in booking confirmation step)",
+        "Test command: uv run pytest tests/test_booking_conflicts.py::test_overlapping_dates -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-448",
+      "title": "Booking Guest Communication Preference Enforcer",
+      "priority": "medium",
+      "description": "Store and enforce guest communication preferences (WhatsApp-only / Email / SMS) to respect user preferences and reduce notification fatigue during booking workflow.",
+      "acceptanceCriteria": [
+        "Schema in shared/schema-tables.ts adds guest_communication_preferences table: guest_id, profile_id, preferred_channel (enum: whatsapp|email|sms), opt_in_status",
+        "Booking confirmation workflow checks guest preferences and sends confirmation only via preferred channel; logs ignored channels in audit trail",
+        "Admin API endpoint PATCH /admin/guests/{guest_id}/preferences updates communication preference and returns current setting"
+      ],
+      "technicalNotes": [
+        "File to modify: shared/schema-tables.ts (add guest_communication_preferences table with indexes on (profile_id, guest_id))",
+        "File to create: src/tools/guest-preferences.ts (get_guest_preference, should_send_notification, enforce_delivery_channel functions, ~100 lines)",
+        "File to modify: src/assistant/data/workflows.json (add fetch_guest_preferences step in booking_confirm workflow)",
+        "Test command: uv run pytest tests/test_guest_preferences.py::test_respect_whatsapp_only -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
