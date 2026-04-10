@@ -242,7 +242,8 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-10T20:43:54Z"
     },
     {
       "id": "US-396",
@@ -570,48 +571,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-414",
-      "title": "Conversation Context Relevance Filter Pipeline Stage",
-      "priority": "medium",
-      "description": "Add a pipeline stage that filters conversation history to only the K most semantically relevant messages before sending context to the AI provider. This reduces token usage on long conversations while maintaining context quality.",
-      "acceptanceCriteria": [
-        "New settings `contextRelevanceFilter.enabled` (boolean) and `contextRelevanceFilter.topK` (default 5) in src/assistant/data/settings.json",
-        "Filter stage ranks conversation messages by semantic similarity to current user message and retains top K only",
-        "Test with 20-message conversation verifies filter reduces context to top 5 relevant messages while maintaining accuracy on test queries"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/context-relevance-filter.ts (uses TF-IDF or cosine similarity, no external deps)",
-        "File to modify: src/assistant/pipeline/index.ts (insert filter stage after context loader, before AI call)",
-        "Test command: uv run npm run test:run -- tests/pipeline/context-relevance-filter.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-415",
-      "title": "Cross-Profile Intent Keyword Collision Detector with Remediation Report",
-      "priority": "medium",
-      "description": "Create a CLI tool that scans intent_keywords table to identify duplicate or highly similar keywords across different profiles (pelangi, makan, southern). Generates detailed report with collision severity and remediation suggestions.",
-      "acceptanceCriteria": [
-        "Command `npm run detect:keyword-collisions` outputs JSON with detected collisions showing: keyword, profiles containing it, similarity_score, and recommended action",
-        "Tool flags any keyword appearing in multiple profiles with similarity >0.8 to existing keywords in other profiles as 'critical collision'",
-        "Test verifies detection of test collisions (e.g., 'book' in both pelangi and makan, 'room rate' in pelangi contaminating makan profile)"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/keyword-collision-detector.ts (queries intent_keywords, computes Levenshtein distance for similarity, generates JSON report)",
-        "File to modify: package.json (add script 'detect:keyword-collisions': 'node dist/tools/keyword-collision-detector.js')",
-        "Test command: uv run npm run test:run -- tests/tools/keyword-collision-detector.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-416",
       "title": "Knowledge Base Profile Isolation Index Builder",
       "priority": "high",
@@ -634,50 +593,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-417",
-      "title": "Intent Confidence Attribution Explainer",
-      "priority": "medium",
-      "description": "CLI tool to analyze why a message received a specific confidence score for a given intent, showing contributing keyword matches and similarity scores to aid debugging",
-      "acceptanceCriteria": [
-        "CLI `npm run debug:confidence --message='book a room' --intent=booking` outputs JSON with matched keywords, TF-IDF scores, and final confidence calculation",
-        "Shows top 5 contributing keywords from intent-keywords.json with individual match scores and weights",
-        "Test: message 'book a double room for 3 nights' with booking intent shows relevant keywords with breakdown"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/confidence-debugger.ts (explainConfidence function with keyword attribution)",
-        "File to reference: src/assistant/data/intent-keywords.json (keyword scoring source)",
-        "Test command: npm run test tests/unit/confidence-debugger.test.ts -- --reporter=verbose",
-        "Test command: npm run debug:confidence --message='test' --intent=inquiry"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-418",
-      "title": "Conversation Context Batch Retrieval Optimizer",
-      "priority": "medium",
-      "description": "Optimize database queries in context loader to fetch conversation history efficiently using message timestamp indexing and batch pagination",
-      "acceptanceCriteria": [
-        "Add message_timestamp and profile_id compound index on rainbow_messages table via Drizzle migration",
-        "Implement batchRetrieveContext function that fetches last N messages by profile in single optimized query",
-        "Test: retrieve 50 messages from 10K+ message conversation completes in <50ms with profile isolation enforced"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add index on messageTimestamp + profileId columns)",
-        "File to create: src/lib/context-loader.ts (batchRetrieveContext function with pagination)",
-        "Test command: npm run test tests/integration/context-retrieval.test.ts",
-        "Test command: npm run db:push (verify migration applies without errors)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
       "id": "US-419",
       "title": "Intent Classification F1 Score Regression Test Suite",
       "priority": "high",
@@ -694,27 +609,6 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-420",
-      "title": "Booking Form Auto-Pre-Fill from Conversation Context",
-      "priority": "medium",
-      "description": "Extracts guest name, check-in/check-out dates, and room type from conversation history using regex and NER. When booking form is presented, shows pre-filled values with confidence score and allows user to confirm or change.",
-      "acceptanceCriteria": [
-        "Extracts guest_name, check_in_date, check_out_date, room_type from previous messages (regex for dates, NER for names)",
-        "When booking_guest_info step runs, shows 'We remember: John, April 12-15, Deluxe Room – confirm or change?' if extraction_confidence >0.85",
-        "Only auto-fills if confidence >0.85; lower confidence shows extraction as suggestion that user can reject"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/booking_context_extractor.ts (extractBookingContext function with regex date patterns)",
-        "File to update: src/assistant/data/workflows.json (update booking_guest_info step to call extractor and show confirmation)",
-        "Test command: uv run vitest run tests/test_booking_context_extractor.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -766,206 +660,108 @@
     },
     {
       "id": "US-423",
-      "title": "Fallback Response Coverage Audit Tool",
-      "priority": "medium",
-      "description": "Audit tool validating every intent type has defined fallback responses in knowledge.json per profile, detecting missing coverage, duplicates, and cross-profile contamination in fallback messages.",
+      "title": "Conversation Turn Count Limiter with Smart Context Pruning",
+      "priority": "high",
+      "description": "Enforce maximum conversation turn limits to prevent context window explosion while preserving conversation coherence by intelligently pruning oldest message pairs",
       "acceptanceCriteria": [
-        "CLI npm run audit:fallbacks src/assistant/data/ scans intent_configs and knowledge.json, reports missing fallback_messages for any (profile, intent_type) combination; detects duplicate fallback text across intents and profiles",
-        "Identifies cross-profile contamination: fallback messages containing keywords from other profiles (e.g., Pelangi hostel terms in makan or southern fallbacks); outputs audit report to fallback_audit_report.json",
-        "Report includes: missing_combos array, duplicate_fallbacks array, contamination_warnings array with profile_pair and matched_keywords, coverage_percentage per profile; test validates against known contamination in test fixtures"
+        "Enforce configurable max turn count (default 20) in src/assistant/conversation/loader.ts when loading conversation history",
+        "Implement smart pruning that removes oldest user/assistant pairs while preserving system context and recent conversation flow",
+        "Track conversation turn count and pruning events in rainbow_conversations table and debug logs for analysis"
       ],
       "technicalNotes": [
-        "File to edit: src/tools/fallback-audit.ts (auditFallbackCoverage, detectDuplicates, detectCrossProfileContamination functions)",
-        "File to edit: src/assistant/data/knowledge.json (ensure all profiles have fallback sections)",
-        "Test command: uv run npm run test -- tests/test_fallback_audit.ts -v --testNamePattern='coverage|duplicate|contamination'",
-        "Test fixtures: tests/fixtures/knowledge_valid.json (full coverage), tests/fixtures/knowledge_contaminated.json (with cross-profile keywords for detection validation)"
+        "File to edit: src/lib/config/index.ts - add max_conversation_turns config setting with default 20",
+        "File to edit: src/assistant/conversation/loader.ts - implement pruning logic in loadConversationHistory() after fetching messages from DB",
+        "Update shared/schema-tables.ts to add conversation_turn_count and last_pruned_at columns to rainbow_conversations table",
+        "Test command: uv run vitest tests/assistant/conversation/loader.test.ts --grep 'turn.*limit' -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "ai-example"
     },
     {
       "id": "US-424",
-      "title": "Booking Workflow Step Timeout Validator with Step-Level Defaults",
+      "title": "Booking Workflow State Transition Validator with Path Coverage",
       "priority": "high",
-      "description": "Validates and enforces timeout_ms field on every booking workflow step. Prevents indefinite hangs and logs which step exceeded timeout.",
+      "description": "Validate that workflows.json defines correct state transitions for booking flows, detect unreachable states, and provide testing tools to ensure all paths are valid",
       "acceptanceCriteria": [
-        "CLI validates src/assistant/data/workflows.json: every step under 'booking' workflow has timeout_ms field (default 30000ms if missing)",
-        "Generates report of all booking steps with their timeouts, flags any >120s as warnings",
-        "Middleware in src/middleware logs step_name, conversation_id, timeout_reason when timeout triggered"
+        "Parse workflows.json and build state transition graph, detect invalid jumps and unreachable states, report violations",
+        "Validate that each workflow step has valid next_step references and no cycles (except error-recovery loops)",
+        "CLI 'npm run validate:booking-workflows [--test-all-paths]' validates structure and optionally simulates all reachable booking paths"
       ],
       "technicalNotes": [
-        "File to edit: src/assistant/data/workflows.json (add timeout_ms: 30000 to each booking step)",
-        "File to create: src/tools/workflow-timeout-validator.ts (validate and fix functions)",
-        "Test command: uv run vitest tests/workflow-timeout-validator.test.ts -v"
+        "New file: src/tools/booking/workflow-state-validator.ts - implement parseWorkflows() and validateTransitions() functions",
+        "Load workflows.json from src/assistant/data/workflows.json, build directed graph, detect cycles and unreachable nodes",
+        "Create src/cli/validate-booking-workflows.ts as CLI entry point with --test-all-paths flag for path coverage analysis",
+        "Test command: uv run vitest tests/tools/booking/workflow-state-validator.test.ts -v && npm run validate:booking-workflows --test-all-paths"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "ai-example"
     },
     {
       "id": "US-425",
-      "title": "Per-Profile Intent Keyword Conflict Detector and Remediation Reporter",
+      "title": "Profile-Aware Intent Keyword Validator with Cross-Profile Isolation",
       "priority": "high",
-      "description": "Scans intent-keywords.json to find keywords assigned to different intents across profiles. Enforces keyword uniqueness per intent per profile to prevent cross-contamination.",
+      "description": "Enforce strict keyword isolation across business profiles by detecting and preventing keyword contamination from other profiles (e.g., Pelangi keywords leaking into Makan profile)",
       "acceptanceCriteria": [
-        "CLI reports conflicts where same keyword triggers different intents in different profiles (e.g., 'booking' intent in Makan vs 'inquiry' in Southern)",
-        "Generates CSV showing keyword, affected intents, affected profiles, and suggested exclusions",
-        "Validates fix by re-scanning and confirming no conflicts remain in src/assistant/data/intent-keywords.json"
+        "Detect duplicate or overlapping keywords across profiles in intent-keywords.json, flag contamination violations",
+        "Validate keyword semantic relevance to profile context (e.g., hostel terms shouldn't appear in cafe profile)",
+        "CLI 'npm run validate:profile-keywords [--profile <profile>] [--fix]' audits and optionally auto-removes contaminating keywords"
       ],
       "technicalNotes": [
-        "File to create: src/tools/intent-keyword-conflict-detector.ts (functions detectConflicts, validateFix)",
-        "File read: src/assistant/data/intent-keywords.json (structure: {intent_name: {profile: [keywords]}})",
-        "Test command: uv run vitest tests/intent-keyword-conflict-detector.test.ts -v"
+        "New file: src/lib/validation/profile-keyword-validator.ts - implement validateProfileKeywords(profile) and detectCrossProfileContamination() functions",
+        "Load intent-keywords.json per profile from src/assistant/data/<profile>/intent-keywords.json, compare keyword sets across all profiles",
+        "Create src/cli/validate-profile-keywords.ts as CLI entry point with --profile and --fix flags to audit or auto-repair contamination",
+        "Test command: uv run vitest tests/lib/validation/profile-keyword-validator.test.ts -v && npm run validate:profile-keywords --profile makan"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "ai-example"
     },
     {
       "id": "US-426",
-      "title": "Fallback Response Profile Matcher with Business Name Validation",
+      "title": "Intent Classification Latency Monitor with Percentile Tracking",
       "priority": "medium",
-      "description": "Ensures fallback responses are profile-specific: prevents Pelangi hostel fallbacks from being used in Makan Moments profile. Validates no cross-profile business names in fallback text.",
+      "description": "Add monitoring to track how long each intent classification takes, identify performance bottlenecks, and alert when classification exceeds target SLAs by storing percentile metrics in database",
       "acceptanceCriteria": [
-        "Function validateFallbackResponse checks fallback text for profile-specific business names (e.g., 'Pelangi' not in Makan fallbacks, 'Southern' not in Makan fallbacks)",
-        "When fallback matches wrong profile, function returns escalation_required flag instead of response",
-        "Test fixtures verify Makan profile rejects any fallback containing 'Pelangi Capsule', 'Southern Homestay', or 'hostel' business terms"
+        "Track latency for each intent classification in src/assistant/pipeline/classifier.ts classify() function and store p50, p95, p99 percentiles",
+        "CLI command 'npm run analytics:intent-latency <intent> [--profile <profile>]' displays latency metrics and identifies slow intents",
+        "Intent classification metrics persisted in new intent_classification_metrics database table with intent_id, latency_ms, profile_id, and timestamp columns"
       ],
       "technicalNotes": [
-        "File to create: src/tools/fallback-profile-matcher.ts (function validateFallbackResponse)",
-        "File to create: src/assistant/data/fallback-responses-by-profile.json (structure: {profile: [responses]})",
-        "Test command: uv run vitest tests/fallback-profile-matcher.test.ts -v"
+        "File to edit: src/assistant/pipeline/classifier.ts - wrap classify() call with performance.now() timing",
+        "New file: src/lib/monitoring/latency-tracker.ts - export recordIntentLatency(intentId, durationMs, profileId) function",
+        "Update shared/schema-tables.ts to add intent_classification_metrics table schema",
+        "Test command: uv run vitest tests/monitoring/latency-tracker.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "ai-example"
     },
     {
       "id": "US-427",
-      "title": "Conversation Correction Intent Detector with Context Re-routing",
-      "priority": "high",
-      "description": "Detect when users correct their initial intent using phrases like 'actually I meant', 'no not that', 'I meant to ask about'. Load full conversation context and re-classify with correction applied. Routes to correct handler on second attempt instead of repeating failed intent.",
-      "acceptanceCriteria": [
-        "Detector identifies 90%+ of correction phrases from test fixture in tests/fixtures/correction-phrases.json",
-        "When correction detected, conversation context from last 5 messages automatically loaded via existing context-loader",
-        "Re-classified intent confidence verified higher than original intent in 80%+ of test cases",
-        "Correction metadata saved to rainbow_conversations.correction_log column for audit"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/correction-detector.ts (detectCorrectionPhrase function)",
-        "File to modify: src/assistant/pipeline/message-router.ts (integrate correctionDetector before intent classification)",
-        "File to modify: shared/schema-tables.ts (add correction_log column to rainbow_conversations)",
-        "Test command: uv run pytest tests/unit/test_correction_detector.py -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-428",
-      "title": "Intent Keyword Ownership Resolver for Cross-Profile Ambiguity",
-      "priority": "high",
-      "description": "Identify keywords in intent-keywords.json that appear across multiple business profiles (e.g., 'booking' in makan-moments and southern-homestay). Resolve ownership via similarity scoring: assign keyword to profile with highest semantic relevance, flag unresolvable ambiguities for manual review. Prevent future contamination by enforcing single-profile ownership.",
-      "acceptanceCriteria": [
-        "CLI scans intent-keywords.json and flags keywords appearing in 2+ profiles",
-        "For each ambiguous keyword, compute semantic similarity to each profile's domain, assign to highest-scoring profile",
-        "Generate remediation report: src/assistant/data/keyword-ownership-report.json with original-profile → new-profile mappings",
-        "Manual review queue captures keywords with similarity scores between 0.4-0.6 (ambiguous zone) in report.manually_review field"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/keyword-ownership-resolver.ts (resolveKeywordOwnership function using semantic similarity)",
-        "File to modify: src/assistant/data/intent-keywords.json (apply resolved mappings)",
-        "Dependency: Use existing intent keyword scorer or lightweight similarity (keyword length, profile domain match)",
-        "Test command: uv run pytest tests/unit/test_keyword_resolver.py -v",
-        "CLI command: node src/tools/keyword-ownership-resolver.ts --profile all --output-report"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-429",
-      "title": "Booking Workflow Step Completion Rate Analyzer with Drop-off Alerts",
+      "title": "Fallback Response Diversity Checker with Repetition Prevention",
       "priority": "medium",
-      "description": "Track booking workflow completion rates per step: check-in-details → check-out-details → guest-info → payment-confirm → final-confirm. Compute step abandonment ratio (step-started / step-completed). Alert admin if any step drops below 80% completion threshold, indicating high user friction point.",
+      "description": "Prevent fallback response fatigue by tracking recently-used fallbacks and rejecting semantically similar responses, ensuring users don't receive repetitive replies",
       "acceptanceCriteria": [
-        "Analytics aggregation endpoint /admin/booking-analytics returns step completion rates grouped by profile and date",
-        "Each step shows: started_count, completed_count, completion_rate%, time_in_step_seconds (median)",
-        "Alert triggered when completion_rate < 80% for any step, logged to rainbow_messages.admin_alerts",
-        "Dashboard shows last 7 days of step-by-step completion data for trend analysis"
+        "Maintain sliding window of last 5 fallbacks per conversation session in memory and compare against candidate fallbacks",
+        "Reject fallback candidates with semantic similarity > 0.85 (cosine distance) using AI embeddings or TF-IDF approximation",
+        "CLI 'npm run validate:fallback-diversity <profile>' audits all knowledge.json fallbacks to detect internal duplication and suggest alternatives"
       ],
       "technicalNotes": [
-        "File to create: src/assistant/pipeline/booking-step-tracker.ts (track step entry/exit events)",
-        "File to create: src/routes/admin/booking-analytics.ts (aggregate and serve completion stats)",
-        "File to modify: shared/schema-tables.ts (add booking_step_events table with step_name, profile, timestamp, completed boolean)",
-        "Test command: uv run pytest tests/unit/test_booking_analytics.py::test_completion_rate_calculation -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-430",
-      "title": "Intent Distribution and Success Rate Dashboard Endpoint",
-      "priority": "medium",
-      "description": "Create admin endpoint /admin/intent-dashboard that serves real-time intent metrics: top 10 intents by frequency, success rate per intent (percentage reaching completion vs fallback), accuracy per profile. Surfaces intent quality issues for prioritization. Replaces manual log analysis for monitoring.",
-      "acceptanceCriteria": [
-        "Endpoint returns { intents: [{ name, count, success_rate%, profile }, ...], period: 'last_7d' }",
-        "Success rate = (completed_intent_actions / total_intent_matches) × 100 for each intent",
-        "Data grouped by profile: Pelangi, Makan, Southern separately",
-        "Includes date range filter: ?period=24h|7d|30d&profile=all|pelangi|makan|southern"
-      ],
-      "technicalNotes": [
-        "File to create: src/routes/admin/intent-dashboard.ts (aggregateIntentMetrics endpoint)",
-        "File to modify: shared/schema-tables.ts (ensure intent_analytics table has success_indicator column)",
-        "Queries: SELECT intent_name, profile, COUNT(*) as count, SUM(CASE WHEN completed=true THEN 1 ELSE 0 END) / COUNT(*) * 100 as success_rate FROM intent_analytics",
-        "Test command: uv run pytest tests/e2e/test_intent_dashboard.py::test_dashboard_endpoint -v",
-        "Verify output JSON schema matches dashboard UI expectations"
+        "File to edit: src/assistant/fallback/selector.ts - add diversity check in selectFallback() before returning candidate",
+        "New file: src/lib/embeddings/semantic-similarity.ts - implement similarity(text1, text2) using existing AI provider or TF-IDF",
+        "Create src/cli/validate-fallback-diversity.ts as CLI entry point to audit knowledge.json per profile",
+        "Test command: uv run vitest tests/assistant/fallback/selector.test.ts --grep 'diversity' -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-431",
-      "title": "Conversation Context Message Deduplicator for Efficiency",
-      "priority": "low",
-      "description": "Before processing multi-turn context, deduplicate redundant messages: exact duplicates (same text from same sender) and near-duplicates (same intent repeated within 2 messages). Reduces context token count by ~15-20% in verbose conversations. Improves response latency and reduces AI inference cost.",
-      "acceptanceCriteria": [
-        "Deduplicator removes exact duplicates: if message N == message N-1, skip message N",
-        "Removes near-duplicates: if message N intent == message N-2 intent and similarity > 0.85, keep only latest",
-        "Preserves chronological order: kept messages maintain original timestamps",
-        "Test shows 15%+ token reduction on 20+ message conversation fixtures"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/context-deduplicator.ts (deduplicateMessages function)",
-        "File to modify: src/assistant/pipeline/context-loader.ts (call deduplicator after loading context, before processing)",
-        "Similarity calculation: use existing intent classifier or simple Levenshtein distance threshold",
-        "Test command: uv run pytest tests/unit/test_deduplicator.py::test_token_reduction -v",
-        "Benchmark: Compare token count before/after on tests/fixtures/long-conversation-20-turns.json"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
+      "_source": "ai-example"
     }
   ]
 }
