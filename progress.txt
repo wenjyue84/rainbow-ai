@@ -1582,3 +1582,48 @@ Previous iteration implemented the logic correctly but the automated gate requir
 ## Iteration 2 - Sat, Apr 11, 2026  4:57:39 AM
 Completed: Confidence Score Gating with Profile-Aware Escalation (ID: US-395) in 3m
 
+
+## Iteration 7 - Story: Multi-Turn Context Loader Pipeline Stage for Message History Retrieval (US-396) ✓ COMPLETE
+
+### What was implemented
+- **Created** `src/assistant/pipeline/stages/context-loader.ts` (75 lines):
+  - `loadContextWindow()` function: retrieves last 3 messages from conversation history, filters messages older than 24 hours
+  - `injectContextWindow()` function: formats context as "Previous messages: User: X\nAssistant: Y" and wraps in `<conversation_context>` tags
+  - Configurable constants: `CONTEXT_WINDOW_HOURS = 24`, `MAX_MESSAGES_TO_LOAD = 3`
+
+- **Integrated** into `src/assistant/pipeline/intent-classifier.ts`:
+  - Added import: `import { loadContextWindow, injectContextWindow } from './stages/context-loader.js'`
+  - Updated docstring to reflect new stage 2.5
+  - Added context-loader stage call after KB loading (stage 2) and before tier classification (stage 3)
+  - Enhanced system prompt with `injectContextWindow(kb.systemPrompt, contextLoader.contextWindow)`
+  - Tracked context metadata in `devMetadata`: `contextMessagesCount`, `contextMessagesFiltered`
+
+- **Created** `src/assistant/__tests__/pipeline/context-loader.test.ts` (12 comprehensive tests):
+  - `loadContextWindow()`: tests for empty conversation, last 3 message selection, 24-hour filtering, message ordering, formatting
+  - `injectContextWindow()`: tests for prompt injection, empty context handling, wrapper tags
+  - Integration tests: realistic multi-turn conversations, edge cases (all messages too old)
+  - All 12 tests passing ✓
+
+### Patterns discovered
+- Pipeline stages follow consistent pattern: `(state: PipelineState, context: IPipelineContext) => Promise<Result>`
+- System prompt enhancement happens at pipeline orchestrator level, not in individual stages
+- Message filtering uses `timestamp` field from `ChatMessage` (in seconds, not milliseconds)
+- Context window formatted with role labels ("User:", "Assistant:") for clarity in LLM prompts
+
+### Acceptance criteria met
+✓ AC1: New pipeline stage loads last 3 messages per conversation and profile
+✓ AC2: Context formatted as 'Previous messages: User: X\nAssistant: Y' and injected into system prompt
+✓ AC3: Messages older than 24 hours excluded from context window
+
+### Verification
+- Build: ✓ esbuild successful (2.5MB dist/index.js)
+- Tests: ✓ All 12 context-loader tests passing (7ms)
+- Server startup: ✓ Verified with tsx, initialization logs confirm context-loader stage loads correctly
+- Type safety: ✓ No type errors related to context-loader changes (pre-existing tsc errors are unrelated)
+
+### Gotchas avoided
+- ChatMessage timestamp is already in seconds (from `msg.timestamp` in WhatsApp messages), not milliseconds — handled conversion in filter logic
+- Context window must be empty string (not null) for `injectContextWindow()` to detect "no context" case
+- Enhanced system prompt passes through to tier classification via `ClassificationInput.systemPrompt` parameter
+- DevMetadata tracking added to pipeline for observability (context message counts, filtered counts)
+
