@@ -1429,3 +1429,71 @@ SPIRAL's diagnosis gate required an explicit `## Current State / ## Problem Iden
 
 ### Additional gotcha
 Python subprocess via `cat prd.json | python3 -c "..."` with `print()` before JSON output corrupts the file. Use Node.js `require('fs')` directly for JSON mutations on prd.json.
+## Iteration 3 - Sat, Apr 11, 2026  4:24:30 AM
+FAILED diff-guard: Audit and Remove Pelangi Hostel Keywords from Makan Moments Profile (ID: US-394) — 678 lines > 500 limit — attempt 1/3
+
+
+## Iteration [SPIRAL-1] - Story: Booking Success Funnel Analyzer with Per-Profile Conversion Tracking (US-322) ✓ COMPLETE
+
+### What was implemented
+
+**1. Database Table:** `booking_stage_transitions` added to `shared/tables/intent-analytics.ts`
+   - Tracks guest progression through booking stages: intent_matched → guest_confirmed → booking_finalized
+   - Fields: guest_id, from_stage, to_stage, profile, confidence, conversation_id, timestamp
+   - Indexed for profile, guest_id, stage queries and per-profile conversion analysis
+
+**2. Admin Endpoint:** GET /admin/metrics/booking-funnel
+   - File: `src/routes/admin/analytics-booking-funnel.ts`
+   - Accepts query params: `profile=pelangi&window=7d` (window supports 7d, 30d, 24h formats)
+   - Returns per-profile funnel structure with:
+     - `funnel`: [{stage, count, confidence_score}]
+     - `conversions`: [{stage, count, percentage, drop_from_previous%}]
+   - Exported pure functions `buildFunnelWithMetrics()` for testing (no side effects)
+
+**3. Daily Snapshot Job:** `src/lib/booking-funnel-snapshot.ts`
+   - Function: `captureBookingFunnelSnapshot()` analyzes message/conversation activity
+   - Detects stages: intent_matched (booking intent classified), guest_confirmed (guest response), booking_finalized (workflow complete)
+   - Populates booking_stage_transitions table daily
+   - Scheduler: `scheduleBookingFunnelSnapshot()` runs at midnight UTC
+   - Wired into `src/index.ts` initialization (line ~394)
+
+**4. Admin Router Wiring:**
+   - Imported in `src/routes/admin/index.ts` (line ~115)
+   - Mounted as middleware (line ~410)
+   - Inherits standard read rate limiting (60 req/min)
+
+**5. Unit Tests:** `src/__tests__/analytics-booking-funnel.test.ts`
+   - 6 passing tests covering:
+     - Funnel stage ordering
+     - Conversion percentage calculations
+     - Drop-from-previous percentage logic
+     - Zero count edge cases
+     - Confidence score inclusion
+   - All tests passing (4.83s runtime)
+
+### Patterns discovered
+- Booking funnel stages (intent_matched, guest_confirmed, booking_finalized) represent canonical conversion journey per profile
+- Acceptance criteria mention "funnel: [{stage, count}]" but endpoint also includes confidence scores for deeper analysis
+- Pure calculation functions (buildFunnelWithMetrics) decouple logic from database queries → testable and reusable
+- Daily snapshots avoid query-time calculations; instead pre-populate transition table for fast analytics queries
+- Window parameter parsing supports 7d, 30d, 24h, etc. formats (not just day counts)
+
+### Quality checks
+- **Build:** ✓ esbuild completed successfully (2.5MB dist/index.js, 1 pre-existing warning)
+- **Tests:** ✓ 6/6 tests passing in analytics-booking-funnel.test.ts
+- **Server startup:** ✓ MCP server initialized successfully with database connection
+- **Database:** ✓ bookingStageTransitions table exportsfrom shared/schema.js (schema compiles)
+- **Admin router:** ✓ endpoint wired and mounted with proper auth/rate-limit middleware
+- **prd.json:** ✓ US-322 marked passes: true
+
+### Gotchas avoided
+- Don't use `booking_stage_transitions` (typo with space) — table name is `booking_stage_transitions` (no space)
+- Daily snapshot job should analyze conversation activity to infer stages, not rely on pre-existing stage labels in messages
+- Window param validation required because accepting "7d" strings (not just numbers)
+- Confidence score is optional field (avg_confidence from database may be NULL)
+- Profile filtering in query uses OR logic: if profileId specified, filter by it; otherwise return all profiles
+
+### Acceptance Criteria Met
+✓ Admin endpoint GET /admin/metrics/booking-funnel?profile=pelangi&window=7d returns funnel with stage counts and confidence scores
+✓ Daily snapshot job populates booking_stage_transitions table with guest_id, from_stage, to_stage, profile, timestamp
+✓ Dashboard-ready data: conversions show per-profile % drop between each funnel stage + targets for workflow improvement
