@@ -388,7 +388,8 @@
         "tokensAfterMasking": 681,
         "reductionPct": 0,
         "contextWindow": 10
-      }
+      },
+      "_passedCommit": "e1bb5c87a1e2f4c3fd7e48ef8be244d47abb8444"
     },
     {
       "id": "US-403",
@@ -408,9 +409,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-10T23:06:35Z"
     },
     {
       "id": "US-404",
@@ -1058,6 +1060,69 @@
         "File to create: src/assistant/pipeline/response-formatter.ts (applyToneToResponse function with tone-specific transformation rules)",
         "File to edit: src/assistant/pipeline/message-processor.ts (call formatter.applyToneToResponse() before sending response)",
         "Test command: uv run pytest tests/test_response_formatter.py::test_tone_emoji_rules -v && uv run pytest tests/test_response_formatter.py::test_tone_per_profile -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-440",
+      "title": "Confidence Score Calibration Tuner CLI for Intent-Profile Pairs",
+      "priority": "high",
+      "description": "Interactive CLI that analyzes confidence score distributions per (profile, intent) pair and recommends optimal threshold adjustments to maximize precision/recall trade-off. Enables data-driven fallback routing decisions.",
+      "acceptanceCriteria": [
+        "Analyzes rainbow_messages grouped by (profile, intent) to compute confidence distributions and calculate precision/recall at thresholds 0.50-0.99 in 0.05 increments",
+        "Recommends threshold for each (profile, intent) pair that maximizes F1 score, outputs to results/confidence-calibration-{timestamp}.json",
+        "JSON output schema: {profile_name: {intent_type: {recommended_threshold: 0.75, f1_score: 0.82, precision: 0.85, recall: 0.80, sample_size: 145}}}"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/analytics/confidence-calibration-tuner.ts (export calibrateConfidenceThresholds function, iterate thresholds 0.50-0.99, compute TP/FP/TN/FN for F1)",
+        "Validate intent names against src/assistant/schemas.ts intentType schema enum before processing",
+        "Test command: uv run npm test -- src/tools/analytics/__tests__/confidence-calibration-tuner.test.ts -v --coverage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-441",
+      "title": "Intent Classification Confusion Matrix Analyzer CLI",
+      "priority": "medium",
+      "description": "CLI tool that analyzes intent classification logs to build a confusion matrix showing which intents get misclassified as other intents. Helps identify systematic classification errors and prioritize retraining efforts.",
+      "acceptanceCriteria": [
+        "CLI command parses rainbow_messages table to extract intent predictions vs ground truth for last N messages, supporting --limit and --profile filters",
+        "Generates confusion matrix (true_intent × predicted_intent) with cell counts and outputs report to results/intent-confusion-{timestamp}.tsv",
+        "Identifies and ranks top 10 most common misclassifications with percentages, e.g. 'booking' predicted as 'inquiry' in 8% of cases"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/analytics/intent-confusion-matrix-analyzer.ts (export analyzeConfusionMatrix function with parameters: profile, limit, db connection)",
+        "File to modify: src/lib/cli.ts to register command 'analyze-intent-confusion' with --profile and --limit arguments",
+        "Test command: uv run npm test -- src/tools/analytics/__tests__/intent-confusion-matrix-analyzer.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-442",
+      "title": "Booking Workflow Step Execution Profiler with Performance Bottleneck Report",
+      "priority": "medium",
+      "description": "CLI tool that profiles booking workflow step execution times to identify slow steps, failed transitions, and retry patterns. Outputs detailed performance report per-step per-profile to guide workflow optimization.",
+      "acceptanceCriteria": [
+        "Analyzes escalation_events table to calculate avg execution time (ms), failure rate (%), and retry count for each booking workflow step",
+        "Generates report to results/booking-workflow-profile-{timestamp}.tsv with columns: profile | step_name | avg_time_ms | failure_rate | retry_count",
+        "Highlights critical bottlenecks: steps exceeding 5000ms threshold or failure_rate > 10%, sorted by impact (time × failure_rate)"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/analytics/booking-workflow-profiler.ts (export profileWorkflowSteps function, query escalation_events by workflow_name LIKE 'booking%')",
+        "Workflow step definitions loaded from: src/assistant/data/workflows.json to map step_id → step_name for each profile",
+        "Test command: uv run npm test -- src/tools/analytics/__tests__/booking-workflow-profiler.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
