@@ -1943,3 +1943,92 @@ Here is the technical brief based on the provided JSON, adapted for the actual T
 *   The statistical calculation for the confidence interval must be correctly implemented.
 *   The process might be slow; consider streaming progress updates to the console during execution.
 
+
+## Iteration [21] - Knowledge Base Profile Isolation Index Builder (US-416)
+### What was implemented
+- Created `src/tools/kb-profile-indexer.ts` with core functions:
+  - `scanKBDirectory()`: Recursively scans .rainbow-kb directories for .md files
+  - `readFileLines()`: Reads file content with line numbers
+  - `detectCrossProfileReferences()`: Detects cross-profile keyword violations
+  - `buildProfileIndex()`: Orchestrates full scan and generates isolation index
+- Created `tests/unit/kb-profile-indexer.test.ts` with 9 passing tests:
+  - Directory scanning, file reading, violation detection, index building
+  - Test setup uses temp directories to avoid modifying real KB files
+- Added npm script: `npm run index:kb-profiles` → generates kb-isolation-report.json
+- Resolved merge conflict in package.json (taken upstream version with src/tools paths)
+
+### Patterns discovered
+- Profile configuration: Profiles defined in profiles.json with id, name, kbDir, dataDir
+- 6 active KB directories: pelangi, southern, makan-moments, pms-capsule, pms-southern, yoongmei
+- Keyword matching: Case-insensitive string includes() against content lines
+- Output formatting: stderr for diagnostics, stdout for JSON (clean piping to files)
+- Test structure: Uses Vitest with beforeAll/afterAll hooks for filesystem cleanup
+
+### Gotchas
+- Build: esbuild doesn't include kb-profile-indexer in dist/ (it's a standalone CLI tool)
+- Stdout vs stderr: npm script prefix confuses redirection; use `npx tsx` directly with `2>/dev/null`
+- Keyword specificity: "cafe" and "Johor Bahru" create false positives (generic terms); future: allow keyword configuration per profile
+- Path separators: Windows uses \ in paths; relative paths work fine for both kb scanning and report output
+
+### Acceptance criteria met ✓
+✓ CLI `npm run index:kb-profiles` scans all KB directories recursively
+✓ Generates JSON report with profiles, violations, summary statistics
+✓ Detects cross-profile keywords: e.g., "Pelangi Capsule" in .rainbow-kb-makan/cafe-facts.md at line 6
+✓ Reports include: profileId, filePath, lineNumber, content, detectedKeywords, sourceProfile
+✓ Test suite: 9 tests covering scan, read, detect, index building (all passing)
+✓ Build successful with esbuild; server startup verified
+
+Story ID: US-416
+## Iteration 1 - Sat, Apr 11, 2026  6:47:50 AM
+FAILED diagnosis-block gate: Knowledge Base Profile Isolation Index Builder (ID: US-416) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-401 (Gemini 2.5 Pro)
+### Technical Brief for US-401: Context Window Accuracy Benchmark
+
+**Project Type:** Node.js / TypeScript (Not Frappe/Python)
+
+**1. Files to Modify:**
+*   **Create:** `tools/context-window-benchmark.ts` (The main benchmarking script).
+*   **Create:** `tests/fixtures/validation_conversations.jsonl` (The labeled test data).
+*   **Modify:** `src/assistant/knowledge-base-instance.ts` (To expose conversation history).
+
+**2. Involved DocTypes/Hooks:**
+*   This is a TypeScript project. The key architectural component is the `KnowledgeBaseInstance` class, which manages conversation state. No Frappe DocTypes or hooks are involved.
+
+**3. Implementation Approach:**
+1.  In `src/assistant/knowledge-base-instance.ts`, add a new public method `getConversationContext(count: number)` that returns the last `count` messages from the conversation history.
+2.  Create `tools/context-window-benchmark.ts`. This script will:
+    a. Load and parse the `validation_conversations.jsonl` file.
+    b. For each conversation, iterate through window sizes [3, 5, 10, 20].
+    c. Use the `getConversationContext` method to simulate different history lengths and run the existing intent classification logic.
+    d. Tally correct vs. incorrect classifications to calculate accuracy for each window size.
+3.  Generate the accuracy delta report and the `recommendation.json` file as specified in the acceptance criteria.
+
+**4. Edge Cases & Gotchas:**
+*   The `getConversationContext` method must handle cases where the history is shorter than the requested window size.
+*   Ensure the JSONL parsing for the validation dataset is robust.
+*   The benchmark might be long-running; consider adding progress indicators.
+
+
+## Iteration 2 - US-401 Retry (Multi-Turn Accuracy Baseline by Context Window Size)
+### What was found
+- Story was already FULLY implemented from previous iteration
+- `passes: true` was already set in prd.json
+- All files existed: src/tools/context-window-benchmark.ts, src/tools/context-window-benchmark.test.ts, tests/fixtures/validation_conversations.jsonl
+- `getConversationContext()` method was already in knowledge-base-instance.ts
+- All 21 tests pass: `npm run test -- src/tools/context-window-benchmark.test.ts --run`
+
+### Problem identified
+- prd.json had "both modified" git state (unmerged paths) — conflict was resolved but not staged with `git add`
+- SPIRAL orchestrator saw UU status for prd.json and re-queued the story
+
+### Fix applied
+- Ran `git add prd.json` to mark conflict as resolved
+- All tests confirmed passing (21/21)
+
+### Gotchas
+- When a merge conflict is resolved without running `git add`, git still shows "unmerged paths" in status
+- Always run `git add <file>` after resolving merge conflicts to mark them resolved
+
+Story ID: US-401
