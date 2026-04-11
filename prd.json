@@ -221,7 +221,10 @@
         "reliability"
       ],
       "model": "haiku",
-      "last_attempted": "2026-04-11T18:23:15Z"
+      "last_attempted": "2026-04-11T18:23:15Z",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n- `src/lib/message-queue.ts` exports a `closeQueue()` function (line 551-578) that gracefully closes BullMQ workers, queue events, DLQ, main queue, and Redis client\n- `src/index.ts` has a graceful shutdown handler (lines 871-925) that drains WhatsApp sockets and PostgreSQL pool, but **does NOT call closeQueue()**\n- This means BullMQ workers are abandoned on SIGTERM, and in-flight jobs in the queue are not completed before exit\n\n## Problem Identified\nWhen the server receives SIGTERM, BullMQ workers are never closed, and any in-flight jobs are abandoned without completion or DLQ movement. This violates the acceptance criteria which require:\n1. BullMQ workers closed during SIGTERM\n2. In-flight jobs complete before exit\n3. Shutdown log includes BullMQ drain status\n\n## Planned Changes\n1. Import `closeQueue` from `src/lib/message-queue.ts` in `src/index.ts`\n2. Add `await closeQueue()` call in the `shutdown()` function (after WhatsApp cleanup, before exit)\n3. Add console log messages for BullMQ drain status\n4. Run build and tests to verify\n\nNow let me read the shutdown section and make the changes:\nLet me check what's exported from the assistant module:\nNow I'll make the necessary changes. First, let me add the import for destroyAssistant:\nNow let me add the BullMQ worker drain step in the shutdown function:\nNow let me run the quality checks. First, build:\nNow let me run the server startup test:\nLet me verify the changes are correct by checking if there are any tests related to graceful shutdown:\nLet me run the existing test suite to make sure nothing is broken:\nLet me verify the changes by reading the modified section:\nLet me run a simpler test check:\nLet me try running tests with rtk to reduce verbosity:\nNow let me update prd.json to mark US-506 as passing:\nNow let me append the learnings to progress.txt:\nNow let me commit the changes:\nLet me verify the build still passes:\nPerfect! Let me verify the final state of US-506 in prd.json:\nExcellent! **US-506 is now complete.** ✅\n\n## Summary"
+      }
     },
     {
       "id": "US-507",
