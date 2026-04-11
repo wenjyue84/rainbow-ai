@@ -1,3 +1,83 @@
+## Iteration 12 - Story: Intent Keyword Occurrence Frequency Analyzer per Profile (US-492) - COMPLETE
+
+### What was implemented
+Core keyword frequency analysis system for identifying strongest keyword predictors per intent and detecting cross-profile keyword contamination:
+
+1. **Core Module: src/tools/analytics/keyword-frequency-analyzer.ts** (365 lines)
+   - `analyzeKeywordFrequency(profile, options)`: Analyze keywords per intent for a profile
+   - `computeKeywordPrecision(keyword, matches)`: Compute precision/recall for a keyword
+   - `detectCrossProfileContamination(profiles)`: Detect keywords reused across profiles
+   - `formatKeywordFrequencyAsCSV()`: Export frequency report as CSV
+   - `formatContaminationReport()`: Human-readable contamination report
+   - `formatContaminationReportAsJSON()`: Structured JSON for programmatic access
+
+2. **CLI Tools: src/tools/analyze-keywords-cli.ts** (145 lines)
+   - `npm run analyze:keywords -- --profile=southern --output=keywords.csv`
+   - `npm run analyze:keywords -- --profile=pelangi --format=json`
+   - `npm run validate:keyword-isolation`
+   - Commands detect contamination with exit code 0 (clean) or 1 (issues found)
+
+3. **Test Suite: tests/unit/keyword-frequency-analyzer.test.ts** (520 lines)
+   - 33 tests covering all functions and acceptance criteria
+   - Tests for each profile (pelangi, southern, makan) isolated analysis
+   - Cross-profile contamination detection with severity classification
+   - CSV and JSON formatting tests
+   - All tests passing (1.16s runtime)
+
+### Acceptance criteria met
+✅ **AC1**: Create src/tools/analytics/keyword-frequency-analyzer.ts with analyzeKeywordFrequency, computeKeywordPrecision, detectCrossProfileContamination
+   - Functions implemented and tested
+   - Computes precision = correct / total
+   - Computes recall = correct / total_correct_for_intent
+
+✅ **AC2**: Tests in tests/keyword-frequency-analyzer.test.ts ensure profiles analyzed separately with zero cross-profile contamination in test data
+   - 33 tests all passing
+   - Each profile (pelangi, southern, makan) tested independently
+   - Contamination detection identifies shared keywords across profiles
+
+✅ **AC3**: CLI tools with `npm run analyze:keywords` and `npm run validate:keyword-isolation`
+   - analyze:keywords: CSV/JSON export showing high-frequency keywords per intent
+   - validate:keyword-isolation: Detects cross-profile keyword reuse with severity classification
+   - Both scripts added to package.json
+
+### Key features delivered
+✅ Keyword frequency analysis per profile showing precision/recall metrics
+✅ Unstable keywords identification (precision < 0.5)
+✅ Cross-profile contamination detection with HIGH/MEDIUM/LOW severity
+✅ CSV export format for analysis and automation
+✅ JSON export for programmatic integration
+✅ Human-readable reports for manual review
+
+### Patterns discovered
+- **Core process theme**: Pure data analysis functions enable observable quality metrics without side effects
+- Keyword matching uses intent-keywords.json configuration with multi-language support
+- Profiles (pelangi, southern, makan) share common intents (greeting, thanks) — some contamination expected
+- Severity classification: HIGH when same intent across profiles, MEDIUM for 2-profile sharing, LOW otherwise
+- CSV format enables quick filtering and sorting for keyword remediation
+
+### Quality checks
+- Tests: 33/33 passing (1.16s runtime)
+- Type check: All modules import via tsx without errors
+- CLI: Both npm scripts work with --profile, --format, --output options
+- npm scripts: Added analyze:keywords and validate:keyword-isolation to package.json
+- Pre-existing esbuild error in latency-tracker.ts unrelated to US-492
+- prd.json: Marked passes=true for US-492
+
+### Files created/modified
+- Created: src/tools/analytics/keyword-frequency-analyzer.ts (365 lines)
+- Created: src/tools/analyze-keywords-cli.ts (145 lines)
+- Created: tests/unit/keyword-frequency-analyzer.test.ts (520 lines)
+- Modified: package.json (added 2 npm scripts)
+- Modified: prd.json (US-492 passes=true)
+
+### Next steps
+Ready for production deployment:
+1. Integrate into intent classification pipeline to log matched keywords
+2. Create database table for keyword_matches (for production data)
+3. Schedule periodic keyword analysis via CI/CD
+4. Set up alerts when unstable keywords detected (precision < 0.5)
+5. Use contamination reports to prioritize keyword cleanup in maintenance cycles
+
 ## Iteration 5 - Story: Intent Classification Per-Profile Baseline Drift Detector (US-487) - VERIFIED COMPLETE (Attempt 3)
 
 ### What was implemented
