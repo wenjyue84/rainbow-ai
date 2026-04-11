@@ -77,6 +77,7 @@ interface WebchatSessionData {
   orderType?: string; // 'dine-in' | 'takeaway'
   deliveryAddress?: string;
   seatNumber?: string;
+  language?: string; // 'en' | 'ms' | 'zh' | 'ta' (guest's language preference)
   updatedAt: number;
 }
 
@@ -609,6 +610,7 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
   ipSessionMap.set(ipKey, { sessionId, updatedAt: Date.now() });
 
   // US-921: Merge client-side session data (name, table, address) into server store
+  // US-510: Also store language preference
   if (clientSessionData && typeof clientSessionData === 'object') {
     const sdKey = sessionKey(profileId, sessionId);
     const existing = sessionDataStore.get(sdKey) || { updatedAt: Date.now() };
@@ -618,6 +620,7 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
     if (clientSessionData.orderType) merged.orderType = String(clientSessionData.orderType).slice(0, 20);
     if (clientSessionData.deliveryAddress) merged.deliveryAddress = String(clientSessionData.deliveryAddress).slice(0, 500);
     if (clientSessionData.seatNumber) merged.seatNumber = String(clientSessionData.seatNumber).slice(0, 20);
+    if (clientSessionData.language) merged.language = String(clientSessionData.language).slice(0, 10);
     sessionDataStore.set(sdKey, merged);
   }
 
@@ -685,6 +688,9 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
         // Route through processChat so intent classification (static_reply, etc.) is respected.
         // This prevents the LLM from being called for greetings/static intents and avoids
         // the LLM hallucinating JSON debug blocks in its output.
+        // US-510: Pass language preference from session data
+        const sessionData = sessionDataStore.get(sessionKey(profileId, sessionId));
+        const preferredLanguage = (sessionData?.language as any) || undefined;
         const result = await processChat({
           message: sanitizedMessage,
           history: Array.isArray(history) ? history : [],
@@ -694,6 +700,7 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
           kb: profile.kb,
           tools: [],
           toolHandlers: new Map(),
+          preferredLanguage,
         });
         fullText = result.message;
         if (!disconnected) {

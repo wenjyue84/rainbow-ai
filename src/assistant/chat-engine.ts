@@ -35,6 +35,8 @@ export interface ChatOptions {
   toolHandlers?: Map<string, ToolHandler>;
   /** Optional text appended to the system prompt (e.g. current cart state). */
   systemPromptSuffix?: string;
+  /** Guest's explicit language preference (overrides language detection) */
+  preferredLanguage?: 'en' | 'ms' | 'zh' | 'ta';
 }
 
 export interface QuickSuggestion {
@@ -326,7 +328,7 @@ const EMERGENCY_INITIAL_RESPONSE = "URGENT — This is an emergency! Our staff h
  * Returns a ChatResult with all fields populated.
  */
 export async function processChat(options: ChatOptions): Promise<ChatResult> {
-  const { message, history, sessionId, profileId, configStore: store, kb } = options;
+  const { message, history, sessionId, profileId, configStore: store, kb, preferredLanguage } = options;
   const startTime = Date.now();
 
   const conversationHistory = history.map(msg => ({
@@ -360,7 +362,8 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
   // Tool-calling mode: bypass intent classification and use tool loop
   if (options.tools && options.tools.length > 0 && options.toolHandlers) {
     const { languageRouter } = await import('./language-router.js');
-    const toolLang = languageRouter.detectLanguage(message) as SupportedLanguage;
+    // US-510: Use preferred language if provided, otherwise detect
+    const toolLang = (preferredLanguage || languageRouter.detectLanguage(message)) as SupportedLanguage;
     const topicFiles = kb.guessTopicFiles(message);
     const baseSystemPrompt = kb.buildSystemPrompt(store.getSettings().system_prompt, topicFiles, store);
     const systemPrompt = options.systemPromptSuffix
@@ -406,6 +409,11 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     };
   } else {
     intentResult = await classifyMessage(message, conversationHistory);
+  }
+
+  // US-510: Override detected language with preferred language if provided
+  if (preferredLanguage) {
+    intentResult.detectedLanguage = preferredLanguage;
   }
 
   // US-002: Confidence threshold gating — route low-confidence intents to fallback

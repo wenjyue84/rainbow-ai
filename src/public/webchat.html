@@ -317,6 +317,23 @@
     .header-help-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .header-help-btn svg { width: 13px; height: 13px; }
 
+    /* ── Language selector ─────────────────────────── */
+    .header-language-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 7px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    .header-language-select:hover { background: var(--border); color: var(--text); }
+    .header-language-select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
     /* ── Offline banner ────────────────────────────── */
     .offline-banner {
       display: none;
@@ -950,6 +967,13 @@
           <div class="skeleton-loader skeleton-text short" style="width:50%;margin-top:4px;"></div>
         </div>
       </div>
+      <!-- Language selector (US-510) -->
+      <select class="header-language-select" id="languageSelect" aria-label="Select language">
+        <option value="en">English</option>
+        <option value="ms">Malay</option>
+        <option value="zh">中文</option>
+        <option value="ta">Tamil</option>
+      </select>
       <button class="header-help-btn" id="helpBtn" type="button" aria-label="Help and contact information">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="10"></circle>
@@ -1197,6 +1221,21 @@
       });
       if (changed) localStorage.setItem(SESSION_DATA_KEY, JSON.stringify(sessionData));
     }
+
+    // ── Language Preference (US-510) ────────────────────────────────
+    const LANGUAGE_KEY = SESSION_KEY + '_lang';
+    var preferredLanguage = sessionStorage.getItem(LANGUAGE_KEY) || 'en';
+    var languageSelect = document.getElementById('languageSelect');
+    if (languageSelect) {
+      languageSelect.value = preferredLanguage;
+      languageSelect.addEventListener('change', function(e) {
+        preferredLanguage = e.target.value;
+        sessionStorage.setItem(LANGUAGE_KEY, preferredLanguage);
+        sessionData.language = preferredLanguage;
+      });
+    }
+    // Always include language in sessionData (for first message and subsequent messages)
+    sessionData.language = preferredLanguage;
 
     let history = [];
     let sending = false;
