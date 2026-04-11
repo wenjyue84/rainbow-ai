@@ -1345,3 +1345,52 @@ This user story describes a feature for a **TypeScript/Node.js** application, no
 ## Iteration 2 - Sat, Apr 11, 2026  3:25:21 PM
 Completed: Profile-Aware Booking Unit Availability Check Before Workflow (ID: US-470) in 7m
 
+
+## Iteration 3 - Sat, Apr 11, 2026  4:04:00 PM
+Completed: Booking Workflow Step Duration SLO Tracker with Per-Step Thresholds (ID: US-483) in 15m
+
+### What was implemented
+- Created `src/assistant/data/workflow-step-slos.json`:
+  - Defines per-step SLO thresholds: fetch_units (2000ms), validate_dates (1000ms), send_sms (5000ms), send_confirmation (3000ms), generate_code (2000ms), verify_code (1500ms), notify (1000ms), check_availability (2000ms)
+  - Extensible format for adding more step SLOs
+
+- Enhanced `src/assistant/pipeline/booking-executor.ts`:
+  - Added `loadSloConfig()` function to load and cache SLO configuration from workflow-step-slos.json
+  - Added `checkStepSloViolation()` function to detect SLO violations and log warnings with: step_name, duration_ms, slo_ms, excess_ms, excess_percentage
+  - Integrated SLO checking into `stepExecutionTimer()` after step completes
+  - SLO violations are non-blocking — logged as warnings but do not interrupt workflow
+  - Graceful error handling: SLO check errors never block workflow progression
+
+- Created `tests/integration/workflow-slo.test.ts`:
+  - 9 comprehensive tests covering:
+    - Step duration recording in execution results
+    - Timeout detection and proper error handling
+    - Workflow continuation on SLO violations (graceful degradation)
+    - Error handling for failed steps
+    - Language-specific recovery messages
+    - Pre-execution state rollback on timeout
+    - Elapsed time measurement
+    - Resilience to internal SLO check errors
+  - All tests pass
+
+### Key design decisions
+1. **Non-blocking SLO violations**: SLO thresholds are performance targets, not hard limits. Steps that exceed SLO are logged as warnings but don't interrupt the workflow.
+2. **Caching**: SLO config is loaded once and cached in-memory to avoid repeated file I/O.
+3. **Fire-and-forget SLO checks**: SLO checking is async and non-blocking in stepExecutionTimer, ensuring it never impacts step completion.
+4. **Graceful fallback**: Steps without SLO configuration simply skip the SLO check.
+
+### Quality checks
+- ✓ Build: esbuild success (2.5MB dist/index.js, 1 pre-existing warning only)
+- ✓ Tests: 9/9 tests pass in tests/integration/workflow-slo.test.ts
+- ✓ Server startup: No fatal errors on server startup
+- ✓ prd.json: Marked US-483 passes=true
+
+### Acceptance criteria met
+1. ✓ Each booking step execution records step_name and duration_ms in logs; SLO thresholds configured in src/assistant/data/workflow-step-slos.json per step
+2. ✓ Step duration exceeding SLO logged as warning with step_name, duration_ms, slo_ms, excess_percentage; workflow continues gracefully
+3. ✓ Tests cover SLO violation detection and logging, workflow completion without crash
+
+### Technical notes
+- Modified file: src/assistant/pipeline/booking-executor.ts
+- Created files: src/assistant/data/workflow-step-slos.json, tests/integration/workflow-slo.test.ts
+- Logged format: `[BookingExecutor] SLO violation: step="send_sms", duration_ms=6000, slo_ms=5000, excess_ms=1000, excess_percentage=20.0%`

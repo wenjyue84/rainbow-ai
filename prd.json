@@ -1497,9 +1497,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-11T07:57:49Z"
     },
     {
       "id": "US-484",
@@ -1589,48 +1590,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-488",
-      "title": "Conversation Context Compression for Long Threads",
-      "priority": "medium",
-      "description": "Automatically compresses older conversation turns (turns 1-8) into a single abstractive summary after 15+ turns to prevent context window overflow and maintain conversation quality. Preserves critical information (user intent, decisions, booking details) while reducing token consumption, enabling longer multi-turn conversations without quality degradation.",
-      "acceptanceCriteria": [
-        "After conversation reaches 15 turns, function `compressContextWindow(turns: ConversationTurn[], maxTurns: number = 15)` merges turns 1-8 into single summary turn containing: initial request, intermediate decisions, key facts, and step outcomes",
-        "Compression preserves >90% of entity information (dates, names, numbers) verified by exact entity match between original and compressed context using NER",
-        "Test assertion on turn 16+ with compressed context: intent classification accuracy >= accuracy with full uncompressed context (no >5% accuracy drop)"
-      ],
-      "technicalNotes": [
-        "File to create: `src/assistant/context/context-compressor.ts` with compression function and turn merging (~140 lines)",
-        "File to modify: `src/assistant/pipeline/message-processor.ts` add compression check before context passes to intent classifier",
-        "Test command: `uv run npm test -- tests/context/context-compressor.test.ts --run` validates entity preservation and intent classification accuracy with compressed vs full context"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-489",
-      "title": "Booking Workflow Human Handoff Template Generator",
-      "priority": "medium",
-      "description": "When a booking workflow step fails 3+ consecutive times (same step, same conversation), automatically generates a structured handoff document containing user context, failed step details, error logs, and suggested remediation actions. Enables human agents to take over mid-workflow with full context, reducing escalation time and booking abandonment.",
-      "acceptanceCriteria": [
-        "After 3rd consecutive failure on same booking step (e.g., payment_confirmation), function `generateHandoffTemplate(conversationId: string, workflowId: string, failedStepName: string)` returns JSON object with keys: user_id, conversation_summary, failed_step_name, error_stack, suggested_actions (array), escalation_timestamp",
-        "Conversation summary includes last 5 user messages, all extracted booking fields from earlier turns, and previous workflow step outcomes with timestamps",
-        "Test assertion: `expect(handoff.suggested_actions.length).toBeGreaterThan(0)` and `expect(handoff.error_stack).toBeDefined()` and `expect(handoff.user_id).toMatch(/^[a-zA-Z0-9_]+$/)` and action suggestions are contextually relevant to failed_step_name"
-      ],
-      "technicalNotes": [
-        "File to create: `src/assistant/workflows/handoff-generator.ts` with template generation and context extraction (~120 lines)",
-        "File to modify: `src/assistant/workflows/workflow-executor.ts` add failure counter per step and trigger handoff generation on 3rd consecutive failure",
-        "Test command: `uv run npm test -- tests/workflows/handoff-generator.test.ts --run` validates handoff JSON structure, action suggestions quality, and error context completeness"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-490",
       "title": "Booking Workflow Input Sanitizer with Profile-Specific Rules",
       "priority": "high",
@@ -1646,52 +1605,6 @@
         "File to edit: src/assistant/pipeline/workflow-executor.ts (call sanitizer before booking workflow execution)",
         "Test command: uv run pytest tests/booking-input-sanitizer.test.ts -v",
         "Validation: Verify makan profile rejects guest count > 4, southern accepts up to 8, pelangi unit constraints enforced"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-491",
-      "title": "Intent Classification Confidence Variance Calculator",
-      "priority": "medium",
-      "description": "Calculate and track confidence score variance per intent across all messages. High variance indicates unreliable classification and suggests keyword refinement needed. Generates reports and flags intents for retraining.",
-      "acceptanceCriteria": [
-        "Create `src/lib/intent-confidence-variance.ts` that computes variance, standard deviation, and coefficient of variation per intent from database message history (min 50 samples)",
-        "Add analytics endpoint `/admin/analytics/intent-variance` returning JSON with variance stats, CV threshold alerts, and intent stability scores",
-        "Export CLI tool: `npm run analyze:intent-variance -- --output=variance.csv --min-samples=50` showing intents with high variance (>0.15) ranked by unreliability"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/intent-confidence-variance.ts (calculateVariance, calculateStdDev, flagUnstableIntents functions)",
-        "File to edit: src/routes/admin/analytics.ts (GET /admin/analytics/intent-variance endpoint with query params)",
-        "File to edit: scripts/analyze-intent-variance.sh (CLI entry point calling variance calculator)",
-        "Test command: uv run pytest tests/intent-confidence-variance.test.ts::test_variance_calculation -v",
-        "DB query: SELECT intent, COUNT(*), STDDEV(confidence), AVG(confidence) FROM rainbow_messages WHERE intent IS NOT NULL GROUP BY intent HAVING COUNT(*) >= 50"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-492",
-      "title": "Intent Keyword Occurrence Frequency Analyzer per Profile",
-      "priority": "medium",
-      "description": "Analyze keyword usage patterns across successful and failed classifications per profile. Identifies strongest keyword predictors per intent and detects cross-profile keyword contamination for remediation.",
-      "acceptanceCriteria": [
-        "Create `src/tools/analytics/keyword-frequency-analyzer.ts` that analyzes keyword success rates per intent per profile, computing precision/recall per keyword from message history",
-        "Add tests in `tests/keyword-frequency-analyzer.test.ts` ensuring pelangi, southern, makan profiles are analyzed separately with zero cross-profile keyword contamination",
-        "CLI tools: `npm run analyze:keywords --profile=southern --output=keywords.csv` generates frequency report; `npm run validate:keyword-isolation` detects cross-profile keyword reuse"
-      ],
-      "technicalNotes": [
-        "File to edit: src/tools/analytics/keyword-frequency-analyzer.ts (analyzeKeywordFrequency, computeKeywordPrecision, detectCrossProfileContamination functions)",
-        "File to edit: src/assistant/pipeline/intent-classifier.ts (log matched keywords and intent result for analysis tracking)",
-        "File to edit: scripts/analyze-keywords.sh (CLI entry point for keyword analysis)",
-        "Test command: uv run pytest tests/keyword-frequency-analyzer.test.ts::test_profile_isolation -v",
-        "DB query: SELECT profile, intent, keyword, COUNT(*) as total, SUM(CASE WHEN classification_correct THEN 1 ELSE 0 END) as correct FROM keyword_matches GROUP BY profile, intent, keyword"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

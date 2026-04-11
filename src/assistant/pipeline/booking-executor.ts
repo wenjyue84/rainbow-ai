@@ -1,6 +1,7 @@
 /**
  * US-264: Booking Workflow Step Timeout Detection with Auto-Rollback
  * US-284: Booking Workflow Step Output Schema Validator
+ * US-483: Booking Workflow Step Duration SLO Tracker with Per-Step Thresholds
  *
  * Provides a stepExecutionTimer that wraps booking step execution with
  * configurable per-step timeouts. When a step exceeds its timeout threshold,
@@ -10,6 +11,11 @@
  * Also provides validateWorkflowStepOutput() that validates booking workflow
  * step outputs conform to expected schema from workflows.json before passing
  * to the next step.
+ *
+ * US-483 adds SLO (Service Level Objective) tracking for step durations.
+ * Each step's execution duration is logged and compared against per-step
+ * SLO thresholds defined in workflow-step-slos.json. SLO violations are
+ * logged as warnings but do not block workflow progression.
  */
 
 import type { BookingState, BookingStepResult } from '../types.js';
@@ -31,6 +37,11 @@ export const TIMEOUT_RECOVERY_MESSAGES: Record<string, string> = {
   zh: '\u9884\u8BA2\u6B65\u9AA4\u8017\u65F6\u8FC7\u957F\u3002\u8BF7\u91CD\u8BD5\u6216\u8054\u7CFB\u5DE5\u4F5C\u4EBA\u5458\u3002',
   ta: '\u0BAA\u0BC1\u0B95\u0BCD\u0B95\u0BBF\u0B99\u0BCD \u0BA8\u0B9F\u0BB5\u0B9F\u0BBF\u0B95\u0BCD\u0B95\u0BC8 \u0BAE\u0BBF\u0B95\u0BB5\u0BC1\u0BAE\u0BCD \u0BA8\u0BC0\u0BA3\u0BCD\u0B9F\u0BA4\u0BC1. \u0BAE\u0BC0\u0BA3\u0BCD\u0B9F\u0BC1\u0BAE\u0BCD \u0BAE\u0BC1\u0BAF\u0BB1\u0BCD\u0B9A\u0BBF\u0B95\u0BCD\u0B95\u0BB5\u0BC1\u0BAE\u0BCD \u0B85\u0BB2\u0BCD\u0BB2\u0BA4\u0BC1 \u0B8A\u0BB4\u0BBF\u0BAF\u0BB0\u0BCD\u0B95\u0BB3\u0BBF\u0B9F\u0BAE\u0BCD \u0BAA\u0BC7\u0B9A\u0BC1\u0B99\u0BCD\u0B95\u0BB3\u0BCD.',
 };
+
+// ─── SLO Configuration (US-483) ──────────────────────────────────────
+
+/** Cached SLO configuration loaded from workflow-step-slos.json */
+let sloCache: Record<string, number> | null = null;
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -81,6 +92,86 @@ export function getStepTimeout(
   if (!workflowNodes) return DEFAULT_STEP_TIMEOUT_MS;
   const node = workflowNodes.find(n => n.id === stepId);
   return node?.timeout ?? DEFAULT_STEP_TIMEOUT_MS;
+}
+
+// ─── US-483: SLO Configuration Loading ──────────────────────────────
+
+/**
+ * Loads SLO configuration from workflow-step-slos.json.
+ * Returns a map of step name -> SLO threshold (ms).
+ * Caches the result to avoid repeated file I/O.
+ */
+async function loadSloConfig(): Promise<Record<string, number>> {
+  // Return cached config if available
+  if (sloCache) {
+    return sloCache;
+  }
+
+  try {
+    const { readFile } = await import('fs/promises');
+    const { fileURLToPath } = await import('url');
+    const { dirname, join } = await import('path');
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    const sloPath = join(currentDir, '..', 'data', 'workflow-step-slos.json');
+    const raw = await readFile(sloPath, 'utf-8');
+    const config = JSON.parse(raw);
+
+    // Extract step SLOs and build cache
+    const slos: Record<string, number> = {};
+    if (config.stepSlos && typeof config.stepSlos === 'object') {
+      for (const [stepName, stepConfig] of Object.entries(config.stepSlos)) {
+        if (typeof stepConfig === 'object' && stepConfig !== null && 'thresholdMs' in stepConfig) {
+          slos[stepName] = (stepConfig as { thresholdMs: number }).thresholdMs;
+        }
+      }
+    }
+
+    sloCache = slos;
+    return slos;
+  } catch (error) {
+    console.warn(
+      '[BookingExecutor] Failed to load workflow-step-slos.json:',
+      error instanceof Error ? error.message : error
+    );
+    return {};
+  }
+}
+
+/**
+ * Checks if a step duration exceeds its SLO threshold.
+ * If exceeded, logs a warning with step_name, duration_ms, slo_ms, and excess_percentage.
+ * Does not throw or block workflow — violations are informational only.
+ */
+async function checkStepSloViolation(
+  stepId: string,
+  durationMs: number
+): Promise<void> {
+  try {
+    const slos = await loadSloConfig();
+    const sloMs = slos[stepId];
+
+    // Skip if no SLO configured for this step
+    if (!sloMs) {
+      return;
+    }
+
+    // Check if duration exceeds SLO
+    if (durationMs > sloMs) {
+      const excessMs = durationMs - sloMs;
+      const excessPercentage = ((excessMs / sloMs) * 100).toFixed(1);
+      console.warn(
+        `[BookingExecutor] SLO violation: step="${stepId}", ` +
+        `duration_ms=${durationMs}, slo_ms=${sloMs}, ` +
+        `excess_ms=${excessMs}, excess_percentage=${excessPercentage}%`
+      );
+    }
+  } catch (error) {
+    // Silently ignore SLO check errors — never block workflow
+    console.debug(
+      '[BookingExecutor] Error checking SLO for step "${stepId}":',
+      error instanceof Error ? error.message : error
+    );
+  }
 }
 
 // ─── Core Timer ──────────────────────────────────────────────────────
@@ -143,6 +234,12 @@ export async function stepExecutionTimer(
         clearTimeout(timeoutId);
 
         const elapsedMs = Date.now() - startTime;
+
+        // US-483: Check SLO violation (async, non-blocking)
+        checkStepSloViolation(stepId, elapsedMs).catch((err) => {
+          console.debug('[BookingExecutor] SLO check failed (non-fatal):', err);
+        });
+
         resolve({
           success: true,
           result,
