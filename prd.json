@@ -1107,7 +1107,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1676,6 +1676,99 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-483",
+      "title": "Booking Workflow Step Duration SLO Tracker with Per-Step Thresholds",
+      "priority": "high",
+      "description": "Monitor execution duration of each booking workflow step (fetch_units, validate_dates, send_sms, etc). Flag steps exceeding per-step SLO thresholds (e.g., fetch_units: 2s, send_sms: 5s). Persist durations to audit trail for performance trending.",
+      "acceptanceCriteria": [
+        "Each booking step execution records step_name and duration_ms in logs; SLO thresholds configured in src/assistant/data/workflow-step-slos.json per step",
+        "Step duration exceeding SLO logged as warning with step_name, duration_ms, slo_ms, excess_percentage; workflow continues gracefully",
+        "Test: Mock slow step (6000ms SMS send on 5000ms SLO); verify SLO violation detected and logged, workflow completes without crash"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/workflow-step-slos.json (JSON: {fetch_units: 2000, validate_dates: 1000, send_sms: 5000, send_confirmation: 3000})",
+        "File to modify: src/assistant/workflow/step-executor.ts (wrap each executeStep() with timer, check SLO, log violations)",
+        "File to create: tests/integration/workflow-slo.test.ts (mock slow steps, assert SLO warnings logged, workflow state correct)",
+        "Test command: npm run test:integration -- workflow-slo.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-484",
+      "title": "Profile Data File JSON Schema Validator with Hot-Reload",
+      "priority": "high",
+      "description": "Validate profile data files (routing.json, workflows.json, fallback-variants.json, etc) against strict JSON schemas on startup and on file change. Reject invalid files with detailed error messages. Watch for file changes and hot-reload without server restart.",
+      "acceptanceCriteria": [
+        "Create JSON schemas in src/assistant/data/schemas/ for each data file; startup validates all files against schemas; abort with detailed violations if any fail",
+        "File watcher detects .json changes; re-validates and reloads if valid; logs detailed error and keeps previous version if invalid; no restart required",
+        "Test: Corrupt routing.json with missing required field; verify schema validation catches error, server keeps working with prior version"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/schemas/routing.schema.json (Zod schema: required fields like intents array, action mappings)",
+        "File to create: src/assistant/data/schemas/workflows.schema.json, fallback-variants.schema.json, settings.schema.json",
+        "File to create: src/lib/data-file-validator.ts (Zod validation + chokidar file watcher; reload on valid change, log on invalid)",
+        "File to modify: src/index.ts (call validator on startup before server listen)",
+        "File to create: tests/unit/data-validator.test.ts (test schema validation, file watcher triggers, hot-reload behavior)",
+        "Test command: npm run test -- data-validator.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-485",
+      "title": "Conversation Language Detection with Intent Re-Classifier",
+      "priority": "medium",
+      "description": "Detect when conversation switches to a different language mid-chat (e.g., English to Malay). Log detected language and re-run intent classification with language hint to improve accuracy for multilingual users.",
+      "acceptanceCriteria": [
+        "Detect primary language of each message; store language_code in rainbow_messages table",
+        "When language differs from previous message, re-run intent classification with detected_language hint passed to classifier()",
+        "Test: Sequence of Malay → English → Malay messages correctly detects switches and adjusts classification context"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/language-detector.ts (language detection + cache previous language per conversation)",
+        "File to modify: shared/schema-tables.ts (add language_code column to rainbow_messages)",
+        "File to modify: src/assistant/engine.ts (integrate language detector before classify() call)",
+        "File to create: tests/unit/language-detector.test.ts (verify Malay/English/Chinese detection, language switch handling)",
+        "Test command: npm run test -- language-detector.test.ts --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-486",
+      "title": "Fallback Response A/B Testing Framework with Escalation Tracking",
+      "priority": "medium",
+      "description": "Support A/B testing of fallback response variants (e.g., polite vs casual tone) per intent per profile. Randomly assign variant, track user escalation rates per variant. Generate winner recommendation report based on lowest escalation rate.",
+      "acceptanceCriteria": [
+        "Fallback templates tagged with variant ID in src/assistant/data/fallback-variants.json (intent: {variant_a: template, variant_b: template}); selector randomly assigns per message",
+        "Store variant_id in rainbow_messages; count escalation_events per variant for same intent across profile",
+        "CLI report: npm run analyze:fallback-variants outputs escalation_rate, message_count, confidence per variant; recommends variant with lowest escalation"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/fallback-variants.json (structure: {booking_fallback: {variant_a: template1, variant_b: template2}})",
+        "File to modify: src/assistant/pipeline/fallback-selector.ts (random variant selection, store variant_id in response metadata)",
+        "File to modify: shared/schema-tables.ts (add variant_id varchar column to rainbow_messages)",
+        "File to create: src/tools/fallback-ab-analyzer.ts (query rainbow_messages + escalation_events, calculate escalation_rate per variant)",
+        "File to create: tests/unit/fallback-ab.test.ts (verify random distribution, escalation counting, winner calculation)",
+        "Test command: npm run test -- fallback-ab.test.ts && npm run analyze:fallback-variants"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
