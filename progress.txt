@@ -1,3 +1,65 @@
+## Iteration 25 - Story: Add Language Preference Selector to Webchat UI (US-510) - COMPLETE
+
+### What was implemented
+
+Added language preference selector to webchat UI enabling guests to explicitly choose their language (English/Malay/Chinese/Tamil) instead of relying on automatic language detection. Selection persists in the session and is sent with each message to the backend where it overrides detected language.
+
+1. **Modified: src/assistant/chat-engine.ts**
+   - Added `preferredLanguage?: 'en' | 'ms' | 'zh' | 'ta'` field to ChatOptions interface (line 38)
+   - Added destructuring of `preferredLanguage` from options (line 331)
+   - Override detected language: If preferredLanguage provided, set `intentResult.detectedLanguage = preferredLanguage` (lines 413-415)
+   - Tool-calling mode: Use preferred language if provided, otherwise detect (line 366)
+
+2. **Modified: src/routes/public/webchat-api.ts**
+   - Added `language?: string` field to WebchatSessionData interface (line 80)
+   - Extract and store language from client session data (line 623)
+   - Pass preferred language to processChat from session data (lines 695-698)
+
+3. **Modified: src/public/webchat.html**
+   - Added CSS styles for language selector dropdown (lines 321-331)
+   - Added language selector `<select>` element in chat header (lines 956-962)
+   - Added JavaScript to manage language preference:
+     - Load saved language from sessionStorage on init
+     - Set dropdown value to saved preference
+     - Save selection to sessionStorage on change
+     - Include language in sessionData with every message
+
+### Acceptance criteria met
+
+✅ AC1: Language selector in webchat header - Dropdown with en/ms/zh/ta options added to header
+✅ AC2: Selection sent to backend API - Language included in sessionData payload with each message
+✅ AC3: Backend respects explicit over ELD detection - ProcessChat overrides detected language with preferredLanguage
+✅ AC4: Persists via sessionStorage - Language saved to sessionStorage and restored on page reload
+
+### Quality checks
+
+- Build: Passes (esbuild, 2.5MB dist/index.js, pre-existing warning only)
+- Server startup: Passes (no errors, all profiles load correctly)
+- prd.json: Marked US-510 passes=true
+
+### Patterns discovered
+
+- sessionStorage is used for per-session preferences (survives page reload within session)
+- sessionData object merges client-side data that's sent with each message
+- Language detection is still performed but is overridden when preferredLanguage is set
+- Language preference flows through all code paths (tool_use, static_reply, llm_reply, workflow, fallback)
+
+### Design notes
+
+- Used sessionStorage instead of localStorage for language so each session can have different preferences
+- Language key format: `webchat_{profileId}_lang` to isolate per profile
+- Language is always initialized in sessionData to ensure it's sent on first message
+- Dropdown uses standard HTML <select> for accessibility and native mobile behavior
+
+### Files modified
+
+- Modified: src/assistant/chat-engine.ts (ChatOptions interface, preferredLanguage override)
+- Modified: src/routes/public/webchat-api.ts (WebchatSessionData, extract/store language)
+- Modified: src/public/webchat.html (Language selector UI and JavaScript logic)
+- Modified: prd.json (US-510 passes=true)
+
+---
+
 ## Iteration 24 - Story: Batch Fire-and-Forget DB Inserts in Intent Classifier (US-508) - COMPLETE
 
 ### What was implemented
