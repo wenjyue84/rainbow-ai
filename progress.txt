@@ -567,3 +567,73 @@ Completed: Booking Intent Date Parser for Flexible Date Formats (ID: US-455) in 
 ## Iteration 2 - Sat, Apr 11, 2026  1:48:44 PM
 FAILED diagnosis-block gate: Validate Fallback Responses Against Business Rules (Compliance Scoring) (ID: US-461) — no diagnosis block found — attempt 1/3
 
+
+## Pre-analysis for US-465 (Gemini 2.5 Pro)
+This user story appears to be for a **TypeScript/Node.js** project, not a Frappe/Python one, based on the references to `npm`, `Zod`, `.ts` files, and `tsx`.
+
+Here is the technical brief for the provided story as-is:
+
+**Project:** Standalone Profile Integrity Checker CLI Tool
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/tools/profile-integrity-checker.ts` - This will contain the main `ProfileIntegrityChecker` class and its logic.
+*   **Create:** `tests/profile-integrity-checker.test.ts` - For unit and integration tests of the checker.
+*   **Modify:** `package.json` - To add the new `npm run check:profile-integrity` script.
+*   **Reference:** `src/assistant/schemas.ts` - Contains the Zod schemas for validation.
+
+**2. Involved Frameworks/Libraries (Not Frappe):**
+*   **Node.js:** For the CLI runtime.
+*   **tsx (or ts-node):** To execute the TypeScript-based tool directly.
+*   **Zod:** For schema definition and validation.
+*   **uv/pytest (mentioned in test command):** Test runner for executing the tests.
+
+**3. Implementation Approach:**
+*   Implement a `ProfileIntegrityChecker` class in `profile-integrity-checker.ts`.
+*   Create a `check(profileId)` method to read `routing.json`, `workflows.json`, etc., for the given profile.
+*   Inside `check`, parse the JSON and run validations against the Zod schemas imported from `src/assistant/schemas.ts`.
+*   Implement specific logic to detect cross-profile contamination (e.g., searching for Pelangi keywords in Makan files).
+*   Develop a `repair(profileId, dryRun)` method that can automatically fix simple issues like trailing commas or missing default fields.
+*   The main part of the script will parse command-line arguments (`--profile`, `--repair`) to trigger the corresponding methods.
+
+**4. Edge Cases & Gotchas:**
+*   The `--repair` functionality must be non-destructive. It should not attempt to fix semantic or complex structural errors.
+*   Error reporting needs to be precise, including file path, line number, and a clear description of the error.
+*   The tool must handle file I/O errors gracefully (e.g., file not found).
+*   The definition of "cross-profile contamination" needs to be precise to avoid false positives. The logic must correctly identify which keywords belong to which profile.
+
+
+## Iteration [SPIRAL] - Story: Profile Data File Integrity Checker with Corruption Detection (US-465)
+
+### What was implemented
+- Created `src/tools/profile-integrity-checker.ts` with `ProfileIntegrityChecker` class:
+  - `check(profileId)` — scans routing.json, workflows.json, knowledge.json, intent-keywords.json
+  - `repair(profileId, dryRun)` — auto-fixes trailing commas, refuses git conflict markers
+  - Detects: invalid JSON syntax, git conflict markers, Zod schema violations, unknown workflow_id refs, cross-profile contamination (Pelangi terms in data-makan/data-southern)
+  - Human-readable CLI report with severity (critical/warning), file path, line number, suggestions
+  - JSON output mode via --json flag
+
+- Added `package.json` script: `"check:profile-integrity": "tsx src/tools/profile-integrity-checker.ts"`
+
+- Created `tests/unit/profile-integrity-checker.test.ts` with 21 tests covering:
+  - Syntax error detection (malformed JSON, trailing commas, git conflict markers)
+  - Cross-profile contamination detection (Pelangi terms in data-makan)
+  - Workflow reference validation (workflow_ids in routing.json vs workflows.json)
+  - Repair function (dry-run, actual repair, conflict marker refusal)
+  - Report structure (severity, errorType, file path, counts)
+
+### Patterns discovered
+- `workflowDefinitionSchema` requires `name` and `profileId: z.enum(['pelangi','makan','southern','yoongmei'])`
+- Profile dirs: data-pelangi → `src/assistant/data/`, others → `src/assistant/data-{profile}/`
+- `profile-keyword-blacklist.json` is a reference for what terms belong to which profile
+- PELANGI_EXCLUSIVE_TERMS list includes 'pelangi' itself — test workflows for non-pelangi profiles must use profileId: 'makan' (not 'pelangi')
+- workflows.json for default profile has git merge conflict markers - the checker correctly detects these
+
+### Gotchas
+- vitest config includes `tests/unit/**` not `tests/**` — test file goes in `tests/unit/`
+- workflows.json for pelangi has git conflicts (UU status) — integrity checker reports these correctly
+- `VALID_WORKFLOWS` with `profileId: 'pelangi'` triggers cross-profile contamination in data-makan fixtures — need profile-specific workflow fixtures
+
+### Quality checks
+- ✓ Build: esbuild completed successfully (2.5MB dist/index.js)
+- ✓ Tests: 21/21 passing (361ms runtime)
+- ✓ prd.json: marked passes=true for US-465

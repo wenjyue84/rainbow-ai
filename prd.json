@@ -763,50 +763,6 @@
       "model": "haiku"
     },
     {
-      "id": "US-426",
-      "title": "Intent Classification Latency Monitor with Percentile Tracking",
-      "priority": "medium",
-      "description": "Add monitoring to track how long each intent classification takes, identify performance bottlenecks, and alert when classification exceeds target SLAs by storing percentile metrics in database",
-      "acceptanceCriteria": [
-        "Track latency for each intent classification in src/assistant/pipeline/classifier.ts classify() function and store p50, p95, p99 percentiles",
-        "CLI command 'npm run analytics:intent-latency <intent> [--profile <profile>]' displays latency metrics and identifies slow intents",
-        "Intent classification metrics persisted in new intent_classification_metrics database table with intent_id, latency_ms, profile_id, and timestamp columns"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/pipeline/classifier.ts - wrap classify() call with performance.now() timing",
-        "New file: src/lib/monitoring/latency-tracker.ts - export recordIntentLatency(intentId, durationMs, profileId) function",
-        "Update shared/schema-tables.ts to add intent_classification_metrics table schema",
-        "Test command: uv run vitest tests/monitoring/latency-tracker.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-427",
-      "title": "Fallback Response Diversity Checker with Repetition Prevention",
-      "priority": "medium",
-      "description": "Prevent fallback response fatigue by tracking recently-used fallbacks and rejecting semantically similar responses, ensuring users don't receive repetitive replies",
-      "acceptanceCriteria": [
-        "Maintain sliding window of last 5 fallbacks per conversation session in memory and compare against candidate fallbacks",
-        "Reject fallback candidates with semantic similarity > 0.85 (cosine distance) using AI embeddings or TF-IDF approximation",
-        "CLI 'npm run validate:fallback-diversity <profile>' audits all knowledge.json fallbacks to detect internal duplication and suggest alternatives"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/fallback/selector.ts - add diversity check in selectFallback() before returning candidate",
-        "New file: src/lib/embeddings/semantic-similarity.ts - implement similarity(text1, text2) using existing AI provider or TF-IDF",
-        "Create src/cli/validate-fallback-diversity.ts as CLI entry point to audit knowledge.json per profile",
-        "Test command: uv run vitest tests/assistant/fallback/selector.test.ts --grep 'diversity' -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-428",
       "title": "Booking Step Execution Failure Recovery with Step-Specific Rollback",
       "priority": "high",
@@ -869,28 +825,6 @@
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-431",
-      "title": "Multi-Turn Context Summarization for Long Conversations",
-      "priority": "medium",
-      "description": "Automatically summarize conversation history when messages exceed 15 turns to preserve booking context and user preferences while reducing token usage. Maintains full history in debug mode for transparency.",
-      "acceptanceCriteria": [
-        "Summary extraction captures booking details (dates, unit type, guest count) and user preferences with 100% accuracy on booking-related info",
-        "Summarized context injected into inference pipeline, reducing token count by 40-60% on long conversations",
-        "Full message history remains accessible via /debug/conversation/:id endpoint for support troubleshooting"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/context-summarizer.ts - implement turn-threshold detection and summary generation",
-        "File to edit: shared/schema-tables.ts - add conversation_summaries table with summary_text and turn_range fields",
-        "File to create: tests/context-summarizer.test.ts - test summary accuracy and history retrieval",
-        "Test command: uv run npm test -- context-summarizer.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1327,9 +1261,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "last_attempted": "2026-04-11T06:02:31Z"
     },
     {
       "id": "US-466",
@@ -1352,7 +1287,8 @@
       "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-11T06:14:04Z"
     },
     {
       "id": "US-467",
@@ -1376,29 +1312,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
-    },
-    {
-      "id": "US-468",
-      "title": "Validate Conversation Message Timestamp Ordering with Clock Skew Detection",
-      "priority": "medium",
-      "description": "Detect out-of-order, duplicate, and skewed timestamps in multi-message conversations. Automatically reorder messages and log anomalies for debugging context quality issues.",
-      "acceptanceCriteria": [
-        "Flag backwards timestamps (current_ts < previous_ts by > 1 second); reorder messages if time difference < 5 seconds; count as reorder event in metrics",
-        "Identify duplicate timestamps within single conversation (> 3 duplicates per conversation = WARN level; > 10 = ERROR); log with conversation_id and affected message count",
-        "Integrate as validation stage in src/assistant/pipeline/index.ts before context loading; skip gracefully if message.timestamp is null; track reorder_count in analytics"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/timestamp-validator.ts (validate and reorder timestamps)",
-        "File to modify: src/assistant/pipeline/index.ts (inject validator after message deserialize, before context load)",
-        "Test command: uv run vitest tests/unit/timestamp-validator.test.ts -v",
-        "Test fixture: tests/fixtures/conversations/out-of-order-multi-turn.json (sample with clock skew)",
-        "Logging field: src/lib/logger.ts timestamp_validation_result with {reordered_count, duplicate_count, max_gap_ms}"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
     },
     {
       "id": "US-470",
@@ -1572,140 +1485,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
-    },
-    {
-      "id": "US-488",
-      "title": "Conversation Context Compression for Long Threads",
-      "priority": "medium",
-      "description": "Automatically compresses older conversation turns (turns 1-8) into a single abstractive summary after 15+ turns to prevent context window overflow and maintain conversation quality. Preserves critical information (user intent, decisions, booking details) while reducing token consumption, enabling longer multi-turn conversations without quality degradation.",
-      "acceptanceCriteria": [
-        "After conversation reaches 15 turns, function `compressContextWindow(turns: ConversationTurn[], maxTurns: number = 15)` merges turns 1-8 into single summary turn containing: initial request, intermediate decisions, key facts, and step outcomes",
-        "Compression preserves >90% of entity information (dates, names, numbers) verified by exact entity match between original and compressed context using NER",
-        "Test assertion on turn 16+ with compressed context: intent classification accuracy >= accuracy with full uncompressed context (no >5% accuracy drop)"
-      ],
-      "technicalNotes": [
-        "File to create: `src/assistant/context/context-compressor.ts` with compression function and turn merging (~140 lines)",
-        "File to modify: `src/assistant/pipeline/message-processor.ts` add compression check before context passes to intent classifier",
-        "Test command: `uv run npm test -- tests/context/context-compressor.test.ts --run` validates entity preservation and intent classification accuracy with compressed vs full context"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-489",
-      "title": "Booking Workflow Human Handoff Template Generator",
-      "priority": "medium",
-      "description": "When a booking workflow step fails 3+ consecutive times (same step, same conversation), automatically generates a structured handoff document containing user context, failed step details, error logs, and suggested remediation actions. Enables human agents to take over mid-workflow with full context, reducing escalation time and booking abandonment.",
-      "acceptanceCriteria": [
-        "After 3rd consecutive failure on same booking step (e.g., payment_confirmation), function `generateHandoffTemplate(conversationId: string, workflowId: string, failedStepName: string)` returns JSON object with keys: user_id, conversation_summary, failed_step_name, error_stack, suggested_actions (array), escalation_timestamp",
-        "Conversation summary includes last 5 user messages, all extracted booking fields from earlier turns, and previous workflow step outcomes with timestamps",
-        "Test assertion: `expect(handoff.suggested_actions.length).toBeGreaterThan(0)` and `expect(handoff.error_stack).toBeDefined()` and `expect(handoff.user_id).toMatch(/^[a-zA-Z0-9_]+$/)` and action suggestions are contextually relevant to failed_step_name"
-      ],
-      "technicalNotes": [
-        "File to create: `src/assistant/workflows/handoff-generator.ts` with template generation and context extraction (~120 lines)",
-        "File to modify: `src/assistant/workflows/workflow-executor.ts` add failure counter per step and trigger handoff generation on 3rd consecutive failure",
-        "Test command: `uv run npm test -- tests/workflows/handoff-generator.test.ts --run` validates handoff JSON structure, action suggestions quality, and error context completeness"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-490",
-      "title": "Booking Workflow Input Sanitizer with Profile-Specific Rules",
-      "priority": "high",
-      "description": "Validate and sanitize booking form inputs before passing to workflow engine. Each profile (pelangi, southern, makan) has unique constraints: unit types, check-in/check-out windows, guest count limits, special amenities. Prevents invalid data from entering workflow steps.",
-      "acceptanceCriteria": [
-        "Create `src/lib/booking-input-sanitizer.ts` with ProfileSpecificRules interface defining constraints per profile (unit types, date ranges, guest count limits)",
-        "Add validation tests in `tests/booking-input-sanitizer.test.ts` with 15+ assertions covering all three profiles (makan: max 4 guests, southern: max 8 guests, pelangi: unit-specific constraints)",
-        "Wire sanitizer into `src/assistant/pipeline/workflow-executor.ts` at booking workflow entry point; log validation errors with violation details"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/booking-input-sanitizer.ts (createProfileSanitizer, validateBookingInput, sanitizeGuestInfo functions)",
-        "File to edit: src/assistant/data/booking-constraints.json (define per-profile validation rules with min/max values)",
-        "File to edit: src/assistant/pipeline/workflow-executor.ts (call sanitizer before booking workflow execution)",
-        "Test command: uv run pytest tests/booking-input-sanitizer.test.ts -v",
-        "Validation: Verify makan profile rejects guest count > 4, southern accepts up to 8, pelangi unit constraints enforced"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-491",
-      "title": "Intent Classification Confidence Variance Calculator",
-      "priority": "medium",
-      "description": "Calculate and track confidence score variance per intent across all messages. High variance indicates unreliable classification and suggests keyword refinement needed. Generates reports and flags intents for retraining.",
-      "acceptanceCriteria": [
-        "Create `src/lib/intent-confidence-variance.ts` that computes variance, standard deviation, and coefficient of variation per intent from database message history (min 50 samples)",
-        "Add analytics endpoint `/admin/analytics/intent-variance` returning JSON with variance stats, CV threshold alerts, and intent stability scores",
-        "Export CLI tool: `npm run analyze:intent-variance -- --output=variance.csv --min-samples=50` showing intents with high variance (>0.15) ranked by unreliability"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/intent-confidence-variance.ts (calculateVariance, calculateStdDev, flagUnstableIntents functions)",
-        "File to edit: src/routes/admin/analytics.ts (GET /admin/analytics/intent-variance endpoint with query params)",
-        "File to edit: scripts/analyze-intent-variance.sh (CLI entry point calling variance calculator)",
-        "Test command: uv run pytest tests/intent-confidence-variance.test.ts::test_variance_calculation -v",
-        "DB query: SELECT intent, COUNT(*), STDDEV(confidence), AVG(confidence) FROM rainbow_messages WHERE intent IS NOT NULL GROUP BY intent HAVING COUNT(*) >= 50"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-492",
-      "title": "Intent Keyword Occurrence Frequency Analyzer per Profile",
-      "priority": "medium",
-      "description": "Analyze keyword usage patterns across successful and failed classifications per profile. Identifies strongest keyword predictors per intent and detects cross-profile keyword contamination for remediation.",
-      "acceptanceCriteria": [
-        "Create `src/tools/analytics/keyword-frequency-analyzer.ts` that analyzes keyword success rates per intent per profile, computing precision/recall per keyword from message history",
-        "Add tests in `tests/keyword-frequency-analyzer.test.ts` ensuring pelangi, southern, makan profiles are analyzed separately with zero cross-profile keyword contamination",
-        "CLI tools: `npm run analyze:keywords --profile=southern --output=keywords.csv` generates frequency report; `npm run validate:keyword-isolation` detects cross-profile keyword reuse"
-      ],
-      "technicalNotes": [
-        "File to edit: src/tools/analytics/keyword-frequency-analyzer.ts (analyzeKeywordFrequency, computeKeywordPrecision, detectCrossProfileContamination functions)",
-        "File to edit: src/assistant/pipeline/intent-classifier.ts (log matched keywords and intent result for analysis tracking)",
-        "File to edit: scripts/analyze-keywords.sh (CLI entry point for keyword analysis)",
-        "Test command: uv run pytest tests/keyword-frequency-analyzer.test.ts::test_profile_isolation -v",
-        "DB query: SELECT profile, intent, keyword, COUNT(*) as total, SUM(CASE WHEN classification_correct THEN 1 ELSE 0 END) as correct FROM keyword_matches GROUP BY profile, intent, keyword"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-493",
-      "title": "Conversation Context Token Counter with Budget Enforcement",
-      "priority": "medium",
-      "description": "Count approximate tokens used by conversation context to prevent overflow and optimize AI provider costs. Add budget enforcement per profile to prevent requests exceeding model token limits. Logs usage for analytics.",
-      "acceptanceCriteria": [
-        "Create `src/lib/token-counter.ts` with BPE-style approximate token counting; integrate into conversation context loader with per-message token tracking",
-        "Add enforcement in `src/assistant/pipeline/message-processor.ts` to log warning at 80% context budget, reject messages if would exceed 100% limit (configurable per profile)",
-        "Endpoint `/admin/settings/context-budget` allows per-profile token limit configuration; records token usage per message in `rainbow_messages` table"
-      ],
-      "technicalNotes": [
-        "File to edit: src/lib/token-counter.ts (estimateTokens, countTokensInConversation functions using word-to-token approximation)",
-        "File to edit: src/assistant/pipeline/message-processor.ts (check token budget before AI API call, reject if exceeds limit)",
-        "File to edit: src/routes/admin/settings.ts (GET/POST /admin/settings/context-budget endpoints)",
-        "Test command: uv run pytest tests/token-counter.test.ts -v",
-        "Validation: Verify token estimates (1000 tokens ≈ 250 words), test per-model limits (Kimi K2.5: 128k, others: 4k/8k), verify budget enforcement blocks oversized contexts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
     }
   ]
 }
