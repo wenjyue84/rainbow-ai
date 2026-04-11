@@ -1034,7 +1034,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1499,6 +1499,117 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-474",
+      "title": "Add debug endpoint explaining intent classification confidence scores",
+      "priority": "high",
+      "description": "Create GET /debug/intent-confidence endpoint that reveals why a message was classified to an intent, showing matched keywords, fired classification rules, and step-by-step confidence score calculation.",
+      "acceptanceCriteria": [
+        "Endpoint accepts {message, profile} and returns {intent, confidence, matched_keywords, fired_rules, score_breakdown} JSON response",
+        "Works for all three profiles (pelangi, makan, southern) with profile-specific keyword explanations",
+        "Test cases in tests/api/debug_endpoints.test.ts validate output for booking, inquiry, and help intents across profiles"
+      ],
+      "technicalNotes": [
+        "File to create: src/routes/debug.ts with GET /debug/intent-confidence handler",
+        "File to create: src/assistant/classifiers/confidence_explainer.ts with explainIntentConfidence(message, profile) function",
+        "File to modify: src/index.ts to register /debug routes",
+        "File to create: tests/api/debug_endpoints.test.ts with 6+ test cases",
+        "Test command: npm run test tests/api/debug_endpoints.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-475",
+      "title": "Auto-resolve booking cancellations by matching guest and freeing units",
+      "priority": "high",
+      "description": "When cancellation intent detected, automatically find booking by guest phone/name, validate guest identity, mark as cancelled, free reserved units, and send confirmation message all in sequence.",
+      "acceptanceCriteria": [
+        "workflows.json contains cancellation_resolution workflow with steps: find_booking -> validate_guest -> cancel_booking -> free_units -> send_confirmation_message",
+        "Function cancelBookingAndFreeUnits(guestPhone, guestName, profile) in src/assistant/pipeline/cancellation_handler.ts returns {success, bookingId, error}",
+        "Integration test in tests/integration/cancellation_flow.test.ts covers: successful cancel, booking not found, guest mismatch, already cancelled, and free units verification"
+      ],
+      "technicalNotes": [
+        "File to modify: src/assistant/data/workflows.json - add cancellation_resolution workflow with 5 step definition",
+        "File to create: src/assistant/pipeline/cancellation_handler.ts with cancelBookingAndFreeUnits() and findBookingByGuest() helpers",
+        "File to create: tests/integration/cancellation_flow.test.ts with 5+ test scenarios",
+        "Test command: npm run test tests/integration/cancellation_flow.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-476",
+      "title": "Add payment method collection to booking workflow with validation",
+      "priority": "medium",
+      "description": "Extend booking workflow to include payment method collection step after guest confirmation. Validates and stores payment method choice (credit_card, bank_transfer, cash_on_arrival) in booking record.",
+      "acceptanceCriteria": [
+        "workflows.json contains payment_method step with branching logic for each payment type and transition to confirmation step",
+        "Function validatePaymentMethod(type: string): bool exists in src/assistant/pipeline/validators.ts covering all three payment types",
+        "Integration test suite in tests/integration/booking_payment.test.ts covers valid/invalid payments and workflow continuation"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/validators.ts with validatePaymentMethod() function",
+        "File to modify: src/assistant/data/workflows.json - add payment_method step after booking_confirmation with three transitions",
+        "File to create: tests/integration/booking_payment.test.ts with 8+ test cases",
+        "Test command: npm run test tests/integration/booking_payment.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-477",
+      "title": "Auto-detect and normalize guest phone numbers with country code",
+      "priority": "medium",
+      "description": "When extracting guest phone from booking intent, detect missing country code and auto-prepend +60 (Malaysia). Handle 7+ phone formats including variations with spaces, dashes, and parentheses.",
+      "acceptanceCriteria": [
+        "Function normalizePhoneNumber(raw: string): string in src/assistant/pipeline/guest_parser.ts handles formats: +60123456789, 0123456789, 60123456789, +60 123 456 789, 60 123 456 789, 0123-456-789, +6(0)123456789",
+        "Returns standardized +60XXXXXXXXX format for Malaysian numbers, preserves international +XX formats unchanged",
+        "Test suite in tests/unit/guest_parser.test.ts covers 20+ phone formats with correct assertions for valid and invalid inputs"
+      ],
+      "technicalNotes": [
+        "File to modify: src/assistant/pipeline/guest_parser.ts - add normalizePhoneNumber() with regex patterns",
+        "File to create: tests/unit/guest_parser.test.ts with parameterized phone format tests",
+        "Integrate by calling normalizePhoneNumber on extracted phone field in extractGuestInfo()",
+        "Test command: uv run pytest tests/unit/guest_parser.test.ts::test_phone_normalization -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-478",
+      "title": "Track conversation sentiment trend and auto-escalate if declining",
+      "priority": "medium",
+      "description": "Analyze sentiment (positive/neutral/negative) for each user message and track trend across conversation. Auto-suggest escalation to human if 2+ negative messages appear in rolling window of last 5 messages.",
+      "acceptanceCriteria": [
+        "SentimentAnalyzer class in src/assistant/pipeline/sentiment_analyzer.ts with classify(text): {sentiment, confidence} using lexicon-based approach",
+        "After each message, conversation.metadata.sentiment_trend array updates with rolling 10-message window including sentiment scores and timestamp",
+        "Test suite in tests/unit/sentiment_trend.test.ts demonstrates all-positive, declining-trend-trigger, and mixed-sentiment scenarios with correct escalation flags"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/sentiment_analyzer.ts with SentimentAnalyzer class and classify() method",
+        "File to modify: src/assistant/pipeline/message_processor.ts - call sentiment analyzer post-intent classification and update conversation.metadata",
+        "File to create: tests/unit/sentiment_trend.test.ts with 6+ test cases validating sentiment classification and trend detection",
+        "Test command: uv run pytest tests/unit/sentiment_trend.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
