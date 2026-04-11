@@ -410,7 +410,8 @@ export async function processAndSend(
       const defaultMessages: Record<string, string> = {
         en: "\n\nI sense you may be frustrated. I've alerted our team, and someone will reach out to you shortly.",
         ms: "\n\nSaya faham anda mungkin kecewa. Saya telah maklumkan pasukan kami, dan seseorang akan menghubungi anda tidak lama lagi.",
-        zh: "\n\n我感觉到您可能有些不满。我已通知我们的团队,他们会尽快与您联系。"
+        zh: "\n\n我感觉到您可能有些不满。我已通知我们的团队,他们会尽快与您联系。",
+        ta: "\n\nநீங்கள் கோபமாக இருக்கலாம் என்று நான் உணர்கிறேன். எங்கள் குழுவிற்கு தெரிவித்துள்ளேன், யாரேனும் விரைவில் உங்களைத் தொடர்பு கொள்வார்கள்."
       };
       const messages = configuredMessages || defaultMessages;
       response += messages[lang] || messages.en || defaultMessages.en;
