@@ -990,7 +990,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1411,6 +1411,94 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-470",
+      "title": "Intent Routing Cycle Detector with Circular Dependency Checker",
+      "priority": "high",
+      "description": "Add validation CLI to detect and prevent circular intent routing patterns in routing.json that could cause infinite message loops in conversation pipeline",
+      "acceptanceCriteria": [
+        "CLI command 'npm run check:routing-cycles' validates routing.json and detects cycles like 'booking -> escalation -> booking'",
+        "Reports all cycle paths with step-by-step navigation through routing config",
+        "Build fails with exit code 1 if cycles detected, passes with exit code 0 for valid DAG"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/routing-validator.ts (topological sort algorithm on intent routing graph)",
+        "File to create: scripts/validate-routing.ts (CLI entry point with fs.readFileSync for routing.json)",
+        "Test command: uv run npm run test -- tests/tools/routing-validator.test.ts",
+        "Test with fixtures: routing-cycles.json (with known cycles) and routing-valid.json (acyclic graph)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-471",
+      "title": "Booking Guest Info Parser with Structured Entity Extraction",
+      "priority": "high",
+      "description": "Parse and validate guest information (name, phone, dates, unit preferences) from booking intent messages with structured entity extraction and detailed validation errors",
+      "acceptanceCriteria": [
+        "Extract name, phone, dates, unit count from message using regex + date-fns, return GuestInfo object with validated fields",
+        "Return specific Zod validation errors for missing/invalid fields with format hints (e.g. 'Expected date as DD/MM/YYYY')",
+        "Test with 10+ real booking message variations (different date formats, missing fields, typos, multiple units)"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/parsers/booking-parser.ts (parseGuestFromMessage function using regex + date-fns)",
+        "File to modify: src/assistant/schemas.ts (add GuestInfoSchema with name/phone/dates/units validation rules)",
+        "Test command: uv run npm run test -- tests/parsers/booking-parser.test.ts",
+        "Test data: tests/fixtures/booking-messages.json with varied formats (DD/MM/YYYY, dates in words, missing info, typos)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-472",
+      "title": "Conversation Message Semantic Deduplication Filter",
+      "priority": "medium",
+      "description": "Remove redundant messages from conversation history before context loading by detecting semantic duplicates and keeping only first and last occurrences to optimize token usage",
+      "acceptanceCriteria": [
+        "Detect messages with >0.85 cosine similarity (using sentence embeddings or simple text similarity)",
+        "Keep first and last occurrence of semantically identical messages, remove middle duplicates",
+        "Measure and log context size reduction (target 10-30% on real multi-turn conversations)"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/semantic-dedup.ts (deduplicateConversationHistory function with similarity threshold)",
+        "File to modify: src/assistant/pipeline/context-loader.ts (integrate dedup before context window assembly)",
+        "Test command: uv run npm run test -- tests/lib/semantic-dedup.test.ts",
+        "Test fixture: tests/fixtures/conversation-duplicates.json (real conversation with repeated messages)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-473",
+      "title": "Profile Knowledge Base Content Validation and Freshness Checker",
+      "priority": "medium",
+      "description": "Validate knowledge base markdown files against schema and flag stale/outdated information patterns to ensure data quality and reliability across profiles",
+      "acceptanceCriteria": [
+        "Check KB files (.rainbow-kb and .rainbow-kb-southern) against schema: required headers (intent, keywords, response), valid YAML frontmatter",
+        "Flag content with dates older than 90 days or references to deprecated processes/features",
+        "CLI command 'npm run check:kb-freshness' validates all .md files and generates report with issue counts per profile"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/kb-validator.ts (validateKBFile function with schema checking and stale content detection)",
+        "File to create: scripts/check-kb-freshness.ts (CLI entry point with recursive .md file scanning)",
+        "Test command: uv run npm run test -- tests/tools/kb-validator.test.ts",
+        "Test data: tests/fixtures/kb-valid.md, tests/fixtures/kb-stale.md, tests/fixtures/kb-invalid.md (missing headers)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
