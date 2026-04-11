@@ -26,6 +26,7 @@ import { resolveRouting } from './stages/routing.js';
 import { dispatchAction } from './stages/action-dispatch.js';
 import { isIntentGap, recordUtteranceGap } from './utterance-gap-recorder.js';
 import { normalizeManglish } from '../manglish-normalizer.js';
+import { normalizeVariants } from '../variant-normalizer.js';
 import { shouldAutoEscalate, buildLowConfidenceEscalationContext } from './low-confidence-escalator.js';
 import { escalateToStaff } from '../escalation.js';
 import { normalizeInput, logNormalization } from './input-normalizer.js';
@@ -71,9 +72,23 @@ export async function classifyAndRoute(
   // Expands abbreviations (brp→berapa, nk→nak) and strips discourse
   // particles (la, lah, lor) so downstream classifiers see cleaner text.
   const rawText = inputNorm.normalized;
-  const processText = normalizeManglish(rawText);
-  if (processText !== rawText) {
-    console.log(`[ManglishNorm] "${rawText}" → "${processText}"`);
+  const manglishNormalized = normalizeManglish(rawText);
+  if (manglishNormalized !== rawText) {
+    console.log(`[ManglishNorm] "${rawText}" → "${manglishNormalized}"`);
+  }
+
+  // ─── US-495: Language variant detection and normalization ─────────
+  // Detects typos, abbreviations, and dialect variants, normalizing them
+  // to canonical forms before intent classification. Logs matched variants
+  // with confidence scores for debugging.
+  const variantsResult = normalizeVariants(manglishNormalized);
+  const processText = variantsResult.normalized;
+  if (variantsResult.changed && variantsResult.matchedVariants.length > 0) {
+    const matchesStr = variantsResult.matchedVariants
+      .map(m => `"${m.original}"→"${m.canonical}"(${(m.confidence * 100).toFixed(0)}%)`)
+      .join(', ');
+    console.log(`[VariantNorm] Matched variants: ${matchesStr}`);
+    console.log(`[VariantNorm] "${manglishNormalized}" → "${processText}"`);
   }
 
   // ─── US-455: Extract dates from user input ──────────────────────
