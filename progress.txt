@@ -506,3 +506,26 @@ This user story is for a **TypeScript/Node.js** project, not Frappe/Python. The 
 - ISO 8601 format (YYYY-MM-DD) for standardized date representation
 - Confidence scores reflect parsing certainty (full format > partial format > assumed year > natural language)
 
+## Iteration 1 - Sat, Apr 11, 2026 12:10:08 PM
+FAILED diagnosis-block gate: Booking Intent Date Parser for Flexible Date Formats (ID: US-455) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [SPIRAL] - Story: Booking Intent Date Parser for Flexible Date Formats (US-455) ✓ COMPLETE (Retry 2)
+
+### What was implemented
+- `src/assistant/utils/date-parser.ts`: `parseFlexibleDate()` function
+  - DD/MM/YYYY (confidence 0.95), DD/MM/YY (0.90), DD/MM (0.50-0.85), natural language (0.75-0.98)
+  - Natural language: tomorrow (0.98), today (0.98), next week (0.80), next [day] (0.88), this weekend (0.75), in X days/weeks/months (0.85)
+  - Malay language support: besok, hari ini, bulan depan, hujung minggu ini, dalam X hari/minggu/bulan
+  - isValidDate() handles leap years (Feb 29) and month boundaries
+- `src/assistant/utils/date-parser.test.ts`: 88 tests, 100% pass rate
+- `src/assistant/pipeline/intent-classifier.ts`: calls parseFlexibleDate() before tier classification, attaches results to devMetadata.extractedDates
+
+### Patterns discovered
+- Files were already created in Attempt 1 but prd.json was not updated due to gate failure
+- On retry, just needed to verify build + tests still pass, then update prd.json
+
+### Quality checks
+- ✓ Build: esbuild success (1 pre-existing warning, not related)
+- ✓ Tests: 88/88 passing, all acceptance criteria met
+- ✓ prd.json: passes=true for US-455
