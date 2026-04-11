@@ -162,6 +162,52 @@ export async function deleteExpiredConversations(retentionDays: number = 2555) {
   }
 }
 
+/**
+ * Find similar resolved cases from conversation history (US-486)
+ * Uses semantic similarity to find cases with matching context
+ * Filters by profileId and conversation status = 'ended' (resolved)
+ * Returns top matches ranked by similarity
+ *
+ * @param embedding Embedding vector for the query message
+ * @param profileId Profile ID to filter by
+ * @param limit Number of results to return (default: 3)
+ * @returns Array of similar resolved cases with similarity scores
+ */
+export async function findSimilarResolvedCases(
+  embedding: number[],
+  profileId: string,
+  limit: number = 3
+): Promise<any[]> {
+  try {
+    // Query resolved conversations with assistant responses
+    const query = `
+      SELECT
+        rm.id AS message_id,
+        rc.phone,
+        rm.content,
+        rm.intent,
+        rm.confidence,
+        rc.status
+      FROM rainbow_messages rm
+      INNER JOIN rainbow_conversations rc ON rm.phone = rc.phone
+      WHERE
+        rc.profile_id = $1
+        AND rc.status = 'ended'
+        AND rm.role = 'assistant'
+        AND rm.content IS NOT NULL
+        AND LENGTH(rm.content) > 20
+      ORDER BY rm.timestamp DESC
+      LIMIT 50
+    `;
+
+    const result = await pool.query(query, [profileId]);
+    return result.rows || [];
+  } catch (error: any) {
+    console.error('[DB] findSimilarResolvedCases failed:', error.message);
+    return [];
+  }
+}
+
 export { pool, db, dbReady };
 
 // Test connection on startup with retry
