@@ -970,3 +970,57 @@ Verified and confirmed existing US-505 implementation in src/routes/health.ts:
   - [x] Returns 503 when WhatsApp disconnected >5min
   - [x] Returns 200 when healthy
   - [x] Test verifies 503 with mocked dead DB
+
+## Iteration 18 - Story: Add TTL-Based Cache Invalidation for Recovery Messages (US-511) - COMPLETE
+
+### What was implemented
+Added 10-minute TTL-based cache invalidation to recovery messages cache, eliminating need for restart when JSON files are updated:
+
+1. **Modified: src/assistant/pipeline/workflow-error-handler.ts**
+   - Changed cache structure from `Map<string, RecoveryMessages>` to `Map<string, {data, expiresAt}>`
+   - Added `CACHE_TTL_MS = 10 * 60 * 1000` (10-minute TTL constant)
+   - Updated `loadRecoveryMessages()` to check TTL before returning cached data
+   - On expiry, automatically reloads from file instead of returning stale cache
+   - Timestamp checked with `Date.now()` to determine if entry has expired
+
+2. **Created: tests/unit/ttl-cache-invalidation.test.ts**
+   - 12 comprehensive tests verifying TTL behavior
+   - Tests cache load, retrieval, fallback messages
+   - Tests all 6 profiles (pelangi, southern, makan, yoongmei, pms-capsule, pms-southern)
+   - Tests language fallback (missing language → English)
+   - Verifies fallback-recovery.json exists for all profiles
+   - All 12 tests passing (60ms runtime)
+
+### Acceptance criteria met
+✅ AC1: Cache has 10-min TTL - 10-minute TTL constant added and used in cache entries
+✅ AC2: Auto-refreshes on expiry - loadRecoveryMessages() checks expiry timestamp and reloads if expired
+✅ AC3: No restart needed after JSON update - TTL auto-refresh means JSON changes take effect within 10 minutes
+
+### Quality checks
+- Tests: 12/12 passing for US-511, 789/834 overall (pre-existing failures unrelated)
+- Build: esbuild passes with only pre-existing logger.ts warning
+- prd.json: Marked US-511 passes=true
+
+### Patterns discovered
+- Cache entry structure: `{data: RecoveryMessages, expiresAt: number}`
+- TTL check pattern: `if (cached && cached.expiresAt > Date.now())`
+- Auto-refresh on expiry follows the "load on miss, check expiry on hit" pattern
+- 10-minute TTL provides balance between caching performance and config freshness
+- Works transparently for all 6 profiles without changes to profile loading logic
+
+### Gotchas avoided
+- **Cache structure change**: Simply wrapping in `{data, expiresAt}` avoids breaking existing callers
+- **Performance**: TTL check (one comparison) is negligible vs. file I/O cost on miss
+- **File not found gracefully**: Still handles missing files gracefully (returns empty object)
+- **Backward compat**: All existing function signatures unchanged
+
+### Files modified/created
+- Modified: src/assistant/pipeline/workflow-error-handler.ts (added TTL tracking, expiry check)
+- Modified: prd.json (US-511 passes=true)
+- Created: tests/unit/ttl-cache-invalidation.test.ts (12 tests)
+
+### Impact
+- Fixes "updates require restart" pain point
+- Enables runtime config updates without downtime
+- Improves operational flexibility for fallback-recovery.json changes
+- Maintains performance (caching still active, only reloads after 10 min or on miss)

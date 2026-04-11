@@ -28,15 +28,30 @@ interface RecoveryMessages {
   schema_version?: string;
 }
 
-let recoveryMessagesCache: Map<string, RecoveryMessages> = new Map();
+/**
+ * Cache entry with TTL tracking
+ */
+interface CacheEntry {
+  data: RecoveryMessages;
+  expiresAt: number; // Unix timestamp in milliseconds
+}
+
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+let recoveryMessagesCache: Map<string, CacheEntry> = new Map();
 
 /**
  * Load recovery messages for a profile from its data directory
  * Falls back to Pelangi profile if profile not found
+ * Caches with 10-minute TTL; auto-refreshes on expiry
  */
 export function loadRecoveryMessages(profile: string = 'pelangi'): RecoveryMessages {
-  if (recoveryMessagesCache.has(profile)) {
-    return recoveryMessagesCache.get(profile)!;
+  const now = Date.now();
+  const cached = recoveryMessagesCache.get(profile);
+
+  // Return cached data if it exists and hasn't expired
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
   }
 
   try {
@@ -55,7 +70,11 @@ export function loadRecoveryMessages(profile: string = 'pelangi'): RecoveryMessa
     const content = readFileSync(filePath, 'utf-8');
     const messages = JSON.parse(content) as RecoveryMessages;
 
-    recoveryMessagesCache.set(profile, messages);
+    // Store with expiry timestamp (10 minutes from now)
+    recoveryMessagesCache.set(profile, {
+      data: messages,
+      expiresAt: now + CACHE_TTL_MS,
+    });
     return messages;
   } catch (err) {
     console.error(`[WorkflowErrorHandler] Failed to load recovery messages for profile "${profile}":`, err);
