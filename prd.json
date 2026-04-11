@@ -846,7 +846,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1583,6 +1583,119 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-464",
+      "title": "Booking Workflow Step Error Logging with Diagnostic Stack Traces",
+      "priority": "high",
+      "description": "Enhance booking step execution to capture full error details (stack trace, step name, input/output params, timestamp) in database table booking_step_errors. Provide admin API to retrieve and debug step failures without log file access.",
+      "acceptanceCriteria": [
+        "All booking steps wrapped with error logging middleware that writes to booking_step_errors table with columns: step_name, bookingId, error_message, stack_trace, input_json, error_type (recoverable|fatal), timestamp",
+        "Admin API endpoint GET /admin/bookings/:bookingId/step-errors returns paginated errors with formatted traces; queryable by step_name or error_type",
+        "Unit tests verify stack traces contain correct file paths and line numbers from src/assistant/pipeline/*, and error_type correctly categorizes recoverable (connection timeout) vs fatal errors (validation failed)"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/booking-step-logger.ts - exportBookingStepErrorWrapper() decorator function (~60 lines)",
+        "File to modify: src/assistant/pipeline/booking-handler.ts - wrap each step dispatch in try-catch using error wrapper",
+        "File to modify: src/routes/admin/bookings.ts - add GET /admin/bookings/:bookingId/step-errors route",
+        "File to create: tests/booking-step-logger.test.ts - verify error_message and stack_trace contain source file info",
+        "Test command: uv run pytest tests/booking-step-logger.test.ts::test_captures_stack_trace_with_line_numbers -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-465",
+      "title": "Profile Data File Integrity Checker with Corruption Detection",
+      "priority": "high",
+      "description": "Create standalone CLI tool to scan all profile data files (routing.json, workflows.json, knowledge.json, intent-keywords.json) for JSON syntax errors, schema violations, and cross-profile data contamination. Report severity and suggest repairs.",
+      "acceptanceCriteria": [
+        "CLI command: npm run check:profile-integrity -- --profile data-pelangi validates each JSON file against Zod schemas in src/assistant/schemas.ts; outputs human-readable report with file path, error type, line number, severity (critical/warning)",
+        "Detects: invalid JSON syntax, missing required schema fields (intent_id, profile_id), unknown profile references in routing.json, Pelangi-specific keywords in data-makan.* files",
+        "Optional --repair flag auto-fixes syntax errors (remove trailing commas), sets missing fields to defaults, but refuses to modify semantic content; non-repairable errors shown with manual fix instructions"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/profile-integrity-checker.ts - ProfileIntegrityChecker class with check(profileId) and repair(profileId, dryRun) methods (~120 lines)",
+        "File to modify: package.json - add npm script 'check:profile-integrity': 'node --loader tsx src/tools/profile-integrity-checker.ts'",
+        "File to create: tests/profile-integrity-checker.test.ts - test with corrupted fixtures (invalid JSON, missing schema fields, cross-profile keywords)",
+        "Test command: uv run pytest tests/profile-integrity-checker.test.ts::test_detects_syntax_errors -v && uv run pytest tests/profile-integrity-checker.test.ts::test_detects_cross_profile_keywords -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-466",
+      "title": "Booking Confirmation Deadline Reminder Scheduler",
+      "priority": "medium",
+      "description": "After successful booking creation, automatically schedule profile-specific reminders at key milestones (72h before check-in, 24h before, day-of arrival). Store reminder state in database and provide admin API to view, resend, or debug delivery failures.",
+      "acceptanceCriteria": [
+        "New service ReminderScheduler in src/assistant/pipeline/reminder-scheduler.ts with method scheduleCheckInReminders(bookingId, profileId) that creates scheduled tasks for each milestone",
+        "Reminder templates loaded from src/assistant/data/reminder-templates.json structured by profile with keys like data-pelangi.checkIn72h containing customizable message templates",
+        "Admin API endpoint GET /admin/bookings/:bookingId/reminders returns reminder state with sent/pending/failed status; POST /admin/bookings/:bookingId/reminders/:reminderId/resend forces immediate delivery"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/reminder-scheduler.ts (ReminderScheduler class, ~85 lines)",
+        "File to create: src/assistant/data/reminder-templates.json with {profiles: {data-pelangi: {checkIn72h, checkIn24h, checkInDay}, ...}}",
+        "File to modify: src/assistant/pipeline/booking-handler.ts - call scheduleCheckInReminders() after booking confirmation",
+        "File to create: tests/reminder-scheduler.test.ts - assert scheduledReminders are created with correct timing and profile-specific templates loaded",
+        "Test command: uv run pytest tests/reminder-scheduler.test.ts::test_schedules_correct_milestone_times -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-467",
+      "title": "Multi-Turn Intent Classification Consistency Validator",
+      "priority": "medium",
+      "description": "Prevent intent classification drift across conversation turns. When the same message pattern is classified as 'booking' in turn 3 but 'inquiry' in turn 7 without detectable context change, detect and log the inconsistency for debugging model behavior.",
+      "acceptanceCriteria": [
+        "Module src/assistant/pipeline/consistency-validator.ts with validateIntentConsistency(turnNumber, messageText, newClassification, conversationHistory, confidenceScore) that computes message hash and tracks intent stability",
+        "When inconsistency detected, log to consistency_violations table with: original_turn, new_turn, message_hash, original_intent, new_intent, confidence_delta, context_changed (boolean)",
+        "Unit tests verify: identical messages in same conversation classified with same intent ≥95% of time; different intents allowed only if conversation context explicitly changed (user said 'let me inquire' vs 'I want to book')"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/consistency-validator.ts - validateIntentConsistency() function using Blake3 message hashing (~75 lines)",
+        "File to modify: src/assistant/pipeline/classification-pipeline.ts - call validator after tf.argmax intent classification",
+        "File to create: tests/consistency-validator.test.ts - test with fixture conversations showing consistent/inconsistent patterns",
+        "Test command: uv run pytest tests/consistency-validator.test.ts::test_same_message_classified_consistently -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-468",
+      "title": "Booking Guest Contact Validation Against Region-Specific Patterns",
+      "priority": "medium",
+      "description": "Validate guest phone and email during booking slot-filling against profile-specific region patterns. Pelangi Capsule (Malaysia) expects +60 numbers, Southern Homestay expects broader international formats. Reject or flag mismatches with clear error messages.",
+      "acceptanceCriteria": [
+        "Function validateGuestContact(guestPhone, guestEmail, profileId) in src/assistant/pipeline/guest-validation.ts returns {valid: boolean, error: string|null} with profile-specific region checks loaded from src/assistant/data/validation-rules.json",
+        "Validation rules JSON structure: {profiles: {data-pelangi: {allowedPhonePrefixes: ['+60'], emailDomainBlacklist: ['example.com']}, data-southern: {allowedPhonePrefixes: ['+1', '+44', '+60'], ...}}}",
+        "When validation fails, booking handler returns user-friendly error: 'Your phone +1234567890 appears to be non-Malaysian. Pelangi Capsule primarily serves Malaysian guests. Please verify and retry.' — allowing user self-correction"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/guest-validation.ts - validateGuestContact() function with regex phone/email validation (~55 lines)",
+        "File to create: src/assistant/data/validation-rules.json with allowedPhonePrefixes and emailDomainBlacklist per profile",
+        "File to modify: src/assistant/pipeline/booking-handler.ts - call validateGuestContact() during slot-filling before booking_confirmed state transition",
+        "File to create: tests/guest-validation.test.ts - test valid/invalid phone/email combos for each profile (data-pelangi +60, data-southern +1/+44/+60, etc.)",
+        "Test command: uv run pytest tests/guest-validation.test.ts::test_rejects_non_malaysia_phone_for_pelangi -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
