@@ -191,3 +191,19 @@ export const incidentClassifications = pgTable("incident_classifications", {
 export type IncidentClassification = typeof incidentClassifications.$inferSelect;
 export type InsertIncidentClassification = typeof incidentClassifications.$inferInsert;
 
+// ─── US-487: Intent Classification Per-Profile Baseline Drift Detector ─────
+// Tracks F1 score baseline per profile for intent classification drift detection
+export const intentBaselines = pgTable("rainbow_intent_baselines", {
+  id: serial("id").primaryKey(),
+  profileId: text("profile_id").notNull(),
+  f1Score: real("f1_score").notNull(), // F1 score (0-1)
+  messageCount: integer("message_count").notNull(), // number of correctly classified messages in baseline window
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  uniqueIndex("idx_intent_baselines_profile_id").on(table.profileId),
+  index("idx_intent_baselines_updated_at").on(table.updatedAt),
+]));
+
+export type IntentBaseline = typeof intentBaselines.$inferSelect;
+export type InsertIntentBaseline = typeof intentBaselines.$inferInsert;
+

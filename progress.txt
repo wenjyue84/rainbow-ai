@@ -1857,3 +1857,74 @@ Story US-486 was confirmed fully implemented from prior commit 48f779c. This att
 ## Iteration 1 - Sat, Apr 11, 2026  5:03:16 PM
 Completed: Fallback Response Generation from Similar Resolved Cases (ID: US-486) in 4m
 
+## Iteration 3 - Sat, Apr 11, 2026  5:04:17 PM
+Completed: Fallback Response Generation from Similar Resolved Cases (ID: US-486) in 4m
+
+
+## Pre-analysis for US-487 (Gemini 2.5 Pro)
+This user story describes a new CLI tool for a **TypeScript/Node.js project**, not a Frappe/Python one. The following technical brief is based on the provided JSON and the project's file structure.
+
+**Project:** TypeScript/Node.js
+**Tooling:** `npm`, `drizzle` (likely ORM), `vitest` (likely test runner)
+
+---
+
+### **Technical Brief for US-487**
+
+**1. Files to Modify/Create:**
+*   **Create New:** `src/monitoring/profile-intent-drift.ts` - This will contain the core logic for the drift detection CLI tool.
+*   **Create New:** `migrations/add-intent-baselines-table.sql` - A DDL script to create the required `rainbow_intent_baselines` table.
+*   **Create New:** `tests/monitoring/profile-intent-drift.test.ts` - Unit and integration tests for the new CLI tool.
+*   **Modify:** `package.json` - Add the new `check:intent-drift` command to the `scripts` section.
+
+**2. Key Entities (Analogous to DocTypes):**
+*   A new database table, `rainbow_intent_baselines`, is required.
+*   Schema: `profile_id` (string), `f1_score` (float), `message_count` (integer), `updated_at` (timestamp).
+*   The tool will read from an existing message table (schema needs to be inferred, but likely contains `profile_id`, `predicted_intent`, `actual_intent`, `timestamp`).
+
+**3. Implementation Approach:**
+*   The CLI script in `profile-intent-drift.ts` should parse arguments (`--profile`, `--threshold`) using a library like `yargs`.
+*   It will connect to the database (using the project's existing `drizzle` configuration) to fetch message data and the stored baseline F1 score.
+*   Implement an F1 score calculator (Precision/Recall) for a rolling window of the last 100 messages.
+*   Compare the current window's F1 against the stored baseline. If the drop exceeds the threshold, the `alert_triggered` flag in the JSON output is set to `true`.
+*   Output must be a JSON object printed to standard output, matching the acceptance criteria.
+
+**4. Edge Cases & Gotchas:**
+*   **New Profiles:** The script must handle profiles with fewer than 100 messages gracefully, likely by returning a specific message and not calculating a baseline.
+*   **Baseline Calculation:** The logic for "last 100 correctly classified messages" needs clarification. A simple approach is to use the 100 most recent messages that were marked as correct.
+*   **Data Schema:** The implementation depends on the schema of the source message table, which isn't defined in the story. This needs to be confirmed first.
+
+
+## Pre-analysis for US-487 (Gemini 2.5 Pro)
+**Note:** The provided user story is for a TypeScript/Node.js project, not a Frappe/Python application. The following brief is based on the technologies described in the JSON.
+
+***
+
+### Technical Brief: US-487 Intent Drift Detector
+
+**1. Python Files to Modify / Create:**
+This is a TypeScript project. The primary new files will be:
+*   `src/monitoring/profile-intent-drift.ts`: Will contain the core logic for calculating F1 scores, fetching baselines, and detecting drift.
+*   `tests/monitoring/profile-intent-drift.test.ts`: Unit and integration tests for the new drift detector.
+*   `migrations/add-intent-baselines-table.sql`: SQL script to create the required database table.
+*   `package.json`: Will be modified to add the new `check:intent-drift` CLI command.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   A new database table, `rainbow_intent_baselines`, will be created to store the baseline F1 score for each profile.
+*   The implementation will likely read from an existing table that logs messages and their classification results (not explicitly named but implied).
+
+**3. Recommended Implementation Approach:**
+1.  Create the database migration to add the `rainbow_intent_baselines` table (`profile_id`, `f1_score`, `message_count`, `updated_at`).
+2.  In `profile-intent-drift.ts`, implement a function to calculate the F1 score from a given set of message classification results.
+3.  Create a CLI entry point that accepts `--profile` and `--threshold` arguments.
+4.  The script will first query the `rainbow_intent_baselines` table for the specific profile's baseline.
+5.  It will then query the last 100 messages for that profile to calculate the "current" F1 score.
+6.  Compare the current F1 to the baseline; if `current_f1 < (baseline_f1 * 0.95)`, set `alert_triggered` to true.
+7.  Return the full JSON report as specified in the acceptance criteria.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the logic gracefully handles profiles with fewer than 100 messages for either baseline or current window calculation to prevent errors.
+*   The query to fetch messages for F1 calculation needs to be efficient, especially on large datasets.
+*   The mechanism for updating baselines should be considered; the story implies they are pre-calculated but doesn't specify the update trigger.
+*   The alert message must be formatted exactly as required, including the link to the contamination detector tool.
+
