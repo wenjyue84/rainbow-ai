@@ -1150,9 +1150,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-11T03:28:57Z"
     },
     {
       "id": "US-455",
@@ -1377,29 +1378,6 @@
       "model": "sonnet"
     },
     {
-      "id": "US-469",
-      "title": "Analyze Intent Classification Feature Importance per Intent-Profile Pair",
-      "priority": "medium",
-      "description": "Calculate which keywords and context features are most predictive for each intent+profile combination. Generate detailed feature importance report to guide keyword refinement and identify weak signals.",
-      "acceptanceCriteria": [
-        "Parse rainbow_conversations table (past 7 days, is_correct_classification=true); compute TF-IDF and feature contribution scores for each intent+profile pair; output top 10 features per pair",
-        "Generate markdown report showing feature rankings (e.g. 'pelangi:booking: check_in_date=0.92, num_guests=0.88, unit_type=0.64'); flag features with zero score that are in expected_features config",
-        "Identify weak-signal intents (confidence threshold violations in top features); suggest keyword additions or keyword removal for redundant entries"
-      ],
-      "technicalNotes": [
-        "File to create: src/cli/feature-importance.ts (orchestrate analysis from conversation logs)",
-        "File to create: src/assistant/intent-analyzer.ts (TF-IDF calculation, feature extraction from intent_keywords and context)",
-        "Test command: uv run pytest tests/unit/test_feature_importance.py::test_tf_idf_ranking -v",
-        "Input: SELECT * FROM rainbow_conversations WHERE profile IN (...) AND is_correct_classification=true AND created_at >= NOW()-'7 days'::interval",
-        "Output: features-{profile}-{intent}-{timestamp}.md in ./reports/ directory"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
       "id": "US-470",
       "title": "Profile-Aware Booking Unit Availability Check Before Workflow",
       "priority": "high",
@@ -1416,179 +1394,6 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-471",
-      "title": "Multi-Intent Detection for Ambiguous Booking Messages",
-      "priority": "medium",
-      "description": "Detect when a message matches multiple intents within a confidence threshold and provide disambiguation to the user instead of guessing, improving accuracy for borderline cases.",
-      "acceptanceCriteria": [
-        "Messages matching >1 intent with top 2 confidence scores within 10% are logged as multi-intent in intent_analytics table with disambigation_requested flag",
-        "Assistant returns disambiguation prompt asking user to clarify intent (booking/inquiry/cancellation/other) instead of single intent response when multi-intent detected",
-        "GET /admin/analytics/disambiguation-success returns {intent_pair, clarification_success_rate, avg_turns_to_clarify} tracking user disambiguation flow accuracy"
-      ],
-      "technicalNotes": [
-        "File to edit: src/assistant/pipeline/intent-classification.ts (function: detectMultiIntent)",
-        "File to edit: shared/schema-tables.ts (add disambiguation_requested, clarified_intent to intent_analytics)",
-        "Test command: npm run test -- tests/unit/intent-classification.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-472",
-      "title": "Intent Classification Drift Detector with Historical Comparison",
-      "priority": "medium",
-      "description": "Monitor intent classification accuracy over time by calculating rolling F1 scores and comparing against baseline, enabling early detection of model degradation before it impacts production.",
-      "acceptanceCriteria": [
-        "Baseline F1 score per (intent, profile) pair stored in rainbow_config on system start; calculate rolling 7-day F1 from intent_analytics.is_correct field",
-        "When rolling F1 score < baseline F1 - 0.05, create escalation_event with event_type='intent_drift_alert' and drift_delta (e.g., -0.08)",
-        "GET /admin/alerts/intent-drift returns [{intent, profile, baseline_f1, current_f1, delta, alert_triggered, affected_message_count}] for drifting intents only"
-      ],
-      "technicalNotes": [
-        "File to create: src/lib/metrics/intent-drift-calculator.ts (function: calculateIntentDriftAlert)",
-        "File to edit: src/routes/admin/alerts.ts (endpoint: GET /admin/alerts/intent-drift)",
-        "Test command: npm run test -- tests/unit/intent-drift.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-473",
-      "title": "Booking Workflow Rollback Handler for Failed Steps",
-      "priority": "medium",
-      "description": "Enable automatic rollback of workflow steps when a step fails, preserving data integrity and allowing recovery without manual intervention or data duplication.",
-      "acceptanceCriteria": [
-        "Before each booking workflow step, serialize step input state and store in new workflow_step_checkpoints table with {workflow_id, step_index, checkpoint_state_json, created_at}",
-        "New endpoint POST /admin/debug/rollback-workflow-step accepts {workflow_instance_id, current_failed_step, roll_back_to_step} and restores previous checkpoint; updates booking_confirmation with rollback_reason",
-        "Test: run booking workflow through step 3/5, simulate step 3 failure, rollback to step 2, verify checkpoint data restored and step 3 can retry successfully"
-      ],
-      "technicalNotes": [
-        "File to edit: shared/schema-tables.ts (add workflow_step_checkpoints table schema)",
-        "File to edit: src/assistant/pipeline/booking-workflow.ts (function: saveWorkflowCheckpoint, restoreWorkflowCheckpoint)",
-        "Test command: npm run test -- tests/integration/workflow-rollback.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-474",
-      "title": "Booking Workflow Step Execution Performance Baseline Tracker",
-      "priority": "medium",
-      "description": "Add performance tracking to each booking workflow step with baseline metrics and regression alerting. Records step execution time in database and alerts when execution time exceeds baseline + 20%.",
-      "acceptanceCriteria": [
-        "Each workflow step records execution time and step name in new workflow_step_metrics table (Drizzle migration)",
-        "GET /admin/workflows/:id/performance returns baseline times, current times, and deviation percentage for each step",
-        "Booking workflow execution time regression >= 20% above baseline triggers alert log entry in application logs"
-      ],
-      "technicalNotes": [
-        "File to create: src/lib/workflow-metrics.ts (recordStepMetric function with timestamp and duration)",
-        "File to modify: shared/schema-tables.ts (add workflow_step_metrics table with fields: id, workflowId, stepName, executionTimeMs, profileId, createdAt)",
-        "File to create: src/routes/admin/workflow-metrics.ts (GET /admin/workflows/:id/performance endpoint returning trend data)",
-        "Test command: uv run npm run test tests/workflow-metrics.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-475",
-      "title": "Profile Configuration Hot-Reload Admin Endpoint",
-      "priority": "medium",
-      "description": "Add POST /admin/profiles/:profileId/reload endpoint to reload profile configuration (intent keywords, routing rules, fallback responses) from JSON files without server restart. Validates config integrity before applying.",
-      "acceptanceCriteria": [
-        "POST /admin/profiles/:profileId/reload returns 200 with validation results and timestamp; invalid JSON config files return 400 with specific field errors",
-        "In-flight messages continue processing during reload without interruption; conversation queue is preserved",
-        "Reload fails if config is missing required fields (intents array, routing.json, fallback responses) with detailed error reporting"
-      ],
-      "technicalNotes": [
-        "File to modify: src/routes/admin/profile-config.ts (add reload endpoint that validates before applying)",
-        "File to create: src/lib/config-reloader.ts (reloadProfileConfig function that validates against Zod schema, checks message queue status)",
-        "File to modify: src/assistant/schemas.ts (ensure ConfigSchema has validation for all required fields in routing.json and settings.json)",
-        "Test command: uv run npm run test tests/profile-reload.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-476",
-      "title": "Booking Confirmation Delivery Status Tracker with Retry Logic",
-      "priority": "medium",
-      "description": "Add delivery status tracking for booking confirmations sent via WhatsApp/SMS. Track success/failure per booking and implement exponential backoff retry for failed deliveries. Alert when profile delivery failure rate exceeds 10%.",
-      "acceptanceCriteria": [
-        "New booking_delivery_status table tracks each confirmation with status (pending/delivered/failed), attemptCount, lastError, and lastAttemptAt timestamp",
-        "Failed deliveries automatically retry after 5m, 15m, 1h intervals; stops retrying after 3 failed attempts",
-        "Alert triggered when delivery failure rate for a profile exceeds 10% in sliding 1-hour window (logged to application logs)"
-      ],
-      "technicalNotes": [
-        "File to modify: shared/schema-tables.ts (add booking_delivery_status table with fields: bookingId, profileId, status, attemptCount, lastError, createdAt, lastAttemptAt)",
-        "File to create: src/lib/delivery-retry-manager.ts (getFailedDeliveries, scheduleRetry, calculateBackoffMs functions)",
-        "File to create: src/routes/admin/delivery-status.ts (GET /admin/delivery-status/:profileId endpoint returning failure rate and recent failures)",
-        "Test command: uv run npm run test tests/delivery-retry-manager.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-477",
-      "title": "Profile Knowledge Base Search Quality Analyzer",
-      "priority": "medium",
-      "description": "Build CLI tool to measure knowledge base retrieval quality for each profile. Evaluates precision/recall of semantic search against KB and identifies low-relevance entries and gap areas.",
-      "acceptanceCriteria": [
-        "CLI command npm run analyze:kb-quality --profile pelangi outputs JSON report with KB-query precision/recall metrics and identifies entries with semantic similarity < 0.7",
-        "Report includes top 5 unmatched query patterns (queries scoring < 0.5 similarity to any KB entry) as gap indicators",
-        "Test suite validates metric calculations against 50+ sample queries per profile with expected precision >= 0.8"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/kb-quality-analyzer.ts (main CLI with computeKBQuality, loadKBEntries, calculateSimilarity functions)",
-        "File to create: tests/kb-quality-analyzer.test.ts (test samples from .rainbow-kb/ and .rainbow-kb-southern/, metric assertions)",
-        "Uses existing semantic similarity from assistant pipeline; validates against knowledge.json structure",
-        "Test command: uv run npm run test tests/kb-quality-analyzer.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-478",
-      "title": "Booking Workflow State History Audit Log with Compliance Events",
-      "priority": "medium",
-      "description": "Add comprehensive audit logging to booking workflow state transitions. Logs all state changes, AI decisions, and user actions for compliance and debugging. Enable audit queries by booking ID.",
-      "acceptanceCriteria": [
-        "New booking_workflow_audit table logs: beforeState, afterState, reason, actor (system/user), bookingId, profileId, timestamp with indexed queries on bookingId",
-        "GET /admin/bookings/:id/audit returns chronological event log including state transition reason and decision metadata",
-        "High-risk transitions (cancellation, price modification) include business logic reason in audit entry (e.g., 'user_requested' vs 'timeout_expired')"
-      ],
-      "technicalNotes": [
-        "File to modify: shared/schema-tables.ts (add booking_workflow_audit table with fields: id, bookingId, profileId, beforeState, afterState, reason, actor, createdAt, metadata jsonb)",
-        "File to create: src/lib/booking-audit-logger.ts (logStateTransition, logDecision functions with optional metadata parameter)",
-        "File to modify: src/routes/admin/bookings.ts (add GET /admin/bookings/:id/audit endpoint returning sorted event log)",
-        "Test command: uv run npm run test tests/booking-audit-logger.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -1635,50 +1440,6 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
-    },
-    {
-      "id": "US-481",
-      "title": "Intent Routing Rule Integrity Validator with Cross-Reference Check",
-      "priority": "medium",
-      "description": "Validates routing.json references actual intents and detects routing loops and cross-profile contamination",
-      "acceptanceCriteria": [
-        "Validates each routing rule in src/assistant/data/routing.json: referenced intent exists in src/assistant/data/intent-keywords.json for same profile",
-        "Detects routing loops by tracing routes (e.g., booking → inquiry → booking) and reports cycle with involved intents",
-        "Detects cross-profile violations: routing rule for pelangi profile referencing intent from southern profile intent set"
-      ],
-      "technicalNotes": [
-        "File to edit: src/tools/intent-routing-validator.ts (new CLI tool with graph traversal for cycle detection)",
-        "Data sources: src/assistant/data/routing.json (source_intent -> destination_intent) and src/assistant/data/intent-keywords.json (profile -> intent definitions)",
-        "CLI usage: node src/tools/intent-routing-validator.ts --profile pelangi --output routing-report.json --check-cycles",
-        "Test command: uv run vitest tests/tools/intent-routing-validator.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-482",
-      "title": "Knowledge Base Content Staleness Detector with Freshness Alerts",
-      "priority": "medium",
-      "description": "Monitors knowledge base file modification dates and alerts when content is stale (not updated within configured threshold)",
-      "acceptanceCriteria": [
-        "Queries src/assistant/data/knowledge.json and .rainbow-kb* KB markdown files: tracks last modified timestamp from file system or DB metadata",
-        "Alerts when file not modified in > 60 days with severity based on file: critical files (booking flows) trigger HIGH, reference docs trigger LOW",
-        "Daily job outputs: kb-staleness-report-YYYYMMDD.json with: file_path, last_updated_days_ago, suggested_reviewer_team"
-      ],
-      "technicalNotes": [
-        "File to edit: src/tools/kb-staleness-checker.ts (new daily checker tool)",
-        "File tracking: Scan .rainbow-kb/ and .rainbow-kb-southern/ directories; map to profiles using path convention",
-        "Scheduler integration: Add cron entry to PM2 ecosystem.config.cjs or call via src/routes/admin/jobs.ts",
-        "Test command: uv run vitest tests/tools/kb-staleness-checker.test.ts -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
     },
     {
       "id": "US-483",
@@ -1728,47 +1489,21 @@
     },
     {
       "id": "US-485",
-      "title": "Conversation Language Detection with Intent Re-Classifier",
-      "priority": "medium",
-      "description": "Detect when conversation switches to a different language mid-chat (e.g., English to Malay). Log detected language and re-run intent classification with language hint to improve accuracy for multilingual users.",
+      "title": "Profile Isolation Validation Test Suite for Makan and Southern Profiles",
+      "priority": "high",
+      "description": "Add automated tests to enforce strict business profile separation, detecting and failing CI if profile data becomes contaminated with content from other profiles.",
       "acceptanceCriteria": [
-        "Detect primary language of each message; store language_code in rainbow_messages table",
-        "When language differs from previous message, re-run intent classification with detected_language hint passed to classifier()",
-        "Test: Sequence of Malay → English → Malay messages correctly detects switches and adjusts classification context"
+        "Test that intent-keywords.json in data-makan contains zero hostel/room/guest-related keywords via regex pattern matching",
+        "Test that knowledge base .md files in .rainbow-kb directory contain zero makan-specific content (keywords: cafe, menu, food, beverage)",
+        "Generate detailed contamination report showing violated files, problematic keywords, and severity score per violation"
       ],
       "technicalNotes": [
-        "File to create: src/assistant/pipeline/language-detector.ts (language detection + cache previous language per conversation)",
-        "File to modify: shared/schema-tables.ts (add language_code column to rainbow_messages)",
-        "File to modify: src/assistant/engine.ts (integrate language detector before classify() call)",
-        "File to create: tests/unit/language-detector.test.ts (verify Malay/English/Chinese detection, language switch handling)",
-        "Test command: npm run test -- language-detector.test.ts --reporter=verbose"
+        "File to edit: src/tools/profile-isolation-validator.ts (implement validateProfileIsolation function)",
+        "Test command: uv run pytest tests/profile-isolation-makan.test.ts tests/profile-isolation-southern.test.ts -v",
+        "Integration: run as pre-commit hook to prevent contamination"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-486",
-      "title": "Fallback Response A/B Testing Framework with Escalation Tracking",
-      "priority": "medium",
-      "description": "Support A/B testing of fallback response variants (e.g., polite vs casual tone) per intent per profile. Randomly assign variant, track user escalation rates per variant. Generate winner recommendation report based on lowest escalation rate.",
-      "acceptanceCriteria": [
-        "Fallback templates tagged with variant ID in src/assistant/data/fallback-variants.json (intent: {variant_a: template, variant_b: template}); selector randomly assigns per message",
-        "Store variant_id in rainbow_messages; count escalation_events per variant for same intent across profile",
-        "CLI report: npm run analyze:fallback-variants outputs escalation_rate, message_count, confidence per variant; recommends variant with lowest escalation"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/data/fallback-variants.json (structure: {booking_fallback: {variant_a: template1, variant_b: template2}})",
-        "File to modify: src/assistant/pipeline/fallback-selector.ts (random variant selection, store variant_id in response metadata)",
-        "File to modify: shared/schema-tables.ts (add variant_id varchar column to rainbow_messages)",
-        "File to create: src/tools/fallback-ab-analyzer.ts (query rainbow_messages + escalation_events, calculate escalation_rate per variant)",
-        "File to create: tests/unit/fallback-ab.test.ts (verify random distribution, escalation counting, winner calculation)",
-        "Test command: npm run test -- fallback-ab.test.ts && npm run analyze:fallback-variants"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"

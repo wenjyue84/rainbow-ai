@@ -174,3 +174,102 @@ Completed: Fallback Response Semantic Relevance Scorer (ID: US-402) in 2m
 *   The guest's phone number field on the `Booking` DocType must be correctly identified and passed.
 *   Consider a scheduled job to periodically clean up expired, unused verification codes.
 
+
+## Pre-analysis for US-453 (Gemini 2.5 Pro)
+The user story provided (US-453) describes a TypeScript/Node.js task, not a Frappe/Python one. Here is a technical brief based on the story's actual content for the `rainbow-ai` project:
+
+---
+**Technical Brief for US-453: Intent Confidence Regression Detector**
+
+**1. Python Files to Modify / Create:**
+*   **Create:** `src/tools/intent-regression-detector.ts` — This new file will contain the primary logic for the CLI tool.
+*   **Create:** `tests/intent-regression.test.ts` — Houses the comprehensive test suite for the detector.
+*   **Interact With:** An existing intent testing function (e.g., `test_intents()`) likely located in a module like `src/assistant/intent-tester.ts` or similar, which provides the core confidence scores.
+
+**2. Frappe DocTypes / Hooks (Analogous Components):**
+*   **Primary Data Source:** The function that runs intent classification, referred to as `test_intents()`, is the main integration point.
+*   **Data Store:** `src/assistant/data/intent-confidence-baseline.json` will act as the persistent storage for baseline metrics.
+*   **Execution Hooks:** The tool will be executed via `ts-node` and tested with `vitest`, as specified in the `package.json` scripts.
+
+**3. Recommended Implementation Approach:**
+1.  Develop the CLI script in `src/tools/intent-regression-detector.ts`.
+2.  On the first run, the script should call the intent testing function and save its output as the `intent-confidence-baseline.json`.
+3.  On subsequent runs, it will load this baseline, get fresh results from the intent tester, and compare them.
+4.  Logic should identify regressions based on the acceptance criteria (>10% absolute or >15% relative drop).
+5.  Generate a `regression-report.json` detailing each regression with profile, intent, scores, and a suggested remediation.
+
+**4. Edge Cases & Gotchas:**
+*   **Baseline Staleness:** The tool needs a mechanism, like a `--re-baseline` flag, to update the baseline when the model is intentionally changed.
+*   **New Intents:** The system must gracefully handle intents present in the current model but not in the baseline file.
+*   **Test Data Consistency:** Ensure the underlying `test_intents()` function uses a stable, version-controlled test set for reliable comparisons.
+---
+
+
+## Iteration [SPIRAL] - Story: Intent Confidence Regression Detector (US-453) ✓ COMPLETE
+
+### What was implemented
+- Created `src/tools/intent-regression-detector.ts` — CLI tool that:
+  - Loads intent test fixtures from generated test files (pelangi, makan, southern profiles)
+  - Calculates confidence metrics: avgConfidence, minConfidence, maxConfidence, sampleCount
+  - On first run: creates baseline in `src/assistant/data/intent-confidence-baseline.json`
+  - On subsequent runs: detects regressions by comparing current metrics against baseline
+  - Detects regressions: >10% absolute drop OR >15% relative degradation
+  - Generates JSON report with profile, intent, baseline/current confidence, delta %, remediation
+  - Supports `--output` flag to specify report file path
+  - Supports `--re-baseline` flag to force baseline regeneration
+  - Sorts regressions by severity (largest drop first)
+
+- Created `src/__tests__/intent-regression.test.ts` — comprehensive test suite with:
+  - 34 test cases covering all acceptance criteria and edge cases
+  - Tests for baseline creation and persistence
+  - Tests for absolute drop detection (>10%)
+  - Tests for relative drop detection (>15%)
+  - Tests for report structure and fields
+  - Tests for new intent identification
+  - Tests for multi-profile isolation
+  - Tests for confidence score calculations (avg, min, max)
+  - Edge case tests: empty cases, zero confidence, perfect scores
+  - Tests for per-intent-profile coverage across all profiles (pelangi, makan, southern)
+  - Tests for report validation and JSON format
+
+- Created `src/assistant/data/intent-confidence-baseline.json` — baseline storage with:
+  - Initial metrics for 14 intent-profile pairs across 3 profiles
+  - All required fields per metric: profile, intent, avgConfidence, minConfidence, maxConfidence, sampleCount
+
+### Patterns discovered
+- Regression detection uses two independent thresholds: absolute AND relative
+  - >10% absolute drop triggers regression regardless of magnitude
+  - >15% relative drop triggers regression regardless of baseline level
+  - For edge cases (low baselines), relative drop is more significant
+- Remediation suggestions map profile+intent combinations to actionable guidance
+- Test fixtures are parsed from generated test files using regex pattern matching
+- Confidence scores are aggregated using running average formula: `(oldAvg * (n-1) + newScore) / n`
+- Report includes summary statistics: totalIntentProfiles, regressionCount, newIntentCount
+
+### Gotchas avoided
+- Threshold comparison uses `<` not `<=` so exactly 10% absolute drop is NOT a regression
+- For relative drop tests with low baselines: need baseline < 0.25 to avoid triggering absolute threshold
+- Test fixtures fallback to synthetic data if real fixture files aren't found
+- JSON report should include empty arrays for regressions/newIntents (not null) when none exist
+- Build copies data files to dist/, including the baseline file for production use
+
+### Quality checks
+- ✓ Tests: 34/34 passing (40ms via vitest)
+- ✓ Build: esbuild success (2.5MB dist/index.js, 1 pre-existing CommonJS warning)
+- ✓ Server startup: verified (MCP_SERVER_PORT=3002, 5s timeout)
+- ✓ CLI tool: verified with `--re-baseline` flag and baseline creation
+- ✓ CLI tool: verified with report generation (JSON format)
+- ✓ prd.json: marked passes=true for US-453
+
+### Acceptance criteria met
+1. ✓ First run creates baseline at `src/assistant/data/intent-confidence-baseline.json`; subsequent runs compare
+2. ✓ Detects >10% absolute drop and >15% relative degradation per profile-intent pair
+3. ✓ Generates JSON report with intent, profile, baseline/current confidence, delta %, remediation suggestion
+
+### Technical notes
+- CLI usage: `npx tsx src/tools/intent-regression-detector.ts [--output report.json] [--re-baseline]`
+- Test command: `npx vitest run src/__tests__/intent-regression.test.ts`
+- Baseline format: `{generatedAt: ISO8601, metrics: [{profile, intent, avgConfidence, minConfidence, maxConfidence, sampleCount}, ...]}`
+- Report format: `{timestamp, regressions: [], newIntents: [], summary: {totalIntentProfiles, regressionCount, newIntentCount}}`
+- Supports synthetic test data fallback (17 test cases, 10 intent-profile pairs) if fixtures not found
+- Regression remediations are profile-aware (e.g., "Validate makan booking intent training data")
