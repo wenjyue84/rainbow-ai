@@ -1324,6 +1324,71 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-452",
+      "title": "Profile Data Isolation Enforcement Middleware with Contamination Blocking",
+      "priority": "critical",
+      "description": "Express middleware that validates all assistant responses (intent classifications, knowledge lookups, workflow executions) contain data exclusive to the requested profile, blocking and logging cross-profile data leaks to prevent booking/inquiry errors.",
+      "acceptanceCriteria": [
+        "Middleware validates response profile matches request profile before returning; reject cross-profile responses with 400 Bad Request",
+        "Scan response for profile-specific keywords (Pelangi hostels data in Makan response, etc.) and block if contamination detected",
+        "Log all isolation violations to rainbow_profile_isolation_audit table with timestamp, profiles involved, intent, contaminated field names, and remediation action taken"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/profile-isolation-middleware.ts as Express middleware intercepting /api/message and /api/intent routes",
+        "File to create: tests/profile-isolation-middleware.test.ts testing cross-profile rejection, audit log creation, false positive rates",
+        "Modify: src/index.ts to register middleware before assistant router; src/lib/db.ts to add audit table schema if missing",
+        "Test command: uv run vitest tests/profile-isolation-middleware.test.ts --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-453",
+      "title": "Intent Confidence Regression Detector CLI with Baseline Tracking",
+      "priority": "high",
+      "description": "CLI tool that compares current intent classification confidence scores against saved baselines, detecting accuracy regressions that indicate model degradation, data contamination, or profile isolation violations.",
+      "acceptanceCriteria": [
+        "First run saves baseline confidence scores to src/assistant/data/intent-confidence-baseline.json; subsequent runs compare against it",
+        "Detect intents with >10% absolute accuracy drop or >15% relative degradation, surfacing affected profile-intent pairs",
+        "Generate JSON report with intent name, profile, baseline confidence, current confidence, delta percentage, and remediation suggestion (e.g., 'validate Makan data isolation', 'retrain booking intent')"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/intent-regression-detector.ts with logic to call test_intents() and compare baselines",
+        "File to create: tests/intent-regression.test.ts with 50+ test cases per intent-profile pair covering variations",
+        "Test command: uv run vitest tests/intent-regression.test.ts && uv run ts-node src/tools/intent-regression-detector.ts --output regression-report.json"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-454",
+      "title": "Conversation Context Pruning Pipeline with Latency and Accuracy Metrics",
+      "priority": "medium",
+      "description": "Smart message pruning algorithm for the context loading pipeline that removes redundant messages beyond a 5-turn window while preserving semantic intent, optimizing latency without degrading multi-turn accuracy.",
+      "acceptanceCriteria": [
+        "Prune conversation history to 5 most recent turns + summarized context for messages 6-15 turns old, removing summarizable duplicates (e.g., repeated date/unit preferences)",
+        "Measure message processing latency improvement: baseline <100ms, target <50ms per message after pruning (log via src/lib/metrics.ts)",
+        "Multi-turn intent classification accuracy must not degrade >2% vs baseline; test on 30+ real 8+ turn conversation sequences"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/context-pruning.ts implementing turn-count pruning + semantic deduplication logic",
+        "File to create: tests/context-pruning.test.ts verifying pruning rules and accuracy regression testing",
+        "Modify: src/assistant/pipeline/index.ts to add pruning stage before context-aware intent classification pipeline step",
+        "Test command: uv run vitest tests/context-pruning.test.ts && uv run ts-node scripts/measure-context-latency.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
