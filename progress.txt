@@ -748,3 +748,32 @@ Completed: Add Tamil Sentiment Escalation Messages in Response Processor (ID: US
 ## Iteration 2 - Sun, Apr 12, 2026  1:07:17 AM
 FAILED diagnosis-block gate: Add Tamil Sentiment Escalation Messages in Response Processor (ID: US-501) — no diagnosis block found — attempt 1/3
 
+## Iteration 1 - Sun, Apr 12, 2026  1:17:16 AM
+FAILED diagnosis-block gate: Replace Hardcoded English Manual Handoff Message with Template Lookup (ID: US-502) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 2 (Retry) - Sun, Apr 12, 2026 01:18 AM
+Completed: Replace Hardcoded English Manual Handoff Message with Template Lookup (ID: US-502)
+
+### Diagnosis block
+**Current State:** Previous attempt already made all code changes correctly:
+- `templates.json` line 82-87: `manual_handoff` key with en/ms/zh/ta translations
+- `response-processor.ts` line 475: Uses `getTemplate('manual_handoff', lang)` (not hardcoded)
+- `tests/unit/manual-handoff-localization.test.ts`: 15 tests exist
+
+**Problem Identified:** prd.json still showed passes=false because the previous attempt failed the diagnosis-block gate (missing diagnosis block in response text), even though the code was correct.
+
+**Planned Changes:** Verify tests pass, update prd.json passes=true, commit.
+
+### What was verified
+- All 3 acceptance criteria already satisfied by previous attempt's code changes
+- 15/15 tests passing (manual-handoff-localization.test.ts)
+- prd.json updated: US-502 passes=true
+
+### Patterns discovered
+- When a story fails the diagnosis-block gate, code changes may still be committed — always check current file state before re-implementing
+- The gate checks for a diagnosis block IN THE RESPONSE TEXT, not in code comments
+
+### Quality checks
+- Tests: 15/15 passing (395ms)
+- prd.json: passes=true ✅
