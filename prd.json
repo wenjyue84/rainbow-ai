@@ -1065,7 +1065,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1586,6 +1586,93 @@
         "File to create: src/lib/booking-audit-logger.ts (logStateTransition, logDecision functions with optional metadata parameter)",
         "File to modify: src/routes/admin/bookings.ts (add GET /admin/bookings/:id/audit endpoint returning sorted event log)",
         "Test command: uv run npm run test tests/booking-audit-logger.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-479",
+      "title": "Conversation Message Deduplication Handler for WhatsApp Retries",
+      "priority": "high",
+      "description": "Detects and deduplicates messages from WhatsApp retry scenarios to prevent double-booking and duplicate workflow execution",
+      "acceptanceCriteria": [
+        "Identifies duplicate messages within 5-second window using message_id (Baileys) and content hash (MD5 of message text) from shared/schema-tables.ts rainbow_messages",
+        "Silently deduplicates: discards second occurrence, logs dedup event with dedup_reason='baileys_retry' or 'content_hash_duplicate'",
+        "Prevents duplicate escalation and booking step re-execution by marking message as processed_duplicate before workflow pipeline"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/message-processor.ts (add dedup check before intent classification stage)",
+        "Database schema: shared/schema-tables.ts rainbow_messages needs baileys_message_id and content_hash fields (add migration if missing)",
+        "Test command: uv run vitest tests/message-deduplication.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-480",
+      "title": "Intent Classification Training Data Gap Analyzer",
+      "priority": "high",
+      "description": "Identifies which intent-profile combinations have insufficient training examples by analyzing keywords and low-confidence patterns",
+      "acceptanceCriteria": [
+        "Analyzes src/assistant/data/intent-keywords.json: flags any intent with < 5 keywords as under-resourced, exports intent_id, keyword_count, profile",
+        "Cross-references with low-confidence messages in shared/schema-tables.ts: identifies top 5 intents with highest misclassification rate and keyword insufficiency",
+        "Outputs CSV: intent, profile, keyword_count, low_confidence_count_7day, suggested_training_keywords, severity (CRITICAL|HIGH|MEDIUM)"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/training-gap-analyzer.ts (new CLI tool that queries DB and keyword files)",
+        "Data sources: src/assistant/data/intent-keywords.json (keyword counts) and shared/schema-tables.ts rainbow_messages table (confidence < 0.65 for past 7 days)",
+        "CLI usage: node src/tools/training-gap-analyzer.ts --profile pelangi --min-keywords 5 --confidence-threshold 0.65 --output gaps.csv",
+        "Test command: uv run vitest tests/tools/training-gap-analyzer.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-481",
+      "title": "Intent Routing Rule Integrity Validator with Cross-Reference Check",
+      "priority": "medium",
+      "description": "Validates routing.json references actual intents and detects routing loops and cross-profile contamination",
+      "acceptanceCriteria": [
+        "Validates each routing rule in src/assistant/data/routing.json: referenced intent exists in src/assistant/data/intent-keywords.json for same profile",
+        "Detects routing loops by tracing routes (e.g., booking → inquiry → booking) and reports cycle with involved intents",
+        "Detects cross-profile violations: routing rule for pelangi profile referencing intent from southern profile intent set"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/intent-routing-validator.ts (new CLI tool with graph traversal for cycle detection)",
+        "Data sources: src/assistant/data/routing.json (source_intent -> destination_intent) and src/assistant/data/intent-keywords.json (profile -> intent definitions)",
+        "CLI usage: node src/tools/intent-routing-validator.ts --profile pelangi --output routing-report.json --check-cycles",
+        "Test command: uv run vitest tests/tools/intent-routing-validator.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-482",
+      "title": "Knowledge Base Content Staleness Detector with Freshness Alerts",
+      "priority": "medium",
+      "description": "Monitors knowledge base file modification dates and alerts when content is stale (not updated within configured threshold)",
+      "acceptanceCriteria": [
+        "Queries src/assistant/data/knowledge.json and .rainbow-kb* KB markdown files: tracks last modified timestamp from file system or DB metadata",
+        "Alerts when file not modified in > 60 days with severity based on file: critical files (booking flows) trigger HIGH, reference docs trigger LOW",
+        "Daily job outputs: kb-staleness-report-YYYYMMDD.json with: file_path, last_updated_days_ago, suggested_reviewer_team"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/kb-staleness-checker.ts (new daily checker tool)",
+        "File tracking: Scan .rainbow-kb/ and .rainbow-kb-southern/ directories; map to profiles using path convention",
+        "Scheduler integration: Add cron entry to PM2 ecosystem.config.cjs or call via src/routes/admin/jobs.ts",
+        "Test command: uv run vitest tests/tools/kb-staleness-checker.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
