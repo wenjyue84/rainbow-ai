@@ -527,3 +527,37 @@ All code was already committed from attempt 1. This attempt confirmed implementa
 - src/assistant/data/workflows.json: booking_verification workflow
 ### Lesson learned
 - SPIRAL diagnosis-block gate requires outputting diagnosis headers BEFORE any file modifications
+## Iteration 4 - Sat, Apr 11, 2026  9:37:22 AM
+Completed: Booking Verification Code Generator and SMS Notifier Step (ID: US-436) in 5m
+
+
+## Pre-analysis for US-437 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the conversation replay debugger:
+
+**Objective:**
+Create a standalone CLI tool in TypeScript to replay conversations from the database. The tool will re-run intent classification for each message to generate a detailed debugging report, helping analyze classification logic and identify failures.
+
+**Files to Modify/Create:**
+1.  **Create:** `src/tools/conversation-replay.ts`
+    *   This new file will contain the core logic for the CLI tool.
+    *   **`replayConversation(conversationId, profile)`:** Main function to fetch, iterate, and process the conversation.
+    *   **`generateDebugReport(...)`:** Function to format and output the final analysis for each message step.
+
+2.  **Modify:** `src/assistant/intent-classifier.ts`
+    *   The main classification function within this file needs to be updated.
+    *   Add a `debug_mode: boolean` parameter that, when true, makes the function return a detailed object with confidence scores, decision paths, and extracted entities instead of just the final intent string.
+
+**Implementation Approach:**
+1.  Use a CLI library (like `commander.js` or `yargs`) in `conversation-replay.ts` to accept `conversation_id` and `profile` as command-line arguments.
+2.  Connect to the database and execute the query: `SELECT * FROM rainbow_conversations WHERE id = ? AND profile = ? ORDER BY created_at ASC`.
+3.  Iterate through the sorted messages. For each message, call the intent classifier with the message content and the history of prior messages as context.
+4.  Enable the new `debug_mode` for the classifier to get the detailed analysis at each step.
+5.  Log the detailed output for each message to the console.
+6.  After processing all messages, generate and print a summary that highlights messages where confidence was below a set threshold or where the classified intent changed significantly.
+
+**Edge Cases & Gotchas:**
+*   **Context Accumulation:** Ensure the conversation history passed to the classifier is correctly accumulated at each step of the replay.
+*   **Performance:** The `debug_mode` logic should be behind a conditional flag to avoid impacting production classification performance.
+*   **Database Errors:** The CLI tool should handle cases where a `conversation_id` is not found or the database connection fails.
+*   **Async Operations:** The entire flow is asynchronous; manage promises carefully to ensure messages are processed in strict chronological order.
+
