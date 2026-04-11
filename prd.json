@@ -956,22 +956,9 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
-      "model": "haiku",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\nLet me read the required files first.\nNow I have enough context. Let me check one more existing CLI tool pattern:\nNow I have all the information needed. Let me provide the diagnosis block and then implement.\n\n---\n\n## Current State\n\nThe project has an existing `debug-conversation.ts` + `debug-conversation-cli.ts` (US-393) that loads messages by phone/message-id and replays classification. The `rainbow_conversations` table uses phone as primary key (no UUID id column). The `rainbow_messages` table has full message data with `intent`, `confidence`, `routedAction`, `workflowId`, `profileId`. The `classifyIntent` function in `ai-classification.ts` returns `AIClassifyResult` with `category`, `confidence`, `entities`, `fallback_used`.\n\n## Problem Identified\n\nUS-437 requires a new `src/tools/conversation-replay.ts` CLI that:\n1. Loads messages by `conversation_id` (= phone number, the PK of `rainbow_conversations`) + profile\n2. Replays each message chronologically, re-running classification with accumulated context\n3. Detects confidence drops below threshold and unexpected intent changes\n4. Generates a summary report with per-message debug details\n\n## Planned Changes\n\n- **Create** `src/tools/conversation-replay.ts` — Combined module + CLI tool with:\n  - `replayConversation(conversationId, profile, confidenceThreshold)` — main replay function\n  - `generateDebugReport(results)` — structures the per-message analysis report\n  - `formatClassificationLog(step)` — formats individual step for console output\n  - `parseStoredDebugInfo(msg)` — extracts stored debug info from message row\n  - `formatHumanReport(report)` — formats summary to console\n  - CLI args: `--phone`, `--profile`, `--confidence-threshold`, `--json`\n- **No other files modified** — `ai-classification.ts` already returns confidence/entities; no debug_mode needed since `classifyIntent` provides all required data\nGood - no `conversation-replay.ts` yet. Now let me implement it:\nNow run the build to verify:\nBuild passes (warning is pre-existing, not related to our changes). Now run the server startup test:\nServer starts correctly. Now update `prd.json`:\nNow document learnings and commit:\nUS-437 is complete. Summary:\n\n- **Created** `src/tools/conversation-replay.ts` — standalone CLI + module\n- **Exports**: `replayConversation`, `generateDebugReport`, `formatClassificationLog`, `parseStoredDebugInfo`, `formatHumanReport`\n- **CLI**: `--phone`, `--profile`, `--confidence-threshold`, `--json`\n- **Build**: passes (esbuild 101ms, 2.5MB)\n- **Server startup**: passes\n- **prd.json**: `passes=true` for US-437\n- **Committed**: to `spiral-worker-1-1773549790`"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 701,
-        "tokensAfterMasking": 698,
-        "reductionPct": 0,
-        "contextWindow": 10
-      },
-      "_antiPatterns": [
-        "quality_gate_failed"
-      ],
-      "last_attempted": "2026-04-11T01:43:24Z"
+      "model": "haiku"
     },
     {
       "id": "US-440",
@@ -990,7 +977,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1012,7 +999,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1034,7 +1021,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1056,7 +1043,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1405,205 +1392,6 @@
         "Test command: uv run pytest tests/unit/test_feature_importance.py::test_tf_idf_ranking -v",
         "Input: SELECT * FROM rainbow_conversations WHERE profile IN (...) AND is_correct_classification=true AND created_at >= NOW()-'7 days'::interval",
         "Output: features-{profile}-{intent}-{timestamp}.md in ./reports/ directory"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-470",
-      "title": "Intent Routing Cycle Detector with Circular Dependency Checker",
-      "priority": "high",
-      "description": "Add validation CLI to detect and prevent circular intent routing patterns in routing.json that could cause infinite message loops in conversation pipeline",
-      "acceptanceCriteria": [
-        "CLI command 'npm run check:routing-cycles' validates routing.json and detects cycles like 'booking -> escalation -> booking'",
-        "Reports all cycle paths with step-by-step navigation through routing config",
-        "Build fails with exit code 1 if cycles detected, passes with exit code 0 for valid DAG"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/routing-validator.ts (topological sort algorithm on intent routing graph)",
-        "File to create: scripts/validate-routing.ts (CLI entry point with fs.readFileSync for routing.json)",
-        "Test command: uv run npm run test -- tests/tools/routing-validator.test.ts",
-        "Test with fixtures: routing-cycles.json (with known cycles) and routing-valid.json (acyclic graph)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-471",
-      "title": "Booking Guest Info Parser with Structured Entity Extraction",
-      "priority": "high",
-      "description": "Parse and validate guest information (name, phone, dates, unit preferences) from booking intent messages with structured entity extraction and detailed validation errors",
-      "acceptanceCriteria": [
-        "Extract name, phone, dates, unit count from message using regex + date-fns, return GuestInfo object with validated fields",
-        "Return specific Zod validation errors for missing/invalid fields with format hints (e.g. 'Expected date as DD/MM/YYYY')",
-        "Test with 10+ real booking message variations (different date formats, missing fields, typos, multiple units)"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/parsers/booking-parser.ts (parseGuestFromMessage function using regex + date-fns)",
-        "File to modify: src/assistant/schemas.ts (add GuestInfoSchema with name/phone/dates/units validation rules)",
-        "Test command: uv run npm run test -- tests/parsers/booking-parser.test.ts",
-        "Test data: tests/fixtures/booking-messages.json with varied formats (DD/MM/YYYY, dates in words, missing info, typos)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-472",
-      "title": "Conversation Message Semantic Deduplication Filter",
-      "priority": "medium",
-      "description": "Remove redundant messages from conversation history before context loading by detecting semantic duplicates and keeping only first and last occurrences to optimize token usage",
-      "acceptanceCriteria": [
-        "Detect messages with >0.85 cosine similarity (using sentence embeddings or simple text similarity)",
-        "Keep first and last occurrence of semantically identical messages, remove middle duplicates",
-        "Measure and log context size reduction (target 10-30% on real multi-turn conversations)"
-      ],
-      "technicalNotes": [
-        "File to create: src/lib/semantic-dedup.ts (deduplicateConversationHistory function with similarity threshold)",
-        "File to modify: src/assistant/pipeline/context-loader.ts (integrate dedup before context window assembly)",
-        "Test command: uv run npm run test -- tests/lib/semantic-dedup.test.ts",
-        "Test fixture: tests/fixtures/conversation-duplicates.json (real conversation with repeated messages)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-473",
-      "title": "Profile Knowledge Base Content Validation and Freshness Checker",
-      "priority": "medium",
-      "description": "Validate knowledge base markdown files against schema and flag stale/outdated information patterns to ensure data quality and reliability across profiles",
-      "acceptanceCriteria": [
-        "Check KB files (.rainbow-kb and .rainbow-kb-southern) against schema: required headers (intent, keywords, response), valid YAML frontmatter",
-        "Flag content with dates older than 90 days or references to deprecated processes/features",
-        "CLI command 'npm run check:kb-freshness' validates all .md files and generates report with issue counts per profile"
-      ],
-      "technicalNotes": [
-        "File to create: src/tools/kb-validator.ts (validateKBFile function with schema checking and stale content detection)",
-        "File to create: scripts/check-kb-freshness.ts (CLI entry point with recursive .md file scanning)",
-        "Test command: uv run npm run test -- tests/tools/kb-validator.test.ts",
-        "Test data: tests/fixtures/kb-valid.md, tests/fixtures/kb-stale.md, tests/fixtures/kb-invalid.md (missing headers)"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-474",
-      "title": "Add debug endpoint explaining intent classification confidence scores",
-      "priority": "high",
-      "description": "Create GET /debug/intent-confidence endpoint that reveals why a message was classified to an intent, showing matched keywords, fired classification rules, and step-by-step confidence score calculation.",
-      "acceptanceCriteria": [
-        "Endpoint accepts {message, profile} and returns {intent, confidence, matched_keywords, fired_rules, score_breakdown} JSON response",
-        "Works for all three profiles (pelangi, makan, southern) with profile-specific keyword explanations",
-        "Test cases in tests/api/debug_endpoints.test.ts validate output for booking, inquiry, and help intents across profiles"
-      ],
-      "technicalNotes": [
-        "File to create: src/routes/debug.ts with GET /debug/intent-confidence handler",
-        "File to create: src/assistant/classifiers/confidence_explainer.ts with explainIntentConfidence(message, profile) function",
-        "File to modify: src/index.ts to register /debug routes",
-        "File to create: tests/api/debug_endpoints.test.ts with 6+ test cases",
-        "Test command: npm run test tests/api/debug_endpoints.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-475",
-      "title": "Auto-resolve booking cancellations by matching guest and freeing units",
-      "priority": "high",
-      "description": "When cancellation intent detected, automatically find booking by guest phone/name, validate guest identity, mark as cancelled, free reserved units, and send confirmation message all in sequence.",
-      "acceptanceCriteria": [
-        "workflows.json contains cancellation_resolution workflow with steps: find_booking -> validate_guest -> cancel_booking -> free_units -> send_confirmation_message",
-        "Function cancelBookingAndFreeUnits(guestPhone, guestName, profile) in src/assistant/pipeline/cancellation_handler.ts returns {success, bookingId, error}",
-        "Integration test in tests/integration/cancellation_flow.test.ts covers: successful cancel, booking not found, guest mismatch, already cancelled, and free units verification"
-      ],
-      "technicalNotes": [
-        "File to modify: src/assistant/data/workflows.json - add cancellation_resolution workflow with 5 step definition",
-        "File to create: src/assistant/pipeline/cancellation_handler.ts with cancelBookingAndFreeUnits() and findBookingByGuest() helpers",
-        "File to create: tests/integration/cancellation_flow.test.ts with 5+ test scenarios",
-        "Test command: npm run test tests/integration/cancellation_flow.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "medium",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-476",
-      "title": "Add payment method collection to booking workflow with validation",
-      "priority": "medium",
-      "description": "Extend booking workflow to include payment method collection step after guest confirmation. Validates and stores payment method choice (credit_card, bank_transfer, cash_on_arrival) in booking record.",
-      "acceptanceCriteria": [
-        "workflows.json contains payment_method step with branching logic for each payment type and transition to confirmation step",
-        "Function validatePaymentMethod(type: string): bool exists in src/assistant/pipeline/validators.ts covering all three payment types",
-        "Integration test suite in tests/integration/booking_payment.test.ts covers valid/invalid payments and workflow continuation"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/validators.ts with validatePaymentMethod() function",
-        "File to modify: src/assistant/data/workflows.json - add payment_method step after booking_confirmation with three transitions",
-        "File to create: tests/integration/booking_payment.test.ts with 8+ test cases",
-        "Test command: npm run test tests/integration/booking_payment.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "sonnet"
-    },
-    {
-      "id": "US-477",
-      "title": "Auto-detect and normalize guest phone numbers with country code",
-      "priority": "medium",
-      "description": "When extracting guest phone from booking intent, detect missing country code and auto-prepend +60 (Malaysia). Handle 7+ phone formats including variations with spaces, dashes, and parentheses.",
-      "acceptanceCriteria": [
-        "Function normalizePhoneNumber(raw: string): string in src/assistant/pipeline/guest_parser.ts handles formats: +60123456789, 0123456789, 60123456789, +60 123 456 789, 60 123 456 789, 0123-456-789, +6(0)123456789",
-        "Returns standardized +60XXXXXXXXX format for Malaysian numbers, preserves international +XX formats unchanged",
-        "Test suite in tests/unit/guest_parser.test.ts covers 20+ phone formats with correct assertions for valid and invalid inputs"
-      ],
-      "technicalNotes": [
-        "File to modify: src/assistant/pipeline/guest_parser.ts - add normalizePhoneNumber() with regex patterns",
-        "File to create: tests/unit/guest_parser.test.ts with parameterized phone format tests",
-        "Integrate by calling normalizePhoneNumber on extracted phone field in extractGuestInfo()",
-        "Test command: uv run pytest tests/unit/guest_parser.test.ts::test_phone_normalization -v"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-478",
-      "title": "Track conversation sentiment trend and auto-escalate if declining",
-      "priority": "medium",
-      "description": "Analyze sentiment (positive/neutral/negative) for each user message and track trend across conversation. Auto-suggest escalation to human if 2+ negative messages appear in rolling window of last 5 messages.",
-      "acceptanceCriteria": [
-        "SentimentAnalyzer class in src/assistant/pipeline/sentiment_analyzer.ts with classify(text): {sentiment, confidence} using lexicon-based approach",
-        "After each message, conversation.metadata.sentiment_trend array updates with rolling 10-message window including sentiment scores and timestamp",
-        "Test suite in tests/unit/sentiment_trend.test.ts demonstrates all-positive, declining-trend-trigger, and mixed-sentiment scenarios with correct escalation flags"
-      ],
-      "technicalNotes": [
-        "File to create: src/assistant/pipeline/sentiment_analyzer.ts with SentimentAnalyzer class and classify() method",
-        "File to modify: src/assistant/pipeline/message_processor.ts - call sentiment analyzer post-intent classification and update conversation.metadata",
-        "File to create: tests/unit/sentiment_trend.test.ts with 6+ test cases validating sentiment classification and trend detection",
-        "Test command: uv run pytest tests/unit/sentiment_trend.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
