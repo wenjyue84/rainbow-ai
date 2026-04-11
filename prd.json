@@ -999,7 +999,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1479,6 +1479,116 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-474",
+      "title": "Booking Workflow Step Execution Performance Baseline Tracker",
+      "priority": "medium",
+      "description": "Add performance tracking to each booking workflow step with baseline metrics and regression alerting. Records step execution time in database and alerts when execution time exceeds baseline + 20%.",
+      "acceptanceCriteria": [
+        "Each workflow step records execution time and step name in new workflow_step_metrics table (Drizzle migration)",
+        "GET /admin/workflows/:id/performance returns baseline times, current times, and deviation percentage for each step",
+        "Booking workflow execution time regression >= 20% above baseline triggers alert log entry in application logs"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/workflow-metrics.ts (recordStepMetric function with timestamp and duration)",
+        "File to modify: shared/schema-tables.ts (add workflow_step_metrics table with fields: id, workflowId, stepName, executionTimeMs, profileId, createdAt)",
+        "File to create: src/routes/admin/workflow-metrics.ts (GET /admin/workflows/:id/performance endpoint returning trend data)",
+        "Test command: uv run npm run test tests/workflow-metrics.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-475",
+      "title": "Profile Configuration Hot-Reload Admin Endpoint",
+      "priority": "medium",
+      "description": "Add POST /admin/profiles/:profileId/reload endpoint to reload profile configuration (intent keywords, routing rules, fallback responses) from JSON files without server restart. Validates config integrity before applying.",
+      "acceptanceCriteria": [
+        "POST /admin/profiles/:profileId/reload returns 200 with validation results and timestamp; invalid JSON config files return 400 with specific field errors",
+        "In-flight messages continue processing during reload without interruption; conversation queue is preserved",
+        "Reload fails if config is missing required fields (intents array, routing.json, fallback responses) with detailed error reporting"
+      ],
+      "technicalNotes": [
+        "File to modify: src/routes/admin/profile-config.ts (add reload endpoint that validates before applying)",
+        "File to create: src/lib/config-reloader.ts (reloadProfileConfig function that validates against Zod schema, checks message queue status)",
+        "File to modify: src/assistant/schemas.ts (ensure ConfigSchema has validation for all required fields in routing.json and settings.json)",
+        "Test command: uv run npm run test tests/profile-reload.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-476",
+      "title": "Booking Confirmation Delivery Status Tracker with Retry Logic",
+      "priority": "medium",
+      "description": "Add delivery status tracking for booking confirmations sent via WhatsApp/SMS. Track success/failure per booking and implement exponential backoff retry for failed deliveries. Alert when profile delivery failure rate exceeds 10%.",
+      "acceptanceCriteria": [
+        "New booking_delivery_status table tracks each confirmation with status (pending/delivered/failed), attemptCount, lastError, and lastAttemptAt timestamp",
+        "Failed deliveries automatically retry after 5m, 15m, 1h intervals; stops retrying after 3 failed attempts",
+        "Alert triggered when delivery failure rate for a profile exceeds 10% in sliding 1-hour window (logged to application logs)"
+      ],
+      "technicalNotes": [
+        "File to modify: shared/schema-tables.ts (add booking_delivery_status table with fields: bookingId, profileId, status, attemptCount, lastError, createdAt, lastAttemptAt)",
+        "File to create: src/lib/delivery-retry-manager.ts (getFailedDeliveries, scheduleRetry, calculateBackoffMs functions)",
+        "File to create: src/routes/admin/delivery-status.ts (GET /admin/delivery-status/:profileId endpoint returning failure rate and recent failures)",
+        "Test command: uv run npm run test tests/delivery-retry-manager.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-477",
+      "title": "Profile Knowledge Base Search Quality Analyzer",
+      "priority": "medium",
+      "description": "Build CLI tool to measure knowledge base retrieval quality for each profile. Evaluates precision/recall of semantic search against KB and identifies low-relevance entries and gap areas.",
+      "acceptanceCriteria": [
+        "CLI command npm run analyze:kb-quality --profile pelangi outputs JSON report with KB-query precision/recall metrics and identifies entries with semantic similarity < 0.7",
+        "Report includes top 5 unmatched query patterns (queries scoring < 0.5 similarity to any KB entry) as gap indicators",
+        "Test suite validates metric calculations against 50+ sample queries per profile with expected precision >= 0.8"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/kb-quality-analyzer.ts (main CLI with computeKBQuality, loadKBEntries, calculateSimilarity functions)",
+        "File to create: tests/kb-quality-analyzer.test.ts (test samples from .rainbow-kb/ and .rainbow-kb-southern/, metric assertions)",
+        "Uses existing semantic similarity from assistant pipeline; validates against knowledge.json structure",
+        "Test command: uv run npm run test tests/kb-quality-analyzer.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-478",
+      "title": "Booking Workflow State History Audit Log with Compliance Events",
+      "priority": "medium",
+      "description": "Add comprehensive audit logging to booking workflow state transitions. Logs all state changes, AI decisions, and user actions for compliance and debugging. Enable audit queries by booking ID.",
+      "acceptanceCriteria": [
+        "New booking_workflow_audit table logs: beforeState, afterState, reason, actor (system/user), bookingId, profileId, timestamp with indexed queries on bookingId",
+        "GET /admin/bookings/:id/audit returns chronological event log including state transition reason and decision metadata",
+        "High-risk transitions (cancellation, price modification) include business logic reason in audit entry (e.g., 'user_requested' vs 'timeout_expired')"
+      ],
+      "technicalNotes": [
+        "File to modify: shared/schema-tables.ts (add booking_workflow_audit table with fields: id, bookingId, profileId, beforeState, afterState, reason, actor, createdAt, metadata jsonb)",
+        "File to create: src/lib/booking-audit-logger.ts (logStateTransition, logDecision functions with optional metadata parameter)",
+        "File to modify: src/routes/admin/bookings.ts (add GET /admin/bookings/:id/audit endpoint returning sorted event log)",
+        "Test command: uv run npm run test tests/booking-audit-logger.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
