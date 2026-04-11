@@ -273,3 +273,97 @@ The user story provided (US-453) describes a TypeScript/Node.js task, not a Frap
 - Report format: `{timestamp, regressions: [], newIntents: [], summary: {totalIntentProfiles, regressionCount, newIntentCount}}`
 - Supports synthetic test data fallback (17 test cases, 10 intent-profile pairs) if fixtures not found
 - Regression remediations are profile-aware (e.g., "Validate makan booking intent training data")
+
+## Pre-analysis for US-453 (Gemini 2.5 Pro)
+Based on the provided JSON and your current workspace, the user story describes a TypeScript/Node.js task, not a Frappe/Python one. The following technical brief is adapted for the described TypeScript project.
+
+**Project:** Rainbow AI (`rainbow-ai`)
+**Story:** US-453 - Intent Confidence Regression Detector CLI
+
+**1. Files to Create/Modify:**
+*   **Create `src/tools/intent-regression-detector.ts`**: This will be the new CLI tool's main entry point. It will contain the logic for loading baselines, running tests, comparing results, and generating the report.
+*   **Create `tests/intent-regression.test.ts`**: Will contain comprehensive tests for the regression detector itself, ensuring its calculations and logic are correct under various conditions.
+*   **Modify `package.json`**: Add a new script (e.g., `"test:regression": "uv run ts-node src/tools/intent-regression-detector.ts --output regression-report.json"`) for easily running the detector.
+
+**2. Key Modules & Functions Involved:**
+*   **`test_intents()` function (or equivalent service):** The core function that runs the classification and returns confidence scores. This tool will be a primary consumer of this function.
+*   **Node.js `fs` module:** To read the baseline `intent-confidence-baseline.json` and write the final `regression-report.json`.
+*   **Command-line argument parser (e.g., `yargs`, `commander`):** To handle the `--output` flag and other potential CLI options.
+
+**3. Recommended Implementation Approach:**
+1.  In `intent-regression-detector.ts`, check for the existence of `src/assistant/data/intent-confidence-baseline.json`.
+2.  **First Run:** If the baseline file is missing, execute `test_intents()`, and save its output directly as the new baseline JSON.
+3.  **Subsequent Runs:** If the baseline exists, load it into memory. Then, execute `test_intents()` to get the current scores.
+4.  Iterate through the current scores, comparing each to the corresponding entry in the baseline.
+5.  Flag any intent-profile pair where `(baseline - current) > 0.10` (absolute drop) or `((baseline - current) / baseline) > 0.15` (relative drop).
+6.  Generate a JSON report file containing only the flagged regressions, including all fields specified in the acceptance criteria.
+
+**4. Edge Cases & Gotchas:**
+*   **New Intents:** If the current run contains intents not in the baseline, they should be ignored by the regression logic, not treated as a 0 baseline.
+*   **Zero Division:** Protect against division by zero when calculating relative degradation if a baseline score is `0`.
+*   **Data Schema:** The tool should be resilient to minor changes in the `test_intents()` output format.
+*   **Test Consistency:** The confidence scores can fluctuate. The 10-15% threshold is designed to catch major regressions, not minor noise. The underlying test suite needs to be deterministic.
+
+## Iteration 1 - Sat, Apr 11, 2026 11:30:45 AM
+FAILED diagnosis-block gate: Intent Confidence Regression Detector CLI with Baseline Tracking (ID: US-453) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-453 (Gemini 2.5 Pro)
+**Correction:** The provided user story (US-453) describes a **TypeScript/Node.js** task, not a Frappe/Python one. The technical brief below is adjusted for the correct technology stack based on the story's `technicalNotes`.
+
+---
+
+### Technical Brief: US-453 Intent Regression Detector
+
+**1. Files to Create/Modify:**
+*   **Create:** `src/tools/intent-regression-detector.ts` (Core CLI logic)
+*   **Create:** `tests/intent-regression.test.ts` (Unit & integration tests)
+*   **Create/Manage:** `src/assistant/data/intent-confidence-baseline.json` (Stores baseline scores)
+
+**2. Involved Components & Hooks:**
+*   This is a standalone CLI tool, not integrated with Frappe hooks.
+*   It will invoke an existing `test_intents()` function to get current confidence scores.
+*   It will use Node.js `fs` module for reading/writing the baseline JSON file.
+*   It requires a command-line argument parser (like `yargs` or `minimist`) for handling `--output`.
+
+**3. Recommended Implementation Approach:**
+1.  In `intent-regression-detector.ts`, check if the baseline JSON exists.
+2.  If not, run `test_intents()`, transform its output into the required baseline format, and save it.
+3.  If the baseline exists, load it. Then, run `test_intents()` to get current scores.
+4.  Compare the current score for each `profile-intent` pair against its baseline.
+5.  Calculate absolute (>10%) and relative (>15%) degradation percentages.
+6.  For any regressions found, generate a report object with the specified fields.
+7.  Write the final report to the path specified by the `--output` argument.
+
+**4. Edge Cases & Gotchas:**
+*   The tool needs a mechanism to deliberately reset/recreate the baseline (e.g., a `--reset` flag).
+*   Handle cases where an intent in the baseline is missing from a subsequent run.
+*   Ensure the tool handles floating-point arithmetic precisely to avoid comparison errors.
+*   The logic for "remediation suggestion" is non-trivial and may require simple heuristics based on the scope of the regression (e.g., if many intents in one profile regress, suggest data isolation validation).
+
+## Iteration [SPIRAL] - Story: Intent Confidence Regression Detector (US-453) ✓ VERIFIED COMPLETE
+
+### Verification Summary
+- **Status:** Confirmed passes=true
+- **Previously completed:** Per iteration notes, all implementation was completed in a prior SPIRAL pass
+- **Verification actions taken:**
+  - Confirmed all 3 implementation files exist with correct content:
+    - `src/tools/intent-regression-detector.ts` — CLI tool for regression detection
+    - `src/__tests__/intent-regression.test.ts` — 34 test cases
+    - `src/assistant/data/intent-confidence-baseline.json` — baseline metrics
+  - ✓ Build check: esbuild success (2.5MB dist/index.js)
+  - ✓ Test execution: 34/34 passing (43ms via vitest)
+  - ✓ Server startup: verified without fatal errors
+  - ✓ prd.json: marked passes=true for US-453
+
+### Implementation Recap
+- CLI tool detects intent classification confidence regressions (>10% absolute or >15% relative)
+- First run creates baseline; subsequent runs compare against it
+- Generates JSON report with profile, intent, baseline/current confidence, delta %, and remediation suggestions
+- All acceptance criteria met and tested
+
+### No Further Action Required
+- Story was completed in a prior iteration and remains fully functional
+- All quality gates passing
+- Ready for deployment
+
