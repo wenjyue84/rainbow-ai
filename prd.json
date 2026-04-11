@@ -669,7 +669,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1383,6 +1383,90 @@
         "File to create: tests/context-pruning.test.ts verifying pruning rules and accuracy regression testing",
         "Modify: src/assistant/pipeline/index.ts to add pruning stage before context-aware intent classification pipeline step",
         "Test command: uv run vitest tests/context-pruning.test.ts && uv run ts-node scripts/measure-context-latency.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-455",
+      "title": "Booking Intent Date Parser for Flexible Date Formats",
+      "priority": "high",
+      "description": "Add a date parser module that normalizes various date formats (DD/MM/YYYY, DD/MM/YY, natural language like 'next week', 'in 3 days') to improve booking intent classification accuracy when users provide dates in different formats.",
+      "acceptanceCriteria": [
+        "Parser successfully extracts and normalizes dates in formats: DD/MM/YYYY, DD/MM/YY, DD/MM, and natural language phrases (next week, tomorrow, in X days, this weekend)",
+        "Extracted dates are stored in message metadata and available to intent classifier before confidence scoring",
+        "Unit tests achieve 95%+ coverage for date parser with edge cases (Feb 29, month boundaries, past dates)"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/utils/date-parser.ts (parseFlexibleDate function using regex + date-fns library)",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts (call dateParser before confidence scoring, attach to message.metadata.extractedDates)",
+        "Test command: uv run pytest tests/unit/date-parser.test.ts -v --cov=src/assistant/utils/date-parser"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-456",
+      "title": "Intent Classification Fuzzy Keyword Matcher for Typo Tolerance",
+      "priority": "high",
+      "description": "Implement Levenshtein distance-based fuzzy matching for intent keywords to tolerate common misspellings ('bokking' → 'booking', 'enquiry' → 'inquiry'), improving classification accuracy for user messages with typos.",
+      "acceptanceCriteria": [
+        "Fuzzy matcher identifies keywords with ≥85% similarity using Levenshtein distance algorithm",
+        "Matched keywords with similarity scores are logged to src/assistant/data/fuzzy-matches.jsonl for keyword improvement analysis",
+        "E2E test with 15 intentionally misspelled booking/inquiry messages achieves ≥90% correct intent classification"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/utils/fuzzy-matcher.ts (FuzzyMatcher class with match(keyword, candidates) method using string-similarity library)",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts (call fuzzyMatcher before exact keyword matching, log fuzzy matches)",
+        "Test command: uv run pytest tests/e2e/fuzzy-matching.test.ts -v --timeout=30s"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-457",
+      "title": "Profile-Specific Unit Availability Pre-Booking Validator",
+      "priority": "high",
+      "description": "Add pre-booking validation that checks unit availability against profile-specific data (Pelangi vs Southern Homestay units) before confirming a booking. Prevents booking unavailable units and enforces strict profile data isolation.",
+      "acceptanceCriteria": [
+        "Validator loads profile-specific units from src/assistant/data/profiles/{profile}/units.json and checks requested dates for overlaps",
+        "If dates overlap with existing bookings, returns error with 3 alternative date ranges from available units for that profile",
+        "Integration test asserts Pelangi unit 101 availability never shows Southern Homestay's booked dates (profile isolation validation)"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/workflow/pre-booking-validator.ts (PreBookingValidator class with validateAvailability method, reads profile-specific units.json)",
+        "File to modify: src/assistant/workflow/booking-executor.ts (call validator.validateAvailability before 'booking:confirm' step execution)",
+        "Test command: uv run pytest tests/integration/pre-booking-validator.test.ts -v --timeout=15s"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-458",
+      "title": "Conversation Context Window Overflow Manager for Long Conversations",
+      "priority": "medium",
+      "description": "Implement context window manager that monitors conversation token count and intelligently truncates old messages while preserving recent turns. Prevents token limit overflow that breaks intent classification in long multi-turn conversations.",
+      "acceptanceCriteria": [
+        "Manager monitors conversation context size before classification; if >80% of max context (4000 tokens), removes oldest message groups by intent/topic",
+        "Truncation strategy preserves last 5 conversation turns in full and summarizes earlier turns (first 50 chars + '...')",
+        "Unit test verifies input of 20-message conversation → output has 5 full turns + 15 summarized, total <4000 tokens"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/context-window-manager.ts (ContextWindowManager class with truncateIfNeeded method, uses js-tiktoken for token counting)",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts (call manager.truncateIfNeeded before passing context to model)",
+        "Test command: uv run pytest tests/unit/context-window-manager.test.ts -v --cov=src/assistant/pipeline/context-window-manager"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
