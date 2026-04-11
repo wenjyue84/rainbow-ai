@@ -161,3 +161,33 @@ export const hardCaseQueue = pgTable("hard_case_queue", {
 export type HardCaseQueue = typeof hardCaseQueue.$inferSelect;
 export type InsertHardCaseQueue = typeof hardCaseQueue.$inferInsert;
 
+// ─── US-467: Incident Classification Tracking ───────────────────────────
+// Tracks production error classifications and routing decisions
+export const incidentClassifications = pgTable("incident_classifications", {
+  id: serial("id").primaryKey(),
+  errorId: varchar("error_id", { length: 100 }).notNull().unique(),
+  errorMessage: text("error_message").notNull(),
+  errorCategory: text("error_category").notNull(),
+  categoryConfidence: real("category_confidence").notNull(),
+  affectedProfile: text("affected_profile").notNull().default('pelangi'),
+  handlerRoutedTo: varchar("handler_routed_to", { length: 100 }),
+  handlerResultStatus: text("handler_result_status"),
+  requestPath: text("request_path"),
+  requestMethod: varchar("request_method", { length: 10 }),
+  httpStatus: integer("http_status"),
+  classifiedAt: timestamp("classified_at").notNull().defaultNow(),
+  routedAt: timestamp("routed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_incident_error_id").on(table.errorId),
+  index("idx_incident_category").on(table.errorCategory),
+  index("idx_incident_profile").on(table.affectedProfile),
+  index("idx_incident_handler").on(table.handlerRoutedTo),
+  index("idx_incident_classified_at").on(table.classifiedAt),
+  index("idx_incident_category_profile").on(table.errorCategory, table.affectedProfile),
+  index("idx_incident_status").on(table.handlerResultStatus),
+]));
+
+export type IncidentClassification = typeof incidentClassifications.$inferSelect;
+export type InsertIncidentClassification = typeof incidentClassifications.$inferInsert;
+
