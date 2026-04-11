@@ -207,3 +207,22 @@ export const intentBaselines = pgTable("rainbow_intent_baselines", {
 export type IntentBaseline = typeof intentBaselines.$inferSelect;
 export type InsertIntentBaseline = typeof intentBaselines.$inferInsert;
 
+// ─── US-426: Intent Classification Latency Monitor with Percentile Tracking ──
+// Stores individual intent classification latency measurements for percentile analytics
+export const intentClassificationMetrics = pgTable("intent_classification_metrics", {
+  id: serial("id").primaryKey(),
+  intentId: text("intent_id").notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  profileId: text("profile_id").notNull().default('pelangi'),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_intent_classification_metrics_intent_id").on(table.intentId),
+  index("idx_intent_classification_metrics_profile_id").on(table.profileId),
+  index("idx_intent_classification_metrics_timestamp").on(table.timestamp),
+  index("idx_intent_classification_metrics_intent_profile").on(table.intentId, table.profileId),
+  index("idx_intent_classification_metrics_profile_timestamp").on(table.profileId, table.timestamp),
+]));
+
+export type IntentClassificationMetric = typeof intentClassificationMetrics.$inferSelect;
+export type InsertIntentClassificationMetric = typeof intentClassificationMetrics.$inferInsert;
+
