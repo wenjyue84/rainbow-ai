@@ -142,6 +142,7 @@ Completed: Fallback Response Semantic Relevance Scorer (ID: US-402) in 2m
 
 
 ## Pre-analysis for US-436 (Gemini 2.5 Pro)
+<<<<<<< Updated upstream
 Here is the technical brief for the Claude agent:
 
 **Subject: Technical Brief for US-436: Booking Verification Code Step**
@@ -620,3 +621,68 @@ Here is the technical brief for the *actual* user story provided:
 - `ai-classification.ts` (not `intent-classifier.ts`) is the actual classification file; no debug_mode needed since classifyIntent already returns full AIClassifyResult
 - SPIRAL diagnosis-block gate: must output diagnosis headers as plain text BEFORE any file edits
 - Build uses esbuild not tsc — pre-existing type warnings are fine
+=======
+**Subject: Technical Brief for US-436: Booking Verification Code**
+
+**Objective:** Implement a server-side workflow in the `lhdn_payroll_integration` app to generate, store, and send a 6-digit SMS verification code upon Booking confirmation.
+
+**1. DocTypes & Hooks:**
+*   **Target DocType:** `Booking` (or equivalent).
+*   **Hook:** Use the `on_submit` document event in `hooks.py`.
+*   **New DocType:** Create `Booking Verification Code` with fields:
+    *   `booking` (Link to Booking)
+    *   `code` (Data, no-copy)
+    *   `guest_phone` (Data, no-copy)
+    *   `expires_at` (Datetime)
+    *   `used_at` (Datetime, nullable)
+
+**2. Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: Add the `on_submit` hook for the Booking DocType.
+*   `lhdn_payroll_integration/api/verification.py` (New File): Create this file to house the core logic.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking_verification_code/`: Directory for the new DocType.
+
+**3. Implementation Approach:**
+1.  In `hooks.py`, point the `Booking` `on_submit` event to a new function (e.g., `send_booking_verification_code`).
+2.  Implement this function in `verification.py`. It should:
+    a. Generate a secure 6-digit random code.
+    b. Create and save a new `Booking Verification Code` document with a 15-minute expiry.
+    c. Use `frappe.send_sms` to send the code to the guest's phone number.
+    d. Wrap the `frappe.send_sms` call in a try/except block for robust error logging.
+
+**4. Gotchas:**
+*   Ensure `SMS Settings` are correctly configured in Frappe for the `frappe.send_sms` utility to function.
+*   The guest's phone number field on the `Booking` DocType must be correctly identified and passed.
+*   Consider a scheduled job to periodically clean up expired, unused verification codes.
+
+>>>>>>> Stashed changes
+## Iteration 5 - Sat, Apr 11, 2026  9:43:21 AM
+FAILED quality gates: Conversation Replay Debugger CLI for Intent Classification Analysis (ID: US-437) — attempt 2/3
+
+
+## Pre-analysis for US-437 (Gemini 2.5 Pro)
+Based on the user story JSON, here is the technical brief for implementing the Conversation Replay Debugger CLI:
+
+**Objective:** Create a standalone TypeScript CLI tool to replay conversations from the database, re-run intent classification for each message, and generate a detailed debug report to analyze classification accuracy.
+
+**Files to Modify:**
+*   **Create:** `src/tools/conversation-replay.ts`. This new file will contain the primary logic and the CLI command interface.
+*   **Investigate:** `src/assistant/intent-classifier.ts`. The story suggests adding a `debug_mode` parameter to get detailed reasoning. This may be necessary to expose the decision path and internal scores.
+
+**Key DocTypes / Data Models:**
+*   **Primary Table:** `rainbow_conversations`.
+*   **Note:** The story's `_phaseI` analysis clarifies the primary key is `phone`, not a UUID `id`. The query should use `phone` and `profile` to select the conversation.
+
+**Implementation Approach:**
+1.  Build a CLI interface in `conversation-replay.ts` that accepts `--phone`, `--profile`, and `--confidence-threshold` arguments.
+2.  Implement `replayConversation(phone, profile)` to fetch all messages for the conversation, ordered chronologically.
+3.  Iterate through the messages, accumulating conversation history at each step.
+4.  On each iteration, call the `classifyIntent` function with the current message and the accumulated context.
+5.  Store the result of each classification (intent, confidence, entities).
+6.  Implement `generateDebugReport` to format the step-by-step results and create a summary that highlights messages where confidence drops below the threshold or the intent changes unexpectedly.
+7.  Support both a human-readable console output and a structured `--json` output.
+
+**Gotchas to Watch For:**
+*   Ensure the conversation context is correctly accumulated and passed to the classifier at each step to accurately simulate the original flow.
+*   Handle cases where conversations are not found or are empty.
+*   Confirm the exact data returned by `classifyIntent` and modify it if more detailed debug information is required.
+

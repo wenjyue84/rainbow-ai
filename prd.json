@@ -956,9 +956,22 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\nLet me read the required files first.\nNow I have enough context. Let me check one more existing CLI tool pattern:\nNow I have all the information needed. Let me provide the diagnosis block and then implement.\n\n---\n\n## Current State\n\nThe project has an existing `debug-conversation.ts` + `debug-conversation-cli.ts` (US-393) that loads messages by phone/message-id and replays classification. The `rainbow_conversations` table uses phone as primary key (no UUID id column). The `rainbow_messages` table has full message data with `intent`, `confidence`, `routedAction`, `workflowId`, `profileId`. The `classifyIntent` function in `ai-classification.ts` returns `AIClassifyResult` with `category`, `confidence`, `entities`, `fallback_used`.\n\n## Problem Identified\n\nUS-437 requires a new `src/tools/conversation-replay.ts` CLI that:\n1. Loads messages by `conversation_id` (= phone number, the PK of `rainbow_conversations`) + profile\n2. Replays each message chronologically, re-running classification with accumulated context\n3. Detects confidence drops below threshold and unexpected intent changes\n4. Generates a summary report with per-message debug details\n\n## Planned Changes\n\n- **Create** `src/tools/conversation-replay.ts` — Combined module + CLI tool with:\n  - `replayConversation(conversationId, profile, confidenceThreshold)` — main replay function\n  - `generateDebugReport(results)` — structures the per-message analysis report\n  - `formatClassificationLog(step)` — formats individual step for console output\n  - `parseStoredDebugInfo(msg)` — extracts stored debug info from message row\n  - `formatHumanReport(report)` — formats summary to console\n  - CLI args: `--phone`, `--profile`, `--confidence-threshold`, `--json`\n- **No other files modified** — `ai-classification.ts` already returns confidence/entities; no debug_mode needed since `classifyIntent` provides all required data\nGood - no `conversation-replay.ts` yet. Now let me implement it:\nNow run the build to verify:\nBuild passes (warning is pre-existing, not related to our changes). Now run the server startup test:\nServer starts correctly. Now update `prd.json`:\nNow document learnings and commit:\nUS-437 is complete. Summary:\n\n- **Created** `src/tools/conversation-replay.ts` — standalone CLI + module\n- **Exports**: `replayConversation`, `generateDebugReport`, `formatClassificationLog`, `parseStoredDebugInfo`, `formatHumanReport`\n- **CLI**: `--phone`, `--profile`, `--confidence-threshold`, `--json`\n- **Build**: passes (esbuild 101ms, 2.5MB)\n- **Server startup**: passes\n- **prd.json**: `passes=true` for US-437\n- **Committed**: to `spiral-worker-1-1773549790`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 701,
+        "tokensAfterMasking": 698,
+        "reductionPct": 0,
+        "contextWindow": 10
+      },
+      "_antiPatterns": [
+        "quality_gate_failed"
+      ],
+      "last_attempted": "2026-04-11T01:43:24Z"
     },
     {
       "id": "US-440",
