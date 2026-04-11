@@ -603,7 +603,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1261,6 +1261,69 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-449",
+      "title": "Booking vs Inquiry Intent Disambiguation Training Set Builder",
+      "priority": "high",
+      "description": "CLI tool that extracts low-confidence booking/inquiry message pairs from conversation history and organizes them into a training set with semantic explanations to improve classifier accuracy on the hardest cases.",
+      "acceptanceCriteria": [
+        "npm run build:disambiguation-set --profiles pelangi-capsule reads rainbow_conversations where booking/inquiry intent confidence is between 0.4-0.7",
+        "Output file src/assistant/data/booking-inquiry-disambiguation.json contains at least 50 example message pairs with confidence scores and correct intent labels",
+        "Generated training set is validated to have zero cross-profile contamination (only uses messages from specified profile)"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/build-disambiguation-set.ts (analyzeIntentConfidence, buildTrainingSet functions)",
+        "Query from rainbow_conversations with WHERE intent IN ('booking', 'inquiry') AND confidence BETWEEN 0.4 AND 0.7 AND profile = ?",
+        "Test command: uv run npm run build:disambiguation-set -- --profiles pelangi-capsule --output /tmp/test.json && uv run npm run test tests/cli/build-disambiguation-set.test.ts -t 'generates valid training set'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-450",
+      "title": "Booking Workflow Critical Step Abandonment Detector",
+      "priority": "high",
+      "description": "Analyzes booking conversation trails to identify workflow steps where users most frequently abandon or cancel, helping prioritize workflow UX improvements and fallback strategies.",
+      "acceptanceCriteria": [
+        "Query conversations with intent=booking and (status=abandoned OR status=cancelled); extract last_executed_workflow_step from metadata before abandonment for each conversation",
+        "CLI npm run detect:booking-abandonment --profiles pelangi-capsule,southern-homestay outputs CSV with step_name, abandonment_count, abandonment_rate_percent, avg_context_window_at_step",
+        "Flags critical steps where >20% of users abandon (e.g., 'confirm_payment' step: 150 abandons / 600 attempts = 25% abandonment rate) for targeted improvement"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/detect-booking-abandonment.ts; query rainbow_conversations filtering by profile, extract metadata.workflow_steps array",
+        "File to edit: src/assistant/pipeline/booking-pipeline.ts to append executed step to metadata.workflow_steps on each step completion",
+        "Test command: uv run npm run detect:booking-abandonment -- --min-sample-size 50 && uv run npm run test tests/cli/detect-booking-abandonment.test.ts -t 'identifies high-abandonment steps'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-451",
+      "title": "Context Retrieval Performance Baseline Tracker",
+      "priority": "medium",
+      "description": "Database metrics table and CLI dashboard to track message context retrieval latency over time, detect performance regressions, and identify bottlenecks by profile and conversation size.",
+      "acceptanceCriteria": [
+        "New table context_retrieval_perf_metrics with fields: conversation_id, profile, retrieval_latency_ms, context_token_count, created_at; stores one metric per message processed",
+        "npm run metrics:context-baseline outputs 7-day rolling statistics: median/p95/p99 latency, avg context size, per-profile breakdowns, and flags latency deviations >15% from baseline",
+        "Latency measurement is placed in src/assistant/pipeline/message-processor.ts around the context loader call with console.time/console.timeEnd"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add drizzle table definition for context_retrieval_perf_metrics)",
+        "File to edit: src/assistant/pipeline/message-processor.ts (wrap context retrieval in timing measurement)",
+        "Test command: uv run npm run metrics:context-baseline -- --days 7 --profile makan-moments && uv run npm run test tests/cli/context-baseline-analyzer.test.ts -t 'detects performance regression'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
