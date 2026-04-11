@@ -533,3 +533,34 @@ FAILED diagnosis-block gate: Booking Intent Date Parser for Flexible Date Format
 Completed: Booking Intent Date Parser for Flexible Date Formats (ID: US-455) in 2m
 
 
+
+
+## Iteration [SPIRAL] - Story: Validate Fallback Responses Against Business Rules (Compliance Scoring) (US-461) ✓ COMPLETE
+
+### What was implemented
+- Created `src/assistant/data/business-rules.json`:
+  - Per-profile rules for `pelangi` and `southern`
+  - 4 rules each: `contact_info_required` (critical), `no_unauthorized_discounts` (critical), `appropriate_tone` (warning), `no_competitor_mention` (critical)
+  - Shared check definitions with `patterns` (must-contain) and `forbidden_patterns` (must-not-contain) logic
+  - Each check includes `suggested_fix` text
+
+- Created `src/tools/fallback-compliance-checker.ts`:
+  - `loadBusinessRules(path?)` — reads business-rules.json
+  - `checkCompliance(profile, entries, config, severity?)` — runs all applicable rules per intent/language
+  - `loadKnowledge(profile)` — loads knowledge.json (profile-specific or shared fallback)
+  - Full types: `BusinessRulesConfig`, `KnowledgeEntry`, `Violation`, `ComplianceReport`
+
+- Created `src/tools/fallback-compliance-checker-cli.ts`:
+  - `--profile=<name>` and `--severity=critical|warning` flags
+  - exits 1 if critical violations found (CI integration)
+
+### Patterns discovered
+- Test file already existed at `src/tools/__tests__/fallback-compliance-checker.test.ts` — read it first to drive implementation
+- `severity` filter param controls which violations appear in report; `passed` = `critical_violations === 0` within filtered set
+- "must contain" checks use `patterns`; "must not contain" checks use `forbidden_patterns`
+- `applies_to: ['all']` applies rule to every intent
+
+### Quality checks
+- ✓ Tests: 20/20 passing (vitest)
+- ✓ Build: esbuild success (pre-existing warning only)
+- ✓ prd.json: marked passes=true for US-461
