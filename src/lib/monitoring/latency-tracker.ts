@@ -6,7 +6,7 @@
  */
 
 import { db } from '../db.js';
-import { intentClassificationMetrics } from '../../shared/schema-tables';
+import { intentClassificationMetrics } from '../../../shared/schema-tables.js';
 import { createModuleLogger } from '../logger.js';
 
 const logger = createModuleLogger('LatencyTracker');
