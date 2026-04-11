@@ -157,13 +157,15 @@ export function parseClassifyResult(parsed: any): AIClassifyResult {
 
 export async function classifyIntent(
   text: string,
-  history: ChatMessage[] = []
+  history: ChatMessage[] = [],
+  debug_mode: boolean = false
 ): Promise<AIClassifyResult> {
   if (!isAIAvailable()) {
     return { category: 'unknown', confidence: 0, entities: {}, fallback_used: true };
   }
 
   const systemPrompt = await getSystemPrompt();
+  const decisionPath: string[] = [];
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
     { role: 'system', content: systemPrompt }
@@ -188,7 +190,20 @@ export async function classifyIntent(
     const result = parseClassifyResult(data);
     // US-245: Record confidence and set fallback_used when below threshold
     const fallback_used = result.confidence < FALLBACK_CONFIDENCE_THRESHOLD;
-    return { ...result, usage, fallback_used };
+    decisionPath.push('llm');
+    const base = { ...result, usage, fallback_used };
+    if (debug_mode) {
+      return {
+        ...base,
+        debugInfo: {
+          systemPrompt,
+          decisionPath,
+          providerName: provider?.name || provider?.model,
+          rawResponse: raw,
+        },
+      };
+    }
+    return base;
   }
 
   // All retries exhausted — try partial recovery from raw (US-1015 AC3: safe fallback)
@@ -198,7 +213,20 @@ export async function classifyIntent(
       const result = parseClassifyResult(parsed);
       // US-245: Record confidence and set fallback_used when below threshold
       const fallback_used = result.confidence < FALLBACK_CONFIDENCE_THRESHOLD;
-      return { ...result, usage, fallback_used };
+      decisionPath.push('llm', 'raw_parse');
+      const base = { ...result, usage, fallback_used };
+      if (debug_mode) {
+        return {
+          ...base,
+          debugInfo: {
+            systemPrompt,
+            decisionPath,
+            providerName: provider?.name || provider?.model,
+            rawResponse: raw,
+          },
+        };
+      }
+      return base;
     } catch {
       console.error('[AI] Failed to parse classify result:', raw);
     }

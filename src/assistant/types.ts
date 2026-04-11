@@ -245,6 +245,13 @@ export interface AIClassifyResult {
   };
   /** US-245: True when confidence < 0.6 threshold — indicates fallback was used */
   fallback_used?: boolean;
+  /** US-437: Debug info populated when debug_mode=true in classifyIntent() */
+  debugInfo?: {
+    systemPrompt: string;
+    decisionPath: string[];
+    providerName?: string;
+    rawResponse?: string;
+  };
 }
 
 export interface AIClientConfig {
