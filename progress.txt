@@ -719,3 +719,63 @@ This user story is written for a TypeScript application, but I will translate it
 ### Gotchas
 - Vitest include patterns: `tests/` root-level files NOT included — must use `tests/unit/` or `src/__tests__/`
 - SPIRAL diagnosis-block gate requires outputting ## Current State / ## Problem Identified / ## Planned Changes BEFORE any file modifications
+## Iteration 2 - Sat, Apr 11, 2026  2:20:11 PM
+Completed: Profile Data File Integrity Checker with Corruption Detection (ID: US-465) in 3m
+
+
+## Iteration [SPIRAL] - Story: Categorize Booking Confirmation Failures by Root Cause (US-466) ✓ COMPLETE
+
+### What was implemented
+- Created `src/tools/booking/failure-analyzer.ts` with:
+  - `categorizeError(errorMessage)` function that categorizes failures into CONFIG, DATA, EXTERNAL, UNKNOWN
+  - CONFIG: Invalid workflow steps, missing dependencies, schema validation errors
+  - DATA: Missing/corrupt guest/unit/booking records, validation failures
+  - EXTERNAL: API timeouts, 5xx errors, connection issues
+  - `analyzeFailures(logs)` function that processes booking execution logs and generates analysis report
+  - Report includes: failure categories, frequency counts, top 3 examples per category with timestamps/messages
+  - Priority ranking by frequency (most common failures first)
+  - `generateRemediation(category, stepName)` function with actionable suggestions per category
+  - `extractErrorMessage(output)` helper supporting multiple error field formats
+
+- Created comprehensive test file `tests/unit/booking-failure-analyzer.test.ts`:
+  - 43 passing tests covering all categorization logic
+  - Tests for CONFIG, DATA, EXTERNAL, UNKNOWN patterns
+  - Remediation suggestion generation tests
+  - Error message extraction from multiple output formats
+  - Full failure analysis report generation and validation
+  - Edge case handling (null/undefined, empty logs, mixed errors)
+  - All 3 acceptance criteria validated
+
+- Created test fixtures `tests/fixtures/booking-errors-24h-sample.jsonl`:
+  - 12 realistic booking failure samples
+  - Mix of CONFIG (2), DATA (3), EXTERNAL (2), UNKNOWN patterns
+  - Real-world error messages: schema validation, missing records, API timeouts, corruption
+
+### Patterns discovered
+- Error categorization uses pattern matching on error message strings (case-insensitive)
+- Top 3 examples kept per category (by recency, replacing older ones when needed)
+- Categories sorted by failure frequency (count) descending for priority ranking
+- Remediation summary groups failures by category and includes affected step names
+- Output schema: {failure_category, count, examples: [{timestamp, error_message, remediation}], priority_rank}
+- Report includes timestamp (ISO 8601) and total_failures count
+
+### Gotchas avoided
+- Used pattern matching on lowercase error messages for robustness
+- Handled multiple error field formats: error, errorMessage, error_message, message, reason, errorCode
+- Limited error message truncation to 100 chars in examples to prevent verbosity
+- Ensured timestamp ordering for "most recent examples" replacement logic
+- Test fixtures use JSONL format (one JSON object per line) for realistic audit log simulation
+
+### Quality checks
+- ✓ Build: esbuild compiled successfully (2.5MB dist/index.js)
+- ✓ Tests: 43/43 passing (649ms runtime)
+- ✓ Server startup: verified application starts with new module loaded
+- ✓ Module integration: follows existing code patterns in src/tools/
+- ✓ Type safety: full TypeScript types exported (FailureCategory, CategoryAnalysis, FailureAnalysisReport)
+- ✓ prd.json: marked passes=true for US-466
+
+### Acceptance criteria met
+1. ✓ Parse booking_step_failed logs from past 24h; categorize into CONFIG/DATA/EXTERNAL/UNKNOWN
+2. ✓ For each failure category, display top 3 recent examples with timestamps and error messages; rank by frequency
+3. ✓ Generate remediation summary with actionable steps per category
+
