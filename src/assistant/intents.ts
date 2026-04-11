@@ -1,6 +1,8 @@
 import type { IntentResult, ChatMessage } from './types.js';
 import { classifyIntent as llmClassify } from './ai-client.js';
 import { FuzzyIntentMatcher, type KeywordIntent } from './fuzzy-matcher.js';
+import { FuzzyKeywordMatcher } from './utils/fuzzy-matcher.js';
+import { logFuzzyMatch } from './utils/fuzzy-match-logger.js';
 import { languageRouter } from './language-router.js';
 import { getSemanticMatcher, type IntentExamples } from './semantic-matcher.js';
 import { getIntentConfig, buildIntentThresholdMap, checkTierThreshold } from './intent-config.js';
@@ -288,6 +290,35 @@ export async function classifyMessageWithContext(
         `(${(fuzzyResult.score * 100).toFixed(0)}%), trying semantic...`
       );
     }
+  }
+
+  // US-456: Levenshtein Distance Fuzzy Keyword Matcher for Typo Tolerance & Logging
+  // Enhanced fuzzy matching with Levenshtein distance for improved typo tolerance
+  // Logs all matches ≥85% similarity to fuzzy-matches.jsonl for keyword improvement analysis
+  try {
+    const levMatcher = new FuzzyKeywordMatcher();
+    const words = processedText.toLowerCase().split(/\s+/);
+
+    for (const word of words) {
+      // Collect all keywords from all intents for matching
+      const allKeywords: string[] = [];
+      for (const intent of intentKeywordsData.intents) {
+        for (const keywordList of Object.values(intent.keywords)) {
+          allKeywords.push(...(keywordList as string[]));
+        }
+      }
+
+      // Find matches with ≥85% similarity using Levenshtein distance
+      const match = levMatcher.match(word, allKeywords, 0.85);
+      if (match) {
+        // Log the fuzzy match for keyword improvement analysis
+        logFuzzyMatch(match);
+        console.log(`[Intent] 📊 US-456 Levenshtein match logged: "${match.original}" → "${match.matched}" (${(match.similarity * 100).toFixed(0)}%)`);
+      }
+    }
+  } catch (err) {
+    // Non-fatal: Levenshtein logging should not block classification
+    console.debug('[Intent] US-456 Levenshtein logging failed:', err instanceof Error ? err.message : err);
   }
 
   // US-155: If fuzzy had high confidence (>= 0.85), skip semantic tier entirely

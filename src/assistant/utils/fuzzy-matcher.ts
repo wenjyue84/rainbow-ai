@@ -94,13 +94,13 @@ export class FuzzyKeywordMatcher {
   ): FuzzyMatchResult | null {
     const normalized = keyword.toLowerCase().trim();
     let bestMatch: FuzzyMatchResult | null = null;
-    let highestSimilarity = threshold;
+    let highestSimilarity = -1; // Start below any possible value so threshold=0 edge case works
 
     for (const candidate of candidates) {
       const similarity = calculateSimilarity(normalized, candidate);
       const distance = levenshteinDistance(normalized, candidate);
 
-      if (similarity > highestSimilarity) {
+      if (similarity >= threshold && similarity > highestSimilarity) {
         highestSimilarity = similarity;
         bestMatch = {
           original: keyword,
