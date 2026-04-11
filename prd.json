@@ -1305,7 +1305,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1614,6 +1614,98 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-490",
+      "title": "Booking Workflow Input Sanitizer with Profile-Specific Rules",
+      "priority": "high",
+      "description": "Validate and sanitize booking form inputs before passing to workflow engine. Each profile (pelangi, southern, makan) has unique constraints: unit types, check-in/check-out windows, guest count limits, special amenities. Prevents invalid data from entering workflow steps.",
+      "acceptanceCriteria": [
+        "Create `src/lib/booking-input-sanitizer.ts` with ProfileSpecificRules interface defining constraints per profile (unit types, date ranges, guest count limits)",
+        "Add validation tests in `tests/booking-input-sanitizer.test.ts` with 15+ assertions covering all three profiles (makan: max 4 guests, southern: max 8 guests, pelangi: unit-specific constraints)",
+        "Wire sanitizer into `src/assistant/pipeline/workflow-executor.ts` at booking workflow entry point; log validation errors with violation details"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/booking-input-sanitizer.ts (createProfileSanitizer, validateBookingInput, sanitizeGuestInfo functions)",
+        "File to edit: src/assistant/data/booking-constraints.json (define per-profile validation rules with min/max values)",
+        "File to edit: src/assistant/pipeline/workflow-executor.ts (call sanitizer before booking workflow execution)",
+        "Test command: uv run pytest tests/booking-input-sanitizer.test.ts -v",
+        "Validation: Verify makan profile rejects guest count > 4, southern accepts up to 8, pelangi unit constraints enforced"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-491",
+      "title": "Intent Classification Confidence Variance Calculator",
+      "priority": "medium",
+      "description": "Calculate and track confidence score variance per intent across all messages. High variance indicates unreliable classification and suggests keyword refinement needed. Generates reports and flags intents for retraining.",
+      "acceptanceCriteria": [
+        "Create `src/lib/intent-confidence-variance.ts` that computes variance, standard deviation, and coefficient of variation per intent from database message history (min 50 samples)",
+        "Add analytics endpoint `/admin/analytics/intent-variance` returning JSON with variance stats, CV threshold alerts, and intent stability scores",
+        "Export CLI tool: `npm run analyze:intent-variance -- --output=variance.csv --min-samples=50` showing intents with high variance (>0.15) ranked by unreliability"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/intent-confidence-variance.ts (calculateVariance, calculateStdDev, flagUnstableIntents functions)",
+        "File to edit: src/routes/admin/analytics.ts (GET /admin/analytics/intent-variance endpoint with query params)",
+        "File to edit: scripts/analyze-intent-variance.sh (CLI entry point calling variance calculator)",
+        "Test command: uv run pytest tests/intent-confidence-variance.test.ts::test_variance_calculation -v",
+        "DB query: SELECT intent, COUNT(*), STDDEV(confidence), AVG(confidence) FROM rainbow_messages WHERE intent IS NOT NULL GROUP BY intent HAVING COUNT(*) >= 50"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-492",
+      "title": "Intent Keyword Occurrence Frequency Analyzer per Profile",
+      "priority": "medium",
+      "description": "Analyze keyword usage patterns across successful and failed classifications per profile. Identifies strongest keyword predictors per intent and detects cross-profile keyword contamination for remediation.",
+      "acceptanceCriteria": [
+        "Create `src/tools/analytics/keyword-frequency-analyzer.ts` that analyzes keyword success rates per intent per profile, computing precision/recall per keyword from message history",
+        "Add tests in `tests/keyword-frequency-analyzer.test.ts` ensuring pelangi, southern, makan profiles are analyzed separately with zero cross-profile keyword contamination",
+        "CLI tools: `npm run analyze:keywords --profile=southern --output=keywords.csv` generates frequency report; `npm run validate:keyword-isolation` detects cross-profile keyword reuse"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/analytics/keyword-frequency-analyzer.ts (analyzeKeywordFrequency, computeKeywordPrecision, detectCrossProfileContamination functions)",
+        "File to edit: src/assistant/pipeline/intent-classifier.ts (log matched keywords and intent result for analysis tracking)",
+        "File to edit: scripts/analyze-keywords.sh (CLI entry point for keyword analysis)",
+        "Test command: uv run pytest tests/keyword-frequency-analyzer.test.ts::test_profile_isolation -v",
+        "DB query: SELECT profile, intent, keyword, COUNT(*) as total, SUM(CASE WHEN classification_correct THEN 1 ELSE 0 END) as correct FROM keyword_matches GROUP BY profile, intent, keyword"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-493",
+      "title": "Conversation Context Token Counter with Budget Enforcement",
+      "priority": "medium",
+      "description": "Count approximate tokens used by conversation context to prevent overflow and optimize AI provider costs. Add budget enforcement per profile to prevent requests exceeding model token limits. Logs usage for analytics.",
+      "acceptanceCriteria": [
+        "Create `src/lib/token-counter.ts` with BPE-style approximate token counting; integrate into conversation context loader with per-message token tracking",
+        "Add enforcement in `src/assistant/pipeline/message-processor.ts` to log warning at 80% context budget, reject messages if would exceed 100% limit (configurable per profile)",
+        "Endpoint `/admin/settings/context-budget` allows per-profile token limit configuration; records token usage per message in `rainbow_messages` table"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/token-counter.ts (estimateTokens, countTokensInConversation functions using word-to-token approximation)",
+        "File to edit: src/assistant/pipeline/message-processor.ts (check token budget before AI API call, reject if exceeds limit)",
+        "File to edit: src/routes/admin/settings.ts (GET/POST /admin/settings/context-budget endpoints)",
+        "Test command: uv run pytest tests/token-counter.test.ts -v",
+        "Validation: Verify token estimates (1000 tokens ≈ 250 words), test per-model limits (Kimi K2.5: 128k, others: 4k/8k), verify budget enforcement blocks oversized contexts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
