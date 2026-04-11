@@ -865,3 +865,81 @@ The retry was triggered because Attempt 1 failed the SPIRAL diagnosis-block gate
 
 ### Key lesson
 When gate fails with DIAGNOSIS_BLOCK_MISSING, ALWAYS output the ## Current State / ## Problem Identified / ## Planned Changes block as plain text BEFORE any tool calls. The gate checks response text, not code.
+## Iteration 2 - Sun, Apr 12, 2026  1:29:17 AM
+Completed: Add Missing Profiles to Workflow Error Handler profileDirMap (ID: US-503) in 2m
+
+
+## Iteration [N] - Story: Make Liveness Probe Return 503 When Critical Services Are Down (US-505) - COMPLETE
+
+### What was implemented
+Enhanced liveness probe health check to return HTTP 503 status when critical services are down:
+
+1. **Modified: src/routes/health.ts** (lines 1-85)
+   - Added `isWhatsAppDisconnectedLong()` helper: Checks if WhatsApp disconnected >5 minutes
+   - Added `isDbPoolExhausted()` helper: Checks if DB pool has all connections waiting
+   - Updated `GET /health` endpoint to:
+     - Return 503 status + `{ status: 'unhealthy', failureReasons: {...} }` when either condition true
+     - Return 200 status + healthy response when all services are up
+     - Include WhatsApp connection state and webhook health in all responses
+
+2. **Created: tests/unit/health-liveness-probe.test.ts** (150 lines)
+   - 9 comprehensive tests covering all acceptance criteria
+   - Tests verify:
+     - 503 when DB pool exhausted (all connections waiting)
+     - 503 when WhatsApp disconnected >5 minutes
+     - 200 when healthy
+     - 200 when WhatsApp disconnected <5 minutes (recoverable)
+     - 200 when WhatsApp never connected (not yet critical)
+     - 503 when both failures occur simultaneously
+     - failureReasons only included in 503 responses
+   - All 9 tests passing (95ms total)
+
+### Acceptance criteria met
+✅ **AC1**: Returns 503 when DB pool exhausted
+   - `isDbPoolExhausted()` detects when total > 0 AND idle == 0 AND waiting > 0
+   - Test verifies pool exhaustion returns 503
+
+✅ **AC2**: Returns 503 when WhatsApp disconnected >5min
+   - `isWhatsAppDisconnectedLong()` compares current time to `lastDisconnectAt` timestamp
+   - Returns 503 when disconnected time > 300,000ms (5 minutes)
+   - Test verifies 6-minute disconnection returns 503
+   - Test verifies 3-minute disconnection returns 200 (still recoverable)
+
+✅ **AC3**: Returns 200 when healthy
+   - All checks passed = 200 status + `{ status: 'ok', ... }`
+   - Test verifies healthy response format
+
+✅ **AC4**: Test verifies 503 with mocked dead DB
+   - Test "should return 503 when DB pool is exhausted" mocks pool exhaustion
+   - Verifies HTTP status 503 and unhealthy response body
+
+### Key implementation details
+- **DB pool exhaustion check**: Uses `getPoolMetrics()` returning `{ total, idle, waiting }`
+- **WhatsApp disconnection tracking**: Uses `getWhatsAppStatus().lastDisconnectAt` ISO timestamp
+- **Backward compatibility**: `/health/ready` endpoint unchanged; only `/health` (liveness) returns 503
+- **Failure reason reporting**: `failureReasons` object included only when unhealthy (HTTP 503)
+- **No DB queries**: Checks use existing in-memory metrics; no new database load
+
+### Patterns discovered
+- **Liveness vs Readiness**: `/health` returns 503 for container orchestration (Kubernetes, etc.)
+- **Time-based thresholds**: 5-minute disconnection threshold allows transient network issues to recover
+- **Composite health checks**: Multiple independent checks (DB pool + WhatsApp) combined with OR logic
+- **Structured error reporting**: failureReasons dict enables client-side debugging and metrics
+
+### Quality checks
+- Tests: 9/9 passing (95ms runtime)
+- Build: esbuild completes successfully (2.5MB bundle, pre-existing warning)
+- Server startup: `npm run dev` starts successfully with all subsystems
+- Existing test suite: No regression (all previous tests still pass)
+
+### Files created/modified
+- Modified: src/routes/health.ts (added health check logic, +48 lines)
+- Created: tests/unit/health-liveness-probe.test.ts (150 lines, 9 tests)
+- Modified: prd.json (US-505 passes=true)
+
+### Why this matters
+Kubernetes, AWS ECS, and other orchestrators use HTTP status codes (not response body) to determine container health. Without proper 503 responses, dead containers remain in load balancers, causing cascading failures. This implementation enables graceful degradation:
+- Orchestrators detect service unavailability in real time
+- Failing containers are removed from rotation before they cause user-facing errors
+- Health checks use existing metrics (no additional DB pressure)
+

@@ -20,10 +20,69 @@ let _poolWaitingStreak = 0;
 
 const router = Router();
 
+/**
+ * US-505: Check if WhatsApp has been disconnected for >5 minutes.
+ * @returns true if disconnected >5 min, false if connected or disconnected <5 min
+ */
+function isWhatsAppDisconnectedLong(): boolean {
+  const waStatus = getWhatsAppStatus();
+
+  // If connected, not a problem
+  if (waStatus.state === 'open') {
+    return false;
+  }
+
+  // If never connected, check how long it's been since last disconnect
+  if (!waStatus.lastDisconnectAt) {
+    // Never had a connection established, not critical yet
+    return false;
+  }
+
+  const lastDisconnect = new Date(waStatus.lastDisconnectAt).getTime();
+  const now = Date.now();
+  const disconnectedMs = now - lastDisconnect;
+  const fiveMinutesMs = 5 * 60 * 1000;
+
+  return disconnectedMs > fiveMinutesMs;
+}
+
+/**
+ * US-505: Check if DB pool is exhausted (all connections waiting).
+ * @returns true if pool is exhausted, false otherwise
+ */
+function isDbPoolExhausted(): boolean {
+  const metrics = getPoolMetrics();
+  // Pool exhausted when: total > 0 AND idle = 0 AND waiting > 0
+  return metrics.total > 0 && metrics.idle === 0 && metrics.waiting > 0;
+}
+
 // Health check endpoint (liveness — is the process alive?)
+// US-505: Return 503 if critical services are down
 router.get('/health', (req, res) => {
   const webhookHealth = getWebhookHealthState();
-  res.json({
+
+  // Check critical service status
+  const dbPoolExhausted = isDbPoolExhausted();
+  const whatsappDisconnectedLong = isWhatsAppDisconnectedLong();
+
+  // Return 503 if critical services are down
+  if (dbPoolExhausted || whatsappDisconnectedLong) {
+    res.status(503).json({
+      status: 'unhealthy',
+      service: 'pelangi-mcp-server',
+      version: '1.0.0',
+      whatsapp: getWhatsAppStatus().state,
+      webhookSubscribed: webhookHealth.webhookSubscribed,
+      timestamp: new Date().toISOString(),
+      failureReasons: {
+        dbPoolExhausted,
+        whatsappDisconnectedLong
+      }
+    });
+    return;
+  }
+
+  res.status(200).json({
     status: 'ok',
     service: 'pelangi-mcp-server',
     version: '1.0.0',
