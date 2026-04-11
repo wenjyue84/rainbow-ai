@@ -1607,10 +1607,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-11T09:24:43Z",
+      "last_attempted": "2026-04-11T09:31:36Z",
       "_contextStats": {
         "tokensBeforeMasking": 557,
         "tokensAfterMasking": 556,
@@ -1680,10 +1680,11 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-11T09:23:11Z"
+      "last_attempted": "2026-04-11T09:23:11Z",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
       "id": "US-491",
@@ -1730,6 +1731,86 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-493",
+      "title": "Profile Data Content Audit Report Generator with Migration Checklist",
+      "priority": "high",
+      "description": "Create a tool to audit profile data files and generate detailed reports identifying content overlaps, duplicate keywords, and business-specific contamination between makan, southern, and pelangi profiles with migration instructions.",
+      "acceptanceCriteria": [
+        "CLI command 'uv run python src/tools/profile_audit.py --audit-all' generates audit report showing which profiles contain keywords belonging to other profiles, with file paths and line counts",
+        "Report identifies specific contamination: keywords from pelangi profile found in data-makan.json or data-southern.json (e.g., 'shared kitchen', 'dorm bed'), lists with occurrence counts",
+        "Tool generates profile_migration_checklist.md with step-by-step removal instructions and grep commands to verify each fix is applied correctly"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/profile_audit.py (audit_profile_contamination, generate_migration_checklist functions)",
+        "Files to audit: src/assistant/data/data-makan.json, src/assistant/data/data-southern.json, src/assistant/data/data-pelangi.json",
+        "Test command: uv run pytest tests/test_profile_audit.py::test_detect_pelangi_contamination -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-494",
+      "title": "Booking Workflow JSON Step Syntax Validator with Auto-Repair Suggestions",
+      "priority": "medium",
+      "description": "Create a CLI tool to validate the structure and syntax of booking workflow steps in workflows.json, detect invalid step definitions, and generate auto-repair suggestions with detailed diagnostics.",
+      "acceptanceCriteria": [
+        "CLI command 'uv run python src/tools/workflow_validator.py --validate' checks all steps in src/assistant/data/workflows.json and reports syntax errors with line numbers",
+        "Validator detects missing required fields (step_id, step_type, action), invalid step_type values, and malformed action parameters, providing specific repair suggestions",
+        "Tool generates repair-suggestions.json containing proposed fixes that can be applied with --auto-repair flag to update workflows.json directly"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/workflow_validator.py (validate_step_syntax, get_repair_suggestions functions)",
+        "File to update: src/assistant/data/workflows.json schema compliance",
+        "Test command: uv run pytest tests/test_workflow_validator.py::test_detect_invalid_steps -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-495",
+      "title": "Intent Keyword Language Variant Detector for Typo and Dialect Handling",
+      "priority": "medium",
+      "description": "Add support for detecting common typos, regional dialect variants, and phonetic spellings in user messages, normalizing them to canonical forms for more accurate intent classification.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/language_variants.json mapping variants (typos, dialects) to canonical keywords with confidence scores (e.g., 'pls' -> 'please' confidence 0.95)",
+        "Intent classifier preprocessor in message pipeline detects variants in user input, logs matched variants with scores, applies canonical form before classification",
+        "Test validates that 'Cna I book a room?' and 'Can I book rm?' both normalize correctly and match booking intent with 0.8+ confidence"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/language_variants.json (format: {variant: canonical, confidence: float})",
+        "File to update: src/assistant/pipeline/intent_classifier.py (add_variant_normalization function)",
+        "Test command: uv run pytest tests/test_language_variants.py::test_typo_normalization -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-496",
+      "title": "Fallback Response Context Injection with Booking State Variables",
+      "priority": "medium",
+      "description": "Enhance fallback response templates to support dynamic variable injection from booking context (guest name, check-in date, unit type), making fallback responses personalized and contextually relevant.",
+      "acceptanceCriteria": [
+        "Fallback templates in src/assistant/data/fallback_templates.json support {{variable}} syntax for context variables (e.g., 'Hi {{guest_name}}, we cannot process your booking for {{check_in_date}}')",
+        "Fallback manager function resolve_context_variables() injects booking state variables when selecting fallback response, handles missing variables gracefully with safe defaults",
+        "Test validates that template 'Hello {{guest_name}}, no availability for {{check_in_date}}' renders as 'Hello John, no availability for 2026-04-20' when given booking context"
+      ],
+      "technicalNotes": [
+        "File to update: src/assistant/data/fallback_templates.json (add {{variable}} placeholders)",
+        "File to update: src/assistant/fallback_manager.py (implement resolve_context_variables function)",
+        "Test command: uv run pytest tests/test_fallback_context.py::test_context_variable_injection -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
