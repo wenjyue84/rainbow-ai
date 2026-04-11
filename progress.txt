@@ -17,3 +17,63 @@ Implementation already existed from previous attempts (commit b545284):
 - Previous 2 attempts failed solely due to DIAGNOSIS_BLOCK_MISSING gate
 - Must output diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) BEFORE any file edits
 - All code was already complete and passing from attempt 1 (commit b545284)
+
+## Iteration 6 - Story: Profile Data Content Audit Report Generator with Migration Checklist (US-493) - COMPLETE
+
+### What was implemented
+Created a comprehensive profile audit tool that identifies data contamination across business profiles (makan, pelangi, southern) and generates actionable migration instructions:
+
+1. **Core Module: src/tools/profile-audit-generator.ts** (440 lines)
+   - `generateAuditReport()`: Scans routing.json and intent-keywords.json for contaminated entries
+   - `generateMigrationChecklist()`: Creates step-by-step removal instructions with grep commands
+   - Formatters for both Markdown and JSON output
+   - Configurable profile paths and contamination keyword mappings
+
+2. **CLI Wrapper: src/tools/profile-audit-generator-cli.ts** (95 lines)
+   - Command: `npm run audit:profile-generator`
+   - Accepts `--audit-all` flag per PRD requirement
+   - Generates 4 output files:
+     - `profile-audit-report.md`: Detailed contamination report with file paths and line numbers
+     - `profile_migration_checklist.md`: Step-by-step removal instructions + grep commands
+     - `audit/profile-audit-report.json`: Structured data for programmatic access
+     - `audit/profile-migration-checklist.json`: Structured checklist data
+
+3. **Test Suite: tests/unit/profile-audit-generator.test.ts** (190 lines)
+   - 11 tests covering all functionality
+   - Tests for audit generation, migration checklist generation, markdown formatting
+   - Integration tests verify actual contamination detection
+   - All tests passing (130ms runtime)
+
+### Key features delivered
+✅ Identifies 8 pelangi-specific intents contaminating southern profile (checkout_procedure, late_checkout, checkout_now, checkout_info, forgot_item_post_checkout, post_checkout_complaint, card_locked, capsule_conflict)
+✅ Reports show file paths, line numbers, and occurrence counts
+✅ Migration checklist includes:
+  - Step-by-step numbered instructions
+  - Grep commands to locate each issue
+  - Verification commands to confirm removal
+  - Profile and file context
+
+### Acceptance criteria met
+1. ✅ CLI command `npm run audit:profile-generator` generates audit report showing which profiles contain keywords from other profiles, with file paths and line counts
+2. ✅ Report identifies specific contamination (e.g., 'checkout_procedure' from pelangi in southern) with occurrence counts
+3. ✅ Tool generates profile_migration_checklist.md with step-by-step removal instructions and grep commands
+
+### Patterns discovered
+- Profile isolation violations stem from copy-pasted intent definitions between southern and pelangi routing
+- Using find-and-grep workflow enables quick verification of fixes
+- Markdown-based checklists are more maintainable than JSON-only outputs for manual processes
+
+### Quality checks
+- Tests: 11/11 passing
+- Build: esbuild successful (2.5MB, pre-existing warning only)
+- npm script added: `audit:profile-generator`
+- Generated reports validated: profile-audit-report.md (2.8K), profile_migration_checklist.md (9.5K)
+- prd.json: marked passes=true for US-493
+
+### Files changed
+- Created: src/tools/profile-audit-generator.ts
+- Created: src/tools/profile-audit-generator-cli.ts
+- Created: tests/unit/profile-audit-generator.test.ts
+- Modified: package.json (added npm script)
+- Modified: prd.json (marked US-493 passes=true)
+
