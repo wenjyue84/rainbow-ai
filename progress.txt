@@ -1562,3 +1562,41 @@ However, translating the *intent* of the story to a Frappe/Python context for th
 ### Quality check results
 - Tests: 29/29 passing (168ms) via npx vitest run
 - Build: esbuild success (2.5MB dist/index.js, 156ms)
+## Iteration 2 - Sat, Apr 11, 2026  4:28:05 PM
+Completed: Profile Data File JSON Schema Validator with Hot-Reload (ID: US-484) in 4m
+
+
+## Iteration [SPIRAL] - Story: Profile Isolation Validation Test Suite for Makan and Southern Profiles (US-485) ✓ COMPLETE
+
+### What was implemented
+- Created `src/tools/profile-isolation-validator.ts` with `validateProfileIsolation(profile)` function
+  - Validates intent-keywords.json for forbidden keywords via exact intent name matching
+  - Validates knowledge base .md files for forbidden keywords from other profiles
+  - Generates detailed contamination reports with severity scores (error/warning)
+  - Supports profiles: makan, southern, pelangi
+- Created `tests/unit/profile-isolation-makan.test.ts` — 19 tests validating Makan profile
+- Created `tests/unit/profile-isolation-southern.test.ts` — 19 tests validating Southern profile
+- Validator uses profile-keyword-blacklist.json as source of truth for forbidden keywords:
+  - data-makan: forbidden hostel_specific + homestay_specific intents
+  - data-southern: forbidden pelangi_capsule_specific intents
+  - data-pelangi: forbidden makan_specific intents
+
+### Test Results
+- 38/38 tests passing (makan + southern profiles)
+- Build: esbuild success (2.5MB dist/index.js, 154ms)
+- Server startup: successful (MCP_SERVER_PORT=3002)
+
+### Patterns discovered
+- Profile configuration uses exact intent names from blacklist (e.g., check_in_arrival) rather than keyword substrings
+- Keyword matching uses word-boundary regex (\b keyword \b) to avoid false positives
+- Contamination score calculated as: errors*20 + warnings*2, capped at 100
+- Knowledge base .md files are checked recursively in profile KB directories
+
+### Acceptance Criteria Met
+✓ Test that intent-keywords.json in data-makan contains zero hostel/room/guest-related keywords via regex pattern matching
+✓ Test that knowledge base .md files in .rainbow-kb directory contain zero makan-specific content (keywords: menu_inquiry, food_order, etc.)
+✓ Generate detailed contamination report showing violated files, problematic keywords, and severity score per violation
+
+## Iteration N - Sat, Apr 11, 2026  4:33:xx PM
+Completed: Profile Isolation Validation Test Suite for Makan and Southern Profiles (ID: US-485) in Xm
+
