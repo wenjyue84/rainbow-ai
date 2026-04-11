@@ -107,6 +107,7 @@ export interface WorkflowExecutionResult {
   conversationSummary?: string;
   workflowId?: string;  // For conversation log edit support
   stepId?: string;      // For conversation log edit support
+  escalation_reason?: string; // US-470: reason code when booking unit check fails
 }
 
 /**
@@ -365,6 +366,35 @@ export async function executeWorkflowStep(
       // Log validation errors but allow workflow to proceed (fail-open)
       console.error(
         `[WorkflowExecutor] US-228: Unexpected error during booking precondition validation:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // ─── US-470: Booking Unit Availability Check ────────────────────────
+  // Pre-flight validation that booking units exist and are available
+  if (currentStep.id && (state.workflowId.includes('book') || state.workflowId.includes('booking'))) {
+    try {
+      const availabilityResult = await checkBookingUnitAvailability(state, context.profileId);
+
+      if (!availabilityResult.available) {
+        console.warn(
+          `[WorkflowExecutor] US-470: Booking unit availability check failed for step "${currentStep.id}": ${availabilityResult.errors.join(', ')}`
+        );
+
+        return {
+          response: availabilityResult.errors.join('\n\n'),
+          newState: null,
+          shouldForward: true,
+          workflowId: state.workflowId,
+          stepId: currentStep.id,
+          escalation_reason: availabilityResult.escalation_reason || 'unit_unavailable'
+        };
+      }
+    } catch (err) {
+      // Fail-open: log error but allow workflow to proceed
+      console.error(
+        `[WorkflowExecutor] US-470: Unexpected error during booking unit availability check:`,
         err instanceof Error ? err.message : err
       );
     }
