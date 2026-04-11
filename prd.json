@@ -238,7 +238,7 @@
         "Test verifies no unhandled rejection on shutdown"
       ],
       "dependencies": [],
-      "passes": false,
+      "passes": true,
       "filesTouch": [
         "src/assistant/pipeline/response-processor.ts",
         "src/index.ts"
@@ -252,7 +252,7 @@
       "_phaseI": {
         "diagnosisBlock": "### Current State\n\nUS-507 is about guarding a `setTimeout` for feedback prompts against server shutdown. When the server shuts down via SIGTERM, the HTTP server closes before pending setTimeout callbacks fire, causing unhandled rejections.\n\nLet me read the relevant files to see the current state:\nLet me search for setTimeout or feedback in response-processor:\nPerfect! I found the setTimeout at lines 597-600. Now let me check the shutdown handler in src/index.ts:\n## Problem Identified\n\nThe setTimeout for feedback prompt (lines 597-600 in response-processor.ts) fires after the HTTP server closes during shutdown, causing unhandled rejections. Timer refs are not tracked or cleared on SIGTERM.\n\n## Planned Changes\n\n1. **response-processor.ts**: Create a module-level Set to track pending feedback timers and export a function to clear them\n2. **src/index.ts**: Import and call the timer-clearing function during graceful shutdown\n\nNow implementing:\nPerfect! All 5 tests pass. Now let me update prd.json to mark US-507 as passing:\n## ✅ US-507 Complete: Guard Feedback setTimeout Against Server Shutdown"
       },
-      "_passedCommit": "2b29f15f96d177b54266a4e94ee86d45936c70c9",
+      "_passedCommit": "f6723b61b5a61794d39824b2c81657e38cbc7055",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
     },
     {
