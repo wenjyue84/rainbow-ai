@@ -561,3 +561,62 @@ Create a standalone CLI tool in TypeScript to replay conversations from the data
 *   **Database Errors:** The CLI tool should handle cases where a `conversation_id` is not found or the database connection fails.
 *   **Async Operations:** The entire flow is asynchronous; manage promises carefully to ensure messages are processed in strict chronological order.
 
+## Iteration 5 - Sat, Apr 11, 2026  9:38:08 AM
+Completed: Booking Verification Code Generator and SMS Notifier Step (ID: US-436) in 3m
+
+
+## Pre-analysis for US-437 (Gemini 2.5 Pro)
+This user story is for a TypeScript project, not a Python/Frappe app. The file paths (`.ts`), database table (`rainbow_conversations`), and technical notes clearly point to the existing `rainbow-ai` Node.js codebase. The mention of `pytest` appears to be an error in the story's notes.
+
+Here is the technical brief for the *actual* user story provided:
+
+**Project:** Rainbow AI (TypeScript)
+**User Story:** US-437: Conversation Replay Debugger CLI
+
+**1. Files to Modify:**
+*   **Create:** `src/tools/conversation-replay.ts`
+*   **Modify:** `src/assistant/intent-classifier.ts`
+
+**2. Key Components:**
+*   **DocTypes/Hooks:** N/A (Not a Frappe project). This will interact directly with the `rainbow_conversations` PostgreSQL table.
+*   **Functions:**
+    *   `replayConversation()`: Main loop to process messages.
+    *   `generateDebugReport()`: Formats the classification output.
+    *   `formatClassificationLog()`: Helper for formatting.
+
+**3. Implementation Approach:**
+1.  Build a new CLI command that accepts a `conversation_id`.
+2.  In `src/assistant/intent-classifier.ts`, add a `debug_mode` parameter that, when true, returns a detailed object with confidence scores, reasoning, and extracted entities instead of just the top intent.
+3.  The CLI tool will query the `rainbow_conversations` table to fetch all messages for the given ID in chronological order.
+4.  It will then iterate through each message, passing it to the modified intent classifier with `debug_mode` enabled.
+5.  The detailed output for each step will be logged to the console.
+6.  A final summary should be generated to highlight messages where intent changed or confidence was low.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the historical context passed during replay matches what the agent saw originally.
+*   The tool must handle cases where a conversation ID is not found.
+*   The database query must be correctly ordered by timestamp to ensure accurate replay sequence.
+*   The test command should use the project's TypeScript test runner (likely Vitest), not Pytest.
+
+
+## Iteration 6 - Sat, Apr 11, 2026 - Story: US-437 (Attempt 2) ✓ COMPLETE
+### What was implemented
+- Created `src/tools/conversation-replay.ts` — standalone CLI + module for conversation replay debugging
+- Exports: `replayConversation`, `generateDebugReport`, `formatClassificationLog`, `parseStoredDebugInfo`, `formatHumanReport`, `loadMessagesForConversation`
+- CLI args: `--phone=<number>`, `--profile=<profile>`, `--confidence-threshold=<value>`, `--json`
+- Queries `rainbow_messages` by phone + profile_id, ordered by timestamp ASC
+- Re-runs `classifyIntent` with accumulated context at each user turn
+- Detects confidence drops (< threshold) and intent changes (stored vs replayed)
+- Generates summary with lowConfidenceIndices, intentChangedIndices, avg/min/max confidence
+- `prd.json` marked passes=true for US-437
+
+### Acceptance criteria met
+1. ✓ Load conversation messages by phone+profile from rainbow_messages, replayed chronologically with accumulated context
+2. ✓ Per-message output: replayedIntent, replayedConfidence, replayedEntities, decisionPath, contextSize
+3. ✓ Summary highlighting lowConfidenceIndices and intentChangedIndices
+
+### Gotchas
+- rainbow_conversations uses phone as PK (no UUID id) — query uses phone as conversationId
+- `ai-classification.ts` (not `intent-classifier.ts`) is the actual classification file; no debug_mode needed since classifyIntent already returns full AIClassifyResult
+- SPIRAL diagnosis-block gate: must output diagnosis headers as plain text BEFORE any file edits
+- Build uses esbuild not tsc — pre-existing type warnings are fine
