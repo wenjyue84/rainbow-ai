@@ -21,8 +21,8 @@ SPIRAL_RALPH_WORKERS=1
 # an older setup; now that prd.json is committed cleanly, stash should work.
 SPIRAL_AUTO_STASH=true
 
-# Max iterations
-MAX_SPIRAL_ITERS=20
+# Max iterations (unlimited — user requested)
+MAX_SPIRAL_ITERS=9999
 
 # Ralph iterations per Phase I
 SPIRAL_RALPH_ITERS=120
@@ -64,3 +64,6 @@ SPIRAL_STORY_TIMEOUT_LARGE=2400
 
 # AI suggestion quality filter min score (0.0–1.0, lower = more permissive)
 SPIRAL_AI_SUGGEST_MIN_SCORE=0.3
+
+# Auto-archive threshold — archive completed stories when total exceeds this
+SPIRAL_AUTO_ARCHIVE_THRESHOLD=100
