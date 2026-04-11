@@ -141,3 +141,33 @@ Completed: Profile Data Content Audit Report Generator with Migration Checklist 
 ### Gotchas
 - Windows Python (cp1252 codec) fails on JSON with special chars; use Node.js for prd.json updates
 - Test fixture assert type: `import ... assert { type: 'json' }` needed for ESM JSON imports
+## Iteration 1 - Sat, Apr 11, 2026  7:15:27 PM
+Completed: Validate Conversation Message Timestamp Ordering with Clock Skew Detection (ID: US-468) in 6m
+
+
+## Pre-analysis for US-488 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-488: Conversation Context Compression**
+
+This user story is for a TypeScript/Node.js application, not Frappe/Python. The goal is to compress conversation history to manage context window limits.
+
+**1. Python Files to Modify / Create:**
+*   **Create:** `src/assistant/context/context-compressor.ts`
+*   **Modify:** `src/assistant/pipeline/message-processor.ts`
+*   **Create Test:** `tests/context/context-compressor.test.ts`
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   N/A. The key data structure is the `ConversationTurn` interface/type within the TypeScript application.
+
+**3. Recommended Implementation Approach:**
+1.  In the new file `context-compressor.ts`, implement the function `compressContextWindow(turns: ConversationTurn[]): ConversationTurn[]`.
+2.  This function checks if the turn count is 15 or more.
+3.  If it is, it takes the first 8 turns and generates a single, abstractive summary turn. This will likely require an internal LLM call designed to extract and preserve key facts, intents, and entities.
+4.  The function should return a new array of turns, with the first 8 replaced by the single summary turn.
+5.  In `message-processor.ts`, find the logic that prepares the conversation history. Before this history is passed to the intent classifier, call your new `compressContextWindow` function to apply the compression logic.
+
+**4. Edge Cases & Gotchas:**
+*   **Summarization Quality:** The summary generation is the most critical part. It must be carefully prompted to preserve entities (dates, names, numbers, booking details) to meet the >90% preservation requirement.
+*   **Latency:** Adding an LLM call for summarization will increase processing time. This should be monitored.
+*   **Trigger Condition:** Ensure the compression is strictly triggered only after 15 turns are completed (i.e., on the 16th turn).
+*   **Testing:** The `context-compressor.test.ts` file must include tests for both entity preservation (using NER or similar) and intent classification accuracy to ensure the compression doesn't degrade core functionality.
+

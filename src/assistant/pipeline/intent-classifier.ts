@@ -19,6 +19,7 @@ import { createPipelineContext } from './pipeline-context.js';
 import { applySummarization } from './stages/summarization.js';
 import { loadKnowledgeBase } from './stages/kb-loading.js';
 import { loadContextWindow, injectContextWindow } from './stages/context-loader.js';
+import { compressContextWindow } from '../context/context-compressor.js';
 import { classifyWithTiers } from './stages/tier-classification.js';
 import { applyLayer2Fallback } from './stages/layer2-fallback.js';
 import { resolveRouting } from './stages/routing.js';
@@ -94,6 +95,15 @@ export async function classifyAndRoute(
   if (!context.isAIAvailable()) {
     state.response = context.getTemplate('unavailable', lang);
     return;
+  }
+
+  // ─── US-488: Conversation Context Compression ─────────────────────
+  // Compress first 8 turns into summary when 15+ turns exist
+  const compressionResult = await compressContextWindow(convo.messages);
+  if (compressionResult.wasCompressed) {
+    convo.messages = compressionResult.messages;
+    devMetadata.contextCompressionApplied = true;
+    devMetadata.contextCompressionMetrics = compressionResult.entityPreservation;
   }
 
   // Typing indicator is now sent during tier classification (T3/T4) only

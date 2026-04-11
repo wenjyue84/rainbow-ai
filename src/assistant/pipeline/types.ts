@@ -31,6 +31,18 @@ export interface DevMetadata {
   topicDriftConfidence?: number;
   /** US-455: Extracted dates from user message before intent classification */
   extractedDates?: Array<{ original: string; iso: string; format: string; confidence: number; interpreted: string }>;
+  /** US-488: Whether conversation context compression was applied */
+  contextCompressionApplied?: boolean;
+  /** US-488: Entity preservation metrics from context compression */
+  contextCompressionMetrics?: {
+    ratio: number;
+    preserved: number;
+    lost: number;
+  };
+  /** US-396: Number of context messages loaded for multi-turn context */
+  contextMessagesCount?: number;
+  /** US-396: Number of context messages filtered by age */
+  contextMessagesFiltered?: number;
 }
 
 export interface PipelineState {
