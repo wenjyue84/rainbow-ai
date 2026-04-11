@@ -756,6 +756,10 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
       systemPromptSuffix = ctx.systemPromptSuffix;
     }
 
+    // US-510: Pass language preference from session data (non-streaming path)
+    const nonStreamSessionData = sessionDataStore.get(sessionKey(profileId, sessionId));
+    const nonStreamPreferredLanguage = (nonStreamSessionData?.language as any) || undefined;
+
     const result = await processChat({
       message: sanitizedMessage,
       history: Array.isArray(history) ? history : [],
@@ -766,6 +770,7 @@ router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Res
       tools: allTools,
       toolHandlers: allHandlers,
       systemPromptSuffix,
+      preferredLanguage: nonStreamPreferredLanguage,
     });
 
     // Persist to DB (fire-and-forget, don't block response)

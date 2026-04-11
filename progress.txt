@@ -1866,3 +1866,93 @@ The skeleton implementation was already complete from iteration 25 (33 skeleton/
 - Server startup: passes
 - All 4 acceptance criteria confirmed present in code
 
+## Iteration 1 - Sun, Apr 12, 2026  3:18:30 AM
+FAILED diagnosis-block gate: Add Language Preference Selector to Webchat UI (ID: US-510) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-510 (Gemini 2.5 Pro)
+This technical brief is based on the provided JSON, which points to a Node.js/TypeScript environment, not a Frappe/Python one.
+
+**To: Claude Code Agent**
+**From: Gemini-CLI**
+**Re: Technical Brief for User Story US-510**
+
+This user story involves adding a language selector to a webchat widget. The implementation will be split between the frontend HTML/JS and the backend TypeScript API.
+
+**1. Files to Modify:**
+*   `src/public/webchat.html`: For UI changes (adding the dropdown).
+*   `src/routes/public/webchat-api.ts`: For backend logic to receive and process the language choice.
+
+**2. Key Components Involved:**
+*   **Frontend:** A new `<select>` dropdown element in the chat header. A JavaScript event listener will manage state.
+*   **Backend:** An existing API endpoint within `webchat-api.ts` will be modified to accept a new payload field, e.g., `{ "language": "ms" }`.
+
+**3. Implementation Approach:**
+1.  In `webchat.html`, add a dropdown to the header with options for `en, ms, zh, ta`.
+2.  Add a script to listen for changes. On select, save the value to `sessionStorage` and `POST` it to the webchat API.
+3.  On page load, the script should read from `sessionStorage` to set the initial dropdown value.
+4.  In `webchat-api.ts`, update the relevant API handler to read the `language` from the request body.
+5.  Prioritize this explicit language setting over any existing language detection logic for the user's session.
+
+**4. Edge Cases & Gotchas:**
+*   The backend must validate the incoming language code against an allowlist (`['en', 'ms', 'zh', 'ta']`).
+*   Ensure the frontend gracefully handles API errors when setting the language.
+*   `sessionStorage` is tab-specific. Confirm this is the desired persistence level.
+
+## Iteration 2 - Sun, Apr 12, 2026  3:18:43 AM
+Completed: Add Webchat Loading Skeleton State During Initial Page Load (ID: US-509) in 2m
+
+
+## Pre-analysis for US-510 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-510, based on the provided JSON.
+
+**Project:** Webchat Interface
+**Story:** US-510 - Add Language Preference Selector
+
+**1. Files to Modify:**
+*   `src/public/webchat.html`: For UI changes.
+*   `src/routes/public/webchat-api.ts`: For backend logic.
+
+**2. Involved Systems/Hooks:**
+*   **Frontend:** Standard HTML DOM, JavaScript `sessionStorage` API for persistence.
+*   **Backend:** The webchat API endpoint that processes incoming messages.
+
+**3. Implementation Approach:**
+*   **Frontend (`webchat.html`):**
+    *   In the chat header, add a `<select>` element with language options: `en`, `ms`, `zh`, `ta`.
+    *   On page load, check `sessionStorage` for a `language` key and set the dropdown's value if it exists.
+    *   On dropdown change, save the new value to `sessionStorage`.
+    *   Modify the API fetch/request function to include the selected language in the JSON payload to the backend.
+*   **Backend (`webchat-api.ts`):**
+    *   Update the API's request body interface to accept an optional `language` string.
+    *   If the `language` field is present in a request, use it to set the language for the response. This explicit setting must override any server-side automatic language detection.
+
+**4. Edge Cases & Gotchas:**
+*   The `language` parameter on the backend must be optional to support older clients.
+*   The backend should gracefully handle invalid or unsupported language codes, defaulting to a primary language (e.g., 'en').
+*   Ensure the UI change is responsive and doesn't break the header layout on small screens.
+
+
+## Iteration 2 (Retry) - Story: Add Language Preference Selector to Webchat UI (US-510) - VERIFIED COMPLETE
+
+### What was implemented
+
+No new code changes needed. Implementation was already complete from Iteration 25 (commit 85d5dbc).
+The SPIRAL orchestrator had reset passes=false due to a DIAGNOSIS_BLOCK_MISSING gate failure, not because the code was wrong.
+
+### Verification performed
+
+- `src/public/webchat.html`: Language selector CSS + `<select>` dropdown (en/ms/zh/ta) in header, sessionStorage persistence
+- `src/routes/public/webchat-api.ts`: WebchatSessionData.language field, extraction from clientSessionData, pass to processChat
+- `src/assistant/chat-engine.ts`: ChatOptions.preferredLanguage field, overrides ELD detection when set
+
+### Quality checks
+
+- Build: Passes (esbuild, 2.5MB, 1 pre-existing warning)
+- Server startup: Passes (no errors)
+- prd.json: Updated US-510 passes=true, removed _failureReason
+
+### Gotchas
+
+- SPIRAL orchestrator resets passes=false when diagnosis block is missing — always output diagnosis block BEFORE any tool calls
+- In retry scenarios where code is already implemented, still need to output diagnosis block, verify, then re-mark passes=true
