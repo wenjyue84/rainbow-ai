@@ -325,3 +325,75 @@ This iteration provided the required diagnosis block and marked passes=true.
 ## Iteration 2 - Sat, Apr 11, 2026  7:45:22 PM
 Completed: Conversation Context Compression for Long Threads (ID: US-488) in 3m
 
+
+## Iteration 10 - Story: Booking Workflow Human Handoff Template Generator (US-489) - COMPLETE
+
+### What was implemented
+Created core workflow escalation system for handling repeated booking step failures:
+
+1. **Core Module: src/assistant/workflows/handoff-generator.ts** (162 lines)
+   - `generateHandoffTemplate(conversationId, workflowId, failedStepName, history, bookingData, errorStack)`
+   - Returns structured JSON: user_id, conversation_summary, failed_step_name, error_stack, suggested_actions, escalation_timestamp
+   - Extracts last 5 user messages from conversation history
+   - Includes all extracted booking fields (dates, guest count, unit type, variants)
+   - Generates contextually relevant suggested actions based on step type
+   - User ID validation enforces /^[a-zA-Z0-9_]+$/ pattern
+
+2. **Failure Tracking: src/assistant/workflows/step-failure-tracker.ts** (139 lines)
+   - `recordStepFailure(conversationId, stepName, error): number`
+   - `hasReachedFailureThreshold(conversationId, stepName): boolean` — triggers at count >= 3
+   - In-memory tracker with 5-minute reset timeout for new failure sequences
+   - Keeps last 5 error messages per step for handoff context
+   - `getErrorStack()` formats errors with --- separator
+
+3. **Test Suite: 42 tests across 2 files (462 lines)**
+   - tests/unit/workflows/handoff-generator.test.ts (22 tests)
+     - JSON structure validation (all 6 required keys present)
+     - User ID format validation and rejection of invalid formats
+     - Conversation summary completeness (last 5 messages, booking fields, outcomes)
+     - Action suggestions: length > 0, contextual relevance to failed step
+     - Edge cases: empty history, empty booking data, unrecognized steps
+     - Field extraction: dates, guest count, unit type, room variants
+     - Escalation timestamp validation (ISO format, current time)
+   - tests/unit/workflows/step-failure-tracker.test.ts (20 tests)
+     - Failure counting: increment, threshold detection at 3, beyond 3
+     - Record retrieval and error stack generation
+     - Reset on success and conversation-level cleanup
+     - Independent tracking per conversation and step
+     - Timeout reset behavior (5 minute gap)
+
+### Acceptance criteria met
+✅ **AC1**: Function signature and return type correct, all required JSON keys present
+✅ **AC2**: Conversation summary includes last 5 messages, booking fields, step outcomes with timestamps
+✅ **AC3**: Test assertions pass: suggested_actions.length > 0, error_stack defined, user_id matches pattern, actions contextually relevant
+
+### Quality checks
+- Tests: 42/42 passing (1.18s runtime)
+- Module imports: both handoff-generator and step-failure-tracker import successfully
+- No new build errors introduced (pre-existing latency-tracker error unrelated)
+- prd.json: marked US-489 passes=true
+
+### Patterns discovered
+- **Core process theme**: Tracker provides the threshold detection trigger, generator creates the handoff document — clean separation
+- Action suggestion logic uses step name keywords (payment, date, guest, unit) to generate relevant recommendations
+- In-memory tracker sufficient for single-server; production would use Redis for distributed cache
+- Error stack formatting with --- separator improves readability in handoff documents
+
+### Gotchas
+- ChatMessage type requires .js extension imports in ESM module
+- Test paths: tests/unit/workflows/ not tests/workflows/
+- Error timestamp from record uses Date.now(), not conversation history
+- User ID from conversationId must pass alphanumeric validation (no hyphens, spaces)
+
+### Files created
+- src/assistant/workflows/handoff-generator.ts (162 lines)
+- src/assistant/workflows/step-failure-tracker.ts (139 lines)
+- tests/unit/workflows/handoff-generator.test.ts (322 lines)
+- tests/unit/workflows/step-failure-tracker.test.ts (271 lines)
+
+### Next steps
+This story is complete. Production deployment should:
+1. Integrate step-failure-tracker into workflow execution pipeline
+2. Call generateHandoffTemplate when hasReachedFailureThreshold returns true
+3. Store/display handoff documents in admin dashboard
+4. Consider Redis for distributed failure tracking across server instances
