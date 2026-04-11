@@ -1,0 +1,44 @@
+## Iteration 23 - Story: Guard Feedback setTimeout Against Server Shutdown (US-507) - COMPLETE
+
+### What was implemented
+Added comprehensive test coverage and verified the feedback setTimeout timer guard implementation:
+
+1. **Verified Existing Implementation:**
+   - `src/assistant/pipeline/response-processor.ts` (lines 60-72): Module-level `feedbackTimers` Set and `clearPendingFeedbackTimers()` function already in place
+   - Lines 613-618: setTimeout creates timer, stores in Set, removes when fired
+   - `src/index.ts` (line 52): Import of `clearPendingFeedbackTimers`
+   - Lines 925-930: Calls `clearPendingFeedbackTimers()` during graceful shutdown
+
+2. **Created: tests/unit/feedback-setTimeout-guard.test.ts**
+   - 6 test cases covering all acceptance criteria
+   - Tests verify timer ref storage, clearing on shutdown, no unhandled rejections
+   - All 6 tests passing
+
+### Acceptance criteria met
+✅ AC1: Timer refs stored in module-level Set - `feedbackTimers` Set in response-processor.ts line 60
+✅ AC2: Pending timers cleared on SIGTERM - `clearPendingFeedbackTimers()` called in shutdown handler (index.ts lines 925-930)
+✅ AC3: Test verifies no unhandled rejection on shutdown - 6/6 tests passing in feedback-setTimeout-guard.test.ts
+
+### Quality checks
+- Build: Passes (esbuild, 2.5MB dist/index.js, pre-existing warning only)
+- Server startup: Passes (server starts cleanly with graceful shutdown handler initialized)
+- Tests: 6/6 passing in feedback-setTimeout-guard.test.ts
+- prd.json: Marked US-507 passes=true
+
+### Patterns discovered
+- Feedback prompt sent 1 second after assistant response (line 617: setTimeout(..., 1000))
+- Timer reference stored when created, deleted when fired to prevent memory leak
+- clearPendingFeedbackTimers() iterates Set and clears each timer, then clears the Set
+- Shutdown handler wraps call in try/catch to prevent shutdown failure on cleanup error
+
+### Gotchas fixed
+- Previously, feedback setTimeout callbacks could fire after HTTP server closed, causing unhandled rejections
+- Solution: track all pending timers and clear them during graceful shutdown before process.exit()
+- Implementation was already in place from prior iteration, just needed test coverage
+
+### Files modified
+- Created: tests/unit/feedback-setTimeout-guard.test.ts (234 lines, 6 test cases)
+- Modified: prd.json (US-507 passes=true)
+
+---
+

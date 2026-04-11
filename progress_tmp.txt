@@ -1520,31 +1520,3 @@ Added timer tracking and cleanup for feedback prompts to prevent unhandled rejec
 ## Iteration 1 - Sun, Apr 12, 2026  2:43:19 AM
 Completed: Guard Feedback setTimeout Against Server Shutdown (ID: US-507) in 4m
 
-
-## Pre-analysis for US-508 (Gemini 2.5 Pro)
-This user story appears to be for a TypeScript/Node.js project, not a Frappe/Python one. The `filesTouch` key points to a `.ts` file, and the description mentions `Promise.allSettled()`, which is a JavaScript/TypeScript feature.
-
-Here is the technical brief based on the actual story content for a TypeScript environment:
-
-**Project:** Rainbow AI - Intent Classifier Optimization
-
-**Objective:** Refactor sequential database inserts into a single batch operation to improve performance and reduce database connection pressure.
-
-**1. File to Modify:**
-*   `src/assistant/pipeline/intent-classifier.ts`: This file contains the core logic for intent classification and is where the multiple database write operations are being triggered sequentially.
-
-**2. Key Components Involved:**
-*   **Drizzle ORM:** The project uses Drizzle for database interactions. You will be working with Drizzle's `db.insert()` methods.
-*   **Database Schema:** The inserts are likely related to logging classification results, metadata, or analytics events. Identify the specific table schema being written to.
-
-**3. Recommended Implementation:**
-1.  In `intent-classifier.ts`, locate the loop or sequence of `await db.insert(...)` calls.
-2.  Instead of awaiting each insert individually, create an array of promises, where each element is a `db.insert(...)` call (without `await`).
-3.  Use `await Promise.allSettled(insertPromises)` to execute all insert operations concurrently.
-4.  Iterate over the results of `allSettled`. For any promise with a `status` of `'rejected'`, log a structured error containing the `reason` and the data that failed to insert.
-
-**4. Edge Cases & Gotchas:**
-*   **Non-Transactional:** `Promise.allSettled` is not a database transaction. Some inserts may succeed while others fail. This aligns with the "fire-and-forget" nature of the story.
-*   **Error Logging:** Ensure error logs are structured (e.g., JSON format) and include enough context to debug the failed insert without crashing the main process.
-*   **Performance Measurement:** Use `console.time()` and `console.timeEnd()` before and after the batch operation to verify the latency reduction mentioned in the acceptance criteria.
-
