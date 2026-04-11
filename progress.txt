@@ -367,3 +367,53 @@ FAILED diagnosis-block gate: Intent Confidence Regression Detector CLI with Base
 - All quality gates passing
 - Ready for deployment
 
+## Iteration 1 - Sat, Apr 11, 2026 11:33:04 AM
+FAILED diagnosis-block gate: Intent Confidence Regression Detector CLI with Baseline Tracking (ID: US-453) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-453 (Gemini 2.5 Pro)
+### Technical Brief: US-453 Intent Confidence Regression Detector
+
+This user story is for a **TypeScript/Node.js** project, not Frappe/Python. The goal is to build a CLI tool to monitor AI intent classification performance.
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/tools/intent-regression-detector.ts` - This new file will contain the core CLI logic.
+*   **Create:** `src/assistant/data/intent-confidence-baseline.json` - Will be created on the first run to store baseline scores.
+*   **Create:** `tests/intent-regression.test.ts` - For unit/integration tests of the new tool.
+*   **Reference:** An existing file likely in `src/assistant/` or `src/testing/` that exports a `test_intents()` function, which the new tool must call to get current confidence scores.
+
+**2. Frappe DocTypes/Hooks:**
+*   None. This is a standalone Node.js CLI tool, unrelated to the Frappe framework.
+
+**3. Recommended Implementation Approach:**
+1.  Use a CLI argument parser like `yargs` in `intent-regression-detector.ts` to handle the `--output` file path.
+2.  Implement a main function that reads `intent-confidence-baseline.json`.
+3.  **If the baseline file doesn't exist:** Call the `test_intents()` function, format its results, and write them as the new baseline JSON.
+4.  **If the baseline exists:** Load it, call `test_intents()`, and compare the new scores against the baseline scores for each intent-profile pair.
+5.  Calculate the absolute and relative degradation, flagging any intents that exceed the 10% absolute or 15% relative thresholds.
+6.  Generate a JSON report array containing the specified fields for each regression.
+
+**4. Edge Cases & Gotchas:**
+*   The structure of the data returned by `test_intents()` is unknown and must be analyzed first.
+*   Handle cases where new intents are present in the current run but not in the baseline.
+*   Ensure file system paths are resolved correctly (e.g., using `path.join`).
+*   The tool should gracefully handle I/O errors when reading/writing JSON files.
+
+
+## Iteration 2 - Story: Intent Confidence Regression Detector CLI with Baseline Tracking (US-453) ✓ COMPLETE
+
+### What was implemented
+- `src/tools/intent-regression-detector.ts` - CLI tool for baseline tracking and regression detection
+  - Loads/saves baseline at `src/assistant/data/intent-confidence-baseline.json`
+  - Detects >10% absolute or >15% relative confidence drops per profile-intent pair
+  - Profile-aware remediation suggestions (pelangi/makan/southern)
+  - CLI flags: `--output [file]`, `--re-baseline`
+- `src/__tests__/intent-regression.test.ts` - 34 passing tests covering all acceptance criteria
+
+### Patterns discovered
+- Files were already implemented by a prior attempt but prd.json still had passes: false due to diagnosis-block gate failure in iteration 1
+- Diagnosis block must be output as plain text BEFORE any file edits or Bash modifications
+
+### Gotchas
+- The `passes: true` visible in progress.txt notes was misleading - actual prd.json had passes: false
+- Always verify prd.json directly with node, not python (encoding issues on Windows)
