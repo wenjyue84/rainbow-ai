@@ -9,6 +9,7 @@ import { logMessage } from './conversation-logger.js';
 import { recordStepMetric } from './workflow-profiler.js';
 import { pool } from '../lib/db.js';
 import { validateBookingPreconditions, extractBookingContext } from './booking-validator.js';
+import { checkBookingUnitAvailability } from './booking-unit-availability-check.js';
 import type { HybridWorkflowDefinition } from './workflow-nodes.js';
 import { isNodeBasedWorkflow, convertRawPhonesToLinks } from './workflow-nodes.js';
 import {
