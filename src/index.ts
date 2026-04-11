@@ -84,6 +84,7 @@ import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary }
 import { enforceProfileIntegrity } from './lib/profile-integrity.js';
 import { validateKnowledgeBase, formatValidationReport } from './lib/validate-knowledge-base.js';
 import { createErrorHandlerMiddleware } from './lib/error-handler.js';
+import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-file-validator.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -153,6 +154,24 @@ try {
   try {
     enforceProfileIntegrity(join(__dirname_main, '..'));
     console.log('[Startup] Profile data integrity check passed');
+  } catch (err: any) {
+    console.error(`[Startup] FATAL: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// US-484: Data file JSON schema validation.
+// Validates routing.json, workflows.json, fallback-responses.json, and settings.json
+// against strict Zod schemas. Aborts startup if any required file is missing or invalid.
+{
+  try {
+    const dataDir = join(__dirname_main, 'assistant', 'data');
+    validateDataFilesOnStartup(dataDir);
+    console.log('[Startup] Data file schema validation passed');
+    // Start hot-reload watcher (non-blocking — failure is non-fatal)
+    startDataFileWatcher(dataDir).catch((err: Error) => {
+      console.warn('[Startup] Data file watcher failed to start:', err.message);
+    });
   } catch (err: any) {
     console.error(`[Startup] FATAL: ${err.message}`);
     process.exit(1);
