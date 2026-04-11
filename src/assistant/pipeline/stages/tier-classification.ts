@@ -111,18 +111,16 @@ async function classifyTieredPipeline(
 
   const startTime = Date.now();
 
-  // US-119: Load conversation's preferred language for keyword matching
+  // US-513: Defer language DB query to only where needed (T3 LLM, T4 full LLM)
+  // T1/T2 fast paths (regex/fuzzy) don't need language preference
   let preferredLanguage: SupportedLanguage | undefined;
-  if (phone) {
-    preferredLanguage = await getConversationPreferredLanguage(phone);
-  }
 
   // US-122: Pass phone as conversationId for classification tracing
   const tierResult = await (context.classifyMessageWithContext as any)(
     processText,
     contextMessages,
     lastIntent,
-    preferredLanguage,
+    preferredLanguage,  // undefined for T1/T2 fast-path skipping
     phone  // conversationId
   );
   const classifyTime = Date.now() - startTime;
@@ -153,6 +151,11 @@ async function classifyTieredPipeline(
 
   // Fast tier caught it, but action needs LLM reply → generate reply only (T3)
   if (caughtByFastTier) {
+    // US-513: Fetch language preference only for T3 LLM reply generation
+    if (!preferredLanguage && phone) {
+      preferredLanguage = await getConversationPreferredLanguage(phone);
+    }
+
     // Send typing indicator before LLM call for T3
     await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
@@ -183,6 +186,11 @@ async function classifyTieredPipeline(
   }
 
   // No fast tier match → full LLM classify + respond (T4)
+  // US-513: Fetch language preference only for T4 full LLM classify + respond
+  if (!preferredLanguage && phone) {
+    preferredLanguage = await getConversationPreferredLanguage(phone);
+  }
+
   // Send typing indicator before LLM call for T4
   await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
