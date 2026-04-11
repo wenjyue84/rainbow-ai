@@ -977,7 +977,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet"
     },
@@ -1392,6 +1392,90 @@
         "Test command: uv run pytest tests/unit/test_feature_importance.py::test_tf_idf_ranking -v",
         "Input: SELECT * FROM rainbow_conversations WHERE profile IN (...) AND is_correct_classification=true AND created_at >= NOW()-'7 days'::interval",
         "Output: features-{profile}-{intent}-{timestamp}.md in ./reports/ directory"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-470",
+      "title": "Profile-Aware Booking Unit Availability Check Before Workflow",
+      "priority": "high",
+      "description": "Add pre-flight validation that booking units exist in profile-specific data and are available for requested dates before starting workflow, preventing invalid bookings and ensuring profile isolation.",
+      "acceptanceCriteria": [
+        "New endpoint POST /admin/validation/booking-units validates {unit_id, profile, check_in_date, check_out_date} against profile-specific units and returns {valid: bool, issues: string[]}",
+        "Booking workflow inserts unit availability check in step 1, fails gracefully with escalation_reason='unit_unavailable' if unit missing or dates conflict",
+        "CLI tool npm run validate:booking-units -- --profile southern audits all booking intents from last 24h and reports invalid unit_id references with remediation count"
+      ],
+      "technicalNotes": [
+        "File to create: src/routes/admin/validation.ts (endpoint: POST /admin/validation/booking-units)",
+        "File to edit: src/assistant/pipeline/booking-workflow.ts (add preFlightUnitCheck before step 1)",
+        "Test command: npm run test -- tests/integration/booking-validation.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-471",
+      "title": "Multi-Intent Detection for Ambiguous Booking Messages",
+      "priority": "medium",
+      "description": "Detect when a message matches multiple intents within a confidence threshold and provide disambiguation to the user instead of guessing, improving accuracy for borderline cases.",
+      "acceptanceCriteria": [
+        "Messages matching >1 intent with top 2 confidence scores within 10% are logged as multi-intent in intent_analytics table with disambigation_requested flag",
+        "Assistant returns disambiguation prompt asking user to clarify intent (booking/inquiry/cancellation/other) instead of single intent response when multi-intent detected",
+        "GET /admin/analytics/disambiguation-success returns {intent_pair, clarification_success_rate, avg_turns_to_clarify} tracking user disambiguation flow accuracy"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classification.ts (function: detectMultiIntent)",
+        "File to edit: shared/schema-tables.ts (add disambiguation_requested, clarified_intent to intent_analytics)",
+        "Test command: npm run test -- tests/unit/intent-classification.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-472",
+      "title": "Intent Classification Drift Detector with Historical Comparison",
+      "priority": "medium",
+      "description": "Monitor intent classification accuracy over time by calculating rolling F1 scores and comparing against baseline, enabling early detection of model degradation before it impacts production.",
+      "acceptanceCriteria": [
+        "Baseline F1 score per (intent, profile) pair stored in rainbow_config on system start; calculate rolling 7-day F1 from intent_analytics.is_correct field",
+        "When rolling F1 score < baseline F1 - 0.05, create escalation_event with event_type='intent_drift_alert' and drift_delta (e.g., -0.08)",
+        "GET /admin/alerts/intent-drift returns [{intent, profile, baseline_f1, current_f1, delta, alert_triggered, affected_message_count}] for drifting intents only"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/metrics/intent-drift-calculator.ts (function: calculateIntentDriftAlert)",
+        "File to edit: src/routes/admin/alerts.ts (endpoint: GET /admin/alerts/intent-drift)",
+        "Test command: npm run test -- tests/unit/intent-drift.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-473",
+      "title": "Booking Workflow Rollback Handler for Failed Steps",
+      "priority": "medium",
+      "description": "Enable automatic rollback of workflow steps when a step fails, preserving data integrity and allowing recovery without manual intervention or data duplication.",
+      "acceptanceCriteria": [
+        "Before each booking workflow step, serialize step input state and store in new workflow_step_checkpoints table with {workflow_id, step_index, checkpoint_state_json, created_at}",
+        "New endpoint POST /admin/debug/rollback-workflow-step accepts {workflow_instance_id, current_failed_step, roll_back_to_step} and restores previous checkpoint; updates booking_confirmation with rollback_reason",
+        "Test: run booking workflow through step 3/5, simulate step 3 failure, rollback to step 2, verify checkpoint data restored and step 3 can retry successfully"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add workflow_step_checkpoints table schema)",
+        "File to edit: src/assistant/pipeline/booking-workflow.ts (function: saveWorkflowCheckpoint, restoreWorkflowCheckpoint)",
+        "Test command: npm run test -- tests/integration/workflow-rollback.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
