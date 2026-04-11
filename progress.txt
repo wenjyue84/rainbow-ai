@@ -1047,3 +1047,60 @@ US-511 implementation was already committed (c3a1a6e) from a previous run. This 
 - Build: esbuild passes (pre-existing warning only)
 - Tests: 12/12 passing
 - prd.json: US-511 passes=true confirmed
+
+## Iteration 18 - Story: Add TTL-Based Cache Invalidation for Recovery Messages (US-511) - COMPLETE
+
+### What was implemented
+Verified and validated TTL-based cache invalidation for recovery messages:
+
+1. **Implementation (Already Complete from Previous Iteration)**
+   - `src/assistant/pipeline/workflow-error-handler.ts` (lines 34-84)
+   - `CacheEntry` interface (lines 34-37): Stores `data: RecoveryMessages` and `expiresAt: number`
+   - `CACHE_TTL_MS = 10 * 60 * 1000` constant (line 39): 10-minute TTL
+   - `loadRecoveryMessages()` function (lines 48-84):
+     - Checks TTL expiry before returning cached entry (lines 52-55)
+     - Auto-reloads from file if expired (cache miss on line 57)
+     - Stores entry with `expiresAt` timestamp (lines 74-77)
+
+2. **Test Coverage**
+   - `tests/unit/ttl-cache-invalidation.test.ts`: 12 comprehensive tests
+     - Cache initialization and file loading
+     - TTL constant verification (600000 ms = 10 minutes)
+     - Multi-language support (en/ms/zh/ta)
+     - All 6 profile support (pelangi/southern/makan/yoongmei/pms-capsule/pms-southern)
+     - Error code fallback behavior
+     - Language fallback behavior
+     - All 12 tests passing (444ms runtime)
+   
+   - `tests/unit/workflow-error-handler-profiles.test.ts`: 11 tests
+     - Profile-specific recovery message loading
+     - Cache behavior verification
+     - All 11 tests passing (18ms runtime)
+
+### Acceptance criteria met
+✅ AC1: Cache has 10-min TTL - implemented via `CACHE_TTL_MS = 10 * 60 * 1000` and `expiresAt` timestamp
+✅ AC2: Auto-refreshes on expiry - cache miss on line 52-55 forces file reload on line 57
+✅ AC3: No restart needed after JSON update - cache auto-reloads when TTL expires, JSON changes take effect within 10 minutes
+
+### Quality checks
+- Tests: 23/23 passing (TTL + profile tests)
+- Build: esbuild passes successfully (2.5MB dist/index.js)
+- prd.json: Updated US-511 passes=true
+
+### Patterns discovered
+- TTL implementation uses simple `Date.now()` comparison against `expiresAt` timestamp
+- Cache entries are Map<string, CacheEntry> keyed by profile name
+- File reload happens automatically when cache expires (lazy refresh pattern)
+- No explicit cache invalidation needed - TTL handles it automatically
+- Error handling in `loadRecoveryMessages()` gracefully degrades to empty object on file read failure
+
+### Gotchas fixed
+- None - implementation was already correct from previous iteration
+- This iteration was primarily verification and documentation
+
+### Files verified/touched
+- Verified: `src/assistant/pipeline/workflow-error-handler.ts` (TTL implementation complete)
+- Verified: `tests/unit/ttl-cache-invalidation.test.ts` (12 tests, all passing)
+- Verified: `tests/unit/workflow-error-handler-profiles.test.ts` (11 tests, all passing)
+- Modified: `prd.json` (US-511 passes=true)
+
