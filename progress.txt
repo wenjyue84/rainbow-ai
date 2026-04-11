@@ -637,3 +637,85 @@ Here is the technical brief for the provided story as-is:
 - ✓ Build: esbuild completed successfully (2.5MB dist/index.js)
 - ✓ Tests: 21/21 passing (361ms runtime)
 - ✓ prd.json: marked passes=true for US-465
+## Iteration 1 - Sat, Apr 11, 2026  2:14:34 PM
+FAILED diagnosis-block gate: Profile Data File Integrity Checker with Corruption Detection (ID: US-465) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-465 (Gemini 2.5 Pro)
+This user story appears to be for a **TypeScript/Node.js** project, not a Frappe/Python one, based on the references to `npm`, `Zod`, `.ts` files, and `tsx`.
+
+Here is the technical brief for the provided story as-is:
+
+**Project:** Standalone Profile Integrity Checker CLI Tool
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/tools/profile-integrity-checker.ts` - This will contain the main `ProfileIntegrityChecker` class and its logic.
+*   **Create:** `tests/profile-integrity-checker.test.ts` - For unit and integration tests of the checker.
+*   **Modify:** `package.json` - To add the new `npm run check:profile-integrity` script.
+*   **Reference:** `src/assistant/schemas.ts` - Contains the Zod schemas for validation.
+
+**2. Involved Frameworks/Libraries (Not Frappe):**
+*   **Node.js:** For the CLI runtime.
+*   **tsx (or ts-node):** To execute the TypeScript-based tool directly.
+*   **Zod:** For schema definition and validation.
+*   **uv/pytest (mentioned in test command):** Test runner for executing the tests.
+
+**3. Implementation Approach:**
+*   Implement a `ProfileIntegrityChecker` class in `profile-integrity-checker.ts`.
+*   Create a `check(profileId)` method to read `routing.json`, `workflows.json`, etc., for the given profile.
+*   Inside `check`, parse the JSON and run validations against the Zod schemas imported from `src/assistant/schemas.ts`.
+*   Implement specific logic to detect cross-profile contamination (e.g., searching for Pelangi keywords in Makan files).
+*   Develop a `repair(profileId, dryRun)` method that can automatically fix simple issues like trailing commas or missing default fields.
+*   The main part of the script will parse command-line arguments (`--profile`, `--repair`) to trigger the corresponding methods.
+
+**4. Edge Cases & Gotchas:**
+*   The `--repair` functionality must be non-destructive. It should not attempt to fix semantic or complex structural errors.
+*   Error reporting needs to be precise, including file path, line number, and a clear description of the error.
+*   The tool must handle file I/O errors gracefully (e.g., file not found).
+*   The definition of "cross-profile contamination" needs to be precise to avoid false positives. The logic must correctly identify which keywords belong to which profile.
+
+
+## Pre-analysis for US-466 (Gemini 2.5 Pro)
+This user story is written for a TypeScript application, but I will translate its intent into a technical brief for the Frappe/Python `lhdn_payroll_integration` app as requested. The concept of "booking failures" will be interpreted as "payroll submission failures."
+
+**Technical Brief for Claude: US-466 Implementation in Frappe**
+
+**1. Python Files to Modify/Create:**
+*   **Create:** `lhdn_payroll_integration/utils/submission_analyzer.py`. This file will contain the core logic for fetching logs, categorizing failures, and generating the report data.
+*   **Modify:** The primary Python file responsible for handling the payroll data submission to the LHDN service. This is likely a method within a core DocType's controller, such as `lhdn_payroll_integration/doctype/lhdn_submission/lhdn_submission.py`. This file needs to be updated to log richer, structured error context upon failure.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocType to Analyze:** `Error Log`. The analyzer script will query this DocType. We'll need to ensure errors from the submission process are logged here with detailed payloads.
+*   **Hook to Add:** A new daily scheduled job in `hooks.py` to trigger the analysis script:
+    `"daily": ["lhdn_payroll_integration.utils.submission_analyzer.run_analysis"]`
+*   **Report to Create:** A new Frappe `Script Report` named "Payroll Submission Failure Analysis" to present the findings to the user.
+
+**3. Recommended Implementation Approach:**
+1.  In the `lhdn_submission.py` controller, enhance the `try...except` blocks around the external API call to use `frappe.log_error`. Pass a JSON object with structured context (e.g., `{'step': 'data_validation', 'submission_id': self.name}`) as the message.
+2.  The `submission_analyzer.py` script will query `Error Log` entries from the past 24 hours.
+3.  It will categorize errors based on content: `CONFIG` (e.g., missing API endpoint), `DATA` (e.g., invalid employee ID format), `EXTERNAL` (API timeouts, 5xx errors).
+4.  The script will use `frappe.cache()` to store the aggregated results (category counts, examples, suggested actions).
+5.  The "Payroll Submission Failure Analysis" report will read from the cache and display the data in a ranked, user-friendly format.
+
+**4. Edge Cases & Gotchas:**
+*   Error parsing can be unreliable. Log distinct error codes from the submission controller instead of relying on string matching in the analyzer.
+*   The volume of logs could be high. Ensure the analysis query is indexed and consider processing logs in batches.
+*   Remediation steps should be clear and actionable for a payroll admin, not a developer (e.g., "Check employee record for John Doe" vs. "Fix data serialization").
+
+
+## Iteration [SPIRAL retry 2] - Story: Profile Data File Integrity Checker with Corruption Detection (US-465) - CONFIRMED COMPLETE
+
+### What happened
+- Implementation already existed from attempt 1 (profile-integrity-checker.ts + tests + npm script)
+- Attempt 1 failed only due to DIAGNOSIS_BLOCK_MISSING gate, not code issues
+- Test file at `tests/profile-integrity-checker.test.ts` wasn't discoverable by vitest (wrong directory)
+- Duplicate at `tests/unit/profile-integrity-checker.test.ts` already existed and works correctly
+
+### Quality checks (attempt 2)
+- ✓ Build: esbuild completed successfully (2.5MB dist/index.js)
+- ✓ Tests: 21/21 passing (262ms runtime) via tests/unit/profile-integrity-checker.test.ts
+- ✓ prd.json: marked passes=true for US-465
+
+### Gotchas
+- Vitest include patterns: `tests/` root-level files NOT included — must use `tests/unit/` or `src/__tests__/`
+- SPIRAL diagnosis-block gate requires outputting ## Current State / ## Problem Identified / ## Planned Changes BEFORE any file modifications
