@@ -1509,3 +1509,44 @@ However, translating the *intent* of the story to a Frappe/Python context for th
 - `workflows.json` has `<<<<<<< Updated upstream` merge conflict markers — this is a pre-existing issue that the validator now correctly surfaces at startup as "Invalid JSON"
 - chokidar watcher uses lazy import (`await import('chokidar')`) to avoid blocking startup validation if watcher fails
 - Hot-reload cache (`lastValidCache` Map) is module-level state — works fine for a single-process server
+## Iteration 1 - Sat, Apr 11, 2026  4:23:24 PM
+FAILED diagnosis-block gate: Profile Data File JSON Schema Validator with Hot-Reload (ID: US-484) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-484 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. The files, libraries (Zod, chokidar), and test commands all point to a Node.js environment.
+
+However, translating the *intent* of the story to a Frappe/Python context for the `lhdn_payroll_integration` app, here is the technical brief:
+
+**Project:** lhdn_payroll_integration (Frappe/Python)
+**Objective:** Implement startup and on-save validation for app configurations using a schema, with changes loading instantly without a server restart.
+
+**1. Python Files to Modify/Create:**
+
+*   **Create:** `lhdn_payroll_integration/doctype/lhdn_payroll_settings/lhdn_payroll_settings.py`
+    *   This will be the controller for a new Singleton DocType to store configuration. The core validation logic will live in its `validate` method.
+*   **Modify:** `lhdn_payroll_integration/hooks.py`
+    *   To register the new DocType and add an `on_startup` hook to validate the settings when the server boots.
+*   **Create:** `lhdn_payroll_integration/schemas/routing_schema.py` (and others)
+    *   To define the required structure for the JSON configurations, likely using Pydantic models for strict schema definition and validation.
+*   **Create:** `lhdn_payroll_integration/tests/test_lhdn_payroll_settings.py`
+    *   To write unit tests for the validation logic.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType (New):** Create a **Singleton** DocType named `LHDN Payroll Settings`. This is the idiomatic Frappe way to manage app-wide settings instead of loose JSON files. It should have `JSON` or `Code` fields for `routing`, `workflows`, etc.
+*   **Hook (New):** Use the `on_startup` hook in `hooks.py` to load and validate the `LHDN Payroll Settings` document on server start, ensuring a valid configuration is present.
+
+**3. Recommended Implementation Approach:**
+
+1.  Define the configuration structure using Pydantic models in the `schemas` directory.
+2.  In the `LHDN Payroll Settings` DocType's `validate` method, parse the JSON data from the fields into the corresponding Pydantic models. Pydantic will automatically raise detailed validation errors if the data is invalid.
+3.  Catch the `ValidationError` from Pydantic and raise a `frappe.ValidationError` with the formatted error details. This prevents saving invalid data and gives the user clear feedback.
+4.  The "hot-reload" is achieved implicitly: once a valid configuration is saved in the DocType, any other part of the app can read it directly from the database using `frappe.get_single_doc('LHDN Payroll Settings')` and get the updated data.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Schema Mismatches:** Ensure Pydantic error messages are bubbled up clearly to the Frappe UI.
+*   **Initial Setup:** The `on_startup` hook must gracefully handle the case where the `LHDN Payroll Settings` document has not been created yet.
+*   **Avoid File Watchers:** Do not use a library like `watchdog`. The Frappe way is to use DocType controller methods (`validate`, `on_update`), which is more robust and integrated than watching the filesystem.
+
