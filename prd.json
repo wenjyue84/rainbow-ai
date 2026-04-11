@@ -281,14 +281,7 @@
       "tags": [
         "performance"
       ],
-      "model": "haiku",
-      "last_attempted": "2026-04-11T18:51:38Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nThe intent-classifier.ts file contains 9 fire-and-forget DB operations scattered throughout the function, each with `.catch()` handlers:\n\n1. Line 248: `db.insert(rainbowLowconfMessages)` \n2. Line 259: `db.insert(hardCaseQueue)`\n3. Line 270: `db.insert(intentAnalytics)`\n4. Line 278: `recordIntentLatency()`\n5. Line 283: `recordTurnConfidence()`\n6. Line 287: `logClassificationDecision()`\n7. Line 296: `trackIntentPrediction()`\n8. Line 315: `db.insert(escalationQueue)`\n9. Line 342: `recordUtteranceGap()`\n\nThese are currently fired independently with no coordination, causing them to stress the DB pool sequentially.\n\n## Problem Identified\n\nEach fire-and-forget operation is independent, putting separate load on the PostgreSQL connection pool. When multiple messages arrive in quick succession, the pool gets exhausted. By batching with `Promise.allSettled()`, all operations can start concurrently, reducing peak pool pressure and improving overall throughput.\n\n## Planned Changes\n\n1. Create a `batchFireAndForgetInserts()` function that collects all DB operations into an array\n2. Replace individual `.catch()` handlers with structured error logging inside the batch function\n3. Call `Promise.allSettled()` on the batch to run all operations concurrently\n4. Add test to verify batch execution\n\nNow implementing:\nNow I'll refactor the fire-and-forget DB operations to be batched:\nNow let's run the quality checks:\nNow let me create a test to verify the batch insert functionality:\nExcellent! All tests pass. Now let me update prd.json and progress.txt:\nNow let me commit all the changes:\nLet me verify one final time that everything is working correctly:\nPerfect! **US-508 is now complete.** ✅\n\n## Summary"
-      },
-      "_antiPatterns": [
-        "quality_gate_failed"
-      ]
+      "model": "haiku"
     },
     {
       "id": "US-509",

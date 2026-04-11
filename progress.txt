@@ -1664,3 +1664,28 @@ Here is the technical brief based on the actual story content for a TypeScript e
 ## Iteration 2 - Sun, Apr 12, 2026  2:51:37 AM
 Completed: Guard Feedback setTimeout Against Server Shutdown (ID: US-507) in 3m
 
+
+## Pre-analysis for US-508 (Gemini 2.5 Pro)
+Based on the user story JSON, the task is to refactor database inserts in a TypeScript file, not a Frappe/Python app. The file `intent-classifier.ts` and method `Promise.allSettled` are specific to a Node.js/TypeScript environment.
+
+Here is the technical brief for the described task:
+
+**Project:** Rainbow AI - Intent Classifier Optimization
+**Target File:** `src/assistant/pipeline/intent-classifier.ts`
+
+**Brief:**
+The goal is to refactor nine or more separate, sequential "fire-and-forget" database write operations into a single, concurrent batch operation. This will reduce latency and relieve pressure on the database connection pool during high traffic.
+
+**Implementation Approach:**
+1.  Isolate all promises related to the fire-and-forget database inserts (e.g., `db.insert(...)`, `recordIntentLatency()`, `logClassificationDecision()`, etc.).
+2.  Collect these promises into a single array.
+3.  Use `Promise.allSettled()` to execute the entire batch concurrently.
+4.  Remove the individual `.catch()` handlers for each promise.
+5.  After `allSettled()` resolves, iterate through the results. For any promise with a `status` of `'rejected'`, log a structured error including the failure `reason`.
+
+**Gotchas & Edge Cases:**
+*   Ensure no downstream logic depends on the completion of any single insert; these are meant to be fully asynchronous.
+*   The new centralized error logging must be robust enough to identify which specific insert failed.
+*   Verify that the functions being batched (e.g., `recordUtteranceGap`) return a `Promise` for `allSettled` to work correctly.
+*   The acceptance criteria mandate a new test to confirm that multiple inserts are handled via a single batch call.
+
