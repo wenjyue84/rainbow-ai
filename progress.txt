@@ -1185,3 +1185,51 @@ Removed unsupported languages from the translation dropdown and added the suppor
 - Modified: src/public/js/helpers/translation-helper.js (removed id/th/vi, added ta)
 - Modified: prd.json (US-512 passes=true)
 
+## Iteration 18 - Story: Remove Unsupported Languages from Admin Translation Dropdown (US-512) - COMPLETE
+
+### What was implemented
+Aligned admin UI language dropdowns with backend-supported languages to improve reliability and user experience:
+
+1. **Modified: src/public/templates/tabs/chat-simulator.html** (lines 409-417)
+   - Removed unsupported language options: Indonesian (id), Thai (th), Vietnamese (vi)
+   - Added supported language: Tamil (ta)
+   - Dropdown now shows only: en, ms, zh, ta (matching backend support)
+
+2. **Modified: src/public/templates/tabs/live-chat.html** (lines 218-225)
+   - Removed unsupported language options: Indonesian (id), Thai (th), Vietnamese (vi)
+   - Added supported language: Tamil (ta)
+   - Dropdown now shows only: en, ms, zh, ta (matching backend support)
+
+3. **Verified: src/public/js/helpers/translation-helper.js**
+   - LANG_LABELS already contains all 4 supported languages (en/ms/zh/ta)
+   - No changes needed in helper
+
+### Acceptance criteria met
+✅ AC1: Dropdown only shows backend-supported languages - both dropdowns now show only en, ms, zh, ta
+
+### Backend language support verification
+Confirmed via `src/assistant/language-router.ts`:
+- Line 3: `export type SupportedLanguage = 'en' | 'ms' | 'zh' | 'ta' | 'unknown';`
+- Line 6: `const SUPPORTED_CODES: SupportedLanguage[] = ['en', 'ms', 'zh', 'ta'];`
+
+### Quality checks
+- Build: Successful (2.5MB dist/index.js, pre-existing warning only)
+- Server startup: Clean (MCP_SERVER_PORT=3002, no errors)
+- prd.json: Marked US-512 passes=true
+
+### Patterns discovered
+- UI should never offer unsupported backend features (prevents user errors)
+- Both chat-simulator and live-chat admin tabs use similar dropdown patterns
+- Translation helper was already correct with all 4 languages in LANG_LABELS
+
+### Gotchas fixed
+- Initial problem: Dropdowns showed id/th/vi (unsupported) but not ta (supported)
+- This mismatch could cause silent failures when users selected unsupported languages
+- Solution: Remove unsupported options, ensure all 4 backend-supported languages are present
+
+### Files modified
+- Modified: src/public/templates/tabs/chat-simulator.html (removed 3 unsupported languages, added ta)
+- Modified: src/public/templates/tabs/live-chat.html (removed 3 unsupported languages, added ta)
+- Verified: src/public/js/helpers/translation-helper.js (already correct)
+- Modified: prd.json (US-512 passes=true)
+
