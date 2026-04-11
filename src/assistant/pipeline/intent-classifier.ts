@@ -243,83 +243,97 @@ export async function classifyAndRoute(
     tier: devMetadata.source ?? 'unknown',
   });
 
-  // ─── US-280: Archive low-confidence messages for QA review ───────
-  if (result.confidence < 0.5) {
-    db.insert(rainbowLowconfMessages).values({
-      profile: state.profileId,
-      messageId: msg.messageId ?? null,
-      originalText: processText.slice(0, 2000),
-      predictedIntent: result.intent,
-      confidence: result.confidence,
-    }).catch((err) => logger.debug('lowconf-insert', { error: String(err) })); // fire-and-forget, non-fatal
-  }
-
-  // ─── US-376: Hard-case review queue (50-70% confidence) ──────────
-  if (result.confidence >= 0.5 && result.confidence <= 0.7) {
-    db.insert(hardCaseQueue).values({
-      messageText: processText.slice(0, 2000),
-      profile: state.profileId,
-      predictedIntent: result.intent,
-      confidence: result.confidence,
-      top3Candidates: [] as any,
-    }).catch((err) => logger.debug('hardcase-insert', { error: String(err) })); // fire-and-forget, non-fatal
-  }
-
-  // ─── US-043: Record intent classification metrics ─────────────────
+  // ─── US-508: Batch fire-and-forget DB inserts with Promise.allSettled ────────
+  // Collect all async DB/analytics operations into a batch to reduce pool pressure
   const classificationLatencyMs = Date.now() - classificationStartTime;
-  db.insert(intentAnalytics).values({
-    profileId: state.profileId,
-    intentType: result.intent,
-    confidence: result.confidence,
-    latencyMs: classificationLatencyMs,
-  }).catch((err) => logger.debug('analytics-insert', { error: String(err) })); // fire-and-forget
+  const batchOps: Promise<any>[] = [];
 
-  // ─── US-426: Record intent classification latency for percentile analytics ────
-  recordIntentLatency(result.intent, classificationLatencyMs, state.profileId)
-    .catch((err) => logger.debug('latency-recording', { error: String(err) })); // fire-and-forget
-
-  // ─── US-245: Record turn-by-turn confidence metadata ──────────────
-  const totalTokens = (devMetadata.usage?.prompt_tokens ?? 0) + (devMetadata.usage?.completion_tokens ?? 0);
-  recordTurnConfidence(phone, result.intent, result.confidence, totalTokens)
-    .catch((err) => logger.debug('confidence-recording', { error: String(err) })); // fire-and-forget
-
-  // ─── US-239: Audit log every classification decision ──────────────
-  logClassificationDecision({
-    profileName: state.profileId,
-    messageText: processText,
-    classifiedIntent: result.intent,
-    confidenceScore: result.confidence,
-  }).catch((err) => logger.debug('audit-logging', { error: String(err) })); // fire-and-forget
-
-  // ─── US-113: Persist intent prediction confidence scores ──────────
-  if (result.confidence >= 0.4) {
-    trackIntentPrediction(
-      phone,
-      phone,
-      processText,
-      result.intent,
-      result.confidence,
-      devMetadata.source ?? 'unknown',
-      devMetadata.model,
-      state.profileId
-    ).catch((err) => logger.debug('prediction-tracking', { error: String(err) })); // fire-and-forget, non-fatal
+  // US-280: Archive low-confidence messages for QA review
+  if (result.confidence < 0.5) {
+    batchOps.push(
+      db.insert(rainbowLowconfMessages).values({
+        profile: state.profileId,
+        messageId: msg.messageId ?? null,
+        originalText: processText.slice(0, 2000),
+        predictedIntent: result.intent,
+        confidence: result.confidence,
+      })
+    );
   }
 
-  // ─── US-212: Auto-flag low-confidence classifications for review ───
+  // US-376: Hard-case review queue (50-70% confidence)
+  if (result.confidence >= 0.5 && result.confidence <= 0.7) {
+    batchOps.push(
+      db.insert(hardCaseQueue).values({
+        messageText: processText.slice(0, 2000),
+        profile: state.profileId,
+        predictedIntent: result.intent,
+        confidence: result.confidence,
+        top3Candidates: [] as any,
+      })
+    );
+  }
+
+  // US-043: Record intent classification metrics
+  batchOps.push(
+    db.insert(intentAnalytics).values({
+      profileId: state.profileId,
+      intentType: result.intent,
+      confidence: result.confidence,
+      latencyMs: classificationLatencyMs,
+    })
+  );
+
+  // US-426: Record intent classification latency for percentile analytics
+  batchOps.push(recordIntentLatency(result.intent, classificationLatencyMs, state.profileId));
+
+  // US-245: Record turn-by-turn confidence metadata
+  const totalTokens = (devMetadata.usage?.prompt_tokens ?? 0) + (devMetadata.usage?.completion_tokens ?? 0);
+  batchOps.push(recordTurnConfidence(phone, result.intent, result.confidence, totalTokens));
+
+  // US-239: Audit log every classification decision
+  batchOps.push(
+    logClassificationDecision({
+      profileName: state.profileId,
+      messageText: processText,
+      classifiedIntent: result.intent,
+      confidenceScore: result.confidence,
+    })
+  );
+
+  // US-113: Persist intent prediction confidence scores
+  if (result.confidence >= 0.4) {
+    batchOps.push(
+      trackIntentPrediction(
+        phone,
+        phone,
+        processText,
+        result.intent,
+        result.confidence,
+        devMetadata.source ?? 'unknown',
+        devMetadata.model,
+        state.profileId
+      )
+    );
+  }
+
+  // US-212: Auto-flag low-confidence classifications for review
   if (result.confidence < 0.4) {
     const preview = processText.slice(0, 200);
     const keywords = [...new Set(
       processText.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3)
     )].slice(0, 20);
 
-    db.insert(escalationQueue).values({
-      conversationId: phone,
-      originalIntent: result.intent,
-      confidenceScore: result.confidence,
-      messagePreview: preview,
-      recommendedKeywords: JSON.stringify(keywords),
-      profile: state.profileId,
-    }).catch((err) => logger.debug('escalation-insert', { error: String(err) })); // fire-and-forget
+    batchOps.push(
+      db.insert(escalationQueue).values({
+        conversationId: phone,
+        originalIntent: result.intent,
+        confidenceScore: result.confidence,
+        messagePreview: preview,
+        recommendedKeywords: JSON.stringify(keywords),
+        profile: state.profileId,
+      })
+    );
 
     try {
       const logDir = path.join(process.cwd(), 'src', 'logs');
@@ -333,15 +347,38 @@ export async function classifyAndRoute(
       }) + '\n';
       fs.appendFileSync(path.join(logDir, 'escalation-flags.log'), logLine, 'utf-8');
     } catch (err) {
-      logger.debug('escalation-file-write', { error: String(err) }); // non-fatal
+      logger.debug('escalation-file-write', { error: String(err) });
     }
   }
 
-  // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
+  // US-432: Record utterance gap if T4 fallback or low confidence
   if (isIntentGap(devMetadata.source, result.confidence)) {
-    recordUtteranceGap(state.profileId, processText, devMetadata.source || 'unknown')
-      .catch((err) => logger.debug('utterance-gap-recording', { error: String(err) })); // fire-and-forget
+    batchOps.push(recordUtteranceGap(state.profileId, processText, devMetadata.source || 'unknown'));
   }
+
+  // Execute all batched operations concurrently and log any failures with structured error info
+  Promise.allSettled(batchOps).then((results) => {
+    const operationNames = [
+      result.confidence < 0.5 ? 'lowconf-insert' : null,
+      result.confidence >= 0.5 && result.confidence <= 0.7 ? 'hardcase-insert' : null,
+      'analytics-insert',
+      'latency-recording',
+      'confidence-recording',
+      'audit-logging',
+      result.confidence >= 0.4 ? 'prediction-tracking' : null,
+      result.confidence < 0.4 ? 'escalation-insert' : null,
+      isIntentGap(devMetadata.source, result.confidence) ? 'utterance-gap-recording' : null,
+    ].filter((op) => op !== null) as string[];
+
+    results.forEach((result, index) => {
+      if (result.status === 'rejected' && index < operationNames.length) {
+        const opName = operationNames[index];
+        logger.debug(opName, { error: String(result.reason) });
+      }
+    });
+  }).catch((err) => {
+    logger.debug('batch-allsettled', { error: String(err) });
+  });
 
   // ─── Stage 5: Routing ─────────────────────────────────────────────
   const routing = await resolveRouting(state, result, ackSent, context);
