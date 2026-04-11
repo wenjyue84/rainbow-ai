@@ -1233,3 +1233,64 @@ Confirmed via `src/assistant/language-router.ts`:
 - Verified: src/public/js/helpers/translation-helper.js (already correct)
 - Modified: prd.json (US-512 passes=true)
 
+## Iteration 2 - Sun, Apr 12, 2026  1:59:00 AM
+Completed: Remove Unsupported Languages from Admin Translation Dropdown (ID: US-512) in 3m
+
+
+## Iteration 18 - Story: Increase Graceful Shutdown Timeout to 30 Seconds (US-514) - COMPLETE
+
+### What was implemented
+
+Enhanced graceful shutdown behavior with configurable timeout and in-flight operation logging:
+
+1. **Added SHUTDOWN_TIMEOUT configuration** (src/index.ts line 740)
+   - New constant: `const SHUTDOWN_TIMEOUT = parseInt(process.env.SERVER_SHUTDOWN_TIMEOUT || '30000', 10);`
+   - Defaults to 30 seconds (30,000ms) instead of hardcoded 10 seconds
+   - Fully configurable via `SERVER_SHUTDOWN_TIMEOUT` environment variable
+   - Follows same pattern as other timeout constants (KEEP_ALIVE_TIMEOUT, HEADERS_TIMEOUT, REQUEST_TIMEOUT)
+
+2. **Enhanced forceExitOnSignal function** (src/index.ts lines 927-939)
+   - Now uses dynamic SHUTDOWN_TIMEOUT instead of hardcoded `10_000`
+   - Logs in-flight operations count before force-exit
+   - Two log messages:
+     - If in-flight operations exist: `"Force exiting after ${SHUTDOWN_TIMEOUT}ms timeout. ${inFlightCount} in-flight operations abandoned."`
+     - If no in-flight operations: `"Force exiting after ${SHUTDOWN_TIMEOUT}ms timeout."`
+   - Helps operators understand what was killed during shutdown
+
+3. **Updated startup log** (src/index.ts line 758)
+   - Startup now displays all timeout values including shutdown timeout
+   - Changed from: `keepAlive=...ms headers=...ms request=...ms`
+   - Changed to: `keepAlive=...ms headers=...ms request=...ms shutdown=...ms`
+
+### Acceptance criteria met
+✅ AC1: Timeout increased to 30s - default changed from 10_000ms to 30_000ms
+✅ AC2: Force-exit logs in-flight operations - activeConnections.size logged before exit
+✅ AC3: Configurable via SERVER_SHUTDOWN_TIMEOUT env var - env var fully supported with default fallback
+
+### Quality checks
+- Build: Successfully passes (2.5MB bundle size, pre-existing esbuild warning only)
+- Server startup: Verified with tsx (successfully initializes with new configuration)
+- prd.json: Marked US-514 passes=true
+
+### Patterns discovered
+- All server timeout configuration follows consistent naming: `SERVER_*_TIMEOUT` env vars with numeric millisecond defaults
+- In-flight operation tracking uses activeConnections Set already maintained by the server
+- Force-exit logging leverages activeConnections.size which provides real-time count of active HTTP connections
+
+### Gotchas
+- Default increased from 10s to 30s: This gives LLM calls adequate time (typical 15-20s duration) while still preventing indefinite hangs
+- activeConnections tracks socket connections, not individual in-flight requests (could be >1 request per connection on keep-alive)
+- The SHUTDOWN_TIMEOUT is a hard wall after which process.exit(1) fires regardless of cleanup completion
+
+### Files modified
+- Modified: src/index.ts
+  - Added SHUTDOWN_TIMEOUT constant (line 740)
+  - Updated startup log (line 758)
+  - Enhanced forceExitOnSignal with logging (lines 927-939)
+- Modified: prd.json (US-514 passes=true)
+
+### Why this matters
+The old 10-second timeout was too aggressive for production workloads where LLM calls can take 15-20 seconds. This change:
+- **Reliability**: Gives in-flight operations time to complete gracefully
+- **Observability**: Logs abandonment of in-flight ops so operators know what happened
+- **Flexibility**: Allows operators to tune timeout for their workload via environment variable

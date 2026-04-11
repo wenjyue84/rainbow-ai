@@ -737,6 +737,7 @@ app.use(createErrorHandlerMiddleware());
 const KEEP_ALIVE_TIMEOUT = parseInt(process.env.SERVER_KEEP_ALIVE_TIMEOUT || '65000', 10);
 const HEADERS_TIMEOUT = parseInt(process.env.SERVER_HEADERS_TIMEOUT || '66000', 10);
 const REQUEST_TIMEOUT = parseInt(process.env.SERVER_REQUEST_TIMEOUT || '30000', 10);
+const SHUTDOWN_TIMEOUT = parseInt(process.env.SERVER_SHUTDOWN_TIMEOUT || '30000', 10);
 
 server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT;
 server.headersTimeout = HEADERS_TIMEOUT;
@@ -754,7 +755,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`MCP endpoint: http://0.0.0.0:${PORT}/mcp`);
   console.log(`Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`API URL: ${apiUrl}${process.env.DIGIMAN_MANAGER_HOST || process.env.PELANGI_MANAGER_HOST ? ' (internal host)' : ''}`);
-  console.log(`Server timeouts: keepAlive=${KEEP_ALIVE_TIMEOUT}ms headers=${HEADERS_TIMEOUT}ms request=${REQUEST_TIMEOUT}ms`);
+  console.log(`Server timeouts: keepAlive=${KEEP_ALIVE_TIMEOUT}ms headers=${HEADERS_TIMEOUT}ms request=${REQUEST_TIMEOUT}ms shutdown=${SHUTDOWN_TIMEOUT}ms`);
 
   // US-450: DB, configStore, profileRegistry, and KnowledgeBase init all
   // completed before server.listen() was called (top-level awaits above).
@@ -923,12 +924,17 @@ const shutdown = async (signal: string) => {
   process.exit(0);
 };
 
-// Force exit after 10 s if graceful shutdown hangs
+// Force exit after SHUTDOWN_TIMEOUT if graceful shutdown hangs (US-514: configurable, default 30s)
 const forceExitOnSignal = (signal: string) => {
   setTimeout(() => {
-    console.error('[SHUTDOWN] Force exiting after 10 s timeout...');
+    const inFlightCount = activeConnections.size;
+    if (inFlightCount > 0) {
+      console.error(`[SHUTDOWN] Force exiting after ${SHUTDOWN_TIMEOUT}ms timeout. ${inFlightCount} in-flight operations abandoned.`);
+    } else {
+      console.error(`[SHUTDOWN] Force exiting after ${SHUTDOWN_TIMEOUT}ms timeout.`);
+    }
     process.exit(1);
-  }, 10_000).unref(); // unref so timer alone doesn't keep process alive
+  }, SHUTDOWN_TIMEOUT).unref(); // unref so timer alone doesn't keep process alive
 
   shutdown(signal);
 };
