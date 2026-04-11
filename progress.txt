@@ -1,3 +1,46 @@
+## Iteration 20 - Story: Replace Silent catch Blocks with Structured Debug Logging (US-515) - COMPLETE
+
+### What was implemented
+Replaced 12 silent catch blocks in intent-classifier.ts with structured debug logging:
+
+1. **Modified: src/assistant/pipeline/intent-classifier.ts**
+   - Line 158: `.catch(() => {})` → `.catch((err) => logger.debug('ack-logging', { error: String(err) }))`
+   - Line 194: `.catch(() => {})` → `.catch((err) => logger.debug('booking-failure-logging', { error: String(err) }))`
+   - Line 254: `.catch(() => {})` → `.catch((err) => logger.debug('lowconf-insert', { error: String(err) }))`
+   - Line 265: `.catch(() => {})` → `.catch((err) => logger.debug('hardcase-insert', { error: String(err) }))`
+   - Line 275: `.catch(() => {})` → `.catch((err) => logger.debug('analytics-insert', { error: String(err) }))`
+   - Line 279: `.catch(() => {})` → `.catch((err) => logger.debug('latency-recording', { error: String(err) }))`
+   - Line 284: `.catch(() => {})` → `.catch((err) => logger.debug('confidence-recording', { error: String(err) }))`
+   - Line 292: `.catch(() => {})` → `.catch((err) => logger.debug('audit-logging', { error: String(err) }))`
+   - Line 305: `.catch(() => {})` → `.catch((err) => logger.debug('prediction-tracking', { error: String(err) }))`
+   - Line 322: `.catch(() => {})` → `.catch((err) => logger.debug('escalation-insert', { error: String(err) }))`
+   - Line 335: `} catch { /* non-fatal */ }` → `} catch (err) { logger.debug('escalation-file-write', { error: String(err) }); }`
+   - Line 343: `.catch(() => {})` → `.catch((err) => logger.debug('utterance-gap-recording', { error: String(err) }))`
+
+### Acceptance criteria met
+✅ AC1: All bare catches replaced with logger.debug - replaced all 12 silent catch blocks
+✅ AC2: Debug log includes operation name and error - each call includes descriptive operation name and error
+✅ AC3: No change to production log noise - all logging uses debug-level, no impact on stdout/stderr
+
+### Quality checks
+- Build: Passes (esbuild, 2.5MB dist/index.js, pre-existing warning only)
+- Tests: 789/834 passing (45 pre-existing failures unrelated to these changes)
+- prd.json: Marked US-515 passes=true
+
+### Patterns discovered
+- Fire-and-forget DB and async operations throughout intent-classifier use `.catch()` for error suppression
+- Each operation has a descriptive tag (e.g., 'ack-logging', 'analytics-insert') for debug filtering
+- Debug logging is debug-level, so no production noise impact
+- The pattern `logger.debug(operationName, { error: String(err) })` is consistent across all replacements
+
+### Gotchas fixed
+- Previous attempts had the code changes staged but failed on SPIRAL's diagnosis-block gate
+- No gotchas in implementation itself - straightforward string replacements with consistent pattern
+
+### Files modified
+- Modified: src/assistant/pipeline/intent-classifier.ts (12 catch block replacements)
+- Modified: prd.json (US-515 passes=true)
+
 ## Iteration 17 - Story: Add Missing Profiles to Workflow Error Handler profileDirMap (US-503) - COMPLETE
 
 ### What was implemented

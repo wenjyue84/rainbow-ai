@@ -155,7 +155,7 @@ export async function classifyAndRoute(
       context.logMessage(phone, msg.pushName ?? 'Guest', 'assistant', ackText, {
         action: 'thinking', instanceId: msg.instanceId,
         ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
-      }).catch(() => {});
+      }).catch((err) => logger.debug('ack-logging', { error: String(err) }));
       console.log(`[Router] Sent thinking ack to ${phone} (LLM taking >3s)`);
     } catch { /* non-fatal */ }
   }, 3000);
@@ -191,7 +191,7 @@ export async function classifyAndRoute(
       profileId: state.profileId,
       top3Candidates: [{ intent: result.intent, confidence: result.confidence }],
       messageId: msg.messageId,
-    }).catch(() => {});
+    }).catch((err) => logger.debug('booking-failure-logging', { error: String(err) }));
   }
 
   // ─── US-119: Store language preference from first non-greeting message ───
@@ -251,7 +251,7 @@ export async function classifyAndRoute(
       originalText: processText.slice(0, 2000),
       predictedIntent: result.intent,
       confidence: result.confidence,
-    }).catch(() => {}); // fire-and-forget, non-fatal
+    }).catch((err) => logger.debug('lowconf-insert', { error: String(err) })); // fire-and-forget, non-fatal
   }
 
   // ─── US-376: Hard-case review queue (50-70% confidence) ──────────
@@ -262,7 +262,7 @@ export async function classifyAndRoute(
       predictedIntent: result.intent,
       confidence: result.confidence,
       top3Candidates: [] as any,
-    }).catch(() => {}); // fire-and-forget, non-fatal
+    }).catch((err) => logger.debug('hardcase-insert', { error: String(err) })); // fire-and-forget, non-fatal
   }
 
   // ─── US-043: Record intent classification metrics ─────────────────
@@ -272,16 +272,16 @@ export async function classifyAndRoute(
     intentType: result.intent,
     confidence: result.confidence,
     latencyMs: classificationLatencyMs,
-  }).catch(() => {}); // fire-and-forget
+  }).catch((err) => logger.debug('analytics-insert', { error: String(err) })); // fire-and-forget
 
   // ─── US-426: Record intent classification latency for percentile analytics ────
   recordIntentLatency(result.intent, classificationLatencyMs, state.profileId)
-    .catch(() => {}); // fire-and-forget
+    .catch((err) => logger.debug('latency-recording', { error: String(err) })); // fire-and-forget
 
   // ─── US-245: Record turn-by-turn confidence metadata ──────────────
   const totalTokens = (devMetadata.usage?.prompt_tokens ?? 0) + (devMetadata.usage?.completion_tokens ?? 0);
   recordTurnConfidence(phone, result.intent, result.confidence, totalTokens)
-    .catch(() => {}); // fire-and-forget
+    .catch((err) => logger.debug('confidence-recording', { error: String(err) })); // fire-and-forget
 
   // ─── US-239: Audit log every classification decision ──────────────
   logClassificationDecision({
@@ -289,7 +289,7 @@ export async function classifyAndRoute(
     messageText: processText,
     classifiedIntent: result.intent,
     confidenceScore: result.confidence,
-  }).catch(() => {}); // fire-and-forget
+  }).catch((err) => logger.debug('audit-logging', { error: String(err) })); // fire-and-forget
 
   // ─── US-113: Persist intent prediction confidence scores ──────────
   if (result.confidence >= 0.4) {
@@ -302,7 +302,7 @@ export async function classifyAndRoute(
       devMetadata.source ?? 'unknown',
       devMetadata.model,
       state.profileId
-    ).catch(() => {}); // fire-and-forget, non-fatal
+    ).catch((err) => logger.debug('prediction-tracking', { error: String(err) })); // fire-and-forget, non-fatal
   }
 
   // ─── US-212: Auto-flag low-confidence classifications for review ───
@@ -319,7 +319,7 @@ export async function classifyAndRoute(
       messagePreview: preview,
       recommendedKeywords: JSON.stringify(keywords),
       profile: state.profileId,
-    }).catch(() => {}); // fire-and-forget
+    }).catch((err) => logger.debug('escalation-insert', { error: String(err) })); // fire-and-forget
 
     try {
       const logDir = path.join(process.cwd(), 'src', 'logs');
@@ -332,13 +332,15 @@ export async function classifyAndRoute(
         preview,
       }) + '\n';
       fs.appendFileSync(path.join(logDir, 'escalation-flags.log'), logLine, 'utf-8');
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      logger.debug('escalation-file-write', { error: String(err) }); // non-fatal
+    }
   }
 
   // ─── US-432: Record utterance gap if T4 fallback or low confidence ─
   if (isIntentGap(devMetadata.source, result.confidence)) {
     recordUtteranceGap(state.profileId, processText, devMetadata.source || 'unknown')
-      .catch(() => {}); // fire-and-forget
+      .catch((err) => logger.debug('utterance-gap-recording', { error: String(err) })); // fire-and-forget
   }
 
   // ─── Stage 5: Routing ─────────────────────────────────────────────
