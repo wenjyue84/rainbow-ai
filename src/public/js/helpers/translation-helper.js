@@ -25,14 +25,13 @@ export function createTranslationHelper(config) {
 
   /**
    * Language code to label mapping
+   * Supported languages: en, ms, zh, ta
    */
   const LANG_LABELS = {
     en: 'English',
     ms: 'Malay',
     zh: 'Chinese',
-    id: 'Indonesian',
-    th: 'Thai',
-    vi: 'Vietnamese'
+    ta: 'Tamil'
   };
 
   /**
