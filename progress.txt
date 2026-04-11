@@ -1645,6 +1645,7 @@ FAILED diagnosis-block gate: Profile Isolation Validation Test Suite for Makan a
 *   The adaptation logic can be complex; start simple (e.g., entity substitution) and iterate.
 *   Implement a final fallback to a generic template if no similar resolved cases are found above the similarity threshold (e.g., score > 0.7).
 
+<<<<<<< Updated upstream
 
 ## Iteration [SPIRAL] - Story: Fallback Response Generation from Similar Resolved Cases (US-486) ✓ COMPLETE
 
@@ -1928,3 +1929,96 @@ This is a TypeScript project. The primary new files will be:
 *   The mechanism for updating baselines should be considered; the story implies they are pre-calculated but doesn't specify the update trigger.
 *   The alert message must be formatted exactly as required, including the link to the contamination detector tool.
 
+=======
+>>>>>>> Stashed changes
+
+
+## Iteration [SPIRAL Attempt 1] - Story: US-487 Intent Classification Per-Profile Baseline Drift Detector — COMPLETED
+
+### What was implemented
+
+#### Core Module: `src/monitoring/profile-intent-drift.ts`
+- **calculateF1()**: Computes macro-average F1 score from multi-class classification results
+  - Iterates per unique intent across all classifications
+  - Calculates TP/FP/FN for each intent independently
+  - Macro-averages F1 scores across all intents (treats all intents equally)
+- **getBaselineF1()**: Queries `rainbow_intent_baselines` table for historical F1 score per profile
+- **computeAndStoreBaseline()**: 
+  - Fetches last 100 messages from `intent_classification_decisions` table
+  - Computes F1 score
+  - Upserts into `rainbow_intent_baselines` table with ON CONFLICT handling
+- **detectIntentDrift()**: Main orchestrator
+  - Gets last 100 messages for profile
+  - Calculates current F1
+  - Retrieves or computes baseline F1
+  - Compares: alerts if current_f1 < (baseline_f1 * 0.95)
+  - Returns JSON report with all acceptance criteria fields
+
+#### CLI Script: `scripts/check-intent-drift.ts`
+- Parses `--profile` and `--threshold` arguments
+- Calls detectIntentDrift() and outputs JSON to stdout
+- Exits with code 1 if alert triggered, 0 otherwise
+- Integrates with npm script `check:intent-drift`
+
+#### Database Migration: `migrations/add-intent-baselines-table.sql`
+- Creates `rainbow_intent_baselines(id, profile_id, f1_score, message_count, updated_at)`
+- Unique index on profile_id (one baseline per profile)
+- Supports multiple profiles (pelangi, makan, southern)
+
+#### Tests: `tests/unit/monitoring/profile-intent-drift.test.ts`
+- 12 unit tests covering:
+  - Module export validation
+  - F1 calculation with perfect/degraded classifications
+  - Alert threshold logic (5% drop detection)
+  - Contamination recommendation generation
+  - Multi-threshold scenarios
+  - Null handling for unlabeled messages
+  - Report structure validation
+
+### Patterns discovered
+
+1. **Macro vs Micro F1**: Chose macro-average because:
+   - Per-profile drift detection treats all intents equally
+   - Doesn't bias toward high-frequency intents
+   - Simpler to interpret per-intent F1 trends
+
+2. **Database Choice**: Used `intent_classification_decisions` table (existing)
+   - Already tracks both predicted and actual intents
+   - Has timestamp for ordering by recency
+   - No extra migration for data collection needed
+
+3. **Baseline Strategy**: On-demand computation
+   - First call to detectIntentDrift() computes + stores baseline
+   - Subsequent calls compare against stored baseline
+   - Supports bootstrapping new profiles without manual intervention
+
+### Quality Checks (All Passing)
+- Build: ✓ esbuild (2.5MB dist/index.js, 196ms)
+- Tests: ✓ 12/12 passing (669ms)
+- Server startup: ✓ verified (MCP_SERVER_PORT=3002)
+- Acceptance criteria: ✓ all 3 met:
+  1. CLI command returns JSON with baseline_f1, current_f1, percent_change, alert_triggered, messages_analyzed_count, recommended_action
+  2. F1 stored in rainbow_intent_baselines table with profile_id, f1_score, message_count, updated_at
+  3. Alert + contamination audit suggestion included when threshold breached
+
+### Technical Details
+- F1 = 2 * (Precision * Recall) / (Precision + Recall)
+- Per-intent TP/FP/FN calculation across all classifications
+- Macro-averaging: sum of per-intent F1 / number of intents
+- Alert threshold: 5% drop (current < baseline * 0.95)
+- Message window: last 100 messages per profile (rolling)
+- Return codes: 0 (success, no alert), 1 (alert triggered)
+
+### Files Created/Modified
+- NEW: `src/monitoring/profile-intent-drift.ts` (156 lines)
+- NEW: `scripts/check-intent-drift.ts` (26 lines)
+- NEW: `migrations/add-intent-baselines-table.sql` (14 lines)
+- NEW: `tests/unit/monitoring/profile-intent-drift.test.ts` (236 lines)
+- MODIFIED: `package.json` (added `check:intent-drift` script)
+
+### Deployment Ready
+All acceptance criteria met. Ready for:
+- `npm run check:intent-drift -- --profile pelangi` (returns drift report)
+- `npm run check:intent-drift -- --profile makan --threshold 0.03` (custom threshold)
+- Baseline auto-initialization on first run
+- Database schema ready (migration pending drizzle-kit push)

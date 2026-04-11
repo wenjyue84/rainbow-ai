@@ -21,7 +21,7 @@ export interface DriftDetectionReport {
 }
 
 /**
- * Calculate F1 score from classification results
+ * Calculate F1 score from classification results using macro-average
  * F1 = 2 * (Precision * Recall) / (Precision + Recall)
  */
 function calculateF1(
@@ -29,54 +29,46 @@ function calculateF1(
 ): number {
   if (classifications.length === 0) return 0;
 
-  const intentMetrics = new Map<
-    string,
-    { tp: number; fp: number; fn: number }
-  >();
+  const intentSet = new Set<string>();
 
-  // Calculate TP, FP, FN per intent
+  // Collect all unique intents
   for (const { classifiedIntent, actualIntent } of classifications) {
-    if (!intentMetrics.has(classifiedIntent)) {
-      intentMetrics.set(classifiedIntent, { tp: 0, fp: 0, fn: 0 });
-    }
-
-    const metrics = intentMetrics.get(classifiedIntent)!;
-    if (classifiedIntent === actualIntent) {
-      metrics.tp++;
-    } else {
-      metrics.fp++;
+    intentSet.add(classifiedIntent);
+    if (actualIntent) {
+      intentSet.add(actualIntent);
     }
   }
 
-  // Count FN for each actual intent
-  for (const { actualIntent } of classifications) {
-    if (actualIntent && !intentMetrics.has(actualIntent)) {
-      intentMetrics.set(actualIntent, { tp: 0, fp: 0, fn: 0 });
-    }
-    if (actualIntent && actualIntent !== '') {
-      const metrics = intentMetrics.get(actualIntent)!;
-      const wasCorrect = classifications.some(
-        (c) => c.classifiedIntent === actualIntent && c.actualIntent === actualIntent
-      );
-      if (!wasCorrect) {
-        metrics.fn++;
+  // Calculate metrics per intent
+  let totalF1 = 0;
+  let validIntentCount = 0;
+
+  for (const intent of intentSet) {
+    let tp = 0;
+    let fp = 0;
+    let fn = 0;
+
+    // Count TP, FP, FN for this intent
+    for (const { classifiedIntent, actualIntent } of classifications) {
+      if (classifiedIntent === intent && actualIntent === intent) {
+        tp++;
+      } else if (classifiedIntent === intent && actualIntent !== intent) {
+        fp++;
+      } else if (classifiedIntent !== intent && actualIntent === intent) {
+        fn++;
       }
     }
-  }
 
-  // Calculate macro-average F1 across all intents
-  let totalF1 = 0;
-  let intentCount = 0;
-
-  for (const { tp, fp, fn } of intentMetrics.values()) {
+    // Calculate precision and recall for this intent
     const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
     const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
     const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+
     totalF1 += f1;
-    intentCount++;
+    validIntentCount++;
   }
 
-  return intentCount > 0 ? totalF1 / intentCount : 0;
+  return validIntentCount > 0 ? totalF1 / validIntentCount : 0;
 }
 
 /**
