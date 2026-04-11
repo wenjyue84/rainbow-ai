@@ -102,3 +102,42 @@ Implementation already existed from previous attempt (commit b836b01). This atte
 ## Iteration 2 - Sat, Apr 11, 2026  6:13:09 PM
 Completed: Profile Data Content Audit Report Generator with Migration Checklist (ID: US-493) in 2m
 
+
+## Iteration 8 - Story: Validate Conversation Message Timestamp Ordering with Clock Skew Detection (US-468)
+
+### What was implemented
+1. **Core Module: src/assistant/pipeline/timestamp-validator.ts** (125 lines)
+   - `validateTimestamps(messages, conversationId)`: validates ChatMessage[] timestamp ordering
+   - Flags backwards timestamps (current < previous by > 1s)
+   - Reorders adjacent messages when clock skew < 5s; counts as reorder event
+   - Detects duplicate timestamps: WARN if > 3, ERROR if > 10
+   - Skips gracefully when message.timestamp is null/undefined
+   - Returns `{ messages, reordered_count, duplicate_count, max_gap_ms }`
+   - Logs `timestamp_validation_result` via createModuleLogger('TimestampValidator')
+
+2. **Pipeline Integration: src/assistant/pipeline/index.ts** (16 lines)
+   - Minimal registry/export module since pipeline/index.ts did not previously exist
+   - Re-exports validateTimestamps and TimestampValidationResult for use in pipeline stages
+
+3. **Test Fixture: tests/fixtures/conversations/out-of-order-multi-turn.json**
+   - 7 scenario fixtures: normal_order, small_clock_skew, large_backwards_gap,
+     duplicate_timestamps_warn, duplicate_timestamps_error, null_timestamps, empty_conversation
+
+4. **Test Suite: tests/unit/timestamp-validator.test.ts** (16 tests, all passing)
+   - Covers all acceptance criteria: reorder, no-reorder for large gaps, duplicate thresholds,
+     null timestamps, empty conversations, max_gap_ms, default conversationId
+
+### Quality checks
+- Tests: 16/16 passing (9ms runtime)
+- Build: pre-existing esbuild error in src/lib/monitoring/latency-tracker.ts (unrelated to this story — verified by stash test)
+- prd.json: marked passes=true for US-468
+
+### Patterns discovered
+- `pipeline/index.ts` did not exist; created as a lightweight export aggregator
+- ChatMessage.timestamp is Unix seconds; max_gap_ms must convert via * 1000
+- The insertion sort approach works for single-pass adjacent swaps; deep reordering requires
+  a full sort but the PRD only requires swapping adjacent messages for small clock skew
+
+### Gotchas
+- Windows Python (cp1252 codec) fails on JSON with special chars; use Node.js for prd.json updates
+- Test fixture assert type: `import ... assert { type: 'json' }` needed for ESM JSON imports

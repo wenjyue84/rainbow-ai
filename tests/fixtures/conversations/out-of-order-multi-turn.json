@@ -1,0 +1,79 @@
+{
+  "description": "Test fixture for US-468: Multi-turn conversations with out-of-order timestamps and clock skew",
+  "conversations": {
+    "normal_order": {
+      "id": "normal-convo-001",
+      "messages": [
+        { "role": "user",      "content": "Hi, I want to check in.",       "timestamp": 1700000000 },
+        { "role": "assistant", "content": "Welcome! What's your name?",     "timestamp": 1700000010 },
+        { "role": "user",      "content": "My name is Alice.",              "timestamp": 1700000025 },
+        { "role": "assistant", "content": "Great, Alice! Room 101 is ready.", "timestamp": 1700000035 }
+      ]
+    },
+    "small_clock_skew": {
+      "id": "skew-convo-001",
+      "description": "Two adjacent messages with < 5s backwards offset — should be reordered",
+      "messages": [
+        { "role": "user",      "content": "I need to check out.",           "timestamp": 1700001000 },
+        { "role": "assistant", "content": "Sure! Let me process that.",     "timestamp": 1700001010 },
+        { "role": "assistant", "content": "Checkout done. Goodbye!",        "timestamp": 1700001008 },
+        { "role": "user",      "content": "Thank you!",                     "timestamp": 1700001020 }
+      ]
+    },
+    "large_backwards_gap": {
+      "id": "backwards-convo-001",
+      "description": "A message with a large backwards timestamp (> 5s) — should be flagged but NOT reordered",
+      "messages": [
+        { "role": "user",      "content": "What rooms are available?",      "timestamp": 1700002000 },
+        { "role": "assistant", "content": "We have rooms 101-105 available.", "timestamp": 1700002010 },
+        { "role": "user",      "content": "I'll take room 102.",            "timestamp": 1700001950 },
+        { "role": "assistant", "content": "Room 102 is booked for you.",    "timestamp": 1700002020 }
+      ]
+    },
+    "duplicate_timestamps_warn": {
+      "id": "dup-warn-convo-001",
+      "description": "5 messages share the same timestamp — should trigger WARN (> 3 duplicates)",
+      "messages": [
+        { "role": "user",      "content": "Message A", "timestamp": 1700003000 },
+        { "role": "assistant", "content": "Reply A",   "timestamp": 1700003000 },
+        { "role": "user",      "content": "Message B", "timestamp": 1700003000 },
+        { "role": "assistant", "content": "Reply B",   "timestamp": 1700003000 },
+        { "role": "user",      "content": "Message C", "timestamp": 1700003000 },
+        { "role": "assistant", "content": "Done.",      "timestamp": 1700003010 }
+      ]
+    },
+    "duplicate_timestamps_error": {
+      "id": "dup-error-convo-001",
+      "description": "12 messages share the same timestamp — should trigger ERROR (> 10 duplicates)",
+      "messages": [
+        { "role": "user",      "content": "Msg 1",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 1",  "timestamp": 1700004000 },
+        { "role": "user",      "content": "Msg 2",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 2",  "timestamp": 1700004000 },
+        { "role": "user",      "content": "Msg 3",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 3",  "timestamp": 1700004000 },
+        { "role": "user",      "content": "Msg 4",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 4",  "timestamp": 1700004000 },
+        { "role": "user",      "content": "Msg 5",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 5",  "timestamp": 1700004000 },
+        { "role": "user",      "content": "Msg 6",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Rep 6",  "timestamp": 1700004000 },
+        { "role": "assistant", "content": "Final.", "timestamp": 1700004010 }
+      ]
+    },
+    "null_timestamps": {
+      "id": "null-ts-convo-001",
+      "description": "Messages with null timestamps — should be skipped gracefully",
+      "messages": [
+        { "role": "user",      "content": "Hello",        "timestamp": null },
+        { "role": "assistant", "content": "Hi there!",    "timestamp": null },
+        { "role": "user",      "content": "Room price?",  "timestamp": 1700005000 }
+      ]
+    },
+    "empty_conversation": {
+      "id": "empty-convo-001",
+      "description": "Empty conversation — should return empty result gracefully",
+      "messages": []
+    }
+  }
+}
