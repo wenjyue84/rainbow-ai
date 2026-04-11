@@ -48,6 +48,7 @@ import { ensureConfigTables } from './lib/config-db.js';
 import { reloadLLMSettingsFromDB } from './assistant/llm-settings-loader.js';
 import { loadIntentTiersFromDB } from './assistant/intent-config.js';
 import { initPricingFromDB } from './assistant/pricing.js';
+import { destroyAssistant } from './assistant/index.js';
 import { initAllergenStore } from './lib/allergen-store.js';
 import { loadMenuItemsFromDB, ensureStockEventsTable } from './lib/menu-items-store.js';
 import { loadOptOutCache } from './assistant/opt-out.js';
@@ -918,6 +919,14 @@ const shutdown = async (signal: string) => {
     console.log('[SHUTDOWN] PostgreSQL pool drained.');
   } catch (err: any) {
     console.warn('[SHUTDOWN] Pool drain error:', err.message);
+  }
+
+  // 6. Drain BullMQ workers and close queue (US-506)
+  try {
+    await destroyAssistant();
+    console.log('[SHUTDOWN] BullMQ workers drained and closed.');
+  } catch (err: any) {
+    console.warn('[SHUTDOWN] BullMQ drain error:', err.message);
   }
 
   console.log('[SHUTDOWN] Cleanup complete. Exiting.');
