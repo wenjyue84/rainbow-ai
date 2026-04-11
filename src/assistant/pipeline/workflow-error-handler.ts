@@ -45,6 +45,9 @@ export function loadRecoveryMessages(profile: string = 'pelangi'): RecoveryMessa
       'pelangi': 'data',
       'southern': 'data-southern',
       'makan': 'data-makan',
+      'yoongmei': 'data-yoongmei',
+      'pms-capsule': 'data-pms-capsule',
+      'pms-southern': 'data-pms-southern',
     };
 
     const profileDir = profileDirMap[profile] || 'data';
