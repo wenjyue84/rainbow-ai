@@ -1,3 +1,52 @@
+## Iteration 22 - Story: Drain BullMQ Workers on Graceful Shutdown (US-506) - COMPLETE
+
+### What was implemented
+Added BullMQ worker draining to the graceful shutdown handler in src/index.ts:
+
+1. **Modified: src/index.ts** (lines 51, 924-930)
+   - Added import: `import { destroyAssistant } from './assistant/index.js';`
+   - Added step 6 in graceful shutdown: Call `await destroyAssistant()` after PostgreSQL pool drain
+   - Added logging: `[SHUTDOWN] BullMQ workers drained and closed.`
+   - Added error handling with graceful fallback: logs warn if destroyAssistant throws
+
+### How it works
+- When SIGTERM/SIGINT is received, the graceful shutdown handler now:
+  1. Stops accepting new connections
+  2. Destroys idle keep-alive connections
+  3. Stops WhatsApp sockets (existing)
+  4. Drains PostgreSQL pool (existing)
+  5. **NEW:** Calls destroyAssistant() which:
+     - Closes BullMQ queue events
+     - Closes BullMQ worker (drains in-flight jobs)
+     - Closes dead letter queue (DLQ)
+     - Closes main message queue
+     - Closes Redis client
+  6. Exits cleanly with process.exit(0)
+
+### Acceptance criteria met
+✅ AC1: BullMQ workers closed during SIGTERM - destroyAssistant() calls closeQueue() which awaits worker.close()
+✅ AC2: In-flight jobs complete before exit - worker.close() drains in-flight jobs before returning
+✅ AC3: Shutdown log includes BullMQ drain status - logs '[SHUTDOWN] BullMQ workers drained and closed.'
+
+### Quality checks
+- Build: Passes (esbuild, 2.5MB dist/index.js, pre-existing warning only)
+- Server startup: Passes (no crashes, proper graceful shutdown handler initialized)
+- prd.json: Marked US-506 passes=true
+
+### Patterns discovered
+- BullMQ cleanup is already implemented in src/lib/message-queue.ts::closeQueue()
+- The assistant/index.ts module exports destroyAssistant() which calls closeQueue()
+- No new dependencies or code patterns needed - just wired existing cleanup into main shutdown
+
+### Gotchas fixed
+- closeQueue() was exported from message-queue.ts and called from assistant/index.ts, but was never called from the main server shutdown handler
+- Had to import destroyAssistant from assistant/index.js and call it during graceful shutdown
+- Error handling wrapped in try/catch to prevent shutdown handler from crashing on BullMQ cleanup errors
+
+### Files modified
+- Modified: src/index.ts (added import + BullMQ drain step in shutdown function)
+- Modified: prd.json (US-506 passes=true)
+
 ## Iteration 20 - Story: Replace Silent catch Blocks with Structured Debug Logging (US-515) - COMPLETE
 
 ### What was implemented
