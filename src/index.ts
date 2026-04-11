@@ -83,6 +83,7 @@ import { validateProfileIntents, validateProfileRouting } from './lib/config.js'
 import { validateAllProfiles as validateIntentWhitelists, getViolationsSummary } from './assistant/validators/profile-intent-whitelist.js';
 import { enforceProfileIntegrity } from './lib/profile-integrity.js';
 import { validateKnowledgeBase, formatValidationReport } from './lib/validate-knowledge-base.js';
+import { createErrorHandlerMiddleware } from './lib/error-handler.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -704,20 +705,12 @@ app.use((_req: express.Request, res: express.Response) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// ── Express 5 centralized error handler (US-494 + US-504) ──────────
-// Express 5 auto-propagates rejected promises from async handlers here.
-// Admin router has its own error handler; this catches errors from non-admin routes.
+// ── US-467: Intelligent Error Classification & Routing ──────────────
+// Express 5 centralized error handler with incident classification.
+// Categorizes errors into 6 types (intent misclassification, context retrieval, etc.),
+// routes to appropriate remediation handlers, and tracks routing success metrics.
 // US-504: Never leak stack traces, file paths, or secrets to the client.
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (res.headersSent) return;
-
-  // Log full error server-side for debugging
-  console.error('[ErrorHandler]', err);
-
-  const status = typeof err.status === 'number' ? err.status : 500;
-  // Never send internal error details to the client
-  res.status(status).json({ error: 'Internal server error' });
-});
+app.use(createErrorHandlerMiddleware());
 
 // Configure HTTP server timeouts to prevent 502s from load balancer keep-alive races.
 // Node.js defaults (keepAliveTimeout=5s, headersTimeout=60s) are shorter than AWS ALB (60s),
