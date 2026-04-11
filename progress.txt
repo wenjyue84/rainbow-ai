@@ -2074,3 +2074,37 @@ On attempt 2, verified existing implementation and committed only prd.json + pro
 - Tests: ✓ 12/12 passing
 - CLI command: ✓ npm run check:intent-drift
 - passes: true
+## Iteration 4 - Sat, Apr 11, 2026  5:24:41 PM
+FAILED diagnosis-block gate: Intent Classification Per-Profile Baseline Drift Detector (ID: US-487) — no diagnosis block found — attempt 2/3
+
+
+## Pre-analysis for US-487 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the user story in a Frappe/Python environment.
+
+**Subject: Technical Brief for US-487: Intent Drift Detector**
+**Target App: `lhdn_payroll_integration`**
+
+This brief outlines the implementation of an intent classification baseline drift detector within the Frappe framework, translating the core requirements from the provided user story.
+
+**1. Python Files to Modify/Create:**
+*   `lhdn_payroll_integration/hooks.py`: To register a new `bench` command and a daily scheduled job.
+*   `lhdn_payroll_integration/scripts/intent_drift_detector.py` (New File): This will contain the main business logic for calculating F1 scores, managing baselines, and triggering alerts.
+
+**2. Frappe DocTypes & Hooks:**
+*   **New DocType:** `Intent Baseline`:
+    *   Fields: `profile_name` (Data), `baseline_f1` (Float), `message_count` (Int), `updated_at` (Datetime).
+*   **Hooks (`hooks.py`):**
+    *   `app_commands`: Define a CLI command like `bench execute lhdn_payroll_integration.check_drift`.
+    *   `scheduler_events`: Set up a `daily` event to run the drift check automatically.
+
+**3. Recommended Implementation Approach:**
+*   The `intent_drift_detector.py` script will implement a main function (`run_check`) that accepts `profile` and `threshold` parameters.
+*   It will query the relevant DocType holding message data (e.g., `Communication`) to get the last 100 records for the profile.
+*   The script will calculate the current F1 score based on predicted vs. actual intent fields in the message DocType.
+*   It will compare the current score to the value stored in the `Intent Baseline` DocType and use `frappe.throw` or a logging mechanism to alert if the drop exceeds the threshold.
+
+**4. Edge Cases & Gotchas:**
+*   The system must handle new profiles by establishing an initial baseline on the first run rather than alerting.
+*   Gracefully manage profiles with insufficient message data (fewer than 100 messages) to avoid skewed results.
+*   The F1 calculation assumes a "ground truth" for intent is available on each message record. This dependency must be met.
+

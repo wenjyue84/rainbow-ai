@@ -10,6 +10,7 @@ import { recordStepMetric } from './workflow-profiler.js';
 import { pool } from '../lib/db.js';
 import { validateBookingPreconditions, extractBookingContext } from './booking-validator.js';
 import { checkBookingUnitAvailability } from './booking-unit-availability-check.js';
+import { createProfileSanitizer, type BookingInput } from '../lib/booking-input-sanitizer.js';
 import type { HybridWorkflowDefinition } from './workflow-nodes.js';
 import { isNodeBasedWorkflow, convertRawPhonesToLinks } from './workflow-nodes.js';
 import {
@@ -339,6 +340,77 @@ export async function executeWorkflowStep(
   }
 
   let response = getStepMessage(currentStep, language);
+
+  // ─── US-490: Booking Workflow Input Sanitizer ─────────────────────────
+  // Validate and sanitize booking form inputs before passing to workflow engine
+  if (currentStep.id && (state.workflowId.includes('book') || state.workflowId.includes('booking'))) {
+    try {
+      // Get the profile for this workflow
+      const profileId = context.profileId || 'pelangi';
+      const sanitizer = createProfileSanitizer(profileId);
+
+      // Construct booking input from collected data
+      const bookingInput: BookingInput = {
+        profile: profileId,
+        guestName: state.collectedData.guest_name,
+        guestPhone: state.collectedData.guest_phone,
+        guestEmail: state.collectedData.guest_email,
+        checkInDate: state.collectedData.check_in_date,
+        checkOutDate: state.collectedData.check_out_date,
+        guestCount: state.collectedData.guest_count ? parseInt(state.collectedData.guest_count, 10) : undefined,
+        unitType: state.collectedData.unit_type,
+        specialRequests: state.collectedData.special_requests,
+      };
+
+      // Run sanitization
+      const sanitizationResult = sanitizer(bookingInput);
+
+      // Log violations with details
+      if (sanitizationResult.violations.length > 0) {
+        const violationDetails = sanitizationResult.violations.map(v =>
+          `[${v.severity.toUpperCase()}] ${v.field}: ${v.issue}${v.suggestion ? ` (${v.suggestion})` : ''}`
+        ).join('\n');
+
+        console.warn(
+          `[WorkflowExecutor] US-490: Booking input sanitization found ${sanitizationResult.violations.length} violation(s) for profile "${profileId}":\n${violationDetails}`
+        );
+      }
+
+      // If validation fails (error-level violations), return early
+      if (!sanitizationResult.valid) {
+        const errorViolations = sanitizationResult.violations.filter(v => v.severity === 'error');
+        const errorMessage = errorViolations.map(v => `${v.field}: ${v.issue}`).join('\n');
+
+        return {
+          response: `Booking validation errors:\n${errorMessage}\n\nPlease review your information and try again.`,
+          newState: null,
+          shouldForward: true,
+          workflowId: state.workflowId,
+          stepId: currentStep.id
+        };
+      }
+
+      // Update collected data with sanitized values (for data that passed validation)
+      if (sanitizationResult.sanitized) {
+        if (sanitizationResult.sanitized.guestName) state.collectedData.guest_name = sanitizationResult.sanitized.guestName;
+        if (sanitizationResult.sanitized.guestPhone) state.collectedData.guest_phone = sanitizationResult.sanitized.guestPhone;
+        if (sanitizationResult.sanitized.guestEmail) state.collectedData.guest_email = sanitizationResult.sanitized.guestEmail;
+        if (sanitizationResult.sanitized.checkInDate) state.collectedData.check_in_date = sanitizationResult.sanitized.checkInDate?.toString();
+        if (sanitizationResult.sanitized.checkOutDate) state.collectedData.check_out_date = sanitizationResult.sanitized.checkOutDate?.toString();
+        if (sanitizationResult.sanitized.guestCount) state.collectedData.guest_count = sanitizationResult.sanitized.guestCount.toString();
+        if (sanitizationResult.sanitized.unitType) state.collectedData.unit_type = sanitizationResult.sanitized.unitType;
+        if (sanitizationResult.sanitized.specialRequests) state.collectedData.special_requests = sanitizationResult.sanitized.specialRequests;
+      }
+
+      console.log(`[WorkflowExecutor] US-490: Booking input sanitization passed for profile "${profileId}"`);
+    } catch (err) {
+      // Log sanitization errors but allow workflow to proceed (fail-open)
+      console.error(
+        `[WorkflowExecutor] US-490: Unexpected error during booking input sanitization:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   // ─── US-228: Booking Precondition Validation ──────────────────────
   // Validate preconditions before executing booking workflow steps
