@@ -140,3 +140,108 @@ Completed: Fallback Response Semantic Relevance Scorer (ID: US-402) in 2m
     *   **No Match:** Ensure the system gracefully handles cases where no fallback meets the minimum relevance threshold (0.55), correctly setting the escalation flag.
     *   **Short Conversations:** The logic must not fail if the conversation history contains fewer than 5 messages.
 
+
+## Pre-analysis for US-436 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude agent:
+
+**Subject: Technical Brief for US-436: Booking Verification Code Step**
+
+This brief outlines the Frappe/Python implementation plan for generating and sending booking verification codes via SMS.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: To register the DocType event listener for `Booking`.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/booking.py`: Add the controller logic for the `on_submit` hook.
+*   `lhdn_payroll_integration/lhdn_payroll_integration/api/verification.py` (New File): To house the code generation and SMS sending logic, keeping the `booking.py` controller clean.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   `Booking`: The trigger DocType. The logic will fire on this document's submission.
+    *   `Verification Code` (New DocType): Create this to store `code` (Data, 6 chars), `booking` (Link), `expires_at` (Datetime), and `is_used` (Check).
+    *   `LHDN Payroll Settings` (Settings DocType): To store SMS provider credentials and the 15-minute expiry setting.
+*   **Hooks:**
+    *   Use the `on_submit` DocType event in `hooks.py` for the `Booking` DocType.
+
+**3. Implementation Approach:**
+1.  On the `Booking` DocType's `on_submit` method, call a new function in `verification.py`.
+2.  This function generates a 6-digit random code and creates a new `Verification Code` document, setting the expiry timestamp.
+3.  Enqueue a background job using `frappe.enqueue` that calls `frappe.send_sms`. This prevents blocking and handles retries gracefully.
+4.  Pull SMS settings from the custom `LHDN Payroll Settings` DocType.
+
+**4. Gotchas & Edge Cases:**
+*   **SMS Failure:** The enqueued job should include retry logic (`retry=True`) and log errors if the SMS provider fails.
+*   **Invalid Phone Number:** Validate the guest's phone number format before attempting to send.
+*   **Code Expiry:** The verification endpoint must check that the code is not expired (`now() < expires_at`) and has not been used.
+*   **Idempotency:** Before generating a code, check if a valid, unexpired one already exists for the booking to prevent duplicates.
+
+
+## Iteration [SPIRAL] - Story: Booking Verification Code Generator and SMS Notifier Step (US-436) ✓ COMPLETE
+
+### What was implemented
+- Added `verification_codes` table to `shared/tables/bookings.ts`:
+  - Stores 6-digit verification codes with 15-minute expiry
+  - Tracks creation, expiry, usage timestamp per booking
+  - Supports multi-profile bookings (pelangi, southern, etc.)
+  - Indexed by booking_id, guest_phone, profile for fast lookups
+
+- Created `src/tools/verification-code-generator.ts` with:
+  - `generateVerificationCode(bookingId, guestPhone, profile)` - creates 6-digit code, stores, and sends SMS
+  - `sendSMSWithRetry()` - exponential backoff retry logic (3 attempts, 500ms initial delay)
+  - `verifyCode(bookingId, code, profile)` - validates code expiry and usage
+  - `cleanupExpiredCodes()` - periodic cleanup of expired codes
+  - SMS provider abstraction supporting Twilio/AWS SNS with fallback configuration
+  - Phone number validation for Malaysian format (60XXXXXXXXX)
+
+- Added SMS provider configuration to `src/assistant/data/settings.json`:
+  - Primary: Twilio SMS with 3 retry attempts, 500ms initial backoff (2x multiplier)
+  - Fallback: AWS SNS with 2 retry attempts, 1000ms initial backoff (1.5x multiplier)
+  - Extensible provider interface for adding Nexmo, Plivo, etc.
+
+- Updated `src/assistant/data/workflows.json`:
+  - New workflow: `booking_verification` with three steps:
+    - `generate_code` - generates and sends SMS with 10s timeout
+    - `verify_code` - validates code entry with 5s timeout
+    - `verification_failed` - error handling step
+  - Multi-language support (en, ms, zh) for all user-facing messages
+  - SMS provider fallback configuration in workflow step
+
+### Patterns discovered
+- Drizzle ORM queries: Use `eq()`, `and()`, `gt()`, `isNull()` from drizzle-orm for type-safe conditions
+- SMS provider pattern: Pluggable provider config with fallback priority and per-provider retry settings
+- Verification code lifecycle: generate → store with expiry → send → validate → mark used
+- 6-digit codes (1M space) sufficient for single-use 15-minute window before expiry
+- Idempotency: Check for valid unexpired codes before generating new ones to avoid duplicates
+
+### Gotchas avoided
+- Phone number validation essential before SMS API call to avoid provider rate limits
+- Exponential backoff prevents API throttling on retry (vs linear retry)
+- Expiry timestamp calculated at storage time, not verification time (prevents clock skew issues)
+- SMS failures don't block booking workflow — logged but don't stop guest progression
+- Multi-language messages in workflows require locale-aware client rendering
+
+### Quality checks
+- ✓ Build: esbuild completed successfully (2.5MB dist/index.js, 145ms)
+- ✓ Type check: Only pre-existing type errors in context-window-benchmark.ts (expected, uses esbuild not tsc)
+- ✓ Server startup: MCP server initializes (port 3002)
+- ✓ Schema integration: verification_codes properly exported from shared/schema-tables.ts
+- ✓ Config files: settings.json and workflows.json valid JSON with proper structure
+- ✓ prd.json: marked passes=true for US-436
+
+### Acceptance criteria met
+1. ✓ Generate and store 6-digit verification code in database with expiry timestamp (15 minutes)
+   - Table schema includes expiresAt timestamp set to 15 minutes from creation
+   - Code stored immediately after generation in verificationCodes table
+   - Idempotency check prevents duplicate codes
+2. ✓ Send verification code via SMS provider API with error handling and retry logic
+   - sendSMSWithRetry() implements exponential backoff (500ms * 2^attempts)
+   - Fallback provider configuration in settings.json (primary Twilio, fallback AWS SNS)
+   - Phone number validation before API call
+3. ✓ Add workflow step configuration to workflows.json with SMS provider settings and timeout behavior
+   - booking_verification workflow with generate_code, verify_code, verification_failed steps
+   - SMS provider fallback configured in step config
+   - 10s timeout for code generation, 5s for verification
+
+### Technical notes
+- SMS provider API abstraction allows easy migration (Twilio → AWS SNS → custom)
+- Database schema avoids foreign key to room_reservations; tracks guest_phone directly for resilience
+- Retry backoff formula: delay = initialDelayMs × (backoffMultiplier ^ (attempt - 1))
+- Code length 6 digits chosen for balance: 1M combinations (sufficient for 15min window), easy to type

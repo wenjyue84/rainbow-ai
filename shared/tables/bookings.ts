@@ -263,3 +263,27 @@ export const workflowErrorQueue = pgTable("workflow_error_queue", {
 
 export type WorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferSelect;
 export type InsertWorkflowErrorQueueEntry = typeof workflowErrorQueue.$inferInsert;
+
+// ─── Verification Codes (US-436) ────────────────────────────────────────────────
+// Stores booking verification codes sent via SMS with expiry and usage tracking.
+// Enables booking confirmation via code verification.
+
+export const verificationCodes = pgTable("verification_codes", {
+  id: varchar("id", { length: 36 }).primaryKey().default('gen_random_uuid()'),
+  bookingId: varchar("booking_id", { length: 36 }).notNull(),
+  code: varchar("code", { length: 6 }).notNull(),  // 6-digit verification code
+  guestPhone: varchar("guest_phone", { length: 32 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),    // 15 minutes from creation
+  usedAt: timestamp("used_at"),                    // When code was used
+  profile: varchar("profile", { length: 64 }).notNull().default("pelangi"),
+}, (table) => ([
+  index("idx_verification_codes_booking_id").on(table.bookingId),
+  index("idx_verification_codes_guest_phone").on(table.guestPhone),
+  index("idx_verification_codes_profile").on(table.profile),
+  index("idx_verification_codes_expires_at").on(table.expiresAt),
+  index("idx_verification_codes_booking_profile").on(table.bookingId, table.profile),
+]));
+
+export type VerificationCode = typeof verificationCodes.$inferSelect;
+export type InsertVerificationCode = typeof verificationCodes.$inferInsert;
