@@ -141,6 +141,7 @@ export interface BookingState {
   guestName?: string;
   guestPhone?: string;
   cancelReason?: string;
+  unit_id?: string;     // US-470: Unit ID for profile-aware availability checks
 }
 
 export interface BookingStepResult {

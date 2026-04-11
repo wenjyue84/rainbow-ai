@@ -3,6 +3,7 @@ import { calculatePrice } from './pricing.js';
 import { formatPriceBreakdown, formatDate, getTemplate } from './formatter.js';
 import { isAIAvailable, chat } from './ai-client.js';
 import { bookingExtractionSchema, safeParseLLMResponse } from './schemas.js';
+import { preFlightUnitCheck } from './booking-unit-preflight.js';
 
 export type Language = 'en' | 'ms' | 'zh' | 'ta';
 

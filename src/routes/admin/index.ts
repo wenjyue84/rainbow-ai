@@ -126,6 +126,7 @@ import keywordMinerRoutes from './keyword-miner.js'; // US-323: Intent Keyword A
 import routingAuditRoutes from './routing-audit.js'; // US-343: Live message routing integrity audit
 import hardCasesRoutes from './hard-cases.js'; // US-376: Hard-case review queue with admin labeling
 import debugExplainIntentRoutes from './debug-explain-intent.js'; // US-378: Intent classification explanation debugger
+import validationRoutes from './validation.js'; // US-470: Booking unit availability validation
 
 const router = Router();
 
@@ -420,6 +421,7 @@ router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto
 router.use(routingAuditRoutes);                   // US-343: Live message routing integrity audit
 router.use(hardCasesRoutes);                      // US-376: Hard-case review queue with admin labeling
 router.use('/debug', debugExplainIntentRoutes);   // US-378: Intent classification explanation debugger
+router.use('/validation', validationRoutes);      // US-470: Booking unit availability validation
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
