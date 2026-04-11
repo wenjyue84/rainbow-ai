@@ -943,3 +943,30 @@ Kubernetes, AWS ECS, and other orchestrators use HTTP status codes (not response
 - Failing containers are removed from rotation before they cause user-facing errors
 - Health checks use existing metrics (no additional DB pressure)
 
+## Iteration 3 - Sun, Apr 12, 2026  1:35:16 AM
+FAILED diagnosis-block gate: Make Liveness Probe Return 503 When Critical Services Are Down (ID: US-505) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 4 - Sun, Apr 12, 2026 - Story: Make Liveness Probe Return 503 When Critical Services Are Down (US-505) - COMPLETE
+
+### What was implemented
+Verified and confirmed existing US-505 implementation in src/routes/health.ts:
+- `isWhatsAppDisconnectedLong()`: returns true if WA disconnected >5 minutes
+- `isDbPoolExhausted()`: returns true if pool has total>0, idle=0, waiting>0
+- GET /health returns 503 with `failureReasons` body when either condition true
+- GET /health returns 200 with `status: ok` when both healthy
+- 9 unit tests all pass in tests/unit/health-liveness-probe.test.ts
+
+### Patterns discovered
+- Previous attempt failed due to missing diagnosis block gate check
+- Code was already correctly implemented from iteration 2; only prd.json marking was missing
+- Retry 2 required outputting diagnosis block BEFORE any file edits
+
+### Quality checks
+- Build: esbuild passes (2.5MB bundle, pre-existing warning only)
+- Tests: 9/9 passing (62ms runtime)
+- All acceptance criteria met:
+  - [x] Returns 503 when DB pool exhausted
+  - [x] Returns 503 when WhatsApp disconnected >5min
+  - [x] Returns 200 when healthy
+  - [x] Test verifies 503 with mocked dead DB
