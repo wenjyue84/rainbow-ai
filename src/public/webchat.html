@@ -478,6 +478,49 @@
       40% { transform: scale(1); opacity: 1; }
     }
 
+    /* ── Skeleton loading animation ────────────────── */
+    @keyframes skeleton-pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .skeleton-loader {
+      background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+      background-size: 200% 100%;
+      animation: skeleton-pulse 1.5s ease-in-out infinite;
+      border-radius: 4px;
+    }
+    .skeleton-text {
+      height: 16px;
+      margin: 8px 0;
+      width: 100%;
+    }
+    .skeleton-text.short { width: 60%; }
+    .skeleton-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      margin-top: 2px;
+    }
+    .skeleton-header {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .skeleton-message {
+      display: flex;
+      gap: 10px;
+      padding: 5px 0;
+      max-width: 780px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .skeleton-message-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
     /* History divider */
     .history-divider {
       display: flex;
@@ -882,7 +925,7 @@
     </div>
 
     <!-- Header -->
-    <header class="chat-header" id="chatHeader">
+    <header class="chat-header" id="chatHeader" aria-busy="false">
       <button class="sidebar-toggle-btn" id="sidebarToggleBtn" type="button" aria-label="Toggle sidebar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="3" y1="12" x2="21" y2="12"></line>
@@ -897,6 +940,14 @@
           <div class="header-status" id="headerStatus">
             <span class="status-dot"></span>Online
           </div>
+        </div>
+      </div>
+      <!-- Skeleton loader for header -->
+      <div class="skeleton-header" id="profileSkeleton" style="display:none;">
+        <div class="skeleton-loader skeleton-avatar"></div>
+        <div style="flex:1;">
+          <div class="skeleton-loader skeleton-text short"></div>
+          <div class="skeleton-loader skeleton-text short" style="width:50%;margin-top:4px;"></div>
         </div>
       </div>
       <button class="header-help-btn" id="helpBtn" type="button" aria-label="Help and contact information">
@@ -919,6 +970,24 @@
 
     <!-- Messages -->
     <div class="messages" id="messages" role="log" aria-label="Chat conversation" aria-live="polite" aria-relevant="additions">
+      <!-- Skeleton loader for messages -->
+      <div id="messagesSkeleton" style="display:none;">
+        <div class="skeleton-message">
+          <div class="skeleton-loader skeleton-avatar"></div>
+          <div class="skeleton-message-content">
+            <div class="skeleton-loader skeleton-text" style="width:85%;"></div>
+            <div class="skeleton-loader skeleton-text" style="width:75%;"></div>
+            <div class="skeleton-loader skeleton-text" style="width:40%;"></div>
+          </div>
+        </div>
+        <div class="skeleton-message" style="margin-top:12px;">
+          <div class="skeleton-loader skeleton-avatar"></div>
+          <div class="skeleton-message-content">
+            <div class="skeleton-loader skeleton-text" style="width:90%;"></div>
+            <div class="skeleton-loader skeleton-text" style="width:60%;"></div>
+          </div>
+        </div>
+      </div>
       <div class="typing" id="typing" aria-hidden="true">
         <div class="typing-avatar" id="typingAvatar"></div>
         <div class="typing-dots">
@@ -1241,6 +1310,10 @@
       history = []; sending = false; lastPollTimestamp = 0; sessionData = {};
 
       clearMessages();
+      // Show skeleton loaders when loading a session
+      profileSkeleton.style.display = 'flex';
+      messagesSkeleton.style.display = 'block';
+      chatHeader.setAttribute('aria-busy', 'true');
       inputEl.disabled = true; sendBtn.disabled = true; inputEl.placeholder = 'Loading...';
 
       try {
@@ -1268,6 +1341,10 @@
         scrollToBottom();
       }
 
+      // Hide skeleton loaders after session is loaded
+      profileSkeleton.style.display = 'none';
+      messagesSkeleton.style.display = 'none';
+      chatHeader.setAttribute('aria-busy', 'false');
       inputEl.disabled = false; sendBtn.disabled = false; inputEl.placeholder = 'Message...';
       inputEl.focus();
       lastPollTimestamp = Date.now();
@@ -1309,6 +1386,14 @@
         }
       }).catch(function() {});
     }, 5 * 60 * 1000);
+
+    // Show skeleton loaders during initial load (AC1, AC3, AC4)
+    var profileSkeleton = document.getElementById('profileSkeleton');
+    var messagesSkeleton = document.getElementById('messagesSkeleton');
+    var chatHeader = document.getElementById('chatHeader');
+    profileSkeleton.style.display = 'flex';
+    messagesSkeleton.style.display = 'block';
+    chatHeader.setAttribute('aria-busy', 'true');
 
     inputEl.disabled = true; sendBtn.disabled = true; inputEl.placeholder = 'Loading...';
 
@@ -1682,6 +1767,11 @@
     }
 
     initHistory().then(function() {
+      // Hide skeleton loaders once content is loaded (AC2)
+      profileSkeleton.style.display = 'none';
+      messagesSkeleton.style.display = 'none';
+      chatHeader.setAttribute('aria-busy', 'false');
+
       inputEl.disabled = false;
       sendBtn.disabled = false;
       inputEl.placeholder = 'Message...';
