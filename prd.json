@@ -736,7 +736,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -1494,6 +1494,98 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-460",
+      "title": "Detect Intent Keyword Cross-Profile Contamination in Classification Rules",
+      "priority": "high",
+      "description": "Tool to scan intent-keywords.json and detect when a profile's intent keywords contain terms that match another profile's business domain, causing misclassification. Identifies patterns like Pelangi terms appearing in makan/southern profiles.",
+      "acceptanceCriteria": [
+        "CLI tool outputs CSV report with: intent_id, profile, contaminated_keyword, matching_profile, risk_level (high/medium/low)",
+        "Detects common contamination patterns (Pelangi terms in makan, Makan terms in Pelangi, etc.) with >=95% accuracy",
+        "Suggests remediation by showing which keywords should be removed or profile-specific variants created"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/validators/intent-keyword-contamination-checker.ts (compare profile keywords against profile names and known business terms)",
+        "File to create: tests/validators/intent-keyword-contamination.test.ts with test data for each profile",
+        "Test command: uv run vitest tests/validators/intent-keyword-contamination.test.ts -v",
+        "Read from: src/assistant/data/intent-keywords.json for all profiles"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-461",
+      "title": "Validate Fallback Responses Against Business Rules (Compliance Scoring)",
+      "priority": "high",
+      "description": "Tool that scans all fallback responses in knowledge.json and rates them on business compliance: must contain contact info, don't promise discounts, appropriate tone for profile. Prevents fallback responses from making unauthorized promises.",
+      "acceptanceCriteria": [
+        "Each profile has business-rules.json with rules like: {rule_id: 'contact_info_required', applies_to: ['escalation_fallback'], check: 'must contain phone or email'}",
+        "CLI `node src/tools/fallback-compliance-checker.js --profile=southern --severity=critical` outputs violations with: response_id, response_text, failed_rule, severity, suggested_fix",
+        "CI integration: test fails if any critical violations found; warnings are logged only"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/business-rules.json (define per-profile compliance rules)",
+        "File to create: src/tools/fallback-compliance-checker.ts (reads knowledge.json and business-rules.json, applies checks)",
+        "File to create: tests/tools/fallback-compliance.test.ts with sample violations",
+        "Test command: uv run vitest tests/tools/fallback-compliance.test.ts -v",
+        "Integrate into: npm run check (add step to fail on critical violations)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-462",
+      "title": "Add Interactive Booking Workflow Step Execution Tracer CLI",
+      "priority": "medium",
+      "description": "CLI tool that simulates booking workflow execution with detailed logging of each step's inputs, outputs, and state mutations. Helps debug why specific bookings fail at specific steps.",
+      "acceptanceCriteria": [
+        "CLI tool `node src/tools/booking-workflow-tracer.ts <booking-json-file> --profile=pelangi` outputs step-by-step trace with: step_name, input_data, output_data, duration_ms, any_errors",
+        "Trace output is structured JSON and includes step dependencies validation (e.g., payment must come after guest_details)",
+        "Can inject failure at specific step via `--fail-at-step=payment` to test rollback behavior"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/booking-workflow-tracer.ts (imports from src/assistant/data/workflows.json and simulates step execution)",
+        "File to create: tests/fixtures/booking-requests.json with sample booking requests",
+        "File to create: tests/tools/booking-workflow-tracer.test.ts",
+        "Test command: uv run vitest tests/tools/booking-workflow-tracer.test.ts -v",
+        "Manual test: node src/tools/booking-workflow-tracer.ts tests/fixtures/booking-requests.json --profile=pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-463",
+      "title": "Implement Exponential Backoff Retry Handler for Message Processing Pipeline",
+      "priority": "medium",
+      "description": "Add resilient retry logic to message processing pipeline to handle transient failures (network blips, temp DB unavailability) without losing messages. Ensures reliability even during brief outages.",
+      "acceptanceCriteria": [
+        "New file: src/lib/message-retry-handler.ts with functions: scheduleRetry(messageId, error, retryCount) and getRetryDelay(retryCount) returning milliseconds with exponential backoff (base 2s, max 5 min)",
+        "Failed messages stored in database table: message_processing_queue with: message_id, profile_id, error_type, retry_count, next_retry_at, last_error_msg",
+        "Background job runs every 30 seconds, retries eligible messages, logs outcomes, escalates after 3 retries to admin queue"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/message-retry-handler.ts (export scheduleRetry, getRetryDelay functions)",
+        "File to modify: shared/schema-tables.ts to add message_processing_queue table",
+        "File to create: src/jobs/message-retry-processor.ts (background job, runs on interval)",
+        "File to modify: src/assistant/pipeline/message-processor.ts to call scheduleRetry on processing errors",
+        "File to create: tests/lib/message-retry-handler.test.ts",
+        "Test command: uv run vitest tests/lib/message-retry-handler.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
