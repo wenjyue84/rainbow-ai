@@ -1127,3 +1127,22 @@ Implementation was already committed (c3a1a6e). This attempt properly output the
 
 ### Gotcha
 The outer loop requires a plain-text diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) BEFORE any tool calls that modify files. Previous attempts failed this gate despite correct code being committed.
+## Iteration 3 - Sun, Apr 12, 2026  1:53:15 AM
+Completed: Add TTL-Based Cache Invalidation for Recovery Messages (ID: US-511) in 2m
+
+
+## Iteration 21 - Story: Add TTL-Based Cache Invalidation for Recovery Messages (US-511) - COMPLETE (Attempt 2)
+
+### What was implemented
+Implementation was already committed in prior iterations (commit c3a1a6e). This attempt:
+1. Output the required diagnosis block as plain text BEFORE any tool calls
+2. Verified build passes (2.5MB, pre-existing warning only)
+3. Verified 12/12 tests pass in `tests/unit/ttl-cache-invalidation.test.ts`
+4. Confirmed `prd.json` has `passes: true` for US-511
+
+### Key implementation (already in place)
+- `src/assistant/pipeline/workflow-error-handler.ts`: `CacheEntry` interface with `expiresAt`, `CACHE_TTL_MS = 10 * 60 * 1000`, TTL expiry check in `loadRecoveryMessages()`
+- All 3 acceptance criteria met: 10-min TTL, auto-refresh on expiry, no restart needed
+
+### Gotcha (critical for outer loop)
+The outer loop diagnosis-block gate requires `## Current State`, `## Problem Identified`, and `## Planned Changes` headers to appear as plain text output BEFORE any tool calls that modify files. This must be output in the response text, not inside tool calls or thinking blocks.
