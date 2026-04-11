@@ -471,8 +471,9 @@ export async function processAndSend(
     logMessage(phone, msg.pushName, 'assistant', response, {
       ...logMeta, manual: true, skipped_auto_response: true
     } as any).catch(() => { });
-    // US-410: Send holding message so guest knows a human is handling it
-    await ctx.sendMessage(phone, "I've connected you with our team, they will respond shortly.", msg.instanceId);
+    // US-502: Send localized handoff message
+    const handoffMessage = getTemplate('manual_handoff', lang);
+    await ctx.sendMessage(phone, handoffMessage, msg.instanceId);
     return;
   }
 

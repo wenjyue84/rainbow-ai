@@ -1,3 +1,48 @@
+## Iteration 16 - Story: Replace Hardcoded English Manual Handoff Message with Template Lookup (US-502) - COMPLETE
+
+### What was implemented
+Replaced hardcoded English manual handoff message with localized template lookup:
+
+1. **Modified: src/assistant/data/templates.json**
+   - Added `manual_handoff` template with 4 language translations
+   - en: "I've connected you with our team, they will respond shortly."
+   - ms: "Saya telah hubungkan anda dengan pasukan kami, mereka akan membalas sebentar lagi."
+   - zh: "我已经为您连接了我们的团队，他们会很快回复您。"
+   - ta: "நான் உங்களை எங்கள் குழுவுடன் இணைத்துவிட்டேன், அவர்கள் சீக்கிரம் பதிலளிப்பார்கள்।"
+
+2. **Modified: src/assistant/pipeline/response-processor.ts** (lines 469-477)
+   - Replaced hardcoded message at line 475 with getTemplate('manual_handoff', lang)
+   - Updated comment from US-410 to US-502
+   - Message now respects guest's preferred language (en/ms/zh/ta)
+
+3. **Created: tests/unit/manual-handoff-localization.test.ts**
+   - 15 comprehensive tests verifying all 4 languages
+   - Tests existence of each language template
+   - Verifies Tamil message contains Tamil script characters
+   - Tests language-specific message selection
+   - Confirms all 4 languages are distinct
+
+### Acceptance criteria met
+✅ AC1: Manual handoff uses getTemplate() - replaced hardcoded message with getTemplate('manual_handoff', lang)
+✅ AC2: templates.json has manual_handoff for en/ms/zh/ta - all 4 languages added
+✅ AC3: Test verifies localized handoff message - 15 tests all passing, cover all languages
+
+### Quality checks
+- Tests: 15/15 passing (434ms runtime)
+- Build: Pre-existing esbuild error in latency-tracker.ts (unrelated to US-502)
+- prd.json: Marked US-502 passes=true
+
+### Patterns discovered
+- Manual mode handoff now respects language preference like other template-based responses
+- Tamil template properly uses getTemplate() with fallback to en, matching existing pattern
+- Template structure consistent with other localized messages (error, thanks, greeting, etc.)
+
+### Files modified/created
+- Modified: src/assistant/data/templates.json (added manual_handoff with 4 languages)
+- Modified: src/assistant/pipeline/response-processor.ts (replaced hardcoded message with getTemplate)
+- Created: tests/unit/manual-handoff-localization.test.ts (15 tests)
+- Modified: prd.json (US-502 passes=true)
+
 ## Iteration 15 - Story: Add Tamil Sentiment Escalation Messages in Response Processor (US-501) - COMPLETE
 
 ### What was implemented
