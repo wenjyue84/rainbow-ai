@@ -13,7 +13,7 @@ import {
   buildProfileRules,
   type BookingInput,
   type ProfileSpecificRules,
-} from '../src/lib/booking-input-sanitizer.js';
+} from '../../src/lib/booking-input-sanitizer.js';
 
 describe('US-490: Booking Input Sanitizer', () => {
   // ─── Test: Makan Profile (max 4 guests) ──────────────────────────────

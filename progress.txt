@@ -2108,3 +2108,72 @@ This brief outlines the implementation of an intent classification baseline drif
 *   Gracefully manage profiles with insufficient message data (fewer than 100 messages) to avoid skewed results.
 *   The F1 calculation assumes a "ground truth" for intent is available on each message record. This dependency must be met.
 
+
+## Iteration [SPIRAL] - Story: Booking Workflow Input Sanitizer with Profile-Specific Rules (US-490) ✓ COMPLETE
+
+### What was implemented
+- Created `src/lib/booking-input-sanitizer.ts` with:
+  - `ProfileSpecificRules` interface defining constraints per profile (pelangi, southern, makan)
+  - `createProfileSanitizer(profile)` function to create profile-specific sanitizers
+  - `validateBookingInput(input, rules)` function for complete input validation and sanitization
+  - `sanitizeGuestInfo(guestCount, rules)` function for guest count validation with min/max constraints
+  - Helper functions for phone validation, email validation, date parsing, and date range validation
+  - Support for custom rule overrides via `buildProfileRules(profile, overrides)`
+  - Comprehensive error and warning violations with actionable suggestions
+
+- Created `src/assistant/data/booking-constraints.json`:
+  - Pelangi profile: maxGuests=4, allowedUnitTypes=[capsule, private-room, dorm], maxStayNights=90
+  - Southern profile: maxGuests=8, allowedUnitTypes=[room, suite, apartment], maxStayNights=180
+  - Makan profile: maxGuests=4, allowedUnitTypes=[private-room, event-space], maxStayNights=7
+  - Each profile defines min/max guests, check-in advance windows, stay duration limits
+
+- Integrated sanitizer into `src/assistant/workflow-executor.ts`:
+  - Added US-490 import and validation block at booking workflow entry point
+  - Sanitizer runs before precondition validation (defense-in-depth)
+  - Collects booking input from workflow state (guest_name, guest_phone, check-in/out dates, etc.)
+  - Logs all violations with field names, severity levels, and suggestions
+  - Updates workflow state with sanitized data on success
+  - Returns early with error message if critical (error-level) violations found
+  - Fail-open error handling: sanitization errors don't block workflow
+
+- Created comprehensive test suite `tests/unit/booking-input-sanitizer.test.ts`:
+  - 35 tests covering:
+    - Makan profile: max 4 guests validation, unit type constraints (private-room, event-space)
+    - Southern profile: up to 8 guests, unit types (room, suite, apartment)
+    - Pelangi profile: max 4 guests, unit types (capsule, private-room, dorm)
+    - Date validation: ISO and DD/MM/YYYY formats, check-out > check-in, min/max stay nights
+    - Guest info sanitization: string to number conversion, min/max guest validation
+    - Contact info: phone number cleaning/validation, email validation with lowercasing
+    - Text sanitization: name/request trimming, length limits with truncation suggestions
+    - Multiple violations accumulation and error vs warning classification
+    - Profile switching and custom rule overrides
+
+### Patterns discovered
+- Booking validation follows defense-in-depth: input sanitization → precondition validation → unit availability check
+- Profile constraints are profile-specific (e.g., makan 4 guests, southern 8 guests) — stored in both code and JSON config
+- Date parsing supports multiple formats (ISO 8601, DD/MM/YYYY, natural Date strings)
+- Violations are structured with field, issue description, severity (error/warning), and suggestion for fixes
+- Sanitized data updates workflow state immediately after validation passes (clean pipeline)
+- Phone validation is permissive: accepts +60, 0, or international formats
+- Guest count conversion is lenient: accepts strings with embedded numbers (e.g., "3 people" → 3)
+
+### Gotchas avoided
+- Date validation checks both format and range (min/max advance days, stay duration)
+- Check-out date must be strictly after check-in (not equal) for multi-night stays
+- Guest count limits are enforced per profile — makan rejects 5+ guests, southern accepts up to 8
+- Sanitized data overwrites workflow state only on validation success (prevents half-cleaned data)
+- Phone numbers are cleaned of punctuation before validation (e.g., "+60 (123) 456-7890" → "+60123456789")
+- Error vs warning distinction: errors block workflow, warnings log but proceed
+- All date validation happens at booking entry point, before any downstream workflow steps
+
+### Quality checks
+- ✓ Build: esbuild completed successfully (2.5MB dist/index.js, booking-constraints.json copied)
+- ✓ Tests: 35/35 passing (31ms runtime) covering all three profiles, all date formats, all constraint types
+- ✓ Server startup: verified with MCP_SERVER_PORT=3002 (no errors)
+- ✓ Integration: sanitizer wired into workflow-executor at booking workflow entry point
+- ✓ prd.json: marked passes=true for US-490
+
+### Acceptance criteria met
+1. ✓ Created `src/lib/booking-input-sanitizer.ts` with ProfileSpecificRules interface
+2. ✓ Added validation tests in `tests/unit/booking-input-sanitizer.test.ts` with 35 assertions (15+ required)
+3. ✓ Wired sanitizer into `src/assistant/pipeline/workflow-executor.ts` with violation logging
