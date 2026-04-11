@@ -1410,3 +1410,37 @@ Re-verified: Booking Workflow Step Duration SLO Tracker with Per-Step Thresholds
 - ✓ Build: esbuild success (2.5MB dist/index.js, 1 pre-existing warning)
 - ✓ Tests: 9/9 tests pass in tests/integration/workflow-slo.test.ts
 - ✓ prd.json: US-483 passes=true
+## Iteration 2 - Sat, Apr 11, 2026  4:11:06 PM
+Completed: Booking Workflow Step Duration SLO Tracker with Per-Step Thresholds (ID: US-483) in 2m
+
+
+## Pre-analysis for US-484 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js user story. The following brief is based on the provided JSON data, not on Frappe/Python.
+
+**Project:** `rainbow-ai`
+**Story:** US-484: Profile Data File JSON Schema Validator with Hot-Reload
+
+**Technical Brief:**
+
+1.  **Files to Create/Modify:**
+    *   **Create:** `src/lib/data-file-validator.ts` - Core module for validation and file watching logic.
+    *   **Create:** `src/assistant/data/schemas/*.schema.json` - Zod schema definitions for `routing.json`, `workflows.json`, etc.
+    *   **Create:** `tests/unit/data-validator.test.ts` - Unit tests for the new validator.
+    *   **Modify:** `src/index.ts` - Integrate the validator call into the application's startup sequence.
+
+2.  **Key Modules & Hooks:**
+    *   **Module:** `data-file-validator.ts` will encapsulate all validation logic.
+    *   **Hook:** The application's main entry point (`src/index.ts`) will "hook" in the validator before the server begins operation.
+    *   **Libraries:** `zod` for schema creation/validation and `chokidar` for file watching.
+
+3.  **Implementation Approach:**
+    *   Define strict Zod schemas for each data file (e.g., `routing.schema.ts`).
+    *   In `data-file-validator.ts`, create a function that validates all data files against their schemas. Call this from `src/index.ts` on startup and abort if validation fails.
+    *   Use `chokidar` to watch for changes to `.json` files in the data directory. On change, re-validate the specific file. If valid, trigger a hot-reload of the configuration. If invalid, log a detailed error and retain the last known valid configuration.
+
+4.  **Gotchas & Edge Cases:**
+    *   Ensure the hot-reload mechanism is atomic to prevent using a partially loaded configuration.
+    *   Startup validation failure should be a hard crash, while hot-reload failure should be a soft failure (log + ignore).
+    *   Validation errors must be descriptive, pinpointing the file, path, and error type.
+    *   Add `zod` and `chokidar` as project dependencies in `package.json`.
+
