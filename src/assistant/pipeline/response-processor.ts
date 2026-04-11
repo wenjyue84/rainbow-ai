@@ -57,6 +57,21 @@ import {
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
+// US-507: Track pending feedback timers so they can be cleared on shutdown
+const feedbackTimers = new Set<NodeJS.Timeout>();
+
+/**
+ * US-507: Clear all pending feedback timers.
+ * Called during graceful shutdown to prevent unhandled rejections.
+ */
+export function clearPendingFeedbackTimers(): void {
+  for (const timer of feedbackTimers) {
+    clearTimeout(timer);
+  }
+  feedbackTimers.clear();
+  console.log(`[Feedback] Cleared ${feedbackTimers.size} pending feedback timers.`);
+}
+
 /**
  * US-1010: Map pipeline intent to material decision type for PDPA disclosure.
  * Returns the decision type string if the intent is material, null otherwise.
@@ -594,10 +609,13 @@ export async function processAndSend(
         devMetadata.source || null
       );
 
-      setTimeout(async () => {
+      // US-507: Store timer ref so it can be cleared on shutdown
+      const feedbackTimer = setTimeout(async () => {
+        feedbackTimers.delete(feedbackTimer); // Remove from set when timer fires
         const feedbackPrompt = getFeedbackPrompt(lang);
         await ctx.sendMessage(phone, feedbackPrompt, msg.instanceId);
       }, 1000);
+      feedbackTimers.add(feedbackTimer);
     }
   }
 }
