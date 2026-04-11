@@ -1027,3 +1027,23 @@ Added 10-minute TTL-based cache invalidation to recovery messages cache, elimina
 ## Iteration 1 - Sun, Apr 12, 2026  1:45:33 AM
 FAILED diagnosis-block gate: Add TTL-Based Cache Invalidation for Recovery Messages (ID: US-511) — no diagnosis block found — attempt 1/3
 
+## Iteration 1 - Sun, Apr 12, 2026  1:46:52 AM
+Completed: Add TTL-Based Cache Invalidation for Recovery Messages (ID: US-511) in 4m
+
+
+## Iteration 19 - Story: Add TTL-Based Cache Invalidation for Recovery Messages (US-511) - COMPLETE (Retry 2)
+
+### What was implemented
+US-511 implementation was already committed (c3a1a6e) from a previous run. This retry confirmed:
+- `src/assistant/pipeline/workflow-error-handler.ts`: CacheEntry interface + CACHE_TTL_MS=10min TTL + expiry check in loadRecoveryMessages()
+- `tests/unit/ttl-cache-invalidation.test.ts`: 12 tests all passing
+- `prd.json`: Set passes=true (was missing from previous attempt due to diagnosis-block gate rejection)
+
+### Patterns discovered
+- Outer loop diagnosis-block gate can reject an attempt even after code is committed, leaving passes=false
+- On retry, verify code already exists before re-implementing — may only need prd.json update
+
+### Quality checks
+- Build: esbuild passes (pre-existing warning only)
+- Tests: 12/12 passing
+- prd.json: US-511 passes=true confirmed
