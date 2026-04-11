@@ -28,6 +28,7 @@ import { normalizeManglish } from '../manglish-normalizer.js';
 import { shouldAutoEscalate, buildLowConfidenceEscalationContext } from './low-confidence-escalator.js';
 import { escalateToStaff } from '../escalation.js';
 import { normalizeInput, logNormalization } from './input-normalizer.js';
+import { parseFlexibleDate } from '../utils/date-parser.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { intentAnalytics, escalationQueue, rainbowLowconfMessages, hardCaseQueue } from '../../../shared/schema-tables.js';
@@ -71,6 +72,19 @@ export async function classifyAndRoute(
   const processText = normalizeManglish(rawText);
   if (processText !== rawText) {
     console.log(`[ManglishNorm] "${rawText}" → "${processText}"`);
+  }
+
+  // ─── US-455: Extract dates from user input ──────────────────────
+  // Parse flexible date formats (DD/MM/YYYY, DD/MM/YY, natural language)
+  // and store in metadata for intent classifier to use before confidence scoring.
+  const extractedDates = parseFlexibleDate(state.processText);
+  devMetadata.extractedDates = extractedDates;
+  if (extractedDates.length > 0) {
+    console.log(
+      `[DateParser] Found ${extractedDates.length} date(s): ${
+        extractedDates.map(d => `${d.original} → ${d.iso}`).join(', ')
+      }`
+    );
   }
 
   const context = await createPipelineContext(ctx, state.profileConfig, state.profileKB);

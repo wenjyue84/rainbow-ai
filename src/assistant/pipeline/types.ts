@@ -29,6 +29,8 @@ export interface DevMetadata {
   topicDriftDetected?: boolean;
   /** US-093: Topic drift confidence score */
   topicDriftConfidence?: number;
+  /** US-455: Extracted dates from user message before intent classification */
+  extractedDates?: Array<{ original: string; iso: string; format: string; confidence: number; interpreted: string }>;
 }
 
 export interface PipelineState {
