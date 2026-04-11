@@ -312,3 +312,110 @@ This brief outlines the Frappe/Python implementation plan for generating and sen
 - Expiry calculation: Date arithmetic with ms precision (15 * 60 * 1000)
 - Error messages include context prefixes ([VerificationCodeGenerator]) for debugging
 
+## Iteration 3 - Sat, Apr 11, 2026  9:29:23 AM
+FAILED diff-guard: Booking Verification Code Generator and SMS Notifier Step (ID: US-436) — 702 lines > 500 limit — attempt 1/3
+
+
+## Pre-analysis for US-436 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-436: Booking Verification Code Generator**
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: To add a `doc_events` hook that triggers the verification process on the relevant DocType's "on_submit" event.
+*   A new utility file, e.g., `lhdn_payroll_integration/utils/verification.py`: To house the code generation and SMS sending logic.
+*   The controller file for the source DocType, e.g., `lhdn_payroll_integration/doctype/booking/booking.py`: To add the method called by the hook.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   A new DocType, `Verification Code`, to store the generated codes. It should include fields for the linked booking, the code itself, an expiry timestamp, and a status (e.g., "Used", "Expired").
+    *   The source DocType that triggers the event (e.g., `Booking`).
+*   **Hooks:**
+    *   A `doc_events` hook in `hooks.py` for the source DocType's `on_submit` event. This will call the function to generate and send the code.
+
+**3. Implementation Approach:**
+1.  Create the `Verification Code` DocType to log and manage codes.
+2.  In the new utility file, implement a `generate_code()` function and a `send_sms(phone, message)` function that integrates with an external SMS provider API.
+3.  In the source DocType's controller, create a method that is triggered by the `on_submit` hook.
+4.  This method will call `generate_code()`, create a new `Verification Code` document with a 15-minute expiry, and then call `send_sms()`.
+
+**4. Edge Cases & Gotchas:**
+*   **SMS API Failure:** The `send_sms` function must have robust error handling and potentially enqueue a background job (`frappe.enqueue`) for retries to avoid blocking the user.
+*   **Configuration Management:** SMS provider credentials should be stored securely in a custom Settings DocType or `site_config.json`, not hardcoded.
+*   **Code Expiry:** The verification step must explicitly check if the code has expired.
+*   **Transaction Control:** Ensure the `Verification Code` document is created within the same transaction as the booking submission. If the SMS fails, the code should still be saved.
+
+
+## Iteration [SPIRAL] - Story: Conversation Replay Debugger CLI for Intent Classification Analysis (US-437) ✓ COMPLETE
+
+### What was implemented
+- Created `src/tools/conversation-replay.ts` with:
+  - `replayConversation(phone, profile, confidenceThreshold)` - fetches messages from rainbowMessages table by phone and profile, replays them in chronological order with full context
+  - `parseStoredDebugInfo(msg)` - extracts debug information from stored message data including entities, keywords, and decision path
+  - `formatHumanReport(report)` - formats conversation replay report for console output with summary statistics
+  - CLI argument parsing: `--phone=<number>`, `--profile=<profile>`, `--confidence-threshold=<value>`, `--json`
+  - Database query: SELECT * FROM rainbowMessages WHERE phone = ? AND profile = ? ORDER BY timestamp ASC
+  - Comprehensive error handling for missing conversations, invalid profiles, database errors
+
+- Created comprehensive test suite `src/tools/__tests__/conversation-replay.test.ts` with:
+  - 15 tests covering:
+    - Report structure validation (fields, types, formats)
+    - Message debug report details (intent, confidence, entities, keywords, decision path)
+    - Confidence detection (low confidence, confidence drops)
+    - Intent change detection
+    - Summary statistics (average, min, max)
+    - All 3 acceptance criteria validation
+    - Input validation (profiles, thresholds)
+    - Output formatting (human-readable and JSON modes)
+  - All tests passing (15/15)
+
+### Patterns discovered
+- Message replay accumulates context chronologically through contextMessages array
+- Debug info extracted from stored fields: intent, confidence, model, responseTime, kbFilesJson, usageJson, source
+- Confidence drops detected by comparing consecutive user message confidences
+- Intent changes tracked separately using lastUserIntent state variable
+- Profile isolation ensures per-profile analysis (pelangi/southern/makan)
+- Summary statistics calculated across all processed user messages
+- Report distinguishes between totalMessages (all) vs messagesProcessed (user messages only)
+
+### Gotchas avoided
+- Role filtering: only process 'user' messages for intent classification stats
+- Confidence threshold check only on user messages, not assistant responses
+- Intent change detection requires comparing with previous user message, not just any message
+- Summary min/maxConfidence properly initialized (1.0 and 0.0 respectively)
+- Context accumulation tracks both user and assistant messages for future multi-turn support
+- Database connection handled via existing Drizzle ORM db instance
+- Error handling distinguishes between missing phone/profile vs other DB errors
+
+### Quality checks
+- ✓ Build: esbuild completed successfully (2.5MB dist/index.js, 92ms)
+- ✓ Tests: 15/15 passing (328ms runtime) via `npx vitest run`
+- ✓ Server startup: MCP server initializes successfully on port 3002
+- ✓ Type safety: No new TypeScript errors (only pre-existing logger.ts warning)
+- ✓ Schema integration: Uses Drizzle ORM rainbowMessages correctly
+- ✓ CLI executable: Tool can accept --phone, --profile, --confidence-threshold, --json args
+- ✓ prd.json: marked passes=true for US-437
+
+### Acceptance criteria met
+1. ✓ Load conversation messages by phone and profile, replay in chronological order with full context
+   - Queries rainbowMessages via Drizzle ORM with eq(phone) and eq(profileId) filters
+   - Sorted by timestamp ascending for chronological replay
+   - Context accumulated through contextMessages array
+2. ✓ Output detailed classification report for each message: detected intent, confidence score, extracted entities, matching keywords, decision path
+   - DetailedDebugInfo includes: intent, confidence, entities, matchedKeywords, decisionPath, model, responseTimeMs
+   - Extracted from stored message fields (intent, confidence, kbFilesJson, usageJson, source, model, responseTime)
+   - Parsed JSON fields for entities and KB file references
+3. ✓ Generate summary highlighting messages where confidence dropped below threshold or intent changed unexpectedly
+   - Summary tracks: lowConfidenceCount, confidenceDropEvents, intentChangeEvents, averageConfidence, minConfidence, maxConfidence
+   - Confidence drops detected by comparing with previous message confidence
+   - Intent changes detected by comparing with previous user message intent
+   - Threshold configurable via --confidence-threshold CLI arg (default 0.6)
+
+### Technical notes
+- Tool uses pg-based Drizzle ORM (db instance) for database access
+- CLI designed as standalone executable: `#!/usr/bin/env tsx` shebang
+- Exit codes: 0 for success (even if low confidence), 1 for errors
+- Human-readable output uses UTF-8 warning symbols (⚠️) for problem highlighting
+- JSON output compatible with downstream processing tools
+- No external embedding API needed - uses stored classification results
+- Message filtering excludes non-user messages and empty content
+- Supports multi-profile analysis (pelangi/southern/makan) with proper isolation
+
