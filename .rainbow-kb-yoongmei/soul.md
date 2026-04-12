@@ -33,6 +33,9 @@ Phone: +60 16-723 9206 / +60 16-723 9207
 | Klang, Selangor | Lot 8931, Jalan Telok Gong, Kampung Telok Gong, 42000 Pelabuhan Klang, Selangor | — |
 | Bukit Mertajam, Penang | No. 2A, Jalan Permai Utama 2, Pusat Perniagaan Permai Utama, 14000 Bukit Mertajam, Penang | — |
 | Kuantan, Pahang | No 55, Jalan IM 14/8, Kawasan Perindustrian Ringan, Bandar Indera Mahkota, 25200 Kuantan, Pahang | — |
+| Singapore Entity | 527 Woodlands Drive 14 #03-503, Woodlands Vista, Singapore 730527 | — |
+
+**Singapore Entity:** YOONG MEI TRADING & TRANSPORT PTE. LTD. (UEN: 202020814W), incorporated 20 July 2020. Principal activity: freight transport by road. Status: live company.
 
 ## Values
 

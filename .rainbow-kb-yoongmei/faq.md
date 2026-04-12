@@ -33,6 +33,9 @@ A: We offer: cross-border lorry transport (Malaysia, Singapore, Thailand, Vietna
 **Q: Do you ship to Singapore?**
 A: Yes. We operate regular cross-border haulage between Johor Bahru and Singapore, including customs clearance on both sides.
 
+**Q: Do you have a registered entity in Singapore?**
+A: Yes. We have a Singapore-incorporated company — YOONG MEI TRADING & TRANSPORT PTE. LTD. (UEN: 202020814W), registered at 527 Woodlands Drive 14 #03-503, Woodlands Vista, Singapore 730527. For Singapore cross-border enquiries, contact info@yoongmei.net or +60 16-723 9207.
+
 **Q: Do you ship to Thailand?**
 A: Yes. We cover routes up to the Bukit Kayu Hitam / Hat Yai corridor at the Malaysia-Thailand border.
 
