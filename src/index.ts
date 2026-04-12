@@ -87,6 +87,7 @@ import { enforceProfileIntegrity } from './lib/profile-integrity.js';
 import { validateKnowledgeBase, formatValidationReport } from './lib/validate-knowledge-base.js';
 import { createErrorHandlerMiddleware } from './lib/error-handler.js';
 import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-file-validator.js';
+import { validateAll as validateConfig, ConfigValidationError } from './lib/config-validator.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -158,6 +159,23 @@ try {
     console.log('[Startup] Profile data integrity check passed');
   } catch (err: any) {
     console.error(`[Startup] FATAL: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// US-521: Configuration validation on server startup.
+// Validates settings.json, workflows.json, and routing.json for required keys and proper structure.
+// Fails fast with clear error messages including file path and missing key names if validation fails.
+{
+  try {
+    await validateConfig();
+    console.log('[Startup] Configuration validation passed');
+  } catch (err: any) {
+    if (err instanceof ConfigValidationError) {
+      console.error(`[Startup] FATAL: ${err.message}`);
+    } else {
+      console.error(`[Startup] FATAL: Configuration validation failed: ${err.message}`);
+    }
     process.exit(1);
   }
 }
