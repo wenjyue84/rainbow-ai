@@ -32,6 +32,8 @@ import { dispatchWebhookEvent, UnrecognizedEventError } from './handlers.js';
 import { applyPosStockUpdate } from '../../lib/menu-items-store.js';
 import { isPacingHold, recordPacingHeld, PACING_PAUSE_ERROR_CODE } from '../../lib/campaign-pacing.js';
 import { crossProfileValidator } from './cross-profile-validator.js';
+import { createRateLimiter } from '../../middleware/rate-limiter.js';
+import { configStore } from '../../assistant/config-store.js';
 
 const router = Router();
 
@@ -456,6 +458,87 @@ router.post('/webhooks/meta/messages', metaSignatureGuard, (req: Request, res: R
         }
       }
     }
+  }
+});
+
+// ─── Message Ingestion Endpoint with Rate Limiting (US-530) ───────────────────
+// Accepts inbound messages from various sources with per-profile rate limiting.
+// Rate limits are loaded from settings.json rateLimitPerMin field.
+//
+// Payload:
+//   {
+//     "profile": "pelangi" | "southern" | "makan-moments",
+//     "phone": "60162345678",
+//     "message": "Hello, I'd like to book a room",
+//     ... other message fields
+//   }
+//
+// Returns:
+//   200 – message accepted and queued for processing
+//   429 – rate limit exceeded for profile (with Retry-After header)
+//   400 – missing required fields
+router.post('/webhooks/messages', async (req: Request, res: Response) => {
+  const body = req.body as {
+    profile?: string;
+    phone?: string;
+    message?: string;
+    [key: string]: unknown;
+  };
+
+  // Extract and validate required fields
+  const profile = body.profile ?? 'default';
+  const phone = body.phone;
+  const message = body.message;
+
+  if (!phone || !message) {
+    res.status(400).json({
+      error: 'Missing required fields',
+      required: ['phone', 'message'],
+    });
+    return;
+  }
+
+  // Get rate limit config for this profile
+  try {
+    const config = configStore.getConfig(profile);
+    const rateLimitPerMin = config.rateLimitPerMin ?? 60;
+
+    // Create and apply rate limiter for this profile
+    const rateLimiter = createRateLimiter({ rateLimitPerMin });
+
+    // Apply rate limiter
+    await new Promise<void>((resolve, reject) => {
+      rateLimiter(req, res, (err?: any) => {
+        if (err) reject(err);
+        else if (res.statusCode === 429) {
+          // Rate limit was applied by middleware, response already sent
+          resolve();
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    // If rate limit was exceeded, response already sent by middleware
+    if (res.statusCode === 429) {
+      return;
+    }
+
+    // Message accepted — queue for processing
+    console.log(`[webhook:messages] Accepted message from phone=${phone} profile=${profile} length=${message.length}`);
+
+    res.status(200).json({
+      ok: true,
+      profile,
+      phone,
+      messageLength: message.length,
+    });
+  } catch (err: any) {
+    console.error('[webhook:messages] Error processing message:', err.message);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: err.message,
+    });
   }
 });
 
