@@ -879,10 +879,91 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "_passedCommit": "3f717376dde28d9458424e2a4dc155135cd3dd2a"
+    },
+    {
+      "id": "US-530",
+      "title": "Implement Rate Limiting per Profile Using Token Bucket Algorithm",
+      "priority": "high",
+      "description": "Add rate limiting middleware that enforces per-profile message limits using a token bucket algorithm. Configuration should support different limits for different profiles (e.g., 60 msg/min for Makan vs 30/min for Southern Homestay). Returns 429 status with Retry-After header when limit is exceeded.",
+      "acceptanceCriteria": [
+        "Create src/middleware/rate-limiter.ts middleware that implements token bucket with per-profile limits from src/assistant/data/settings.json rateLimitPerMin field",
+        "Apply middleware to message ingestion endpoint that blocks requests and returns HTTP 429 with Retry-After header when tokens exhausted",
+        "Add test in tests/middleware/rate-limiter.test.ts that sends 70 messages in 60 seconds to profile with 60 msg/min limit and verifies 10 requests return 429"
+      ],
+      "technicalNotes": [
+        "File to edit: src/middleware/rate-limiter.ts (new), src/index.ts (apply middleware), tests/middleware/rate-limiter.test.ts",
+        "Test command: npm run test -- tests/middleware/rate-limiter.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-531",
+      "title": "Add Booking Confirmation Template Rendering with Guest Details Population",
+      "priority": "medium",
+      "description": "Implement a dedicated template rendering function for booking confirmations that populates guest name, unit, check-in/check-out dates, and pricing from conversation context into a structured confirmation message. Template should be stored in knowledge.json under each profile's booking_confirmation key.",
+      "acceptanceCriteria": [
+        "Add renderBookingConfirmation(guestContext, profileId) function to src/assistant/pipeline/response-generator.ts that fetches template from knowledge.json and interpolates guest details",
+        "Booking confirmation includes guest name, unit type/number, check-in date, check-out date, and total price with placeholder syntax {{field}}",
+        "Add unit test in tests/assistant/response-generator.test.ts with sample guest context data (guestName, unit, checkIn, checkOut, price) that verifies template rendering and placeholder replacement"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/response-generator.ts (renderBookingConfirmation), tests/assistant/response-generator.test.ts",
+        "Test command: npm run test -- tests/assistant/response-generator.test.ts -t 'booking confirmation' -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-532",
+      "title": "Implement Conversation Context Window Pruning to Limit Message History",
+      "priority": "medium",
+      "description": "Add configurable conversation context window pruning that limits the number of messages sent to the AI model. This prevents token bloat in long conversations and improves response latency. Window size and retention strategy should be configurable per profile in settings.json.",
+      "acceptanceCriteria": [
+        "Add pruneConversationContext(messages, windowSize) function to src/assistant/pipeline/context-manager.ts that keeps only the last N messages, dropping oldest first",
+        "Default window size of 20 messages per profile, configurable in src/assistant/data/settings.json under contextWindowSize key",
+        "Add test in tests/assistant/context-manager.test.ts that verifies old messages are dropped and recent messages preserved with 5-message window sample"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/context-manager.ts (pruneConversationContext function), tests/assistant/context-manager.test.ts",
+        "Test command: npm run test -- tests/assistant/context-manager.test.ts -t 'prune' -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-533",
+      "title": "Add Intent Keyword Matching Cache with LRU Eviction Policy",
+      "priority": "medium",
+      "description": "Implement an LRU cache for T2 (fuzzy keyword) intent classification to cache repeated phrase-to-intent matches, reducing redundant string similarity computations. Cache should be invalidated when keyword configs change and support configurable size and TTL.",
+      "acceptanceCriteria": [
+        "Create src/lib/keyword-match-cache.ts with LRU cache (max 100 entries, 5-minute TTL per entry) that stores phrase → {intent, confidence} mappings",
+        "Integrate cache into src/assistant/stages/t2-intent-classifier.ts to check cache before fuzzy matching; emit cache hit/miss metrics to logs",
+        "Add test in tests/lib/keyword-match-cache.test.ts that verifies repeated phrases return cached results, old entries evict when capacity exceeded, and TTL expiration removes stale entries"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/keyword-match-cache.ts (new), src/assistant/stages/t2-intent-classifier.ts (useCache integration), tests/lib/keyword-match-cache.test.ts",
+        "Test command: npm run test -- tests/lib/keyword-match-cache.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
