@@ -1890,3 +1890,126 @@ This brief outlines the plan to implement a booking intent micro-classifier with
 ✓ TypeScript: PASS (no new type errors introduced)
 ✓ Integration: PASS (bookingSubtype flows through pipeline to database)
 
+SKIPPED: US-535 after 3 failed attempts
+
+
+## Pre-analysis for US-535 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent:
+
+**To:** Claude Code Agent
+**From:** Gemini Agent
+**Subject:** Technical Brief for Story US-535 (Frappe/Python Implementation)
+
+This brief outlines the plan to implement a booking intent micro-classifier within the `lhdn_payroll_integration` Frappe app.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/hooks.py`**: To register a `doc_events` hook that triggers the new classifier.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/whatsapp_message/whatsapp_message.py`**: (Or similar message DocType). A good place to call the classifier logic after the main intent is determined.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/classifiers/booking_classifier.py`** (New File): This module will house the core classification logic.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocType**: `Whatsapp Message` (assumption). A new field `booking_subtype` (Type: Select, Options: Check In, Check Out, Modification, General Inquiry) must be added via a migration.
+*   **Hook**: A `doc_events` hook on the `Whatsapp Message` DocType, specifically using the `on_update` event. This will trigger the classification after a message is saved.
+
+**3. Recommended Implementation Approach:**
+1.  Define the `classify(doc)` function in `booking_classifier.py`. It should contain the logic to find keywords (e.g., "check in," "change date") in `doc.message_text`.
+2.  In `hooks.py`, set `doc_events = {"Whatsapp Message": {"on_update": "path.to.booking_classifier.classify"}}`.
+3.  The `classify` function should first check if `doc.intent == 'booking'` and confidence is high.
+4.  If conditions are met, it should set `doc.booking_subtype` based on its internal logic and save the document (`doc.save(ignore_permissions=True)`).
+
+**4. Edge Cases & Gotchas:**
+*   **Idempotency**: The `on_update` hook may run multiple times. Ensure `booking_subtype` is only set if it's currently empty to prevent re-classification.
+*   **Performance**: The classification logic must be lightweight and fast to avoid delaying document saves.
+*   **Data Integrity**: The hooked function should run `frappe.db.commit()` only if absolutely necessary and should handle potential exceptions gracefully to avoid holding locks.
+*   **Testing**: Create comprehensive `unittest` cases in the `tests/` directory to validate the keyword matching for all subtypes.
+
+
+## Pre-analysis for US-536 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the data isolation validator.
+
+**Objective:** Implement a `ProfileIsolationValidator` in TypeScript to run a daily automated audit. This audit will scan knowledge base files for different profiles (makan, southern, pelangi) to detect and report any cross-contamination of business content.
+
+**Files to Create/Modify:**
+*   **Create:** `src/tools/audit/profile-isolation-validator.ts`
+*   **Create:** `src/assistant/data/profile-keywords.json`
+*   **Create:** `tests/audit/profile-isolation.test.ts`
+*   **Modify:** `src/lib/scheduler.ts`
+
+**Implementation Approach:**
+1.  Define keyword lists for each profile (e.g., `pelangi_keywords`, `southern_keywords`) in `profile-keywords.json`.
+2.  In `profile-isolation-validator.ts`, create the `ProfileIsolationValidator` class.
+3.  Implement its `audit()` method to read all files in a given KB path (e.g., `.rainbow-kb-makan/`).
+4.  For each file, check for the presence of keywords from *other* profiles.
+5.  The method should return a report with the contamination percentage.
+6.  In `scheduler.ts`, register a new daily BullMQ job that executes the audit for each profile.
+7.  The job should log warnings or errors based on the contamination percentage returned by the validator.
+
+**Edge Cases & Gotchas:**
+*   The test command in the story (`pytest` for a `.ts` file) appears incorrect. Verify the project's test runner (`vitest`, `jest`, etc.) in `package.json` and adapt the command.
+*   Keyword matching may be naive; consider context to avoid false positives.
+*   Ensure robust file system error handling (e.g., missing directories, read permissions).
+
+## Iteration [N] - Story: Implement Profile Data Isolation Validator with Automated Daily Audit (US-536) - COMPLETE
+
+### What was implemented
+
+Implemented ProfileIsolationValidator to scan KB files for cross-profile business contamination:
+
+1. **Created `src/tools/audit/profile-isolation-validator.ts`**
+   - `ProfileIsolationValidator` class with static methods: `audit(profileId, kbPath)`, `auditAll()`, `checkThresholds()`
+   - Reads all markdown files recursively from KB directories
+   - Detects keywords from other profiles using word-boundary regex matching
+   - Returns detailed audit report with contamination percentage, affected files, matched keywords
+   - Status classification: "clean" (<5%), "warning" (5-10%), "error" (>10%)
+
+2. **Created `src/assistant/data/profile-keywords.json`**
+   - Keywords for all 6 profiles: pelangi, southern, makan-moments, pms-capsule, pms-southern, yoongmei
+   - Keywords are specific multi-word phrases (e.g., "capsule hostel", "coffee shop") to avoid false positives on common words
+   - Total 84 keywords across all profiles
+
+3. **Updated `src/lib/profile-audit-scheduler.ts`**
+   - Added import for ProfileIsolationValidator
+   - Added `runKBFileIsolationAudit()` function that audits all profiles daily
+   - Updated `startProfileAuditScheduler()` to run KB isolation audit at 2:00 AM UTC (cron: "0 2 * * *")
+   - Logs warnings and errors based on contamination thresholds
+   - Kept legacy config file audit running hourly for backward compatibility
+
+4. **Created comprehensive unit tests in `src/tools/audit/profile-isolation-validator.test.ts`**
+   - 12 tests covering all AC requirements
+   - Tests for: clean KB, contaminated KB (8%, 5-10%, >10%), missing directories
+   - Tests for keyword matching, file scanning, recursive directory traversal
+   - Tests for threshold checking and multi-profile auditing
+   - All tests passing with synthetic test KB files
+
+### Files modified
+- `src/lib/profile-audit-scheduler.ts`: Added KB isolation audit integration (lines 10, 218-290, 304-328)
+- **New files**: `src/tools/audit/profile-isolation-validator.ts`, `src/assistant/data/profile-keywords.json`, `src/tools/audit/profile-isolation-validator.test.ts`
+
+### Patterns discovered
+
+- **Keyword-based contamination detection**: Multi-word phrases reduce false positives (vs single words like "room" which appear in both contexts)
+- **Word-boundary regex matching**: Using `\b...\b` ensures "guest" matches "guest" but not "guestroom" as separate keyword
+- **Recursive file scanning with directory filtering**: Skip hidden dirs (starting with ".") but recurse into subdirectories
+- **Tiered status reporting**: Thresholds allow different alert levels (clean/warning/error) without binary pass/fail
+- **Sample context extraction**: Showing 60 chars context around first match helps verify false positives
+
+### Gotchas fixed
+
+- **Path separator handling**: Windows uses backslashes, needed to handle both `/` and `\` in directory extraction
+- **Keyword specificity**: Initial approach using single words (e.g., "room", "guest") caused false positives because they're common English words used in multiple contexts. Refined to multi-word phrases specific to each business.
+- **Profile registry vs hardcoded paths**: Used dynamic profileRegistry.listProfiles() to get all enabled profiles instead of hardcoding
+
+### Quality checks
+
+- **Build**: PASS (esbuild, 2.6MB bundle, 1 pre-existing warning only)
+- **Tests**: PASS (12/12 tests passing, all AC covered)
+- **Server startup**: PASS (starts successfully with KB isolation audit scheduled)
+- **All acceptance criteria met**:
+  - ✅ ProfileIsolationValidator.audit() scans KB files, returns contamination report
+  - ✅ Daily audit at 2:00 AM UTC with warning/error logging (>5%, >10%)
+  - ✅ Unit tests with synthetic clean and 8% contaminated KB files verify detection
+
+### Commit
+
+commit [TBD] - "feat: US-536 - Implement Profile Data Isolation Validator with Automated Daily Audit"
+

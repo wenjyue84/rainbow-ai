@@ -18,6 +18,7 @@ import {
 } from './content-similarity.js';
 import { pool } from './db.js';
 import { profileRegistry } from '../assistant/profile-registry.js';
+import { ProfileIsolationValidator } from '../tools/audit/profile-isolation-validator.js';
 
 // Contamination threshold: alert if score > 0.2 (20%)
 const CONTAMINATION_ALERT_THRESHOLD = 0.2;
@@ -213,27 +214,97 @@ async function storeAuditResult(result: AuditResult): Promise<void> {
 }
 
 /**
- * Start the hourly audit scheduler.
- * Runs at 00:00 UTC+8 (midnight Bangkok time) every hour.
+ * Run KB file isolation audit using ProfileIsolationValidator.
+ * Scans markdown KB files for each profile to detect cross-profile contamination.
+ * Logs warnings if >5% contamination, errors if >10% contamination.
+ */
+export async function runKBFileIsolationAudit(): Promise<void> {
+  console.log('[profile-audit] Starting KB file isolation audit...');
+
+  try {
+    // Get all enabled profiles from the registry
+    const profiles = profileRegistry.listProfiles();
+    const profileConfigs = profiles.map(p => ({
+      id: p.id,
+      kbPath: p.config.kbDir,
+    }));
+
+    // Run audit on all profiles
+    const reports = await ProfileIsolationValidator.auditAll(profileConfigs);
+
+    // Check thresholds and log accordingly
+    const { hasWarning, hasError } = ProfileIsolationValidator.checkThresholds(reports);
+
+    // Log audit results
+    for (const report of reports) {
+      const emoji = report.overallStatus === 'error' ? '❌' : report.overallStatus === 'warning' ? '⚠️' : '✅';
+      console.log(
+        `[profile-audit] ${emoji} ${report.profileName}: ${report.contaminationPercentage.toFixed(2)}% contamination (${report.contaminatedFiles}/${report.totalFiles} files)`
+      );
+
+      if (report.contaminationDetails.length > 0) {
+        for (const detail of report.contaminationDetails) {
+          console.log(
+            `[profile-audit]   - Contaminated by ${detail.profileName}: ${detail.contaminationPercentage.toFixed(2)}% (${detail.affectedFiles.length} files)`
+          );
+          if (detail.matchedKeywords.length > 0) {
+            console.log(
+              `[profile-audit]     Keywords: ${detail.matchedKeywords.slice(0, 5).join(', ')}${detail.matchedKeywords.length > 5 ? '...' : ''}`
+            );
+          }
+        }
+      }
+
+      // Determine log level based on status
+      if (report.overallStatus === 'error') {
+        console.error(
+          `[profile-audit] ERROR: Profile "${report.profileName}" has >10% KB contamination`
+        );
+      } else if (report.overallStatus === 'warning') {
+        console.warn(
+          `[profile-audit] WARNING: Profile "${report.profileName}" has >5% KB contamination`
+        );
+      }
+    }
+
+    console.log(
+      `[profile-audit] KB isolation audit completed. ${reports.length} profiles checked.`
+    );
+  } catch (err: any) {
+    console.error(`[profile-audit] KB isolation audit failed: ${err.message}`);
+  }
+}
+
+/**
+ * Start the daily audit scheduler.
+ * Runs at 2:00 AM UTC every day for profile isolation validation.
  *
- * Cron expression: "0 * * * *" = every hour at minute 0
+ * Cron expression: "0 2 * * *" = daily at 2:00 AM UTC
+ *
+ * Also runs the hourly config file comparison (legacy) for backward compatibility.
  */
 export function startProfileAuditScheduler(): void {
-  console.log('[profile-audit] Initializing hourly audit scheduler...');
+  console.log('[profile-audit] Initializing daily KB isolation audit scheduler...');
 
-  // Run audit every hour at minute 0 (UTC+8 midnight = 00:00)
-  const task = cron.schedule('0 * * * *', async () => {
+  // KB isolation audit: daily at 2:00 AM UTC (0 2 * * *)
+  const kbAuditTask = cron.schedule('0 2 * * *', async () => {
+    console.log('[profile-audit] Running scheduled KB file isolation audit...');
+    await runKBFileIsolationAudit();
+  });
+
+  // Config file audit: hourly (legacy, for backward compatibility)
+  const configAuditTask = cron.schedule('0 * * * *', async () => {
     await runProfileAudit();
   });
 
-  // Also run immediately on startup (non-blocking)
-  console.log('[profile-audit] Running initial audit...');
-  runProfileAudit().catch(err =>
-    console.error('[profile-audit] Initial audit failed:', err)
+  // Also run KB isolation audit on startup (non-blocking)
+  console.log('[profile-audit] Running initial KB isolation audit...');
+  runKBFileIsolationAudit().catch(err =>
+    console.error('[profile-audit] Initial KB isolation audit failed:', err)
   );
 
-  console.log('[profile-audit] Scheduler started. Will run hourly.');
-  return task;
+  console.log('[profile-audit] Schedulers started. KB audit daily at 2:00 AM UTC, config audit hourly.');
+  return kbAuditTask;
 }
 
 /**
