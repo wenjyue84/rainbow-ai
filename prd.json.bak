@@ -509,6 +509,113 @@
         "contextWindow": 10
       },
       "_passedCommit": "777f4ddca3fdab77902f1422fccc48b910b89c92"
+    },
+    {
+      "id": "US-516",
+      "title": "Migrate data-makan Workflows from Pelangi Templating to Cafe Operations",
+      "priority": "high",
+      "description": "Replace copy-pasted Pelangi Capsule Hostel workflows in data-makan profile with cafe-specific order management, menu browsing, and payment confirmation workflows. Enforce profile data separation.",
+      "acceptanceCriteria": [
+        "src/assistant/data/data-makan/workflows.json defines order placement, menu browsing, order confirmation, and payment workflows with cafe-specific field names (menu_item, quantity, table_number, payment_method)",
+        "All Pelangi-specific workflow steps (check_availability, guest_checkin, room_selection) removed; no references to 'pelangi', 'capsule', 'guest', or 'room' in cafe workflows",
+        "Integration test verifies makan profile triggers correct workflows: order intent routes to order_workflow, not to booking_workflow"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/data-makan/workflows.json (workflow step definitions)",
+        "File to edit: src/assistant/data/data-makan/intent-keywords.json (add cafe-specific intent triggers: 'order', 'menu', 'bill')",
+        "Test command: uv run vitest tests/integration/profile-isolation.test.ts -t 'makan workflows' && grep -E 'pelangi|capsule|guest_checkin' src/assistant/data/data-makan/workflows.json && echo FAIL || echo PASS"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "_passedCommit": "30b7314477d5f9407aa51d37ed501e959f4eb15b"
+    },
+    {
+      "id": "US-517",
+      "title": "Repopulate data-southern Knowledge Base with Southern Homestay Content",
+      "priority": "high",
+      "description": "Replace Pelangi-specific knowledge snippets in data-southern profile with Southern Homestay booking rates, house rules, amenity descriptions, and guest inquiry templates. Eliminate profile contamination.",
+      "acceptanceCriteria": [
+        "src/assistant/data/data-southern/knowledge.json contains 15+ entries covering: booking rates, check-in/check-out times, house rules, wifi setup, laundry service, parking, cancellation policy (zero Pelangi/hostel references)",
+        "Responses for common queries (booking, rates, rules) refer to 'Southern Homestay' not 'Pelangi Capsule'; test profile switch to southern and verify responses mention correct property name",
+        "Grep search returns zero matches for 'pelangi', 'capsule', 'hostel', 'dormitory', 'capsule-themed'"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/data-southern/knowledge.json (replace all Pelangi entries with Southern Homestay content)",
+        "File to edit: src/assistant/data/data-southern/routing.json (ensure inquiry intents route to southern knowledge base, not pelangi)",
+        "Test command: uv run vitest tests/integration/profile-isolation.test.ts -t 'southern knowledge' && grep -iE 'pelangi|capsule|hostel' src/assistant/data/data-southern/knowledge.json && echo FAIL || echo PASS"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-12T02:17:11Z"
+    },
+    {
+      "id": "US-518",
+      "title": "Add Low-Confidence Intent Fallback Handler with Clarifying Questions",
+      "priority": "medium",
+      "description": "Implement confidence threshold enforcement in intent classifier: route intents with confidence < 0.65 to FallbackHandler that triggers templated 'I didn't understand' response with dynamic clarifying questions derived from intent-keywords.json.",
+      "acceptanceCriteria": [
+        "IntentClassifier checks confidenceScore against settings.json confidenceThreshold value; low-confidence intents (< 0.65) routed to FallbackHandler instead of normal workflow",
+        "FallbackHandler generates response with: message template 'I didn't quite understand that', + 2 clarifying questions from top 3 intent keywords in database, + offer to escalate",
+        "rainbowMessages records both original message and low-confidence classification attempt for debugging; test asserts confidence < 0.65 triggers fallback path"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts (add confidence comparison logic post-classification)",
+        "File to create: src/assistant/pipeline/fallback-handler.ts (FallbackHandler.generateClarifyingResponse method ~60 lines)",
+        "Test command: uv run vitest tests/unit/intent-classifier.test.ts -t 'confidence threshold' && uv run vitest tests/unit/fallback-handler.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-519",
+      "title": "Implement Conversation Memory Retrieval for Multi-Turn Context Awareness",
+      "priority": "medium",
+      "description": "Enhance conversation engine to fetch and inject last 5 messages from rainbowMessages table into AI system prompt as conversation context, enabling coherent multi-turn responses without losing context across turns.",
+      "acceptanceCriteria": [
+        "ConversationEngine.getContext(conversationId) retrieves last 5 messages from rainbowMessages ordered by createdAt DESC; joins with rainbowConversations to verify conversation exists",
+        "AI system prompt formatted as: 'Context: [USER]: msg1\\n[ASSISTANT]: resp1\\n...' prepended before user's new message; context omitted if conversation has < 2 turns",
+        "Context truncated if combined message+context exceeds 3000 tokens; test asserts 5-message context properly formatted and injected into prompt"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/conversation-engine.ts (add getContext method ~70 lines, modify generateResponse to inject context)",
+        "File to modify: src/assistant/pipeline/response-processor.ts (pass context into AI prompt generation)",
+        "Test command: uv run vitest tests/integration/multi-turn-context.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-520",
+      "title": "Add Provider Failover Retry Logic with Exponential Backoff",
+      "priority": "medium",
+      "description": "Implement resilient AI provider fallback chain: on OpenRouter timeout/failure, retry with 100ms backoff, escalate to Ollama, then knowledge.json templates. Return graceful fallback response instead of error when all providers exhaust.",
+      "acceptanceCriteria": [
+        "AIProviderManager.executeWithFailover() attempts OpenRouter call; on catch (timeout or 5xx), retries once with 100ms delay; if retry fails, attempts Ollama with 50ms timeout",
+        "On full provider failure, TemplateResponder matches user intent against knowledge.json and returns 'I'm temporarily having trouble understanding. Please try again in a moment' in user's detected language",
+        "rainbowMessages logs provider failure chain: attempt count, error details, and which fallback succeeded; test mocks OpenRouter timeout and verifies Ollama attempt triggered"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/ai-providers/index.ts (add executeWithFailover method ~80 lines)",
+        "File to create: src/lib/ai-providers/failover-manager.ts (FailoverManager.retryWithBackoff, .escalateToNextProvider ~90 lines)",
+        "Test command: uv run vitest tests/unit/provider-failover.test.ts -t 'exponential backoff' && uv run vitest tests/integration/ai-failover-e2e.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
