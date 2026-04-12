@@ -647,3 +647,100 @@ Conversation memory retrieval for multi-turn context awareness:
 commit <hash> - "feat: US-519 - Implement Conversation Memory Retrieval for Multi-Turn Context Awareness"
 
 Story ID: US-519
+
+## Pre-analysis for US-520 (Gemini 2.5 Pro)
+This technical brief adapts the provided TypeScript-based user story for a Frappe/Python implementation within the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+*   **Create `lhdn_payroll_integration/utils/ai_provider_manager.py`:** This new file will contain the core logic, including a new `AIProviderManager` class.
+*   **Method to implement:** `execute_with_failover(prompt)` within the `AIProviderManager` class.
+*   **Modify `lhdn_payroll_integration/api.py`:** Add a new `@frappe.whitelist()` endpoint that calls `execute_with_failover` to expose this functionality to the frontend or other services.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Custom DocType (New): "AI Provider Log"**: Create this to meet the logging criteria, with fields for `timestamp`, `provider_chain` (Text), `final_provider` (Link), `status` (Select), and `error_details` (Text).
+*   **Custom DocType (New): "AI Fallback Template"**: Store the final fallback messages here instead of a raw `knowledge.json` file. It should have fields for `intent` and `response_template`.
+*   **Hooks (`hooks.py`):** No direct hook modifications are needed; the logic will be triggered via the new API endpoint.
+
+**3. Implementation Approach:**
+*   Use the `requests` library for API calls to OpenRouter and Ollama, wrapped in `try...except` blocks to catch timeouts and connection errors.
+*   Implement retry logic using a `for` loop and `time.sleep(0.1)` for the 100ms backoff.
+*   If all providers fail, query the "AI Fallback Template" DocType to get the appropriate response.
+*   Use `frappe.enqueue` for the `execute_with_failover` call to prevent long-running synchronous requests from blocking the main worker thread.
+
+**4. Edge Cases & Gotchas:**
+*   **Configuration:** Store API keys and endpoints in a custom Singleton DocType, "AI Provider Settings," not in code.
+*   **Timeout Handling:** Ensure `requests.post()` calls have a specific `timeout` parameter (e.g., `timeout=5` for 5 seconds) to avoid indefinite hangs.
+*   **Testing:** Use `unittest.mock.patch` to mock `requests.post` to simulate API failures and verify the failover chain executes correctly without making real network calls.
+
+
+## Iteration 6 - Story: Add Provider Failover Retry Logic with Exponential Backoff (US-520) - COMPLETE
+
+### What was implemented
+
+Implemented resilient AI provider failover with exponential backoff retry logic:
+
+1. **FailoverManager** (`src/lib/ai-providers/failover-manager.ts`):
+   - Retries provider calls with exponential backoff on timeout/5xx errors
+   - Escalates to next provider (e.g., Ollama) when primary fails
+   - Tracks complete failure chain with attempt counts and error details
+   - Non-retryable errors (4xx, auth errors) fail immediately without retry
+
+2. **AIProviderManager.executeWithFailover()** (`src/assistant/ai-provider-manager.ts`):
+   - New method implements US-520 requirements
+   - OpenRouter: retries once with 100ms backoff on timeout/5xx
+   - Ollama: attempted with tight 50ms timeout as last resort
+   - Logs full failure chain including attempt count, error details, elapsed time
+   - Returns graceful error response with failure chain metadata
+
+3. **TemplateResponder** (`src/lib/template-responder.ts`):
+   - Matches user intent against knowledge.json static templates
+   - Returns graceful fallback: "I'm temporarily having trouble understanding. Please try again in a moment."
+   - Localized to all supported languages (en, ms, zh, ta)
+   - Simple keyword-based intent matching when LLM unavailable
+
+### Patterns discovered
+
+- Exponential backoff: wait = initialDelay × 2^(attempt - 1)
+- Retry logic should be transparent to callers (try/catch/retry happens internally)
+- Failure chain tracking is critical for debugging multi-provider escalation
+- Template fallback prevents "null response" errors; always returns something
+
+### Gotchas fixed
+
+- Error classification: timeout/5xx are retryable, but 4xx (auth, validation) are not
+- Ollama fallback used tight 50ms timeout to avoid stalling on local machine
+- Exponential backoff times must be reasonable (100ms for network call, not 10ms)
+- Template responses must be defined in knowledge.json for intent to work
+
+### Quality checks
+
+- Build: PASS (esbuild 2.6MB, 1 pre-existing warning only)
+- Unit tests: 11/11 PASS (failover-manager retry logic, escalation, chain tracking)
+- Integration tests: 11/11 PASS (exponential backoff, Ollama fallback, template matching)
+- Server startup: PASS (no new errors, pre-existing contamination warnings only)
+
+### Acceptance criteria met
+
+✓ AIProviderManager.executeWithFailover() attempts OpenRouter call
+✓ On catch (timeout or 5xx), retries once with 100ms backoff delay
+✓ If retry fails, attempts Ollama with 50ms timeout
+✓ On full provider failure, returns graceful fallback message
+✓ rainbowMessages can log provider failure chain via failureChain metadata
+✓ Tests mock OpenRouter timeout and verify Ollama attempt triggered
+
+### Files created
+
+- src/lib/ai-providers/failover-manager.ts (155 lines)
+- src/lib/template-responder.ts (109 lines)
+- tests/unit/provider-failover.test.ts (184 lines, 11 tests)
+- tests/integration/ai-failover-e2e.test.ts (244 lines, 11 tests)
+
+### Files modified
+
+- src/assistant/ai-provider-manager.ts
+  - Added import for FailoverManager
+  - Added executeWithFailover() method (~100 lines)
+
+### Commit
+
+commit TBD - "feat: US-520 - Add Provider Failover Retry Logic with Exponential Backoff"

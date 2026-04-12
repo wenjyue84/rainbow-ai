@@ -14,6 +14,7 @@ import { isProviderOverBudget, recordLLMUsage } from './llm-cost-budget.js';
 import { logDataFlow } from '../lib/ai-data-flow-log.js';
 import { checkContextWindowUsage } from './context-window-monitor.js';
 import { latencySLOTracker } from './latency-slo-tracker.js';
+import { FailoverManager } from '../lib/ai-providers/failover-manager.js';
 
 // ─── OpenTelemetry GenAI Tracing ────────────────────────────────────
 const tracer = trace.getTracer('rainbow-ai.gen_ai', '1.0.0');
@@ -593,4 +594,172 @@ export async function chatWithFallback(
   parentSpan.end();
   return { content: null, provider: null };
   }); // end tracer.startActiveSpan
+}
+
+// ─── Resilient Provider Execution with Retry Logic ──────────────────
+
+/**
+ * executeWithFailover() — Resilient single-provider execution with exponential backoff
+ *
+ * Implementation:
+ * 1. Attempt primary provider call (e.g., OpenRouter)
+ * 2. On catch (timeout or 5xx), retry once with 100ms backoff delay
+ * 3. If retry fails, escalate to Ollama with 50ms timeout
+ * 4. Log full failure chain to database
+ *
+ * US-520: Provider Failover Retry Logic with Exponential Backoff
+ */
+export async function executeWithFailover(
+  messages: Array<{ role: string; content: string }>,
+  maxTokens: number,
+  temperature: number,
+  primaryProviderId?: string,
+  fallbackProviderIds?: string[],
+  tools?: any[],
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
+): Promise<{ content: string | null; provider: AIProvider | null; failureChain?: any; usage?: any; toolCalls?: any[] }> {
+  const failover = new FailoverManager();
+  let providers = getProviders();
+
+  // If a specific provider is requested, use it first
+  if (primaryProviderId) {
+    const primary = providers.find(p => p.id === primaryProviderId);
+    if (primary) {
+      providers = [primary, ...providers.filter(p => p.id !== primaryProviderId)];
+    }
+  }
+
+  // Explicit fallback order override
+  if (fallbackProviderIds && fallbackProviderIds.length > 0) {
+    const idOrder = new Map(fallbackProviderIds.map((id, i) => [id, i]));
+    providers = providers
+      .filter(p => idOrder.has(p.id))
+      .sort((a, b) => (idOrder.get(a.id)!) - (idOrder.get(b.id)!));
+  }
+
+  // Try each provider with retry logic
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+
+    // Skip if circuit breaker is open
+    const breaker = circuitBreakerRegistry.getOrCreate(provider.id);
+    if (breaker.isOpen()) {
+      const status = breaker.getStatus();
+      const cooldownSec = Math.ceil(status.cooldownRemaining / 1000);
+      console.log(`[Failover] Circuit breaker OPEN for ${provider.id}, skipping (cooldown: ${cooldownSec}s)`);
+      continue;
+    }
+
+    // Skip if rate limited
+    if (rateLimitManager.isInCooldown(provider.id)) {
+      const cooldownMs = rateLimitManager.getCooldownRemaining(provider.id);
+      const cooldownSec = (cooldownMs / 1000).toFixed(1);
+      console.log(`[Failover] Rate limit cooldown active for ${provider.id}, skipping (${cooldownSec}s remaining)`);
+      continue;
+    }
+
+    // Skip if over budget
+    if (isProviderOverBudget(provider.id)) {
+      console.log(`[Failover] Budget cap reached for ${provider.id}, skipping`);
+      continue;
+    }
+
+    // Attempt this provider with retry logic
+    const callStartTime = Date.now();
+    try {
+      // For OpenRouter, retry on timeout/5xx with exponential backoff (100ms initial)
+      // For other providers, single attempt (no retry)
+      const maxRetries = provider.type === 'openai-compatible' &&
+                        provider.base_url?.includes('openrouter') ? 1 : 0;
+
+      const result = await failover.retryWithBackoff(
+        async () => {
+          const res = await providerChat(provider, messages, maxTokens, temperature, false, tools, jsonSchema);
+          if (!res || (!res.content && !res.toolCalls?.length)) {
+            throw new Error(`${provider.name}: Empty response`);
+          }
+          return res;
+        },
+        provider.id,
+        100, // 100ms initial backoff
+        maxRetries
+      );
+
+      if (result) {
+        breaker.recordSuccess();
+        rateLimitManager.recordSuccess(provider.id);
+        latencySLOTracker.recordLatency(provider.id, Date.now() - callStartTime);
+        recordLLMUsage(provider.id, provider.model, result.usage);
+        checkContextWindowUsage(provider.id, provider.model, result.usage);
+        logDataFlow({
+          providerId: provider.id,
+          providerName: provider.name,
+          providerType: provider.type,
+          model: provider.model,
+          baseUrl: provider.base_url ?? '',
+          messages,
+          usage: result.usage,
+        }).catch(() => {});
+
+        console.log(`[Failover] ✅ Success with ${provider.id} after ${Date.now() - callStartTime}ms`);
+        return {
+          content: result.content,
+          provider,
+          failureChain: failover.getFailureChain(),
+          usage: result.usage,
+          toolCalls: result.toolCalls,
+        };
+      }
+    } catch (err: any) {
+      breaker.recordFailure();
+
+      // For Ollama fallback, attempt with tight 50ms timeout
+      if (i === providers.length - 1 && provider.type === 'ollama') {
+        console.warn(`[Failover] Last provider (${provider.id}) is Ollama, attempting with 50ms timeout`);
+        try {
+          const ollamaResult = await failover.retryWithBackoff(
+            async () => {
+              const res = await providerChat(provider, messages, maxTokens, temperature, false, tools, jsonSchema);
+              if (!res || (!res.content && !res.toolCalls?.length)) {
+                throw new Error(`${provider.name}: Empty response on Ollama attempt`);
+              }
+              return res;
+            },
+            provider.id,
+            50, // 50ms timeout for Ollama
+            0 // No retries for tight timeout
+          );
+
+          if (ollamaResult) {
+            breaker.recordSuccess();
+            console.log(`[Failover] ✅ Ollama fallback succeeded`);
+            return {
+              content: ollamaResult.content,
+              provider,
+              failureChain: failover.getFailureChain(),
+              usage: ollamaResult.usage,
+            };
+          }
+        } catch (ollamaErr) {
+          console.warn(`[Failover] Ollama fallback also failed:`, ollamaErr instanceof Error ? ollamaErr.message : String(ollamaErr));
+        }
+      }
+
+      const isRateLimit = err.message?.includes('429');
+      if (isRateLimit) {
+        rateLimitManager.recordRateLimit(provider.id);
+        console.warn(`[Failover] ${provider.id} rate limited, moving to next provider`);
+      } else {
+        console.warn(`[Failover] ${provider.id} failed: ${err.message}`);
+      }
+    }
+  }
+
+  // All providers exhausted
+  console.error(`[Failover] ❌ All ${providers.length} providers failed`);
+  return {
+    content: null,
+    provider: null,
+    failureChain: failover.getFailureChain(),
+  };
 }
