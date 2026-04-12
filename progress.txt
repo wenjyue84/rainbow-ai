@@ -1145,3 +1145,96 @@ This is a **TypeScript/Node.js** project, not Frappe/Python. The brief has been 
 
 - The test file was placed at `tests/assistant/` (not `tests/fixtures/`) matching the acceptance criteria
 - vitest pool config deprecation warning is pre-existing and harmless
+## Iteration 1 - Sun, Apr 12, 2026  8:59:09 PM
+FAILED diagnosis-block gate: Add Intent Classification Integration Test Suite with Profile-Specific Samples (ID: US-529) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-528 (Gemini 2.5 Pro)
+### Technical Brief: US-528 Automated Profile Separation Validation
+
+**Objective:** Implement an hourly background job in Frappe to audit content duplication across different profiles, storing results and alerting on high contamination.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/hooks.py`**: To define the scheduled job. Add an entry under `scheduler_events` to trigger the audit hourly.
+*   **New File: `lhdn_payroll_integration/utils/profile_auditor.py` (Recommended)**: Create this new file to house the core audit logic. It will contain functions to find profiles, compare JSON files, and calculate similarity scores.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/rainbow_config_audit/rainbow_config_audit.py`**: The controller file for the new DocType, to handle any specific backend events if necessary.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType (New): `Rainbow Config Audit`**: Create this DocType to store the results.
+    *   `profile_pair` (Data, Unique): e.g., "profile_a_vs_profile_b"
+    *   `contamination_score` (Float): Stores the calculated similarity score (0-1).
+    *   `detected_duplicates` (JSON or Text): Stores samples of duplicate content.
+*   **Hook (`hooks.py`): `scheduler_events`**:
+    ```python
+    "hourly": [
+        "lhdn_payroll_integration.utils.profile_auditor.run_hourly_audit"
+    ]
+    ```
+
+**3. Implementation Approach:**
+
+1.  **Create DocType:** Define the `Rainbow Config Audit` DocType via the Frappe UI.
+2.  **Schedule Job:** Add the `hourly` event to `hooks.py`.
+3.  **Develop Auditor Logic (`profile_auditor.py`):**
+    *   The main function (`run_hourly_audit`) will get the path to profiles (e.g., using `frappe.get_app_path('lhdn_payroll_integration', 'path', 'to', 'profiles')`).
+    *   Iterate through all combinations of profile pairs.
+    *   For each pair, read `intent_keywords.json`, `knowledge.json`, etc.
+    *   Use a Python library like `thefuzz` (for Levenshtein distance) to compare the content and generate a `contamination_score`.
+    *   Create a new `Rainbow Config Audit` document with the results for each pair.
+    *   If `contamination_score > 0.2`, use `frappe.log_error` to log an alert.
+
+**4. Edge Cases & Gotchas:**
+
+*   **File Paths:** The user story's JS paths (`src/lib/...`) are illustrative. The Python implementation must resolve the correct absolute file paths on the server.
+*   **Performance:** Processing many large files hourly can be slow. Ensure the file reading and comparison logic is efficient.
+*   **Error Handling:** The script must gracefully handle missing profiles, corrupted JSON files, or file permission issues without crashing the scheduler.
+*   **Data Scale:** The `Rainbow Config Audit` table will grow continuously. Consider a future cleanup mechanism (e.g., a weekly job to delete records older than 30 days).
+
+## Iteration [Final] - Story: Implement Automated Profile Separation Validation with Hourly Audit Checks (US-528) - CONFIRMED COMPLETE
+
+### What was verified and completed
+
+The implementation from previous iteration was complete and working. This final iteration:
+1. Verified all implementation files exist and are correctly integrated:
+   - `src/lib/content-similarity.ts` - Levenshtein distance algorithms
+   - `src/lib/profile-audit-scheduler.ts` - Hourly cron scheduler
+   - `tests/unit/lib/profile_audit_scheduler.test.ts` - 22 unit tests (all passing)
+   - Integration in `src/index.ts` (lines 70, 417)
+
+2. Added missing database table migration:
+   - `migrations/create-profile-audit-table.sql` - Creates rainbow_config_audit table with proper schema and indexes
+
+3. Verified all acceptance criteria are met:
+   - ✓ Hourly cron job (00:00 UTC+8) with cron pattern "0 * * * *"
+   - ✓ Compares intent_keywords.json, knowledge.json, workflows.json across all profiles
+   - ✓ Uses string similarity scoring (Levenshtein distance, 85% threshold for duplicates)
+   - ✓ Stores results in rainbow_config_audit with profile_pair, contamination_score (0-1), detected_duplicates
+   - ✓ Alerts via console.error when contamination_score > 0.2
+   - ✓ Includes file paths and duplicate content samples in alerts
+
+### Quality checks
+
+- **Build**: PASS (2.6MB bundle, 1 pre-existing warning only)
+- **Tests**: PASS (22/22 profile_audit_scheduler tests pass)
+- **Server startup**: PASS (scheduler initialization at line 417)
+- **Database migration**: Created for rainbow_config_audit table
+
+### Implementation patterns
+
+- Text chunk extraction uses 100+ character minimum to filter out noise
+- Contamination scoring: (duplicates found) / (average dataset size), capped at 1.0
+- Similarity threshold 0.85 (85%) for meaningful duplicates
+- Alert threshold 0.2 (20%) for high contamination
+- Raw PostgreSQL table (excluded from Drizzle migrations)
+- Non-blocking initial audit on startup
+- Proper error handling with fallback logic
+
+### Commit
+
+commit b26441d - "feat: US-528 - Implement Automated Profile Separation Validation with Hourly Audit Checks"
+- Added migration file for database table
+- Updated prd.json: US-528 passes=true
+## Iteration 1 - Sat, Apr 12, 2026  9:15:00 PM
+Completed: Implement Automated Profile Separation Validation with Hourly Audit Checks (ID: US-528) - FINAL
