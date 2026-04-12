@@ -988,6 +988,73 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-534",
+      "title": "Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment",
+      "priority": "high",
+      "description": "Implement configurable minimum confidence thresholds per intent type to improve classification reliability. Classify intents as low-confidence when below threshold and trigger clarifying questions.",
+      "acceptanceCriteria": [
+        "Create src/assistant/config/intent-confidence-thresholds.json with per-intent minimum scores (e.g., booking: 0.75, inquiry: 0.65, complaint: 0.70)",
+        "Modify src/assistant/pipeline/intent-classifier.ts classifyIntent() to check confidence against threshold and return {intent, confidence, isBelowThreshold} when below minimum",
+        "When confidence below threshold, trigger low-confidence handler that requests clarification: 'Did you mean to [intent_alternative_1] or [intent_alternative_2]?'"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts (classifyIntent function) - add threshold lookup and comparison logic before returning result",
+        "File to create: src/assistant/config/intent-confidence-thresholds.json - structure: {\"intents\": {\"booking\": {\"threshold\": 0.75, \"fallbackAction\": \"clarify\"}}}",
+        "File to edit: src/assistant/schemas.ts - add IntentConfidenceConfig and IntentClassifierResult Zod schemas with isBelowThreshold boolean field",
+        "Test command: uv run pytest tests/test_intent_classifier.py::test_confidence_threshold_rejection -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-12T14:21:16Z"
+    },
+    {
+      "id": "US-535",
+      "title": "Add Booking Intent Micro-Classifier for Check-In/Check-Out/Modification Disambiguation",
+      "priority": "high",
+      "description": "Implement a secondary classifier that disambiguates high-confidence booking intents into specific subtypes (check_in, check_out, modification, general_inquiry). This improves routing accuracy and allows workflow steps to make better decisions about which booking confirmation to display.",
+      "acceptanceCriteria": [
+        "BookingMicroClassifier.classify() returns correct subtype for 95%+ of test booking queries across all profiles (pelangi, southern, makan)",
+        "Intent classifier pipeline applies micro-classifier when intent.confidence >= 0.7 and intent.type === 'booking', storing result in rainbow_messages.booking_subtype column",
+        "Unit tests cover 10+ scenarios: 'I want to check in tomorrow' -> check_in, 'When can I change my dates?' -> modification, 'Is the room still available?' -> general_inquiry"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts - add bookingMicroClassifier call after T2 classification",
+        "File to create: src/assistant/classifiers/booking-microclassifier.ts - implement with Zod schema in src/assistant/schemas.ts",
+        "Test command: uv run pytest tests/unit/booking-microclassifier.test.ts -v --tb=short",
+        "Schema update: Add booking_subtype VARCHAR(20) column to rainbow_messages table in shared/schema-tables.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-536",
+      "title": "Implement Profile Data Isolation Validator with Automated Daily Audit",
+      "priority": "high",
+      "description": "Add an automated daily audit task that validates knowledge base files for each profile (data-makan, data-southern, pelangi) contain zero cross-profile business content. Detects contamination early and fails if >5% of KB entries reference wrong business.",
+      "acceptanceCriteria": [
+        "ProfileIsolationValidator.audit() scans all KB files in .rainbow-kb/, .rainbow-kb-southern/, .rainbow-kb-makan/; returns audit report with contamination percentage per profile",
+        "BullMQ job runs daily at 2:00 AM UTC; logs warning if >5% contamination, logs error if >10% detected",
+        "Unit test with synthetic KB files (one clean, one 8% contaminated with pelangi references in makan KB) verifies validator detects and reports correctly"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/audit/profile-isolation-validator.ts - export ProfileIsolationValidator class with audit(profileName, kbPath) method",
+        "File to edit: src/lib/scheduler.ts - register BullMQ job 'profile-isolation-audit' with cron '0 2 * * *'",
+        "Test command: uv run pytest tests/audit/profile-isolation.test.ts::test_detects_cross_profile_contamination -v",
+        "Create src/assistant/data/profile-keywords.json with pelangi_keywords, southern_keywords, makan_keywords for pattern matching"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }

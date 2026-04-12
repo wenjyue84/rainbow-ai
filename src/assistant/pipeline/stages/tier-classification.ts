@@ -15,12 +15,14 @@ import type { ChatMessage } from '../../types.js';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../../conversation-language-preference.js';
 import type { SupportedLanguage } from '../../language-router.js';
 import { getContext } from '../conversation-memory.js';
+import { isBelowIntentThreshold } from '../../../lib/intent-confidence-config.js';
 
 export interface ClassificationResult {
   intent: string;
   action: string;
   response: string;
   confidence: number;
+  isBelowThreshold?: boolean;
   model?: string;
   responseTime?: number;
   detectedLanguage?: string;
@@ -73,6 +75,18 @@ export async function classifyWithTiers(
   } else {
     return classifyDefault(input, context, clearAckTimer);
   }
+}
+
+/**
+ * Helper: Add isBelowThreshold field to a classification result.
+ * Uses the intent-confidence-thresholds.json config to determine if the
+ * confidence score is below the expected threshold for this intent.
+ */
+function withThresholdCheck(result: ClassificationResult): ClassificationResult {
+  return {
+    ...result,
+    isBelowThreshold: isBelowIntentThreshold(result.intent, result.confidence),
+  };
 }
 
 /**
@@ -142,7 +156,7 @@ async function classifyTieredPipeline(
     devMetadata.source = tierResult.source;
     console.log(`[Tier] T5 fast path: ${tierResult.source} → ${tierResult.category} (${classifyTime}ms, zero LLM)`);
 
-    return {
+    return withThresholdCheck({
       intent: tierResult.category,
       action: routedAction,
       response: '',
@@ -151,7 +165,7 @@ async function classifyTieredPipeline(
       responseTime: classifyTime,
       detectedLanguage: tierResult.detectedLanguage,
       entities: tierResult.entities,
-    };
+    });
   }
 
   // Fast tier caught it, but action needs LLM reply → generate reply only (T3)
@@ -186,7 +200,7 @@ async function classifyTieredPipeline(
 
     devMetadata.source = `${tierResult.source}+llm-reply`;
 
-    return {
+    return withThresholdCheck({
       intent: tierResult.category,
       action: routedAction,
       response: replyResult.response,
@@ -196,7 +210,7 @@ async function classifyTieredPipeline(
       detectedLanguage: tierResult.detectedLanguage,
       entities: tierResult.entities,
       usage: replyResult.usage,
-    };
+    });
   }
 
   // No fast tier match → full LLM classify + respond (T4)
@@ -221,7 +235,7 @@ async function classifyTieredPipeline(
   clearAckTimer();
   devMetadata.source = 'tiered-llm-fallback';
 
-  return {
+  return withThresholdCheck({
     intent: llmResult.intent,
     action: llmResult.action,
     response: llmResult.response,
@@ -231,7 +245,7 @@ async function classifyTieredPipeline(
     detectedLanguage: tierResult.detectedLanguage,
     entities: tierResult.entities,
     usage: llmResult.usage,
-  };
+  });
 }
 
 /**
@@ -282,7 +296,7 @@ async function classifySplitModel(
 
     devMetadata.source = 'split-model';
 
-    return {
+    return withThresholdCheck({
       intent: classifyResult.intent,
       action: routedAction,
       response: replyResult.response,
@@ -290,20 +304,20 @@ async function classifySplitModel(
       model: `${classifyResult.model} → ${replyResult.model}`,
       responseTime: (classifyResult.responseTime || 0) + (replyResult.responseTime || 0),
       usage: replyResult.usage,
-    };
+    });
   }
 
   // Non-reply action: classification-only result
   devMetadata.source = 'split-model-fast';
 
-  return {
+  return withThresholdCheck({
     intent: classifyResult.intent,
     action: routedAction,
     response: '',
     confidence: classifyResult.confidence,
     model: classifyResult.model,
     responseTime: classifyResult.responseTime,
-  };
+  });
 }
 
 /**
@@ -332,7 +346,7 @@ async function classifyDefault(
   clearAckTimer();
   devMetadata.source = 'llm';
 
-  return {
+  return withThresholdCheck({
     intent: result.intent,
     action: result.action,
     response: result.response,
@@ -340,5 +354,5 @@ async function classifyDefault(
     model: result.model,
     responseTime: result.responseTime,
     usage: result.usage,
-  };
+  });
 }

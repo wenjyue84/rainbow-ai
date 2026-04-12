@@ -213,12 +213,12 @@ export async function classifyAndRoute(
     processText, devMetadata, context, lang
   );
 
-  // ─── US-518: Low-Confidence Intent Fallback Handler with Clarifying Questions ─
-  const lowConfidenceThreshold = 0.65;
-  if (result.confidence < lowConfidenceThreshold && result.intent !== 'unknown') {
+  // ─── US-534: Low-Confidence Intent Fallback Handler with Clarifying Questions ─
+  // US-534: Check isBelowThreshold flag set by tier-classification.ts
+  if (result.isBelowThreshold && result.intent !== 'unknown') {
     console.log(
-      `[LowConfidenceFallback-US518] Intent "${result.intent}" confidence ${result.confidence.toFixed(2)} ` +
-      `below threshold ${lowConfidenceThreshold.toFixed(2)} → generating clarifying questions`
+      `[LowConfidenceFallback-US534] Intent "${result.intent}" confidence ${result.confidence.toFixed(2)} ` +
+      `below threshold → generating clarifying questions`
     );
 
     try {

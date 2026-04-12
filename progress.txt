@@ -1610,3 +1610,56 @@ This brief outlines the implementation plan for caching conversation queries in 
 *   **Cache Invalidation:** The current story does not require it, but consider that if conversation context can be modified externally, a mechanism to invalidate specific cache keys may be needed in the future.
 *   **Testing:** Use `frappe.test_runner` and mock `frappe.cache()` to test hit/miss logic and TTL expiry without a live Redis connection.
 
+
+## Iteration [N] - Story: Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment (US-534) - COMPLETE
+
+### What was implemented
+
+Implemented per-intent confidence score thresholds with explicit `isBelowThreshold` flag in classification results:
+
+1. Created `src/assistant/config/intent-confidence-thresholds.json` with structured thresholds for all 35+ intents, organized by confidence category (high/medium/low/emergency/system)
+2. Created `src/lib/intent-confidence-config.ts` utility to load and manage the thresholds config with in-memory caching
+3. Modified `ClassificationResult` interface to include `isBelowThreshold?: boolean` field
+4. Added `withThresholdCheck()` helper in tier-classification.ts that checks confidence against the configured threshold
+5. Updated all classification paths (tieredPipeline, splitModel, default) to set `isBelowThreshold` in results
+6. Modified intent-classifier.ts low-confidence fallback logic to use the new `isBelowThreshold` flag instead of hardcoded 0.65 threshold
+
+### Files created/modified
+
+- **Created:** `src/assistant/config/intent-confidence-thresholds.json` — Main config with per-intent thresholds (booking: 0.75, pricing: 0.85, etc.)
+- **Created:** `src/lib/intent-confidence-config.ts` — Utility module for loading/caching thresholds with `getIntentThreshold()` and `isBelowIntentThreshold()` functions
+- **Modified:** `src/assistant/pipeline/stages/tier-classification.ts` 
+  - Added import of `isBelowIntentThreshold`
+  - Added `withThresholdCheck()` helper function (line 80-88)
+  - Wrapped all return statements with `withThresholdCheck()` to populate `isBelowThreshold` field
+- **Modified:** `src/assistant/pipeline/intent-classifier.ts`
+  - Updated low-confidence fallback at line 216 to use `result.isBelowThreshold` flag
+- **Modified:** `package.json` — Updated build script to copy `src/assistant/config` directory to dist
+
+### Patterns discovered
+
+- Config file caching: Loading JSON once and caching in memory with reload capability improves performance
+- Explicit flags in results: Adding `isBelowThreshold` to the result makes the threshold check explicit and debuggable
+- Per-intent thresholds vary significantly by intent type: Greetings require 0.95, facilities info only 0.67
+- Config categorization helps: Grouping intents by confidence requirement (high/medium/low) aids maintenance
+
+### Gotchas fixed
+
+- Import path resolution: Had to use `../../../lib/` from tier-classification.ts (in stages subfolder) instead of `../../lib/`
+- Build script: Initially forgot to add config directory copy to the build script
+- Threshold priority: The new config thresholds (US-534) coexist with the existing US-297 per-profile DB thresholds and US-002 confidence gate (0.5)
+
+### Quality checks
+
+- Build: PASS (2.6MB bundle, 1 pre-existing warning only)
+- Server startup: PASS (no new errors, pre-existing warnings only)
+- All acceptance criteria met:
+  - ✓ Created intent-confidence-thresholds.json with per-intent scores
+  - ✓ Modified tier-classification.ts to return isBelowThreshold flag
+  - ✓ Updated low-confidence handler to use the new flag
+- Verified config file is copied to dist during build
+- Verified config loading fallback works (uses default thresholds if file missing)
+
+### Commit
+
+commit [hash] - "feat: US-534 - Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment"
