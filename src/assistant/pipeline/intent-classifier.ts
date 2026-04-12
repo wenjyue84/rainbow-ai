@@ -40,6 +40,7 @@ import { trackIntentPrediction } from '../intent-tracker.js';
 import { logClassificationDecision } from './intent-audit-logger.js';
 import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAILURE_THRESHOLD } from '../booking-failure-logger.js';
 import { recordTurnConfidence } from '../turn-confidence-scorer.js';
+import { generateClarifyingResponse, formatClarifyingResponseForDisplay } from './fallback-handler.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -211,6 +212,61 @@ export async function classifyAndRoute(
     result, kb.systemPrompt, summarization.contextMessages,
     processText, devMetadata, context, lang
   );
+
+  // ─── US-518: Low-Confidence Intent Fallback Handler with Clarifying Questions ─
+  const lowConfidenceThreshold = 0.65;
+  if (result.confidence < lowConfidenceThreshold && result.intent !== 'unknown') {
+    console.log(
+      `[LowConfidenceFallback-US518] Intent "${result.intent}" confidence ${result.confidence.toFixed(2)} ` +
+      `below threshold ${lowConfidenceThreshold.toFixed(2)} → generating clarifying questions`
+    );
+
+    try {
+      // Generate clarifying response with dynamic questions from intent keywords
+      const clarifyingResponse = generateClarifyingResponse(result.intent, lang);
+      const formattedResponse = formatClarifyingResponseForDisplay(clarifyingResponse);
+
+      // Log the low-confidence attempt to rainbowMessages for debugging
+      const logMessagePromise = context.logMessage(phone, msg.pushName ?? 'Guest', 'user', processText, {
+        action: 'low_confidence_fallback',
+        originalIntent: result.intent,
+        originalConfidence: result.confidence,
+        threshold: lowConfidenceThreshold,
+        clarifyingQuestionsCount: clarifyingResponse.clarifyingQuestions.length,
+        instanceId: msg.instanceId,
+        ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+      });
+
+      // Log assistant response
+      const logResponsePromise = context.logMessage(phone, 'Assistant', 'assistant', formattedResponse, {
+        action: 'low_confidence_clarification',
+        originalIntent: result.intent,
+        originalConfidence: result.confidence,
+        instanceId: msg.instanceId,
+        ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
+      });
+
+      // Set response and mark as fallback handled
+      state.response = formattedResponse;
+      devMetadata.lowConfidenceFallbackTriggered = true;
+      devMetadata.lowConfidenceFallbackThreshold = lowConfidenceThreshold;
+      devMetadata.lowConfidenceOriginalIntent = result.intent;
+      devMetadata.lowConfidenceOriginalConfidence = result.confidence;
+
+      // Fire-and-forget logging
+      Promise.allSettled([logMessagePromise, logResponsePromise]).catch(() => {
+        // Logging failure is non-fatal
+      });
+
+      // Mark this as handled so we skip normal dispatch
+      cancelAck();
+      await ctx.sendMessage(phone, formattedResponse, msg.instanceId);
+      return;
+    } catch (error) {
+      logger.debug('low-confidence-fallback-error', { error: String(error) });
+      // Fall through to normal confidence gate handling if fallback generation fails
+    }
+  }
 
   // ─── US-002: Confidence threshold gating before fallback escalation ─
   const settings = context.getSettings();

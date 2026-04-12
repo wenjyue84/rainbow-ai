@@ -417,3 +417,120 @@ New files to create:
 - The diagnosis-gate REQUIRES outputting `## Current State`, `## Problem Identified`, `## Planned Changes` headers BEFORE any file edits or Bash commands that modify files — even when the changes already exist from a prior commit
 - US-248 tests in the same test file were pre-existing failures (southern has "reservation" keyword, makan/southern share 3 keywords) — these are unrelated to US-525 and were failing before this story
 - Previous attempt committed all code but failed to output diagnosis block before Bash commands, causing the gate to block prd.json update
+## Iteration 2 - Sun, Apr 12, 2026  7:05:44 PM
+Completed: Add Per-Profile Intent Keyword Configuration Files for Business Separation (ID: US-525) in 5m
+
+
+## Iteration 8 - Story: Add Low-Confidence Intent Fallback Handler with Clarifying Questions (US-518) - COMPLETE
+
+### What was implemented
+
+Low-confidence intent fallback handler with dynamic clarifying questions:
+
+1. **Enhanced `src/assistant/pipeline/fallback-handler.ts`:**
+   - Added US-518 exports: `generateClarifyingResponse()`, `formatClarifyingResponseForDisplay()`
+   - `generateClarifyingResponse()` function that:
+     - Loads intent keywords from intent-keywords.json
+     - Extracts top 3 keywords for the misclassified intent
+     - Generates 2 clarifying questions from those keywords
+     - Returns template message, questions, and escalation offer
+     - Supports multilingual responses (en, ms, zh, ta)
+   - `formatClarifyingResponseForDisplay()` function that formats response for WhatsApp
+
+2. **Modified `src/assistant/pipeline/intent-classifier.ts`:**
+   - Imported fallback handler functions
+   - Added US-518 confidence threshold check at 0.65 (after Layer 2 Fallback stage)
+   - When confidence < 0.65 and intent !== 'unknown':
+     - Calls generateClarifyingResponse() to get templated response with questions
+     - Formats response for display using formatClarifyingResponseForDisplay()
+     - Logs attempt to rainbowMessages with original intent and confidence
+     - Sends clarifying response to user instead of routing to normal workflow
+     - Marks state.response and sets metadata flags for tracking
+
+3. **Created `tests/unit/fallback-handler.test.ts`:**
+   - 13 tests covering:
+     - generateClarifyingResponse() generates template message with "didn't quite understand"
+     - Generates 2 clarifying questions numbered 1-2
+     - Includes escalation offer with staff member reference
+     - Supports multiple languages (en, ms, zh, ta)
+     - Handles intents with no keywords gracefully
+   - US-518 acceptance criteria tests (AC1-AC3)
+
+4. **Created `tests/unit/intent-classifier.test.ts`:**
+   - 19 tests covering:
+     - Confidence threshold enforcement at 0.65
+     - Fallback trigger logic (confidence < 0.65 AND intent !== 'unknown')
+     - FallbackHandler response generation
+     - Multilingual support testing
+   - Comprehensive AC test coverage for AC1-AC3
+
+### Files modified/created
+
+- `src/assistant/pipeline/fallback-handler.ts`: Added US-518 functions
+- `src/assistant/pipeline/intent-classifier.ts`: Integrated fallback handler logic (lines ~215-258)
+- `tests/unit/fallback-handler.test.ts`: New test suite (13 tests, all passing)
+- `tests/unit/intent-classifier.test.ts`: New test suite (19 tests, all passing)
+
+### Patterns discovered
+
+- generateClarifyingResponse() is stateless — safe to call for each low-confidence classification
+- Intent keywords are loaded fresh on each call (small file, minimal overhead)
+- Clarifying questions based on actual keywords improve clarity over generic fallbacks
+- Multilingual templates are easy to add without code changes
+- formatClarifyingResponseForDisplay() ensures consistent formatting for WhatsApp
+
+### Gotchas fixed
+
+- Initial implementation attempted to route to 'unknown' action, but US-518 requires immediate response with clarifying questions
+- Added explicit early return after sending clarifying response to prevent downstream action dispatch
+- Must call cancelAck() before sending response to prevent duplicate thinking indicators
+- logging must be fire-and-forget (Promise.allSettled) to avoid blocking response
+
+### Quality checks
+
+- **Build**: PASS (esbuild, 2.6MB bundle, 1 pre-existing warning only)
+- **Server startup**: PASS (starts successfully, validates config)
+- **Tests**:
+  - ✓ fallback-handler.test.ts: 13/13 tests passing
+  - ✓ intent-classifier.test.ts: 19/19 tests passing
+  - All US-518 acceptance criteria verified
+
+### Acceptance criteria met
+
+✓ AC1: IntentClassifier checks confidenceScore against 0.65 threshold; low-confidence intents routed to FallbackHandler
+✓ AC2: FallbackHandler generates response with: template message 'I didn't quite understand that', + 2 clarifying questions from top 3 intent keywords, + offer to escalate
+✓ AC3: rainbowMessages records both original message and low-confidence classification attempt for debugging
+
+### Commit
+
+commit <hash> - "feat: US-518 - Add Low-Confidence Intent Fallback Handler with Clarifying Questions"
+
+Story ID: US-518
+
+## Pre-analysis for US-518 (Gemini 2.5 Pro)
+Here is the technical brief for story US-518.
+
+**Subject:** Technical Brief for US-518: Low-Confidence Intent Fallback Handler
+
+**1. Files to Modify/Create:**
+*   `src/assistant/pipeline/intent-classifier.ts`: To be modified. This file will house the new logic to check the confidence score of a classified intent.
+*   `src/assistant/pipeline/fallback-handler.ts`: To be created. This new file will define the `FallbackHandler` responsible for generating and sending the clarifying response.
+
+**2. Key DocTypes/Hooks & Data Sources:**
+*   **Data Source:** `settings.json` will be read to get the `confidenceThreshold` value (0.65).
+*   **Data Source:** `intent-keywords.json` will be used to source the keywords for generating dynamic clarifying questions.
+*   **Logging Target:** The `rainbowMessages` data store/table needs to be updated to log the original message and the low-confidence classification details.
+
+**3. Recommended Implementation Approach:**
+1.  In `intent-classifier.ts`, after classification, get the `confidenceScore`.
+2.  If `confidenceScore` is below the `confidenceThreshold` from `settings.json`, halt the normal workflow.
+3.  Invoke the new `FallbackHandler`.
+4.  The `FallbackHandler` should construct a response using a template ("I didn't quite understand...") and append two clarifying questions derived from the top keywords in `intent-keywords.json` for the failed intent.
+5.  Log the attempt to `rainbowMessages` before returning the response.
+
+**4. Edge Cases & Gotchas:**
+*   The handler must gracefully manage cases where `intent-keywords.json` lacks entries for an intent.
+*   Ensure the threshold is read dynamically from `settings.json`, not hardcoded.
+*   The system must correctly log the low-confidence event for future debugging as per acceptance criteria.
+*   Follow the test commands in `technicalNotes` to validate both the classifier's new path and the handler's output.
+
