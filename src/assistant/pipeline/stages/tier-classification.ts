@@ -14,6 +14,7 @@ import type { PipelineState, DevMetadata } from '../types.js';
 import type { ChatMessage } from '../../types.js';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../../conversation-language-preference.js';
 import type { SupportedLanguage } from '../../language-router.js';
+import { getContext } from '../conversation-memory.js';
 
 export interface ClassificationResult {
   intent: string;
@@ -164,9 +165,18 @@ async function classifyTieredPipeline(
     await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
     const timeSensitiveSet = context.getTimeSensitiveIntentSet();
-    const replyPrompt = timeSensitiveSet.has(tierResult.category)
+    let replyPrompt = timeSensitiveSet.has(tierResult.category)
       ? systemPrompt + '\n\n' + context.getTimeContext()
       : systemPrompt;
+
+    // US-519: Inject conversation context for multi-turn awareness
+    if (phone) {
+      const conversationContext = await getContext(phone);
+      if (conversationContext) {
+        replyPrompt = conversationContext + '\n\n' + replyPrompt;
+      }
+    }
+
     const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, tierResult.category, input.detectedLanguage);
     clearAckTimer();
 
@@ -198,7 +208,16 @@ async function classifyTieredPipeline(
   // Send typing indicator before LLM call for T4
   await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
-  const llmResult = await context.classifyAndRespond(systemPrompt, contextMessages, processText, input.detectedLanguage);
+  // US-519: Inject conversation context for multi-turn awareness
+  let classifyPrompt = systemPrompt;
+  if (phone) {
+    const conversationContext = await getContext(phone);
+    if (conversationContext) {
+      classifyPrompt = conversationContext + '\n\n' + classifyPrompt;
+    }
+  }
+
+  const llmResult = await context.classifyAndRespond(classifyPrompt, contextMessages, processText, input.detectedLanguage);
   clearAckTimer();
   devMetadata.source = 'tiered-llm-fallback';
 
@@ -243,9 +262,18 @@ async function classifySplitModel(
     await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
     const timeSensitiveSet = context.getTimeSensitiveIntentSet();
-    const replyPrompt = timeSensitiveSet.has(classifyResult.intent)
+    let replyPrompt = timeSensitiveSet.has(classifyResult.intent)
       ? systemPrompt + '\n\n' + context.getTimeContext()
       : systemPrompt;
+
+    // US-519: Inject conversation context for multi-turn awareness
+    if (input.phone) {
+      const conversationContext = await getContext(input.phone);
+      if (conversationContext) {
+        replyPrompt = conversationContext + '\n\n' + replyPrompt;
+      }
+    }
+
     const replyResult = await context.generateReplyOnly(replyPrompt, contextMessages, processText, classifyResult.intent, input.detectedLanguage);
 
     const finalConfidence = replyResult.confidence !== undefined
@@ -291,7 +319,16 @@ async function classifyDefault(
   // Send typing indicator before LLM call in default mode
   await sendTypingIndicatorIfEnabled(context, input.phone, input.instanceId);
 
-  const result = await context.classifyAndRespond(systemPrompt, contextMessages, processText, input.detectedLanguage);
+  // US-519: Inject conversation context for multi-turn awareness
+  let classifyPrompt = systemPrompt;
+  if (input.phone) {
+    const conversationContext = await getContext(input.phone);
+    if (conversationContext) {
+      classifyPrompt = conversationContext + '\n\n' + classifyPrompt;
+    }
+  }
+
+  const result = await context.classifyAndRespond(classifyPrompt, contextMessages, processText, input.detectedLanguage);
   clearAckTimer();
   devMetadata.source = 'llm';
 
