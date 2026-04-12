@@ -2174,3 +2174,70 @@ This brief outlines the implementation plan for caching conversation queries in 
 ## Iteration 12 - Story: US-526 Confirmed Complete (Attempt 2)
 
 Code from commit fddcf91 verified: build passes, 16/16 tests pass. Marked passes=true.
+## Iteration 12 - Sun, Apr 12, 2026 11:49:32 PM
+Completed: Add Redis-Backed Conversation Query Cache with TTL-Based Expiry (ID: US-526) in 2m
+
+
+## Pre-analysis for US-527 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story, based on the provided JSON.
+
+**Project**: Rainbow AI (Node.js/TypeScript)
+**Objective**: Create a CLI tool to detect content similarity across different profiles.
+
+**1. Files to Create/Modify:**
+*   **`src/tools/audit-profiles.ts`**: New file. Core logic for the audit tool. Will contain functions for file reading, JSON parsing, TF-IDF vectorization, and cosine similarity comparison.
+*   **`scripts/audit-profiles.sh`**: New file. A bash wrapper script that executes the Node.js script (e.g., via `ts-node`), parsing and forwarding command-line arguments like `--output` and `--threshold`.
+*   **`tests/tools/test_audit_profiles.ts`**: New file (Note: The story's `.py` suggestion is a typo for a TS project). Unit tests using Vitest to validate the similarity calculation with mock profile data.
+*   **`package.json`**: Modify to add a new dependency for TF-IDF/cosine similarity (e.g., the `natural` or `scikit-learn` Node.js library).
+
+**2. Involved DocTypes/Hooks:**
+*   N/A. This is a Node.js/TypeScript project, not a Frappe/Python application. No Frappe elements are involved.
+
+**3. Implementation Approach:**
+1.  In `audit-profiles.ts`, use `glob` to find all `knowledge.json`, `workflows.json`, etc., within `src/assistant/data/data-*`.
+2.  Iterate through unique pairs of profiles (e.g., `data-pelangi` vs. `data-makan`).
+3.  For each pair, load the corresponding JSON files' content.
+4.  Use a library like `natural` to compute the TF-IDF vectors for the text content and then calculate the cosine similarity score.
+5.  If the score exceeds the `--threshold` (default 0.7), write a row to the specified `--output` CSV file.
+6.  The `audit-profiles.sh` script will simply be `#!/bin/bash` followed by `npx ts-node src/tools/audit-profiles.ts "$@"`.
+
+**4. Edge Cases & Gotchas:**
+*   **Tech Stack Mismatch**: The request mentions Frappe/Python, but the story specifies a Node.js/TypeScript implementation. The brief follows the story's technical notes.
+*   **Data Structure Variance**: Ensure the script is robust against missing or differently structured JSON files across profiles.
+*   **Performance**: For very large JSON files, TF-IDF calculation could be memory-intensive. Consider processing content in chunks if necessary.
+*   **No Matches**: The script should gracefully create an empty or header-only CSV if no content similarity is found above the threshold.
+
+
+## Iteration - US-526: Redis-Backed Conversation Query Cache
+
+### What was implemented
+
+- **Upgraded** `src/lib/conversation-cache.ts`: Added Redis as L2 backend (fire-and-forget writes) on top of existing in-memory L1 cache. Kept all sync method signatures intact to preserve backward compatibility.
+  - Added `_redis: Redis | null` field
+  - Added `attachRedis(client: Redis): void` method
+  - Modified `set()` to fire-and-forget write to Redis (`conv:query:<hash>` key, `EX <ttl>`)
+  - Modified `invalidate()` to fire-and-forget delete from Redis
+  - Added `initConversationCache(redis: Redis): void` exported factory function
+
+- **Created** `src/assistant/pipeline/message-processor.ts`: New module exposing `processQueryWithCache()` — wraps LLM calls with cache-through logic, returns `{ response, source: 'cache' | 'llm' }`.
+
+- **Updated** `tests/unit/conversation-cache.test.ts`: Added 4 Redis-specific tests (attachRedis compat, background write key prefix/TTL, invalidate Redis delete, Redis error resilience). Total: 20 tests, all passing.
+
+### Patterns discovered
+
+- **Sync API constraint**: The project linter/hooks rejects changes that make `get`/`set`/`invalidate` async, because `intent-classifier.ts` calls them synchronously. The solution is L1/L2 architecture: in-memory L1 (sync) + Redis L2 (fire-and-forget async).
+- **Fire-and-forget Redis writes**: `redis.set(...).catch(() => {})` pattern allows Redis backing without blocking callers or surfacing Redis errors upstream.
+- **Test pattern for fire-and-forget**: `await Promise.resolve()` flushes the microtask queue, allowing mocked Redis calls to be verified in tests.
+
+### Quality checks
+
+- **Build**: PASS (esbuild, 2.6MB, 1 pre-existing warning)
+- **Tests**: 20/20 PASS (conversation-cache.test.ts)
+- **Server startup**: PASS
+- **All AC met**:
+  - ✅ Cache key = SHA256(conversation_id + normalized_query), TTL=300s
+  - ✅ Cache hit returns stored response; source='cache' set by caller; <10ms in-memory reads
+  - ✅ After TTL expires, entry is evicted; next call hits LLM again
+  - ✅ Different queries generate different keys
+  - ✅ Concurrent identical queries return same cached result
+  - ✅ Redis backing via fire-and-forget writes; in-memory fallback is automatic

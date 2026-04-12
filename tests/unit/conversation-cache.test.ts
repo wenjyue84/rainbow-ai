@@ -191,4 +191,79 @@ describe('ConversationCache — US-526', () => {
     vi.advanceTimersByTime(101 * 1000); // k1 expired, k2 still live
     expect(cache.size()).toBe(1);
   });
+
+  // ── Redis background durability ───────────────────────────────────────────
+
+  it('attachRedis does not break sync get/set behavior', () => {
+    const mockRedis = {
+      set: vi.fn(() => Promise.resolve('OK')),
+      del: vi.fn(() => Promise.resolve(1)),
+    } as any;
+    cache.attachRedis(mockRedis);
+
+    const key = cache.cacheKey('60123456789', 'redis compat test');
+    cache.set(key, makeResult({ response: 'still works' }), 300);
+
+    const hit = cache.get(key);
+    expect(hit?.response).toBe('still works');
+  });
+
+  it('set fires background Redis write with correct key prefix and TTL', async () => {
+    const writtenKeys: string[] = [];
+    const mockRedis = {
+      set: vi.fn((k: string, _v: string, _ex: string, _ttl: number) => {
+        writtenKeys.push(k);
+        return Promise.resolve('OK');
+      }),
+      del: vi.fn(() => Promise.resolve(1)),
+    } as any;
+    cache.attachRedis(mockRedis);
+
+    const key = cache.cacheKey('60123456789', 'background write test');
+    cache.set(key, makeResult(), 300);
+
+    // Flush promise microtask queue so fire-and-forget completes
+    await Promise.resolve();
+
+    expect(mockRedis.set).toHaveBeenCalledOnce();
+    const [calledKey, , exCmd, ttl] = mockRedis.set.mock.calls[0] as [string, string, string, number];
+    expect(calledKey).toMatch(/^conv:query:/);
+    expect(exCmd).toBe('EX');
+    expect(ttl).toBe(300);
+  });
+
+  it('invalidate fires background Redis delete', async () => {
+    const mockRedis = {
+      set: vi.fn(() => Promise.resolve('OK')),
+      del: vi.fn(() => Promise.resolve(1)),
+    } as any;
+    cache.attachRedis(mockRedis);
+
+    const key = cache.cacheKey('60123456789', 'delete test');
+    cache.invalidate(key);
+
+    await Promise.resolve();
+
+    expect(mockRedis.del).toHaveBeenCalledOnce();
+    const calledKey = mockRedis.del.mock.calls[0][0] as string;
+    expect(calledKey).toMatch(/^conv:query:/);
+  });
+
+  it('Redis errors do not break sync cache behavior', async () => {
+    const mockRedis = {
+      set: vi.fn(() => Promise.reject(new Error('Redis down'))),
+      del: vi.fn(() => Promise.reject(new Error('Redis down'))),
+    } as any;
+    cache.attachRedis(mockRedis);
+
+    const key = cache.cacheKey('60123456789', 'error resilience test');
+    // set should not throw even if Redis fails
+    expect(() => cache.set(key, makeResult({ response: 'fallback ok' }), 300)).not.toThrow();
+
+    // In-memory still works
+    expect(cache.get(key)?.response).toBe('fallback ok');
+
+    // Allow rejection to surface (should be swallowed)
+    await Promise.resolve();
+  });
 });
