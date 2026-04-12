@@ -67,6 +67,7 @@ import {
 import { notifyAdminSlowQuery } from './lib/admin-notifier.js';
 import { startFallbackAlertScheduler } from './lib/fallback-alert.js';
 import { startHandoffSlaCron } from './lib/handoff-sla.js';
+import { startProfileAuditScheduler } from './lib/profile-audit-scheduler.js';
 import { checkBreachDeadlines } from './routes/admin/breach-report.js';
 import { migrateObsoleteTiers, checkMessagingVolumeLimits } from './routes/admin/messaging-limits.js';
 import { loadPacingStateFromDb, startPacingMonitor } from './lib/pacing-monitor.js';
@@ -411,6 +412,9 @@ setInterval(() => {
 
 // US-907: PDPA breach detection scheduler (every 15 min, scans for anomalous bulk access)
 startBreachDetectionScheduler();
+
+// US-528: Start profile separation audit scheduler (hourly, detects cross-profile contamination)
+startProfileAuditScheduler();
 
 // US-969: Start marketing consent expiry scheduler (every 1h, expires 48h-old pending consents)
 startConsentExpiryScheduler();

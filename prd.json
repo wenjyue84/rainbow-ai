@@ -839,6 +839,49 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-528",
+      "title": "Implement Automated Profile Separation Validation with Hourly Audit Checks",
+      "priority": "high",
+      "description": "Add hourly background job that validates knowledge base and intent keyword files across profiles, detecting content contamination and alerting if cross-profile duplication exceeds threshold.",
+      "acceptanceCriteria": [
+        "Hourly cron job (00:00 UTC+8) compares intent_keywords.json, knowledge.json, and workflows.json across all profiles using string similarity scoring",
+        "Stores audit run results in rainbow_config_audit with profile_pair, contamination_score (0-1), and detected_duplicates JSON array",
+        "Alerts via console.error if contamination_score > 0.2 for any profile pair, includes file paths and duplicate content samples"
+      ],
+      "technicalNotes": [
+        "Create src/lib/profile-audit-scheduler.ts using node-cron for hourly execution; implement src/lib/content-similarity.ts with Levenshtein distance matching",
+        "Load all profile config files from src/assistant/data/*/ and compare using threshold-based string matching",
+        "Test command: uv run vitest tests/lib/profile_audit_scheduler.test.ts -t 'hourly and contamination'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-12T12:14:28Z"
+    },
+    {
+      "id": "US-529",
+      "title": "Add Intent Classification Integration Test Suite with Profile-Specific Samples",
+      "priority": "high",
+      "description": "Create integration tests for intent classification with real conversation samples per profile (Pelangi, Southern, Makan), validating accuracy for booking, inquiry, and escalation intents.",
+      "acceptanceCriteria": [
+        "tests/assistant/intent-classifier.integration.test.ts includes 15+ real conversation samples per intent type per profile loaded from tests/fixtures/",
+        "Test suite validates >= 85% classification accuracy for booking/inquiry intents and >= 75% for escalation intent per profile",
+        "Test execution completes in < 5 seconds with vitest; includes coverage report showing intent classification code coverage >= 90%"
+      ],
+      "technicalNotes": [
+        "Create tests/fixtures/intent-samples.json, intent-samples-southern.json, intent-samples-makan.json with real WhatsApp conversation samples",
+        "Extract samples from .rainbow-kb/ markdown files and production conversation logs; structure as { profile, intent_type, message, expected_intent_t1, expected_intent_t2 }",
+        "Test command: uv run vitest tests/assistant/intent-classifier.integration.test.ts --coverage --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }

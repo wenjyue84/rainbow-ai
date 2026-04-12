@@ -922,3 +922,131 @@ Completed: Audit Knowledge Base Files for Content Cross-Contamination Between Pr
 *   The location of `knowledge.json` needs to be confirmed.
 *   The performance of loading and scoring all intents from `knowledge.json` on each call should be considered.
 
+
+## Pre-analysis for US-528 (Gemini 2.5 Pro)
+### Technical Brief: US-528 Automated Profile Separation Validation
+
+**Objective:** Implement an hourly background job in Frappe to audit content duplication across different profiles, storing results and alerting on high contamination.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/hooks.py`**: To define the scheduled job. Add an entry under `scheduler_events` to trigger the audit hourly.
+*   **New File: `lhdn_payroll_integration/utils/profile_auditor.py` (Recommended)**: Create this new file to house the core audit logic. It will contain functions to find profiles, compare JSON files, and calculate similarity scores.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/rainbow_config_audit/rainbow_config_audit.py`**: The controller file for the new DocType, to handle any specific backend events if necessary.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType (New): `Rainbow Config Audit`**: Create this DocType to store the results.
+    *   `profile_pair` (Data, Unique): e.g., "profile_a_vs_profile_b"
+    *   `contamination_score` (Float): Stores the calculated similarity score (0-1).
+    *   `detected_duplicates` (JSON or Text): Stores samples of duplicate content.
+*   **Hook (`hooks.py`): `scheduler_events`**:
+    ```python
+    "hourly": [
+        "lhdn_payroll_integration.utils.profile_auditor.run_hourly_audit"
+    ]
+    ```
+
+**3. Implementation Approach:**
+
+1.  **Create DocType:** Define the `Rainbow Config Audit` DocType via the Frappe UI.
+2.  **Schedule Job:** Add the `hourly` event to `hooks.py`.
+3.  **Develop Auditor Logic (`profile_auditor.py`):**
+    *   The main function (`run_hourly_audit`) will get the path to profiles (e.g., using `frappe.get_app_path('lhdn_payroll_integration', 'path', 'to', 'profiles')`).
+    *   Iterate through all combinations of profile pairs.
+    *   For each pair, read `intent_keywords.json`, `knowledge.json`, etc.
+    *   Use a Python library like `thefuzz` (for Levenshtein distance) to compare the content and generate a `contamination_score`.
+    *   Create a new `Rainbow Config Audit` document with the results for each pair.
+    *   If `contamination_score > 0.2`, use `frappe.log_error` to log an alert.
+
+**4. Edge Cases & Gotchas:**
+
+*   **File Paths:** The user story's JS paths (`src/lib/...`) are illustrative. The Python implementation must resolve the correct absolute file paths on the server.
+*   **Performance:** Processing many large files hourly can be slow. Ensure the file reading and comparison logic is efficient.
+*   **Error Handling:** The script must gracefully handle missing profiles, corrupted JSON files, or file permission issues without crashing the scheduler.
+*   **Data Scale:** The `Rainbow Config Audit` table will grow continuously. Consider a future cleanup mechanism (e.g., a weekly job to delete records older than 30 days).
+
+
+## Iteration [N] - Story: Implement Automated Profile Separation Validation with Hourly Audit Checks (US-528)
+
+### What was implemented
+
+Implemented a comprehensive hourly automated profile separation audit system to detect cross-profile content contamination:
+
+**Files created:**
+- `src/lib/content-similarity.ts` - Levenshtein distance algorithm for string similarity scoring with helper functions:
+  - `levenshteinDistance()` - Calculate edit distance between strings
+  - `stringSimilarity()` - Normalized similarity score (0-1)
+  - `extractTextChunks()` - Extract meaningful text chunks from JSON objects (100+ char minimum)
+  - `findDuplicateChunks()` - Find similar chunks between two profiles using 85% threshold
+  - `calculateContaminationScore()` - Aggregate contamination metric (0-1)
+
+- `src/lib/profile-audit-scheduler.ts` - Cron-based hourly audit system:
+  - `runProfileAudit()` - Main audit runner: loads profile config files, compares all pairs, stores results
+  - `startProfileAuditScheduler()` - Initialize hourly cron job (runs at 00:00 UTC+8 each hour)
+  - `storeAuditResult()` - Persist results to raw pg `rainbow_config_audit` table
+  - `getRecentAuditResults()` - Query recent audit history
+  - Contamination alerting: console.error when score > 0.2 (20% threshold)
+
+- `tests/unit/lib/profile_audit_scheduler.test.ts` - Comprehensive test suite:
+  - 22 tests covering string similarity algorithms
+  - Tests for Levenshtein distance calculation
+  - Tests for contamination score calculation with various thresholds
+  - Tests for hourly/contamination detection logic (test command: `npx vitest run tests/unit/lib/profile_audit_scheduler.test.ts`)
+
+**Integration:**
+- Added import in `src/index.ts` (line 70)
+- Added initialization call in startup sequence (line 417) after profileRegistry.init() is complete
+- Scheduler runs hourly at minute 0 (00:00 UTC+8 each hour)
+- Runs initial audit on startup (non-blocking)
+
+### Files modified
+
+- `src/index.ts`: Added import and initialization of profile audit scheduler (lines 70, 417)
+
+### Profiles compared
+
+The system automatically audits all enabled profiles from `profiles.json`:
+- pelangi (Pelangi Capsule Hostel) - primary
+- southern (Southern Homestay)
+- makan-moments (Makan Moments Cafe)
+- pms-capsule (Pelangi Capsule — Staff Assistant)
+- pms-southern (Southern Homestay — Staff Assistant)
+- yoongmei (Yoong Mei Trading And Transport)
+
+Files compared per profile pair:
+- intent_keywords.json
+- knowledge.json
+- workflows.json
+
+### Patterns discovered
+
+- Text chunk extraction needs 100+ character minimum to avoid noise (short field values)
+- Contamination scoring: (duplicates found) / (average dataset size), capped at 1.0
+- Similarity threshold of 0.85 (85%) works well for finding meaningful duplicates
+- Alert threshold of 0.2 (20%) provides good sensitivity while avoiding false positives
+- Levenshtein distance is lightweight and suitable for multi-profile comparisons
+- Database storage in raw pg table (excluded from Drizzle migrations) is efficient
+
+### Gotchas
+
+- Content extraction chunks must be lowercase normalized for consistent similarity scoring
+- Sampling large arrays (500+ items) prevents performance degradation in big profiles
+- Import path in tests must use correct relative path: `../../../src/lib/` (3 levels up from tests/unit/lib/)
+- Profile registry must be initialized before audit scheduler can list profiles
+- Cron pattern "0 * * * *" runs at minute 0 of every hour (UTC+8)
+
+### Quality checks
+
+- Build: PASS (2.6MB bundle, 1 pre-existing warning only)
+- Server startup: PASS (no new errors)
+- Tests: PASS (22/22 tests passing)
+- All acceptance criteria met:
+  - ✓ Hourly cron job with string similarity scoring
+  - ✓ Stores results in rainbow_config_audit with profile_pair, contamination_score, detected_duplicates
+  - ✓ Alerts via console.error when contamination_score > 0.2
+  - ✓ Includes file paths and duplicate content samples in alerts
+
+### Commit
+
+commit [SHA] - "feat: US-528 - Implement Automated Profile Separation Validation with Hourly Audit Checks"
