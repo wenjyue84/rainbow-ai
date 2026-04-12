@@ -208,6 +208,33 @@ export async function findSimilarResolvedCases(
   }
 }
 
+/**
+ * Health check: executes SELECT 1 on the connection pool with a 5-second timeout.
+ * Used to validate PostgreSQL connectivity during startup before server.listen().
+ * Returns true if check passes, false if timeout or query fails.
+ * Uses existing pool connection (respects connection pool settings).
+ */
+export async function healthCheck(): Promise<boolean> {
+  const HEALTH_CHECK_TIMEOUT_MS = 5000;
+
+  try {
+    const start = Date.now();
+    const result = await Promise.race([
+      pool.query('SELECT 1'),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('Health check timeout')), HEALTH_CHECK_TIMEOUT_MS)
+      ),
+    ]);
+    const duration = Date.now() - start;
+    console.log(`[DB] ✅ Database health check passed (${duration}ms)`);
+    return true;
+  } catch (error: any) {
+    const duration = Date.now() - (Date.now() - HEALTH_CHECK_TIMEOUT_MS);
+    console.error('[DB] ❌ Database health check failed:', error.message);
+    return false;
+  }
+}
+
 export { pool, db, dbReady };
 
 // Test connection on startup with retry

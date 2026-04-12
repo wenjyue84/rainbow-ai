@@ -20,7 +20,7 @@ import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
-import { pool, initDb } from './lib/db.js';
+import { pool, initDb, healthCheck } from './lib/db.js';
 import { initSecrets } from './lib/secrets.js';
 import { validateEnvironment } from './lib/env-validator.js';
 import adminRoutes from './routes/admin/index.js';
@@ -764,6 +764,19 @@ server.headersTimeout = HEADERS_TIMEOUT;
 server.requestTimeout = REQUEST_TIMEOUT;
 // Destroy sockets that have been open but idle beyond headersTimeout
 server.setTimeout(HEADERS_TIMEOUT + 1000);
+
+// US-522: Database health check before server startup
+// Validate PostgreSQL connection before calling server.listen() to prevent silent failures
+try {
+  const healthy = await healthCheck();
+  if (!healthy) {
+    console.error('[Startup] FATAL: Database unreachable');
+    process.exit(1);
+  }
+} catch (err: any) {
+  console.error('[Startup] FATAL: Database unreachable:', err.message);
+  process.exit(1);
+}
 
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {
