@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { createProfileRateLimiter } from '../../middleware/rate-limiter.js';
 import crypto from 'crypto';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { sanitizeInput, validateInputSafety, processChat } from '../../assistant/chat-engine.js';
@@ -64,6 +65,15 @@ const webchatLimiter = rateLimit({
   message: { error: 'Too many messages. Please wait a moment before sending another.' },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// US-530: Per-profile token bucket rate limiter (reads rateLimitPerMin from profile settings.json)
+const profileRateLimiter = createProfileRateLimiter({
+  getRateLimit: (profileId) => {
+    const profile = profileRegistry.getProfile(profileId);
+    if (!profile) return undefined;
+    return profile.configStore.getSettings().rate_limits?.rateLimitPerMin;
+  },
 });
 
 router.use((_req, _res, next) => { ensureProfileIdColumn(); next(); });
@@ -575,7 +585,7 @@ function syncCartToSessionData(sessionId: string, profileId: string): void {
  * Supports SSE streaming when `stream: true` is in the request body.
  * Returns only public-safe fields (no intent/debug data).
  */
-router.post('/:profileId/message', webchatLimiter, async (req: Request, res: Response) => {
+router.post('/:profileId/message', webchatLimiter, profileRateLimiter, async (req: Request, res: Response) => {
   const profileId = req.params.profileId as string;
   const { message, history, sessionData: clientSessionData } = req.body;
   let { sessionId } = req.body;

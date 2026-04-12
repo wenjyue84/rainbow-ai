@@ -126,6 +126,7 @@ export const settingsDataSchema = z.object({
   rate_limits: z.object({
     per_minute: z.number().int().positive(),
     per_hour: z.number().int().positive(),
+    rateLimitPerMin: z.number().int().positive().optional(),
   }),
   staff: z.object({
     phones: z.array(z.string()),

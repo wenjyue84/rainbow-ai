@@ -1238,3 +1238,54 @@ commit b26441d - "feat: US-528 - Implement Automated Profile Separation Validati
 - Updated prd.json: US-528 passes=true
 ## Iteration 1 - Sat, Apr 12, 2026  9:15:00 PM
 Completed: Implement Automated Profile Separation Validation with Hourly Audit Checks (ID: US-528) - FINAL
+
+
+## Pre-analysis for US-530 (Gemini 2.5 Pro)
+### **Technical Brief: US-530 Rate Limiting in `lhdn_payroll_integration`**
+
+**NOTE:** The provided user story is for a NodeJS/TypeScript project. This brief translates the requirements for a Frappe/Python implementation within the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/hooks.py`**: To apply the rate-limiting logic to API endpoints.
+*   **`lhdn_payroll_integration/utils/rate_limiter.py`** (New File): To house the core token bucket algorithm logic.
+*   **`lhdn_payroll_integration/api.py`** (or similar): To decorate the target whitelisted API method.
+*   **`lhdn_payroll_integration/tests/test_rate_limiter.py`** (New File): For writing unit and integration tests.
+
+**2. Frappe DocTypes / Hooks:**
+*   **New DocType: "Rate Limit Rule"**: Create this to store configuration. Fields should include `target_profile` (Link to User/Role) and `requests_per_minute` (Int).
+*   **Hook/Decorator**: A custom Python decorator will be used to wrap whitelisted API methods.
+
+**3. Recommended Implementation:**
+*   Implement the token bucket algorithm in `rate_limiter.py`, using `frappe.cache()` (Redis) to store the token count and last-refill timestamp for each profile.
+*   Create a decorator (`@apply_rate_limit`) that fetches the appropriate "Rate Limit Rule" for the current context (e.g., user or an API key).
+*   The decorator will call the token bucket function. If the limit is hit, it should set `frappe.local.response.http_status_code = 429` and add a `Retry-After` header.
+*   Apply this decorator to the main message ingestion method in `api.py`.
+
+**4. Edge Cases & Gotchas:**
+*   **Cache Atomicity**: Ensure cache operations (get/set token count) are atomic to prevent race conditions across multiple gunicorn workers.
+*   **Profile Identification**: The logic must reliably identify which profile rule to apply based on the incoming request (e.g., API key, session user).
+*   **Default Limit**: Implement a sensible default rate limit for profiles that do not have an explicit rule defined in the "Rate Limit Rule" DocType.
+*   **Performance**: The cache lookups must be extremely fast to avoid adding latency to every request.
+
+
+## Iteration 2 - Sun, Apr 12, 2026 - Story: Implement Rate Limiting per Profile Using Token Bucket Algorithm (US-530) - COMPLETE
+
+### What was implemented
+- `src/middleware/rate-limiter.ts`: Token bucket rate limiter with `createProfileRateLimiter` factory. Per-profile buckets keyed by profileId. Refills continuously based on elapsed time.
+- `src/assistant/data/settings.json`: Added `rateLimitPerMin: 60` to `rate_limits` object
+- `src/assistant/schemas.ts`: Added `rateLimitPerMin` (optional) to `rate_limits` Zod schema
+- `src/routes/public/webchat-api.ts`: Imported and applied `profileRateLimiter` to `POST /:profileId/message` route alongside existing `webchatLimiter`
+- `tests/unit/middleware/rate-limiter.test.ts`: 9 tests including the US-530 AC test (70 msgs, 60/min limit, 10 return 429)
+
+### Patterns discovered
+- `req.params.profileId` (not `.profile`) is the correct param name for the webchat route
+- `getBucketState` test requires `toBeCloseTo` because tokens refill continuously based on time elapsed between requests
+- Test file must go in `tests/unit/middleware/` (covered by vitest unit project config) not `tests/middleware/`
+
+### Quality checks
+- Build: PASS (2.6MB bundle, 1 pre-existing warning)
+- Tests: PASS (9/9)
+- Server startup: PASS
+
+### Commit
+feat: US-530 - Implement Rate Limiting per Profile Using Token Bucket Algorithm
