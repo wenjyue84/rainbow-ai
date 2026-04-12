@@ -526,6 +526,21 @@ export const intentKeywordsDataSchema = z.object({
 });
 export type IntentKeywordsData = z.infer<typeof intentKeywordsDataSchema>;
 
+// ─── Fallback Suggestions (US-524) ──────────────────────────────────
+
+export const fallbackSuggestionSchema = z.object({
+  intent: z.string(),
+  relevanceScore: z.number().min(0).max(1),
+  keywords: z.array(z.string()),
+});
+export type FallbackSuggestion = z.infer<typeof fallbackSuggestionSchema>;
+
+export const fallbackSuggestionsResponseSchema = z.object({
+  message: z.string(),
+  suggestions: z.array(fallbackSuggestionSchema),
+});
+export type FallbackSuggestionsResponse = z.infer<typeof fallbackSuggestionsResponseSchema>;
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {

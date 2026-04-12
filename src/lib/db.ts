@@ -163,6 +163,36 @@ export async function deleteExpiredConversations(retentionDays: number = 2555) {
 }
 
 /**
+ * Get conversation intent history (US-524)
+ * Returns the last N messages from rainbow_messages with intent field populated
+ *
+ * @param phone - Phone number (session ID)
+ * @param limit - Number of messages to return (default: 3)
+ * @returns Array of messages with intent field
+ */
+export async function getConversationIntentHistory(
+  phone: string,
+  limit: number = 3
+): Promise<Array<{ intent: string | null; content: string; timestamp: Date }>> {
+  try {
+    const query = `
+      SELECT intent, content, timestamp
+      FROM rainbow_messages
+      WHERE phone = $1
+      ORDER BY timestamp DESC
+      LIMIT $2
+    `;
+
+    const result = await pool.query(query, [phone, limit]);
+    // Reverse to get chronological order (oldest to newest)
+    return (result.rows || []).reverse();
+  } catch (error: any) {
+    console.error('[DB] getConversationIntentHistory failed:', error.message);
+    return [];
+  }
+}
+
+/**
  * Find similar resolved cases from conversation history (US-486)
  * Uses semantic similarity to find cases with matching context
  * Filters by profileId and conversation status = 'ended' (resolved)

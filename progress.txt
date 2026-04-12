@@ -1376,3 +1376,49 @@ FAILED diagnosis-block gate: Implement Rate Limiting per Profile Using Token Buc
 ### Quality checks
 - Build: PASS (2.6MB, 1 pre-existing warning)
 - Tests: PASS (9/9)
+
+## Iteration N - Story: Generate Context-Aware Fallback Suggestions Based on Conversation History (US-524) - COMPLETE
+
+### What was implemented
+
+Created context-aware fallback suggestion system that analyzes recent conversation intents and recommends most relevant intents from knowledge base:
+- Added `src/assistant/response-processor.ts` with `generateFallbackSuggestions(phone, userMessage, profileId)` function
+- Added `getConversationIntentHistory(phone, limit)` to `src/lib/db.ts` to query last N messages with intent field
+- Added FallbackSuggestion schemas to `src/assistant/schemas.ts`
+- Created comprehensive unit tests in `tests/unit/fallback-suggestions.test.ts`
+
+### Key Features
+
+1. **Conversation History Analysis**: Queries last 3 messages from rainbow_messages table to build conversation context
+2. **Relevance Scoring**: Calculates keyword overlap between conversation history and each intent in knowledge base (0-1 scale)
+3. **Smart Suggestions**: Returns top 2-3 suggestions with relevance > 0.5, formatted as "Did you mean: [intent] (95% match)?"
+4. **Fallback Handling**: Returns generic "Could you rephrase that?" when no suggestions meet threshold
+5. **Profile Support**: Loads profile-specific knowledge and keywords (pelangi, makan, southern, etc.)
+
+### Files Created/Modified
+
+- **Created**: `src/assistant/response-processor.ts` (280 lines)
+- **Created**: `tests/unit/fallback-suggestions.test.ts` (175 lines, 10/10 tests passing)
+- **Modified**: `src/assistant/schemas.ts` - Added FallbackSuggestion and FallbackSuggestionsResponse schemas
+- **Modified**: `src/lib/db.ts` - Added getConversationIntentHistory function
+
+### Patterns Discovered
+
+- Keyword overlap scoring: normalize conversation words and count matches against intent keywords
+- Profile-aware file loading: check for profile-specific files (data-{profile}/knowledge.json) before falling back to defaults
+- Graceful degradation: return generic fallback if knowledge base or keywords unavailable
+
+### Quality Checks
+
+- Build: PASS (esbuild, 2.6MB, pre-existing warning only)
+- Server startup: PASS (no errors, configuration loads successfully)
+- Tests: PASS (10/10 tests passing, covers all acceptance criteria)
+- TypeScript: PASS (no new type errors)
+
+### Acceptance Criteria Met
+
+✅ Fallback handler queries last 3 intents from rainbow_conversations via getConversationIntentHistory()
+✅ Computes relevance score (0-1) for each intent by counting keyword overlap with conversation summary
+✅ Returns formatted response with suggestions (>0.5 relevance) or generic "Could you rephrase?" fallback
+✅ Suggestion rankings include relevance scores and associated keywords for debugging
+
