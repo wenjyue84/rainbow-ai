@@ -887,3 +887,38 @@ Implementation was already created by previous attempt. This iteration provided 
 - Server startup: PASS
 - Story marked: passes=true
 
+## Iteration 4 - Sun, Apr 12, 2026  8:00:06 PM
+Completed: Audit Knowledge Base Files for Content Cross-Contamination Between Profiles (ID: US-523) in 2m
+
+
+## Pre-analysis for US-524 (Gemini 2.5 Pro)
+**Technical Brief: US-524 Fallback Suggestions**
+
+**Correction:** The user story specifies a TypeScript/Node.js implementation, not Frappe/Python. The following brief is based on the provided technical notes.
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/assistant/response-processor.ts` (for core suggestion logic)
+*   **Modify:** `src/lib/db.ts` (to add conversation history retrieval)
+*   **Modify:** `src/assistant/schemas.ts` (to add the `FallbackSuggestion` type)
+*   **Create:** `tests/unit/fallback-suggestions.test.ts` (for unit testing)
+
+**2. Involved Data Structures (Equivalent to DocTypes):**
+*   `rainbow_conversations` table: Read the last 3 intents for a given session.
+*   `rainbow_messages` table: Log the generated suggestion candidates for debugging.
+*   `knowledge.json` file: The source of truth for all possible intents and their keywords.
+
+**3. Implementation Approach:**
+1.  In `src/lib/db.ts`, implement `getConversationIntentHistory` to query the `rainbow_conversations` table.
+2.  In `src/assistant/response-processor.ts`, create `generateFallbackSuggestions`. This function will:
+    a. Call `getConversationIntentHistory` to get recent intents.
+    b. Load all intents from `knowledge.json`.
+    c. Score each knowledge base intent based on keyword overlap with the recent conversation.
+    d. Return the top 2-3 suggestions that have a relevance score > 0.5.
+3.  The main intent classification handler must be modified to call this new function when confidence is < 0.6.
+
+**4. Edge Cases & Gotchas:**
+*   Handle sessions with no or insufficient (<3) conversation history.
+*   Ensure the system gracefully returns a generic message if no suggestions meet the >0.5 relevance threshold.
+*   The location of `knowledge.json` needs to be confirmed.
+*   The performance of loading and scoring all intents from `knowledge.json` on each call should be considered.
+
