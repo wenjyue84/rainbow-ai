@@ -42,6 +42,7 @@ import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAI
 import { recordTurnConfidence } from '../turn-confidence-scorer.js';
 import { generateClarifyingResponse, formatClarifyingResponseForDisplay } from './fallback-handler.js';
 import { getIntentThreshold } from '../../lib/intent-confidence-config.js';
+import { classifyBookingSubtype } from '../classifiers/booking-microclassifier.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -185,6 +186,22 @@ export async function classifyAndRoute(
   devMetadata.model = result.model;
   devMetadata.responseTime = result.responseTime;
   devMetadata.usage = result.usage;
+
+  // ─── US-535: Booking Intent Micro-Classifier ────────────────────────
+  // When a booking intent is classified with high confidence (>=0.7),
+  // apply the micro-classifier to disambiguate into subtypes:
+  // check_in, check_out, modification, or general_inquiry
+  let bookingSubtype: string | undefined;
+  if (result.intent === 'booking' && result.confidence >= 0.7) {
+    const microClassifierResult = classifyBookingSubtype(processText, lang);
+    bookingSubtype = microClassifierResult.subtype;
+    devMetadata.bookingSubtype = bookingSubtype;
+    devMetadata.bookingMicroclassifierConfidence = microClassifierResult.confidence;
+    console.log(
+      `[BookingMicroClassifier-US535] "${processText.slice(0, 50)}" → ` +
+      `${bookingSubtype} (confidence: ${microClassifierResult.confidence.toFixed(2)})`
+    );
+  }
 
   // ─── US-226: Log booking classification failures ───────────────────
   // Log when a booking-related intent is classified with low confidence (<0.65)

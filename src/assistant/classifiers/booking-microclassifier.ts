@@ -33,7 +33,7 @@ const SUBTYPE_PATTERNS = {
       'reach', 'reaching', 'get there', 'heading', 'on the way',
       'here now', 'im here', "i'm here", 'just arrived', 'arrived',
       'can i check in', 'ready to check in', 'when can i check in',
-      'key', 'access', 'entry', 'open the door', 'unlock',
+      'access', 'entry', 'open the door', 'unlock', 'room key',
     ],
     // Malay
     ms: [
@@ -54,12 +54,12 @@ const SUBTYPE_PATTERNS = {
   check_out: {
     // English
     en: [
+      'return key', 'return the key', 'return the room key',
       'check out', 'check-out', 'checkout', 'leave', 'leaving',
       'depart', 'departing', 'departure', 'go', 'going away',
       'when to leave', 'what time to leave', 'when can i leave',
-      'goodbye', 'final day', 'last day', 'last night', 'one more night',
-      'cancel booking', 'cancellation', 'cancel', 'extend stay',
-      'how to check out', 'return key', 'return the key',
+      'goodbye', 'final day', 'last day', 'cancel booking', 'cancel', 'cancellation',
+      'how to check out',
     ],
     // Malay
     ms: [
@@ -80,11 +80,12 @@ const SUBTYPE_PATTERNS = {
   modification: {
     // English
     en: [
+      'add one more night', 'add more night', 'add night', 'add nights',
+      'one more night', 'more nights', 'extra night', 'fewer nights',
       'change', 'changing', 'change my', 'modify', 'modification',
       'update', 'alter', 'different date', 'different room',
       'different dates', 'can i change', 'can i modify',
       'postpone', 'delay', 'move', 'extend', 'shorten',
-      'more nights', 'fewer nights', 'extra night', 'add night',
       'room type', 'room size', 'number of guests', 'how many people',
       'upgrade', 'downgrade', 'change guest', 'change group',
     ],
@@ -149,19 +150,22 @@ function normalizeText(text: string): string {
 
 /**
  * Calculate confidence based on pattern matching.
- * - Exact phrase match: 1.0
- * - Multiple keyword matches: 0.85-0.95
- * - Single keyword match: 0.65-0.75
- * - Weak signal: 0.5-0.65
+ * Prioritizes longer/more specific patterns to avoid false positives.
+ * - Multiple keyword matches (2+): 0.90
+ * - Single match (longer pattern >8 chars): 0.75
+ * - Single match (shorter pattern <=8 chars): 0.65
+ * - Weak signal: 0.5
  */
 function scoreSubtype(
   normalizedText: string,
   patterns: string[]
 ): { score: number; matchedKeywords: string[] } {
+  // Sort patterns by length (longest first) for more specific matching
+  const sortedPatterns = [...patterns].sort((a, b) => b.length - a.length);
   const matchedKeywords: string[] = [];
 
-  // Check for exact phrase matches (highest confidence)
-  for (const pattern of patterns) {
+  // Check for exact phrase matches, prioritizing longer patterns
+  for (const pattern of sortedPatterns) {
     if (normalizedText.includes(pattern)) {
       matchedKeywords.push(pattern);
     }
@@ -172,8 +176,10 @@ function scoreSubtype(
     // Multiple matches: high confidence
     score = 0.90;
   } else if (matchedKeywords.length === 1) {
-    // Single match: medium-high confidence
-    score = 0.75;
+    // Single match: confidence based on pattern length
+    // Longer patterns are more specific and should have higher confidence
+    const patternLength = matchedKeywords[0].length;
+    score = patternLength > 8 ? 0.75 : 0.65;
   }
 
   return { score, matchedKeywords };
