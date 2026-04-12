@@ -1088,3 +1088,60 @@ This is a **TypeScript/Node.js** project, not Frappe/Python. The brief has been 
 *   The test suite must complete in under 5 seconds, so avoid heavyweight operations within the tests.
 *   The primary goal is to validate current accuracy; the test will fail if the underlying logic does not meet the specified thresholds.
 
+
+## Pre-analysis for US-529 (Gemini 2.5 Pro)
+This is a **TypeScript/Node.js** project, not Frappe/Python. The brief has been adjusted accordingly.
+
+**Project:** `rainbow-ai`
+**User Story:** US-529 - Add Intent Classification Integration Test Suite
+
+### Technical Brief for Claude
+
+**1. Files to Create/Modify:**
+*   **Create:** `tests/assistant/intent-classifier.integration.test.ts` (the main test suite).
+*   **Create:** `tests/fixtures/intent-samples.json` (for the 'Pelangi' profile).
+*   **Create:** `tests/fixtures/intent-samples-southern.json` (for the 'Southern' profile).
+*   **Create:** `tests/fixtures/intent-samples-makan.json` (for the 'Makan' profile).
+*   **Target for Testing:** The core logic is likely located in `src/assistant/` and related to intent classification.
+
+**2. Key Modules & Data Structures:**
+*   **Test Framework:** `vitest` will be used to write and run the tests.
+*   **Data Fixtures:** The tests will load conversation samples from the newly created JSON files in `tests/fixtures/`.
+*   **Sample Structure:** Each sample in the JSON files must follow the structure: `{ profile, intent_type, message, expected_intent_t1, expected_intent_t2 }`.
+
+**3. Implementation Approach:**
+1.  Populate the `intent-samples-*.json` files with at least 15 real conversation samples for each intent type (booking, inquiry, escalation) per profile.
+2.  In `intent-classifier.integration.test.ts`, create a `vitest` test suite that iterates through each profile's sample file.
+3.  For each sample, invoke the application's core intent classification function with the `message` text.
+4.  Assert that the function's output matches the `expected_intent_t1` and `expected_intent_t2` from the sample.
+5.  Calculate and validate the accuracy percentages against the acceptance criteria (>=85% for booking/inquiry, >=75% for escalation).
+6.  Configure the test command to generate a coverage report.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure the test data in the JSON fixtures is realistic and covers diverse phrasing.
+*   The intent classification function may be asynchronous; use `await` properly.
+*   The test suite must complete in under 5 seconds, so avoid heavyweight operations within the tests.
+*   The primary goal is to validate current accuracy; the test will fail if the underlying logic does not meet the specified thresholds.
+
+
+## Iteration N - Story: Add Intent Classification Integration Test Suite with Profile-Specific Samples (US-529)
+
+### What was implemented
+
+- All required files were already scaffolded by a previous iteration:
+  - `tests/assistant/intent-classifier.integration.test.ts` — full test suite
+  - `tests/fixtures/intent-samples.json` — 18 samples/intent-type for Pelangi
+  - `tests/fixtures/intent-samples-southern.json` — 18 samples/intent-type for Southern
+  - `tests/fixtures/intent-samples-makan.json` — 18 samples/intent-type for Makan
+- Test suite uses `FuzzyIntentMatcher` directly (no LLM/DB) — fast and deterministic
+
+### Patterns discovered
+
+- Test runs in ~1s (well under the 5s budget)
+- All 12 tests pass: 3 profiles × 4 tests (sample count, booking ≥85%, inquiry ≥85%, escalation ≥75%)
+- One non-fatal failure in Southern booking: "looking for accommodation" → null, but 17/18 still pass threshold
+
+### Gotchas
+
+- The test file was placed at `tests/assistant/` (not `tests/fixtures/`) matching the acceptance criteria
+- vitest pool config deprecation warning is pre-existing and harmless
