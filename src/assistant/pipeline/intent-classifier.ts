@@ -41,6 +41,7 @@ import { logClassificationDecision } from './intent-audit-logger.js';
 import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAILURE_THRESHOLD } from '../booking-failure-logger.js';
 import { recordTurnConfidence } from '../turn-confidence-scorer.js';
 import { generateClarifyingResponse, formatClarifyingResponseForDisplay } from './fallback-handler.js';
+import { getIntentThreshold } from '../../lib/intent-confidence-config.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -226,12 +227,15 @@ export async function classifyAndRoute(
       const clarifyingResponse = generateClarifyingResponse(result.intent, lang);
       const formattedResponse = formatClarifyingResponseForDisplay(clarifyingResponse);
 
+      // Get the threshold for this intent
+      const intentThreshold = getIntentThreshold(result.intent);
+
       // Log the low-confidence attempt to rainbowMessages for debugging
       const logMessagePromise = context.logMessage(phone, msg.pushName ?? 'Guest', 'user', processText, {
         action: 'low_confidence_fallback',
         originalIntent: result.intent,
         originalConfidence: result.confidence,
-        threshold: lowConfidenceThreshold,
+        threshold: intentThreshold,
         clarifyingQuestionsCount: clarifyingResponse.clarifyingQuestions.length,
         instanceId: msg.instanceId,
         ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
@@ -249,7 +253,7 @@ export async function classifyAndRoute(
       // Set response and mark as fallback handled
       state.response = formattedResponse;
       devMetadata.lowConfidenceFallbackTriggered = true;
-      devMetadata.lowConfidenceFallbackThreshold = lowConfidenceThreshold;
+      devMetadata.lowConfidenceFallbackThreshold = intentThreshold;
       devMetadata.lowConfidenceOriginalIntent = result.intent;
       devMetadata.lowConfidenceOriginalConfidence = result.confidence;
 
