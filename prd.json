@@ -679,10 +679,11 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-12T10:19:42Z"
+      "last_attempted": "2026-04-12T10:19:42Z",
+      "_passedCommit": "318b53b7d6c931ab02f77ee44976f411d953803b"
     },
     {
       "id": "US-523",
@@ -727,6 +728,50 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-525",
+      "title": "Add Per-Profile Intent Keyword Configuration Files for Business Separation",
+      "priority": "high",
+      "description": "Allow each business profile (pelangi, data-makan, data-southern) to define its own intent matching keywords, preventing keyword cross-contamination and improving accuracy per business context.",
+      "acceptanceCriteria": [
+        "New files src/assistant/data/intent-keywords-pelangi.json, intent-keywords-makan.json, intent-keywords-southern.json created with business-specific T2 keywords",
+        "Intent classifier checks for profile-specific keywords file at startup; if exists, uses those for T2 matching; else falls back to default intent-keywords.json",
+        "Unit test verifies 'checkout' keyword matches Pelangi intent but not Makan/Southern; 'order modification' matches Makan but not Pelangi/Southern"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/intent-classifier.ts (loadIntentKeywords function - check profile-specific path before default path)",
+        "File to create: src/assistant/data/intent-keywords-pelangi.json, intent-keywords-makan.json, intent-keywords-southern.json",
+        "File to create: tests/profile-keyword-isolation.test.ts",
+        "Test command: uv run npm run test -- profile-keyword-isolation.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-526",
+      "title": "Add Redis-Backed Conversation Query Cache with TTL-Based Expiry",
+      "priority": "medium",
+      "description": "Cache conversation responses by query hash with 5-minute TTL to reduce redundant LLM API calls for repeated queries within same conversation, improving latency and reducing API costs.",
+      "acceptanceCriteria": [
+        "Cache key = SHA256(conversation_id + normalized_query); cache hit returns cached response with metadata 'source: cache'; TTL=300 seconds",
+        "Repeated identical queries within 5min return cached response in <10ms; after TTL expires, query hits LLM again; different queries generate different keys",
+        "Unit tests verify cache hit/miss behavior, TTL expiry invalidates stale cache, concurrent requests for same query return same cached result"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/conversation-cache.ts (RedisCache class with cacheKey, get, set, invalidate methods)",
+        "File to edit: src/assistant/pipeline/message-processor.ts (check cache before LLM call, store result on miss with 300s TTL)",
+        "File to create: tests/conversation-cache.test.ts",
+        "Test command: uv run npm run test -- conversation-cache.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
