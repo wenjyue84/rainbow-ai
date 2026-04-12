@@ -541,6 +541,35 @@ export const fallbackSuggestionsResponseSchema = z.object({
 });
 export type FallbackSuggestionsResponse = z.infer<typeof fallbackSuggestionsResponseSchema>;
 
+// ─── US-534: Intent Confidence Thresholds ───────────────────────────
+
+export const intentConfidenceConfigSchema = z.object({
+  version: z.string(),
+  description: z.string().optional(),
+  lastUpdated: z.string().optional(),
+  thresholds: z.record(z.string(), z.number().min(0).max(1)),
+  categories: z.record(z.string(), z.any()).optional(),
+});
+export type IntentConfidenceConfig = z.infer<typeof intentConfidenceConfigSchema>;
+
+export const intentClassifierResultSchema = z.object({
+  intent: z.string(),
+  action: z.string(),
+  response: z.string(),
+  confidence: z.number().min(0).max(1),
+  isBelowThreshold: z.boolean().optional(),
+  model: z.string().optional(),
+  responseTime: z.number().optional(),
+  detectedLanguage: z.string().optional(),
+  entities: z.record(z.string(), z.string()).optional(),
+  usage: z.object({
+    prompt_tokens: z.number().optional(),
+    completion_tokens: z.number().optional(),
+    total_tokens: z.number().optional(),
+  }).optional(),
+});
+export type IntentClassifierResult = z.infer<typeof intentClassifierResultSchema>;
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {
