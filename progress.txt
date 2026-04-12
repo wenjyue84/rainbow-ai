@@ -1422,3 +1422,117 @@ Created context-aware fallback suggestion system that analyzes recent conversati
 ✅ Returns formatted response with suggestions (>0.5 relevance) or generic "Could you rephrase?" fallback
 ✅ Suggestion rankings include relevance scores and associated keywords for debugging
 
+## Iteration 3 - Sun, Apr 12, 2026 10:01:12 PM
+FAILED diagnosis-block gate: Generate Context-Aware Fallback Suggestions Based on Conversation History (ID: US-524) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-524 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-524 - Generate Context-Aware Fallback Suggestions
+
+**1. Python Files to Modify/Create:**
+
+*   **Create:** `lhdn_payroll_integration/api/fallback_handler.py`. This new file will contain the core logic for generating suggestions.
+*   **Modify:** `lhdn_payroll_integration/hooks.py` to whitelist the new API method.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocTypes to Create:**
+    *   `Conversation History`: To log conversation turns. Fields: `session_id` (Data), `intent` (Data), `message` (Text), `timestamp` (Datetime).
+    *   `Knowledge Base Intent`: To store intents and keywords. Fields: `intent_name` (Data), `keywords` (Table MultiSelect or Tags).
+    *   `Suggestion Log`: To log fallback events for analysis. Fields: `session_id` (Data), `suggestions` (JSON), `selected_intent` (Data).
+*   **Hooks (in `hooks.py`):**
+    *   Add `lhdn_payroll_integration.api.fallback_handler.generate_fallback_suggestions` to `whitelisted_methods`.
+
+**3. Recommended Implementation Approach:**
+
+1.  In `fallback_handler.py`, create a function `generate_fallback_suggestions(session_id, user_message)` decorated with `@frappe.whitelist()`.
+2.  Inside, use `frappe.db.get_list('Conversation History', ...)` to fetch the last 3-5 records for the `session_id`.
+3.  Load all `Knowledge Base Intent` documents using `frappe.get_all(...)`.
+4.  Implement a scoring algorithm: iterate through each KB intent, calculating a keyword overlap score against the recent conversation history.
+5.  If top-scoring intents exceed a relevance threshold (e.g., 0.5), format the "Did you mean..." response.
+6.  Use `frappe.new_doc('Suggestion Log')` to record the candidate suggestions and save it.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Performance:** Cache the `Knowledge Base Intent` documents in memory to avoid repeated database calls on every request.
+*   **New Conversations:** The logic must handle sessions with little to no conversation history gracefully.
+*   **Keyword Quality:** The effectiveness depends entirely on the quality and breadth of keywords defined in the `Knowledge Base Intent` DocType.
+*   **Data Growth:** The `Conversation History` and `Suggestion Log` DocTypes may grow large. Plan for a scheduled cleanup job to archive or delete old records.
+
+## Iteration 3 - Sun, Apr 12, 2026 10:01:36 PM
+Completed: Implement Rate Limiting per Profile Using Token Bucket Algorithm (ID: US-530) in 2m
+
+
+## Pre-analysis for US-524 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Project:** `lhdn_payroll_integration`
+**User Story:** US-524 - Generate Context-Aware Fallback Suggestions
+
+**1. Python Files to Modify/Create:**
+
+*   **Create:** `lhdn_payroll_integration/api/fallback_handler.py`. This new file will contain the core logic for generating suggestions.
+*   **Modify:** `lhdn_payroll_integration/hooks.py` to whitelist the new API method.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocTypes to Create:**
+    *   `Conversation History`: To log conversation turns. Fields: `session_id` (Data), `intent` (Data), `message` (Text), `timestamp` (Datetime).
+    *   `Knowledge Base Intent`: To store intents and keywords. Fields: `intent_name` (Data), `keywords` (Table MultiSelect or Tags).
+    *   `Suggestion Log`: To log fallback events for analysis. Fields: `session_id` (Data), `suggestions` (JSON), `selected_intent` (Data).
+*   **Hooks (in `hooks.py`):**
+    *   Add `lhdn_payroll_integration.api.fallback_handler.generate_fallback_suggestions` to `whitelisted_methods`.
+
+**3. Recommended Implementation Approach:**
+
+1.  In `fallback_handler.py`, create a function `generate_fallback_suggestions(session_id, user_message)` decorated with `@frappe.whitelist()`.
+2.  Inside, use `frappe.db.get_list('Conversation History', ...)` to fetch the last 3-5 records for the `session_id`.
+3.  Load all `Knowledge Base Intent` documents using `frappe.get_all(...)`.
+4.  Implement a scoring algorithm: iterate through each KB intent, calculating a keyword overlap score against the recent conversation history.
+5.  If top-scoring intents exceed a relevance threshold (e.g., 0.5), format the "Did you mean..." response.
+6.  Use `frappe.new_doc('Suggestion Log')` to record the candidate suggestions and save it.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Performance:** Cache the `Knowledge Base Intent` documents in memory to avoid repeated database calls on every request.
+*   **New Conversations:** The logic must handle sessions with little to no conversation history gracefully.
+*   **Keyword Quality:** The effectiveness depends entirely on the quality and breadth of keywords defined in the `Knowledge Base Intent` DocType.
+*   **Data Growth:** The `Conversation History` and `Suggestion Log` DocTypes may grow large. Plan for a scheduled cleanup job to archive or delete old records.
+
+
+## Iteration 4 - Sun, Apr 12, 2026 10:03 PM
+Completed: Generate Context-Aware Fallback Suggestions Based on Conversation History (ID: US-524)
+
+### What was implemented
+All code was already written in the previous attempt (attempt 1):
+- `src/assistant/response-processor.ts` — `generateFallbackSuggestions(phone, userMessage, profileId)` function
+- `src/lib/db.ts` — `getConversationIntentHistory(phone, limit)` db query
+- `src/assistant/schemas.ts` — `FallbackSuggestion` and `FallbackSuggestionsResponse` Zod schemas
+- `tests/unit/fallback-suggestions.test.ts` — 10 tests (all pass)
+
+### Why previous attempt failed
+SPIRAL diagnosis-gate blocked the attempt before it could run tests; the code was complete but the story was never marked passing.
+
+### Gotchas
+- prd.json must be read/written with `encoding='utf-8'` on Windows — default cp1252 throws UnicodeDecodeError
+- Tests pass 10/10; build passes with only pre-existing logger.ts warning (not related to this story)
+
+## Iteration 4 - Sun, Apr 12, 2026 10:03:00 PM
+### Story: Generate Context-Aware Fallback Suggestions (US-524)
+
+### What was implemented
+- `src/assistant/response-processor.ts`: `generateFallbackSuggestions(phone, userMessage, profileId)` — queries last 3 conversation intents, scores all knowledge.json intents by keyword overlap, returns top 3 with relevance ≥ 0.5 or generic "Could you rephrase?"
+- `src/lib/db.ts`: Added `getConversationIntentHistory(phone, limit)` querying `rainbow_messages` table
+- `src/assistant/schemas.ts`: Added `FallbackSuggestion`, `FallbackSuggestionsResponse`, `IntentKeywordsData` schemas
+- `tests/unit/fallback-suggestions.test.ts`: 10 unit tests, all passing
+
+### Patterns discovered
+- Implementation was already done in prior attempt but failed a "diagnosis block" gate check (not a code issue)
+- Build uses esbuild — only esbuild warnings, no compile errors
+- All 10 vitest unit tests pass in ~36ms
+
+### Gotchas
+- The SPIRAL gate requires a diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) to appear as plain text BEFORE any file edits — this was the only failure mode
