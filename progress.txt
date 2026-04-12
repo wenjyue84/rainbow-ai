@@ -2013,3 +2013,26 @@ Implemented ProfileIsolationValidator to scan KB files for cross-profile busines
 
 commit [TBD] - "feat: US-536 - Implement Profile Data Isolation Validator with Automated Daily Audit"
 
+## Iteration - US-536 VERIFIED COMPLETE (Attempt 3, Opus)
+
+Prior iterations had built the full infrastructure. This attempt added the missing unit tests with synthetic KB files (AC3).
+
+### What was added
+- `tests/unit/profile-isolation-validator.test.ts` — 12 tests using synthetic temp directories
+  - Clean makan KB (4 files, cafe-only content) → verified 0% contamination, status "clean"
+  - Contaminated makan KB (12 files, 1 with pelangi hostel keywords) → verified ~8% contamination detected
+  - Verified pelangi identified as contaminating profile with hostel/capsule/pelangi keywords
+  - Clean southern KB (3 files, no cross-profile keywords) → verified clean
+  - auditAll() multi-profile audit, mixed results
+  - Edge cases: non-existent path, empty directory
+
+### Pre-existing infrastructure (verified working)
+- `src/tools/audit/profile-isolation-validator.ts` — ProfileIsolationValidator class
+- `src/assistant/data/profile-keywords.json` — 6 profiles, 84+ keywords
+- `src/lib/profile-audit-scheduler.ts` — Daily cron at 2:00 AM UTC, >5% warning, >10% error
+
+### Quality checks
+- Build: PASS (2.6MB, 1 pre-existing warning)
+- Tests: 12/12 PASS
+- All AC met
+
