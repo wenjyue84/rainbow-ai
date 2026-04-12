@@ -46,6 +46,7 @@ import { classifyBookingSubtype } from '../classifiers/booking-microclassifier.j
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
+import { conversationCache, CONVERSATION_CACHE_TTL_SECONDS } from '../../lib/conversation-cache.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -166,22 +167,43 @@ export async function classifyAndRoute(
   // US-023: cancel helper — clears timer AND sets flag to abort any in-flight ack
   const cancelAck = () => { ackCancelled = true; clearTimeout(ackTimer); };
 
-  // ─── Stage 3: Tier Classification ─────────────────────────────────
-  let result = await classifyWithTiers(
-    {
-      processText,
-      contextMessages: summarization.contextMessages,
-      systemPrompt: enhancedSystemPrompt,
-      lastIntent: convo.lastIntent,
-      devMetadata,
-      phone,
-      instanceId: msg.instanceId,
-      detectedLanguage: lang,
-      profileId: state.profileId,  // US-525: Pass profile ID for per-profile keyword configuration
-    },
-    context,
-    cancelAck
-  );
+  // ─── Stage 3: Tier Classification (with US-526 query cache) ──────────
+  // Check conversation query cache before making an LLM call.
+  // Cache key = SHA256(phone + normalized processText), TTL = 300s.
+  const cacheKey = conversationCache.cacheKey(phone, processText);
+  const cached = conversationCache.get(cacheKey);
+  let result: Awaited<ReturnType<typeof classifyWithTiers>>;
+
+  if (cached) {
+    // Cache hit — return stored result immediately, no LLM call
+    result = cached;
+    devMetadata.source = 'cache';
+    cancelAck();
+    console.log(`[ConvCache-US526] Cache hit for ${phone.slice(-4)} (key=${cacheKey.slice(0, 12)}…)`);
+  } else {
+    // Cache miss — classify normally, then store result
+    result = await classifyWithTiers(
+      {
+        processText,
+        contextMessages: summarization.contextMessages,
+        systemPrompt: enhancedSystemPrompt,
+        lastIntent: convo.lastIntent,
+        devMetadata,
+        phone,
+        instanceId: msg.instanceId,
+        detectedLanguage: lang,
+        profileId: state.profileId,  // US-525: Pass profile ID for per-profile keyword configuration
+      },
+      context,
+      cancelAck
+    );
+
+    // Store in cache for next identical query within TTL window.
+    // Only cache successful LLM responses (not fast-tier non-reply actions).
+    if (result.response) {
+      conversationCache.set(cacheKey, result, CONVERSATION_CACHE_TTL_SECONDS);
+    }
+  }
 
   devMetadata.model = result.model;
   devMetadata.responseTime = result.responseTime;
