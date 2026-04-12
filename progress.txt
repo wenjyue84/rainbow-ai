@@ -1693,3 +1693,120 @@ Added in this attempt:
   - ✓ tier-classification.ts returns {intent, confidence, isBelowThreshold} when below threshold
   - ✓ intent-classifier.ts triggers clarifying question handler when isBelowThreshold is true
   - ✓ IntentConfidenceConfig and IntentClassifierResult Zod schemas in schemas.ts
+## Iteration 2 - Sun, Apr 12, 2026 10:29:23 PM
+Completed: Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment (ID: US-534) in 4m
+
+
+## Pre-analysis for US-535 (Gemini 2.5 Pro)
+Here is the technical brief for the Claude Code agent:
+
+**To:** Claude Code Agent
+**From:** Gemini Agent
+**Subject:** Technical Brief for Story US-535 (Frappe/Python Implementation)
+
+This brief outlines the plan to implement a booking intent micro-classifier within the `lhdn_payroll_integration` Frappe app.
+
+**1. Python Files to Modify:**
+*   **`lhdn_payroll_integration/hooks.py`**: To register a `doc_events` hook that triggers the new classifier.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/whatsapp_message/whatsapp_message.py`**: (Or similar message DocType). A good place to call the classifier logic after the main intent is determined.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/classifiers/booking_classifier.py`** (New File): This module will house the core classification logic.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocType**: `Whatsapp Message` (assumption). A new field `booking_subtype` (Type: Select, Options: Check In, Check Out, Modification, General Inquiry) must be added via a migration.
+*   **Hook**: A `doc_events` hook on the `Whatsapp Message` DocType, specifically using the `on_update` event. This will trigger the classification after a message is saved.
+
+**3. Recommended Implementation Approach:**
+1.  Define the `classify(doc)` function in `booking_classifier.py`. It should contain the logic to find keywords (e.g., "check in," "change date") in `doc.message_text`.
+2.  In `hooks.py`, set `doc_events = {"Whatsapp Message": {"on_update": "path.to.booking_classifier.classify"}}`.
+3.  The `classify` function should first check if `doc.intent == 'booking'` and confidence is high.
+4.  If conditions are met, it should set `doc.booking_subtype` based on its internal logic and save the document (`doc.save(ignore_permissions=True)`).
+
+**4. Edge Cases & Gotchas:**
+*   **Idempotency**: The `on_update` hook may run multiple times. Ensure `booking_subtype` is only set if it's currently empty to prevent re-classification.
+*   **Performance**: The classification logic must be lightweight and fast to avoid delaying document saves.
+*   **Data Integrity**: The hooked function should run `frappe.db.commit()` only if absolutely necessary and should handle potential exceptions gracefully to avoid holding locks.
+*   **Testing**: Create comprehensive `unittest` cases in the `tests/` directory to validate the keyword matching for all subtypes.
+
+
+## Iteration [Final] - Story: Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment (US-534) - COMPLETE
+
+### What was implemented
+
+All implementation was already complete from previous attempts. This iteration verified and fixed remaining issues:
+
+**Fixed Issues:**
+1. **Undefined variable in intent-classifier.ts** (line 234, 252)
+   - Was using undefined `lowConfidenceThreshold` variable
+   - Fixed by importing `getIntentThreshold()` from intent-confidence-config.ts
+   - Now correctly retrieves per-intent threshold value and stores in devMetadata
+
+**Added Test Coverage:**
+- Created `tests/unit/intent-confidence-config.test.ts` with 23 comprehensive tests
+- Tests verify all per-intent thresholds are loaded from config
+- Tests verify isBelowIntentThreshold() function works for high/medium/low confidence categories
+- All 23 tests PASS
+
+**Fixed JSON Syntax Error:**
+- Fixed interval notation in `src/assistant/config/intent-confidence-thresholds.json`
+- Changed invalid JSON notation `[0.65, 0.85)` to valid `[0.65, 0.85]`
+- Config now valid and passes JSON parsing
+
+### Patterns discovered
+
+- Per-intent confidence thresholds are critical for multi-intent systems
+- Fallback handler needs per-intent context (not global threshold) for dynamic clarifications
+- Test coverage validates config loading and threshold comparison logic
+- isBelowThreshold flag must be set in classification stage, not in later routing
+
+### Gotchas fixed
+
+- Config file must use valid JSON syntax (learned from interval notation error)
+- Import getIntentThreshold from intent-confidence-config, not define locally
+- threshold values need to be logged with intent for debugging low-confidence cases
+- The isBelowThreshold flag from tier-classification must flow through to intent-classifier
+
+### Acceptance criteria met
+
+✅ `src/assistant/config/intent-confidence-thresholds.json` with per-intent scores (booking: 0.75, etc.)
+✅ `src/assistant/pipeline/intent-classifier.ts` checks confidence against threshold
+✅ Returns `{intent, confidence, isBelowThreshold}` when below minimum (via tier-classification)
+✅ When below threshold, triggers low-confidence handler with clarifying questions
+✅ Uses `getIntentThreshold()` from intent-confidence-config.ts
+✅ dynamically generates clarifications based on intent keywords
+
+### Quality checks
+
+- Build: PASS (esbuild 2.6MB, 1 pre-existing warning only)
+- Tests: PASS (23/23 intent-confidence-config tests, all other tests unaffected)
+- TypeScript: PASS (no new errors)
+- Server startup: PASS (configuration loads, intent thresholds initialized)
+
+### Files modified
+
+- `src/assistant/pipeline/intent-classifier.ts`
+  - Added import: `import { getIntentThreshold } from '../../lib/intent-confidence-config.js'`
+  - Line 231: Get intent threshold dynamically: `const intentThreshold = getIntentThreshold(result.intent)`
+  - Line 238, 256: Use intentThreshold instead of undefined lowConfidenceThreshold
+
+- `src/assistant/config/intent-confidence-thresholds.json`
+  - Fixed JSON syntax in categories section
+  - Changed `[0.65, 0.85)` to `[0.65, 0.85]` (valid JSON array syntax)
+
+### Files created
+
+- `tests/unit/intent-confidence-config.test.ts` (196 lines, 23 tests)
+  - Tests config loading and caching
+  - Tests per-intent threshold getters
+  - Tests isBelowIntentThreshold() for all categories
+  - Tests integration scenario for booking classification
+
+### Commit
+
+feat: US-534 - Add Per-Intent Confidence Score Thresholds with Dynamic Adjustment
+
+- Fix undefined lowConfidenceThreshold variable in intent-classifier.ts
+- Import getIntentThreshold() from intent-confidence-config.ts
+- Add 23 comprehensive tests for intent confidence threshold config
+- Fix JSON syntax error in intent-confidence-thresholds.json categories section
+
+All acceptance criteria met. Build, tests, and server startup all pass.

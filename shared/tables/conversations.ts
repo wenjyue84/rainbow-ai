@@ -99,6 +99,7 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
   localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
   faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
+  bookingSubtype: varchar("booking_subtype", { length: 20 }), // US-535: booking intent subtype (check_in|check_out|modification|general_inquiry)
   profileId: text("profile_id").default('pelangi'),
   deletedAt: timestamp("deleted_at"),
 }, (table) => ([

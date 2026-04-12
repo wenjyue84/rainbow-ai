@@ -570,6 +570,16 @@ export const intentClassifierResultSchema = z.object({
 });
 export type IntentClassifierResult = z.infer<typeof intentClassifierResultSchema>;
 
+// ─── Booking Micro-Classifier (US-535) ──────────────────────────────
+
+export const bookingMicroclassifierSchema = z.object({
+  subtype: z.enum(['check_in', 'check_out', 'modification', 'general_inquiry']),
+  confidence: z.number().min(0).max(1),
+  matchedKeywords: z.array(z.string()).optional(),
+  model: z.string().optional(), // e.g., 'keyword-matching', 'llm'
+});
+export type BookingMicroclassifierResult = z.infer<typeof bookingMicroclassifierSchema>;
+
 // ─── Schema Registry ────────────────────────────────────────────────
 
 export const CONFIG_SCHEMAS = {
