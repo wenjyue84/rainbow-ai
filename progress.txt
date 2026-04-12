@@ -791,3 +791,71 @@ This iteration verified all checks pass:
 
 ### Action taken
 Marked US-520 passes = true in prd.json.
+## Iteration 2 - Sun, Apr 12, 2026  7:43:46 PM
+Completed: Add Provider Failover Retry Logic with Exponential Backoff (ID: US-520) in 4m
+
+
+## Iteration [N] - Story: Audit Knowledge Base Files for Content Cross-Contamination Between Profiles (US-523) - COMPLETE
+
+### What was implemented
+
+Created a complete audit system for detecting cross-profile contamination in knowledge base files:
+- `scripts/contamination-rules.json` - Defines profile-specific terms that should not appear in other profiles
+- `scripts/audit-profile-separation.ts` - Audit script that scans knowledge.json and workflows.json files
+- `package.json` updated with `audit:profiles` npm script
+
+### Files created/modified
+
+1. Created: `scripts/contamination-rules.json`
+   - Defines Pelangi-specific terms: dorm, hostel, bed number, booking ID, room key, capsule, pelangi, etc.
+   - Defines Makan-specific terms: makan moments, waiter, chef, dine-in, order food, etc.
+   - Defines Southern-specific terms: southern homestay
+
+2. Created: `scripts/audit-profile-separation.ts`
+   - Iterates through data-makan, data-southern profile directories
+   - Loads knowledge.json and workflows.json from each profile
+   - Scans content against contamination rules using line-by-line text matching
+   - Outputs JSON report with format: {profile, violations: [{term, file, lineNumber, context}]}
+   - Exits with code 0 if clean, 1 if contamination found
+
+3. Modified: `package.json`
+   - Added/updated npm script: `audit:profiles` pointing to `tsx scripts/audit-profile-separation.ts`
+
+### Quality checks
+
+- Build: PASS (esbuild, 2.6MB, 1 pre-existing warning only)
+- Server startup: PASS (no errors, expected profile contamination warnings)
+- Audit output: PASS (valid JSON format, correct exit codes)
+- Current violations found: 6 contamination instances in southern profile (hostel and key card terms)
+
+### Patterns discovered
+
+- Profile separation audit works by scanning raw file content for prohibited terms
+- Case-insensitive matching catches both upper and lowercase variations
+- Line-number tracking enables precise contamination identification
+- JSON report format allows both human and machine-readable output
+- Exit code convention (0=clean, 1=contaminated) aligns with Unix standards
+
+### Gotchas fixed
+
+- Initial version included too many generic terms (guest, unit, table, menu) causing false positives
+- Refined contamination rules to focus on truly profile-specific terminology
+- File path handling uses relative paths for readability
+- Context extraction limited to 100 chars to avoid JSON bloat
+
+### Acceptance criteria met
+
+✓ Audit script loads data-makan knowledge.json and checks for Pelangi-specific terms
+✓ Script loads data-southern knowledge.json and checks for Pelangi AND Makan terms
+✓ Script is runnable as `npm run audit:profiles`
+✓ Outputs JSON report to stdout with {profile, violations: [{term, file, lineNumber, context}]} format
+✓ Exit code 0 if clean, 1 if contamination found
+
+### Next steps
+
+The audit revealed actual contamination instances in southern profile that should be manually reviewed:
+- "hostel" references in southern workflows (should be "homestay" or "property")
+- "key card" references in southern (should be "access card" or "door key")
+
+These violations indicate copy-pasted content from Pelangi profile that needs cleanup.
+
