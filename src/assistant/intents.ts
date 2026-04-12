@@ -9,6 +9,8 @@ import { getIntentConfig, buildIntentThresholdMap, checkTierThreshold } from './
 import intentKeywordsData from './data/intent-keywords.json' with { type: 'json' };
 import intentExamplesData from './data/intent-examples.json' with { type: 'json' };
 import intentsJsonData from './data/intents.json' with { type: 'json' };
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 // Re-export public API from extracted modules (keeps all imports from './intents.js' working)
 export { isEmergency, getEmergencyIntent, getRegexDeflection } from './emergency-patterns.js';
@@ -19,14 +21,52 @@ import { mapLLMIntentToSpecific } from './llm-intent-mapper.js';
 import { tryMultiIntentSplit, correctCheckInFalsePositive } from './multi-intent.js';
 import { buildClassificationTrace, recordClassificationTrace } from './classification-tracer.js';
 
-// ─── Fuzzy Keyword Matcher ────────────
+// ─── Fuzzy Keyword Matcher (with Profile Support) ────────────
 
 let fuzzyMatcher: FuzzyIntentMatcher | null = null;
+const fuzzyMatchersByProfile = new Map<string, FuzzyIntentMatcher>();
 
-function initFuzzyMatcher(): void {
+/**
+ * US-525: Load intent keywords for a profile.
+ * Checks for profile-specific file first (intent-keywords-{profile}.json),
+ * then falls back to default intent-keywords.json
+ */
+function loadIntentKeywords(profileId: string = 'pelangi'): any {
+  const dataDir = join(process.cwd(), 'src', 'assistant', 'data');
+  const profileSpecificPath = join(dataDir, `intent-keywords-${profileId}.json`);
+  const defaultPath = join(dataDir, 'intent-keywords.json');
+
+  if (existsSync(profileSpecificPath)) {
+    try {
+      const content = readFileSync(profileSpecificPath, 'utf-8');
+      console.log(`[Intents:US-525] Loaded profile-specific keywords for "${profileId}"`);
+      return JSON.parse(content);
+    } catch (err: any) {
+      console.warn(`[Intents:US-525] Failed to load profile-specific keywords: ${err.message}, falling back to default`);
+    }
+  }
+
+  try {
+    const content = readFileSync(defaultPath, 'utf-8');
+    console.log(`[Intents:US-525] Loaded default keywords (profile: "${profileId}")`);
+    return JSON.parse(content);
+  } catch (err: any) {
+    console.error(`[Intents:US-525] Failed to load default keywords: ${err.message}`);
+    return intentKeywordsData; // fallback to import
+  }
+}
+
+function initFuzzyMatcherForProfile(keywordIntents: KeywordIntent[]): FuzzyIntentMatcher {
+  const matcher = new FuzzyIntentMatcher(keywordIntents);
+  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups');
+  return matcher;
+}
+
+function initFuzzyMatcher(profileKeywordData?: any): void {
+  const keywordData = profileKeywordData || intentKeywordsData;
   const keywordIntents: KeywordIntent[] = [];
 
-  for (const intent of intentKeywordsData.intents) {
+  for (const intent of keywordData.intents) {
     for (const [lang, keywords] of Object.entries(intent.keywords)) {
       keywordIntents.push({
         intent: intent.intent,
@@ -47,8 +87,46 @@ function initFuzzyMatcher(): void {
     }
   }
 
-  fuzzyMatcher = new FuzzyIntentMatcher(keywordIntents);
+  fuzzyMatcher = initFuzzyMatcherForProfile(keywordIntents);
   console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list)');
+}
+
+/**
+ * Get or create a fuzzy matcher for a specific profile
+ * US-525: Per-profile intent keyword configuration
+ */
+function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMatcher {
+  if (fuzzyMatchersByProfile.has(profileId)) {
+    return fuzzyMatchersByProfile.get(profileId)!;
+  }
+
+  const keywordData = loadIntentKeywords(profileId);
+  const keywordIntents: KeywordIntent[] = [];
+
+  for (const intent of keywordData.intents) {
+    for (const [lang, keywords] of Object.entries(intent.keywords)) {
+      keywordIntents.push({
+        intent: intent.intent,
+        keywords: keywords as string[],
+        language: lang as 'en' | 'ms' | 'zh' | 'ta'
+      });
+    }
+
+    // US-053: Include regional variants if they exist
+    if ((intent as any).regional_variants) {
+      for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
+        keywordIntents.push({
+          intent: intent.intent,
+          keywords: variants as string[],
+          language: lang as 'en' | 'ms' | 'zh' | 'ta'
+        });
+      }
+    }
+  }
+
+  const matcher = initFuzzyMatcherForProfile(keywordIntents);
+  fuzzyMatchersByProfile.set(profileId, matcher);
+  return matcher;
 }
 
 // ─── Init (enhanced with fuzzy + semantic matching) ────────────────
@@ -92,15 +170,18 @@ export async function initIntents(): Promise<void> {
  * @param lastIntent - Last detected intent
  * @param preferredLanguage - Stored language preference from conversation metadata (US-119)
  * @param conversationId - Optional conversation ID for classification tracing (US-122)
+ * @param profileId - Optional profile ID for US-525 per-profile keyword configuration (default: 'pelangi')
  */
 export async function classifyMessageWithContext(
   text: string,
   history: ChatMessage[] = [],
   lastIntent: string | null = null,
   preferredLanguage?: string,
-  conversationId?: string
+  conversationId?: string,
+  profileId: string = 'pelangi'
 ): Promise<IntentResult> {
   const config = getIntentConfig();
+  const currentMatcher = getFuzzyMatcherForProfile(profileId);
 
   // US-122: Collect tier candidates for classification tracing
   const tierCandidates: Array<{ intent: string; score: number; matchedKeyword?: string; matchedExample?: string }> = [];
@@ -202,12 +283,12 @@ export async function classifyMessageWithContext(
   // TIER 2: Fuzzy keyword matching WITH CONTEXT
   // US-119: Use effective language (preferred or detected) for keyword filtering
   let fuzzyHighConfidenceResult: IntentResult | null = null;
-  if (config.tiers.tier2_fuzzy.enabled && fuzzyMatcher) {
+  if (config.tiers.tier2_fuzzy.enabled && currentMatcher) {
     const contextSize = config.tiers.tier2_fuzzy.contextMessages;
     const context = history.slice(-contextSize);
     const languageFilter = effectiveLang !== 'unknown' ? effectiveLang : undefined;
 
-    const fuzzyResult = fuzzyMatcher.matchWithContext(
+    const fuzzyResult = currentMatcher.matchWithContext(
       processedText,
       context,
       lastIntent,
@@ -223,7 +304,7 @@ export async function classifyMessageWithContext(
       });
 
       // Also collect top alternatives from the matcher
-      const allFuzzy = fuzzyMatcher.getTopMatches?.(processedText, 3, languageFilter);
+      const allFuzzy = currentMatcher.getTopMatches?.(processedText, 3, languageFilter);
       if (allFuzzy) {
         for (const alt of allFuzzy) {
           if (alt.intent !== fuzzyResult.intent) {
@@ -423,8 +504,8 @@ export async function classifyMessageWithContext(
               }
             }
           }
-          if (fuzzyMatcher) {
-            const relaxedFuzzy = fuzzyMatcher.matchWithContext(processedText, [], null, undefined);
+          if (currentMatcher) {
+            const relaxedFuzzy = currentMatcher.matchWithContext(processedText, [], null, undefined);
             if (relaxedFuzzy && relaxedFuzzy.score >= 0.55) {
               console.log(`[Intent] ⏱️ Timeout fallback → fuzzy: ${relaxedFuzzy.intent} (${(relaxedFuzzy.score * 100).toFixed(0)}%)`);
               return {
@@ -438,7 +519,7 @@ export async function classifyMessageWithContext(
             }
           }
           // Multi-intent split as last resort
-          const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
+          const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, currentMatcher);
           if (splitResult) return traceAndReturn(splitResult, 'LLM timeout fallback → multi-intent split');
           return traceAndReturn({ category: 'unknown', confidence: 0, entities: {}, source: 'llm', detectedLanguage: detectedLang }, 'LLM timeout fallback → unknown');
         }
@@ -468,7 +549,7 @@ export async function classifyMessageWithContext(
 
       // If LLM returned unknown with low confidence, try multi-intent splitting
       if (mappedCategory === 'unknown' && llmResult.confidence < 0.3) {
-        const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
+        const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, currentMatcher);
         if (splitResult) return traceAndReturn(splitResult, 'Multi-intent split fallback');
       }
 
@@ -481,7 +562,7 @@ export async function classifyMessageWithContext(
     } catch (error) {
       console.error('[Intent] LLM classification failed:', error);
       // On LLM failure, try multi-intent splitting as last resort
-      const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, fuzzyMatcher);
+      const splitResult = await tryMultiIntentSplit(text, history, lastIntent, detectedLang, config, currentMatcher);
       if (splitResult) return traceAndReturn(splitResult, 'LLM error fallback → multi-intent split');
       return traceAndReturn({
         category: 'unknown',

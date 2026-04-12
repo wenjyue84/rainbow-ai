@@ -37,6 +37,8 @@ interface ClassificationInput {
   instanceId?: string;
   /** US-874: Detected language for stronger LLM language enforcement */
   detectedLanguage?: string;
+  /** US-525: Profile ID for per-profile keyword configuration */
+  profileId?: string;
 }
 
 /**
@@ -107,7 +109,7 @@ async function classifyTieredPipeline(
   context: IPipelineContext,
   clearAckTimer: () => void
 ): Promise<ClassificationResult> {
-  const { processText, contextMessages, systemPrompt, lastIntent, devMetadata, phone } = input;
+  const { processText, contextMessages, systemPrompt, lastIntent, devMetadata, phone, profileId } = input;
 
   const startTime = Date.now();
 
@@ -116,12 +118,14 @@ async function classifyTieredPipeline(
   let preferredLanguage: SupportedLanguage | undefined;
 
   // US-122: Pass phone as conversationId for classification tracing
+  // US-525: Pass profileId for per-profile keyword configuration
   const tierResult = await (context.classifyMessageWithContext as any)(
     processText,
     contextMessages,
     lastIntent,
     preferredLanguage,  // undefined for T1/T2 fast-path skipping
-    phone  // conversationId
+    phone,  // conversationId
+    profileId  // US-525: profile-specific keyword loading
   );
   const classifyTime = Date.now() - startTime;
 

@@ -178,4 +178,36 @@ describe('US-248: Profile-specific intent keyword isolation', () => {
       ).toHaveLength(0);
     });
   });
+
+  describe('US-525 Acceptance Criteria: Profile-specific keywords', () => {
+    it('should have "checkout" keyword in Pelangi but not in Makan', () => {
+      const pelangiProfile = loadProfile('data');
+      const makanProfile = loadProfile('data-makan');
+
+      // Find checkout-related intents in Pelangi
+      const pelangiCheckout = pelangiProfile.intents.find((i) => i.intent === 'checkout_now' || i.intent === 'late_checkout_request');
+      expect(pelangiCheckout, 'Pelangi should have checkout intent').toBeDefined();
+
+      // Checkout intent should NOT exist in Makan (cafe doesn't have checkout concept)
+      const makanCheckout = makanProfile.intents.find((i) => i.intent === 'checkout_now' || i.intent === 'late_checkout_request' || i.intent === 'late_checkout');
+      expect(makanCheckout, 'Makan should NOT have checkout intent').toBeUndefined();
+    });
+
+    it('should have "order" keywords in Makan but not in Pelangi/Southern', () => {
+      const pelangiProfile = loadProfile('data');
+      const makanProfile = loadProfile('data-makan');
+      const southernProfile = loadProfile('data-southern');
+
+      // Find order-related intents in Makan
+      const makanOrder = makanProfile.intents.find((i) => i.intent === 'order_placement' || i.intent === 'menu_query');
+      expect(makanOrder, 'Makan should have order_placement or menu_query intent').toBeDefined();
+
+      // Order placement should NOT exist in Pelangi/Southern (not food ordering services)
+      const pelangiOrder = pelangiProfile.intents.find((i) => i.intent === 'order_placement' || i.intent === 'menu_query');
+      expect(pelangiOrder, 'Pelangi should NOT have order_placement intent').toBeUndefined();
+
+      const southernOrder = southernProfile.intents.find((i) => i.intent === 'order_placement' || i.intent === 'menu_query');
+      expect(southernOrder, 'Southern should NOT have order_placement intent').toBeUndefined();
+    });
+  });
 });

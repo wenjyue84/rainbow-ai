@@ -174,6 +174,7 @@ export async function classifyAndRoute(
       phone,
       instanceId: msg.instanceId,
       detectedLanguage: lang,
+      profileId: state.profileId,  // US-525: Pass profile ID for per-profile keyword configuration
     },
     context,
     cancelAck
