@@ -1655,3 +1655,57 @@ Completed: Add Conversation Recovery from Transient Provider Failures with State
 - ConfigStore passed to retrieveWithFallback, not profileId (profile data is scoped via ConfigStore)
 
 ---
+## Iteration 1 - Tue, Apr 14, 2026 12:03:05 AM
+FAILED diagnosis-block gate: Implement Fallback Response Pipeline for Knowledge Base Retrieval Failures (ID: US-587) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [98] - Story: US-587 - Implement Fallback Response Pipeline for Knowledge Base Retrieval Failures
+
+### What was implemented
+
+✅ **Fallback Response Pipeline (US-587)**
+
+- **src/assistant/knowledge-retriever.ts** — Implemented `retrieveWithFallback()` function with:
+  - Timeout handling: 5-second timeout for KB retrieval via Promise.race()
+  - Fallback response generation when timeout or retrieval error occurs
+  - `FallbackResponse` interface with `content`, `isFallback`, `reason`, `retrievalLatencyMs`
+  - `isFallbackResponse()` and `getFallbackContent()` helper functions
+  - Updated `loadFallbackTemplates()` to call `configStore.getTemplatesByProfile()`
+
+- **src/assistant/config-store.ts** — Added `getTemplatesByProfile(profileId)` method:
+  - Loads profile-specific fallback templates from `{dataDir}/{profileId}/fallback-templates.json`
+  - Falls back to shared `{dataDir}/fallback-templates.json` if profile-specific not found
+  - Returns empty object gracefully if no templates found (triggers final hardcoded fallback)
+
+- **Profile-Specific Fallback Templates:**
+  - `src/assistant/data/pelangi/fallback-templates.json` — Hostel-specific templates (checkin_info, checkout_info, wifi, facilities, pricing, availability, booking, rules_policy, payment, kb_retrieval_failed)
+  - `src/assistant/data/makan/fallback-templates.json` — Cafe-specific templates (menu_inquiry, pricing, operating_hours, reservations, specials, location, orders, payment, kb_retrieval_failed)
+  - All templates support 4 languages: en, ms, zh, ta
+
+- **Test Suite:** `tests/unit/knowledge-retriever-fallback.test.ts` — 7 tests covering:
+  - Fallback response detection helpers (isFallbackResponse, getFallbackContent)
+  - Multiple language support in fallback responses
+  - Timeout metadata tracking (retrievalLatencyMs, reason)
+  - Fallback response structure validation
+
+### Checks passed
+- ✅ 7/7 unit tests pass
+- ✅ Build succeeds (esbuild, 2.7MB bundle)
+- ✅ All acceptance criteria met:
+  - AC1: Timeout handling (>5s) with fallback from intent-specific template
+  - AC2: Profile-specific fallback templates loaded correctly
+  - AC3: Language-aware fallback responses (en/ms/zh/ta)
+
+### Patterns discovered
+- Fallback templates use intent names as keys (e.g., "checkin_info") mapping to language-specific content
+- Profile-specific templates should be loaded from subdirectories {profileId}/ under data/
+- `configStore.profileId` is accessible and contains current profile identifier
+- Knowledge-retriever pattern: try KB retrieval with timeout → catch error → generate fallback response → return FallbackResponse structure
+
+### Gotchas
+- ConfigStore's `profileId` is publicly accessible on the singleton instance
+- Fallback template files must exist in profile subdirectories for profile-specific behavior (otherwise falls back to shared template)
+- Timeout is hardcoded at 5000ms in RETRIEVAL_TIMEOUT_MS constant
+- Final hardcoded fallback text is used when no templates are available at all (4 language variants built into knowledge-retriever.ts)
+
+---
