@@ -711,3 +711,38 @@ FAILED diagnosis-block gate: Build Intent Classification Confidence Analysis CLI
 - The tool must handle cases where there is no feedback data available for a given profile, producing an empty or informative report.
 - The exact schema (table/column names) for feedback is not defined in the story; this must be confirmed from the existing database schema.
 
+## Iteration 2 - Tue, Apr 14, 2026  3:57:32 AM
+Completed: Build Intent Classification Confidence Analysis CLI with Confusion Matrix (ID: US-588) in 2m
+
+
+## Pre-analysis for US-589 (Gemini 2.5 Pro)
+### Technical Brief: US-589 Intent Accuracy Dashboard Endpoint (Frappe/Python)
+
+This brief outlines the implementation of an admin-facing API endpoint to report on intent classification accuracy within the `lhdn_payroll_integration` app.
+
+**1. Python Files to Modify:**
+
+*   **Create:** `lhdn_payroll_integration/api/analytics.py`. This new file will contain the API endpoint logic, keeping it organized and separate from other modules.
+*   **No modification** to `hooks.py` is necessary; the `@frappe.whitelist()` decorator is sufficient to expose the API method.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocTypes Involved:** The implementation will primarily query two custom DocTypes: `Intent Analytics` and `Conversation Feedback` (or their respective DB tables `tabIntent Analytics`, `tabConversation Feedback`).
+*   **Hooks:** No hooks are needed.
+
+**3. Recommended Implementation Approach:**
+
+1.  In `analytics.py`, define a Python function `get_intent_accuracy_report(profile, language=None)`.
+2.  Decorate it with `@frappe.whitelist()` to expose it as an HTTP endpoint.
+3.  Add `frappe.throw_if_not_frappe_admin()` at the start of the function to restrict access to System Managers.
+4.  Use a parameterized `frappe.db.sql()` query to aggregate classification data from the two DocTypes, filtered by `profile` and `language`.
+5.  Calculate precision, recall, and F1-score based on the feedback data (e.g., where `classification_correct` is false).
+6.  Return a dictionary containing the metrics, which Frappe automatically serializes into JSON.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Security:** Ensure queries are parameterized to prevent SQL injection.
+*   **Permissions:** The `throw_if_not_frappe_admin` check is critical for this admin-only endpoint.
+*   **Calculations:** Handle division-by-zero errors when calculating metrics if there are no samples, returning 0 or `None`.
+*   **API Path:** The final endpoint URL will be: `/api/method/lhdn_payroll_integration.api.analytics.get_intent_accuracy_report`.
+
