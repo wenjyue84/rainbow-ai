@@ -2119,7 +2119,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-04-13T11:47:49Z"
@@ -2166,6 +2166,69 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-571",
+      "title": "Implement Per-Profile Conversation Turn Limit with Auto-Escalation",
+      "priority": "medium",
+      "description": "Enforce per-profile conversation turn limits and automatically escalate to human handoff when exceeded, preventing endless chatbot loops and improving reliability.",
+      "acceptanceCriteria": [
+        "Create src/assistant/data/profile-limits.json with structure: {\"data-pelangi\": {\"maxTurns\": 20}, \"data-makan\": {\"maxTurns\": 15}, \"data-southern\": {\"maxTurns\": 18}}. Load config on startup and apply per conversation session",
+        "When conversation.turn_count exceeds profile's maxTurns, invoke escalation: log escalation event to database, post recovery message from src/assistant/data/recovery-messages.json:escalation-turn-limit with profile name, set conversation.escalated=true",
+        "Add unit test in tests/unit/conversation-limiter.test.ts: verify turn counting increments correctly, test escalation triggers at profile-specific limits (data-makan at 15, data-southern at 18), confirm escalation message posts exactly once"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/conversation-limiter.ts with function enforceConversationLimit(session: Session, profile: string): {escalated: boolean, reason?: string}",
+        "File to create: src/assistant/data/profile-limits.json",
+        "File to modify: src/assistant/pipeline/message-router.ts - call limiter.enforceConversationLimit() before processing user message",
+        "Test command: npm run test tests/unit/conversation-limiter.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-572",
+      "title": "Implement Language-Specific Keyword Weighting for Intent Matching",
+      "priority": "medium",
+      "description": "Apply language-specific weight multipliers to intent keywords during fuzzy matching, improving T2 classification accuracy for Tamil and other non-English intents.",
+      "acceptanceCriteria": [
+        "Extend intent-keywords.json schema to support language-weight objects: keyword entries become {text: string, en_weight: 1.0, ta_weight: 1.3, ml_weight: 1.2}. Update all booking/inquiry keywords with Tamil weights ≥ 1.2x to boost Tamil intent detection",
+        "Modify src/assistant/classifier.ts:T2KeywordMatcher() to read conversation.language_preference and apply weight multiplier to fuzzy match scores before confidence threshold comparison (T2_CONFIDENCE_THRESHOLD * language_weight)",
+        "Add unit test in tests/unit/keyword-weighting.test.ts: test identical keyword text scores 1.3x higher when language='ta' vs language='en', verify weighted scoring chooses correct intent in multi-language message"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/classifier/keyword-weights.ts with function applyLanguageWeight(baseScore: number, language: string, keyword: Keyword): number",
+        "File to modify: src/assistant/classifier.ts - integrate language weight application in T2 matching pipeline",
+        "File to modify: src/assistant/data/intent-keywords.json - add en_weight, ta_weight, ml_weight fields to all keyword entries",
+        "Test command: npm run test tests/unit/keyword-weighting.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-573",
+      "title": "Add Intent Keyword Contradiction Detection for Ambiguous Messages",
+      "priority": "medium",
+      "description": "Detect when user messages contain keywords from conflicting intent categories, route to clarification handler instead of misclassifying as single intent.",
+      "acceptanceCriteria": [
+        "Create src/assistant/classifier/contradiction-detector.ts with function detectKeywordContradictions(message: string, intentKeywords: {[intent: string]: Keyword[]}): {hasContradiction: boolean, conflicting_intents: string[], top_scores: {intent: string, score: number}[]}. Flag contradiction when 2+ intents have scores within 15% of each other",
+        "In src/assistant/classifier.ts:T2KeywordMatcher(), after collecting T2 scores, call contradiction detector. If contradiction detected (hasContradiction=true), invoke clarification workflow: post recovery-messages.json:clarification-question-ambiguous with top_scores listed, set intent='clarification-required'",
+        "Add test in tests/unit/contradiction-detector.test.ts: test message 'I want to book a room but cancel my reservation' (booking vs cancel intent), verify detected and flagged as ambiguous; test message with single dominant intent not flagged"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/classifier/contradiction-detector.ts with detectKeywordContradictions function",
+        "File to modify: src/assistant/classifier.ts - call contradiction detector after T2 keyword scoring, handle hasContradiction case",
+        "File to modify: src/assistant/data/recovery-messages.json - add clarification-question-ambiguous template with {{conflicting_intents}} placeholder",
+        "Test command: npm run test tests/unit/contradiction-detector.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }

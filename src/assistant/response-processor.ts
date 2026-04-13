@@ -18,6 +18,86 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * Interface for Tamil template structure
+ */
+interface TamilTemplate {
+  text: string;
+  variables: string[];
+}
+
+interface TamilIntentTemplates {
+  [templateKey: string]: TamilTemplate;
+}
+
+interface TamilResponseData {
+  schema_version: string;
+  language: string;
+  description: string;
+  intents: {
+    [intent: string]: TamilIntentTemplates;
+  };
+}
+
+/**
+ * Load language-specific response templates (e.g., tamil-responses.json)
+ * Supports profile-specific template files
+ */
+function loadTemplateByLanguage(
+  language: string,
+  profileId: string = 'pelangi'
+): TamilResponseData | null {
+  try {
+    // Try profile-specific templates first
+    const profileTemplatePath = path.join(
+      __dirname,
+      `data-${profileId}/${language}-responses.json`
+    );
+    if (fs.existsSync(profileTemplatePath)) {
+      const data = fs.readFileSync(profileTemplatePath, 'utf-8');
+      return JSON.parse(data) as TamilResponseData;
+    }
+
+    // Fall back to shared templates
+    const sharedTemplatePath = path.join(__dirname, `data/${language}-responses.json`);
+    if (fs.existsSync(sharedTemplatePath)) {
+      const data = fs.readFileSync(sharedTemplatePath, 'utf-8');
+      return JSON.parse(data) as TamilResponseData;
+    }
+
+    console.warn(
+      `[ResponseProcessor] No ${language}-responses.json found for profile ${profileId}`
+    );
+    return null;
+  } catch (error) {
+    console.error(
+      `[ResponseProcessor] Failed to load ${language} templates:`,
+      error
+    );
+    return null;
+  }
+}
+
+/**
+ * Render a template by substituting variables with actual values
+ */
+function renderTemplate(
+  template: TamilTemplate,
+  variables: Record<string, string | number | undefined>
+): string {
+  let text = template.text;
+
+  for (const variable of template.variables) {
+    const placeholder = `{${variable}}`;
+    const value = variables[variable];
+    if (value !== undefined) {
+      text = text.replace(new RegExp(placeholder, 'g'), String(value));
+    }
+  }
+
+  return text;
+}
+
+/**
  * Load knowledge.json from the assistant data directory
  */
 function loadKnowledgeBase(profileId: string = 'pelangi'): KnowledgeData | null {
@@ -216,3 +296,6 @@ export async function generateFallbackSuggestions(
     };
   }
 }
+
+// Export template functions for use in tests and other modules
+export { loadTemplateByLanguage, renderTemplate };
