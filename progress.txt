@@ -1624,3 +1624,72 @@ Build also passes (esbuild, 122ms).
 ### Patterns discovered
 - Diagnosis block must be output as plain text BEFORE any tool calls that modify files
 - Previous run had code in place; just needed verification pass
+## Iteration 2 - Mon, Apr 13, 2026  7:34:34 PM
+Completed: Add Startup Health Check Reporter with JSON Output (ID: US-566) in 2m
+
+
+## Pre-analysis for US-567 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Agent
+**Re:** Technical Brief for Frappe/Python Story: US-567 - Config Hot-Reload
+
+This brief outlines the implementation plan for hot-reloading JSON configuration within the `lhdn_payroll_integration` Frappe app. The original story's technical notes refer to a Node.js/TypeScript stack; this plan translates that intent to a Python/Frappe context.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: To initiate the file watcher process on server startup.
+*   `lhdn_payroll_integration/utils/config_loader.py` (New File): To manage reading JSON files and populating/clearing the Frappe cache.
+*   `lhdn_payroll_integration/utils/config_watcher.py` (New File): To house the file system watcher logic using the `watchdog` library.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Hooks:** Use the `on_startup` hook in `hooks.py` to launch the watcher in a background thread.
+*   **Frappe API:** The core mechanism will be `frappe.cache()`. The loader will populate the cache, and the watcher will trigger a cache invalidation (`frappe.cache().delete_value(...)`).
+*   **DocTypes:** No DocTypes will be modified directly. The reloaded configuration will dynamically alter the behavior of relevant DocTypes (e.g., `LHDN Payroll Settings`, `Payroll Entry`) for all new operations.
+
+**3. Recommended Implementation Approach:**
+1.  Add `watchdog` to the app's `requirements.txt`.
+2.  In `config_loader.py`, create a `reload_config()` function that clears the relevant key from `frappe.cache()` and re-loads the JSON from disk.
+3.  In `config_watcher.py`, implement a `FileSystemEventHandler` using `watchdog` that calls `reload_config()` upon detecting changes in the configuration directory (e.g., `lhdn_payroll_integration/configs/**/*.json`).
+4.  In `hooks.py`, within `on_startup`, spawn a new daemon thread that runs the file watcher.
+
+**4. Edge Cases & Gotchas:**
+*   **Multi-Worker Redundancy:** In a production environment with multiple Gunicorn workers, each worker will trigger `on_startup`, potentially creating redundant file watchers. This is generally acceptable if using a shared cache like Redis, as they will all target the same cache keys.
+*   **Atomic Writes:** File writes may not be atomic. The `reload_config` function should include error handling (e.g., `try...except json.JSONDecodeError`) to prevent crashes from reading partially written files.
+*   **Threading:** The watcher must run in a non-blocking background (daemon) thread to avoid halting the main Frappe server process.
+
+
+## Pre-analysis for US-567 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Agent
+**Re:** Technical Brief for Frappe/Python Story: US-567 - Config Hot-Reload
+
+This brief outlines the implementation plan for hot-reloading JSON configuration within the `lhdn_payroll_integration` Frappe app. The original story's technical notes refer to a Node.js/TypeScript stack; this plan translates that intent to a Python/Frappe context.
+
+**1. Python Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: To initiate the file watcher process on server startup.
+*   `lhdn_payroll_integration/utils/config_loader.py` (New File): To manage reading JSON files and populating/clearing the Frappe cache.
+*   `lhdn_payroll_integration/utils/config_watcher.py` (New File): To house the file system watcher logic using the `watchdog` library.
+
+**2. Frappe DocTypes & Hooks:**
+*   **Hooks:** Use the `on_startup` hook in `hooks.py` to launch the watcher in a background thread.
+*   **Frappe API:** The core mechanism will be `frappe.cache()`. The loader will populate the cache, and the watcher will trigger a cache invalidation (`frappe.cache().delete_value(...)`).
+*   **DocTypes:** No DocTypes will be modified directly. The reloaded configuration will dynamically alter the behavior of relevant DocTypes (e.g., `LHDN Payroll Settings`, `Payroll Entry`) for all new operations.
+
+**3. Recommended Implementation Approach:**
+1.  Add `watchdog` to the app's `requirements.txt`.
+2.  In `config_loader.py`, create a `reload_config()` function that clears the relevant key from `frappe.cache()` and re-loads the JSON from disk.
+3.  In `config_watcher.py`, implement a `FileSystemEventHandler` using `watchdog` that calls `reload_config()` upon detecting changes in the configuration directory (e.g., `lhdn_payroll_integration/configs/**/*.json`).
+4.  In `hooks.py`, within `on_startup`, spawn a new daemon thread that runs the file watcher.
+
+**4. Edge Cases & Gotchas:**
+*   **Multi-Worker Redundancy:** In a production environment with multiple Gunicorn workers, each worker will trigger `on_startup`, potentially creating redundant file watchers. This is generally acceptable if using a shared cache like Redis, as they will all target the same cache keys.
+*   **Atomic Writes:** File writes may not be atomic. The `reload_config` function should include error handling (e.g., `try...except json.JSONDecodeError`) to prevent crashes from reading partially written files.
+*   **Threading:** The watcher must run in a non-blocking background (daemon) thread to avoid halting the main Frappe server process.
+

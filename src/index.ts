@@ -41,6 +41,7 @@ import { initFeedbackSettings } from './lib/init-feedback-settings.js';
 import { initAdminNotificationSettings } from './lib/admin-notification-settings.js';
 import { configStore } from './assistant/config-store.js';
 import { profileRegistry } from './assistant/profile-registry.js';
+import { initializeProfileLoaders } from './lib/profile-loader.js';
 import { initKnowledgeBase, initKBFromDB, checkKBStaleness } from './assistant/knowledge-base.js';
 import { initUnitCache } from './lib/unit-cache.js';
 import { initScheduler } from './lib/message-scheduler.js';
