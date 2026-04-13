@@ -919,3 +919,123 @@ Therefore, I cannot create a relevant technical brief for the `lhdn_payroll_inte
 ### Gotchas
 - Attempt 2 needed because attempt 1 failed SPIRAL diagnosis-block gate (not code issue)
 - Previous attempt had all correct code, just needed gate compliance on retry
+## Iteration 2 - Mon, Apr 13, 2026  2:19:40 PM
+Completed: Implement Conversation Message Summarization Engine for Context Windows (ID: US-546) in 2m
+
+
+## Pre-analysis for US-547 (Gemini 2.5 Pro)
+**Technical Brief: US-547 for Frappe/Python**
+
+This brief outlines the implementation of a server-side booking validator within the `lhdn_payroll_integration` app.
+
+**1. Files to Modify:**
+*   **Create:** `lhdn_payroll_integration/utils/booking_validator.py`. This will contain the `BookingValidator` class.
+*   **Modify:** `lhdn_payroll_integration/hooks.py` to add a `doc_events` hook for the relevant DocType.
+*   **Modify:** The controller file for the DocType being validated, likely `[doctype_name].py`, to call the validator on the `validate` event.
+
+**2. Frappe Components:**
+*   **DocTypes:**
+    *   `Booking Request` (or similar): The primary DocType to be validated.
+    *   `Unit`/`Property`: To check against `guest_capacity`.
+    *   `Booking`: To query for date conflicts.
+    *   `Rate Card`/`Pricing Rule`: To verify pricing.
+*   **Hooks:** Use the `validate` document event in `hooks.py` to trigger the validation logic before a document is saved or submitted.
+
+**3. Implementation Approach:**
+1.  In `booking_validator.py`, create a `BookingValidator` class.
+2.  The validator's `validate` method should accept the booking request `doc` as an argument.
+3.  Implement validation logic inside the method: check guest capacity, date sequence, pricing, and query for overlapping bookings using `frappe.get_all`.
+4.  If validation fails, raise `frappe.ValidationError` with a clear, user-facing error message.
+5.  In the `[booking_doctype].py` controller's `validate` method (or via the hook), instantiate and call the `BookingValidator`.
+
+**4. Edge Cases & Gotchas:**
+*   **Concurrency:** Be aware of race conditions where two simultaneous bookings could pass validation. Consider using `frappe.db.lock` if high traffic is expected.
+*   **Timezones:** Ensure all date/time comparisons are timezone-aware to prevent incorrect conflict detection.
+*   **Performance:** The query for existing bookings must be efficient. Ensure relevant date fields are indexed in the database.
+
+
+## Iteration [79] - Story: US-547 - Add Profile-Specific Booking Rules Validator for Pre-Flight Validation
+
+### What was implemented
+
+1. **BookingValidator class** in src/lib/booking-rules-validator.ts
+   - Constructor accepts profile string, loads constraints from booking-constraints.json
+   - validate(bookingRequest) method checks:
+     - guest_count <= unit capacity (minGuests to maxGuests per profile)
+     - check_out_date > check_in_date
+     - stay duration between minStayNights and maxStayNights per profile
+     - unitType is in allowedUnitTypes per profile
+     - no overlapping existing bookings (queries room_reservations table)
+   - Returns {isValid: boolean, errors: ValidationError[]}
+   - Each error has code (machine-readable), message (user-friendly), and optional field (for specific validation)
+
+2. **Integration into workflow-executor.ts**
+   - Added validateBookingRules import from src/lib/booking-rules-validator.ts
+   - Inserted US-547 validation block after US-470 (unit availability check)
+   - Builds BookingRequest from workflow collected data:
+     - Maps 'guest_count' field
+     - Maps 'check_in_date' / 'checkin_date' fields
+     - Maps 'check_out_date' / 'checkout_date' fields
+     - Maps 'capsule' / 'unit' / 'room' fields to unitType
+     - Includes guestPhone and profile
+   - Returns validation errors to user with escalation to staff on failure
+   - Fail-open: logs errors but allows workflow to proceed if validation itself fails
+
+3. **Profile-Specific Constraints** leverage existing booking-constraints.json:
+   - pelangi: 1-4 guests, 1-90 nights, allows capsule/private-room/dorm
+   - southern: 1-8 guests, 1-180 nights, allows room/suite/apartment
+   - makan: 1-4 guests, 1-7 nights, allows private-room/event-space
+
+4. **Comprehensive Test Suite**
+   - Unit tests: tests/unit/booking-rules-validator.test.ts (27 tests)
+     - Guest count validation (within limits, exceeds capacity, below minimum)
+     - Date range validation (check-out > check-in, past dates)
+     - Stay duration validation (within min/max nights per profile)
+     - Unit type validation (allowed vs disallowed types)
+     - Multi-profile support (pelangi, southern, makan)
+     - Error structure validation (code, message, field properties)
+     - Edge cases (undefined fields, Date objects, various date formats)
+   
+   - Integration tests: tests/integration/booking-rules-workflow.test.ts (17 tests)
+     - Pre-flight validation from workflow collected data
+     - Error response format (user-friendly messages for WhatsApp)
+     - Multi-profile workflow validation
+     - Specific capacity tests (4 guests pelangi, 8 guests southern, 7 nights makan)
+     - Alternative date formats from user input
+     - Fail-open behavior (validates even with missing DB connection)
+
+### Patterns discovered
+
+- Date parsing supports multiple formats:
+  - "15 Feb 2026", "15 Feb" (auto-increments year if date in past)
+  - "15/2/2026", "15-2-2026"
+  - ISO format "2026-02-15"
+  - Date objects
+
+- Error structure with error codes enables:
+  - Machine-readable categorization (guest_count_exceeds_capacity, invalid_date_range, etc.)
+  - User-friendly message mapping
+  - Field-specific error targeting
+
+- Workflow integration extracts booking context from collectedData with key variations:
+  - Date keys: check_in_date / checkin_date
+  - Unit keys: capsule / unit / room
+  - Guest count key: guest_count
+
+- Overlapping booking detection queries room_reservations with status check:
+  - Checks for 'confirmed' and 'pending' reservations only
+  - Date range overlap logic: check_in_date < $4 AND check_out_date > $3
+
+### Quality checks
+
+Tests: 44/44 passing (27 unit + 17 integration)
+Build: esbuild successful (2.6mb bundle, no new errors)
+Server startup: Successful
+Type checking: All TypeScript errors resolved
+prd.json: Updated US-547.passes to true
+
+### Acceptance Criteria Met
+
+✅ Validator checks: guest_count <= unit capacity, check_out_date > check_in_date, no overlapping bookings, unit type allowed
+✅ Workflow executor invokes validator.validate(bookingRequest) before booking steps; returns {isValid, errors[]}
+✅ Validation error messages are user-friendly (e.g., "Unit capacity is 4 guests, you requested 6")

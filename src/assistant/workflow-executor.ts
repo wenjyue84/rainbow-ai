@@ -12,6 +12,7 @@ import { pool } from '../lib/db.js';
 import { validateBookingPreconditions, extractBookingContext } from './booking-validator.js';
 import { checkBookingUnitAvailability } from './booking-unit-availability-check.js';
 import { createProfileSanitizer, type BookingInput } from '../lib/booking-input-sanitizer.js';
+import { validateBookingRules, type BookingRequest } from '../lib/booking-rules-validator.js';
 import type { HybridWorkflowDefinition } from './workflow-nodes.js';
 import { isNodeBasedWorkflow, convertRawPhonesToLinks } from './workflow-nodes.js';
 import {
@@ -468,6 +469,53 @@ export async function executeWorkflowStep(
       // Fail-open: log error but allow workflow to proceed
       console.error(
         `[WorkflowExecutor] US-470: Unexpected error during booking unit availability check:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // ─── US-547: Profile-Specific Booking Rules Validation ──────────────
+  // Validate booking request against profile constraints (capacity, dates, overlaps, pricing)
+  if (currentStep.id && (state.workflowId.includes('book') || state.workflowId.includes('booking'))) {
+    try {
+      const profile = context.profileId || 'pelangi';
+
+      // Build booking request from collected data
+      const bookingRequest: BookingRequest = {
+        guestCount: state.collectedData['guest_count'] ? parseInt(state.collectedData['guest_count'], 10) : undefined,
+        guestPhone: phone,
+        checkInDate: state.collectedData['check_in_date'] || state.collectedData['checkin_date'],
+        checkOutDate: state.collectedData['check_out_date'] || state.collectedData['checkout_date'],
+        unitType: state.collectedData['capsule'] || state.collectedData['unit'] || state.collectedData['room'],
+        price: state.collectedData['price'] ? parseFloat(state.collectedData['price']) : undefined,
+        profile
+      };
+
+      const rulesValidationResult = await validateBookingRules(bookingRequest, profile);
+
+      if (!rulesValidationResult.isValid) {
+        // Return validation errors as guest-friendly message
+        const errorMessages = rulesValidationResult.errors.map(err => err.message);
+        const errorMessage = errorMessages.join('\n\n');
+        console.warn(
+          `[WorkflowExecutor] US-547: Booking rules validation failed for step "${currentStep.id}": ${errorMessage}`
+        );
+
+        return {
+          response: errorMessage,
+          newState: null,
+          shouldForward: true,
+          workflowId: state.workflowId,
+          stepId: currentStep.id,
+          escalation_reason: 'booking_rules_validation_failed'
+        };
+      }
+
+      console.log(`[WorkflowExecutor] US-547: Booking rules validation passed for step "${currentStep.id}"`);
+    } catch (err) {
+      // Fail-open: log error but allow workflow to proceed
+      console.error(
+        `[WorkflowExecutor] US-547: Unexpected error during booking rules validation:`,
         err instanceof Error ? err.message : err
       );
     }
