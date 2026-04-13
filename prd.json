@@ -3005,7 +3005,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
       "last_attempted": "2026-04-13T23:17:10Z"
@@ -3360,10 +3360,14 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": true,
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-13T23:38:15Z"
+      "last_attempted": "2026-04-13T23:53:12Z",
+      "_failureReason": "oversized_diff: produced 590 lines but limit is 500. Keep total insertions+deletions under 500 lines.",
+      "_antiPatterns": [
+        "oversized_diff: produced 590 lines but limit is 500. Keep total insertions+deletions under 500 lines."
+      ]
     },
     {
       "id": "US-612",
@@ -3406,6 +3410,27 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-614",
+      "title": "Implement Message Queueing for Offline Scenarios with Retry on Reconnection",
+      "priority": "medium",
+      "description": "Queue outbound WhatsApp messages when Baileys connection drops. Automatically retry queued messages when connection is restored with exponential backoff. Prevents message loss during network flaps and improves production resilience (Goal 10).",
+      "acceptanceCriteria": [
+        "When Baileys reports disconnected state, new outbound messages are queued to Redis with {recipient, message_text, intent, profile, timestamp}",
+        "Retry logic fires on 'connection_restored' event with exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped at 60s)",
+        "Logs queue size every 30s and emits WARN level alert if queue exceeds 100 messages"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/whatsapp/message-queue.ts (MessageQueue class using Redis with TTL 3600s, includes backoff calculation)",
+        "File to edit: src/lib/whatsapp/baileys-client.ts (add 'connection_lost' handler to enqueue, 'connection_restored' handler to dequeue and retry)",
+        "File to edit: src/lib/logger.ts (add queue_size and retry_attempts to structured log fields)",
+        "Test command: npm run test:run message-queue -- --grep 'should retry queued messages with exponential backoff'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }

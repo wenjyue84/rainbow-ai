@@ -1,3 +1,50 @@
+## Iteration [118] - Story: US-596 - Add Profile-Specific System Prompt Overrides in workflows.json
+
+### What was implemented
+- Added `system_prompt_override` optional field to workflows.json root schema in `src/assistant/schemas.ts`
+  * Field must be non-empty string, < 2000 characters
+  * Optional field (workflows without it remain valid)
+- Updated `src/lib/config-validator.ts` to validate system_prompt_override:
+  * Ensures non-empty if provided
+  * Enforces <2000 character limit
+  * Type checks (must be string)
+- Created `getEffectiveSystemPrompt()` function in `src/assistant/pipeline/response-processor.ts`:
+  * Exported helper function that checks for workflow override first
+  * Falls back to global settings.system_prompt if override not present
+  * Gracefully handles errors (missing workflows, settings, etc.)
+- Created comprehensive test suite: `tests/assistant/response-processor-system-prompt-override.test.ts`
+  * 32 tests covering all acceptance criteria:
+    - AC1: Override selection and fallback behavior
+    - AC1: Domain-specific prompts (hostel vs cafe)
+    - AC1: Multiline and unicode support
+    - AC2: Validation constraints (non-empty, <2000 chars)
+    - AC2: Optional field
+    - AC3: AI provider receives correct system prompt
+    - AC3: Consistent behavior across multiple calls
+    - AC3: Profile isolation (different profiles use different overrides)
+  * All 32 tests passing (unit + integration)
+
+### Patterns discovered
+- WorkflowsData schema at root level holds global workflow configuration
+- system_prompt_override enables profile-specific domain expertise (goal #8 + #1)
+- Helper function follows error-resilient pattern (try-catch with console.warn)
+- Optional field validation requires explicit null/undefined checks in Zod schema
+
+### Gotchas
+- Workflows without override should fall back to global system_prompt (not error)
+- Missing getSettings() should be handled gracefully (return empty string, not throw)
+- Schema validation done at two levels: Zod + ConfigValidator (double validation)
+- Test file path must match vitest include patterns (tests/assistant/*.test.ts)
+
+### Quality Checks
+✅ All 32 tests passing (16 unit + 16 integration)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ Server startup successful
+✅ prd.json updated: US-596.passes = true
+✅ No new compilation errors
+✅ Schema validates optional field correctly
+✅ Helper function handles all edge cases (null workflows, undefined settings, etc.)
+
 ## Iteration [117] - Story: US-595 - Weighted Intent Keyword Scoring with Recency Bias (verification pass)
 
 ### What was implemented
@@ -1389,4 +1436,7 @@ Completed: Implement Weighted Intent Keyword Scoring with Recency Bias for Multi
 ✅ prd.json updated: US-611.passes = true
 ✅ Git commit created with full story documentation
 ✅ No new syntax errors or type issues
+
+## Iteration 2 - Tue, Apr 14, 2026  7:53:10 AM
+FAILED diff-guard: Implement Intent Synonym Expansion from Profile-Specific Configuration (ID: US-611) — 590 lines > 500 limit — attempt 1/3
 

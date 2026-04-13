@@ -61,6 +61,34 @@ import {
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
 
+/**
+ * US-596: Get the effective system prompt for a profile, checking for workflow override first.
+ * If workflows.json has a system_prompt_override at the root level, use that instead of the global default.
+ *
+ * @param profileConfig - The configuration store for the profile
+ * @returns The system prompt to use (override if present, else global default)
+ */
+export function getEffectiveSystemPrompt(profileConfig: any): string {
+  try {
+    const workflows = profileConfig.getWorkflows();
+    if (workflows?.system_prompt_override) {
+      console.log(`[ResponseProcessor] US-596: Using profile-specific system_prompt_override`);
+      return workflows.system_prompt_override;
+    }
+  } catch (err) {
+    console.warn(`[ResponseProcessor] US-596: Failed to check for system_prompt_override:`, err instanceof Error ? err.message : err);
+  }
+
+  // Fall back to global system_prompt from settings
+  try {
+    const settings = profileConfig.getSettings() as any;
+    return (settings?.system_prompt) || '';
+  } catch (err) {
+    console.warn(`[ResponseProcessor] US-596: Failed to get global system_prompt:`, err instanceof Error ? err.message : err);
+    return '';
+  }
+}
+
 // ─── US-544: Profile-Specific Fallback Template Cache ──────────────────
 interface FallbackTemplateMap {
   [scenario: string]: {
