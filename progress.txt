@@ -1105,3 +1105,53 @@ and verified it was complete and correct.
 ✅ Validator checks: guest_count <= unit capacity, check_out_date > check_in_date, overlapping bookings, unit type allowed
 ✅ Workflow executor invokes validator.validate(bookingRequest) before booking steps; returns {isValid, errors[]}
 ✅ Validation error messages are user-friendly (e.g., "Unit capacity is 4 guests, you requested 6")
+## Iteration 4 - Mon, Apr 13, 2026  2:29:13 PM
+Completed: Add Profile-Specific Booking Rules Validator for Pre-Flight Validation (ID: US-547) in 3m
+
+
+## Iteration 5 - Implement Conversation Context Window Pruning to Limit Message History (US-532)
+
+### What was implemented
+
+1. **Verified existing pruneConversationContext() function** in src/assistant/pipeline/context-manager.ts (lines 77-104):
+   - Implements sliding window approach to remove oldest messages
+   - Signature: `pruneConversationContext(messages: ChatMessage[], windowSize: number): ChatMessage[]`
+   - Returns only the last `windowSize` messages, dropping oldest first
+   - Logs debug info when pruning occurs
+   - Handles empty/null message arrays gracefully
+
+2. **Verified settings.json configuration** (lines 336-341):
+   - `conversationWindowSize` key already defined with per-profile defaults (pelangi, makan, southern all set to 10)
+   - Note: Story spec called for `contextWindowSize` but actual key is `conversationWindowSize`
+
+3. **Added comprehensive test suite** to src/assistant/pipeline/context-manager.test.ts:
+   - 10 new tests for `pruneConversationContext` function
+   - Tests verify old messages are dropped and recent messages preserved
+   - Includes 5-message window sample test as per acceptance criteria
+   - Test scenarios:
+     - Empty messages
+     - Messages within window (unchanged)
+     - Messages exceeding window (pruned)
+     - 5-message window with oldest/newest messages
+     - Window size edge cases (equal to, larger than count)
+     - Null/undefined handling
+     - Timestamp and role preservation
+     - Large conversations (100 messages)
+     - Original array not modified
+
+### Patterns discovered
+- pruneConversationContext was already fully implemented; story required only test coverage
+- Settings key is `conversationWindowSize` not `contextWindowSize` (minor naming difference from spec)
+- Logging uses debug level for pruning events; includes reduction metrics
+- Uses simple array slice approach (`messages.slice(-windowSize)`) which is efficient for this use case
+
+### Quality checks
+- Tests: All 22 tests passing (12 existing US-328 + 10 new US-532 tests)
+- Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+- Server startup: Successful (expected warnings are pre-existing)
+- prd.json: Updated US-532.passes to true
+
+### Acceptance Criteria Met
+✅ pruneConversationContext(messages, windowSize) function exists and keeps only last N messages
+✅ Default window size configurable per profile in settings.json (conversationWindowSize)
+✅ Test suite with 5-message window sample verifies old messages dropped, recent preserved

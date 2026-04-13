@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeConversationContext } from './context-manager.js';
+import { summarizeConversationContext, pruneConversationContext } from './context-manager.js';
 import type { ChatMessage } from '../types.js';
 
 describe('US-328: Conversation Summarization', () => {
@@ -199,6 +199,153 @@ describe('US-328: Conversation Summarization', () => {
       expect(result.recentMessages.length).toBe(5);
       expect(result.recentMessages[0].content).toBe('Message 10');
       expect(result.recentMessages[4].content).toBe('Message 14');
+    });
+  });
+});
+
+describe('US-532: Conversation Context Window Pruning', () => {
+  describe('pruneConversationContext', () => {
+    it('should return empty array for empty messages', () => {
+      const result = pruneConversationContext([], 20);
+      expect(result).toEqual([]);
+    });
+
+    it('should return messages as-is when within window size', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Hi', timestamp: 1000 },
+        { role: 'assistant', content: 'Hello!', timestamp: 1001 },
+        { role: 'user', content: 'How are you?', timestamp: 1002 },
+      ];
+
+      const result = pruneConversationContext(messages, 20);
+      expect(result).toEqual(messages);
+      expect(result.length).toBe(3);
+    });
+
+    it('should prune messages to window size when exceeding', () => {
+      const messages: ChatMessage[] = Array.from({ length: 10 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}`,
+        timestamp: 1000 + i,
+      }));
+
+      const result = pruneConversationContext(messages, 5);
+      expect(result.length).toBe(5);
+      // Should keep last 5 messages (indices 5-9)
+      expect(result[0].content).toBe('Message 5');
+      expect(result[4].content).toBe('Message 9');
+    });
+
+    it('should drop oldest messages and preserve recent ones with 5-message window', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Message 1 (oldest)', timestamp: 1000 },
+        { role: 'assistant', content: 'Message 2', timestamp: 1001 },
+        { role: 'user', content: 'Message 3', timestamp: 1002 },
+        { role: 'assistant', content: 'Message 4', timestamp: 1003 },
+        { role: 'user', content: 'Message 5', timestamp: 1004 },
+        { role: 'assistant', content: 'Message 6', timestamp: 1005 },
+        { role: 'user', content: 'Message 7', timestamp: 1006 },
+        { role: 'assistant', content: 'Message 8', timestamp: 1007 },
+        { role: 'user', content: 'Message 9', timestamp: 1008 },
+        { role: 'assistant', content: 'Message 10 (newest)', timestamp: 1009 },
+      ];
+
+      const result = pruneConversationContext(messages, 5);
+
+      // Should only keep the last 5 messages
+      expect(result.length).toBe(5);
+
+      // Verify oldest messages are dropped
+      expect(result.map(m => m.content)).not.toContain('Message 1 (oldest)');
+      expect(result.map(m => m.content)).not.toContain('Message 2');
+      expect(result.map(m => m.content)).not.toContain('Message 3');
+      expect(result.map(m => m.content)).not.toContain('Message 4');
+      expect(result.map(m => m.content)).not.toContain('Message 5');
+
+      // Verify recent messages are preserved
+      expect(result.map(m => m.content)).toContain('Message 6');
+      expect(result.map(m => m.content)).toContain('Message 7');
+      expect(result.map(m => m.content)).toContain('Message 8');
+      expect(result.map(m => m.content)).toContain('Message 9');
+      expect(result.map(m => m.content)).toContain('Message 10 (newest)');
+
+      // Verify order is preserved
+      expect(result[0].content).toBe('Message 6');
+      expect(result[4].content).toBe('Message 10 (newest)');
+    });
+
+    it('should handle window size equal to message count', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'A', timestamp: 1000 },
+        { role: 'assistant', content: 'B', timestamp: 1001 },
+        { role: 'user', content: 'C', timestamp: 1002 },
+      ];
+
+      const result = pruneConversationContext(messages, 3);
+      expect(result).toEqual(messages);
+      expect(result.length).toBe(3);
+    });
+
+    it('should handle window size larger than message count', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'A', timestamp: 1000 },
+        { role: 'assistant', content: 'B', timestamp: 1001 },
+      ];
+
+      const result = pruneConversationContext(messages, 10);
+      expect(result).toEqual(messages);
+      expect(result.length).toBe(2);
+    });
+
+    it('should handle null/undefined messages gracefully', () => {
+      const result = pruneConversationContext(null as any, 20);
+      expect(result).toEqual([]);
+    });
+
+    it('should preserve message timestamps and roles', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Msg 1', timestamp: 1000 },
+        { role: 'assistant', content: 'Msg 2', timestamp: 2000 },
+        { role: 'user', content: 'Msg 3', timestamp: 3000 },
+        { role: 'assistant', content: 'Msg 4', timestamp: 4000 },
+        { role: 'user', content: 'Msg 5', timestamp: 5000 },
+      ];
+
+      const result = pruneConversationContext(messages, 2);
+      expect(result.length).toBe(2);
+      expect(result[0]).toEqual(messages[3]); // Msg 4
+      expect(result[1]).toEqual(messages[4]); // Msg 5
+      expect(result[0].timestamp).toBe(4000);
+      expect(result[1].timestamp).toBe(5000);
+      expect(result[0].role).toBe('assistant');
+      expect(result[1].role).toBe('user');
+    });
+
+    it('should handle large conversation (100 messages) with small window (10)', () => {
+      const messages: ChatMessage[] = Array.from({ length: 100 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}`,
+        timestamp: 1000 + i,
+      }));
+
+      const result = pruneConversationContext(messages, 10);
+      expect(result.length).toBe(10);
+      // Should keep last 10 messages (indices 90-99)
+      expect(result[0].content).toBe('Message 90');
+      expect(result[9].content).toBe('Message 99');
+    });
+
+    it('should not modify original messages array', () => {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'A', timestamp: 1000 },
+        { role: 'assistant', content: 'B', timestamp: 1001 },
+        { role: 'user', content: 'C', timestamp: 1002 },
+        { role: 'assistant', content: 'D', timestamp: 1003 },
+      ];
+      const originalLength = messages.length;
+
+      pruneConversationContext(messages, 2);
+      expect(messages.length).toBe(originalLength);
     });
   });
 });
