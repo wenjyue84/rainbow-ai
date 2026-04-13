@@ -1248,3 +1248,92 @@ This iteration verified the existing implementation and updated prd.json.
 ## Iteration 5 - Mon, Apr 13, 2026  7:00:46 PM
 Completed: Add Intent Classification Misclassification Analyzer CLI Tool (ID: US-557) in 2m
 
+
+## Iteration [SPIRAL] - Story: US-559 - Add Message Deduplication Cache with Per-Profile LRU Eviction
+
+### What was implemented
+
+Per-profile LRU message deduplication cache to avoid redundant AI calls for identical message + intent pairs:
+
+**Core Cache Implementation (src/lib/cache/message-dedup-cache.ts)**
+- MessageDeduplicationCache class with LRU eviction
+- Max 500 entries per profile (configurable)
+- TTL: 300 seconds (5 minutes)
+- Key: SHA256(message_text + intent_name + profile_name)
+- Automatic whitespace/case normalization
+- Hit/miss rate tracking with statistics API
+- TTL expiry cleanup via evictExpired()
+
+**Pipeline Integration (src/assistant/pipeline/intent-classifier.ts)**
+- Import messageDeduplicationCache from src/lib/cache/message-dedup-cache.js
+- Add cache CHECK after intent classification but BEFORE routing/dispatch
+  * Build key from (processText + result.intent + state.profileId)
+  * Return cached response if hit, skip routing/dispatch
+  * Update devMetadata.source = 'dedup_cache' for metrics
+- Add cache STORE AFTER dispatch completes
+  * Cache final response with message + intent + profile key
+  * Only cache successful responses (response && intent !== 'unknown')
+  * Log cache statistics to debug metrics
+
+**Comprehensive Test Suite (src/lib/cache/message-dedup-cache.test.ts)**
+- 12 test cases covering all acceptance criteria:
+  1. ✅ Identical message returns cached response twice in a row
+  2. ✅ Per-profile cache isolation (separate entries per profile)
+  3. ✅ LRU eviction at max capacity (500 entries)
+  4. ✅ MRU position update on cache access
+  5. ✅ Cache hit rate tracking (0-100%)
+  6. ✅ TTL expiry after 300 seconds
+  7. ✅ Accurate cache statistics (hits, misses, hitRate, entries)
+  8. ✅ Whitespace/case normalization (different spacing/case = same key)
+  9. ✅ Cache invalidation via invalidateAll()
+  10. ✅ All intent types handled (including 'unknown')
+  11. ✅ Hit rate 0% when no operations
+  12. ✅ Singleton instance exists and reusable
+  - All 12/12 tests PASS ✅
+
+### Patterns discovered
+
+1. **Key generation with hashing:** Cache keys use SHA256(normalized_input) like the existing ConversationCache
+   - Normalization includes trim(), lowercase, and whitespace collapsing (.replace(/\s+/g, ' '))
+   - Matches pattern in src/lib/conversation-cache.ts
+
+2. **LRU implementation via Map insertion order:** JavaScript Map preserves insertion order
+   - Delete then re-insert to move entry to MRU position
+   - Evict first key (oldest = LRU) when capacity exceeded
+   - Pattern matches KeywordMatchCache in src/lib/keyword-match-cache.ts
+
+3. **Pipeline integration strategy:** Cache sits between classification and routing
+   - Dedup cache key includes intent (only known AFTER classification)
+   - Different from US-526 conversation cache (pre-classification, key = phone + message)
+   - Cache check: after classifyWithTiers, before resolveRouting
+   - Cache store: after dispatchAction (when final response known)
+
+4. **Metrics logging:** Cache stats logged at debug level
+   - Hook into logger.debug('[US-559] ...')
+   - Stats include: hits, misses, hitRate%, entries, maxEntries
+   - Allows ops to monitor cache effectiveness in production
+
+### Gotchas
+
+1. **Whitespace normalization was essential:** Test initially failed because cache key differed for "I   WANT" vs "i want"
+   - Fixed by adding .replace(/\s+/g, ' ') to normalizeKey() method
+   - Critical for cache hits on practical user queries with variable spacing
+
+2. **Test async function error:** Test 12 used await in non-async function
+   - Error: "await can only be used inside an async function"
+   - Fixed by making test callback async: `it('...', async () => { ... })`
+
+3. **devMetadata.source update needed:** When cache hit on dedup, set source='dedup_cache'
+   - Allows downstream logic to distinguish between cache hit types
+   - Complements existing 'cache' (US-526 conversation cache) and 'tier1/2/3/4' sources
+
+### Quality checks passed
+
+✓ npm run build — successful esbuild bundle (2.7mb, 1 pre-existing warning)
+✓ npx vitest run src/lib/cache/message-dedup-cache.test.ts — 12/12 tests PASS
+✓ MCP_SERVER_PORT=3002 timeout 10 npx tsx src/index.ts — server startup success (no new errors)
+✓ prd.json updated: US-559 marked passes: true
+
+### Story Status
+✅ **COMPLETE** - US-559 implementation finished, all acceptance criteria met, 12 tests pass, build succeeds
+
