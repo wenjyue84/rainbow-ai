@@ -1,3 +1,56 @@
+## Iteration [105] - Story: US-577 - Load Intent Synonyms from JSON Config per Language and Profile
+
+### What was implemented
+- Created per-language, per-profile synonym JSON files:
+  * `intent-synonyms-pelangi-en.json` — English synonyms for Pelangi profile
+  * `intent-synonyms-pelangi-ta.json` — Tamil synonyms for Pelangi profile
+  * `intent-synonyms-makan-en.json` — English synonyms for Makan profile
+
+- Added `loadSynonymsForLanguage(profileId, language)` function in `src/assistant/intents.ts`
+  * Loads language-specific synonym files from disk: `intent-synonyms-{profile}-{lang}.json`
+  * Falls back to profile-only file: `intent-synonyms-{profile}.json`
+  * Final fallback to global: `intent-synonyms.json`
+  * Converts between old format (object with lang keys) and new format (array)
+
+- Added `convertSynonymsFormat(data)` helper to handle both synonym formats
+  * Supports new format: `{ intent: [...] }`
+  * Supports old format: `{ intents: [{ intent, synonyms: { lang: [...] } }] }`
+
+- Updated `mergeKeywordsAndSynonyms()` to handle both formats for backward compatibility
+  * Detects if synonyms is array or object and handles accordingly
+  * Deduplicates keywords case-insensitively
+
+- Modified fuzzy matcher initialization to use language-specific synonyms:
+  * `initFuzzyMatcher()` loads synonyms per language for default profile
+  * `getFuzzyMatcherForProfile()` loads synonyms per language for specific profiles
+  * Both now call `loadSynonymsForLanguage(profileId, lang)` per language
+
+- Created comprehensive test file: `tests/unit/intent_synonym_loading.test.ts`
+  * 21 tests covering: file structure, expansion, deduplication, multi-language support
+  * Tests for profile-specific customization and backward compatibility
+  * Performance validation (load time <10ms per file)
+  * All acceptance criteria validated
+
+### Patterns discovered
+- Old synonym format uses object with lang keys: `{ en: [...], ms: [...], zh: [...] }`
+- New format uses array directly: `[synonym1, synonym2]`
+- Both formats must coexist for backward compatibility
+- Language-specific files enable profile customization (e.g., Makan has food-related synonyms)
+- Fallback chain: profile+lang → profile → global ensures graceful degradation
+- File loading is fast (<10ms), so no caching needed in this layer
+
+### Gotchas
+- intents.ts already had US-563 synonym merging but it loaded ALL synonyms regardless of language
+- Need to handle conversion between file formats (old multi-lang object vs new single-lang array)
+- Profile-specific files allow different synonyms per business (Pelangi vs Makan)
+- Tests are read-only (validate structure, don't modify files)
+
+### Quality Checks
+✅ Build successful (2.8MB, 1 pre-existing warning in logger.ts)
+✅ All 21 unit tests passing in intent_synonym_loading.test.ts
+✅ No new type-checking errors (pre-existing errors in context-window-benchmark.ts)
+✅ prd.json updated: US-577.passes = true
+✅ Commit: 98452f4 - feat: US-577 - Load Intent Synonyms from JSON Config per Language and Profile
 
 ## Iteration [101] - Story: US-573 - Add Intent Keyword Contradiction Detection for Ambiguous Messages
 
