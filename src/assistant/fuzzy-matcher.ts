@@ -40,7 +40,7 @@ export class FuzzyIntentMatcher {
 
     this.fuse = new Fuse(this.searchData, {
       keys: ['keyword'],
-      threshold: 0.3,        // 0 = exact match, 1 = match anything (0.3 = moderate)
+      threshold: 0.6,        // 0 = exact match, 1 = match anything (0.6 for better coverage of long queries)
       distance: 100,         // Max character distance for matching
       ignoreLocation: true,  // Search entire string, not just beginning
       minMatchCharLength: 2, // Minimum 2 characters to match

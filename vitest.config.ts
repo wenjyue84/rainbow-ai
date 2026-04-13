@@ -30,7 +30,7 @@ export default defineConfig({
               maxForks: 1,
             },
           },
-          include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/unit/**/*.{test,spec}.{ts,tsx}', 'tests/lib/**/*.{test,spec}.{ts,tsx}', 'tests/middleware/**/*.{test,spec}.{ts,tsx}', 'test/**/*.{test,spec}.{ts,tsx}'],
+          include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/unit/**/*.{test,spec}.{ts,tsx}', 'tests/lib/**/*.{test,spec}.{ts,tsx}', 'tests/middleware/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.test.ts', 'test/**/*.{test,spec}.{ts,tsx}'],
           exclude: ['node_modules', 'dist', 'src/**/*.integration.test.ts', 'src/**/*.semantic.test.ts', 'tests/**/*.integration.test.ts', 'tests/**/*.semantic.test.ts', 'test/**/*.integration.test.ts', 'test/**/*.semantic.test.ts'],
         },
       },
