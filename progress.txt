@@ -376,3 +376,57 @@ Based on the user story JSON, this is a **Node.js/TypeScript** project, not a Fr
 
 ## Iteration 5 - Mon, Apr 13, 2026 12:06:18 PM
 Completed: OCR Detection and Warning for Scanned PDF KB Ingestion (ID: US-541) in 1m
+## Iteration 1 - Mon, Apr 13, 2026 12:07:38 PM
+FAILED diagnosis-block gate: OCR Detection and Warning for Scanned PDF KB Ingestion (ID: US-541) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-541 (Gemini 2.5 Pro)
+Based on the user story JSON, this is a **Node.js/TypeScript** project, not a Frappe/Python one. The implementation should target the specified `.ts` files.
+
+**Technical Brief: US-541 OCR Detection for PDF Ingestion**
+
+*   **Project Context:** This story enhances a TypeScript-based `kb-extractor` module to handle scanned PDFs by integrating an OCR option.
+
+*   **Python Files to Modify:**
+    *   N/A. This is a TypeScript project. The key files are:
+    *   `src/lib/kb-extractor.ts` (core logic)
+    *   `src/routes/admin/kb-upload.ts` (API endpoint)
+    *   `src/tools/kb-ingest-cli.ts` (CLI tool)
+    *   `src/lib/__tests__/kb-extractor.test.ts` (unit tests)
+
+*   **Frappe DocTypes / Hooks:**
+    *   N/A. This involves the `kb-extractor` module and its dependents.
+
+*   **Implementation Approach:**
+    1.  In `kb-extractor.ts`, update the `extractToMarkdown` function to accept an `options: { ocr?: boolean }` argument.
+    2.  If `options.ocr` is `true`, route the PDF to the `kreuzberg` Tesseract OCR backend.
+    3.  If not using OCR, check if the extracted text length is `< 50` chars. If so, log a `console.warn` suggesting the `--ocr` flag.
+    4.  Update the `admin/kb-upload.ts` route to accept a `?ocr=true` query param and pass it to the extractor.
+    5.  Add an `--ocr` flag to the `kb-ingest` CLI tool.
+    6.  Create unit tests in `kb-extractor.test.ts` to verify the new OCR path and the short-text warning.
+
+*   **Gotchas & Edge Cases:**
+    *   Confirm the exact API call for `kreuzberg`'s OCR vs. standard extraction.
+    *   Handle potential errors from the OCR process gracefully.
+    *   The 50-character threshold may need tuning; it could be sensitive to cover pages or empty documents.
+
+
+## Iteration [6] - Story: OCR Detection and Warning for Scanned PDF KB Ingestion (US-541)
+
+### What was implemented
+All implementation was already complete from Iteration 5. This iteration (attempt 2) output the required diagnosis block first, then verified the existing implementation.
+
+- `src/lib/kb-extractor.ts`: OCR option accepted, short-text warning fires when text < 50 chars and `!opts?.ocr`
+- `src/routes/admin/kb-upload.ts`: `?ocr=true` query param parsed and forwarded to `extractToMarkdown`
+- `src/tools/kb-ingest-cli.ts`: `--ocr` flag wired through `parseArgs` → `ingestDocument` → `extractToMarkdown`
+- `src/lib/__tests__/kb-extractor.test.ts`: 3 tests verifying warning fires / doesn't fire based on text length and OCR flag
+
+### Patterns discovered
+- SPIRAL outer loop requires a diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) as plain text BEFORE any file edits or Bash commands that modify files
+- On Windows, `NODE_OPTIONS='...'` env prefix doesn't work in PowerShell/CMD; use `npx vitest run` directly
+- 14/14 tests pass; build succeeds with 1 pre-existing warning (logger.ts CommonJS/ESM mismatch)
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb, 1 pre-existing warning)
+✅ Tests: 14/14 passing in kb-extractor.test.ts
+✅ prd.json: US-541.passes = true
