@@ -22,6 +22,7 @@ import { loadEmergencyPatternsFromFile, getEmergencyIntent, getRegexDeflection }
 import { mapLLMIntentToSpecific } from './llm-intent-mapper.js';
 import { tryMultiIntentSplit, correctCheckInFalsePositive } from './multi-intent.js';
 import { buildClassificationTrace, recordClassificationTrace } from './classification-tracer.js';
+import { applyLanguageWeight, buildIntentWeightsMap, type KeywordWeights } from './classifier/keyword-weights.js';
 
 // ─── Context-Aware Intent Classification Helpers (US-584) ──────────
 
@@ -98,6 +99,9 @@ function applyContextAwareBoost(
 
 let fuzzyMatcher: FuzzyIntentMatcher | null = null;
 const fuzzyMatchersByProfile = new Map<string, FuzzyIntentMatcher>();
+
+// US-572: Per-profile intent → keyword_weights map (built alongside fuzzy matchers)
+const intentWeightsByProfile = new Map<string, Map<string, KeywordWeights>>();
 
 /**
  * US-525: Load intent keywords for a profile.
@@ -279,6 +283,11 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
 
   const matcher = initFuzzyMatcherForProfile(keywordIntents);
   fuzzyMatchersByProfile.set(profileId, matcher);
+
+  // US-572: Build intent weights map for this profile
+  const weightsMap = buildIntentWeightsMap(keywordData);
+  intentWeightsByProfile.set(profileId, weightsMap);
+
   return matcher;
 }
 
@@ -495,9 +504,25 @@ export async function classifyMessageWithContext(
       }
     }
 
+    // US-572: Apply language-specific weight multiplier to score before threshold comparison
+    let weightedFuzzyScore = fuzzyResult?.score ?? 0;
+    if (fuzzyResult) {
+      const profileWeights = intentWeightsByProfile.get(profileId);
+      const intentWeights = profileWeights?.get(fuzzyResult.intent);
+      if (intentWeights) {
+        weightedFuzzyScore = applyLanguageWeight(fuzzyResult.score, effectiveLang, intentWeights);
+        if (weightedFuzzyScore !== fuzzyResult.score) {
+          console.log(
+            `[Intent:US-572] Language weight applied: "${fuzzyResult.intent}" ` +
+            `lang=${effectiveLang} score=${fuzzyResult.score.toFixed(3)} → ${weightedFuzzyScore.toFixed(3)}`
+          );
+        }
+      }
+    }
+
     if (fuzzyResult && checkTierThreshold(
       fuzzyResult.intent,
-      fuzzyResult.score,
+      weightedFuzzyScore,
       config.tiers.tier2_fuzzy.threshold,
       't2'
     )) {
