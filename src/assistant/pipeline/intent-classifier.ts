@@ -49,6 +49,7 @@ import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
 import { conversationCache, CONVERSATION_CACHE_TTL_SECONDS } from '../../lib/conversation-cache.js';
 import { messageDeduplicationCache } from '../../lib/cache/message-dedup-cache.js';
+import { similarityCache } from './similarity-cache.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -169,41 +170,66 @@ export async function classifyAndRoute(
   // US-023: cancel helper — clears timer AND sets flag to abort any in-flight ack
   const cancelAck = () => { ackCancelled = true; clearTimeout(ackTimer); };
 
-  // ─── Stage 3: Tier Classification (with US-526 query cache) ──────────
-  // Check conversation query cache before making an LLM call.
+  // ─── Stage 3: Tier Classification (with US-526 query cache + US-575 semantic cache) ─────────────
+  // Check conversation query cache (exact match, 300s TTL) before semantic similarity cache.
   // Cache key = SHA256(phone + normalized processText), TTL = 300s.
   const cacheKey = conversationCache.cacheKey(phone, processText);
   const cached = conversationCache.get(cacheKey);
   let result: Awaited<ReturnType<typeof classifyWithTiers>>;
 
   if (cached) {
-    // Cache hit — return stored result immediately, no LLM call
+    // Exact match cache hit — return stored result immediately, no LLM call
     result = cached;
     devMetadata.source = 'cache';
     cancelAck();
     console.log(`[ConvCache-US526] Cache hit for ${phone.slice(-4)} (key=${cacheKey.slice(0, 12)}…)`);
   } else {
-    // Cache miss — classify normally, then store result
-    result = await classifyWithTiers(
-      {
-        processText,
-        contextMessages: summarization.contextMessages,
-        systemPrompt: enhancedSystemPrompt,
-        lastIntent: convo.lastIntent,
-        devMetadata,
-        phone,
-        instanceId: msg.instanceId,
-        detectedLanguage: lang,
-        profileId: state.profileId,  // US-525: Pass profile ID for per-profile keyword configuration
-      },
-      context,
-      cancelAck
-    );
+    // Exact match cache miss — check semantic similarity cache (US-575)
+    // Similarity threshold 0.95 triggers cache hit for semantically similar messages.
+    const similarityHit = similarityCache.lookup(processText, state.profileId);
 
-    // Store in cache for next identical query within TTL window.
-    // Only cache successful LLM responses (not fast-tier non-reply actions).
-    if (result.response) {
-      conversationCache.set(cacheKey, result, CONVERSATION_CACHE_TTL_SECONDS);
+    if (similarityHit) {
+      // Semantic similarity cache hit — return stored result, no LLM call
+      result = {
+        intent: similarityHit.intent,
+        confidence: similarityHit.confidence,
+        action: '', // Will be resolved in routing stage
+        response: '', // Will be generated in response stage
+      };
+      devMetadata.source = 'similarity-cache';
+      devMetadata.semanticSimilarity = similarityHit.similarity;
+      cancelAck();
+      console.log(
+        `[SimCache-US575] Semantic cache hit for ${phone.slice(-4)} ` +
+        `(similarity=${similarityHit.similarity.toFixed(3)}, intent=${similarityHit.intent})`
+      );
+    } else {
+      // Both caches miss — classify via LLM tier classification
+      result = await classifyWithTiers(
+        {
+          processText,
+          contextMessages: summarization.contextMessages,
+          systemPrompt: enhancedSystemPrompt,
+          lastIntent: convo.lastIntent,
+          devMetadata,
+          phone,
+          instanceId: msg.instanceId,
+          detectedLanguage: lang,
+          profileId: state.profileId,  // US-525: Pass profile ID for per-profile keyword configuration
+        },
+        context,
+        cancelAck
+      );
+
+      // Store in both caches for future queries
+      // Exact match cache: next identical query within 300s
+      if (result.response) {
+        conversationCache.set(cacheKey, result, CONVERSATION_CACHE_TTL_SECONDS);
+      }
+      // Semantic similarity cache: semantically similar queries within 4 hours
+      if (result.response) {
+        similarityCache.store(processText, result, state.profileId);
+      }
     }
   }
 

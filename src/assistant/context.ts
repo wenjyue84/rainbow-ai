@@ -17,7 +17,7 @@ import type { ChatMessage } from './types.js';
  * @param nGramSize Size of n-gram (default: 3)
  * @returns Set of n-grams
  */
-function getNGrams(text: string, nGramSize: number = 3): Set<string> {
+export function getNGrams(text: string, nGramSize: number = 3): Set<string> {
   const normalized = text.toLowerCase().replace(/[^\w]/g, '');
   const ngrams = new Set<string>();
 
@@ -35,7 +35,7 @@ function getNGrams(text: string, nGramSize: number = 3): Set<string> {
  * @param text The text to embed
  * @returns Record<ngram, frequency>
  */
-function getTextEmbedding(text: string): Record<string, number> {
+export function getTextEmbedding(text: string): Record<string, number> {
   if (!text || text.trim() === '') {
     return {};
   }
@@ -68,7 +68,7 @@ function getTextEmbedding(text: string): Record<string, number> {
  * @param embedding2 Second embedding vector
  * @returns Cosine similarity score (0-1)
  */
-function cosineSimilarity(
+export function cosineSimilarity(
   embedding1: Record<string, number>,
   embedding2: Record<string, number>,
 ): number {

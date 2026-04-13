@@ -12,6 +12,7 @@ import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
 import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler, setDedupTtl, getRedisClient } from '../lib/message-queue.js';
 import { initConversationRecovery } from '../lib/conversation-recovery.js';
+import { initSimilarityCache } from './pipeline/similarity-cache.js';
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
@@ -64,12 +65,15 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
   const queueEnabled = await initMessageQueue(handleIncomingMessage, queueConcurrency);
 
   // US-586: Initialize conversation recovery with Redis client
+  // US-575: Initialize semantic similarity cache for intent classification
   const redisClient = getRedisClient();
   if (redisClient) {
     initConversationRecovery(redisClient);
     console.log('[Assistant] Conversation recovery initialized (US-586)');
+    initSimilarityCache(redisClient);
+    console.log('[Assistant] Semantic similarity cache initialized (US-575)');
   } else {
-    console.warn('[Assistant] Redis unavailable — conversation recovery disabled (US-586)');
+    console.warn('[Assistant] Redis unavailable — conversation recovery and similarity cache disabled (US-586, US-575)');
   }
 
   // Register DLQ depth alert handler (US-413)
