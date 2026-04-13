@@ -20,6 +20,7 @@ import {
   executeNodeWorkflowStep,
 } from './workflow-executor-node.js';
 import { workflowTimelineStore, generateExecutionId, type StepExecution } from '../lib/workflow-timeline.js';
+import { loadGuestContext } from '../tools/guest-data-injector.js';
 
 // ─── US-313: Booking Workflow Execution Audit Trail ──────────────────
 
@@ -227,6 +228,34 @@ export async function executeWorkflowStep(
         newState: null,
         executionId
       };
+    }
+  }
+
+  // ─── US-550: Guest Context Quick-Lookup Pre-Population ──────────────
+  // If guest_id is present in collected data, load full guest context and populate workflow variables
+  if (state.collectedData.guest_id && currentProfile) {
+    try {
+      const guestContext = await loadGuestContext(currentProfile, state.collectedData.guest_id);
+      // Populate workflow variables with guest context (only if not already set by user)
+      if (!state.collectedData.guest_name) {
+        state.collectedData.guest_name = guestContext.name;
+      }
+      if (!state.collectedData.unit) {
+        state.collectedData.unit = guestContext.unit;
+      }
+      if (!state.collectedData.check_in_date) {
+        state.collectedData.check_in_date = guestContext.arrival_date;
+      }
+      if (!state.collectedData.check_out_date) {
+        state.collectedData.check_out_date = guestContext.departure_date;
+      }
+      if (!state.collectedData.nights) {
+        state.collectedData.nights = guestContext.nights.toString();
+      }
+      console.log(`[WorkflowExecutor] US-550: Pre-populated workflow variables for guest ${state.collectedData.guest_id}`);
+    } catch (err: any) {
+      console.warn(`[WorkflowExecutor] US-550: Guest context lookup failed for ${state.collectedData.guest_id}: ${err.message}`);
+      // Non-blocking: missing guest context doesn't stop workflow execution
     }
   }
 

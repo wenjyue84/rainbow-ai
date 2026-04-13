@@ -128,6 +128,7 @@ import routingAuditRoutes from './routing-audit.js'; // US-343: Live message rou
 import hardCasesRoutes from './hard-cases.js'; // US-376: Hard-case review queue with admin labeling
 import debugExplainIntentRoutes from './debug-explain-intent.js'; // US-378: Intent classification explanation debugger
 import validationRoutes from './validation.js'; // US-470: Booking unit availability validation
+import guestsQuickLookupRoutes from './guests-quick-lookup.js'; // US-550: Guest context quick-lookup
 
 const router = Router();
 
@@ -424,6 +425,7 @@ router.use(routingAuditRoutes);                   // US-343: Live message routin
 router.use(hardCasesRoutes);                      // US-376: Hard-case review queue with admin labeling
 router.use('/debug', debugExplainIntentRoutes);   // US-378: Intent classification explanation debugger
 router.use('/validation', validationRoutes);      // US-470: Booking unit availability validation
+router.use(guestsQuickLookupRoutes);              // US-550: Guest context quick-lookup for booking pre-population
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client
