@@ -354,6 +354,15 @@ try {
   console.error('[Startup] Admin API may not function correctly until config files are fixed');
 }
 
+// US-567: Initialize profile configuration hot-reload with file watcher
+try {
+  const profileIds = [configStore.profileId];
+  await initializeProfileLoaders(configStore, profileIds);
+  console.log('[Startup] Profile hot-reload file watcher initialized');
+} catch (err: any) {
+  console.warn('[Startup] Failed to initialize profile hot-reload:', err.message);
+}
+
 // Load standalone configs from DB (fire-and-forget, file fallbacks already loaded)
 try {
   await Promise.all([

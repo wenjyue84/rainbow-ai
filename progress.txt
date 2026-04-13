@@ -1693,3 +1693,83 @@ This brief outlines the implementation plan for hot-reloading JSON configuration
 *   **Atomic Writes:** File writes may not be atomic. The `reload_config` function should include error handling (e.g., `try...except json.JSONDecodeError`) to prevent crashes from reading partially written files.
 *   **Threading:** The watcher must run in a non-blocking background (daemon) thread to avoid halting the main Frappe server process.
 
+
+
+## Iteration [85] - Story: US-567 - Profile Configuration Hot-Reload with File Watcher
+
+### What was implemented
+
+✅ **File Watcher (profile-config-watcher.ts):**
+- createConfigWatcher() function using chokidar v4.0.0
+- Watches src/assistant/data/*.json files for changes
+- Debounces rapid file changes (default 500ms → <1s trigger)
+- Emits 'reload' events for specific config files
+- Emits 'file-changed' events with metadata (filename, timestamp, profileId)
+- File stabilization detection with awaitWriteFinish option
+- Handles errors and ready state cleanly
+
+✅ **Profile Loader (profile-loader.ts):**
+- ProfileLoader class wrapping ConfigStore with watcher integration
+- initialize() method to setup file watcher
+- reloadConfig() method for explicit reload (specific config or all)
+- destroy() method for cleanup on shutdown
+- getStatus() method for debugging
+- Singleton pattern: getProfileLoader() for instance caching
+- initializeProfileLoaders() to initialize multiple profiles at once
+
+✅ **Test Suite (tests/lib/profile-config-watcher.test.ts):**
+- 16 comprehensive test cases all passing
+- Mock ConfigStore for isolated testing
+- Tests cover: watcher creation, initialization, reloading, cleanup
+- Tests verify ProfileLoader singleton pattern
+- Tests verify multi-profile initialization
+- Integration tests for hot-reload with in-flight conversation preservation
+- Tests confirm config changes within 1 second (acceptance criteria)
+
+### Patterns discovered
+
+1. **Chokidar configuration:** Used `awaitWriteFinish` with 100ms thresholds to detect when file writing completes before emitting change events. Critical for Windows file system timing.
+
+2. **Debouncing strategy:** Tracked pending reloads in a Map keyed by filename to prevent rapid successive reloads. Clear timeout and restart on new change within debounce window.
+
+3. **Event-driven architecture:** ConfigStore already extends EventEmitter, so watcher hooks into existing 'reload' event system. No modification to core ConfigStore needed.
+
+4. **Preserve in-flight conversations:** By emitting events rather than directly mutating configStore, old references to config objects remain immutable. New messages fetch fresh config.
+
+5. **Module logger pattern:** Used createModuleLogger('ProfileConfigWatcher') for consistent logging across the codebase.
+
+6. **Singleton instances per profile:** getProfileLoader() maintains a Map to return same instance for same profile ID, preventing duplicate watchers.
+
+### Gotchas
+
+1. **File system timing (Windows):** File change detection can be flaky depending on file I/O timing. Solved by using awaitWriteFinish and reasonable debounce delays.
+
+2. **Vitest timeout syntax:** Vitest 4 removed the `{ timeout: X }` object syntax for `it()`. Changed to second parameter: `it(name, fn, timeout)`.
+
+3. **Chokidar pattern matching:** By default watches everything in directory. Must filter in the change handler with `filePath.endsWith('.json')` to ignore non-JSON files.
+
+4. **Relative paths:** ConfigStore uses `join(process.cwd(), 'src', 'assistant', 'data')` instead of `__dirname` because esbuild bundles into dist/ changing __dirname context.
+
+5. **Import paths in tests:** Test file in tests/lib requires imports as `../../src/lib/...` not `../src/lib/...` due to directory depth.
+
+### Integration Notes
+
+To integrate hot-reload into the running application:
+1. After configStore.init() in src/index.ts, call ProfileLoader.initialize()
+2. On graceful shutdown, call ProfileLoader.destroy() to cleanup watcher
+3. ConfigStore already emits 'reload' events that other modules listen to
+4. No changes needed to message pipeline — it already calls configStore.getXXX() on each request
+
+### Test Results
+
+```
+Test Files: 1 passed (1)
+Tests: 16 passed (16)
+Duration: 3.11s
+```
+
+All acceptance criteria met:
+✅ Watcher monitors src/assistant/data/*.json
+✅ Change triggers reload within 500ms debounce
+✅ In-flight conversations preserved (old references immutable)
+✅ Test verifies reload and config refresh for new messages
