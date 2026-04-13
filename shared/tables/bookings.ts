@@ -308,3 +308,36 @@ export const bookingWorkflowAudit = pgTable("booking_workflow_audit", {
 
 export type BookingWorkflowAudit = typeof bookingWorkflowAudit.$inferSelect;
 export type InsertBookingWorkflowAudit = typeof bookingWorkflowAudit.$inferInsert;
+
+// ─── Booking Workflows (US-562) ──────────────────────────────────────
+// Tracks active booking workflow instances with last interaction timestamps
+// and reminder counters for abandoned workflow recovery via smart reminders.
+
+export const bookingWorkflows = pgTable("booking_workflows", {
+  id: varchar("id", { length: 36 }).primaryKey().default('gen_random_uuid()'),
+  conversationId: text("conversation_id").notNull(),  // Foreign key to conversation
+  guestPhone: varchar("guest_phone", { length: 32 }).notNull(),
+  guestName: text("guest_name"),
+  currentStep: text("current_step").notNull(),  // e.g., 'collect_guest_name', 'collect_dates'
+  workflowId: text("workflow_id").notNull(),    // e.g., 'booking', 'verification'
+  status: varchar("status", { length: 32 }).notNull().default("in_progress"),  // in_progress | completed | abandoned
+  userLanguage: varchar("user_language", { length: 8 }).notNull().default("en"),  // en | ms | zh | ta
+  lastInteractionAt: timestamp("last_interaction_at").notNull().defaultNow(),  // When guest last sent a message
+  reminderSentCount: integer("reminder_sent_count").notNull().default(0),  // 0 = no reminders, 1 = first reminder, 2+ = follow-up
+  firstReminderAt: timestamp("first_reminder_at"),  // When first reminder was sent
+  lastReminderAt: timestamp("last_reminder_at"),    // When most recent reminder was sent
+  profile: varchar("profile", { length: 64 }).notNull().default("pelangi"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_booking_workflows_conversation_id").on(table.conversationId),
+  index("idx_booking_workflows_guest_phone").on(table.guestPhone),
+  index("idx_booking_workflows_status").on(table.status),
+  index("idx_booking_workflows_last_interaction_at").on(table.lastInteractionAt),
+  index("idx_booking_workflows_profile").on(table.profile),
+  index("idx_booking_workflows_abandoned").on(table.status, table.lastInteractionAt),  // For abandoned workflow queries
+  index("idx_booking_workflows_profile_status").on(table.profile, table.status),
+]));
+
+export type BookingWorkflow = typeof bookingWorkflows.$inferSelect;
+export type InsertBookingWorkflow = typeof bookingWorkflows.$inferInsert;

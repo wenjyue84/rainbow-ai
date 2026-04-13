@@ -316,6 +316,17 @@ export async function paginateConversationMessages(
   return { messages, next_cursor };
 }
 
+/**
+ * Get the Drizzle ORM database instance.
+ * Ensures database is initialized before returning.
+ */
+export function getDb() {
+  if (!_initialized) {
+    initDb();
+  }
+  return db;
+}
+
 export { pool, db, dbReady };
 
 // Test connection on startup with retry
