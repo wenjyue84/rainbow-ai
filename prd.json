@@ -1750,6 +1750,92 @@
         "contextWindow": 10
       },
       "_passedCommit": "054f465aa4b4bd182bbd191f8e08f3a4d6c240e8"
+    },
+    {
+      "id": "US-556",
+      "title": "Implement Booking Availability Validation Before Workflow Confirmation",
+      "priority": "high",
+      "description": "Before confirming a booking in workflow, validate that requested unit and dates are available. If availability changed, offer alternative date ranges instead of blocking.",
+      "acceptanceCriteria": [
+        "New function checkAvailability(profile, unitId, checkIn, checkOut) in src/tools/bookings.ts returns {available: boolean, alternatives: [{checkIn, checkOut, daysCount}]}",
+        "Workflow confirmation step calls checkAvailability and fails gracefully with 3 alternative date suggestions from knowledge.json",
+        "Unit tests verify: available unit passes, booked unit fails, date overlap edge cases (same check-in date)"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/bookings.ts (add checkAvailability function querying guest_bookings table)",
+        "File to edit: src/routes/workflows/step-executor.ts (call checkAvailability on 'confirm_booking' step)",
+        "Test command: npm run test -- tests/tools/bookings.test.ts -v --grep availability"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T09:33:36Z"
+    },
+    {
+      "id": "US-557",
+      "title": "Add Intent Classification Misclassification Analyzer CLI Tool",
+      "priority": "medium",
+      "description": "CLI tool to analyze recent intent misclassifications by comparing predicted intents with user feedback, identify patterns, and suggest keyword/training data improvements.",
+      "acceptanceCriteria": [
+        "Command npm run analyze:misclassifications -- --profile=pelangi --days=7 queries rainbow_messages with feedback='negative' and generates JSON report",
+        "Report includes: {misclassification_pairs: [{predicted, actual, count}], confidence_patterns, suggested_keywords_per_intent}",
+        "Output saved to analysis/misclassification-report-YYYY-MM-DD.json with timestamp and profile name"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/cli-analyze-misclassifications.ts (reads rainbow_messages.intent and conversation_feedback tables)",
+        "File to edit: package.json (add 'analyze:misclassifications': 'tsx src/tools/cli-analyze-misclassifications.ts')",
+        "Test command: npm run test -- tests/tools/cli-analyze-misclassifications.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-558",
+      "title": "Add Booking Workflow Timeout and Auto-Reset with Event Logging",
+      "priority": "high",
+      "description": "Implement automatic timeout for bookings stuck in intermediate workflow states. After 60 minutes in same state, reset to initial state and log reset event. Prevents zombie bookings and ensures clean state transitions.",
+      "acceptanceCriteria": [
+        "booking_workflow.ts initiateWorkflow() schedules BullMQ job with 3600s delay that calls resetWorkflowState()",
+        "resetWorkflowState() sets booking_workflow_state.current_step = 0, logs event to booking_workflow_audit with (booking_id, reason: 'timeout', reset_at: timestamp)",
+        "Test asserts workflow resets exactly once per timeout window (no repeated resets)"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/workflows/booking-workflow.ts (add resetWorkflowState method and schedule job on initiateWorkflow)",
+        "File to create: src/lib/jobs/booking-timeout-handler.ts (BullMQ job handler that resets state and logs)",
+        "File to edit: shared/schema-tables.ts (add booking_workflow_audit table if not exists)",
+        "Test command: npm run test:run -- src/assistant/workflows/booking-workflow.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-559",
+      "title": "Add Message Deduplication Cache with Per-Profile LRU Eviction",
+      "priority": "medium",
+      "description": "Cache responses for identical message + intent pairs per profile for 5 minutes using LRU eviction (max 500 entries). Avoid redundant AI calls for repeated user queries. Log cache hit rate to metrics.",
+      "acceptanceCriteria": [
+        "MessageDeduplicationCache with max 500 entries per profile, TTL 300s. Key = hash(message_text + intent_name + profile_name)",
+        "When cache full, evict least-recently-used entry. Same input within 5min returns cached response, skipping AI call",
+        "Test asserts: identical message returns cached response twice in row; cache hit rate logged; cache evicts LRU entry on size overflow"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/cache/message-dedup-cache.ts (LRU cache class with TTL and eviction)",
+        "File to edit: src/assistant/pipeline/conversation-processor.ts (check cache before AI call, log hit/miss ratio)",
+        "Test command: npm run test:run -- src/lib/cache/message-dedup-cache.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }

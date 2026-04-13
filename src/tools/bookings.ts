@@ -160,3 +160,162 @@ export function calculateCancellationCredit(checkInDate: string | Date): string 
     return '❌ Error calculating cancellation credit. Please contact support.';
   }
 }
+
+// ─── US-556: Booking Availability Validation ───────────────────────────────
+
+export interface AlternativeDateRange {
+  checkIn: string; // ISO date string
+  checkOut: string; // ISO date string
+  daysCount: number;
+}
+
+export interface AvailabilityResult {
+  available: boolean;
+  alternatives?: AlternativeDateRange[];
+}
+
+/**
+ * Check if a requested booking dates are available for a unit.
+ *
+ * Queries guest_bookings table for conflicts. If dates are unavailable,
+ * suggests 3 alternative date ranges starting from check-out date of last conflict.
+ *
+ * @param profile - Business profile identifier (e.g. 'pelangi', 'southern')
+ * @param unitId - Unit/room identifier
+ * @param checkIn - Proposed check-in date (ISO string or Date)
+ * @param checkOut - Proposed check-out date (ISO string or Date)
+ * @returns {available: boolean, alternatives?: [{checkIn, checkOut, daysCount}]}
+ */
+export async function checkAvailability(
+  profile: string,
+  unitId: string,
+  checkIn: string | Date,
+  checkOut: string | Date
+): Promise<AvailabilityResult> {
+  try {
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+
+    // Validate dates
+    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
+      console.error(`[bookings] checkAvailability: invalid date format`);
+      return { available: false };
+    }
+
+    if (checkInDate >= checkOutDate) {
+      console.error(`[bookings] checkAvailability: check-in >= check-out`);
+      return { available: false };
+    }
+
+    // Query guest_bookings for conflicts on this unit
+    const result = await pool.query<{
+      check_in: string;
+      check_out: string;
+    }>(
+      `SELECT check_in, check_out
+       FROM guest_bookings
+       WHERE profile_id = $1
+         AND unit_id = $2
+         AND status IN ('confirmed', 'checked_in')
+         AND check_out > $3
+         AND check_in < $4
+       ORDER BY check_in ASC`,
+      [profile, unitId, checkInDate.toISOString(), checkOutDate.toISOString()]
+    );
+
+    // If no conflicts, unit is available
+    if (result.rows.length === 0) {
+      return { available: true };
+    }
+
+    // Dates are unavailable — generate 3 alternative ranges
+    const alternatives = generateAlternativeDates(
+      checkOutDate,
+      result.rows.map(row => ({
+        checkIn: new Date(row.check_in),
+        checkOut: new Date(row.check_out),
+      }))
+    );
+
+    return {
+      available: false,
+      alternatives,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[bookings] checkAvailability DB error:`, msg);
+    // Fail open: allow booking if DB query fails
+    return { available: true };
+  }
+}
+
+/**
+ * Generate 3 alternative date ranges when requested dates are unavailable.
+ *
+ * Starting from available slots, finds the next 3 available windows (2-night stays).
+ */
+function generateAlternativeDates(
+  originalCheckOut: Date,
+  conflictingBookings: DateRange[]
+): AlternativeDateRange[] {
+  const alternatives: AlternativeDateRange[] = [];
+
+  // Sort conflicting bookings by check-in date
+  const sorted = [...conflictingBookings].sort((a, b) => a.checkIn.getTime() - b.checkIn.getTime());
+
+  if (sorted.length === 0) {
+    // No conflicts - suggest dates after original check-out
+    let searchStart = new Date(originalCheckOut);
+    for (let i = 0; i < 3; i++) {
+      const checkIn = new Date(searchStart);
+      const checkOut = new Date(checkIn);
+      checkOut.setDate(checkOut.getDate() + 2);
+      alternatives.push({
+        checkIn: checkIn.toISOString().split('T')[0],
+        checkOut: checkOut.toISOString().split('T')[0],
+        daysCount: 2,
+      });
+      searchStart = new Date(checkOut);
+    }
+    return alternatives;
+  }
+
+  // Start searching from the last conflicting booking's check-out
+  let searchStart = new Date(sorted[sorted.length - 1]!.checkOut);
+
+  // Find 3 alternative windows
+  for (let attempts = 0; attempts < 20 && alternatives.length < 3; attempts++) {
+    // Try a 2-night stay starting at searchStart
+    const altCheckIn = new Date(searchStart);
+    const altCheckOut = new Date(altCheckIn);
+    altCheckOut.setDate(altCheckOut.getDate() + 2); // 2-night alternative
+
+    // Check if this window conflicts with any bookings
+    const hasConflict = sorted.some(
+      booking =>
+        altCheckIn < booking.checkOut && booking.checkIn < altCheckOut
+    );
+
+    if (!hasConflict) {
+      alternatives.push({
+        checkIn: altCheckIn.toISOString().split('T')[0],
+        checkOut: altCheckOut.toISOString().split('T')[0],
+        daysCount: 2,
+      });
+      searchStart = new Date(altCheckOut);
+    } else {
+      // Skip to after the conflicting booking
+      const conflictingWithWindow = sorted.find(
+        booking => altCheckIn < booking.checkOut && booking.checkIn < altCheckOut
+      );
+      if (conflictingWithWindow) {
+        searchStart = new Date(conflictingWithWindow.checkOut);
+      } else {
+        // Move forward by 1 day
+        searchStart.setDate(searchStart.getDate() + 1);
+      }
+    }
+  }
+
+  return alternatives;
+}
