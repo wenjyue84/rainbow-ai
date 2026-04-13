@@ -14,6 +14,7 @@ import { configStore } from '../assistant/config-store.js';
 import { checkSecretsHealth } from '../lib/secrets.js';
 import { getPoolMetrics } from '../lib/db.js';
 import { getWebhookHealthState } from '../lib/waba-webhook-health.js';
+import { getCompletionHealthStatus } from '../lib/workflow-metrics.js';
 
 // Track consecutive /health/ready checks where pool.waitingCount > 0
 let _poolWaitingStreak = 0;
@@ -199,7 +200,15 @@ router.get('/health/ready', async (req, res) => {
   const secretsHealth = await checkSecretsHealth();
   checks.secrets = secretsHealth;
 
-  // 9. PostgreSQL pool metrics (synchronous — no DB query issued)
+  // 9. Workflow completion health (US-569)
+  const workflowHealth = getCompletionHealthStatus();
+  checks.workflowCompletion = {
+    ok: workflowHealth.ok,
+    detail: workflowHealth.detail,
+    ...(workflowHealth.failingSteps && { failingSteps: workflowHealth.failingSteps }),
+  };
+
+  // 10. PostgreSQL pool metrics (synchronous — no DB query issued)
   const poolMetrics = getPoolMetrics();
   if (poolMetrics.waiting > 0) {
     _poolWaitingStreak++;

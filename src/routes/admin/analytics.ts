@@ -16,6 +16,7 @@ import {
   flagUnstableIntents,
   type VarianceCalculationOptions,
 } from '../../lib/intent-confidence-variance.js';
+import { getAllMetrics as getWorkflowMetrics } from '../../lib/workflow-metrics.js';
 import { createModuleLogger } from '../../lib/logger.js';
 
 const router = Router();
@@ -116,6 +117,38 @@ router.get('/intent-variance', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to compute intent variance',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * US-569: GET /admin/analytics/workflow-completion
+ *
+ * Returns workflow step completion rates per profile:
+ * {
+ *   pelangi: {
+ *     date_selection: { step_started: 150, step_completed: 138, completion_rate: 92 },
+ *     guest_info: { step_started: 138, step_completed: 117, completion_rate: 84.8 },
+ *     confirmation: { step_started: 117, step_completed: 91, completion_rate: 77.8 }
+ *   },
+ *   southern: { ... }
+ * }
+ */
+router.get('/workflow-completion', async (req: Request, res: Response) => {
+  try {
+    const metrics = getWorkflowMetrics();
+
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      metrics,
+    });
+  } catch (error) {
+    logger.error('Workflow completion endpoint error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve workflow completion metrics',
       details: error instanceof Error ? error.message : String(error),
     });
   }

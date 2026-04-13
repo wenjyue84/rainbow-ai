@@ -10,6 +10,7 @@
  */
 
 import type { BookingState, BookingStage } from '../types.js';
+import { incrementStarted, incrementCompleted } from '../../lib/workflow-metrics.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -68,6 +69,22 @@ export const BOOKING_STEPS: BookingStep[] = [
 // ─── Core Function ─────────────────────────────────────────────────────────
 
 /**
+ * Map BookingState.stage to workflow step name for metrics
+ */
+function stageToStepName(stage: BookingStage): string {
+  switch (stage) {
+    case 'dates':
+      return 'date_selection';
+    case 'guests':
+      return 'guest_info';
+    case 'confirm':
+      return 'confirmation';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
  * Attempts to advance the booking workflow to the next step.
  *
  * Checks the user message against CONFIRMATION_REGEX. If it matches and the
@@ -75,11 +92,13 @@ export const BOOKING_STEPS: BookingStep[] = [
  *
  * @param message - The raw user message text
  * @param currentState - Current booking state
+ * @param profileId - Profile ID for metrics tracking (optional)
  * @returns AdvanceResult with advanced flag, new state, and next step info
  */
 export function advanceBookingStep(
   message: string,
-  currentState: BookingState
+  currentState: BookingState,
+  profileId?: string
 ): AdvanceResult {
   const noAdvance: AdvanceResult = {
     advanced: false,
@@ -98,9 +117,18 @@ export function advanceBookingStep(
     return noAdvance;
   }
 
+  // Track step completion (US-569)
+  const currentStepName = stageToStepName(currentState.stage);
+  const profile = profileId || 'pelangi';
+  incrementCompleted(profile, currentStepName);
+
   // Transition to next stage
   const newState: BookingState = { ...currentState, stage: currentStep.nextStage };
   const nextStep = BOOKING_STEPS.find(step => step.stage === currentStep.nextStage) ?? null;
+
+  // Track next step start (US-569)
+  const nextStepName = stageToStepName(currentStep.nextStage);
+  incrementStarted(profile, nextStepName);
 
   return {
     advanced: true,
