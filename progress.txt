@@ -1004,3 +1004,36 @@ FAILED diagnosis-block gate: Add Booking Workflow Step Input Validation With Reg
 ## Iteration 4 - Mon, Apr 13, 2026  6:21:15 PM
 Completed: Add Booking Workflow Step Input Validation With Regex Patterns (ID: US-560) in 2m
 
+
+## Pre-analysis for US-561 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js user story, not Frappe/Python.
+
+**Technical Brief: US-561 Data Contamination CLI**
+
+**1. Python/Frappe Files to Modify:**
+*   N/A. This is a Node.js/TypeScript task.
+*   **Create:** `scripts/auditContamination.ts` - The main CLI script.
+*   **Create:** A keyword definition file, likely `contamination-keywords.json`.
+*   **Create:** `tests/auditContamination.test.ts` - The test file for the new script.
+*   **Modify:** `package.json` - To add the `audit:contamination` npm script.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   N/A. The core components are:
+    *   **NPM Script:** The entry point will be `npm run audit:contamination`.
+    *   **Knowledge Base:** The script will scan files within all `.rainbow-kb-*` directories.
+    *   **Workflows:** It will also scan a `workflows.json` file.
+
+**3. Recommended Implementation Approach:**
+*   In `scripts/auditContamination.ts`, use the Node.js `fs` and `path` modules.
+*   The script should first read and parse `contamination-keywords.json` into a map, e.g., `Map<string, string[]>`, where the key is the profile name and the value is its list of keywords.
+*   Use a glob pattern (e.g., `.rainbow-kb-*/**/*.md`) to get a list of all knowledge base files to scan. Add `workflows.json` to this list.
+*   Iterate through each file. For each file, determine its "home" profile from its path.
+*   Read the file line-by-line. For each line, check if it contains any keywords from *other* profiles. A case-insensitive regex match is recommended.
+*   If a contaminating keyword is found, log a formatted error to the console with the file path, line number, and the source of the contamination (e.g., "Found keyword 'Pelangi Capsule' from profile 'Pelangi' in 'data-makan/faq.md:25'").
+
+**4. Edge Cases & Gotchas:**
+*   **Keyword Specificity:** Keywords should be specific (e.g., "Pelangi Capsule Hotel") to avoid false positives on generic terms ("capsule", "hotel").
+*   **Case-Insensitive Matching:** The search must be case-insensitive to be effective.
+*   **File Discovery:** The script must gracefully handle cases where `workflows.json` or KB directories might be missing.
+*   **Clear Reporting:** Ensure output paths are clear and relative to the project root.
+
