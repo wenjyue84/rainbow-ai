@@ -48,6 +48,7 @@ import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
 import { conversationCache, CONVERSATION_CACHE_TTL_SECONDS } from '../../lib/conversation-cache.js';
+import { messageDeduplicationCache } from '../../lib/cache/message-dedup-cache.js';
 
 const logger = createModuleLogger('IntentClassifier');
 
@@ -485,6 +486,25 @@ export async function classifyAndRoute(
     logger.debug('batch-allsettled', { error: String(err) });
   });
 
+  // ─── US-559: Message Deduplication Cache Check ────────────────────────
+  // Check if we've seen this message + intent + profile combo before (LRU, 300s TTL, max 500 entries)
+  const dedupCacheEntry = messageDeduplicationCache.get(processText, result.intent, state.profileId);
+  if (dedupCacheEntry) {
+    // Cache hit — use cached response and skip routing/dispatch
+    logger.debug(
+      `[US-559] Dedup cache HIT: "${processText.slice(0, 50)}" + intent="${result.intent}" ` +
+      `profile="${state.profileId}" → cached response`
+    );
+    state.response = dedupCacheEntry.response;
+    devMetadata.source = 'dedup_cache';
+    // Log cache hit rate
+    const stats = messageDeduplicationCache.getStats();
+    logger.debug(`[US-559] Cache stats: ${stats.hits} hits, ${stats.misses} misses, ` +
+      `${stats.hitRate.toFixed(1)}% hit rate, ${stats.entries}/${stats.maxEntries} entries`);
+    cancelAck();
+    return;
+  }
+
   // ─── Stage 5: Routing ─────────────────────────────────────────────
   const routing = await resolveRouting(state, result, ackSent, context);
 
@@ -517,4 +537,23 @@ export async function classifyAndRoute(
 
   // ─── Stage 6: Action Dispatch ─────────────────────────────────────
   await dispatchAction(state, result, routing, context);
+
+  // ─── US-559: Cache Response for Message Deduplication ────────────────────
+  // Store response in dedup cache for (message + intent + profile) combo
+  // This allows identical requests to reuse the response without re-classification
+  if (state.response && result.intent !== 'unknown') {
+    messageDeduplicationCache.set(
+      processText,
+      result.intent,
+      state.profileId,
+      {
+        response: state.response,
+        intent: result.intent,
+        timestamp: Date.now(),
+      }
+    );
+    const stats = messageDeduplicationCache.getStats();
+    logger.debug(`[US-559] Cached response for "${processText.slice(0, 50)}" + intent="${result.intent}" ` +
+      `profile="${state.profileId}". Cache now has ${stats.entries}/${stats.maxEntries} entries`);
+  }
 }

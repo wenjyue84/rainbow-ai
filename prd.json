@@ -1814,7 +1814,8 @@
         "tokensAfterMasking": 327,
         "reductionPct": 0,
         "contextWindow": 10
-      }
+      },
+      "_passedCommit": "eac9627559a7e9f9e03802de986f068596decf6d"
     },
     {
       "id": "US-558",
@@ -1866,9 +1867,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-13T11:00:47Z"
     },
     {
       "id": "US-560",
@@ -2000,6 +2002,27 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-565",
+      "title": "Add Health Check for External AI Provider Connectivity on Startup",
+      "priority": "high",
+      "description": "Server startup now tests configured AI provider (Kimi, OpenRouter, Ollama) connectivity with 5s timeout. Prevents silent failures in production where server starts but provider is unreachable, improving reliability and deployment confidence.",
+      "acceptanceCriteria": [
+        "Server startup includes pingProvider() that makes test API request to configured provider with 5s timeout before marking server ready",
+        "If provider unreachable, server logs error and exits with code 1 instead of starting; deployment fails fast",
+        "GET /health returns 503 Service Unavailable if primary provider goes down after successful startup (graceful degradation)"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/provider-health-check.ts with async pingProvider(providerConfig) function returning {ok, latency, error}",
+        "File to modify: src/index.ts call await validateProviderHealth() before app.listen() in startup sequence",
+        "File to modify: src/routes/health.ts include provider status in liveness probe response",
+        "Test command: uv run pytest tests/test_provider_health.py::test_startup_fails_on_unreachable_provider -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
