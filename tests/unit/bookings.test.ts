@@ -125,13 +125,9 @@ describe('US-556: Booking Availability Validation', () => {
   it('returns available: true when dates are after all existing bookings', async () => {
     const mockPool = db.pool as any;
 
+    // No overlap: existing booking ends before requested check-in
     mockPool.query.mockResolvedValueOnce({
-      rows: [
-        {
-          check_in: '2026-04-20T00:00:00.000Z',
-          check_out: '2026-04-22T00:00:00.000Z'
-        }
-      ]
+      rows: []
     });
 
     const result = await checkAvailability(

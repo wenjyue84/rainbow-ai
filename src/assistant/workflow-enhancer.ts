@@ -132,6 +132,9 @@ async function executeAction(
     case 'book_capsule':
       return handleBookUnit(action.params, context, callAPI);
 
+    case 'check_booking_availability':
+      return handleCheckBookingAvailability(context, callAPI);
+
     default:
       console.warn(`[Workflow Enhancer] Unknown action type: ${action.type}`);
       return {};
