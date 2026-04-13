@@ -1413,3 +1413,35 @@ Completed: Implement Per-Profile Conversation Turn Limit with Auto-Escalation (I
 ## Iteration 6 - Mon, Apr 13, 2026 11:21:25 PM
 FAILED diagnosis-block gate: Implement Language-Specific Keyword Weighting for Intent Matching (ID: US-572) — no diagnosis block found — attempt 1/3
 
+## Iteration 7 - Mon, Apr 13, 2026 11:25:31 PM
+Completed: Implement Language-Specific Keyword Weighting for Intent Matching (ID: US-572) in 3m
+
+
+## Pre-analysis for US-584 (Gemini 2.5 Pro)
+### Technical Brief: US-584 - Context-Aware Intent Classification
+
+**Primary Objective:** Enhance the intent classifier to use the last 2-3 conversation turns to improve accuracy, specifically for disambiguating follow-up messages.
+
+**Core Discrepancy:** The user story and technical notes specify a **TypeScript/Node.js** implementation. The prompt's mention of Frappe/Python seems incorrect for this specific task. The following plan assumes the TypeScript context is the source of truth.
+
+**1. Python Files to Modify / Frappe Context:**
+*   Based on the story's `technicalNotes`, no Python or Frappe files are involved. The work is confined to the TypeScript application layer.
+*   **Target Files (TypeScript):**
+    *   `src/assistant/intent-classifier.ts` (Modify this file)
+    *   `src/lib/conversation-context.ts` (Create this new file)
+
+**2. Frappe DocTypes / Hooks:**
+*   None. The logic resides entirely within the application's services, not in Frappe DocTypes or server-side hooks.
+
+**3. Recommended Implementation Approach:**
+1.  **Create `src/lib/conversation-context.ts`**: Implement a function `getPreviousIntents(conversationHistory)` that accepts the conversation log and returns an array of the last 2-3 intent strings.
+2.  **Modify `classifyIntent` in `src/assistant/intent-classifier.ts`**: Update its signature to accept a new `context` parameter, e.g., `classifyIntent(message, { previousIntents: string[] })`.
+3.  **Implement Contextual Logic**: Inside `classifyIntent`, before returning the final classification, check if `previousIntents` includes `booking_inquiry`.
+4.  **Apply Boost**: If the context matches and the current message contains temporal booking keywords (e.g., "nights," "days"), boost the confidence score for the `booking_confirmation` intent by the specified 18%.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Context Plumbing:** The mechanism for passing the conversation history to the `classifyIntent` function needs to be implemented. The caller of this function will require modification.
+*   **Short Conversations:** The `getPreviousIntents` function must gracefully handle conversations with fewer than 2-3 turns, returning an empty array without errors.
+*   **Keyword Ambiguity:** Matching just "days" could be ambiguous. The pattern should be more specific, like `/\d+\s+(nights|days|weeks)/i`, to better capture booking durations.
+*   **Hardcoded Boost:** The 18% boost is a "magic number." It might be prudent to define it as a configurable constant rather than a literal in the code for easier tuning.
+
