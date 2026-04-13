@@ -1962,3 +1962,62 @@ This brief outlines the implementation plan for tracking user workflow completio
 - Unit tests: 26/26 passing
 - Build: successful with pre-existing warnings only
 - No integration test failures
+## Iteration 1 - Mon, Apr 13, 2026  8:17:56 PM
+FAILED diagnosis-block gate: Implement Booking Workflow Step Completion Rate Tracking (ID: US-569) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-569 (Gemini 2.5 Pro)
+Here is the technical brief for implementing the user story in a Frappe/Python environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini
+**Subject:** Technical Brief for US-569: Booking Workflow Completion Rate Tracking
+
+This brief outlines the implementation plan for tracking user workflow completion rates within the `lhdn_payroll_integration` Frappe app, based on the provided user story.
+
+**1. Python Files to Modify/Create:**
+*   **`lhdn_payroll_integration/hooks.py`**:
+    *   Add a `doc_events` hook for the `Booking` DocType (`on_update`, `on_submit`).
+    *   Register two new API endpoints via `website_route_rules`.
+*   **`lhdn_payroll_integration/api/analytics.py` (New File)**:
+    *   Create this file to house the logic for the new API endpoints.
+    *   Implement `@frappe.whitelist()` decorated functions for analytics and health checks.
+*   **`lhdn_payroll_integration/booking/doctype/booking/booking.py`**:
+    *   The state transition logic within the `Booking` DocType controller will be the primary trigger for the metrics.
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocType:** The core logic will center on the `Booking` DocType. We'll assume it has a status field representing workflow steps (`date_selection`, `guest_info`, `confirmation`).
+*   **Hook:** `doc_events` for `Booking` is the ideal trigger. On `on_submit`, increment the `_started` counter for the first step. On `on_update`, check for a status change to increment `_completed` for the previous step and `_started` for the new one.
+
+**3. Implementation Approach:**
+*   Use Frappe's built-in cache (`frappe.cache()`), configured for Redis, to store counters atomically.
+*   Use `frappe.cache().hincrby(key, field)` to increment `step_started` and `step_completed` for each stage.
+*   Create a whitelisted API function `get_workflow_completion_rates` in `analytics.py` to read from the cache, compute percentages, and return the required JSON structure.
+*   Create a second whitelisted function `check_workflow_health` that reuses the same logic to check against the 70% threshold and can be polled by an external service.
+
+**4. Edge Cases & Gotchas:**
+*   **Initial Step:** The `_started` count for the very first step must be triggered on document creation (`on_submit`), not just updates.
+*   **Zero Division:** Ensure the rate calculation (`completed / started`) handles cases where `started` is zero to prevent errors.
+*   **State Rollbacks:** The logic must be robust against users moving backward in the workflow to avoid incorrect counts.
+*   **Atomicity:** Rely on Redis's atomic operations (`hincrby`) to prevent race conditions.
+
+
+## Iteration 2 (Attempt 2) - Story: US-569 - Implement Booking Workflow Step Completion Rate Tracking
+
+### What was implemented
+Implementation was already complete from prior commit (3aed52d). This iteration verified:
+- 26/26 unit tests pass in tests/lib/workflow-metrics.test.ts
+- Build succeeds (esbuild, 123ms, 2.7mb bundle)
+- prd.json updated to passes=true
+
+### Root cause of prior failure
+The spiral gate requires a diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) to be output BEFORE any file edits or Bash commands. Attempt 1 skipped the diagnosis block.
+
+### Key files
+- src/lib/workflow-metrics.ts — WorkflowMetricsTracker with incrementStarted/incrementCompleted/getCompletionRate/getCompletionHealthStatus
+- src/routes/admin/analytics.ts — GET /admin/analytics/workflow-completion endpoint
+- src/routes/health.ts — health check includes workflow completion warning if any step < 70%
+- src/assistant/flows/booking-flow.ts — instruments booking flow steps
+- src/assistant/pipeline/booking-processor.ts — instruments pipeline step transitions

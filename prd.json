@@ -2157,7 +2157,7 @@
       "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-13T12:05:08Z"
+      "last_attempted": "2026-04-13T12:17:57Z"
     },
     {
       "id": "US-570",
@@ -2245,6 +2245,47 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-574",
+      "title": "Implement Booking Workflow Skip-Step Logic for Returning Guest Express Path",
+      "priority": "high",
+      "description": "Add conditional skip logic to booking workflow steps so returning guests with profiles can complete bookings in fewer steps. Skip name/email/phone steps if data already exists in guest profile; add skip_if_guest_field conditions to workflows.json.",
+      "acceptanceCriteria": [
+        "Booking workflow steps support skip_if_guest_field array (e.g., [\"name\", \"phone\"]) in workflows.json",
+        "Workflow executor checks guest profile before rendering step, skips if field populated",
+        "Test verifies returning guest path completes in <3 steps vs first-time guest in 6 steps"
+      ],
+      "technicalNotes": [
+        "File to modify: src/assistant/data/workflows.json (add skip_if_guest_field array to booking steps 1-3)",
+        "File to modify: src/assistant/pipeline/workflow-executor.ts (check guest record before rendering step, auto-skip if conditions met)",
+        "Test command: uv run npm run test tests/integration/booking-express-path.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-575",
+      "title": "Implement Intent Classification Semantic Similarity Cache for High-Velocity Repeated Queries",
+      "priority": "medium",
+      "description": "Cache intent classifications for semantically similar messages using embedding-based similarity (cosine distance < 0.05). Reuse cached intent for matching messages instead of re-classifying, reducing latency and cost for repeated/similar inquiries.",
+      "acceptanceCriteria": [
+        "Embeddings computed once per unique message, cached in Redis with TTL 4 hours per profile",
+        "Similarity threshold 0.95 triggers cache hit; stores (embedding, intent, confidence) in cache",
+        "Unit test verifies cache hit for 'check in date?' vs 'what date do I arrive?' (similar intent)"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/similarity-cache.ts (SimilarityCache class with lookup(message, profile) → cachedIntent or null)",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts (check cache before calling AI provider)",
+        "Test command: uv run npm run test tests/unit/similarity-cache.test.ts -- --reporter=verbose",
+        "Use existing Redis connection in src/lib/redis.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
