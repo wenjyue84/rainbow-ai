@@ -145,3 +145,35 @@
 - All 10 unit tests passing
 - Build successful (2.8MB, 1 pre-existing warning)
 - prd.json updated: US-576.passes = true
+## Iteration 4 - Tue, Apr 14, 2026  1:29:37 AM
+Completed: Add Workflow Step Dependency Validation to Block Invalid State Transitions (ID: US-576) in 3m
+
+
+## Iteration [103] - Story: US-576 - Add Workflow Step Dependency Validation
+
+### What was implemented
+- `src/assistant/workflow-engine.ts` already existed with full implementation (from prior attempt):
+  - `validateDependencies()`: checks all `dependencies` array entries against completedSteps Set
+  - `progressToStep()`: calls validateDependencies before allowing state transition
+  - Returns human-readable guidance messages with step names
+- `src/assistant/schemas.ts` already had `dependencies: z.array(z.string()).optional()` on workflowStepSchema
+- Updated `src/assistant/data/workflows.json` booking workflow steps:
+  - `select_guest_count`: depends on `select_checkin_date`
+  - `booking_confirmation`: depends on `select_checkin_date`, `select_guest_count`
+  - `booking_done`: depends on `booking_confirmation`
+- Test file `tests/unit/workflow-engine.test.ts` already existed from prior attempt (10 tests)
+
+### Patterns discovered
+- WorkflowEngine is a standalone class (no DB/Redis deps) — pure function validation
+- `as any` cast needed for `dependencies` field in test mocks because the step type has it optional
+- Step name fallback: if step has no `name` field, guidanceMessage uses step id
+
+### Gotchas
+- Prior iteration had partially implemented this story (engine.ts + test existed, workflows.json partially updated)
+- workflows.json already had `dependencies` on `booking_confirmation` but not on `select_guest_count` or `booking_done`
+- NODE_OPTIONS env var incompatible on Windows — use `npx vitest run` directly instead of `npm run test:run`
+
+### Quality Checks
+✅ All 10 unit tests passing (tests/unit/workflow-engine.test.ts)
+✅ Build successful (2.8MB, 1 pre-existing warning)
+✅ prd.json updated: US-576.passes = true
