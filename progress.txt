@@ -1,3 +1,55 @@
+## Iteration [113] - Story: US-588 - Build Intent Classification Confidence Analysis CLI with Confusion Matrix
+
+### What was implemented
+- Created `src/lib/intent-accuracy-scorer.ts` - Core confusion matrix computation module
+  * `computeConfusionMatrix(feedbackData, profile)` computes confusion matrix from feedback records
+  * Tracks predicted vs actual intent pairs
+  * Calculates per-intent accuracy percentage (0-100 scale)
+  * Flags intents with <75% accuracy
+  * Ranks top 5 misclassification pairs by frequency
+  * Handles null/undefined intents gracefully
+
+- Created `src/cli/intent-confidence-analyzer.ts` - CLI handler
+  * Queries intentPredictions table from database
+  * Supports filtering by profile (single profile or all profiles)
+  * Outputs JSON report or formatted text report
+  * Generates confusion matrix grouped by profile
+  * Includes timestamp and summary statistics
+
+- Created comprehensive test suite: `src/lib/__tests__/intent-accuracy-scorer.test.ts`
+  * 12 tests covering all acceptance criteria:
+    - AC1: Confusion matrix generation from feedback records
+    - AC2: Per-intent accuracy calculation and <75% accuracy flagging
+    - AC3: Top 5 misclassification pair ranking (e.g., booking->inquiry 12 times)
+  * Tests for edge cases: null intents, empty data, accuracy boundary values
+  * All 12 tests passing
+
+- Updated `package.json` scripts section
+  * Changed `analyze:intent-confidence` to point to `src/cli/intent-confidence-analyzer.ts`
+  * (Previously pointed to src/tools/intent-confidence-analyzer.ts for US-400)
+
+### Patterns discovered
+- Confusion matrix groups by actualIntent (rows), counts predictedIntent (columns)
+- Accuracy calculation: correctCount / totalSamples * 100 (percentage scale)
+- Misclassification pairs keyed as "actual|predicted" to avoid duplicates
+- Database queries use intentPredictions table (has both predicted and actual intent)
+- Low-accuracy intents are sorted by accuracy ascending (worst first)
+- Top misclassification pairs limited to 5 per profile (prevents large reports)
+
+### Gotchas
+- intentPredictions table uses snake_case field names (predicted_intent, actual_intent, profile)
+- Test data must properly distinguish between intent records: only count samples for a given actualIntent
+- Accuracy is percentage (0-100), not normalized (0-1)
+- Null/undefined intents must be filtered before processing
+- Missing profiles in database handled gracefully (warns but continues)
+
+### Quality Checks
+✅ All 12 unit tests passing (src/lib/__tests__/intent-accuracy-scorer.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ Server startup successful
+✅ Package.json script properly updated
+✅ prd.json updated: US-588.passes = true
+
 ## Iteration [112] - Story: US-581 - Infer and Set Language Preference from First User Message
 
 ### What was implemented
@@ -595,4 +647,34 @@ Completed: Tamil Numeral and Date Slot Extractor for Booking Intent Classificati
 
 ## Iteration 1 - Tue, Apr 14, 2026  3:19:46 AM
 Completed: Infer and Set Language Preference from First User Message (ID: US-581) in 5m
+
+
+## Pre-analysis for US-588 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-588: Intent Confidence Analyzer CLI**
+
+**Correction:** This is a TypeScript/Node.js project, not Frappe/Python. The implementation should use the existing Node.js environment and its database connectors.
+
+**1. Python Files to Modify:**
+- None. This is a TypeScript task. The key files to create are:
+  - `src/cli/intent-confidence-analyzer.ts`: The main CLI command handler. Will be responsible for database queries and printing the final JSON report.
+  - `src/lib/intent-accuracy-scorer.ts`: A new module containing the core business logic to process feedback records and compute the confusion matrix and accuracy scores.
+  - `src/lib/__tests__/intent-accuracy-scorer.test.ts`: Unit tests for the scorer logic.
+- The `package.json` file will also need to be modified to add the new `analyze:intent-confidence` script.
+
+**2. Frappe DocTypes / Hooks Involved:**
+- No Frappe DocTypes or hooks are directly involved.
+- The tool will query the application's database, specifically a "feedback" table that logs the `actual_intent` versus the `predicted_intent` for user messages, grouped by a `profile` identifier.
+
+**3. Recommended Implementation Approach:**
+1.  In `intent-accuracy-scorer.ts`, create a function that takes an array of feedback records (e.g., `{ profile, actual_intent, predicted_intent }`).
+2.  Inside this function, group records by `profile`. For each profile, build a confusion matrix using a nested map: `{[actual: string]: {[predicted: string]: number}}`.
+3.  From the matrix, calculate the accuracy for each intent and identify pairs with high misclassification rates.
+4.  In `intent-confidence-analyzer.ts`, create the database query to fetch all required records.
+5.  Pass the records to the scorer function and print the resulting JSON to the console.
+6.  Add a corresponding unit test file to verify calculations with a sample dataset.
+
+**4. Edge Cases & Gotchas:**
+- The database query on the feedback table could be slow if the table is large; fetch only the necessary columns.
+- The tool must handle cases where there is no feedback data available for a given profile, producing an empty or informative report.
+- The exact schema (table/column names) for feedback is not defined in the story; this must be confirmed from the existing database schema.
 

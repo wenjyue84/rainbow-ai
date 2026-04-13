@@ -2737,9 +2737,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-13T19:46:47Z"
     },
     {
       "id": "US-589",
@@ -3030,6 +3031,46 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-601",
+      "title": "Implement Conversation Message Cache with LRU Eviction for DB Query Optimization",
+      "priority": "medium",
+      "description": "Add an in-memory LRU (Least Recently Used) cache for conversation message retrieval to reduce database queries. Cache stores up to 1000 conversations, invalidates after 5 minutes TTL or on new message, reducing latency for multi-turn conversations.",
+      "acceptanceCriteria": [
+        "Create src/lib/conversation-cache.ts with LRU cache implementation (max 1000 entries, 5-minute TTL, implements get/set/invalidate methods)",
+        "Modify src/assistant/pipeline/conversation-pipeline.ts to check cache before DB query for getConversationMessages() calls",
+        "Add test to verify cache invalidation: new message invalidates cached conversation, TTL-expired entries are evicted, cache hit ratio > 80% on repeated queries"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/conversation-cache.ts (LRUCache class with maxSize, ttlMs, get/set/clear methods)",
+        "Test command: npm run test tests/conversation-cache/lru-eviction.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-602",
+      "title": "Add Intent Classification Feedback Loop with Daily Misclassification Pattern Analysis",
+      "priority": "medium",
+      "description": "Implement a feedback collection and analysis system for intent misclassification. When users provide feedback that an intent was misclassified, store ground truth. Daily batch job analyzes patterns and suggests new keywords for intent classifier improvement.",
+      "acceptanceCriteria": [
+        "Add database table `intent_classification_feedback` via Drizzle schema in shared/schema-tables.ts with columns: conversation_id, message_id, predicted_intent, ground_truth_intent, feedback_timestamp, created_at",
+        "Create src/lib/intent-feedback-analyzer.ts with analyzeMisclassifications() that reads feedback table and returns misclassification frequency per intent and suggested new keywords",
+        "Add CLI command in package.json scripts: 'analyze:intent-feedback' runs analyzer and outputs JSON report showing top 10 misclassified intents with keyword suggestions"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add intentFeedback table schema), src/lib/intent-feedback-analyzer.ts (analyzeMisclassifications function)",
+        "Test command: npm run test tests/intent-feedback/pattern-analysis.test.ts && npm run analyze:intent-feedback -- --dry-run"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
