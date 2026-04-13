@@ -3,6 +3,7 @@ import { configStore } from './config-store.js';
 import type { WorkflowDefinition, WorkflowStep } from './config-store.js';
 import { enhanceWorkflowStep, WorkflowEnhancerContext } from './workflow-enhancer.js';
 import { notifyAdminConfigError } from '../lib/admin-notifier.js';
+import { isValidTransition } from './workflows/booking-state-machine.js';
 import { executeWorkflowInTransaction, logTransactionMetrics, type TransactionMetrics } from './pipeline/workflow-transaction-handler.js';
 import { executeWithTimeout, WorkflowTimeoutError, logTimeoutFailure } from './workflow-timeout-handler.js';
 import { logMessage } from './conversation-logger.js';
@@ -602,6 +603,39 @@ export async function executeWorkflowStep(
     ...state,
     lastUpdateAt: Date.now()
   };
+
+  // ─── US-545: Booking Workflow State Transition Validation ────────────
+  // Validate that the next step is a valid transition from the current step
+  // before advancing the workflow state machine
+  const nextStepIndex = state.currentStepIndex + 1;
+  if (nextStepIndex < workflow.steps.length) {
+    const nextStep = workflow.steps[nextStepIndex];
+    const currentStepId = currentStep.id || 'unknown';
+    const nextStepId = nextStep.id || 'unknown';
+
+    if (!isValidTransition(currentStepId, nextStepId)) {
+      // Invalid transition detected - return clarifying error message
+      const clarifyingMessages: Record<string, string> = {
+        en: `I need to complete the current step first. Let me confirm your details before moving forward.`,
+        ms: `Saya perlu menyelesaikan langkah semasa terlebih dahulu. Biarkan saya mengesahkan butiran anda sebelum melanjutkan.`,
+        zh: `我需要先完成当前步骤。让我先确认您的详细信息后再继续。`,
+        ta: `நான் முதலில் தற்போதைய நிலையை முடிக்க வேண்டும். உங்கள் விவரங்களை உறுதிப்படுத்த அனுமதிக்கவும்.`
+      };
+
+      console.warn(
+        `[WorkflowExecutor] US-545: Invalid transition detected: "${currentStepId}" -> "${nextStepId}" ` +
+        `in workflow "${state.workflowId}". Rejecting transition.`
+      );
+
+      // Return error response without advancing state
+      return {
+        response: clarifyingMessages[language as keyof typeof clarifyingMessages] || clarifyingMessages.en,
+        newState: state, // Keep current state (don't advance)
+        workflowId: state.workflowId,
+        stepId: currentStep.id
+      };
+    }
+  }
 
   // If this step waits for reply, keep state as-is (will advance on next message)
   // If this step doesn't wait, advance to next step immediately

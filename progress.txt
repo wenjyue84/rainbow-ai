@@ -719,3 +719,50 @@ Completed: Add Conversation Context Pruning with Rolling Window to Prevent Token
 - src/assistant/data-southern/fallback-templates.json: Southern Homestay fallback templates
 - tests/unit/fallback-templates.test.ts: Comprehensive test suite for profile-specific templates
 
+
+## Iteration [78] - Story: Implement Booking Workflow State Transition Validation with Guard Rules (US-545)
+
+### What was implemented
+- Created `src/assistant/workflows/booking-state-machine.ts` module with:
+  - `BOOKING_TRANSITIONS` constant defining valid state transitions for booking workflows
+  - Example: `collect_dates -> [confirm_details]`, `confirm_details -> [payment_info, collect_dates]`
+  - `isValidTransition(currentStep, nextStep)` function to validate transitions
+  - Helper functions: `getAllowedNextSteps()` and `isTerminalStep()`
+  - Covers booking workflow, verification workflow, escalation, and availability check steps
+
+- Modified `src/assistant/workflow-executor.ts`:
+  - Added import for `isValidTransition` from booking-state-machine module
+  - Added validation guard before advancing workflow state (lines 600-633)
+  - Returns clarifying error response (in en/ms/zh/ta) if transition is invalid
+  - Keeps current state unchanged if invalid transition detected
+  - Logs warnings with step IDs for invalid transitions
+
+- Created `tests/unit/booking-state-validation.test.ts` with 41 comprehensive tests:
+  - Valid transitions: 8 tests (collect_dates->confirm_details, payment_info->booking_confirmed, etc.)
+  - Invalid transitions: 8 tests (skipping steps, wrong workflows, going backwards)
+  - Edge cases: 9 tests (null/undefined/empty string steps, unknown steps)
+  - Helper functions: 6 tests (getAllowedNextSteps, isTerminalStep)
+  - State machine completeness: 5 tests (BOOKING_TRANSITIONS defined, arrays, no self-refs)
+  - Workflow consistency: 5 tests (verification loop, cross-workflow rejection, referential integrity)
+
+### Patterns discovered
+- Workflow execution uses numeric `currentStepIndex` into `workflow.steps` array
+- State transitions happen at lines 609 and 615 of workflow-executor (both paths increment index)
+- Workflow step objects have an `id` field used for validation (not just positional index)
+- Tests must be placed in `tests/unit/` to match vitest config patterns (not `tests/workflows/`)
+- Build passes with single warning about deprecated CommonJS module variable (pre-existing)
+
+### Gotchas
+- Vitest config patterns don't include `tests/workflows/` directory
+  - Solution: Moved test file to `tests/unit/booking-state-validation.test.ts`
+- Unknown steps should be treated as terminal (fail-safe) to prevent invalid transitions
+  - Updated test expectation: unknown steps return `true` for `isTerminalStep()`
+- State machine advancement happens in two code paths (waitForReply true and false)
+  - Both correctly guarded by the validation check
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+✅ Tests: 41/41 passing in booking-state-validation.test.ts
+✅ Server startup: tsx runs without errors
+✅ prd.json: Updated US-545.passes to true
+
