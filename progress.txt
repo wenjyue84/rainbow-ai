@@ -1382,3 +1382,55 @@ Build: esbuild successful (2.6mb bundle, pre-existing warning unrelated to chang
 Server startup: Successful (tsx src/index.ts)
 prd.json: Updated US-549.passes to true
 Type safety: All TypeScript types properly defined and exported
+## Iteration 1 - Mon, Apr 13, 2026  3:28:53 PM
+Completed: Implement Booking Workflow Step Execution Timeline Tracer (ID: US-549) in 9m
+
+## Iteration 1 - Mon, Apr 13, 2026  3:29:31 PM
+FAILED diagnosis-block gate: Implement Booking Workflow Step Execution Timeline Tracer (ID: US-549) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-549 (Gemini 2.5 Pro)
+### Technical Brief: US-549 Workflow Timeline Tracer (Frappe/Python)
+
+This technical brief outlines the implementation of a workflow execution timeline tracer for the `lhdn_payroll_integration` app, translating the user story from its original JS/TS context into a Frappe/Python plan.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/payroll_process/payroll_process.py`**: The primary file to modify. The core workflow logic (e.g., a method like `execute_steps`) will be updated here to build the timeline.
+*   **`lhdn_payroll_integration/api.py`**: A new file (or existing API file) to house the new whitelisted API endpoint for retrieving timeline data.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **`Payroll Process` DocType**: A new field named `execution_timeline` (Type: JSON) should be added to this DocType to store the serialized timeline array for each workflow run.
+*   **`@frappe.whitelist()`**: This decorator will be used on the `get_workflow_timeline` function in `api.py` to expose it as a public GET endpoint.
+
+**3. Implementation Approach:**
+
+1.  In `payroll_process.py`, modify the main workflow execution method. Before iterating through steps, initialize an empty list, `timeline = []`.
+2.  Wrap each step's execution in a `try...finally` block to ensure data is captured.
+3.  Inside the loop, record `start_time` before execution and `end_time` after. Append a dictionary `{step_name, start_time, end_time, duration_ms, input, output, ...}` to the `timeline` list for each step.
+4.  After the workflow completes (or fails), serialize the `timeline` list and save it to the `execution_timeline` JSON field of the `Payroll Process` document.
+5.  Create a whitelisted function `get_workflow_timeline(execution_id)` in `api.py`. It will load the `Payroll Process` doc, parse the `execution_timeline` field, and return the data, adding the `slow_step` flag where `duration_ms > 500`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Workflow Failures**: The implementation must save the partial timeline even if a step fails. Capturing the exception details within the failed step's timeline entry is crucial for debugging.
+*   **Data Volume**: Be cautious about logging large `input`/`output` objects. This could bloat the database. Consider logging only key fields or truncating large values.
+*   **State Snapshots**: The `output` should represent the state *after* the step completes to accurately trace state changes.
+
+
+## Iteration 2 - Story: US-549 - Implement Booking Workflow Step Execution Timeline Tracer (Attempt 2)
+### What was implemented
+Implementation was complete from attempt 1 (committed at 53839ce). This attempt verified:
+- src/lib/workflow-timeline.ts: StepExecution and WorkflowTimeline interfaces, in-memory store with 1-hour TTL
+- src/routes/admin/workflow-timeline.ts: GET /admin/workflows/:execution_id/timeline and /summary endpoints
+- tests/integration/workflow-timeline.test.ts: 17 tests all passing
+
+### Outcome
+- Build: esbuild 2.6mb bundle, clean
+- Tests: 17/17 passing
+- prd.json: US-549.passes set to true
+
+### Gotchas
+- SPIRAL diagnosis-block gate requires plain text diagnosis BEFORE any file edits or Bash commands that modify files
+- Must output "## Current State", "## Problem Identified", "## Planned Changes" headers as plain text first
