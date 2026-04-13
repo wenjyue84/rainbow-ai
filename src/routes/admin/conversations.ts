@@ -165,6 +165,27 @@ ${rows}
 </html>`;
 }
 
+// US-548: Cursor-based pagination for conversation messages (must be before /:phone)
+router.get('/conversations/:phone/messages', async (req: Request, res: Response) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone as string);
+    const cursor = (req.query.cursor as string) || null;
+    const limit = parseInt((req.query.limit as string) || '50', 10);
+
+    if (isNaN(limit) || limit < 1) {
+      badRequest(res, 'limit must be a positive integer');
+      return;
+    }
+
+    const { paginateConversationMessages } = await import('../../lib/db.js');
+    const result = await paginateConversationMessages(phone, cursor || null, limit);
+    res.json({ messages: result.messages, next_cursor: result.next_cursor });
+  } catch (err: any) {
+    console.error('[Admin] Message pagination failed:', err);
+    serverError(res, err);
+  }
+});
+
 // Export endpoint must be placed BEFORE /:phone to avoid being swallowed by that route
 router.get('/conversations/:phone/export', async (req: Request, res: Response) => {
   try {

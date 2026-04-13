@@ -1213,3 +1213,44 @@ No code changes needed — implementation was fully complete from attempt 1. The
 ### Gotchas
 - SPIRAL requires explicit "## Current State / ## Problem Identified / ## Planned Changes" block BEFORE any tool calls that modify files
 - On retry, always check existing code first — don't re-implement what already works
+## Iteration 2 - Mon, Apr 13, 2026  3:00:31 PM
+Completed: Add Intent Keyword Matching Cache with LRU Eviction Policy (ID: US-533) in 2m
+
+
+## Iteration 7 - Story: Add Conversation Message Cursor-Based Pagination for Efficient Retrieval (US-548)
+
+### What was implemented
+1. **src/lib/db.ts** - Added :
+   - Keyset pagination on  (serial PK - monotonically increasing, avoids timestamp collision issues)
+   - cursor = message ID string; null for first page
+   - Fetches limit+1 rows to detect next page existence
+   - Caps limit at 200 to prevent oversized queries
+   - Returns 
+2. **src/routes/admin/conversations.ts** - Added :
+   - Placed BEFORE /:phone catch-all route
+   - Parses cursor, limit query params; validates limit
+   - Calls paginateConversationMessages and returns {messages, next_cursor}
+
+3. **db/migrations/0003-add-message-pagination-index.sql** - Index migration:
+   -    - Partial index (WHERE deleted_at IS NULL) for efficient active message queries
+   - IF NOT EXISTS ensures idempotency
+
+4. **tests/integration/message-pagination.test.ts** - 10 tests:
+   - First page returns messages + next_cursor when more exist
+   - Cursor page passes cursor id to keyset WHERE clause
+   - Last page returns next_cursor = null
+   - Limit capping to 200
+   - Invalid cursor throws
+   - Query time <100ms (mocked)
+   - Response shape validation
+   - Migration file exists, contains CREATE INDEX, uses IF NOT EXISTS
+
+### Patterns discovered
+- rainbow_messages uses  (not conversation_id) and  (not created_at) — PRD field names were idealized
+- Serial  is simpler than (timestamp, id) keyset since IDs are unique and monotonic
+- Partial index on deleted_at IS NULL matches query WHERE clause for optimal index usage
+- Limit+1 sentinel pattern cleanly detects has-more without COUNT query
+
+### Gotchas
+- PRD referenced  and  but schema uses  and - Route must be before /conversations/:phone to avoid being swallowed by the phone catch-all
+- Tests: 10/10 passing, build: esbuild OK (1 pre-existing warning)

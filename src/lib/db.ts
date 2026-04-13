@@ -265,6 +265,57 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
+/**
+ * Cursor-based pagination for conversation message retrieval (US-548).
+ * Uses keyset pagination on (timestamp DESC, id DESC) for O(log n) queries.
+ *
+ * @param conversationId - Phone number (conversation identifier)
+ * @param cursor - Message ID string from previous page's next_cursor, or null for first page
+ * @param limit - Number of messages per page (capped at 200)
+ * @returns { messages: row[], next_cursor: string | null }
+ */
+export async function paginateConversationMessages(
+  conversationId: string,
+  cursor: string | null,
+  limit: number
+): Promise<{ messages: any[]; next_cursor: string | null }> {
+  const safeLimit = Math.min(Math.max(1, limit), 200);
+
+  let result;
+  if (cursor) {
+    const cursorId = parseInt(cursor, 10);
+    if (isNaN(cursorId)) {
+      throw new Error('Invalid cursor: must be a numeric message ID');
+    }
+    result = await pool.query(
+      `SELECT id, phone, role, content, timestamp, intent, confidence, action,
+              manual, staff_name, model, message_type, profile_id
+       FROM rainbow_messages
+       WHERE phone = $1 AND id < $2 AND deleted_at IS NULL
+       ORDER BY id DESC
+       LIMIT $3`,
+      [conversationId, cursorId, safeLimit + 1]
+    );
+  } else {
+    result = await pool.query(
+      `SELECT id, phone, role, content, timestamp, intent, confidence, action,
+              manual, staff_name, model, message_type, profile_id
+       FROM rainbow_messages
+       WHERE phone = $1 AND deleted_at IS NULL
+       ORDER BY id DESC
+       LIMIT $2`,
+      [conversationId, safeLimit + 1]
+    );
+  }
+
+  const rows = result.rows as any[];
+  const hasMore = rows.length > safeLimit;
+  const messages = hasMore ? rows.slice(0, safeLimit) : rows;
+  const next_cursor = hasMore ? String(messages[messages.length - 1].id) : null;
+
+  return { messages, next_cursor };
+}
+
 export { pool, db, dbReady };
 
 // Test connection on startup with retry
