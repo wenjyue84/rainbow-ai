@@ -28,6 +28,7 @@ import { emitTrace } from '../lib/trace-collector.js';
 import { parseCartRecoveryReply, handleCartRecoveryReply, resetCartRecovery } from './cart-recovery.js';
 import { incrementQrScanByMessage } from '../routes/admin/qr-campaigns.js';
 import { updateSlots } from './conversation.js';
+import { enforceConversationLimit } from './pipeline/conversation-limiter.js';
 
 // ─── Router context (shared across pipeline) ────────────────────
 
@@ -131,6 +132,17 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
     // Phase 2: Active state handling (feedback, workflow, booking, emergency)
     const stateResult = await handleActiveStates(state, ctx);
     if (stateResult.handled) return;
+
+    // US-571: Check conversation turn limit before classification
+    const limitResult = await enforceConversationLimit(
+      state.convo,
+      state.profileId,
+      ctx.sendMessage
+    );
+    if (limitResult.escalated) {
+      console.log(`[Router] Conversation escalated due to turn limit: ${limitResult.reason}`);
+      return;
+    }
 
     // Phase 3: Intent classification & action dispatch
     await classifyAndRoute(state, ctx);

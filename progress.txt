@@ -1,3 +1,60 @@
+## Iteration [96] - Story: US-571 - Implement Per-Profile Conversation Turn Limit with Auto-Escalation
+
+### What was implemented
+
+✅ **Per-Profile Conversation Turn Limits:**
+- `src/assistant/data/profile-limits.json` — Configuration with profile-specific maxTurns:
+  - `data-pelangi`: 20 turns
+  - `data-makan`: 15 turns
+  - `data-southern`: 18 turns
+
+✅ **Conversation Limiter Module (`src/assistant/pipeline/conversation-limiter.ts`):**
+- `enforceConversationLimit()` function checks if conversation.messages.length exceeds profile's maxTurns
+- Loads profile limits from JSON on first use and caches them
+- Returns `{escalated: boolean, reason?: string}`
+- When escalation triggered:
+  - Logs escalation event to database via `logEscalationEvent()`
+  - Posts recovery message from `src/assistant/data/recovery-messages.json` with profile name substitution
+  - Supports all 4 languages (en, ms, zh, ta)
+
+✅ **Recovery Messages (`src/assistant/data/recovery-messages.json`):**
+- `escalation-turn-limit` template with {{profile}} placeholder for all languages
+- Provides multilingual escalation messages directing guests to human support
+
+✅ **Integration into Message Router (`src/assistant/pipeline/message-router.ts`):**
+- Integrated after Phase 2 (handleActiveStates) and before Phase 3 (classifyAndRoute)
+- Prevents unnecessary classification when turn limit exceeded
+- Returns early if escalation triggered
+
+✅ **Unit Tests (`tests/unit/conversation-limiter.test.ts`):**
+- 12 tests passing, covering:
+  - AC1: Turn counting based on messages.length
+  - AC2: Profile-specific escalation triggers
+    - data-makan escalates at 16 turns (limit: 15)
+    - data-southern escalates at 19 turns (limit: 18)
+    - data-pelangi escalates at 21 turns (limit: 20)
+  - AC3: Recovery message posts exactly once
+  - Database logging verification
+  - Language-specific message handling
+
+### Checks passed
+- ✅ 12/12 unit tests pass
+- ✅ Build succeeds (esbuild, 2.7MB bundle)
+- ✅ Server starts without errors
+- ✅ All acceptance criteria met
+
+### Patterns discovered
+- Turn count is derived from conversation.messages.length (not a separate field)
+- Profile limits are loaded once and cached for performance
+- Recovery message templates use {{placeholder}} syntax for dynamic substitution
+- Escalation should be checked after active state handling but before classification to avoid unnecessary processing
+
+### Gotchas
+- Recovery message file must exist in src/assistant/data/ and be copied to dist/ during build (handled by build script)
+- Profile names in recovery messages are uppercase (e.g., "MAKAN" instead of "data-makan")
+
+---
+
 ## Iteration [95] - Story: US-563 - Add Multi-Language Intent Keyword Synonym Expansion
 
 ### What was implemented
@@ -1293,3 +1350,6 @@ Functions already in place at `src/assistant/intents.ts`:
 - Build passes (esbuild, 2.7MB bundle, no errors)
 - Server starts cleanly
 - On Windows, use `python -c` with `encoding='utf-8'` when reading prd.json (has unicode chars)
+## Iteration 2 - Mon, Apr 13, 2026 11:10:33 PM
+Completed: Implement Context-Aware Intent Classification Using Previous Conversation Turns (ID: US-584) in 2m
+
