@@ -1505,3 +1505,67 @@ Completed: Implement Booking Workflow Step Execution Timeline Tracer (ID: US-549
 - Server startup: Successful, no new errors introduced
 - prd.json: Updated US-550.passes to true
 
+## Iteration 2 - Mon, Apr 13, 2026  3:35:14 PM
+FAILED diagnosis-block gate: Add Guest Context Quick-Lookup for Booking Workflow Pre-Population (ID: US-550) — no diagnosis block found — attempt 1/3
+
+
+## Iteration - Story: US-550 - Add Guest Context Quick-Lookup for Booking Workflow Pre-Population
+
+### What was implemented
+This story was already fully implemented in prior iterations:
+
+1. **src/tools/guest-data-injector.ts** — Guest context loader with 5-minute TTL cache
+   - Exports `loadGuestContext(profile: string, guestId: string): Promise<GuestContext>`
+   - Returns {id, name, unit, arrival_date, departure_date, nights}
+   - Queries room_reservations table for confirmed reservations
+   - Cache key format: `guest:${profile}:${guestId}`
+   - Cache TTL: 5 minutes (300000ms)
+
+2. **src/routes/admin/guests-quick-lookup.ts** — Admin API endpoint
+   - GET /admin/guests/:id/summary
+   - Returns guest summary with performance timing
+   - Query params: profile (optional, default: 'pelangi')
+   - Response includes _lookup_ms for monitoring
+
+3. **src/assistant/workflow-executor.ts** — Workflow integration at lines 234-260
+   - Loads guest context when guest_id is present in collectedData
+   - Auto-populates workflow variables: guest_name, unit, check_in_date, check_out_date, nights
+   - Non-blocking: missing guest context doesn't stop workflow execution
+
+4. **src/routes/admin/index.ts** — Route registration
+   - Imports guestsQuickLookupRoutes
+   - Registered with router.use(guestsQuickLookupRoutes)
+
+5. **tests/unit/guest-context.test.ts** — Comprehensive test suite
+   - 10 tests covering:
+     - Guest context retrieval from database
+     - Nights calculation accuracy
+     - 5-minute TTL cache behavior
+     - Cache key isolation by profile
+     - Error handling (guest not found)
+     - Confirmed reservation filtering
+     - Date formatting (ISO YYYY-MM-DD)
+     - Cache invalidation
+     - Cache expiration
+     - Full cache clearing
+
+### Patterns discovered
+- Guest data is loaded from room_reservations table with check_in_date <= NOW() filter
+- Only confirmed reservations are matched
+- Cache key includes profile to support multi-tenancy
+- Workflow variables populated only if not already set by user (non-destructive)
+- Guest lookup failures are logged as warnings but don't break workflow execution
+
+### Quality checks
+✅ Tests: 10/10 passing in guest-context.test.ts
+✅ Build: esbuild successful (2.6mb bundle, pre-existing warning only)
+✅ Server startup: Successful
+✅ prd.json: Updated US-550.passes to true
+✅ All acceptance criteria met:
+   - GET /admin/guests/:id/summary returns guest summary with cached lookup
+   - Booking workflow auto-populates with guest context when guest_id present
+   - 5-minute TTL cache with guest:${profile}:${id} key format
+
+## Iteration - Mon, Apr 13, 2026  3:48 PM
+Completed: Add Guest Context Quick-Lookup for Booking Workflow Pre-Population (ID: US-550) in 1m
+
