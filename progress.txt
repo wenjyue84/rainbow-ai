@@ -365,3 +365,27 @@ All implementation existed from attempt 1. This pass:
 ## Iteration 5 - Mon, Apr 13, 2026  5:18:26 PM
 Completed: Implement Booking Workflow Step Auto-Progression with User Confirmation (ID: US-555) in 1m
 
+
+## Iteration [86] - Story: US-555 - Booking Workflow Step Auto-Progression with User Confirmation
+
+### What was implemented
+All implementation already existed from a prior pass:
+- `src/assistant/data/workflows.json` — `booking` workflow with `autoProgress: true` on 3 steps (select_checkin_date, select_guest_count, booking_confirmation), plus `next` pointers added
+- `src/assistant/pipeline/booking-processor.ts` — `advanceBookingStep(message, state)`, `BOOKING_STEPS`, `isAutoProgressStep()`, `CONFIRMATION_REGEX=/confirm|yes|proceed/i`
+- `tests/unit/booking-workflow.test.ts` — 35 tests covering CONFIRMATION_REGEX, BOOKING_STEPS config, advanceBookingStep(), and a full 3-step integration flow
+
+### What was added this iteration
+- Added `next` pointers to the `booking` workflow steps in `workflows.json` so that step progression tracking is explicit:
+  - `select_checkin_date` → next: `select_guest_count`
+  - `select_guest_count` → next: `booking_confirmation`
+  - `booking_confirmation` → next: `booking_done`
+  - Added `booking_done` terminal step
+
+### Quality checks passed
+✅ npx vitest run tests/unit/booking-workflow.test.ts — 35/35 tests passing
+✅ npm run build — No errors (1 pre-existing warning)
+
+### Acceptance Criteria Met
+✓ AC#1: workflows.json booking flow has `autoProgress: true` on check-in date, guest count, confirmation steps
+✓ AC#2: advanceBookingStep() uses CONFIRMATION_REGEX=/confirm|yes|proceed/i before advancing
+✓ AC#3: Integration test verifies step 1→2→3 progression with 3 sequential confirmation messages
