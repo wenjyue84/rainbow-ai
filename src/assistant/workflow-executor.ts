@@ -93,6 +93,56 @@ export async function executeWithRetry<T>(
 }
 
 
+// ─── US-560: Input Validation with Regex Patterns ──────────────────────
+
+/**
+ * US-560: Validates user input against an optional regex pattern.
+ * Returns { valid: true } if validation passes or no regex is defined.
+ * Returns { valid: false, error: string } if validation fails.
+ */
+export function validateStepInputRegex(
+  userInput: string | undefined,
+  regexPattern: string | undefined,
+  stepId: string
+): { valid: boolean; error?: string } {
+  // No regex pattern defined - validation passes
+  if (!regexPattern) {
+    return { valid: true };
+  }
+
+  // User input is required if regex is defined
+  if (!userInput || userInput.trim() === '') {
+    return {
+      valid: false,
+      error: `Step "${stepId}" requires input. Please provide a response.`
+    };
+  }
+
+  try {
+    // Compile regex pattern - add case-insensitive flag for user-friendly matching
+    const regex = new RegExp(regexPattern, 'i');
+    const matches = regex.test(userInput);
+
+    if (!matches) {
+      return {
+        valid: false,
+        error: `Input validation failed for step "${stepId}". Please check your response format and try again.`
+      };
+    }
+
+    return { valid: true };
+  } catch (err) {
+    console.error(
+      `[WorkflowExecutor] US-560: Invalid regex pattern for step "${stepId}": ${regexPattern}`,
+      err
+    );
+
+    // Fail-open: if regex is malformed, allow the input through
+    return { valid: true };
+  }
+}
+
+
 export interface WorkflowState {
   workflowId: string;
   currentStepIndex: number;
@@ -309,6 +359,26 @@ export async function executeWorkflowStep(
   if (userMessage && state.currentStepIndex > 0) {
     const previousStep = workflow.steps[state.currentStepIndex - 1];
     if (previousStep && !previousStep.evaluation) {
+      // ─── US-560: Validate user input against regex pattern ────────
+      const validationResult = validateStepInputRegex(
+        userMessage,
+        (previousStep as any).inputValidationRegex,
+        previousStep.id
+      );
+
+      if (!validationResult.valid) {
+        console.warn(
+          `[WorkflowExecutor] US-560: Input validation failed for step "${previousStep.id}": ${validationResult.error}`
+        );
+
+        // Return validation error without advancing the workflow
+        return {
+          response: validationResult.error || 'Invalid input. Please try again.',
+          newState: state, // Keep current state so user can retry
+          executionId
+        };
+      }
+
       state.collectedData[previousStep.id] = userMessage;
       // US-089: Sync collected data to contact details
       syncWorkflowDataToContact(phone, state.workflowId, state.collectedData);

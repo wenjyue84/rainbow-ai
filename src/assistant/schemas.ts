@@ -207,6 +207,7 @@ export const workflowStepSchema = z.object({
     backoff_multiplier: z.number().min(1),
   }).optional(),
   autoProgress: z.boolean().optional(),                    // US-555: Auto-advance to next step on user confirmation
+  inputValidationRegex: z.string().optional(),             // US-560: Regex pattern to validate user input before step progression
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 
