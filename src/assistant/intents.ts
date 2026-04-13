@@ -9,6 +9,7 @@ import { getIntentConfig, buildIntentThresholdMap, checkTierThreshold } from './
 import intentKeywordsData from './data/intent-keywords.json' with { type: 'json' };
 import intentExamplesData from './data/intent-examples.json' with { type: 'json' };
 import intentsJsonData from './data/intents.json' with { type: 'json' };
+import intentSynonymsData from './data/intent-synonyms.json' with { type: 'json' };
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { keywordMatchCache } from '../lib/keyword-match-cache.js';
@@ -57,6 +58,59 @@ function loadIntentKeywords(profileId: string = 'pelangi'): any {
   }
 }
 
+/**
+ * US-563: Load intent synonyms from file (or fallback to import)
+ * Attempts to load from disk first, then falls back to imported JSON
+ */
+function loadIntentSynonyms(): any {
+  const dataDir = join(process.cwd(), 'src', 'assistant', 'data');
+  const synonymsPath = join(dataDir, 'intent-synonyms.json');
+
+  if (existsSync(synonymsPath)) {
+    try {
+      const content = readFileSync(synonymsPath, 'utf-8');
+      console.log('[Intents:US-563] Loaded intent synonyms from disk');
+      return JSON.parse(content);
+    } catch (err: any) {
+      console.warn(`[Intents:US-563] Failed to load synonyms from disk: ${err.message}, using default`);
+    }
+  }
+
+  console.log('[Intents:US-563] Using default intent synonyms');
+  return intentSynonymsData;
+}
+
+/**
+ * US-563: Merge primary keywords with synonyms for an intent
+ * Combines keywords and synonyms (weighted equally) into a single keyword list
+ */
+function mergeKeywordsAndSynonyms(
+  intentName: string,
+  primaryKeywords: string[],
+  synonymsData: any
+): string[] {
+  // Find synonyms for this intent
+  const intentSynonym = synonymsData.intents?.find((s: any) => s.intent === intentName);
+  if (!intentSynonym || !intentSynonym.synonyms) {
+    return primaryKeywords; // No synonyms, return primary keywords only
+  }
+
+  // Merge primary keywords with synonyms (weighted equally)
+  const mergedKeywords = [...primaryKeywords];
+  for (const [lang, syns] of Object.entries(intentSynonym.synonyms)) {
+    mergedKeywords.push(...(syns as string[]));
+  }
+
+  // Return deduplicated list (case-insensitive)
+  const seen = new Set<string>();
+  return mergedKeywords.filter(kw => {
+    const lower = kw.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
+}
+
 function initFuzzyMatcherForProfile(keywordIntents: KeywordIntent[]): FuzzyIntentMatcher {
   const matcher = new FuzzyIntentMatcher(keywordIntents);
   console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups');
@@ -65,13 +119,20 @@ function initFuzzyMatcherForProfile(keywordIntents: KeywordIntent[]): FuzzyInten
 
 function initFuzzyMatcher(profileKeywordData?: any): void {
   const keywordData = profileKeywordData || intentKeywordsData;
+  const synonymsData = loadIntentSynonyms();
   const keywordIntents: KeywordIntent[] = [];
 
   for (const intent of keywordData.intents) {
     for (const [lang, keywords] of Object.entries(intent.keywords)) {
+      // US-563: Merge synonyms with primary keywords
+      const mergedKeywords = mergeKeywordsAndSynonyms(
+        intent.intent,
+        keywords as string[],
+        synonymsData
+      );
       keywordIntents.push({
         intent: intent.intent,
-        keywords: keywords as string[],
+        keywords: mergedKeywords,
         language: lang as 'en' | 'ms' | 'zh' | 'ta'
       });
     }
@@ -79,9 +140,15 @@ function initFuzzyMatcher(profileKeywordData?: any): void {
     // US-053: Include regional variants if they exist
     if ((intent as any).regional_variants) {
       for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
+        // US-563: Also merge synonyms into regional variants
+        const mergedVariants = mergeKeywordsAndSynonyms(
+          intent.intent,
+          variants as string[],
+          synonymsData
+        );
         keywordIntents.push({
           intent: intent.intent,
-          keywords: variants as string[],
+          keywords: mergedVariants,
           language: lang as 'en' | 'ms' | 'zh' | 'ta'
         });
       }
@@ -89,12 +156,13 @@ function initFuzzyMatcher(profileKeywordData?: any): void {
   }
 
   fuzzyMatcher = initFuzzyMatcherForProfile(keywordIntents);
-  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list)');
+  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list, US-563: synonyms merged)');
 }
 
 /**
  * Get or create a fuzzy matcher for a specific profile
  * US-525: Per-profile intent keyword configuration
+ * US-563: Merge synonyms with primary keywords
  */
 function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMatcher {
   if (fuzzyMatchersByProfile.has(profileId)) {
@@ -102,13 +170,20 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
   }
 
   const keywordData = loadIntentKeywords(profileId);
+  const synonymsData = loadIntentSynonyms();
   const keywordIntents: KeywordIntent[] = [];
 
   for (const intent of keywordData.intents) {
     for (const [lang, keywords] of Object.entries(intent.keywords)) {
+      // US-563: Merge synonyms with primary keywords
+      const mergedKeywords = mergeKeywordsAndSynonyms(
+        intent.intent,
+        keywords as string[],
+        synonymsData
+      );
       keywordIntents.push({
         intent: intent.intent,
-        keywords: keywords as string[],
+        keywords: mergedKeywords,
         language: lang as 'en' | 'ms' | 'zh' | 'ta'
       });
     }
@@ -116,9 +191,15 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
     // US-053: Include regional variants if they exist
     if ((intent as any).regional_variants) {
       for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
+        // US-563: Also merge synonyms into regional variants
+        const mergedVariants = mergeKeywordsAndSynonyms(
+          intent.intent,
+          variants as string[],
+          synonymsData
+        );
         keywordIntents.push({
           intent: intent.intent,
-          keywords: variants as string[],
+          keywords: mergedVariants,
           language: lang as 'en' | 'ms' | 'zh' | 'ta'
         });
       }

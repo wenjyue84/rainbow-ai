@@ -407,4 +407,120 @@ router.post('/intent-manager/apply-template', async (req: Request, res: Response
   }
 });
 
+// ─── US-563: Intent Synonym Management ──────────────────────────────────
+
+/**
+ * GET /admin/intents/:intent_id/synonyms
+ * Returns synonyms for a specific intent across all languages
+ */
+router.get('/intents/:intent_id/synonyms', async (req: Request, res: Response) => {
+  try {
+    const { intent_id } = req.params;
+    const dataDir = getProfileDataDir(req);
+    const synonymsPath = join(dataDir, 'intent-synonyms.json');
+
+    try {
+      const content = await readFile(synonymsPath, 'utf-8');
+      const synonymsData = JSON.parse(content);
+      const intentSynonym = synonymsData.intents?.find((s: any) => s.intent === intent_id);
+
+      if (!intentSynonym) {
+        return res.json({ intent: intent_id, synonyms: {} });
+      }
+
+      res.json(intentSynonym);
+    } catch (err: any) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return res.json({ intent: intent_id, synonyms: {} });
+      }
+      throw err;
+    }
+  } catch (err: any) {
+    serverError(res, err?.message || 'Failed to get synonyms');
+  }
+});
+
+/**
+ * POST /admin/intents/:intent_id/synonyms?language=ta
+ * Add synonyms for a specific intent and language
+ * Body: { synonyms: ["syn1", "syn2", ...] }
+ */
+router.post('/intents/:intent_id/synonyms', async (req: Request, res: Response) => {
+  try {
+    const { intent_id } = req.params;
+    const language = (req.query.language as string) || 'en';
+    const { synonyms } = req.body;
+
+    if (!Array.isArray(synonyms)) {
+      return badRequest(res, 'synonyms must be an array');
+    }
+
+    if (!['en', 'ms', 'zh', 'ta', 'hi'].includes(language)) {
+      return badRequest(res, 'language must be one of: en, ms, zh, ta, hi');
+    }
+
+    const dataDir = getProfileDataDir(req);
+    const synonymsPath = join(dataDir, 'intent-synonyms.json');
+
+    // Read current synonyms
+    let synonymsData = { intents: [] as any[] };
+    try {
+      const content = await readFile(synonymsPath, 'utf-8');
+      synonymsData = JSON.parse(content);
+    } catch (err: any) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
+    }
+
+    // Find or create intent entry
+    let intentEntry = synonymsData.intents.find((s: any) => s.intent === intent_id);
+    if (!intentEntry) {
+      intentEntry = { intent: intent_id, synonyms: {} };
+      synonymsData.intents.push(intentEntry);
+    }
+
+    // Merge new synonyms with existing ones (deduplicate)
+    const existingSynonyms = intentEntry.synonyms[language] || [];
+    const allSynonyms = [...new Set([...existingSynonyms, ...synonyms])];
+    intentEntry.synonyms[language] = allSynonyms;
+
+    // Save back to file
+    await atomicWriteJSON(synonymsPath, synonymsData);
+
+    res.json({
+      success: true,
+      intent: intent_id,
+      language,
+      synonyms: allSynonyms
+    });
+  } catch (err: any) {
+    serverError(res, err?.message || 'Failed to add synonyms');
+  }
+});
+
+/**
+ * GET /admin/intents/synonyms/all
+ * Returns all synonyms configured in the system
+ */
+router.get('/intents/synonyms/all', async (req: Request, res: Response) => {
+  try {
+    const dataDir = getProfileDataDir(req);
+    const synonymsPath = join(dataDir, 'intent-synonyms.json');
+
+    try {
+      const content = await readFile(synonymsPath, 'utf-8');
+      const synonymsData = JSON.parse(content);
+      res.json(synonymsData);
+    } catch (err: any) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return res.json({ intents: [] });
+      }
+      throw err;
+    }
+  } catch (err: any) {
+    serverError(res, err?.message || 'Failed to get synonyms');
+  }
+});
+
 export default router;
