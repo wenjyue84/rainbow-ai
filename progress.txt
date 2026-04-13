@@ -88,3 +88,32 @@ The SPIRAL gate requires plain-text diagnosis block headers before ANY file edit
 ### Gotchas
 
 Diagnosis block must appear as plain markdown in the response, NOT inside a tool call. The gate parser scans text output before tool calls.
+
+## Pre-analysis for US-574 (Gemini 2.5 Pro)
+### Technical Brief for US-574: Booking Workflow Express Path
+
+**Project:** Rainbow AI (Node.js/TypeScript)
+
+**1. Python/Frappe Files to Modify:**
+The user story specifies a TypeScript/Node.js project, not Python/Frappe. The primary files are:
+*   `src/assistant/pipeline/workflow-executor.ts`: This is the core engine that runs workflows; the skip logic will be added here.
+*   `src/assistant/data/workflows.json`: This file defines the workflow steps and will be modified to add the skip conditions.
+*   A TypeScript interface file (likely in `src/assistant/` or `shared/`) defining the `WorkflowStep` type will need to be updated.
+
+**2. Frappe DocTypes / Hooks Involved:**
+This project does not use Frappe DocTypes. The relevant data structures are:
+*   **`WorkflowStep` Interface:** This TypeScript type must be updated to support an optional `skip_if_guest_field: string[]` property.
+*   **Guest Profile Object:** The executor will need access to the current guest's data record to check if fields like `name` or `email` are already populated.
+
+**3. Recommended Implementation Approach:**
+1.  Update the `WorkflowStep` interface to include `skip_if_guest_field?: string[]`.
+2.  In `src/assistant/data/workflows.json`, add the `skip_if_guest_field` array to the initial booking steps (e.g., `["name"]`, `["email"]`).
+3.  In `workflow-executor.ts`, before processing a step, check if `step.skip_if_guest_field` exists.
+4.  If it does, retrieve the guest profile. If the specified field(s) on the guest profile are already populated, the executor should immediately move to the next step instead of executing the current one.
+5.  This check should be in a loop to handle skipping multiple consecutive steps.
+
+**4. Edge Cases to Watch For:**
+*   **Data Consistency:** The logic must define what "populated" means (e.g., not `null`, `undefined`, or empty string `''`).
+*   **Race Conditions:** Ensure the guest profile is fully loaded and available to the workflow executor before it begins processing steps.
+*   **Workflow Termination:** If all remaining steps in a workflow are skipped, it should end gracefully and be considered complete.
+
