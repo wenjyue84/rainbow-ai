@@ -1,3 +1,31 @@
+## Iteration [97] - Story: US-572 - Implement Language-Specific Keyword Weighting for Intent Matching
+
+### What was implemented
+
+All code was already implemented from attempt 1 (failed on DIAGNOSIS_BLOCK_MISSING gate only). Verified and validated on attempt 2:
+
+- **src/assistant/classifier/keyword-weights.ts** — `applyLanguageWeight()` function applies per-language weight multiplier to fuzzy match scores; `buildIntentWeightsMap()` builds O(1) lookup map from intent-keywords data; `Keyword` and `KeywordWeights` interfaces
+- **src/assistant/intents.ts** — Imports and calls `applyLanguageWeight()` at T2 fuzzy threshold check (line 513); builds `intentWeightsByProfile` map per profile (line 288)
+- **src/assistant/data/intent-keywords.json** — 14+ intents have `keyword_weights` entries with `ta_weight: 1.3`, `ml_weight: 1.2`, `en_weight: 1.0`
+- **tests/unit/keyword-weighting.test.ts** — 9 tests covering:
+  - Tamil keyword scores 1.3x higher than English for same base score
+  - Malayalam keyword scores 1.2x higher
+  - Undefined language falls back to 1.0x
+  - Weighted scoring crosses threshold for Tamil but not English
+  - buildIntentWeightsMap correctly maps intents with weights
+
+### Checks passed
+- 9/9 unit tests pass
+- Build succeeds (esbuild, 2.7MB bundle)
+- All acceptance criteria met
+
+### Gotchas
+- Previous attempt failed purely on diagnosis-block gate requirement — all code was already correct
+- Weight multiplier is applied to score before threshold comparison (not to threshold itself)
+- Weights are per-intent (not per-keyword), stored as `keyword_weights` in intent-keywords.json
+
+---
+
 ## Iteration [96] - Story: US-571 - Implement Per-Profile Conversation Turn Limit with Auto-Escalation
 
 ### What was implemented
@@ -1381,4 +1409,7 @@ Files in place:
 - Always output diagnosis block first when implementing stories
 ## Iteration 5 - Mon, Apr 13, 2026 11:20:05 PM
 Completed: Implement Per-Profile Conversation Turn Limit with Auto-Escalation (ID: US-571) in 2m
+
+## Iteration 6 - Mon, Apr 13, 2026 11:21:25 PM
+FAILED diagnosis-block gate: Implement Language-Specific Keyword Weighting for Intent Matching (ID: US-572) — no diagnosis block found — attempt 1/3
 
