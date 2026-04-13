@@ -1,3 +1,44 @@
+## Iteration [100] - Story: US-573 - Add Intent Keyword Contradiction Detection for Ambiguous Messages
+
+### What was implemented
+
+✅ **Keyword Contradiction Detection for Ambiguous Messages:**
+- `src/assistant/classifier/contradiction-detector.ts` — New module with `detectKeywordContradictions()` function
+  - Detects when 2+ intents have keyword scores within 15% of top score
+  - Returns `ContradictionResult` with `hasContradiction` flag and `conflicting_intents` list
+  - Exports `TopScore` interface for fuzzy/semantic match results
+- `src/assistant/intents.ts` — Integration after T2 fuzzy matching (post-candidates collection, pre-threshold check)
+  - Imports contradiction detector and calls it on all fuzzy matches
+  - When contradiction detected, returns `clarification-required` intent with entities containing conflicting intents and top scores
+  - Routes to clarification workflow instead of proceeding with single intent classification
+- `src/assistant/data/recovery-messages.json` — Added `clarification-question-ambiguous` template
+  - 4-language support (en, ms, zh, ta) with {{conflicting_intents}} placeholder
+  - Example: "I understand you might be asking about booking, cancel. Could you clarify which one you'd like help with?"
+- `tests/unit/contradiction-detector.test.ts` — 12 comprehensive unit tests
+  - Tests ambiguous message detection (booking + cancel within 15%)
+  - Tests single dominant intent (no contradiction)
+  - Tests 15% threshold calculation
+  - Tests edge cases (empty array, 1 match, 3+ matches near top score)
+
+### Checks passed
+- ✅ 12/12 unit tests pass
+- ✅ Build succeeds (esbuild, 2.7MB bundle, 1 pre-existing warning)
+- ✅ All acceptance criteria met
+- ✅ prd.json updated: US-573.passes = true
+
+### Patterns discovered
+- T2 fuzzy matching already collects top 3 alternatives via `getTopMatches()` — perfect for contradiction detection
+- 15% threshold allows 2+ intents at similar confidence to be detected as ambiguous
+- `clarification-required` intent is routed through normal pipeline to clarification handler
+- Entities field can carry structured JSON (top_scores, conflicting_intents) for routing decisions
+
+### Gotchas
+- Only return `conflicting_intents` when `hasContradiction` is true (2+ intents); empty array if false
+- Threshold is 15% of the TOP score (not a fixed value), so scales correctly across confidence ranges
+- Contradiction detection happens AFTER language weighting (US-572) is applied to fuzzy scores
+
+---
+
 ## Iteration [99] - Story: US-571 - Implement Per-Profile Conversation Turn Limit with Auto-Escalation
 
 ### What was implemented
@@ -2101,3 +2142,6 @@ Files verified:
 - The SPIRAL outer loop enforces a DIAGNOSIS_BLOCK_MISSING gate: MUST output plain-text block with ## Current State, ## Problem Identified, ## Planned Changes as the FIRST output — before any tool calls that modify files
 - Even when all code is complete, this gate will fail any attempt that starts with tool calls
 - Output the diagnosis block as the very first text in the response
+## Iteration 5 - Tue, Apr 14, 2026 12:48:23 AM
+Completed: Implement Per-Profile Conversation Turn Limit with Auto-Escalation (ID: US-571) in 3m
+

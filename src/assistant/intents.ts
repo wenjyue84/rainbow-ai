@@ -23,6 +23,7 @@ import { mapLLMIntentToSpecific } from './llm-intent-mapper.js';
 import { tryMultiIntentSplit, correctCheckInFalsePositive } from './multi-intent.js';
 import { buildClassificationTrace, recordClassificationTrace } from './classification-tracer.js';
 import { applyLanguageWeight, buildIntentWeightsMap, type KeywordWeights } from './classifier/keyword-weights.js';
+import { detectKeywordContradictions, type TopScore } from './classifier/contradiction-detector.js';
 
 // ─── Context-Aware Intent Classification Helpers (US-584) ──────────
 
@@ -501,6 +502,30 @@ export async function classifyMessageWithContext(
             tierCandidates.push({ intent: alt.intent, score: alt.score, matchedKeyword: alt.matchedKeyword });
           }
         }
+      }
+
+      // US-573: Detect keyword contradictions (ambiguous messages)
+      // Check if multiple intents have scores within 15% of top score
+      const allMatches: TopScore[] = [fuzzyResult, ...(allFuzzy || [])];
+      const contradictionCheck = detectKeywordContradictions(processedText, allMatches);
+
+      if (contradictionCheck.hasContradiction) {
+        console.log(
+          `[Intent:US-573] Ambiguous message detected: ${contradictionCheck.conflicting_intents.join(', ')} ` +
+          `all within 15% of top score`
+        );
+
+        // Return clarification-required intent with conflicting intents for UI display
+        return traceAndReturn({
+          category: 'clarification-required' as any,
+          confidence: 0.5, // Neutral confidence for clarification
+          entities: {
+            conflicting_intents: contradictionCheck.conflicting_intents.join(', '),
+            top_scores: JSON.stringify(contradictionCheck.top_scores),
+          },
+          source: 'fuzzy',
+          detectedLanguage: detectedLang
+        }, `Keyword contradiction detected: ${contradictionCheck.conflicting_intents.join(', ')}`);
       }
     }
 
