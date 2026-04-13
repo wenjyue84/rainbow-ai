@@ -515,3 +515,86 @@ This brief outlines the implementation of a Node.js CLI script for ingesting doc
 
 ## Iteration 7 - Mon, Apr 13, 2026 12:17:45 PM
 Completed: Add kb:ingest CLI for Batch KB Document Ingestion via Kreuzberg (ID: US-539) in 5m
+
+## Pre-analysis for US-540 (Gemini 2.5 Pro)
+This technical brief is for the `rainbow-ai` TypeScript project as detailed in the provided JSON, as it does not map to a Frappe/Python environment.
+
+**Project:** rainbow-ai (TypeScript/Node.js)
+**User Story:** US-540: Track KB Document Sources in _sources.json
+
+### 1. Files to Modify
+
+*   **`src/lib/kb-source-manifest.ts` (New File):** Create this file to encapsulate all logic for reading, creating, updating, and writing the `_sources.json` manifest. It should export functions like `updateSourceManifest(...)`.
+*   **`src/tools/kb-ingest-cli.ts`:** Modify the `kb:ingest` command. After a document is successfully processed, call the new manifest logic to add/update the source entry.
+*   **`src/routes/admin/kb-upload.ts`:** Modify the file upload handler. Similar to the CLI, it must call the manifest logic after successful extraction from an uploaded file.
+*   **`src/routes/admin/index.ts` (or similar):** Add a new API endpoint `GET /api/admin/kb/:profile/sources` that uses the manifest library to read and return the `_sources.json` for the requested profile.
+
+### 2. Key Components Involved
+
+*   **Manifest File:** A new `_sources.json` file will be created/updated within each knowledge-base profile directory (e.g., `.rainbow-kb-makan/_sources.json`).
+*   **Data Structure:** `[{ kbFile, sourceFilename, extractedAt, extractedChars, kreuzbergVersion }]`
+*   **API Endpoint:** `GET /api/admin/kb/:profile/sources`
+*   **CLI Command:** `kb:ingest`
+
+### 3. Recommended Implementation
+
+1.  **Create `kb-source-manifest.ts`:** Implement helper functions to atomically read `_sources.json` (or create if non-existent), find and update an entry based on `kbFile`, and write the updated array back to the file.
+2.  **Integrate with Ingesters:** In `kb-ingest-cli.ts` and `kb-upload.ts`, import the new manifest module. On successful data extraction, call the update function with the required metadata.
+3.  **Build API Endpoint:** Add the `GET /api/admin/kb/:profile/sources` route. The handler should identify the profile from the URL, locate the correct `_sources.json`, parse it, and return it as a JSON response.
+
+### 4. Edge Cases & Gotchas
+
+*   **Concurrency:** Implement an atomic write (e.g., write to temp file then rename) for `_sources.json` to prevent corruption from simultaneous `kb:ingest` or upload operations.
+*   **Data Integrity:** The logic must gracefully handle a missing or malformed `_sources.json` file by either creating a new one or logging an error without crashing the ingestion process.
+*   **Update vs. Append:** Ensure that re-ingesting a source document updates the existing entry in the JSON array rather than appending a duplicate entry.
+*   **Permissions:** The application process needs write permissions inside the `.rainbow-kb*` directories.
+
+
+## Iteration [8] - Story: Track KB Document Sources in _sources.json Manifest per Profile (US-540)
+
+### What was implemented
+- Created `src/lib/kb-source-manifest.ts`:
+  - Exports `SourceEntry` interface with fields: kbFile, sourceFilename, extractedAt, extractedChars, kreuzbergVersion
+  - Exports `updateSourceManifest()` function to read, update/append entries, and atomically write _sources.json
+  - Exports `getSourceManifest()` function to read and return the manifest
+  - `getKreuzbergVersion()` helper spawns `kreuzberg --version` CLI and caches result
+  - Atomic write uses temp file + rename to prevent corruption from concurrent operations
+  - Gracefully handles missing or malformed _sources.json files
+  
+- Updated `src/tools/kb-ingest-cli.ts`:
+  - Added import of `updateSourceManifest`
+  - Calls `updateSourceManifest()` after writing KB file with sourceFilename from file path
+  - Logs warnings if manifest update fails but doesn't fail ingestion
+
+- Updated `src/routes/admin/kb-upload.ts`:
+  - Added imports of `updateSourceManifest` and `getSourceManifest`
+  - Calls `updateSourceManifest()` after writing KB file with sourceFilename from original upload name
+  - Logs warnings if manifest update fails but doesn't fail upload
+  - Added new GET `/:profile/sources` endpoint to retrieve manifest as JSON
+
+### Patterns discovered
+- esbuild has strict comment parsing with JSDoc - colons in comments cause syntax errors
+- Kreuzberg version output format is "kreuzberg X.Y.Z"
+- Atomic file writes using temp + rename prevent corruption from concurrent operations
+- Both CLI and HTTP routes follow same pattern: extract → write KB → update manifest → reload → reindex
+
+### Edge cases handled
+- Missing or malformed _sources.json files treated as empty array (graceful degradation)
+- Re-ingesting same source updates existing entry instead of duplicating
+- Manifest failures don't block KB file write or ingestion (logged as warnings)
+- Handler gracefully returns empty array if KB directory doesn't exist yet
+- kreuzberg version lookup is cached to avoid repeated CLI calls
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning in logger.ts)
+✅ Server startup: tsx runs without errors
+✅ prd.json: US-540.passes = true
+✅ All acceptance criteria implemented:
+  - _sources.json created on first ingestion
+  - Entry structure matches spec: { kbFile, sourceFilename, extractedAt, extractedChars, kreuzbergVersion }
+  - Existing entries updated on re-ingestion (not duplicated)
+  - GET endpoint returns parsed manifest
+  - Manifest is additive only (hand-edited files untouched)
+
+## Iteration 8 - Mon, Apr 13, 2026
+Completed: Track KB Document Sources in _sources.json Manifest per Profile (ID: US-540) in 1m

@@ -17,6 +17,7 @@ import path from 'path';
 import multer from 'multer';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { extractToMarkdown, KBExtractorError } from '../../lib/kb-extractor.js';
+import { updateSourceManifest, getSourceManifest } from '../../lib/kb-source-manifest.js';
 import { badRequest, serverError, validateFilename } from './http-utils.js';
 
 const router = Router();
@@ -144,6 +145,19 @@ router.post(
         await fsPromises.writeFile(kbFilePath, markdown, 'utf-8');
         console.log(`[KB:${profileId}] Written extracted markdown to ${kbFilename}`);
 
+        // ─── Track in manifest (US-540) ───────────────────────────
+        try {
+          await updateSourceManifest({
+            kbDir: profile.kb.kbDir,
+            kbFile: kbFilename,
+            sourceFilename: req.file.originalname,
+            extractedChars: markdown.length,
+          });
+        } catch (manifestErr: any) {
+          console.warn(`[KB:${profileId}] Failed to update manifest: ${manifestErr.message}`);
+          // Don't fail upload if manifest update fails
+        }
+
         // ─── Reload the KB file in memory ──────────────────────────
         profile.kb.reloadKBFile(kbFilename);
         console.log(`[KB:${profileId}] Reloaded KB file: ${kbFilename}`);
@@ -173,6 +187,42 @@ router.post(
           await fsPromises.unlink(tempPath);
         } catch {}
       }
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  }
+);
+
+/**
+ * GET /kb/:profile/sources
+ * Retrieve the KB document sources manifest for a profile
+ */
+router.get(
+  '/:profile/sources',
+  async (req: Request, res: Response) => {
+    try {
+      // ─── Validate profile ──────────────────────────────────────────
+      const urlProfile = req.params.profile as string;
+      const profileId = PROFILE_MAPPING[urlProfile];
+
+      if (!profileId) {
+        badRequest(res, `Invalid profile: ${urlProfile}. Must be one of: pelangi, southern, makan`);
+        return;
+      }
+
+      // ─── Get profile instance ──────────────────────────────────────
+      const profile = profileRegistry.getProfile(profileId);
+      if (!profile) {
+        serverError(res, `Profile ${profileId} not found`);
+        return;
+      }
+
+      // ─── Read and return manifest ──────────────────────────────────
+      const sources = await getSourceManifest(profile.kb.kbDir);
+      res.json({
+        profile: profileId,
+        sources,
+      });
     } catch (err: any) {
       serverError(res, err);
     }

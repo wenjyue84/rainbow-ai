@@ -18,6 +18,7 @@ import path from 'path';
 import { resolve } from 'path';
 import dotenv from 'dotenv';
 import { extractToMarkdown, KBExtractorError } from '../lib/kb-extractor.js';
+import { updateSourceManifest } from '../lib/kb-source-manifest.js';
 import { KnowledgeBaseInstance } from '../assistant/knowledge-base-instance.js';
 
 dotenv.config();
@@ -120,6 +121,19 @@ export async function ingestDocument(opts: {
   // Ensure KB directory exists and write the extracted file
   await fsPromises.mkdir(kbDir, { recursive: true });
   await fsPromises.writeFile(kbFilePath, markdown, 'utf-8');
+
+  // Track in manifest (US-540)
+  try {
+    await updateSourceManifest({
+      kbDir,
+      kbFile: kbFilename,
+      sourceFilename: path.basename(opts.file),
+      extractedChars: markdown.length,
+    });
+  } catch (manifestErr: any) {
+    console.warn(`[KB:ingest] Failed to update manifest: ${manifestErr.message}`);
+    // Don't fail ingestion if manifest update fails
+  }
 
   // Reload KB file and trigger reindex on a standalone instance
   const dataDir = resolve(process.cwd(), 'src/assistant/data');
