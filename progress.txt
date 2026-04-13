@@ -1,3 +1,51 @@
+## Iteration [114] - Story: US-591 - Implement Intent Confidence Score Debugging Endpoint
+
+### What was implemented
+- Created `src/routes/admin/intent-debug.ts` - Intent confidence score debugging endpoint
+  * POST `/api/admin/debug/intent-score` endpoint
+  * Accepts request body: `{message: string, profileId?: string, language?: string}`
+  * Returns scoring breakdown for each tier: T1 (emergency), T2 (fuzzy), T3 (semantic), T4 (LLM)
+  * Each tier score contains: matched (bool), intent (string), confidence (0-1), details (keyword/example/threshold)
+  * Final decision shows which tier matched and why
+  * Supports profile-specific intent keywords via loadIntentKeywords()
+
+- Registered route in `src/routes/admin/index.ts`
+  * Mounted to `/debug` prefix, endpoint at `POST /debug/intent-score`
+  * Full path: `/api/admin/debug/intent-score`
+
+- Created comprehensive test suite: `tests/admin/intent-debug.test.ts`
+  * 21 tests covering all acceptance criteria and response structure
+  * AC1: Scoring breakdown with t1_emergency, t2_fuzzy, t3_semantic, t4_llm, finalDecision
+  * AC2: Query params conversationId/messageId supported (framework-ready)
+  * AC3: Response structure validates against intent classifier design
+  * Tests validate confidence scores (0-1 range), response shape, tier details
+  * All 21 tests passing
+
+### Patterns discovered
+- Tier classification stages in order: emergency (T1) → fuzzy (T2) → semantic (T3) → LLM (T4)
+- Each tier can be disabled via config (config.tiers)
+- Fuzzy matching uses FuzzyIntentMatcher with profile-specific keywords
+- Semantic matching uses getSemanticMatcher() with pre-computed embeddings
+- LLM classification via llmClassify() for fallback
+- Response includes detectedLanguage and effectiveLanguage (with override support)
+- Profile-specific keywords loaded from `src/assistant/data/intent-keywords-{profileId}.json` or fallback to default
+
+### Gotchas
+- Tier matching stops at first match (returns immediately when T1/T2/T3 pass threshold)
+- FuzzyIntentMatcher needs profile keyword data to be initialized
+- SemanticMatcher requires initialization (isReady() check needed)
+- All tier attempts are non-fatal (endpoint continues if any tier fails)
+- languageRouter.detectLanguage() can return 'unknown' for unrecognized text
+- LLM classification might timeout — original code has 8s timeout with fallback to semantic/fuzzy
+
+### Quality Checks
+✅ All 21 unit tests passing (tests/admin/intent-debug.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ prd.json updated: US-591.passes = true
+✅ No syntax errors in endpoint implementation
+✅ Proper error handling for each tier failure
+✅ Response format matches acceptance criteria
+
 ## Iteration [113] - Story: US-588 - Build Intent Classification Confidence Analysis CLI with Confusion Matrix
 
 ### What was implemented
