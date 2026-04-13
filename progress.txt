@@ -828,3 +828,61 @@ Implementation was already complete from prior attempt (US-531). The outer loop 
 ## Iteration 3 - Mon, Apr 13, 2026  1:52:51 PM
 Completed: Add Booking Confirmation Template Rendering with Guest Details Population (ID: US-531) in 2m
 
+
+## Pre-analysis for US-546 (Gemini 2.5 Pro)
+This user story appears to be for a TypeScript project, not a Frappe/Python application. The file paths (`.ts`), dependencies (`vitest`), and implementation details reference a Node.js environment.
+
+Therefore, I cannot create a relevant technical brief for the `lhdn_payroll_integration` Frappe app from this information. Please provide the correct user story for the Python project.
+
+
+## Iteration [79] - Story: US-546 - Implement Conversation Message Summarization Engine for Context Windows
+
+### What was implemented
+
+1. **Created src/lib/conversation-summarizer.ts** with `summarizeConversation(messages, phone, aiProvider)` async function
+   - Implements US-546 strategy: when conversation exceeds 20 messages, summarize messages 1-15 to 100-150 token summary
+   - Keeps messages 16-20 verbatim to preserve recent context
+   - Uses existing rainbowConversations.contextSummary and contextSummaryAt fields for DB caching
+   - Implements 24-hour TTL to avoid re-summarization
+   - Graceful fallback to keeping recent 5 messages if AI provider unavailable
+
+2. **Enhanced src/assistant/pipeline/build-context.ts** with `buildContextWithSummarization()` function
+   - Added new function for message count-based summarization (US-546)
+   - Complements existing decay-based truncation (US-262)
+   - Returns token metrics to track ~35% token usage reduction on long conversations
+
+3. **Comprehensive test suite** in tests/integration/conversation-summarization.test.ts
+   - 19 passing tests covering all acceptance criteria
+   - Tests for message count thresholds (<=20, =20, =21, >20)
+   - Tests for summary generation and caching
+   - Token counting verification
+   - Edge cases: multilingual messages, long content, special characters
+   - Tests for fallback behavior when AI provider fails
+
+### Patterns discovered
+
+- DB caching uses existing contextSummary field (already present from US-447)
+- Summary generation requests specific token count (100-150) to maintain predictable sizes
+- Token estimation uses chars/4 formula consistent with rest of codebase
+- Summary message marked with [Conversation Summary] prefix for clarity
+- Chronological ordering preserved: summary always first, then recent messages in order
+
+### Token reduction achieved
+
+- Sample 25-message conversation: ~300+ tokens → ~200 tokens (~35% reduction)
+- Increases with conversation length; minimal impact on short conversations (<20 msgs)
+- Token counting includes both messages and metadata overhead
+
+### Quality checks
+
+Tests: 19/19 passing
+Build: esbuild successful (2.6mb bundle)
+Server startup: Successful (pre-existing warnings only)
+prd.json: Updated US-546.passes to true
+
+### Gotchas
+
+- Import path from src/lib/ to shared/ requires `../../shared/` not `../shared/`
+- Message count is 0-indexed but acceptance criteria use 1-indexed naming (messages 1-15 = indices 0-14)
+- DB caching uses contextSummaryAt timestamp for TTL expiration checks
+- Fallback behavior keeps recent 5 messages, not messages 16-20 (safety-first when AI unavailable)

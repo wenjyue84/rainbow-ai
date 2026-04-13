@@ -1410,6 +1410,51 @@
         "diagnosisBlock": "## Current State\n\nI need to read the actual workflow execution flow to understand where `currentStepIndex` is incremented and where I should add validation. Let me check the chat-engine to see how workflow steps are executed.\nNow I'll implement US-545. Here's my diagnosis:\n\n## Diagnosis Block\n\n### Current State\n- Workflows are stored in `src/assistant/data/workflows.json` with steps that have `id` fields\n- Workflow execution tracks state with `currentStepIndex` (numeric index)\n- When a workflow step completes, `currentStepIndex` is incremented blindly without validating that the transition is allowed\n- Found in `chat-engine.ts`: `setWorkflowState(saveKey, effectiveWorkflow.workflowId, effectiveWorkflow.currentStepIndex + 1)`\n- No validation exists for booking workflow state transitions\n\n### Problem Identified\nUS-545 requires implementing a state machine that validates booking workflow state transitions. Currently, any step can transition to any other step, which can cause workflow logic errors. Need to enforce valid transitions like `collect_dates -> confirm_details` (not skipping steps).\n\n### Planned Changes\n1. Create `src/assistant/workflows/booking-state-machine.ts`:\n   - Define `BOOKING_TRANSITIONS` mapping step IDs to allowed next steps\n   - Export `isValidTransition(currentStep, nextStep): boolean` function\n\n2. Modify `src/assistant/workflow-executor.ts`:\n   - Add import for `isValidTransition`\n   - Add validation guard before advancing workflow state\n   - Return error response if transition is invalid\n\n3. Create `tests/workflows/booking-state-validation.test.ts`:\n   - Test valid transitions succeed\n   - Test invalid transitions are rejected\n   - Test edge cases (null, unknown steps)\n\n---\n\nNow implementing:\nNow let me add the import and validation guard to the workflow-executor:\nNow let's verify the implementation by running the build and tests:\nLet me move the test file to the correct directory:\nLet me fix the test - unknown steps should be treated as terminal (can't transition):\nExcellent! All 41 tests pass. Now let me verify the server startup:\nPerfect! The server starts successfully. Now let me update prd.json to mark US-545 as complete:\nNow let me document the progress and commit:\nExcellent! Let me verify the implementation is complete:\n## Summary"
       },
       "_passedCommit": "fff8ad4a602159341a26c8832ebbec272e09de92"
+    },
+    {
+      "id": "US-546",
+      "title": "Implement Conversation Message Summarization Engine for Context Windows",
+      "priority": "high",
+      "description": "Automatically summarize older messages in long conversations to prevent context window overflow while preserving recent conversation details for better AI understanding.",
+      "acceptanceCriteria": [
+        "When conversation exceeds 20 messages, messages 1-15 are summarized to a single 100-150 token summary; messages 16-20 remain verbatim",
+        "Summary is generated via configured AI provider and cached in DB with TTL of 24 hours to avoid re-summarization",
+        "Context builder uses {summary} + {recent 5 messages} for intent classification, reducing token usage by ~35% on long conversations"
+      ],
+      "technicalNotes": [
+        "Create: src/lib/conversation-summarizer.ts with summarizeConversation(messages, aiProvider) async function",
+        "Modify: src/assistant/pipeline/context-builder.ts buildContext() to call summarizer before constructing window",
+        "Test command: uv run vitest tests/integration/conversation-summarization.test.ts -t 'summarize long'",
+        "Verify token savings: grep 'context_tokens' src/logs/ | head -20"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T06:07:08Z"
+    },
+    {
+      "id": "US-547",
+      "title": "Add Profile-Specific Booking Rules Validator for Pre-Flight Validation",
+      "priority": "high",
+      "description": "Validate booking requests against business rules (guest capacity, date conflicts, pricing) before workflow execution, returning actionable validation errors for user clarification.",
+      "acceptanceCriteria": [
+        "Validator checks: guest_count <= unit capacity, check_out_date > check_in_date, no overlapping existing bookings, price matches active rate card for profile",
+        "Workflow executor invokes validator.validate(bookingRequest) before T3 workflow steps; returns {isValid: boolean, errors: ValidationError[]}",
+        "Validation error messages use templated responses from data/knowledge.json per profile (e.g., 'Unit capacity is 2 guests, you requested 4')"
+      ],
+      "technicalNotes": [
+        "Create: src/lib/booking-validator.ts with BookingValidator(profile) class and validate(request) method",
+        "Modify: src/assistant/pipeline/workflow-executor.ts to call validator.validate() before step execution",
+        "Test command: uv run vitest tests/unit/booking-validator.test.ts -t 'capacity'",
+        "Integration test: uv run vitest tests/integration/booking-workflow.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
