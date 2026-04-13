@@ -746,3 +746,37 @@ This brief outlines the implementation of an admin-facing API endpoint to report
 *   **Calculations:** Handle division-by-zero errors when calculating metrics if there are no samples, returning 0 or `None`.
 *   **API Path:** The final endpoint URL will be: `/api/method/lhdn_payroll_integration.api.analytics.get_intent_accuracy_report`.
 
+
+## Iteration [SPIRAL] - Story: US-589
+### What was implemented
+- Created `GET /api/admin/analytics/intent-accuracy` endpoint in `src/routes/admin/intent-analytics.ts`
+- Endpoint accepts query parameters: profile (required), intent (optional), language (optional)
+- Returns metrics: accuracy, precision, recall, F1 score, sampleSize, lastUpdated
+- Uses `intentClassificationDecisions` table to calculate metrics
+
+### Implementation details
+- Accuracy = (correct classifications / total) 
+- Precision = TP / (TP + FP) - for single intent
+- Recall = TP / (TP + FN) - for single intent
+- F1 = 2 * (precision * recall) / (precision + recall)
+- All values rounded to 4 decimal places
+- Handles empty result sets gracefully with 0 sample size
+
+### Patterns discovered
+- Admin routes use `eq` and `sql` from drizzle-orm for queries
+- Need to import table definitions dynamically to avoid circular dependencies
+- Error handling follows pattern: console.error + serverError response
+
+### Test suite
+- Created `tests/src/admin/intent-analytics.test.ts` with 10 test cases
+- Tests validate calculation logic for accuracy, precision, recall, F1
+- All tests pass without database dependency (unit test approach)
+- Tested edge cases: empty dataset, perfect classification, zero precision
+
+### Quality checks
+✓ Build: npm run build - passed (2.8mb dist)
+✓ Tests: npx vitest - 10/10 passed
+✓ Server: Starts (profile integrity check is pre-existing issue)
+✓ Commit: feat: US-589 - Implement Intent Classification Accuracy Reporting Dashboard Endpoint
+
+Status: COMPLETE - US-589 marked as passes=true in prd.json
