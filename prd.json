@@ -2952,6 +2952,51 @@
         "contextWindow": 10
       },
       "_passedCommit": "088a217509bb5027502918ac7ab39c8be8541caf"
+    },
+    {
+      "id": "US-598",
+      "title": "Tamil Numeral and Date Slot Extractor for Booking Intent Classification",
+      "priority": "high",
+      "description": "Parse Tamil numerals (௦-௯) and date patterns (e.g., 'டிசம்பர் 15') from booking messages to extract check-in/check-out dates and room quantities. Enables accurate booking intent slot filling for Tamil-language guests and improves booking intent classification accuracy.",
+      "acceptanceCriteria": [
+        "parseSlots() function converts Tamil numerals (௦-௯) to Arabic 0-9 with 100% test accuracy; handles mixed Tamil/Arabic input",
+        "parseDateSlot() extracts Tamil month names (ஜனவரி, பிப்ரவரி, etc.) mapped to 01-12 and returns ISO date string '2026-12-15' when given input 'டிசம்பர் 15'",
+        "Booking intent classifier uses extractedSlots.checkInDate and roomType to disambiguate ambiguous booking messages; achieves 90%+ accuracy on test Tamil booking corpus"
+      ],
+      "technicalNotes": [
+        "Create src/assistant/utils/tamil-slot-parser.ts with functions: parseTamilNumeral(char), parseDateSlot(text), parseQuantitySlot(text)",
+        "Test command: uv run npm run test tests/unit/tamil-slot-parser.test.ts -v",
+        "Integration: call parseSlots() from src/assistant/classifiers/intent-classifier.ts in extractBookingSlots() function (line ~150)",
+        "Tamil month mapping: store in src/assistant/data/tamil-month-map.json as {ஜனவரி: '01', பிப்ரவரி: '02', ...}"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T18:38:11Z"
+    },
+    {
+      "id": "US-599",
+      "title": "Intent Classification Confidence Score Distribution Histogram CLI Tool",
+      "priority": "medium",
+      "description": "CLI tool to analyze classification confidence score distribution per intent type and profile over a time window. Generates histogram with confidence buckets (0-20%, 20-40%, etc.) and exports to CSV for identifying low-confidence intent patterns requiring model improvement.",
+      "acceptanceCriteria": [
+        "CLI command: npm run analytics:confidence-histogram --profile pelangi --days 7 outputs histogram showing bucket distribution (0-0.2: 45 msgs, 0.2-0.4: 32 msgs, etc.) per intent",
+        "Per-intent breakdown shows: booking (200 total: 45% high-conf [0.8+], 30% medium [0.5-0.8], 25% low [<0.5]), inquiry (150 total: 60% high, 25% medium, 15% low)",
+        "Export to CSV via --format=csv flag; CSV columns: intent, confidence_bucket, message_count, percentage"
+      ],
+      "technicalNotes": [
+        "Create src/cli/confidence-histogram.ts with functions: parseCliArgs(), queryConfidenceScores(profile, days), generateHistogram(scores), exportCsv(histogram)",
+        "Test command: uv run npm run test tests/cli/confidence-histogram.test.ts -v",
+        "Query intent_analytics table (existing schema) filtered by profile and created_at >= Date.now() - days*86400; group by intent_name and classification_confidence buckets",
+        "Bucket boundaries: [0, 0.2, 0.4, 0.6, 0.8, 1.0]; compute percentages relative to total per intent"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }

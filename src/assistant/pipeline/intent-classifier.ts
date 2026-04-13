@@ -44,6 +44,7 @@ import { recordTurnConfidence } from '../turn-confidence-scorer.js';
 import { generateClarifyingResponse, formatClarifyingResponseForDisplay } from './fallback-handler.js';
 import { getIntentThreshold } from '../../lib/intent-confidence-config.js';
 import { classifyBookingSubtype } from '../classifiers/booking-microclassifier.js';
+import { parseSlots } from '../utils/tamil-slot-parser.js';
 import fs from 'fs';
 import path from 'path';
 import { getConversationPreferredLanguage, isGreetingMessage, setConversationPreferredLanguage } from '../conversation-language-preference.js';
@@ -251,6 +252,18 @@ export async function classifyAndRoute(
       `[BookingMicroClassifier-US535] "${processText.slice(0, 50)}" → ` +
       `${bookingSubtype} (confidence: ${microClassifierResult.confidence.toFixed(2)})`
     );
+
+    // ─── US-598: Tamil Numeral and Date Slot Extractor ────────────────
+    // Extract booking slots (check-in date, room quantity) from Tamil text
+    // Enables accurate slot filling for Tamil-language guests
+    const extractedSlots = parseSlots(processText);
+    if (extractedSlots.checkInDate || extractedSlots.roomQuantity) {
+      devMetadata.extractedSlots = extractedSlots;
+      console.log(
+        `[TamilSlotParser-US598] Extracted slots: checkInDate=${extractedSlots.checkInDate}, ` +
+        `roomQuantity=${extractedSlots.roomQuantity}, confidence=${extractedSlots.confidence.toFixed(2)}`
+      );
+    }
   }
 
   // ─── US-226: Log booking classification failures ───────────────────

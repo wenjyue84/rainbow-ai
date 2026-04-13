@@ -1,3 +1,50 @@
+## Iteration [108] - Story: US-598 - Tamil Numeral and Date Slot Extractor for Booking Intent Classification
+
+### What was implemented
+- Created `src/assistant/utils/tamil-slot-parser.ts` with complete slot extraction functions:
+  * `parseTamilNumeral(char)` — converts Tamil digits ௦-௯ to Arabic 0-9 with 100% accuracy
+  * `convertTamilNumerals(text)` — converts all Tamil numerals in a string to Arabic
+  * `parseDateSlot(text)` — extracts Tamil/English month names and dates, returns ISO format (YYYY-MM-DD)
+  * `parseQuantitySlot(text)` — extracts room quantity from text (supports both Tamil and Arabic)
+  * `parseSlots(text)` — main function returning checkInDate, roomQuantity, and confidence
+
+- Created `src/assistant/data/tamil-month-map.json` with all 12 Tamil month names mapped to 01-12
+
+- Created comprehensive test suite: `tests/unit/tamil-slot-parser.test.ts`
+  * 54 tests covering all parsing functions with 100% pass rate
+  * Tests for Tamil numerals (all 10 digits)
+  * Tests for Tamil and English month name parsing
+  * Tests for mixed Tamil/Arabic input
+  * Tests for quantity extraction from various text patterns
+  * Acceptance criteria validation tests
+
+- Integrated slot extraction into `src/assistant/pipeline/intent-classifier.ts`:
+  * Added import for `parseSlots` function
+  * Added US-598 slot extraction logic after booking microclassifier runs
+  * Extracts checkInDate and roomQuantity for booking intents (confidence >= 0.7)
+  * Logs extracted slots to devMetadata for debugging
+
+### Patterns discovered
+- Tamil numerals map directly: ௦=0, ௧=1, ௨=2, ௩=3, ௪=4, ௫=5, ௬=6, ௭=7, ௮=8, ௯=9
+- Tamil month names need exact mapping in JSON file (can fail back to hardcoded map if file missing)
+- Date extraction needs to handle both Tamil month names and English month names for flexibility
+- Quantity extraction uses regex patterns with plural forms (room/rooms, guest/guests) to catch all variations
+- Slot confidence calculated as average of individual slot confidences (date=0.95, quantity=0.85-0.90)
+
+### Gotchas
+- Tamil text needs proper Unicode support; cannot use simple ASCII patterns
+- Month name patterns case-insensitive but must preserve Tamil script characters
+- Quantity patterns must account for plural forms ("room" vs "rooms") in regex
+- Date validation must check for invalid day-month combos (Feb 30, etc.)
+- JSON file loading graceful fallback to hardcoded map if file I/O fails
+
+### Quality Checks
+✅ Build successful (2.8MB, 1 pre-existing warning in logger.ts)
+✅ All 54 unit tests passing in tamil-slot-parser.test.ts
+✅ Acceptance criteria validation tests all passing
+✅ Integration test: booking slots extract correctly from both Tamil and English text
+✅ prd.json updated: US-598.passes = true
+
 ## Iteration [107] - Story: US-597 - Production Configuration Audit Report Generator
 
 ### What was implemented
