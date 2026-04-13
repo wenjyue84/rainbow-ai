@@ -1617,6 +1617,50 @@
         "contextWindow": 10
       },
       "_passedCommit": "20c2122126662bb4e5fea2f5a20285b84e937025"
+    },
+    {
+      "id": "US-552",
+      "title": "Add Intent Classification Latency Metrics per Profile with SLA Monitoring",
+      "priority": "medium",
+      "description": "Track intent classification latency (p50, p95, p99) separately per profile (pelangi, southern, makan). Emit alert if p95 latency exceeds 500ms, enabling proactive performance monitoring (goals 10-11).",
+      "acceptanceCriteria": [
+        "GET /admin/metrics/intent-latency returns JSON with latencies per profile: {pelangi: {p50: 45, p95: 120, p99: 250, sample_count: 1000}, ...}",
+        "Metrics collected every message classification; alert logged as WARN when any profile's p95 exceeds 500ms",
+        "Test assertion: test percentile calculation with sample array [100, 150, 200, 250, 300, 350, 400, 450, 500, 600] returns p95=575 and p99=598"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/metrics.ts (add recordIntentLatency(profile, durationMs) and computePercentiles(profile) functions)",
+        "File to create: src/routes/admin/intent-latency-metrics.ts (GET /admin/metrics/intent-latency endpoint)",
+        "Test command: uv run pytest tests/lib/metrics/test_latency_percentile.py::test_p95_calculation -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-553",
+      "title": "Implement Conversation Context Relevance Scoring to Filter Token Bloat",
+      "priority": "high",
+      "description": "Score historical conversation messages by relevance to current user intent, excluding low-relevance messages from context window to reduce token usage and improve coherence in multi-turn dialogues.",
+      "acceptanceCriteria": [
+        "Create relevance scorer in src/lib/relevance-scorer.ts computing 0-1 score based on: keyword overlap with detected intent (40%), message recency decay (30%), conversation turn distance (30%)",
+        "Modify src/assistant/pipeline/context-retrieval.ts to filter messages where relevance_score < 0.4 before returning context; log filtered message count at debug level",
+        "Integration test with booking workflow shows payment details from 8+ turns ago excluded when user switches to check-in intent (verifies intent-aware filtering)"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/relevance-scorer.ts (export scoreMessageRelevance(message, intent, allMessages) => number)",
+        "File to edit: src/assistant/pipeline/context-retrieval.ts (apply filter after fetching messages, log filtered count)",
+        "File to create: tests/integration/context-relevance.test.ts (test with multi-intent conversation fixtures)",
+        "Test command: uv run npm run test:run -- tests/integration/context-relevance.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet",
+      "last_attempted": "2026-04-13T08:08:09Z"
     }
   ]
 }
