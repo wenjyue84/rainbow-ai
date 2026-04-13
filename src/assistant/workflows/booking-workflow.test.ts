@@ -32,7 +32,7 @@ describe('BookingWorkflow', () => {
     // Clean up test data
     try {
       await pool.query(
-        'DELETE FROM booking_workflow_audit WHERE booking_id LIKE ?',
+        "DELETE FROM booking_workflow_audit WHERE booking_id LIKE $1",
         [`test-booking-%`]
       );
     } catch {
@@ -47,7 +47,7 @@ describe('BookingWorkflow', () => {
 
       // Verify audit entry was created
       const result = await pool.query(
-        'SELECT * FROM booking_workflow_audit WHERE booking_id = ?',
+        'SELECT * FROM booking_workflow_audit WHERE booking_id = $1',
         [testBookingId]
       );
 
@@ -63,7 +63,7 @@ describe('BookingWorkflow', () => {
       await resetWorkflowState(testBookingId, customReason, testProfile);
 
       const result = await pool.query(
-        'SELECT * FROM booking_workflow_audit WHERE booking_id = ? AND reason = ?',
+        'SELECT * FROM booking_workflow_audit WHERE booking_id = $1 AND reason = $2',
         [testBookingId, customReason]
       );
 
@@ -78,7 +78,7 @@ describe('BookingWorkflow', () => {
       await resetWorkflowState(testBookingId);
 
       const result = await pool.query(
-        'SELECT * FROM booking_workflow_audit WHERE booking_id = ?',
+        'SELECT * FROM booking_workflow_audit WHERE booking_id = $1',
         [testBookingId]
       );
 
@@ -144,7 +144,7 @@ describe('BookingWorkflow', () => {
 
       // Check that only one audit entry exists
       const result = await pool.query(
-        'SELECT * FROM booking_workflow_audit WHERE booking_id = ?',
+        'SELECT * FROM booking_workflow_audit WHERE booking_id = $1',
         [testBookingId]
       );
 
@@ -155,7 +155,7 @@ describe('BookingWorkflow', () => {
 
       // Verify still only one entry
       const resultAfterCancel = await pool.query(
-        'SELECT * FROM booking_workflow_audit WHERE booking_id = ?',
+        'SELECT * FROM booking_workflow_audit WHERE booking_id = $1',
         [testBookingId]
       );
 
