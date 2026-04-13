@@ -1236,3 +1236,67 @@ This brief outlines the implementation of a circuit breaker pattern for external
 ✅ CircuitBreaker state machine verified for all transitions
 ✅ Registry operations verified (getOrCreate, reset, getAllStatuses)
 
+## Iteration 1 - Tue, Apr 14, 2026  7:06:03 AM
+FAILED diagnosis-block gate: Booking Workflow Step Circuit Breaker for External Service Failures (ID: US-608) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-608 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Technical Brief: US-608 Circuit Breaker for Booking Workflow**
+
+This brief outlines the implementation of a circuit breaker pattern for external service calls within the `lhdn_payroll_integration` app, translating the user story's logic to a Frappe/Python context.
+
+**1. Python Files to Modify:**
+
+*   **Create:** `lhdn_payroll_integration/lhdn_payroll_integration/utils/circuit_breaker.py`
+    *   This new file will house a generic `CircuitBreaker` class to manage state (CLOSED, OPEN, HALF_OPEN), failure counts, and timeouts.
+*   **Modify:** `lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/booking.py`
+    *   The controller for the `Booking` DocType will be modified to import and use the `CircuitBreaker` class.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **Primary DocType:** `Booking`. The circuit breaker will be triggered during its lifecycle, likely within `validate` or `on_update` hooks where external calls are made.
+*   **Cache Framework:** `frappe.cache` should be used to persist the circuit breaker's state across different server workers and restarts. A custom DocType for logging is not necessary; use standard logs.
+
+**3. Implementation Approach:**
+
+1.  In `circuit_breaker.py`, create a `CircuitBreaker` class. Its state (keyed by service name, e.g., 'payment_gateway') should be stored in `frappe.cache`.
+2.  In `booking.py`, before making an external call (e.g., payment), request the status from the `CircuitBreaker` instance for that service.
+3.  If the circuit is OPEN, bypass the API call, set the `Booking` status field to 'Manual Escalation', and use `frappe.msgprint` for the user-facing message.
+4.  If the circuit is CLOSED, make the call. On failure, notify the circuit breaker. After 3 consecutive failures, the circuit should open.
+5.  Log all state transitions (CLOSED -> OPEN -> HALF_OPEN) using `frappe.log_error`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **State Persistence:** Do not use in-memory dictionaries. `frappe.cache` (backed by Redis) is essential for sharing state across workers.
+*   **Concurrency:** Multiple simultaneous requests could cause race conditions. Use `frappe.cache().lock()` when updating the circuit breaker state to ensure atomicity.
+*   **HALF-OPEN Logic:** Ensure that after the 60-second timeout, the circuit enters a HALF-OPEN state, allowing only one request to pass. If it fails, the circuit must re-open immediately.
+
+
+## Iteration [115b] - Story: US-608 - Booking Workflow Step Circuit Breaker for External Service Failures
+
+### What was implemented
+- `src/workflows/circuit-breaker.ts` — BookingWorkflowCircuitBreaker class
+  * 3-state machine: CLOSED → OPEN → HALF_OPEN
+  * Opens after 3 consecutive failures, 60s cooldown before HALF_OPEN
+  * Logs all state transitions with timestamp and reason to debug logs
+  * BookingWorkflowCircuitBreakerRegistry for managing multiple step breakers
+
+- `src/workflows/booking-executor.ts` — executeBookingWorkflowStep() wrapper
+  * Wraps external service calls with circuit breaker protection
+  * When OPEN: escalates to manual, returns "Please wait while we check availability manually"
+  * Non-external steps bypass circuit breaker entirely
+  * Admin helpers: resetBookingStepCircuitBreaker(), getAllBookingCircuitBreakerStatuses()
+
+- `tests/circuit-breaker.test.ts` — 26 unit tests (all passing)
+
+### Quality Checks
+✅ 26 tests passing (tests/circuit-breaker.test.ts)
+✅ Build successful (esbuild 2.8MB)
+✅ Server startup successful
+✅ prd.json: US-608.passes = true
+
+### Gotchas
+- Previous attempt (iteration 115) was blocked by diagnosis-gate before it could update prd.json
+- Implementation was already complete; this iteration just confirmed tests pass and updated prd.json
