@@ -1035,3 +1035,33 @@ prd.json passes=true.
 ### Learnings
 - Always output the diagnosis block BEFORE any tool calls when the orchestrator requires it
 - An existing passing implementation still needs quality checks re-verified before marking passes=true
+## Iteration 2 - Tue, Apr 14, 2026  5:41:43 AM
+Completed: Implement Intent Confidence Score Debugging Endpoint (ID: US-591) in 3m
+
+
+## Iteration [116] - Story: US-593 - Detect and Log Message Timestamp Ordering Issues
+
+### What was implemented
+- Created `src/lib/message-ordering-validator.ts` with `validateMessageOrdering(messages, conversationId)` function
+  - Detects out-of-order messages by comparing original order vs timestamp-sorted order (within timestamped subset)
+  - Emits `logger.warn` with conversationId, messageId, expectedIndex, actualIndex for each anomaly
+  - Reports simultaneous timestamp groups (same ts, multiple messages) separately — NOT treated as errors
+  - Gracefully handles null/undefined timestamps (skips them, only validates timestamped subset)
+- Modified `src/lib/conversation-context.ts` `pruneStaleContext()` to call validator before pruning (added `conversationId` param)
+- Created `scripts/analyze-message-ordering.ts` CLI — loads conversations from DB, reports % with anomalies, lists affected sequences; falls back to demo mode when DB is unavailable
+- Added `"analyze:message-ordering": "tsx scripts/analyze-message-ordering.ts"` to package.json scripts
+- Created `tests/message-ordering.test.ts` — 17 tests, all passing:
+  - First message (no prior): single msg, empty array, simultaneous timestamps
+  - Correctly ordered: 4-turn conversation, 2-message conversation
+  - Reordered: single swap, metadata fields, multiple reversals, null timestamps, mixed null/valid
+  - Simultaneous: group detection, no-error-for-simultaneous, mixed with ordering issues
+  - Multi-turn: 12-message conversation, mid-conversation anomaly, affectedCount accuracy
+
+### Patterns discovered
+- `ChatMessage` has no `messageId` field — derived as `msg_${fullArrayIndex}` for log context
+- Comparing sorted-subset position vs original-subset position (not full-array index) avoids false positives when null-timestamp messages are interspersed
+- Simultaneous timestamps (same ts, multiple messages) should NOT be ordering errors — stable sort preserves original order for equal timestamps
+
+### Gotchas
+- Initial implementation compared sorted position against FULL array index — caused false positives with null-timestamp messages at positions != their subset position
+- Fix: use `timestamped.findIndex(t => t.idx === sortedEntry.idx)` to get position within timestamped subset, compare that against sorted position within subset

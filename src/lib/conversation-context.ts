@@ -11,6 +11,7 @@
 import type { ChatMessage } from '../assistant/types.js';
 import { configStore } from '../assistant/config-store.js';
 import intentKeywordsData from '../assistant/data/intent-keywords.json' assert { type: 'json' };
+import { validateMessageOrdering } from './message-ordering-validator.js';
 
 interface PruningConfig {
   contextPruningWindowMinutes: number;
@@ -89,8 +90,12 @@ function messageContainsKeywords(message: string, keywords: string[]): boolean {
 export function pruneStaleContext(
   messages: ChatMessage[],
   currentIntent: string,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  conversationId: string = 'unknown',
 ): ChatMessage[] {
+  // US-593: Validate timestamp ordering before context inclusion
+  validateMessageOrdering(messages, conversationId);
+
   const config = getPruningConfig();
   const windowMs = config.contextPruningWindowMinutes * 60 * 1000; // Convert to milliseconds
   const cutoffTime = nowMs - windowMs;
