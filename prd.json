@@ -2560,10 +2560,11 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-13T15:25:32Z"
+      "last_attempted": "2026-04-13T15:25:32Z",
+      "_passedCommit": "04b39cf4258e3b3b5128d2d48e75739ac61cb1e4"
     },
     {
       "id": "US-585",
@@ -2582,6 +2583,138 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-586",
+      "title": "Add Conversation Recovery from Transient Provider Failures with State Snapshots",
+      "priority": "high",
+      "description": "Automatically snapshot conversation state to Redis after each successfully processed message. On AI provider timeout or transient error, retry message processing with full conversation context restored from snapshot instead of starting fresh.",
+      "acceptanceCriteria": [
+        "ConversationRecovery module snapshots full message history + metadata to Redis with 24h TTL after each message",
+        "On provider timeout (>30s), recovery handler pulls snapshot and retries with original context preserved",
+        "Test verifies recovery succeeds after simulated OpenRouter 503 error without user needing to repeat input"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/conversation-recovery.ts (RedisBackedRecovery class with snapshot/restore methods)",
+        "File to edit: src/assistant/pipeline/message-processor.ts (add snapshot call after successful AI response)",
+        "File to edit: src/lib/provider-client.ts (add recovery handler in catch block for transient errors)",
+        "Test command: npm run test -- src/lib/__tests__/conversation-recovery.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-587",
+      "title": "Implement Fallback Response Pipeline for Knowledge Base Retrieval Failures",
+      "priority": "high",
+      "description": "When knowledge base retrieval times out or returns empty results, generate a fallback response from profile-specific intent templates instead of returning a generic error. Fall back gracefully while maintaining conversation flow.",
+      "acceptanceCriteria": [
+        "KnowledgeRetriever catches retrieval timeout (>5s) and returns fallback response from intent-specific template",
+        "Fallback response uses profile's src/assistant/data/{profile}/fallback-templates.json matching classified intent and language",
+        "Test verifies fallback response is language-aware and profile-specific when KB retrieval fails"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/knowledge-retriever.ts (add try-catch with fallback handler, respect language param)",
+        "File to create: src/assistant/data/pelangi/fallback-templates.json (intent -> fallback response mapping per language)",
+        "File to create: src/assistant/data/makan/fallback-templates.json (same for makan profile)",
+        "Test command: npm run test -- src/assistant/__tests__/knowledge-retriever.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-588",
+      "title": "Build Intent Classification Confidence Analysis CLI with Confusion Matrix",
+      "priority": "medium",
+      "description": "Create a CLI tool that analyzes intent classification accuracy per profile using feedback data. Generate confusion matrix showing which intents are misclassified as which, and flag intents with confidence below threshold.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run analyze:intent-confidence' outputs JSON report with confusion matrix grouped by profile",
+        "Report highlights intents with <75% accuracy and shows top 5 frequent misclassification pairs per profile",
+        "Test verifies confusion matrix values match sample feedback dataset (e.g. booking misclassified as inquiry 12 times)"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/intent-confidence-analyzer.ts (main CLI handler, queries feedback table)",
+        "File to create: src/lib/intent-accuracy-scorer.ts (compute confusion matrix from feedback records)",
+        "File to edit: package.json scripts section (add 'analyze:intent-confidence' entry)",
+        "Test command: npm run test -- src/lib/__tests__/intent-accuracy-scorer.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-589",
+      "title": "Implement Intent Classification Accuracy Reporting Dashboard Endpoint",
+      "priority": "medium",
+      "description": "Add an admin API endpoint that reports intent classification accuracy metrics per profile, per intent, and per language. Uses data from `intent_analytics` and `conversation_feedback` tables to calculate precision, recall, and F1 scores.",
+      "acceptanceCriteria": [
+        "GET `/api/admin/analytics/intent-accuracy?profile=pelangi&intent=booking` returns `{accuracy: 0.92, precision: 0.89, recall: 0.95, sampleSize: 145, lastUpdated: \"2026-04-13T...\"}`",
+        "Supports optional language filter: `?profile=pelangi&language=en` groups metrics by language",
+        "Test suite validates accuracy calculation against known feedback samples (misclassifications marked in DB)"
+      ],
+      "technicalNotes": [
+        "File to create: `src/routes/admin/intent-analytics.ts` - new route handler",
+        "File to modify: `src/routes/admin/index.ts` - register the route",
+        "Test command: `uv run vitest tests/admin/intent-analytics.test.ts --reporter=verbose`",
+        "Query accuracy from `intent_analytics` table (grouped by profile, intent, language); validate against `conversation_feedback` where `classification_correct` is false"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-590",
+      "title": "Add Booking Workflow Resumption Hints for Interrupted Sessions",
+      "priority": "medium",
+      "description": "When a conversation is resumed after a gap (>5 minutes), detect if there's an incomplete booking workflow in progress and suggest the user to continue. Improves UX by reducing re-entry friction.",
+      "acceptanceCriteria": [
+        "On new message arrival, check `rainbow_conversations.metadata.current_workflow_state` for incomplete booking; if found and last message >5min old, send resumption hint before processing",
+        "Resumption hint includes the current step name from workflows.json and a brief prompt (e.g., \"Let me help you complete your booking for Apr 15-17\")",
+        "Test that resumption hint is NOT sent if workflow state is null, complete, or in last <5 minutes"
+      ],
+      "technicalNotes": [
+        "File to create: `src/assistant/pipeline/workflow-resumption.ts` - detect and format resumption hints",
+        "File to modify: `src/index.ts` - call resumption check in message processing pipeline",
+        "Test command: `uv run vitest tests/workflow-resumption.test.ts -t \"resumption\"`",
+        "Workflow state stored in conversations.metadata JSON (current_workflow_step, started_at); get step name from workflows.json workflows[workflow_id].steps[step_index].name"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-591",
+      "title": "Implement Intent Confidence Score Debugging Endpoint",
+      "priority": "medium",
+      "description": "Create an admin API endpoint that shows how each classification stage (T1 keyword match, T2 fuzzy match, semantic similarity) scored a given user message. Helps diagnose why a message was misclassified.",
+      "acceptanceCriteria": [
+        "POST `/api/admin/debug/intent-score` with `{message: \"I want to book\", profileId: \"pelangi\", language: \"en\"}` returns scoring breakdown: `{t1: {matched: true, keyword: \"booking\", confidence: 1.0}, t2: {matched: false, topMatch: \"check-in\", confidence: 0.65}, semantic: {matched: true, intent: \"booking\", confidence: 0.88}, finalDecision: \"booking\", reason: \"T1 match\"}`",
+        "Supports explaining a past message from conversation history: `?conversationId=c123&messageId=m456`",
+        "Test validates scoring breakdown matches intent classifier's actual decisions (snapshot tests against known messages)"
+      ],
+      "technicalNotes": [
+        "File to create: `src/routes/admin/intent-debug.ts` - new route handler",
+        "File to modify: `src/assistant/intent-classifier.ts` - expose intermediate scores with debug flag",
+        "Test command: `uv run vitest tests/admin/intent-debug.test.ts`",
+        "Call classifier stages but capture intermediate results; store debug info in local variable, not in DB; return empty score if debug unavailable"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
