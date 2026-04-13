@@ -13,7 +13,7 @@ import {
   normalizeProfileName,
   clearMetrics,
   getCounters,
-} from '../src/lib/workflow-metrics.js';
+} from '../../src/lib/workflow-metrics.js';
 
 describe('WorkflowMetrics', () => {
   beforeEach(() => {
@@ -214,7 +214,9 @@ describe('WorkflowMetrics', () => {
       }
 
       const status = getCompletionHealthStatus();
-      expect(status.failingSteps).toContain(expect.stringContaining('pelangi/date_selection'));
+      expect(status.failingSteps).toBeDefined();
+      expect(status.failingSteps?.length).toBeGreaterThan(0);
+      expect(status.failingSteps?.[0]).toMatch(/pelangi\/date_selection/);
     });
 
     it('ignores steps with < 10 samples', () => {
