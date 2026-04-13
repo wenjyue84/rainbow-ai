@@ -678,3 +678,36 @@ Completed: Infer and Set Language Preference from First User Message (ID: US-581
 - The tool must handle cases where there is no feedback data available for a given profile, producing an empty or informative report.
 - The exact schema (table/column names) for feedback is not defined in the story; this must be confirmed from the existing database schema.
 
+## Iteration 1 - Tue, Apr 14, 2026  3:53:56 AM
+FAILED diagnosis-block gate: Build Intent Classification Confidence Analysis CLI with Confusion Matrix (ID: US-588) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-588 (Gemini 2.5 Pro)
+**Subject: Technical Brief for US-588: Intent Confidence Analyzer CLI**
+
+**Correction:** This is a TypeScript/Node.js project, not Frappe/Python. The implementation should use the existing Node.js environment and its database connectors.
+
+**1. Python Files to Modify:**
+- None. This is a TypeScript task. The key files to create are:
+  - `src/cli/intent-confidence-analyzer.ts`: The main CLI command handler. Will be responsible for database queries and printing the final JSON report.
+  - `src/lib/intent-accuracy-scorer.ts`: A new module containing the core business logic to process feedback records and compute the confusion matrix and accuracy scores.
+  - `src/lib/__tests__/intent-accuracy-scorer.test.ts`: Unit tests for the scorer logic.
+- The `package.json` file will also need to be modified to add the new `analyze:intent-confidence` script.
+
+**2. Frappe DocTypes / Hooks Involved:**
+- No Frappe DocTypes or hooks are directly involved.
+- The tool will query the application's database, specifically a "feedback" table that logs the `actual_intent` versus the `predicted_intent` for user messages, grouped by a `profile` identifier.
+
+**3. Recommended Implementation Approach:**
+1.  In `intent-accuracy-scorer.ts`, create a function that takes an array of feedback records (e.g., `{ profile, actual_intent, predicted_intent }`).
+2.  Inside this function, group records by `profile`. For each profile, build a confusion matrix using a nested map: `{[actual: string]: {[predicted: string]: number}}`.
+3.  From the matrix, calculate the accuracy for each intent and identify pairs with high misclassification rates.
+4.  In `intent-confidence-analyzer.ts`, create the database query to fetch all required records.
+5.  Pass the records to the scorer function and print the resulting JSON to the console.
+6.  Add a corresponding unit test file to verify calculations with a sample dataset.
+
+**4. Edge Cases & Gotchas:**
+- The database query on the feedback table could be slow if the table is large; fetch only the necessary columns.
+- The tool must handle cases where there is no feedback data available for a given profile, producing an empty or informative report.
+- The exact schema (table/column names) for feedback is not defined in the story; this must be confirmed from the existing database schema.
+
