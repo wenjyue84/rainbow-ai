@@ -157,24 +157,116 @@ function loadIntentSynonyms(): any {
 }
 
 /**
- * US-563: Merge primary keywords with synonyms for an intent
+ * US-577: Load intent synonyms for a specific language and profile
+ * Checks for profile+language file first (intent-synonyms-{profile}-{lang}.json),
+ * then profile-only file (intent-synonyms-{profile}.json),
+ * then falls back to default intent-synonyms.json
+ *
+ * Returns an object mapping intentId to array of synonyms for that language
+ * Example: { "booking": ["reserve room", "book a stay"], "wifi": ["hotspot password"] }
+ */
+function loadSynonymsForLanguage(profileId: string = 'pelangi', language: string = 'en'): any {
+  const dataDir = join(process.cwd(), 'src', 'assistant', 'data');
+
+  // Try profile-specific + language-specific file first
+  const profileLangPath = join(dataDir, `intent-synonyms-${profileId}-${language}.json`);
+  if (existsSync(profileLangPath)) {
+    try {
+      const content = readFileSync(profileLangPath, 'utf-8');
+      const data = JSON.parse(content);
+      console.log(`[Intents:US-577] Loaded profile+language synonyms for "${profileId}"-"${language}"`);
+      // Convert from { intents: [{ intent, synonyms: [...] }] } to { intent: [...] }
+      return convertSynonymsFormat(data);
+    } catch (err: any) {
+      console.warn(`[Intents:US-577] Failed to load profile+language synonyms: ${err.message}`);
+    }
+  }
+
+  // Fall back to profile-only file
+  const profilePath = join(dataDir, `intent-synonyms-${profileId}.json`);
+  if (existsSync(profilePath)) {
+    try {
+      const content = readFileSync(profilePath, 'utf-8');
+      const data = JSON.parse(content);
+      console.log(`[Intents:US-577] Loaded profile synonyms for "${profileId}" (language fallback)`);
+      return convertSynonymsFormat(data);
+    } catch (err: any) {
+      console.warn(`[Intents:US-577] Failed to load profile synonyms: ${err.message}`);
+    }
+  }
+
+  // Fall back to default global synonyms
+  console.log(`[Intents:US-577] Using default intent synonyms (profile: "${profileId}", language: "${language}")`);
+  return convertSynonymsFormat(loadIntentSynonyms());
+}
+
+/**
+ * US-577: Convert synonym data from { intents: [{ intent, synonyms }] } to { intent: [...] }
+ * Handles both old format (synonyms as object with lang keys) and new format (synonyms as array)
+ */
+function convertSynonymsFormat(data: any): any {
+  const result: any = {};
+
+  if (data.intents && Array.isArray(data.intents)) {
+    for (const entry of data.intents) {
+      if (!entry.intent) continue;
+
+      // Handle new format: synonyms is already an array
+      if (Array.isArray(entry.synonyms)) {
+        result[entry.intent] = entry.synonyms;
+      }
+      // Handle old format: synonyms is object with lang keys { en: [...], ms: [...] }
+      else if (typeof entry.synonyms === 'object' && entry.synonyms !== null) {
+        // Flatten all language variants into one array
+        const allSyns: string[] = [];
+        for (const syns of Object.values(entry.synonyms)) {
+          if (Array.isArray(syns)) {
+            allSyns.push(...syns);
+          }
+        }
+        result[entry.intent] = allSyns;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * US-563 & US-577: Merge primary keywords with synonyms for an intent
  * Combines keywords and synonyms (weighted equally) into a single keyword list
+ *
+ * Supports both formats:
+ * - Old format: synonymsData = { intents: [{ intent, synonyms: { lang: [...] } }] }
+ * - New format: synonymsData = { intent: [...] } (converted by convertSynonymsFormat)
  */
 function mergeKeywordsAndSynonyms(
   intentName: string,
   primaryKeywords: string[],
   synonymsData: any
 ): string[] {
-  // Find synonyms for this intent
-  const intentSynonym = synonymsData.intents?.find((s: any) => s.intent === intentName);
-  if (!intentSynonym || !intentSynonym.synonyms) {
-    return primaryKeywords; // No synonyms, return primary keywords only
-  }
-
   // Merge primary keywords with synonyms (weighted equally)
   const mergedKeywords = [...primaryKeywords];
-  for (const [lang, syns] of Object.entries(intentSynonym.synonyms)) {
-    mergedKeywords.push(...(syns as string[]));
+
+  // Handle new format: synonymsData is already { intent: [...] }
+  if (synonymsData[intentName] && Array.isArray(synonymsData[intentName])) {
+    mergedKeywords.push(...(synonymsData[intentName] as string[]));
+  }
+  // Handle old format: synonymsData = { intents: [...] }
+  else if (synonymsData.intents) {
+    const intentSynonym = synonymsData.intents.find((s: any) => s.intent === intentName);
+    if (intentSynonym && intentSynonym.synonyms) {
+      // If synonyms is an object with lang keys (old format)
+      if (typeof intentSynonym.synonyms === 'object' && !Array.isArray(intentSynonym.synonyms)) {
+        for (const syns of Object.values(intentSynonym.synonyms)) {
+          mergedKeywords.push(...(syns as string[]));
+        }
+      }
+      // If synonyms is already an array
+      else if (Array.isArray(intentSynonym.synonyms)) {
+        mergedKeywords.push(...intentSynonym.synonyms);
+      }
+    }
   }
 
   // Return deduplicated list (case-insensitive)
@@ -195,12 +287,14 @@ function initFuzzyMatcherForProfile(keywordIntents: KeywordIntent[]): FuzzyInten
 
 function initFuzzyMatcher(profileKeywordData?: any): void {
   const keywordData = profileKeywordData || intentKeywordsData;
-  const synonymsData = loadIntentSynonyms();
   const keywordIntents: KeywordIntent[] = [];
 
   for (const intent of keywordData.intents) {
     for (const [lang, keywords] of Object.entries(intent.keywords)) {
-      // US-563: Merge synonyms with primary keywords
+      // US-577: Load language-specific synonyms for default profile
+      const synonymsData = loadSynonymsForLanguage('pelangi', lang);
+
+      // US-563 & US-577: Merge synonyms with primary keywords
       const mergedKeywords = mergeKeywordsAndSynonyms(
         intent.intent,
         keywords as string[],
@@ -216,7 +310,10 @@ function initFuzzyMatcher(profileKeywordData?: any): void {
     // US-053: Include regional variants if they exist
     if ((intent as any).regional_variants) {
       for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
-        // US-563: Also merge synonyms into regional variants
+        // US-577: Load language-specific synonyms for regional variants too
+        const synonymsData = loadSynonymsForLanguage('pelangi', lang);
+
+        // US-563 & US-577: Also merge synonyms into regional variants
         const mergedVariants = mergeKeywordsAndSynonyms(
           intent.intent,
           variants as string[],
@@ -232,13 +329,14 @@ function initFuzzyMatcher(profileKeywordData?: any): void {
   }
 
   fuzzyMatcher = initFuzzyMatcherForProfile(keywordIntents);
-  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list, US-563: synonyms merged)');
+  console.log('[Intents] Fuzzy matcher initialized with', keywordIntents.length, 'keyword groups (includes full_price_list, US-563: synonyms merged, US-577: language-specific)');
 }
 
 /**
  * Get or create a fuzzy matcher for a specific profile
  * US-525: Per-profile intent keyword configuration
  * US-563: Merge synonyms with primary keywords
+ * US-577: Use language-specific synonym files per profile
  */
 function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMatcher {
   if (fuzzyMatchersByProfile.has(profileId)) {
@@ -246,12 +344,14 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
   }
 
   const keywordData = loadIntentKeywords(profileId);
-  const synonymsData = loadIntentSynonyms();
   const keywordIntents: KeywordIntent[] = [];
 
   for (const intent of keywordData.intents) {
     for (const [lang, keywords] of Object.entries(intent.keywords)) {
-      // US-563: Merge synonyms with primary keywords
+      // US-577: Load language-specific synonyms for this profile
+      const synonymsData = loadSynonymsForLanguage(profileId, lang);
+
+      // US-563 & US-577: Merge synonyms with primary keywords
       const mergedKeywords = mergeKeywordsAndSynonyms(
         intent.intent,
         keywords as string[],
@@ -267,7 +367,10 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
     // US-053: Include regional variants if they exist
     if ((intent as any).regional_variants) {
       for (const [lang, variants] of Object.entries((intent as any).regional_variants)) {
-        // US-563: Also merge synonyms into regional variants
+        // US-577: Load language-specific synonyms for regional variants too
+        const synonymsData = loadSynonymsForLanguage(profileId, lang);
+
+        // US-563 & US-577: Also merge synonyms into regional variants
         const mergedVariants = mergeKeywordsAndSynonyms(
           intent.intent,
           variants as string[],
