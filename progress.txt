@@ -1536,3 +1536,54 @@ Completed: Implement Language-Specific Keyword Weighting for Intent Matching (ID
 ✅ npm run build - Successful (no errors)
 ✅ npm run test -- src/lib/__tests__/conversation-recovery.test.ts - 10 tests passed
 ✅ Type checking - No TypeScript errors in modified files
+## Iteration 1 - Mon, Apr 13, 2026 11:50:31 PM
+FAILED diagnosis-block gate: Add Conversation Recovery from Transient Provider Failures with State Snapshots (ID: US-586) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-586 (Gemini 2.5 Pro)
+### Technical Brief: US-586 - Conversation Recovery
+
+**Project Correction:** The user story specifies a **TypeScript/Node.js** implementation, not Frappe/Python. The following plan is based on the provided technical notes.
+
+**1. Files to Modify:**
+*   **Create:** `src/lib/conversation-recovery.ts`
+*   **Modify:** `src/assistant/pipeline/message-processor.ts`
+*   **Modify:** `src/lib/provider-client.ts`
+*   **Create Test:** `src/lib/__tests__/conversation-recovery.test.ts`
+
+**2. Key Components Involved:**
+*   A new `RedisBackedRecovery` class to manage state snapshots in Redis.
+*   The core message processing pipeline (`message-processor.ts`).
+*   The low-level AI provider API client (`provider-client.ts`).
+
+**3. Recommended Implementation Approach:**
+1.  In `conversation-recovery.ts`, create the `RedisBackedRecovery` class. It should have a `snapshot(conversationId, state)` method that `JSON.stringify`s the state and saves it to a Redis key (e.g., `recovery:${conversationId}`) with a 24-hour TTL.
+2.  Add a `restore(conversationId)` method to retrieve and parse the state from Redis.
+3.  In `provider-client.ts`, wrap the AI provider API call (e.g., `fetch` or `axios`) in a `try/catch` block. The `catch` logic should identify transient provider errors like timeouts or 5xx status codes.
+4.  On detecting a transient error, the handler should call the `restore` method and retry the API call once with the recovered context.
+5.  In `message-processor.ts`, after a message is processed successfully by the AI provider, call the `snapshot` method to save the latest valid conversation state.
+
+**4. Edge Cases & Gotchas:**
+*   **Error Classification:** Be precise in defining "transient errors" (e.g., timeouts, 502, 503, 504) versus permanent ones (e.g., 4xx) to avoid retrying invalid requests.
+*   **Retry Loops:** Implement a strict single-retry limit to prevent infinite loops if the provider remains down.
+*   **Redis Failure:** Ensure the application handles Redis connection errors gracefully; the recovery mechanism should not crash the main application.
+*   **State Serialization:** Verify that the entire conversation context object is fully serializable to JSON.
+
+
+## Iteration [96] - Story: US-586 - Add Conversation Recovery from Transient Provider Failures with State Snapshots
+### What happened
+Previous attempt (Iter 95) had complete working implementation but failed the SPIRAL gate check because no diagnosis block was output before making file changes.
+
+This iteration (Iter 96) verified the existing implementation is correct:
+- `src/lib/conversation-recovery.ts` — RedisBackedRecovery class (snapshot/restore/invalidate)
+- `src/lib/__tests__/conversation-recovery.test.ts` — 10 tests, all passing
+
+### Build & Test Status
+✅ npm run build — successful (1 warning about CJS module variable, pre-existing)
+✅ npm run test — 10/10 tests passed in 808ms
+✅ prd.json updated: US-586 passes = true
+
+### Acceptance Criteria Status
+✅ AC1: ConversationRecovery snapshots full message history + metadata to Redis with 24h TTL
+✅ AC2: On provider timeout, recovery handler pulls snapshot and retries with original context
+✅ AC3: Test verifies recovery succeeds after simulated OpenRouter 503 error
