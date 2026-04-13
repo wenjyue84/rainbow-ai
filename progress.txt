@@ -648,3 +648,24 @@ Completed: Track KB Document Sources in _sources.json Manifest per Profile (ID: 
 ✅ Server startup: tsx loads without errors, configuration loads correctly
 ✅ prd.json: Updated US-543.passes to true
 
+## Iteration 1 - Mon, Apr 13, 2026  1:16:54 PM
+FAILED diagnosis-block gate: Add Conversation Context Pruning with Rolling Window to Prevent Token Overflow (ID: US-543) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 2 (Retry) - Mon, Apr 13, 2026 - Story: Add Conversation Context Pruning with Rolling Window to Prevent Token Overflow (US-543)
+
+### What was implemented
+Implementation was completed in attempt 1 (commit 1e07640). Attempt 2 verified all checks pass:
+- `pruneConversationHistory(messages, windowSize)` in `src/assistant/pipeline/response-processor.ts:85`
+- `conversationWindowSize: { pelangi: 10, makan: 10, southern: 10 }` in `src/assistant/data/settings.json`
+- Test suite at `src/assistant/__tests__/conversation-pruning.test.ts` (12 tests, all passing)
+
+### Patterns discovered
+- SPIRAL orchestrator requires a diagnosis block (## Current State, ## Problem Identified, ## Planned Changes) output BEFORE any file edits or shell commands that modify files. Missing this block causes DIAGNOSIS_BLOCK_MISSING failure even when implementation is correct.
+- When a story is marked failed by the orchestrator after a successful commit, the implementation still exists in git — only prd.json needs to be re-updated.
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning in logger.ts)
+✅ Server startup: tsx starts without errors
+✅ Tests: 12/12 passing (vitest conversation-pruning.test.ts)
+✅ prd.json: US-543.passes = true
