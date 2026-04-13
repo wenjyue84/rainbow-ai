@@ -11,6 +11,7 @@ import intentExamplesData from './data/intent-examples.json' with { type: 'json'
 import intentsJsonData from './data/intents.json' with { type: 'json' };
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { keywordMatchCache } from '../lib/keyword-match-cache.js';
 
 // Re-export public API from extracted modules (keeps all imports from './intents.js' working)
 export { isEmergency, getEmergencyIntent, getRegexDeflection } from './emergency-patterns.js';
@@ -134,6 +135,10 @@ function getFuzzyMatcherForProfile(profileId: string = 'pelangi'): FuzzyIntentMa
 export async function initIntents(): Promise<void> {
   await loadEmergencyPatternsFromFile();
   initFuzzyMatcher();
+
+  // US-533: Invalidate keyword match cache whenever intents are re-initialized
+  keywordMatchCache.invalidateAll();
+  console.log('[KeywordCache-US533] Cache invalidated on intent re-init');
 
   // Build per-intent threshold map (Layer 1)
   buildIntentThresholdMap(intentsJsonData);
@@ -282,11 +287,31 @@ export async function classifyMessageWithContext(
 
   // TIER 2: Fuzzy keyword matching WITH CONTEXT
   // US-119: Use effective language (preferred or detected) for keyword filtering
+  // US-533: Check keyword match cache before running fuzzy similarity computations
   let fuzzyHighConfidenceResult: IntentResult | null = null;
   if (config.tiers.tier2_fuzzy.enabled && currentMatcher) {
     const contextSize = config.tiers.tier2_fuzzy.contextMessages;
     const context = history.slice(-contextSize);
     const languageFilter = effectiveLang !== 'unknown' ? effectiveLang : undefined;
+
+    // US-533: Cache lookup — skip fuzzy computation for repeated phrases
+    const cacheKey = `${profileId}:${processedText}`;
+    const cachedMatch = keywordMatchCache.get(cacheKey);
+    if (cachedMatch) {
+      console.log(
+        `[KeywordCache-US533] Cache HIT for phrase "${processedText.slice(0, 40)}" ` +
+        `→ ${cachedMatch.intent} (${(cachedMatch.confidence * 100).toFixed(0)}%)`
+      );
+      return traceAndReturn({
+        category: cachedMatch.intent as any,
+        confidence: cachedMatch.confidence,
+        entities: {},
+        source: 'fuzzy',
+        matchedKeyword: cachedMatch.matchedKeyword,
+        detectedLanguage: detectedLang,
+      }, 'T2 keyword cache hit (US-533)');
+    }
+    console.log(`[KeywordCache-US533] Cache MISS for phrase "${processedText.slice(0, 40)}"`);
 
     const fuzzyResult = currentMatcher.matchWithContext(
       processedText,
@@ -322,6 +347,7 @@ export async function classifyMessageWithContext(
     )) {
       const correctedIntent = correctCheckInFalsePositive(fuzzyResult.intent, processedText);
       const finalIntent = correctedIntent ?? fuzzyResult.intent;
+      const finalConfidence = correctedIntent ? 0.88 : fuzzyResult.score;
       if (correctedIntent) {
         console.log(`[Intent] ⚠️ T2 false-positive corrected: ${fuzzyResult.intent} → ${correctedIntent} (post-checkout context)`);
       } else {
@@ -332,9 +358,16 @@ export async function classifyMessageWithContext(
         );
       }
 
+      // US-533: Store successful match in cache
+      keywordMatchCache.set(cacheKey, {
+        intent: finalIntent,
+        confidence: finalConfidence,
+        matchedKeyword: fuzzyResult.matchedKeyword,
+      });
+
       return traceAndReturn({
         category: finalIntent as any,
-        confidence: correctedIntent ? 0.88 : fuzzyResult.score,
+        confidence: finalConfidence,
         entities: {},
         source: 'fuzzy',
         matchedKeyword: fuzzyResult.matchedKeyword,
@@ -346,6 +379,7 @@ export async function classifyMessageWithContext(
     if (fuzzyResult && fuzzyResult.score >= 0.85) {
       const correctedHigh = correctCheckInFalsePositive(fuzzyResult.intent, processedText);
       const finalHighIntent = correctedHigh ?? fuzzyResult.intent;
+      const finalHighConfidence = correctedHigh ? 0.88 : fuzzyResult.score;
       if (correctedHigh) {
         console.log(`[Intent] ⚠️ T2 high-confidence false-positive corrected: ${fuzzyResult.intent} → ${correctedHigh}`);
       } else {
@@ -354,9 +388,17 @@ export async function classifyMessageWithContext(
           `(${(fuzzyResult.score * 100).toFixed(0)}% >= 85%) — skipping semantic tier`
         );
       }
+
+      // US-533: Store high-confidence match in cache
+      keywordMatchCache.set(cacheKey, {
+        intent: finalHighIntent,
+        confidence: finalHighConfidence,
+        matchedKeyword: fuzzyResult.matchedKeyword,
+      });
+
       fuzzyHighConfidenceResult = {
         category: finalHighIntent as any,
-        confidence: correctedHigh ? 0.88 : fuzzyResult.score,
+        confidence: finalHighConfidence,
         entities: {},
         source: 'fuzzy',
         matchedKeyword: fuzzyResult.matchedKeyword,

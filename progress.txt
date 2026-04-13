@@ -1155,3 +1155,44 @@ Completed: Add Profile-Specific Booking Rules Validator for Pre-Flight Validatio
 ✅ pruneConversationContext(messages, windowSize) function exists and keeps only last N messages
 ✅ Default window size configurable per profile in settings.json (conversationWindowSize)
 ✅ Test suite with 5-message window sample verifies old messages dropped, recent preserved
+
+## Iteration 6 - Add Intent Keyword Matching Cache with LRU Eviction Policy (US-533)
+
+### What was implemented
+
+1. **src/lib/keyword-match-cache.ts** — New `KeywordMatchCache` class:
+   - LRU eviction using insertion-ordered Map (delete + re-insert on access)
+   - Configurable max size (default 100) and TTL (default 5 minutes)
+   - `get(phrase)` — normalizes key, checks TTL, moves to MRU on hit
+   - `set(phrase, entry)` — evicts LRU when at capacity, inserts at MRU
+   - `invalidateAll()` — called on intent re-init when keywords change
+   - `evictExpired()` / `size()` — utility methods
+   - Singleton `keywordMatchCache` exported
+
+2. **src/assistant/intents.ts** — T2 fuzzy matching integration:
+   - Added `keywordMatchCache` import
+   - Cache lookup BEFORE `currentMatcher.matchWithContext(...)` in TIER 2 section
+   - Cache key = `${profileId}:${processedText}` (profile-aware to prevent cross-contamination)
+   - Logs `[KeywordCache-US533] Cache HIT` / `Cache MISS` for each T2 lookup
+   - Stores successful matches (both above-threshold and high-confidence >=0.85) in cache
+   - `initIntents()` calls `keywordMatchCache.invalidateAll()` on re-init
+
+3. **tests/lib/keyword-match-cache.test.ts** — 14 tests:
+   - Cache hit/miss, key normalization, repeated-phrase caching
+   - TTL expiration (returns null after TTL, size() excludes expired)
+   - LRU eviction: oldest evicted at capacity, access moves to MRU
+   - invalidateAll clears everything
+   - Default constructor (100 entries, 5-min TTL)
+
+4. **vitest.config.ts** — Added `tests/lib/**/*.{test,spec}.{ts,tsx}` to unit project include
+
+### Patterns discovered
+- LRU via Map: Map preserves insertion order; delete+re-insert achieves O(1) LRU access update
+- T2 cache key includes profileId to avoid cross-profile intent contamination (US-525 per-profile keywords)
+- Cache stores intent+confidence+matchedKeyword — enough to reconstruct the IntentResult fast path
+
+### Quality checks
+- Tests: 14/14 passing
+- Build: esbuild successful (2.6mb, 1 pre-existing warning)
+- Server startup: Successful (pre-existing deprecation warnings only)
+- prd.json: Updated US-533.passes to true
