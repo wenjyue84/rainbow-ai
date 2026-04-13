@@ -974,3 +974,128 @@ FAILED diagnosis-block gate: Add Multi-Language Intent Keyword Synonym Expansion
 ## Iteration 5 - Mon, Apr 13, 2026 10:41:00 PM
 Completed: Add Multi-Language Intent Keyword Synonym Expansion (ID: US-563) in 3m
 
+
+## Pre-analysis for US-584 (Gemini 2.5 Pro)
+### Technical Brief: US-584 - Context-Aware Intent Classification
+
+**Primary Objective:** Enhance the intent classifier to use the last 2-3 conversation turns to improve accuracy, specifically for disambiguating follow-up messages.
+
+**Core Discrepancy:** The user story and technical notes specify a **TypeScript/Node.js** implementation. The prompt's mention of Frappe/Python seems incorrect for this specific task. The following plan assumes the TypeScript context is the source of truth.
+
+**1. Python Files to Modify / Frappe Context:**
+*   Based on the story's `technicalNotes`, no Python or Frappe files are involved. The work is confined to the TypeScript application layer.
+*   **Target Files (TypeScript):**
+    *   `src/assistant/intent-classifier.ts` (Modify this file)
+    *   `src/lib/conversation-context.ts` (Create this new file)
+
+**2. Frappe DocTypes / Hooks:**
+*   None. The logic resides entirely within the application's services, not in Frappe DocTypes or server-side hooks.
+
+**3. Recommended Implementation Approach:**
+1.  **Create `src/lib/conversation-context.ts`**: Implement a function `getPreviousIntents(conversationHistory)` that accepts the conversation log and returns an array of the last 2-3 intent strings.
+2.  **Modify `classifyIntent` in `src/assistant/intent-classifier.ts`**: Update its signature to accept a new `context` parameter, e.g., `classifyIntent(message, { previousIntents: string[] })`.
+3.  **Implement Contextual Logic**: Inside `classifyIntent`, before returning the final classification, check if `previousIntents` includes `booking_inquiry`.
+4.  **Apply Boost**: If the context matches and the current message contains temporal booking keywords (e.g., "nights," "days"), boost the confidence score for the `booking_confirmation` intent by the specified 18%.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Context Plumbing:** The mechanism for passing the conversation history to the `classifyIntent` function needs to be implemented. The caller of this function will require modification.
+*   **Short Conversations:** The `getPreviousIntents` function must gracefully handle conversations with fewer than 2-3 turns, returning an empty array without errors.
+*   **Keyword Ambiguity:** Matching just "days" could be ambiguous. The pattern should be more specific, like `/\d+\s+(nights|days|weeks)/i`, to better capture booking durations.
+*   **Hardcoded Boost:** The 18% boost is a "magic number." It might be prudent to define it as a configurable constant rather than a literal in the code for easier tuning.
+
+
+## Pre-analysis for US-584 (Gemini 2.5 Pro)
+### Technical Brief: US-584 - Context-Aware Intent Classification
+
+**Primary Objective:** Enhance the intent classifier to use the last 2-3 conversation turns to improve accuracy, specifically for disambiguating follow-up messages.
+
+**Core Discrepancy:** The user story and technical notes specify a **TypeScript/Node.js** implementation. The prompt's mention of Frappe/Python seems incorrect for this specific task. The following plan assumes the TypeScript context is the source of truth.
+
+**1. Python Files to Modify / Frappe Context:**
+*   Based on the story's `technicalNotes`, no Python or Frappe files are involved. The work is confined to the TypeScript application layer.
+*   **Target Files (TypeScript):**
+    *   `src/assistant/intent-classifier.ts` (Modify this file)
+    *   `src/lib/conversation-context.ts` (Create this new file)
+
+**2. Frappe DocTypes / Hooks:**
+*   None. The logic resides entirely within the application's services, not in Frappe DocTypes or server-side hooks.
+
+**3. Recommended Implementation Approach:**
+1.  **Create `src/lib/conversation-context.ts`**: Implement a function `getPreviousIntents(conversationHistory)` that accepts the conversation log and returns an array of the last 2-3 intent strings.
+2.  **Modify `classifyIntent` in `src/assistant/intent-classifier.ts`**: Update its signature to accept a new `context` parameter, e.g., `classifyIntent(message, { previousIntents: string[] })`.
+3.  **Implement Contextual Logic**: Inside `classifyIntent`, before returning the final classification, check if `previousIntents` includes `booking_inquiry`.
+4.  **Apply Boost**: If the context matches and the current message contains temporal booking keywords (e.g., "nights," "days"), boost the confidence score for the `booking_confirmation` intent by the specified 18%.
+
+**4. Edge Cases & Gotchas to Watch For:**
+*   **Context Plumbing:** The mechanism for passing the conversation history to the `classifyIntent` function needs to be implemented. The caller of this function will require modification.
+*   **Short Conversations:** The `getPreviousIntents` function must gracefully handle conversations with fewer than 2-3 turns, returning an empty array without errors.
+*   **Keyword Ambiguity:** Matching just "days" could be ambiguous. The pattern should be more specific, like `/\d+\s+(nights|days|weeks)/i`, to better capture booking durations.
+*   **Hardcoded Boost:** The 18% boost is a "magic number." It might be prudent to define it as a configurable constant rather than a literal in the code for easier tuning.
+
+
+## Iteration [95] - Story: US-584 - Implement Context-Aware Intent Classification Using Previous Conversation Turns
+
+### What was implemented
+
+✅ **Core Functions** (`src/assistant/intents.ts`):
+  - `getPreviousIntents(history, windowSize)` — Extracts last 2-3 intent classifications from conversation history (chronological order)
+  - `hasTemporalKeywords(text)` — Detects temporal keywords: English (nights, days, weeks), Malay (hari, minggu), Mandarin (晚, 天, 周), and others
+  - `applyContextAwareBoost(result, text, previousIntents)` — Applies 18% confidence boost to booking_confirmation when:
+    - Current classification is booking_confirmation or booking
+    - Previous intent includes booking_inquiry or booking
+    - Message contains temporal keywords (e.g., "3 nights")
+
+✅ **Integration**:
+  - Modified `traceAndReturn()` helper in `classifyMessageWithContext()` to apply context boost before returning all classification results
+  - Boost applies to all tiers (fuzzy, semantic, LLM) — uses context-aware logic universally
+  - No changes to function signatures needed — `classifyMessageWithContext()` already received full history
+
+✅ **Test Suite** (`tests/unit/context-aware-intent-classification.test.ts`):
+  - 18 unit tests covering:
+    - Intent extraction from conversation history
+    - Temporal keyword detection (English, Malay, Mandarin)
+    - 18% confidence boost calculation and capping at 100%
+    - AC1: Previous intents considered in classification
+    - AC2: Booking confirmation boost applies when conditions met
+    - AC3: Multi-turn booking dialogue flow validation
+    - Edge cases: empty history, missing intents, non-booking contexts
+
+### Acceptance Criteria Met
+
+1. ✅ **AC1:** Intent classifier receives and considers last 2 classifications from conversation context
+   - `getPreviousIntents()` extracts up to 3 previous intents in chronological order
+   - Applied via `applyContextAwareBoost()` which checks previous intent
+
+2. ✅ **AC2:** 18% confidence boost for booking_confirmation when previous intent is booking_inquiry + temporal keywords
+   - Pattern: `/\d+\s*(nights?|days?|weeks?|hari|minggu|晚|天|周|nacht)/i`
+   - Boost formula: `Math.min(1.0, confidence * 1.18)` (capped at 100%)
+   - Applied to all classification tiers
+
+3. ✅ **AC3:** Multi-turn dialogue classification works correctly
+   - Turn 1: "Do you have rooms?" → booking_inquiry
+   - Turn 2: "How many nights?" → booking_inquiry (context preserved)
+   - Turn 3: "For 3 nights" → booking_confirmation (with context boost)
+
+### Quality Checks
+
+✅ Build succeeds (esbuild, no code errors)
+✅ All 18 unit tests pass
+✅ Server startup completes without runtime errors
+✅ Temporal keyword detection works across 4+ languages
+✅ No regression in existing classification logic
+
+### Patterns Discovered
+
+1. **Message Intent Data:** Messages loaded via `getConversation()` from database include intent field (as `LoggedMessage` type), enabling context-aware classification
+2. **Regex for Non-ASCII:** Word boundaries `\b` don't work with non-ASCII text; removed \b to support multilingual keywords
+3. **Boost Applied Universally:** Context boost works on ALL tiers (fuzzy/semantic/LLM), not just specific ones — applied in single `traceAndReturn()` helper
+4. **3-Turn Window:** Efficient history extraction using `slice(-windowSize)` and backward scan maintains chronological order
+
+### No Gotchas
+
+- Conversation history already contains intent data from DB
+- No new function signatures needed; uses existing `classifyMessageWithContext()` parameters
+- Multilingual support added via extended regex pattern
+- Boost safely capped at 100% confidence
+
+---

@@ -23,6 +23,77 @@ import { mapLLMIntentToSpecific } from './llm-intent-mapper.js';
 import { tryMultiIntentSplit, correctCheckInFalsePositive } from './multi-intent.js';
 import { buildClassificationTrace, recordClassificationTrace } from './classification-tracer.js';
 
+// ─── Context-Aware Intent Classification Helpers (US-584) ──────────
+
+/**
+ * Extract the last 2-3 intent classifications from conversation history
+ * US-584: Returns array of previous intent strings for context-aware boosting
+ */
+function getPreviousIntents(history: ChatMessage[], windowSize: number = 3): string[] {
+  const previousIntents: string[] = [];
+
+  // Scan history backwards (most recent first)
+  for (let i = history.length - 1; i >= 0 && previousIntents.length < windowSize; i--) {
+    const msg = history[i] as any; // ChatMessage may have intent field from DB
+    if (msg.intent && msg.intent !== 'unknown' && typeof msg.intent === 'string') {
+      previousIntents.unshift(msg.intent); // Prepend to maintain chronological order
+    }
+  }
+
+  return previousIntents;
+}
+
+/**
+ * Check if text contains temporal keywords related to booking duration
+ * US-584: Detects phrases like "3 nights", "7 days", "2 weeks"
+ * Supports English, Malay, Mandarin, and other languages
+ */
+function hasTemporalKeywords(text: string): boolean {
+  // Pattern: number + optional space + temporal keyword
+  // Works with ASCII (nights, days, weeks, hari, minggu) and non-ASCII (晚, 天, 周)
+  const temporalPattern = /\d+\s*(nights?|days?|weeks?|hari|minggu|晚|天|周|nacht|مساء|رات|ہفتوں)/i;
+  return temporalPattern.test(text);
+}
+
+/**
+ * Apply context-aware boosting to classification result
+ * US-584: Boosts booking_confirmation by 18% when previous intent is booking_inquiry
+ * and current message contains temporal keywords
+ */
+function applyContextAwareBoost(
+  result: IntentResult,
+  text: string,
+  previousIntents: string[]
+): IntentResult {
+  // Check conditions for booking confirmation boost
+  const hasPreviousBookingInquiry = previousIntents.includes('booking_inquiry') ||
+                                     previousIntents.includes('booking');
+  const hasTemporalContent = hasTemporalKeywords(text);
+
+  // Only boost if:
+  // 1. Current classification is booking_confirmation or booking
+  // 2. Previous intent was booking_inquiry or booking
+  // 3. Message has temporal keywords
+  if (
+    (result.category === 'booking_confirmation' || result.category === 'booking') &&
+    hasPreviousBookingInquiry &&
+    hasTemporalContent
+  ) {
+    const boostedConfidence = Math.min(1.0, result.confidence * 1.18); // 18% boost
+    console.log(
+      `[Intent] 🚀 US-584 Context boost applied: ${result.category} ` +
+      `(${(result.confidence * 100).toFixed(0)}% → ${(boostedConfidence * 100).toFixed(0)}%) ` +
+      `[prev: ${previousIntents[previousIntents.length - 1] || 'none'}, temporal: yes]`
+    );
+    return {
+      ...result,
+      confidence: boostedConfidence,
+    };
+  }
+
+  return result;
+}
+
 // ─── Fuzzy Keyword Matcher (with Profile Support) ────────────
 
 let fuzzyMatcher: FuzzyIntentMatcher | null = null;
@@ -297,13 +368,17 @@ export async function classifyMessageWithContext(
         // Never let tracing break classification
       }
     }
+    // US-584: Apply context-aware boosting for booking confirmation
+    const previousIntents = getPreviousIntents(history);
+    let boostedResult = applyContextAwareBoost(result, text, previousIntents);
+
     // US-395: Attach top-3 alternative intents (excluding the chosen one) for confidence gating context
     const alternatives = tierCandidates
-      .filter(c => c.intent !== result.category)
+      .filter(c => c.intent !== boostedResult.category)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
       .map(c => ({ intent: c.intent, confidence: c.score }));
-    return alternatives.length > 0 ? { ...result, alternatives } : result;
+    return alternatives.length > 0 ? { ...boostedResult, alternatives } : boostedResult;
   }
 
   // TIER 0: Language Detection

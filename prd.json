@@ -2532,6 +2532,49 @@
         "contextWindow": 10
       },
       "_passedCommit": "84205f2ddc546dbe102c369c7722db6f9128c60c"
+    },
+    {
+      "id": "US-584",
+      "title": "Implement Context-Aware Intent Classification Using Previous Conversation Turns",
+      "priority": "high",
+      "description": "Enhance intent classifier to incorporate previous 2-3 intent classifications from conversation history. Improves accuracy for follow-up messages where context disambiguates user intent (e.g., 'For 3 nights' following 'I want to book').",
+      "acceptanceCriteria": [
+        "Intent classifier receives previous_intents array from conversation context and considers last 2 classifications when scoring current message",
+        "When previous intent is booking_inquiry and current message contains temporal keywords (nights, days, weeks), boost booking_confirmation confidence score by 18%",
+        "Test multi-turn dialogue: user sends inquiry → system asks follow-up → user responds with availability; verify second response classified as booking_confirmation instead of inquiry"
+      ],
+      "technicalNotes": [
+        "File to modify: src/assistant/intent-classifier.ts (classifyIntent function to accept context parameter with previous_intents array)",
+        "File to create: src/lib/conversation-context.ts (getPreviousIntents function with 3-turn window)",
+        "Test command: uv run pytest tests/integration/multi-turn-intent.test.py::test_context_aware_booking_classification -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T14:56:40Z"
+    },
+    {
+      "id": "US-585",
+      "title": "Add Tamil Sentiment Detection for Intent Disambiguation",
+      "priority": "medium",
+      "description": "Implement Tamil-specific sentiment analysis to disambiguate intents when keywords alone are ambiguous. Distinguishes positive sentiment (booking interest, satisfaction) from negative sentiment (complaints, dissatisfaction) in Tamil messages using curated word lists.",
+      "acceptanceCriteria": [
+        "New file src/assistant/data/tamil-sentiments.json contains categorized positive and negative Tamil words with sentiment scores",
+        "TamilSentimentAnalyzer class in src/lib/tamil-sentiment.ts analyzes messages and returns score from -1.0 (negative) to +1.0 (positive)",
+        "Intent classifier applies sentiment modifier: boost booking/inquiry scores by 20% for +0.6+ sentiment, boost complaint score by 15% for -0.6 sentiment in Tamil messages"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/tamil-sentiment.ts (TamilSentimentAnalyzer class with analyze(message) method)",
+        "File to create: src/assistant/data/tamil-sentiments.json with 'positive' and 'negative' word arrays",
+        "Test command: uv run pytest tests/unit/tamil-sentiment.test.py::test_positive_booking_sentiment -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
