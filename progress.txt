@@ -1037,3 +1037,74 @@ This is a TypeScript/Node.js user story, not Frappe/Python.
 *   **File Discovery:** The script must gracefully handle cases where `workflows.json` or KB directories might be missing.
 *   **Clear Reporting:** Ensure output paths are clear and relative to the project root.
 
+
+## Iteration [95] - Story: US-561 - Add Profile-Specific Data Contamination Detection CLI
+
+### What was implemented
+1. **contamination-keywords.json** - Defined cross-profile keywords for pelangi, makan, southern, yoongmei profiles
+2. **auditContamination.ts** - CLI script that:
+   - Loads contamination-keywords.json
+   - Scans all profile directories (data/, data-makan/, data-southern/, etc.)
+   - Looks for knowledge.json and workflows.json files
+   - Reports contamination with file path, line number, and contaminating profile
+   - Returns exit code 0 for clean, 1 for contamination found
+3. **auditContamination.test.ts** - 4 tests covering:
+   - Detection of 'Pelangi Capsule' in non-pelangi profiles
+   - Loading contamination-keywords.json successfully
+   - Checking for keyword overlaps between profiles
+   - Line number accuracy for contamination detection
+4. **package.json** - Added `npm run audit:contamination` script
+
+### Patterns discovered
+- vitest test file discovery requires specific patterns (tests/unit/**/*.test.ts for unit tests)
+- File path resolution in ESM requires proper __dirname/fileURLToPath handling
+- Need to adjust path construction based on test file location (tests/unit -> +2 levels to project root)
+- Case-insensitive keyword matching is important for catching variations (e.g., "Pelangi Capsule" vs "pelangi capsule")
+
+### Gotchas
+- Initial test file location in tests/ didn't match vitest patterns - moved to tests/unit/
+- Project uses ESM module format, so need proper import handling
+- Test projectRoot calculation was off (+1 level instead of +2 from tests/unit)
+- The default profile's knowledge.json legitimately contains pelangi keywords, so "contamination" is expected for base profile
+
+### Quality checks passed
+✓ npm run build - successful bundle
+✓ npm run test -- tests/unit/auditContamination.test.ts - 4/4 tests pass
+✓ npm run audit:contamination - CLI executes correctly, detects contamination
+
+## Iteration 1 - Mon, Apr 13, 2026  6:42:23 PM
+FAILED diagnosis-block gate: Add Profile-Specific Data Contamination Detection CLI (ID: US-561) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-561 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js user story, not Frappe/Python.
+
+**Technical Brief: US-561 Data Contamination CLI**
+
+**1. Python/Frappe Files to Modify:**
+*   N/A. This is a Node.js/TypeScript task.
+*   **Create:** `scripts/auditContamination.ts` - The main CLI script.
+*   **Create:** A keyword definition file, likely `contamination-keywords.json`.
+*   **Create:** `tests/auditContamination.test.ts` - The test file for the new script.
+*   **Modify:** `package.json` - To add the `audit:contamination` npm script.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   N/A. The core components are:
+    *   **NPM Script:** The entry point will be `npm run audit:contamination`.
+    *   **Knowledge Base:** The script will scan files within all `.rainbow-kb-*` directories.
+    *   **Workflows:** It will also scan a `workflows.json` file.
+
+**3. Recommended Implementation Approach:**
+*   In `scripts/auditContamination.ts`, use the Node.js `fs` and `path` modules.
+*   The script should first read and parse `contamination-keywords.json` into a map, e.g., `Map<string, string[]>`, where the key is the profile name and the value is its list of keywords.
+*   Use a glob pattern (e.g., `.rainbow-kb-*/**/*.md`) to get a list of all knowledge base files to scan. Add `workflows.json` to this list.
+*   Iterate through each file. For each file, determine its "home" profile from its path.
+*   Read the file line-by-line. For each line, check if it contains any keywords from *other* profiles. A case-insensitive regex match is recommended.
+*   If a contaminating keyword is found, log a formatted error to the console with the file path, line number, and the source of the contamination (e.g., "Found keyword 'Pelangi Capsule' from profile 'Pelangi' in 'data-makan/faq.md:25'").
+
+**4. Edge Cases & Gotchas:**
+*   **Keyword Specificity:** Keywords should be specific (e.g., "Pelangi Capsule Hotel") to avoid false positives on generic terms ("capsule", "hotel").
+*   **Case-Insensitive Matching:** The search must be case-insensitive to be effective.
+*   **File Discovery:** The script must gracefully handle cases where `workflows.json` or KB directories might be missing.
+*   **Clear Reporting:** Ensure output paths are clear and relative to the project root.
+
