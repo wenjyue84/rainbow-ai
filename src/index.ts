@@ -91,6 +91,7 @@ import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-fil
 import { validateAll as validateConfig, ConfigValidationError } from './lib/config-validator.js';
 import { initializeWorkers, shutdownWorkers } from './lib/jobs/init-workers.js';
 import { validateProviderHealth } from './lib/provider-health-check.js';
+import { startupHealthCheck } from './lib/startup-health-check.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -790,6 +791,10 @@ try {
 // US-565: AI Provider health check before server startup
 // Validate that configured AI providers are reachable with 5s timeout
 await validateProviderHealth();
+
+// US-566: Comprehensive startup health check with JSON report
+// Tests PostgreSQL, Redis, and AI providers with structured JSON output
+await startupHealthCheck();
 
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {

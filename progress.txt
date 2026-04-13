@@ -1430,3 +1430,64 @@ FAILED diagnosis-block gate: Add Health Check for External AI Provider Connectiv
 ### Gotchas
 
 - Attempt 2 (this one): Code was already complete, just needed to output diagnosis block first and run quality checks to confirm passes
+## Iteration 2 - Mon, Apr 13, 2026  7:20:45 PM
+Completed: Add Health Check for External AI Provider Connectivity on Startup (ID: US-565) in 2m
+
+
+## Pre-analysis for US-566 (Gemini 2.5 Pro)
+Here is a technical brief for implementing the user story in a Frappe/Python environment.
+
+**Objective:** Create a startup health check for the `lhdn_payroll_integration` app that verifies PostgreSQL, Redis, and AI provider connectivity, outputting a structured JSON report to the Frappe logs.
+
+**1. Primary Files to Modify:**
+*   `lhdn_payroll_integration/hooks.py`: To trigger the health check during the boot process.
+*   `lhdn_payroll_integration/utils/health_check.py` (New File): To house the main logic for running checks and formatting the JSON report.
+*   `lhdn_payroll_integration/tests/test_health_check.py` (New File): To unit test the health check runner.
+
+**2. Frappe Framework Integration:**
+*   **Hooks:** Use the `on_startup` or `boot_session` hook in `hooks.py` to execute the health check function.
+*   **DocTypes:** Recommend creating a new Single `DocType` named "LHDN Settings" to store AI provider API endpoints and keys, avoiding hardcoded values.
+*   **Database/Cache:** Utilize the built-in Frappe objects `frappe.db` for the PostgreSQL check and `frappe.cache()` for the Redis check.
+
+**3. Implementation Approach:**
+1.  In `health_check.py`, create a primary function `run_startup_checks()`.
+2.  Implement a PostgreSQL check using `frappe.db.sql()` with a simple query like `SELECT 'ok';`, measuring the execution time for latency.
+3.  Implement a Redis check using `frappe.cache().ping()`.
+4.  For AI providers, use the `requests` library with a configured timeout (e.g., 5 seconds) to check health endpoints specified in the new "LHDN Settings" DocType.
+5.  Aggregate all results (status, latency, errors) into a Python dictionary and log it as a JSON string using `frappe.logger().info()`.
+
+**4. Edge Cases to Consider:**
+*   **Timeouts:** All external API calls must have strict timeouts to prevent delaying or crashing the site startup.
+*   **Fail-Safety:** The health check itself must not crash. Wrap checks in `try...except` blocks to ensure a dependency failure is logged gracefully without halting the boot process.
+*   **Configuration Management:** Abstract all external URLs, ports, and credentials into the settings DocType.
+
+
+## Pre-analysis for US-566 (Gemini 2.5 Pro)
+**Technical Brief for US-566: Startup Health Check Reporter**
+
+**Project Context Analysis:**
+The provided user story specifies a TypeScript/Node.js implementation, not a Frappe/Python one. The technical notes reference `*.ts` files and `vitest`, which are characteristic of a Node.js environment. The implementation should proceed based on this context.
+
+**1. Python Files to Modify:**
+*   No Python files are involved. The work will be in TypeScript.
+*   **New File:** `src/lib/startup-health-check.ts` for the main health check logic.
+*   **Existing File:** `src/index.ts` to execute the check during application startup.
+
+**2. Frappe DocTypes/Hooks:**
+*   There are no Frappe DocTypes or hooks involved. The health check is a procedural script called from the application's main entry point before the server begins listening.
+
+**3. Recommended Implementation Approach:**
+1.  Define an async `startupHealthCheck` function in a new `src/lib/startup-health-check.ts` file.
+2.  This function will sequentially test dependencies (Postgres, Redis, AI providers).
+3.  **PostgreSQL:** Use an existing database client to execute a simple, non-blocking query (e.g., `SELECT 1`) with a connection/query timeout. Record latency.
+4.  **Redis:** Use the `redis` client to send a `PING` command.
+5.  **AI Providers:** Implement a fallback mechanism. Attempt to connect to Kimi, then Ollama, then OpenRouter, each with a 5-second timeout.
+6.  The function should aggregate all results into a single JSON object.
+7.  In `src/index.ts`, call `startupHealthCheck` and log the resulting JSON report to the console before the server starts.
+
+**4. Edge Cases & Gotchas:**
+*   Ensure timeouts for each check are handled gracefully to prevent the application from hanging on startup.
+*   The JSON report structure must remain consistent, even if a dependency check fails (e.g., include status and error fields).
+*   The AI provider check must correctly iterate through the fallback chain upon failure.
+*   Log sufficient detail for debugging (e.g., latency, which AI provider responded) without exposing sensitive information.
+
