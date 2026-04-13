@@ -129,6 +129,7 @@ import hardCasesRoutes from './hard-cases.js'; // US-376: Hard-case review queue
 import debugExplainIntentRoutes from './debug-explain-intent.js'; // US-378: Intent classification explanation debugger
 import validationRoutes from './validation.js'; // US-470: Booking unit availability validation
 import guestsQuickLookupRoutes from './guests-quick-lookup.js'; // US-550: Guest context quick-lookup
+import intentLatencyMetricsRoutes from './intent-latency-metrics.js'; // US-552: Intent classification latency metrics
 
 const router = Router();
 
@@ -313,6 +314,7 @@ router.use(testingRoutes);
 router.use(conversationsRoutes);
 router.use(whatsappRoutes);
 router.use(metricsRoutes);
+router.use('/metrics', intentLatencyMetricsRoutes); // US-552: Intent classification latency metrics
 router.use(intentManagerRoutes);
 router.use(feedbackRoutes);
 router.use(feedbackSettingsRoutes);

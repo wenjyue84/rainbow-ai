@@ -1638,7 +1638,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-13T08:35:40Z"
+      "last_attempted": "2026-04-13T08:51:15Z"
     },
     {
       "id": "US-553",
@@ -1673,6 +1673,49 @@
         "contextWindow": 10
       },
       "_passedCommit": "4b61c59f20cb45fa1722e7861e526a774c175cce"
+    },
+    {
+      "id": "US-554",
+      "title": "Implement Per-Intent Custom System Prompt Configuration",
+      "priority": "medium",
+      "description": "Allow admins to configure custom system prompts per intent type. AI provider uses custom prompt if defined, otherwise falls back to default. Store prompts in intent-prompts.json.",
+      "acceptanceCriteria": [
+        "intent-prompts.json structure: { [intent_type]: { system_prompt: string, language?: string } }; loading fails gracefully if file missing",
+        "AI provider initialization loads custom prompts; if intent not found, uses default system prompt from environment",
+        "Admin endpoint POST /api/admin/intents/{intent_type}/prompt accepts { system_prompt: string } and atomically updates intent-prompts.json"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/data/intent-prompts.json (new config with structure { booking: { system_prompt: '...' }, inquiry: { ... } })",
+        "File to modify: src/assistant/ai-providers.ts (loadIntentPrompts() function merged into provider init, fallback to process.env.DEFAULT_SYSTEM_PROMPT)",
+        "File to create: src/routes/admin/intent-prompts.ts (POST /intents/{intent_type}/prompt with prompt text validation)",
+        "Test command: npm run test:run tests/intent-prompts.test.ts -t 'custom_prompt_override'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-555",
+      "title": "Implement Booking Workflow Step Auto-Progression with User Confirmation",
+      "priority": "medium",
+      "description": "Automatically advance booking workflow to next step when user confirms current step, reducing interaction friction in multi-step flows and improving conversion rate",
+      "acceptanceCriteria": [
+        "workflows.json booking flow includes 'autoProgress': true flag for applicable steps (check-in date selection, guest count, confirmation)",
+        "Booking processor checks confirmation message using regex /confirm|yes|proceed/i before advancing to next step",
+        "Integration test: booking flow progresses from step 1→2→3 with confirmations in 3 sequential messages"
+      ],
+      "technicalNotes": [
+        "Edit src/assistant/data/workflows.json to add autoProgress flag to booking steps",
+        "Modify src/pipeline/booking-processor.ts function advanceBookingStep() to check confirmation regex before transitioning state",
+        "Test: uv run vitest tests/booking-workflow.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }

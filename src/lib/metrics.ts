@@ -5,7 +5,9 @@
  * per profile (pelangi, southern, makan) with SLA monitoring.
  */
 
-import { logger } from './logger.js';
+import { createModuleLogger } from './logger.js';
+
+const logger = createModuleLogger('Metrics');
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -144,7 +146,7 @@ export function getSamples(profile: string): number[] | undefined {
 
 /**
  * Calculate percentile using linear interpolation method
- * More accurate than nearest-rank method for edge cases
+ * More accurate for edge cases - uses Excel's PERCENTILE.INC method
  *
  * @param sorted - Sorted array of numbers
  * @param percentile - Percentile to calculate (0-100)
@@ -154,12 +156,23 @@ function calculatePercentile(sorted: number[], percentile: number): number {
   if (sorted.length === 0) return 0;
   if (sorted.length === 1) return sorted[0];
 
-  // Use nearest-rank method for compatibility with test expectations
-  // Position = ceil(p/100 * N)
-  const position = Math.ceil((percentile / 100) * sorted.length) - 1;
-  const index = Math.max(0, Math.min(position, sorted.length - 1));
+  // Linear interpolation method (PERCENTILE.INC / Excel method)
+  // Position = (p/100) * (n - 1)
+  const position = (percentile / 100) * (sorted.length - 1);
+  const index = Math.floor(position);
+  const remainder = position - index;
 
-  return Math.round(sorted[index] * 100) / 100;
+  // If position is exact integer, return that element
+  if (remainder === 0) {
+    return Math.round(sorted[index] * 100) / 100;
+  }
+
+  // Otherwise, interpolate between index and index+1
+  const lower = sorted[index];
+  const upper = index + 1 < sorted.length ? sorted[index + 1] : sorted[index];
+  const interpolated = lower + remainder * (upper - lower);
+
+  return Math.round(interpolated * 100) / 100;
 }
 
 /**

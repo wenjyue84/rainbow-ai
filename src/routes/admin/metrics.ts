@@ -8,6 +8,7 @@ import { trackConfigReloaded } from '../../lib/activity-tracker.js';
 import { ok, getStore } from './http-utils.js';
 import { getConfigAuditLog } from '../../lib/config-db.js';
 import { pool } from '../../lib/db.js';
+import { getAllMetrics } from '../../lib/metrics.js';
 
 const router = Router();
 
@@ -134,6 +135,13 @@ router.get('/workflow-timeouts', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── US-552: Intent Classification Latency Metrics per Profile ─────────
+
+router.get('/intent-latency', (req: Request, res: Response) => {
+  const metrics = getAllMetrics();
+  ok(res, metrics);
 });
 
 export default router;

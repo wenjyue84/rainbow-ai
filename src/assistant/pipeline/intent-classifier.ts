@@ -34,6 +34,7 @@ import { parseFlexibleDate } from '../utils/date-parser.js';
 import { createModuleLogger } from '../../lib/logger.js';
 import { db } from '../../lib/db.js';
 import { recordIntentLatency } from '../../lib/monitoring/latency-tracker.js';
+import { recordIntentLatency as recordProfileLatency, normalizeProfileName } from '../../lib/metrics.js';
 import { intentAnalytics, escalationQueue, rainbowLowconfMessages, hardCaseQueue } from '../../../shared/schema-tables.js';
 import { checkPerIntentThreshold } from '../../lib/intent-thresholds.js';
 import { trackIntentPrediction } from '../intent-tracker.js';
@@ -386,6 +387,10 @@ export async function classifyAndRoute(
 
   // US-426: Record intent classification latency for percentile analytics
   batchOps.push(recordIntentLatency(result.intent, classificationLatencyMs, state.profileId));
+
+  // US-552: Record profile-level latency for SLA monitoring
+  const normalizedProfile = normalizeProfileName(state.profileId);
+  recordProfileLatency(normalizedProfile, classificationLatencyMs);
 
   // US-245: Record turn-by-turn confidence metadata
   const totalTokens = (devMetadata.usage?.prompt_tokens ?? 0) + (devMetadata.usage?.completion_tokens ?? 0);
