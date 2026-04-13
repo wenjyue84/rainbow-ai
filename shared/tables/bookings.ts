@@ -287,3 +287,24 @@ export const verificationCodes = pgTable("verification_codes", {
 
 export type VerificationCode = typeof verificationCodes.$inferSelect;
 export type InsertVerificationCode = typeof verificationCodes.$inferInsert;
+
+// ─── Booking Workflow Audit (US-558) ────────────────────────────────
+// Logs automatic timeout and reset events for booking workflows stuck in
+// intermediate states. After 60 minutes in same state, workflow resets to
+// initial step and this audit entry is created.
+
+export const bookingWorkflowAudit = pgTable("booking_workflow_audit", {
+  id: serial("id").primaryKey(),
+  bookingId: text("booking_id").notNull(),
+  reason: text("reason").notNull(),  // e.g., 'timeout', 'manual_reset'
+  resetAt: timestamp("reset_at").notNull().defaultNow(),
+  profile: text("profile").notNull().default('pelangi'),
+}, (table) => ([
+  index("idx_booking_workflow_audit_booking_id").on(table.bookingId),
+  index("idx_booking_workflow_audit_reason").on(table.reason),
+  index("idx_booking_workflow_audit_reset_at").on(table.resetAt),
+  index("idx_booking_workflow_audit_profile").on(table.profile),
+]));
+
+export type BookingWorkflowAudit = typeof bookingWorkflowAudit.$inferSelect;
+export type InsertBookingWorkflowAudit = typeof bookingWorkflowAudit.$inferInsert;

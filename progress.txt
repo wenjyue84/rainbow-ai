@@ -628,3 +628,44 @@ This retry only updated prd.json passes flag to true after confirming:
 
 ### Gotchas
 - prd.json must be read with utf-8 encoding on Windows (cp1252 default fails on special chars)
+## Iteration 2 - Mon, Apr 13, 2026  5:44:35 PM
+Completed: Implement Booking Availability Validation Before Workflow Confirmation (ID: US-556) in 2m
+
+
+## Pre-analysis for US-558 (Gemini 2.5 Pro)
+Based on the user story JSON, here is the technical brief for implementation. Note: The story specifies a TypeScript/Node.js implementation, not Frappe/Python as mentioned in the prompt.
+
+**Project:** `lhdn_payroll_integration` (based on prompt, though story is for a different domain)
+**User Story:** US-558 - Booking Workflow Timeout and Auto-Reset
+
+**1. Python Files to Modify:**
+(Translation from the provided TypeScript-based story)
+*   **Primary Logic:** `lhdn_payroll_integration/lhdn_payroll_integration/doctype/booking/booking.py`
+    *   This is the equivalent of `booking-workflow.ts`.
+    *   Modify the method that initiates the workflow (`after_insert` or a custom state transition hook).
+*   **Background Job:** `lhdn_payroll_integration/lhdn_payroll_integration/jobs/booking_timeout_handler.py`
+    *   This new file will contain the Frappe background job logic (equivalent to the BullMQ handler).
+
+**2. Frappe DocTypes & Hooks:**
+*   **DocTypes:**
+    *   `Booking`: The core DocType being managed.
+    *   `Booking Workflow State`: A child table or separate DocType tracking the current state.
+    *   `Booking Workflow Audit`: A new DocType to be created for logging reset events. It should contain fields for the linked booking, reason, and timestamp.
+*   **Hooks (`hooks.py`):**
+    *   A `doc_events` hook on the `Booking` DocType will be needed to trigger the initial timeout job (e.g., `on_update` or `on_change`).
+    *   A `scheduler_events` entry will be required to define the background job path.
+
+**3. Recommended Implementation Approach:**
+1.  **Create DocType:** Define the `Booking Workflow Audit` DocType with fields for `link:Booking`, `reason:Data`, and `reset_at:Datetime`.
+2.  **Create Background Job:** In `booking_timeout_handler.py`, create a function `reset_workflow_state(booking_id)`. This function will:
+    *   Fetch the `Booking` document.
+    *   Set its workflow state field back to the initial value (e.g., 'Draft' or 0).
+    *   Create and save a new `Booking Workflow Audit` record.
+3.  **Enqueue Job:** In `booking.py`, when a booking enters an intermediate state, use `frappe.enqueue` to schedule the `reset_workflow_state` job with a 60-minute timeout (`enqueue_in_seconds=3600`).
+4.  **Job Management:** Store the `rq_job_id` on the `Booking` document. This is crucial for cancellation.
+
+**4. Edge Cases & Gotchas:**
+*   **Job Cancellation:** When a booking successfully transitions to a final state or is cancelled, you **must** fetch the `rq_job_id` and cancel the enqueued timeout job to prevent it from resetting a completed booking.
+*   **Idempotency:** The reset job should first check if the booking is still in an intermediate state before proceeding. If it has already been reset or completed, the job should exit gracefully.
+*   **State Transitions:** Ensure that saving the document after the reset (`doc.save()`) triggers any necessary workflow actions or UI updates correctly.
+

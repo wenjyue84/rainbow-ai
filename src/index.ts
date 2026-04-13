@@ -89,6 +89,7 @@ import { validateKnowledgeBase, formatValidationReport } from './lib/validate-kn
 import { createErrorHandlerMiddleware } from './lib/error-handler.js';
 import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-file-validator.js';
 import { validateAll as validateConfig, ConfigValidationError } from './lib/config-validator.js';
+import { initializeWorkers, shutdownWorkers } from './lib/jobs/init-workers.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -375,6 +376,9 @@ startWebhookHealthCheck();
 
 // US-884: Start booking sequence processor (60s polling for pre-arrival messages)
 startBookingSequenceProcessor();
+
+// US-558: Initialize booking workflow timeout workers
+initializeWorkers().catch(err => console.warn('[Startup] Worker initialization failed:', err?.message));
 
 // US-034: Initialize intent prediction batch queue (flushes every 5s or at 50 items)
 initializeQueue();
@@ -947,6 +951,13 @@ const shutdown = async (signal: string) => {
     await whatsappManager.stopAll();
   } catch (err: any) {
     console.warn('[SHUTDOWN] WhatsApp cleanup error:', err.message);
+  }
+
+  // 4.5: Shutdown background job workers (US-558)
+  try {
+    await shutdownWorkers();
+  } catch (err: any) {
+    console.warn('[SHUTDOWN] Worker shutdown error:', err.message);
   }
 
   // 5. Drain PostgreSQL pool
