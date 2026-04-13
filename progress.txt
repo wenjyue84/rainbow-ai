@@ -407,3 +407,46 @@ FAILED diagnosis-block gate: Count Conversation Tokens and Emit Warning at 80% C
 ✅ 14/14 tests passing (tests/unit/context_token_counting.test.ts)
 ✅ Build successful (2.8MB, 1 pre-existing warning)
 ✅ prd.json updated: US-578.passes = true
+## Iteration 4 - Tue, Apr 14, 2026  2:10:14 AM
+Completed: Count Conversation Tokens and Emit Warning at 80% Capacity (ID: US-578) in 3m
+
+
+## Iteration [110] - Story: US-579 - Add Custom Fallback Prompts for Low-Confidence Intent Classifications
+
+### What was implemented
+- Created `src/assistant/fallback-prompt-selector.ts` with getFallbackPrompt(), hasIntentFallbackPrompt(), and invalidateFallbackPromptCache()
+  - Loads intent definitions with fallbackPrompt field from intent-keywords.json
+  - Returns multilingual fallback prompts (en, ms, zh, ta)
+  - Falls back to English if language not available
+  - Caches prompts in memory for performance
+- Updated `src/assistant/data/intent-keywords.json` with fallbackPrompt field for 10 key intents:
+  - booking, checkin_info, checkout_info, wifi, payment, pricing, complaint, contact_staff, availability, facilities_info, rules_policy
+  - Each fallback prompt is context-specific and multilingual (English, Malay, Chinese, Tamil)
+- Created `tests/unit/intent_fallback_prompts.test.ts` with 27 comprehensive tests covering:
+  - AC1: Fallback selection for specific intents (7 tests)
+  - AC2: Multilingual prompt rendering (5 tests)
+  - AC3: Multi-language variations (5 tests)
+  - Helper functions (4 tests)
+  - Integration: Fallback use cases when confidence < 0.5 (4 tests)
+  - Edge cases (3 tests)
+  - All tests passing
+
+### Patterns discovered
+- Fallback prompts follow same structure as knowledge.json responses (multilingual objects)
+- Intent-specific prompts provide better UX than generic "I didn't understand" message
+- Can optionally add fallback prompts to additional intents without breaking backward compatibility (intents without fallback return null)
+- Caching improves performance: file loaded once into memory, reused for all calls
+
+### Gotchas
+- Project is ES module based; had to use .cjs extension for Node script to use require()
+- Fallback prompts are optional per intent — intents without fallback simply return null
+- Test had to check for Malay text ("petang") rather than English word "Malay" to verify language
+
+### Quality Checks
+✅ All 27 unit tests passing (tests/unit/intent_fallback_prompts.test.ts)
+✅ Build successful (2.8MB, 1 pre-existing warning in logger.ts)
+✅ Server startup successful with intent config loaded
+✅ prd.json updated: US-579.passes = true
+
+### Next Steps
+Integration: Need to wire getFallbackPrompt() into response generation pipeline when confidence < 0.5 for low-confidence classifications (would be in a follow-up story)
