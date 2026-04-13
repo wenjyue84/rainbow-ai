@@ -127,6 +127,7 @@ export interface ConversationState {
   slots: Record<string, any>;             // { checkInDate: "tomorrow", guests: 2 }
   repeatCount: number;                     // consecutive times same intent classified
   lastUserMessageAt: number | null;        // Timestamp (ms) of last inbound user message (US-407: 24h window)
+  tokenCount: number;                      // US-578: Current token count in conversation context
 }
 
 // ─── Booking State Machine ──────────────────────────────────────────

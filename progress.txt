@@ -346,3 +346,45 @@ FAILED diagnosis-block gate: Production Configuration Audit Report Generator (ID
 *   Paths to check (`./src/assistant/data/...`) are relative; use `path.resolve` to ensure they are correctly located from the project root.
 *   The process should exit with a non-zero status code if the audit fails.
 
+## Iteration 2 - Tue, Apr 14, 2026  1:59:23 AM
+Completed: Production Configuration Audit Report Generator (ID: US-597) in 3m
+
+
+## Iteration [108] - Story: US-578 - Count Conversation Tokens and Emit Warning at 80% Capacity
+
+### What was implemented
+- Updated `src/assistant/types.ts`: Added `tokenCount: number` property to `ConversationState` interface
+- Updated `src/assistant/conversation.ts`:
+  - Added logger import and created logger module
+  - Added constants: `TOKEN_LIMIT = 4096`, `TOKEN_WARNING_THRESHOLD = 3276` (80% of limit)
+  - Added `countTokens(text: string): number` function using whitespace-based tokenization (1 token ≈ 1 word)
+  - Initialized `tokenCount: 0` in `getOrCreate()` for new conversations
+  - Modified `addMessage()` to:
+    - Calculate token count for new message and add to `convo.tokenCount`
+    - Reset `tokenCount` on context reset due to inactivity
+    - Recalculate `tokenCount` when messages are pruned to accurately reflect remaining tokens
+    - Emit warning log when `tokenCount >= TOKEN_WARNING_THRESHOLD` (80% of 4096)
+    - Added runtime invariant to verify `tokenCount >= 0`
+  - Updated `clearConversation()` to reset `tokenCount` to 0
+- Created comprehensive test file: `tests/unit/context_token_counting.test.ts`
+  - 14 tests covering: initialization, accuracy, accumulation, whitespace handling, warning emission
+  - Tests for token counting after pruning, per-profile isolation, mixed message types
+  - All tests passing
+
+### Patterns discovered
+- Whitespace-based tokenization is fast and sufficient for conversation token budgeting
+- Token count must be recalculated when pruning messages (can't just subtract without recalculating)
+- Token warning threshold (80%) = 3276 tokens (of 4096 max)
+- Token tracking must handle empty messages (0 tokens) correctly
+- Each profile/phone combo has independent token count
+
+### Gotchas
+- Initially missed `pushName` parameter in test — signature is `getOrCreate(phone, pushName, profileId)`
+- Token count must be reset to 0 when context is reset due to inactivity
+- Math.max(0, ...) prevents token count from going negative during pruning
+
+### Quality Checks
+✅ All 14 unit tests passing (tests/unit/context_token_counting.test.ts)
+✅ Build successful (2.8MB, 1 pre-existing warning in logger.ts)
+✅ TypeScript type-checking passes
+✅ prd.json updated: US-578.passes = true

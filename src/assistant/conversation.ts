@@ -8,10 +8,23 @@ import {
 } from './state-persistence.js';
 import { softInvariant } from '../lib/invariant.js';
 import { getIntentConfig } from './intent-config.js';
+import { createModuleLogger } from '../lib/logger.js';
+
+const logger = createModuleLogger('conversation');
 
 const TTL_MS = 3_600_000; // 1 hour (session TTL — separate from context inactivity TTL)
 const DEFAULT_MAX_MESSAGES = 20;
 const CLEANUP_INTERVAL_MS = 300_000; // 5 minutes
+const TOKEN_LIMIT = 4096; // Maximum tokens in conversation context
+const TOKEN_WARNING_THRESHOLD = Math.round(TOKEN_LIMIT * 0.8); // 3276 tokens (80%)
+
+/**
+ * Count tokens in text using whitespace-based approximation.
+ * 1 token ≈ 1 word (split by whitespace).
+ */
+function countTokens(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
 
 /** Read configurable max message window from intent config (default 20). */
 function getMaxMessages(): number {
@@ -98,7 +111,8 @@ export function getOrCreate(phone: string, pushName: string, profileId?: string)
     lastIntentTimestamp: null,
     slots: {},
     repeatCount: 0,
-    lastUserMessageAt: null
+    lastUserMessageAt: null,
+    tokenCount: 0  // US-578: Track conversation token usage
   }));
 }
 
@@ -119,6 +133,7 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
           `(TTL: ${Math.round(inactivityTTLMs / 60000)}m)`
         );
         convo.messages = [];
+        convo.tokenCount = 0;  // US-578: Reset token count on context reset
       }
     }
 
@@ -128,9 +143,30 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
       timestamp: Math.floor(Date.now() / 1000)
     });
 
+    // US-578: Add tokens for this message
+    convo.tokenCount += countTokens(content);
+
     // US-004: Prune using configurable window size from intent config
     if (convo.messages.length > maxMessages) {
+      const removedMessages = convo.messages.slice(0, convo.messages.length - maxMessages);
       convo.messages = convo.messages.slice(-maxMessages);
+
+      // US-578: Recalculate token count after pruning
+      let removedTokens = 0;
+      for (const msg of removedMessages) {
+        removedTokens += countTokens(msg.content);
+      }
+      convo.tokenCount = Math.max(0, convo.tokenCount - removedTokens);
+    }
+
+    // US-578: Warn when approaching token limit (80%)
+    if (convo.tokenCount >= TOKEN_WARNING_THRESHOLD) {
+      logger.warn('conversation-context-token-limit', {
+        conversationId: key,
+        tokenCount: convo.tokenCount,
+        limit: TOKEN_LIMIT,
+        thresholdPercent: 80
+      });
     }
 
     // Update language detection and last user message timestamp
@@ -153,6 +189,11 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
       state.messages.length <= maxMessages,
       'messages exceed maxMessages',
       { phone, count: state.messages.length, max: maxMessages }
+    );
+    softInvariant(
+      state.tokenCount >= 0,
+      'tokenCount must be non-negative',
+      { phone, tokenCount: state.tokenCount }
     );
     schedulePersist(key, state as ConversationState);
   }
@@ -250,6 +291,11 @@ export function resetUnknown(phone: string, profileId?: string): void {
 
 export function clearConversation(phone: string, profileId?: string): void {
   const key = convoKey(phone, profileId);
+  // Update conversation to reset tokenCount before deletion
+  conversationManager.update(key, (convo) => {
+    convo.messages = [];
+    convo.tokenCount = 0;  // US-578: Clear token count when clearing conversation
+  });
   conversationManager.delete(key);
   deletePersistedState(key).catch(() => { });
 }
