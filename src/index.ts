@@ -90,6 +90,7 @@ import { validateKnowledgeBase, formatValidationReport } from './lib/validate-kn
 import { createErrorHandlerMiddleware } from './lib/error-handler.js';
 import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-file-validator.js';
 import { validateAll as validateConfig, ConfigValidationError } from './lib/config-validator.js';
+import { validateProfileConfigs } from './lib/profile-config-validator.js';
 import { initializeWorkers, shutdownWorkers } from './lib/jobs/init-workers.js';
 import { validateProviderHealth } from './lib/provider-health-check.js';
 import { startupHealthCheck } from './lib/startup-health-check.js';
@@ -229,6 +230,17 @@ try {
     }
   } catch (err: any) {
     console.warn('[Startup] Intent whitelist validation skipped:', err.message);
+  }
+}
+
+// US-592: Profile configuration integrity validation.
+// Validates referential integrity across workflows.json, routing.json, and intent-keywords.json.
+// Non-fatal warnings logged at startup; detailed audit available via CLI tool.
+{
+  try {
+    await validateProfileConfigs();
+  } catch (err: any) {
+    console.warn('[Startup] Profile config validation error:', err.message);
   }
 }
 
