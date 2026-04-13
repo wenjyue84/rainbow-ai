@@ -1,7 +1,32 @@
 import { configStore } from './config-store.js';
 import { languageRouter } from './language-router.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 type Language = 'en' | 'ms' | 'zh' | 'ta';
+
+// US-568: Cache for Tamil response templates
+interface TamilTemplate {
+  text: string;
+  variables: string[];
+}
+
+interface TamilResponseData {
+  schema_version: string;
+  language: string;
+  intents: {
+    [intentName: string]: {
+      [templateKey: string]: TamilTemplate;
+    };
+  };
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+let tamilResponseCache: TamilResponseData | null = null;
 
 /**
  * Detect message language (en/ms/zh/ta). Uses LanguageRouter (ELD + patterns);
@@ -33,6 +58,65 @@ export function detectFullLanguage(text: string): string | null {
 
   // Standard EN/MS/ZH/TA — handled by template system
   return null;
+}
+
+/**
+ * US-568: Load Tamil response templates from tamil-responses.json.
+ * Caches in memory to avoid repeated file I/O.
+ */
+function loadTamilResponses(): TamilResponseData | null {
+  if (tamilResponseCache) return tamilResponseCache;
+
+  try {
+    const tamilPath = join(__dirname, 'data', 'tamil-responses.json');
+    if (!existsSync(tamilPath)) {
+      console.warn('[Tamil Responses] File not found:', tamilPath);
+      return null;
+    }
+
+    const raw = readFileSync(tamilPath, 'utf-8');
+    tamilResponseCache = JSON.parse(raw) as TamilResponseData;
+    return tamilResponseCache;
+  } catch (error) {
+    console.error('[Tamil Responses] Failed to load:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/**
+ * US-568: Get a Tamil response template for a given intent.
+ * Returns first available template for the intent if found.
+ *
+ * @param intent - Intent name (e.g., 'booking_confirmation')
+ * @returns Template object with text and variables, or null if not found
+ */
+export function getTamilTemplate(intent: string): TamilTemplate | null {
+  const responses = loadTamilResponses();
+  if (!responses) return null;
+
+  const intentTemplates = responses.intents[intent];
+  if (!intentTemplates) return null;
+
+  // Return first available template for this intent
+  const templateKeys = Object.keys(intentTemplates);
+  if (templateKeys.length === 0) return null;
+
+  return intentTemplates[templateKeys[0]];
+}
+
+/**
+ * US-568: Substitute variables in a template text.
+ * Replaces {{variable_name}} with values from the provided map.
+ *
+ * @param templateText - Template string with {{variable}} placeholders
+ * @param variables - Map of variable names to values
+ * @returns Rendered text with variables substituted
+ */
+export function renderTemplate(templateText: string, variables: Record<string, string | number>): string {
+  return templateText.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    const value = variables[varName];
+    return value !== undefined ? String(value) : match;
+  });
 }
 
 export function getTemplate(key: string, lang: Language): string {
