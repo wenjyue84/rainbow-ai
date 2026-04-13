@@ -244,3 +244,57 @@ FAILED diagnosis-block gate: Add Workflow Step Dependency Validation to Block In
 - Build successful (2.8MB, 1 pre-existing warning)
 - prd.json updated: US-576.passes = true
 
+
+## Pre-analysis for US-597 (Gemini 2.5 Pro)
+**Project:** TypeScript/Node.js CLI Tool (Not Frappe/Python)
+**Objective:** Create a CLI script to audit and validate critical production configuration settings.
+
+**1. Files to Create/Modify:**
+*   **Create:** `src/cli/audit-config.ts` - This will be the main entry point for the CLI tool. It should handle parsing command-line arguments (`--environment`, `--output`).
+*   **Create:** `src/lib/config-validator.ts` - This file will contain the `ConfigAuditor` class, housing the core validation logic for database connections, API keys, and file paths.
+*   **Modify:** `package.json` - Add a new script to the `scripts` section: `"audit:config": "tsx src/cli/audit-config.ts"`.
+
+**2. Key Frappe/App-Specific Entities:**
+*   This is a Node.js/TypeScript project. No Frappe DocTypes or hooks are involved.
+*   The primary entities are environment variables (`.env` files) and file system paths.
+
+**3. Implementation Approach:**
+*   In `audit-config.ts`, use a library like `yargs` to parse arguments.
+*   The `ConfigAuditor` class in `config-validator.ts` should dynamically load environment variables (e.g., using `dotenv`) based on the `--environment` flag.
+*   Implement separate async methods for each check: `checkDb()`, `checkApiKeys()`, `checkDirectories()`.
+*   The main execution method will call these checks, aggregate the results, and format them into the required JSON output structure.
+*   Use Node's `fs` module for path checks and a database client (e.g., `pg`) to test the `DATABASE_URL` connection.
+
+**4. Gotchas & Edge Cases:**
+*   Ensure the database connection check is properly handled (connect and immediately disconnect) and includes robust error handling for connection failures.
+*   The script must handle the case where one but not all AI provider keys are present.
+*   Paths to check (`./src/assistant/data/...`) are relative; use `path.resolve` to ensure they are correctly located from the project root.
+*   The process should exit with a non-zero status code if the audit fails.
+
+
+## Iteration [106] - Story: US-597 - Production Configuration Audit Report Generator
+
+### What was implemented
+- Created `src/lib/config-auditor.ts`: `ConfigAuditor` class with 4 check methods:
+  - `checkDbConnection()`: tests Neon pg connection with 5s timeout
+  - `checkApiKeys()`: checks 8 possible AI provider key env vars (KIMI, MOONSHOT, NVIDIA, OLLAMA, OPENROUTER, GEMINI, GROQ)
+  - `checkEnvVars()`: validates RAINBOW_ROLE is set and valid (primary|standby)
+  - `checkDirectories()`: checks pelangi, data-makan, data-southern profile dirs exist
+  - `runAll()`: aggregates all 4 checks into AuditResult JSON schema
+- Created `src/cli/audit-config.ts`: CLI entry point, parses --environment and --output flags
+- Added `audit:config` script to package.json
+- Created `src/lib/__tests__/config-auditor.test.ts`: 14 tests covering all check methods
+
+### Patterns discovered
+- Existing `config-validator.ts` does JSON schema validation (not env/infra audit) — named new file `config-auditor.ts` to avoid collision
+- Profile dirs are at `src/assistant/data/pelangi/`, `src/assistant/data-makan/`, `src/assistant/data-southern/` (with dashes, not underscores as AC stated)
+- AC had a small discrepancy: profile dirs use dashes (`data-makan`) not underscores (`data_makan`)
+
+### Gotchas
+- prd.json read requires `encoding='utf-8'` on Windows (default cp1252 fails)
+- DB check must call `client.end()` even on failure to avoid hanging test
+
+### Quality Checks
+- 14/14 tests passing (src/lib/__tests__/config-auditor.test.ts)
+- Build successful (2.8MB, same pre-existing warning)
+- prd.json updated: US-597.passes = true
