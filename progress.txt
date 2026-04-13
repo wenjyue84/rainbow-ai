@@ -69,3 +69,57 @@ Based on the user story JSON for **US-537**, here is the technical brief for the
 ✅ Server startup: tsx runs without errors
 ✅ prd.json: Updated US-537.passes to true
 
+## Iteration 1 - Mon, Apr 13, 2026 11:14:53 AM
+FAILED diagnosis-block gate: Add Kreuzberg Document Extraction Module for KB Ingestion (ID: US-537) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-537 (Gemini 2.5 Pro)
+Based on the user story JSON for **US-537**, here is the technical brief for the implementation.
+
+**Note:** The user story describes a **TypeScript** module, not a Frappe/Python one. The analysis below is based on the provided JSON.
+
+---
+
+### **Technical Brief: US-537 Kreuzberg Document Extraction Module**
+
+**1. Primary Files to Modify/Create:**
+*   `src/lib/kb-extractor.ts`: New TypeScript module to house the extraction logic.
+*   `src/lib/__tests__/kb-extractor.test.ts`: New Vitest unit test for the module.
+*   (Optional) `scripts/extract_wrapper.py`: A Python script could be created if the `child_process` approach is chosen to wrap the `kreuzberg` CLI, isolating the Python dependency.
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This is a standalone Node.js/TypeScript module and does not directly interact with the Frappe framework.
+
+**3. Recommended Implementation Approach:**
+*   In `src/lib/kb-extractor.ts`, create the `extractToMarkdown` async function.
+*   Use Node's `child_process.spawn` to execute the `kreuzberg` command-line tool, passing the `filePath` as an argument.
+*   For image files, add the `--ocr` flag to the `kreuzberg` command based on the function's `opts`.
+*   Capture the Markdown output from the process's `stdout` stream.
+*   Define a custom `KBExtractorError` class extending `Error` for structured error handling.
+*   In the test file, use sample fixtures (e.g., a simple `.txt`, `.docx`, `.png`) to validate that the function returns a non-empty string and handles errors correctly.
+
+**4. Edge Cases & Gotchas:**
+*   **Dependency:** `kreuzberg` must be installed and accessible in the system's PATH where the Node.js process runs. OCR may require separate dependencies like Tesseract.
+*   **Performance:** Spawning a child process for each file can be slow. If high throughput is needed, a more integrated library or a persistent service might be better.
+*   **File Formats:** Markdown conversion quality can vary, especially for complex PDFs or spreadsheets. The output may require further cleaning.
+*   **Error Handling:** The `kreuzberg` tool might fail silently or return cryptic errors. The wrapper must reliably catch `stderr` and process exit codes.
+
+
+## Iteration [2] - Story: Add Kreuzberg Document Extraction Module for KB Ingestion (US-537)
+### What was implemented
+- `src/lib/kb-extractor.ts`: TypeScript wrapper around `kreuzberg` CLI via `child_process.spawn`
+  - Exports `extractToMarkdown(filePath, opts?) => Promise<string>`
+  - Exports `KBExtractorError` with `filePath` property
+  - Passes `--ocr true` flag when `opts.ocr` is set
+  - Rejects with `KBExtractorError` on non-zero exit, spawn error, or empty output
+- `src/lib/__tests__/kb-extractor.test.ts`: 11 vitest tests covering extraction, error cases, OCR flag, KBExtractorError class
+
+### Patterns discovered
+- kreuzberg CLI is available at `/c/Users/Jyue/.local/bin/kreuzberg`
+- Build: esbuild 2.6mb bundle (pre-existing warnings only)
+- All 11 tests pass including extraction from .txt fixtures and error handling
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+✅ Tests: 11/11 passing in kb-extractor.test.ts
+✅ prd.json: US-537.passes = true
