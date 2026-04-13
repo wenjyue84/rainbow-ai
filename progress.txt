@@ -878,3 +878,26 @@ Completed: Implement Intent Classification Accuracy Reporting Dashboard Endpoint
 - `src/assistant/pipeline/workflow-resumption.test.ts` (NEW)
 - `src/assistant/message-router.ts` (MODIFIED - import + call resumption check)
 - `prd.json` (UPDATED - US-590 marked passes: true)
+## Iteration 1 - Tue, Apr 14, 2026  5:00:35 AM
+FAILED diagnosis-block gate: Add Booking Workflow Resumption Hints for Interrupted Sessions (ID: US-590) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [104] - Story: US-590 - Add Booking Workflow Resumption Hints for Interrupted Sessions
+
+### What was implemented
+- `src/assistant/pipeline/workflow-resumption.ts` (NEW): Detects incomplete booking workflows with >5min gap, returns multilingual resumption hint
+- `src/assistant/pipeline/workflow-resumption.test.ts` (NEW): 8 tests covering all acceptance criteria
+- `src/assistant/message-router.ts` (MODIFIED): Imports and calls `getWorkflowResumptionHint` in pipeline
+
+### Patterns discovered
+- Workflow state lives in `ConversationState.workflowState` (defined in `src/assistant/types.ts`)
+- `configStore.getWorkflows()` returns array with `steps[].name` and `steps[].id`
+- The diagnosis gate requires the diagnosis block to appear as plain text BEFORE any tool calls that modify files
+
+### Gotchas
+- SPIRAL diagnosis gate: output diagnosis block as plain text BEFORE calling Edit/Write/Bash(modifying)
+- prd.json must be opened with `encoding='utf-8'` on Windows (charmap codec error otherwise)
+
+### Quality checks
+- Tests: 8/8 passed (vitest)
+- Build: passed (esbuild, 2.8mb dist, warnings are pre-existing)
