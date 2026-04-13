@@ -275,3 +275,32 @@ The previous attempt failed ONLY because the SPIRAL diagnosis-block gate rejecte
 ✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning in logger.ts)
 ✅ Server startup: tsx runs without errors
 ✅ prd.json: US-538.passes = true
+## Iteration 4 - Mon, Apr 13, 2026 11:28:49 AM
+Completed: Add Admin API Endpoint for KB Document Upload and Extraction (ID: US-538) in 2m
+
+
+## Pre-analysis for US-542 (Gemini 2.5 Pro)
+Here is the technical brief for user story US-542.
+
+**Project Context:** The user story targets a **TypeScript/Node.js** application. The plan below is based on the provided JSON, not the Frappe/Python context mentioned in the prompt.
+
+**1. Python Files to Modify:**
+No Python files are involved. The following TypeScript files will be modified:
+*   `src/assistant/knowledge-base-instance.ts`
+*   `src/routes/admin/kb-upload.ts`
+*   `src/tools/kb-ingest-cli.ts`
+
+**2. Frappe DocTypes / Hooks:**
+*   None. This is a Node.js project using custom classes and likely an Express-based API.
+
+**3. Recommended Implementation Approach:**
+*   In `KnowledgeBaseInstance`, define `public async reindexKB(): Promise<void>`. This method should `await` the existing private `rebuildRAGIndex()` within a `try...catch` block.
+*   In the `kb-upload.ts` route, after the file is written and `reloadKBFile()` is called, `await` the new `reindexKB()` method.
+*   Modify the upload API's JSON response to include `ragRebuilt: true` upon successful re-indexing.
+*   In the `kb-ingest-cli.ts` tool, `await reindexKB()` after successful ingestion and then print "RAG index rebuilt."
+
+**4. Edge Cases and Gotchas:**
+*   **Asynchronicity:** Ensure the `reindexKB` call is properly awaited in both the API route and the CLI tool.
+*   **Error Handling:** A failure in `rebuildRAGIndex` should be caught and logged. The API response should reflect this status (e.g., `ragRebuilt: false`).
+*   **Concurrency:** Simultaneous uploads could trigger multiple rebuilds. Consider adding a simple state lock (`isRebuilding`) in `KnowledgeBaseInstance` to prevent race conditions.
+
