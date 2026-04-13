@@ -7,6 +7,9 @@
  * US-307: Logs WARN and increments a counter when conversation turns exceed
  * the context window size, tracking which profiles and intents generate
  * longer multi-turn dialogues.
+ *
+ * US-532: Conversation context window pruning that limits message history
+ * by keeping only the last N messages and dropping oldest first.
  */
 
 import type { ChatMessage } from '../types.js';
@@ -58,6 +61,46 @@ export function checkContextTruncation(
     return true;
   }
   return false;
+}
+
+/**
+ * US-532: Prune conversation context by keeping only the last N messages
+ *
+ * Implements a sliding window approach that removes oldest messages when the
+ * conversation history exceeds the window size, preventing token bloat in long
+ * conversations and improving response latency.
+ *
+ * @param messages The conversation history to prune
+ * @param windowSize Maximum number of messages to keep (e.g., 20)
+ * @returns Pruned conversation history with at most windowSize messages
+ */
+export function pruneConversationContext(
+  messages: ChatMessage[],
+  windowSize: number,
+): ChatMessage[] {
+  if (!messages || messages.length === 0) {
+    return [];
+  }
+
+  // If conversation is within window size, return as-is
+  if (messages.length <= windowSize) {
+    return messages;
+  }
+
+  // Keep only the last windowSize messages (drop oldest first)
+  const pruned = messages.slice(-windowSize);
+
+  logger.debug(
+    `Conversation context pruned: ${messages.length} -> ${pruned.length} messages ` +
+    `(window size: ${windowSize})`,
+    {
+      originalCount: messages.length,
+      prunedCount: pruned.length,
+      windowSize,
+    }
+  );
+
+  return pruned;
 }
 
 /**
