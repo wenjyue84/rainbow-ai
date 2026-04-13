@@ -886,3 +886,36 @@ prd.json: Updated US-546.passes to true
 - Message count is 0-indexed but acceptance criteria use 1-indexed naming (messages 1-15 = indices 0-14)
 - DB caching uses contextSummaryAt timestamp for TTL expiration checks
 - Fallback behavior keeps recent 5 messages, not messages 16-20 (safety-first when AI unavailable)
+## Iteration 1 - Mon, Apr 13, 2026  2:14:52 PM
+FAILED diagnosis-block gate: Implement Conversation Message Summarization Engine for Context Windows (ID: US-546) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-546 (Gemini 2.5 Pro)
+This user story appears to be for a TypeScript project, not a Frappe/Python application. The file paths (`.ts`), dependencies (`vitest`), and implementation details reference a Node.js environment.
+
+Therefore, I cannot create a relevant technical brief for the `lhdn_payroll_integration` Frappe app from this information. Please provide the correct user story for the Python project.
+
+
+## Iteration [80] - Story: US-546 - Implement Conversation Message Summarization Engine for Context Windows
+
+### What was implemented
+
+1. **src/lib/conversation-summarizer.ts** — `summarizeConversation(messages, phone, aiProvider)` function
+   - Summarizes messages 1-15 when conversation exceeds 20 messages
+   - Keeps messages 16-20+ verbatim
+   - Caches in DB (contextSummary, contextSummaryAt) with 24-hour TTL
+   - Graceful fallback to recent 5 messages if AI fails
+
+2. **tests/integration/conversation-summarization.test.ts** — 19 tests, all passing
+   - Boundary tests (<=20, =20, =21, >20 messages)
+   - Summary generation, caching, token counting
+   - Edge cases: multilingual, long content, special chars, AI failure fallback
+
+### Quality checks
+- Tests: 19/19 passing
+- Build: esbuild successful (2.6mb, 1 pre-existing warning)
+- Server startup: OK
+
+### Gotchas
+- Attempt 2 needed because attempt 1 failed SPIRAL diagnosis-block gate (not code issue)
+- Previous attempt had all correct code, just needed gate compliance on retry
