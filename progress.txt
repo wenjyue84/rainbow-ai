@@ -213,3 +213,65 @@ Here is the plan for implementing the KB document upload endpoint.
 ✅ Server startup: tsx runs without errors
 ✅ prd.json: US-538.passes = true
 
+## Iteration 3 - Mon, Apr 13, 2026 11:25:52 AM
+FAILED diagnosis-block gate: Add Admin API Endpoint for KB Document Upload and Extraction (ID: US-538) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-538 (Gemini 2.5 Pro)
+**Correction:** The user story specifies a **Node.js/TypeScript** implementation, not Frappe/Python. The technical brief below is for the specified Node.js/TypeScript environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Preparatory Agent
+**Subject:** Technical Brief for US-538: Admin KB Document Upload
+
+Here is the plan for implementing the KB document upload endpoint.
+
+1.  **Files to Modify:**
+    *   Create `src/routes/admin/kb-upload.ts` to house the new endpoint logic.
+    *   Update `src/routes/admin/index.ts` to import and register the new router under the `/kb` path.
+    *   You will call the `extractToMarkdown()` function, which is expected to exist in `src/lib/kb-extractor.ts`.
+
+2.  **Framework/Entities Involved:**
+    *   **Framework:** Express.js (or similar Node.js web framework).
+    *   **Middleware:** Use `multer` or a similar library to handle the `multipart/form-data` upload.
+    *   **Key Objects:** `KnowledgeBaseInstance` (for `reloadKBFile` and `reindexKB` calls).
+
+3.  **Implementation Approach:**
+    *   In `kb-upload.ts`, define an Express router for the `POST /:profile/upload` route.
+    *   Use a `multer` middleware to process the uploaded `file` and place it in a temporary directory.
+    *   Validate the `:profile` param against `['pelangi', 'southern', 'makan']`; throw a 400 error if invalid.
+    *   In a `try/catch` block, call `extractToMarkdown()` with the temp file path.
+    *   Construct the destination path (e.g., `.rainbow-kb-southern/your-filename.md`).
+    *   Write the extracted markdown content to the destination file.
+    *   Call `reloadKBFile()` and `reindexKB()` on the relevant `KnowledgeBaseInstance`.
+    *   Return a 200 response with `{ success: true, kbFile: '...', extractedChars: ..., ragRebuilt: true }`.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Extraction Failure:** Catch errors from `extractToMarkdown()` and return a 422 status code with the error message.
+    *   **File Naming:** Sanitize the optional `filename` from the request to prevent path traversal vulnerabilities. If not provided, generate a safe filename from the original upload name.
+    *   **Cleanup:** Ensure the temporary file created by `multer` is deleted after extraction is complete, even if an error occurs.
+    *   **RAG Indexing:** The `reindexKB()` call might be slow. The operation should be handled asynchronously without blocking the response. The `ragRebuilt: true` flag confirms its completion.
+
+
+## Iteration 4 - Mon, Apr 13, 2026 (Retry Attempt 2)
+### Story: Add Admin API Endpoint for KB Document Upload and Extraction (US-538)
+
+### What was implemented
+Previous attempt (Iteration 3) had already written all the code correctly:
+- `src/routes/admin/kb-upload.ts`: Full endpoint with multer memoryStorage, profile validation, kreuzberg extraction, KB write, reloadKBFile, reindexKB, 422 for extraction failures, temp file cleanup
+- `src/lib/kb-extractor.ts`: extractToMarkdown() spawning kreuzberg CLI process
+- `src/routes/admin/index.ts`: Route registered at /kb (line 343)
+- `src/assistant/knowledge-base-instance.ts`: reindexKB() public method wrapping rebuildRAGIndex()
+
+The previous attempt failed ONLY because the SPIRAL diagnosis-block gate rejected it for missing the diagnosis block output. This iteration provided the diagnosis block first, verified the existing code, and marked passes = true.
+
+### Patterns discovered
+- SPIRAL requires explicit "## Current State / ## Problem Identified / ## Planned Changes" block BEFORE any edits
+- On retry attempts, always check if previous code was already written before re-implementing
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning in logger.ts)
+✅ Server startup: tsx runs without errors
+✅ prd.json: US-538.passes = true
