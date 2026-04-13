@@ -1129,3 +1129,95 @@ Completed: Add Profile-Specific Data Contamination Detection CLI (ID: US-561) in
 ### Quality checks passed
 ✓ npx vitest run tests/unit/booking-workflow.test.ts - 35/35 tests pass
 ✓ npm run build - successful bundle (2.7mb, 1 pre-existing warning)
+## Iteration 3 - Mon, Apr 13, 2026  6:48:49 PM
+Completed: Implement Booking Workflow Step Auto-Progression with User Confirmation (ID: US-555) in 2m
+
+
+## Iteration [96] - Story: US-557 - Add Intent Classification Misclassification Analyzer CLI Tool
+
+### What was implemented
+
+✅ **Core CLI Tool:** `src/tools/cli-analyze-misclassifications.ts`
+- Accepts command-line arguments: `--profile` (pelangi|southern|makan, default: pelangi), `--days` (default: 7)
+- Queries `intentPredictions` table where `wasCorrect = false` to identify misclassifications
+- Generates comprehensive JSON report with timestamp and profile name
+
+✅ **Report Structure:**
+- `misclassification_pairs`: Array of {predicted, actual, count, avg_confidence, examples}
+  - Grouped by predicted intent → actual intent pairs
+  - Sorted by frequency (highest first)
+  - Includes top 3 example messages for each pair
+- `confidence_patterns`: Array of {intent, misclassified_count, avg_confidence, max_confidence, min_confidence}
+  - Shows which intents have highest misclassification rates
+  - Confidence statistics for misclassified predictions
+- `suggested_keywords_per_intent`: Array of {intent, suggestions[]}
+  - Extracts keywords from misclassified messages
+  - Top 5 keywords per actual intent by frequency
+  - Filters out common stopwords
+
+✅ **File Output:**
+- Saves to `analysis/misclassification-report-YYYY-MM-DD-{profile}.json`
+- Creates `analysis/` directory if it doesn't exist
+- JSON format with human-readable timestamp
+
+✅ **Human-Readable Console Output:**
+- Summary statistics (total predictions, misclassification count, rate percentage)
+- Top 10 misclassification pairs with confidence scores
+- Top 5 intents with highest misclassification rates
+- Suggested keywords for each intent
+
+✅ **npm Script:** Added `analyze:misclassifications` to package.json
+- Usage: `npm run analyze:misclassifications` (defaults to pelangi, 7 days)
+- With args: `npm run analyze:misclassifications -- --profile=southern --days=30`
+
+✅ **Comprehensive Tests:** `tests/lib/cli-analyze-misclassifications.test.ts`
+- 7 test cases covering: argument parsing, report structure, misclassification grouping, confidence patterns, empty data handling, parameter validation
+- All tests pass (7/7)
+
+### Patterns discovered
+
+1. **Misclassification detection:** Used `intentPredictions` table with `wasCorrect = false` rather than manual "feedback" column
+   - `wasCorrect` field already tracks correctness from user feedback/corrections
+   - `actualIntent` field contains user's corrected intent
+   
+2. **Keyword extraction:** Simple word frequency approach with stopword filtering
+   - Tokenize messages by whitespace
+   - Filter words <3 chars and common stopwords
+   - Rank by frequency
+   - Sufficient for practical suggestions without NLP overhead
+
+3. **CLI pattern matching:** Project uses standard argument parsing with `--key=value` format
+   - Other CLI tools follow same pattern (e.g., analyze-keyword-contamination-cli.ts)
+   - Allows easy extension to additional parameters
+
+4. **Date bucketing:** Report filename uses ISO date format (YYYY-MM-DD)
+   - Multiple reports same day create multiple files (with profile suffix)
+   - Matches project convention from other analysis tools
+
+### Gotchas
+
+1. **Database vs JSON feedback tables:** Story mentioned "feedback='negative'" but `rainbow_messages` doesn't have a feedback column
+   - Resolved by using `intentPredictions.wasCorrect = false` which properly tracks misclassifications
+   - This is cleaner than trying to join with `rainbowFeedback` by messageId
+
+2. **Test file location:** Initial test path `tests/tools/` not recognized by vitest config
+   - Vitest config only includes `tests/lib/` for unit tests
+   - Moved test to `tests/lib/cli-analyze-misclassifications.test.ts`
+
+3. **Node.js environment variables on Windows:** `NODE_OPTIONS='...'` syntax doesn't work in Windows
+   - Used `npx vitest run` directly instead
+   - Works seamlessly on Unix; Windows shell compatibility not an issue for deployed code
+
+### Quality checks passed
+
+✓ npm run build — successful esbuild bundle (2.7mb, 1 pre-existing warning)
+✓ npm run analyze:misclassifications — runs without errors, creates valid JSON report
+✓ npm run analyze:misclassifications -- --profile=southern --days=30 — argument parsing works
+✓ npm run test -- tests/lib/cli-analyze-misclassifications.test.ts — 7/7 tests pass
+✓ All acceptance criteria met:
+  - ✓ Command works with --profile and --days arguments
+  - ✓ Report includes misclassification_pairs, confidence_patterns, suggested_keywords_per_intent
+  - ✓ Output saved to analysis/misclassification-report-YYYY-MM-DD.json format with timestamp
+
+### Story Status
+✅ **COMPLETE** - US-557 implementation finished, all tests pass, prd.json updated
