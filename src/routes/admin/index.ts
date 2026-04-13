@@ -131,6 +131,7 @@ import validationRoutes from './validation.js'; // US-470: Booking unit availabi
 import guestsQuickLookupRoutes from './guests-quick-lookup.js'; // US-550: Guest context quick-lookup
 import intentLatencyMetricsRoutes from './intent-latency-metrics.js'; // US-552: Intent classification latency metrics
 import intentPromptsRoutes from './intent-prompts.js'; // US-554: Per-intent custom system prompt configuration
+import intentDebugRoutes from './intent-debug.js'; // US-591: Intent confidence score debugging endpoint
 
 const router = Router();
 
@@ -427,6 +428,7 @@ router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto
 router.use(routingAuditRoutes);                   // US-343: Live message routing integrity audit
 router.use(hardCasesRoutes);                      // US-376: Hard-case review queue with admin labeling
 router.use('/debug', debugExplainIntentRoutes);   // US-378: Intent classification explanation debugger
+router.use('/debug', intentDebugRoutes);          // US-591: Intent confidence score debugging endpoint
 router.use('/validation', validationRoutes);      // US-470: Booking unit availability validation
 router.use(guestsQuickLookupRoutes);              // US-550: Guest context quick-lookup for booking pre-population
 router.use('/intents', intentPromptsRoutes);      // US-554: Per-intent custom system prompt configuration

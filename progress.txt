@@ -904,3 +904,33 @@ FAILED diagnosis-block gate: Add Booking Workflow Resumption Hints for Interrupt
 ## Iteration 2 - Tue, Apr 14, 2026  5:07:47 AM
 Completed: Add Booking Workflow Resumption Hints for Interrupted Sessions (ID: US-590) in 3m
 
+
+## Pre-analysis for US-591 (Gemini 2.5 Pro)
+This is a TypeScript/Node.js user story, not Python/Frappe. All implementation should be in TypeScript.
+
+**Technical Brief: US-591 Intent Debugging Endpoint**
+
+*   **Objective:** Create an admin API endpoint to expose the intermediate scoring from the multi-stage intent classifier for debugging purposes.
+
+*   **Files to Modify/Create:**
+    *   **Create:** `src/routes/admin/intent-debug.ts` (new API route handler).
+    *   **Modify:** `src/assistant/intent-classifier.ts` (core classification logic).
+    *   **Create/Modify:** `tests/admin/intent-debug.test.ts` (new test file).
+
+*   **Frappe Equivalents (Entities Involved):**
+    *   **API Route:** `POST /api/admin/debug/intent-score`
+    *   **Core Module:** `IntentClassifierService` or a similar named class/function in `intent-classifier.ts`.
+
+*   **Implementation Approach:**
+    1.  In `src/assistant/intent-classifier.ts`, refactor the main classification function to accept a `debug: true` option.
+    2.  When `debug` is true, the function must return a detailed object containing the scores and results from each stage (T1 keyword, T2 fuzzy, and semantic) and the final decision, instead of just the final intent.
+    3.  Create the new route handler in `src/routes/admin/intent-debug.ts`.
+    4.  This handler will parse the request (either a `POST` body with a message or query params for a historical message) and call the classifier with the `debug: true` flag.
+    5.  Return the detailed scoring object as the JSON response.
+
+*   **Gotchas & Edge Cases:**
+    *   **Authentication:** This is an admin endpoint; ensure it's protected by an appropriate admin authentication middleware.
+    *   **Historical Lookups:** For `?conversationId=...&messageId=...`, you'll need to implement logic to fetch the message from the database first.
+    *   **Classifier Purity:** The debugging logic must not affect the performance or outcome of standard, non-debug classification calls.
+    *   **Testing:** Use snapshot tests against known messages to ensure the debug output is consistent and accurate.
+
