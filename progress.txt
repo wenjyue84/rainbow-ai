@@ -1300,3 +1300,35 @@ This brief outlines the implementation of a circuit breaker pattern for external
 ### Gotchas
 - Previous attempt (iteration 115) was blocked by diagnosis-gate before it could update prd.json
 - Implementation was already complete; this iteration just confirmed tests pass and updated prd.json
+## Iteration 2 - Tue, Apr 14, 2026  7:10:35 AM
+Completed: Booking Workflow Step Circuit Breaker for External Service Failures (ID: US-608) in 3m
+
+
+## Iteration [116] - Story: US-595 - Weighted Intent Keyword Scoring with Recency Bias
+
+### What was implemented
+- `src/assistant/intent/keyword-matcher.ts` — KeywordMatcher class with recency-weighted scoring
+  * `matchKeywords()` iterates all conversation turns, applies recency multiplier via `getRecencyMultiplier()`
+  * Turn age formula: `turnsAgo = totalTurns - 1 - turnIndex`
+  * Recency buckets: 0-2 turns → 2.0x, 3-5 turns → 1.5x, 6+ turns → 1.0x
+  * Best weighted match returned; `recencyBiasEnabled=false` collapses all multipliers to 1.0
+  * `matchSingle()` delegates directly to FuzzyIntentMatcher for single-message use
+
+- `src/assistant/data/settings.json` — Config fields added
+  * `keyword_recency_bias_enabled` (bool)
+  * `recency_weight_curve` (object: recent/mid/old)
+
+- `tests/assistant/intent/keyword-matcher.test.ts` — 20 tests, all passing
+  * AC1: multiplier bucket tests (2.0x, 1.5x, 1.0x)
+  * AC2: custom weight curve and disabled bias
+  * AC3: 5-message conversation asserts message[3] scores higher than message[0]
+
+### Patterns discovered
+- Files were already implemented from a prior iteration; this iteration confirmed all 20 tests pass
+- Build uses esbuild; TypeScript `tsc` is not used for build (pre-existing type errors OK)
+- `FuzzyIntentMatcher.match()` returns `FuzzyMatchResult | null`; score is 0-1 range
+
+### Quality Checks
+✅ 20 tests passing (tests/assistant/intent/keyword-matcher.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ prd.json updated: US-595.passes = true
