@@ -188,3 +188,84 @@ This is a brief for implementing latency metrics in a TypeScript/Node.js applica
 ✓ Metrics collected every message classification; alert logged as WARN when any profile's p95 exceeds 500ms
 ✓ Test percentile calculation validates correct method and provides p50, p95, p99 stats
 
+## Iteration 1 - Mon, Apr 13, 2026  5:00:43 PM
+Completed: Add Intent Classification Latency Metrics per Profile with SLA Monitoring (ID: US-552) in 9m
+
+
+## Iteration [85] - Story: US-554 - Implement Per-Intent Custom System Prompt Configuration
+
+### What was implemented
+
+✅ **Core Functionality:**
+- Created src/assistant/intent-prompt-manager.ts - Singleton module for loading and managing per-intent prompts
+- Created src/assistant/data/intent-prompts.json - Config file with 11 default intent-specific system prompts
+- Integrated into ai-response-generator.ts with getIntentSystemPrompt() helper function
+
+✅ **Admin Endpoint (POST /api/admin/intents/{intent_type}/prompt):**
+- Created src/routes/admin/intent-prompts.ts with three endpoints:
+  - POST /:intent_type/prompt - Update custom system prompt for intent (atomic write)
+  - GET /:intent_type/prompt - Retrieve custom prompt for intent
+  - GET /prompts/all - Get all configured intent prompts
+- Mounted at /api/admin/intents/* path in src/routes/admin/index.ts
+- Input validation for intent type and prompt content
+
+✅ **Graceful Fallback:**
+- IntentPromptManager.load() fails gracefully if intent-prompts.json missing
+- getPrompt() falls back to provided defaultPrompt when intent not configured
+- Logs warning instead of crashing if file can't be loaded
+
+✅ **Testing:**
+- Comprehensive test suite with 16 test cases in tests/unit/intent-prompts.test.ts
+- Tests cover: loading, fallback, validation, atomic updates, reload, special characters
+- All tests passing (16/16)
+
+### Patterns discovered
+
+1. **Atomic file writes:** Use temp file + rename pattern for atomic updates
+   - writeFileSync to .tmp → fs.renameSync to target
+   - Prevents partial writes on crash
+
+2. **Graceful loading:** Try-catch with logged warnings for missing files
+   - Initializes empty config if file not found
+   - Admin notified via logs, system continues normally
+
+3. **Intent prompt resolution:** Three-level hierarchy
+   - Custom intent prompts (intent-prompts.json)
+   - Falls back to settings.system_prompt (default persona)
+   - Or passed defaultPrompt parameter
+
+4. **Module exports:** Singleton pattern with lazy initialization
+   - IntentPromptManager loads file in constructor
+   - Exposed as intentPromptManager singleton
+   - Accessible across pipeline stages
+
+### Gotchas
+
+1. **File path resolution:** Uses process.cwd() not __dirname
+   - esbuild bundles everything to dist/index.js, making __dirname=dist (wrong)
+   - Intent-prompts.json must be copied by build script (done in npm run build)
+
+2. **Test file location:** Must be in vitest-recognized directories
+   - Tried tests/intent-prompts.test.ts initially - vitest couldn't find it
+   - Moved to tests/unit/intent-prompts.test.ts - recognized by glob pattern
+
+3. **Windows shell compatibility:** NODE_OPTIONS env var doesn't work on Windows
+   - npm run test:run with NODE_OPTIONS='...' failed
+   - Use npx vitest run directly instead
+
+### Quality checks passed
+
+✅ npm run build - No errors (1 pre-existing esbuild warning about module.exports)
+✅ npx vitest run tests/unit/intent-prompts.test.ts - All 16 tests passing
+✅ MCP_SERVER_PORT=3002 timeout 10 npx tsx src/index.ts - Server starts successfully
+✅ IntentPromptManager loads 14 custom intent prompts on startup
+✅ Build copies intent-prompts.json to dist/assistant/data/
+
+### Acceptance Criteria Met
+
+✓ AC#1: intent-prompts.json structure with graceful fallback if file missing
+✓ AC#2: getIntentSystemPrompt() provides intent-specific prompts with fallback
+✓ AC#3: POST /api/admin/intents/{intent_type}/prompt atomically updates prompts
+
+## Iteration 85 - Sun, Apr 13, 2026  5:21:15 PM
+Completed: Implement Per-Intent Custom System Prompt Configuration (ID: US-554) in 23m

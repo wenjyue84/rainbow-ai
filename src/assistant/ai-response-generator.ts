@@ -13,6 +13,7 @@ import {
   getGroqInstance, providerChat, chatWithFallback
 } from './ai-provider-manager.js';
 import type { SupportedLanguage } from './language-router.js';
+import { intentPromptManager } from './intent-prompt-manager.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { aiResponseSchema, aiResponseActionSchema, replyOnlyResultSchema, safeParseLLMResponse } from './schemas.js';
@@ -143,6 +144,14 @@ const LANGUAGE_NAMES: Record<string, string> = {
   zh: 'Chinese (Simplified Mandarin)',
   ta: 'Tamil',
 };
+
+/**
+ * Get system prompt for an intent: custom prompt if configured, otherwise default.
+ * US-554: Per-intent custom system prompt configuration
+ */
+export function getIntentSystemPrompt(intentType: string, defaultPrompt: string): string {
+  return intentPromptManager.getPrompt(intentType, defaultPrompt);
+}
 
 /**
  * Append a language instruction to the system prompt so the LLM responds
