@@ -430,3 +430,88 @@ All implementation was already complete from Iteration 5. This iteration (attemp
 ✅ Build: esbuild successful (2.6mb, 1 pre-existing warning)
 ✅ Tests: 14/14 passing in kb-extractor.test.ts
 ✅ prd.json: US-541.passes = true
+## Iteration 2 - Mon, Apr 13, 2026 12:10:04 PM
+Completed: OCR Detection and Warning for Scanned PDF KB Ingestion (ID: US-541) in 1m
+
+
+## Pre-analysis for US-539 (Gemini 2.5 Pro)
+Based on the user story, the request is for a **TypeScript/Node.js CLI tool**, not a Frappe/Python app. Here is the technical brief for that task:
+
+**Subject: Technical Brief for `kb:ingest` CLI (US-539)**
+
+This brief outlines the implementation of a Node.js CLI script for ingesting documents into the knowledge base system.
+
+**1. Files to Modify:**
+*   `src/tools/kb-ingest-cli.ts` (Create): Main script logic.
+*   `package.json` (Modify): Add `"kb:ingest": "ts-node src/tools/kb-ingest-cli.ts"` to the `scripts` section.
+*   `src/tools/__tests__/kb-ingest-cli.test.ts` (Create): Unit tests for the CLI.
+
+**2. Core Modules & Components:**
+*   **Argument Parser:** Use `yargs` or `commander` to parse CLI arguments (`--file`, `--profile`, `--topic`, `--ocr`).
+*   **Extraction Service:** An existing function, `extractToMarkdown`, must be imported and called to perform content extraction.
+*   **KB Management:** The existing `KnowledgeBaseInstance` class will be needed to call the `reindexKB()` method after a file is written.
+*   **File System:** Use Node.js's built-in `fs.promises` module for file system operations.
+
+**3. Implementation Approach:**
+1.  Parse and validate CLI arguments. Exit with code 1 if `--file` is missing or `--profile` is invalid.
+2.  Determine the output path: `.rainbow-kb-[profile]/[topic].md`.
+3.  Derive `[topic]` from the `--topic` flag or by converting the source filename to kebab-case.
+4.  Call `await extractToMarkdown(filePath, { useOcr: ocrFlag })`.
+5.  Write the returned content to the output path using `fs.promises.writeFile`.
+6.  Instantiate `KnowledgeBaseInstance` for the target profile and call `await reindexKB()`.
+7.  Log success message with output path and character count.
+
+**4. Edge Cases & Gotchas:**
+*   The script must be executed with `npm run kb:ingest -- --file ...` to correctly pass arguments.
+*   Error handling is critical: wrap main logic in `try/catch` to manage extraction failures or file system errors, exiting with status 1.
+*   Unit tests must mock `extractToMarkdown`, `reindexKB`, and `fs.promises.writeFile` to test argument parsing and path logic in isolation.
+
+
+## Iteration [7] - Story: Add kb:ingest CLI for Batch KB Document Ingestion via Kreuzberg (US-539)
+
+### What was implemented
+- Added `"kb:ingest": "tsx src/tools/kb-ingest-cli.ts"` npm script to package.json
+- Created `src/tools/__tests__/kb-ingest-cli.test.ts` with 11 comprehensive tests:
+  1. Ingest document with valid profile and file path
+  2. Derive topic from source filename if omitted
+  3. Reject invalid profile
+  4. Reject if file not found
+  5. Reject if extraction fails
+  6. Write extracted markdown to correct KB directory
+  7. Pass OCR flag to extractToMarkdown
+  8. Call reindexKB after writing KB file
+  9. Handle all three valid profiles (pelangi, southern, makan)
+  10. Sanitize topic to kebab-case with .md extension
+  11. Parse arguments (placeholder)
+
+- Verified existing implementation in kb-ingest-cli.ts:
+  - Exports `ingestDocument()` function
+  - Accepts file path, profile, optional topic, optional OCR flag
+  - Derives filename from source if topic not provided (kebab-case, .md extension)
+  - Calls extractToMarkdown() with OCR option
+  - Writes to profile-specific KB directory (.rainbow-kb, .rainbow-kb-southern, .rainbow-kb-makan)
+  - Calls reloadKBFile() and reindexKB()
+  - Exits with code 1 on error with descriptive messages
+
+### Patterns discovered
+- Vitest mocking requires vi.mock() calls BEFORE any imports
+- KnowledgeBaseInstance constructor can be mocked by creating a class that assigns from mockKbInstance object
+- fs.promises methods need to be spied on individually in tests
+- All three profiles map correctly: pelangi→.rainbow-kb, southern→.rainbow-kb-southern, makan→.rainbow-kb-makan
+
+### Edge cases handled
+- File not found error (promise rejection)
+- Invalid profile name
+- Extraction failure (KBExtractorError propagation)
+- Topic sanitization removes spaces, special chars, keeps hyphens
+- Topic defaults to sanitized source filename basename
+- OCR flag properly forwarded to extractToMarkdown
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+✅ Tests: 11/11 passing in kb-ingest-cli.test.ts
+✅ npm script: `npm run kb:ingest --` executes correctly
+✅ prd.json: US-539.passes = true
+
+## Iteration 7 - Mon, Apr 13, 2026 12:17:45 PM
+Completed: Add kb:ingest CLI for Batch KB Document Ingestion via Kreuzberg (ID: US-539) in 5m
