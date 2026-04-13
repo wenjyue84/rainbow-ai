@@ -1,0 +1,60 @@
+## Iteration [N] - Story: US-531 - Add Booking Confirmation Template Rendering with Guest Details Population
+
+### What was implemented
+
+1. **renderBookingConfirmation(guestContext, profileId, language) function** in src/assistant/pipeline/response-generator.ts
+   - Accepts GuestContext with fields: guestName, unit, checkIn, checkOut, price
+   - Fetches booking confirmation template from knowledge.json for specified profile
+   - Interpolates guest details using {{field}} placeholder syntax
+   - Supports multi-language templates (en, ms, zh, ta) with fallback to English
+   - Validates input and throws descriptive errors for missing/invalid context
+
+2. **Booking confirmation templates** added to all profile knowledge.json files:
+   - src/assistant/data/knowledge.json (default profile)
+   - src/assistant/data-southern/knowledge.json
+   - src/assistant/data-makan/knowledge.json
+   - src/assistant/data-pms-capsule/knowledge.json
+   - src/assistant/data-pms-southern/knowledge.json
+   - src/assistant/data-yoongmei/knowledge.json
+
+3. **Comprehensive test suite** in tests/assistant/response-generator.test.ts
+   - 20 passing tests covering all acceptance criteria
+   - Tests for template rendering with sample guest data
+   - Multi-language support verification
+   - Profile-specific template loading
+   - Error handling and validation
+   - Edge cases (special characters, currency formatting, long values)
+
+### Patterns discovered
+
+- knowledge.json structure varies per profile:
+  - Default profiles use array with "id" and "profile_id" fields
+  - PMS/management profiles use simpler array structure
+  - Templates stored under "intent": "booking_confirmation" in "static" section
+
+- Placeholder pattern: `{{fieldName}}` uses simple string replacement
+  - No complex templating engine needed
+  - Clean, human-readable template syntax
+
+- Template fallback: If language not found, automatically falls back to English
+  - Ensures robustness across language variants
+
+### Gotchas
+
+- Knowledge.json files have different structures:
+  - Some have "id" and "profile_id" fields (southern, makan)
+  - Others don't (pms-capsule, pms-southern)
+  - All needed to be updated consistently
+
+- File path construction must account for process.cwd() being project root
+  - Use join(process.cwd(), 'src', 'assistant', ...) pattern
+
+### Quality checks
+
+✅ Tests: 20/20 passing in tests/assistant/response-generator.test.ts
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+✅ Server startup: Successful (MCP_SERVER_PORT=3002)
+✅ prd.json: Updated US-531.passes to true
+
+## EOF
+cat temp_progress.txt progress.txt > combined.txt && mv combined.txt progress.txt && rm temp_progress.txt && echo "progress.txt updated"
