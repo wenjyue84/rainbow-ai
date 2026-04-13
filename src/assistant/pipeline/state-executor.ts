@@ -18,7 +18,7 @@ import { logMessage } from '../conversation-logger.js';
 import { getTemplate } from '../formatter.js';
 import { getEmergencyIntent } from '../intents.js';
 import { escalateToStaff } from '../escalation.js';
-import { createWorkflowState, type WorkflowContext } from '../workflow-executor.js';
+import { createWorkflowState, loadOrCreateWorkflowState, type WorkflowContext } from '../workflow-executor.js';
 import { flowRegistry } from '../flows/index.js';
 import {
   isAwaitingFeedback, detectFeedbackResponse, buildFeedbackData,
@@ -189,7 +189,8 @@ export async function handleActiveStates(
       if (workflow) {
         console.log(`[Router] Emergency → workflow: ${workflow.name} (${route.workflow_id})`);
         trackWorkflowStarted(phone, msg.pushName, workflow.name);
-        const workflowState = createWorkflowState(route.workflow_id);
+        // US-582: Load existing workflow state from Redis or create new
+        const workflowState = await loadOrCreateWorkflowState(route.workflow_id, phone);
 
         // Use the workflow flow from the registry for emergency workflows too
         const workflowFlow = flowRegistry.get('workflow');

@@ -21,6 +21,10 @@ import {
 } from './workflow-executor-node.js';
 import { workflowTimelineStore, generateExecutionId, type StepExecution } from '../lib/workflow-timeline.js';
 import { loadGuestContext } from '../tools/guest-data-injector.js';
+import { getWorkflowStore } from '../lib/redis-workflow-store.js';
+
+// ─── US-582: Workflow State Resumption from Redis ────────────────────
+// Persist booking workflow state to Redis with 48-hour TTL for resumption
 
 // ─── US-574: Booking Workflow Skip-Step Logic for Returning Guests ────
 /**
@@ -235,6 +239,73 @@ export function createWorkflowState(workflowId: string): WorkflowState {
       isNodeBased: true,
     } : {}),
   };
+}
+
+/**
+ * US-582: Load workflow state from Redis or create new
+ *
+ * AC2: On new user message, check Redis for active workflow state and resume from last completed step
+ *
+ * Attempts to load workflow state from Redis for the conversation.
+ * If not found (TTL expired or new conversation), creates fresh state.
+ *
+ * @param workflowId - Workflow to load/create
+ * @param conversationId - Phone number or unique conversation identifier
+ * @returns Persisted state if found, otherwise new state
+ */
+export async function loadOrCreateWorkflowState(
+  workflowId: string,
+  conversationId?: string
+): Promise<WorkflowState> {
+  // If no conversation ID, create fresh state (cannot resume)
+  if (!conversationId) {
+    return createWorkflowState(workflowId);
+  }
+
+  // Try to load from Redis
+  const store = getWorkflowStore();
+  const persistedState = await store.load(conversationId, workflowId);
+
+  if (persistedState) {
+    console.log(
+      `[WorkflowExecutor] US-582: Resumed workflow "${workflowId}" for ${conversationId} ` +
+      `from Redis (step ${persistedState.currentStepIndex})`
+    );
+    // Update timestamps but preserve other state
+    persistedState.lastUpdateAt = Date.now();
+    return persistedState;
+  }
+
+  // No persisted state found, create new
+  console.log(
+    `[WorkflowExecutor] US-582: No persisted state for ${conversationId}/${workflowId}, ` +
+    `creating fresh workflow`
+  );
+  return createWorkflowState(workflowId);
+}
+
+/**
+ * US-582: Persist workflow state to Redis after each step
+ *
+ * AC1: Workflow executor saves state hash to Redis (conversation_id key) after each step with 48h TTL
+ *
+ * Saves the workflow state to Redis with 48-hour TTL.
+ * This allows resumption if the conversation is re-engaged within the TTL window.
+ *
+ * @param conversationId - Phone number or unique conversation identifier
+ * @param state - WorkflowState to persist
+ */
+export async function persistWorkflowState(
+  conversationId: string | undefined,
+  state: WorkflowState
+): Promise<void> {
+  if (!conversationId) {
+    // Cannot persist without a conversation identifier
+    return;
+  }
+
+  const store = getWorkflowStore();
+  await store.save(conversationId, state.workflowId, state);
 }
 
 export async function executeWorkflowStep(
@@ -908,9 +979,12 @@ export async function executeWorkflowStep(
       );
 
       // Return error response without advancing state
+      const errorState = { ...state, executionId };
+      await persistWorkflowState(phone, errorState);
+
       return {
         response: clarifyingMessages[language as keyof typeof clarifyingMessages] || clarifyingMessages.en,
-        newState: { ...state, executionId },
+        newState: errorState,
         workflowId: state.workflowId,
         stepId: currentStep.id,
         executionId
@@ -928,6 +1002,12 @@ export async function executeWorkflowStep(
   } else {
     // Advance to next step (user will reply to this one)
     newState.currentStepIndex = state.currentStepIndex + 1;
+  }
+
+  // US-582: Persist workflow state to Redis with 48h TTL
+  // This enables resumption if the conversation is re-engaged within the TTL window
+  if (newState) {
+    await persistWorkflowState(phone, newState);
   }
 
   return {

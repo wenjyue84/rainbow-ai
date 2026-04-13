@@ -2352,6 +2352,151 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-577",
+      "title": "Load Intent Synonyms from JSON Config per Language and Profile",
+      "priority": "medium",
+      "description": "Support intent keyword synonyms (e.g., 'booking', 'reserve', 'check-in') to improve classification accuracy for similar user phrases. Load synonyms from JSON config files organized by language and profile, integrated with keyword matching pipeline.",
+      "acceptanceCriteria": [
+        "Intent synonym JSON files exist at `src/assistant/data/intent-synonyms-{profile}-{lang}.json` (e.g., `intent-synonyms-pelangi-ta.json` for Tamil) with structure `{intentId: [synonym1, synonym2]}`",
+        "Synonym loader function in `src/assistant/intent-classifier.ts` initializes on server startup and expands keywords with synonyms during fuzzy matching",
+        "Test `npm run test tests/unit/intent_synonym_loading.test.ts` validates synonym expansion for multi-language profiles"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/intent-classifier.ts (loadSynonymsForLanguage function)",
+        "Test command: npm run test tests/unit/intent_synonym_loading.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-578",
+      "title": "Count Conversation Tokens and Emit Warning at 80% Capacity",
+      "priority": "medium",
+      "description": "Track token usage in conversation context to prevent token limit overflow. Count tokens incrementally as messages are added and log warnings when approaching the threshold, allowing graceful context pruning or escalation.",
+      "acceptanceCriteria": [
+        "Add `tokenCount` property to conversation object in `src/assistant/pipeline/conversation-manager.ts` and update on each message add",
+        "When message addition would exceed 80% of token limit (e.g., 3500 of 4096), emit warning log: `logger.warn('conversation-context-token-limit', {conversationId, tokenCount, limit})`",
+        "Test `npm run test tests/unit/context_token_counting.test.ts` asserts token count accuracy and warning emission at thresholds"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/conversation-manager.ts (countTokens function)",
+        "Test command: npm run test tests/unit/context_token_counting.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-579",
+      "title": "Add Custom Fallback Prompts for Low-Confidence Intent Classifications",
+      "priority": "medium",
+      "description": "When intent classification confidence falls below threshold, use a custom fallback prompt tailored to the specific intent to generate better responses than generic fallbacks. Store fallback prompts in intent configuration for profile-specific customization.",
+      "acceptanceCriteria": [
+        "Add `fallbackPrompt` field to intent definitions in `src/assistant/data/{profile}/intent-keywords.json` (e.g., for 'booking' intent, custom prompt guides guest through booking clarification)",
+        "In `src/assistant/intent-classifier.ts`, when confidence < `LOW_CONFIDENCE_THRESHOLD` (0.5), use intent's fallback prompt instead of generic 'I didn't understand' message",
+        "Test `npm run test tests/unit/intent_fallback_prompts.test.ts` validates fallback selection, prompt rendering, and multi-language fallback variations"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/intent-classifier.ts (applyFallbackPrompt function)",
+        "Test command: npm run test tests/unit/intent_fallback_prompts.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-580",
+      "title": "Report Intent Misclassification Patterns from Feedback Data",
+      "priority": "medium",
+      "description": "Identify intents that are frequently misclassified (high confidence but low user satisfaction) to guide model improvements. Create dashboard endpoint and CLI report to analyze misclassification patterns by intent and profile.",
+      "acceptanceCriteria": [
+        "Create admin API endpoint `GET /admin/api/intents/misclassification-report?profile=pelangi&days=7` that queries `conversation_feedback` table for messages with `confidence > 0.8 AND satisfaction < 0.5`",
+        "Report groups misclassifications by intent (top 5), showing count, average confidence, and sample conversation IDs for debugging",
+        "Test `npm run test tests/unit/intent_misclassification_report.test.ts` validates report generation, filtering by date range, and correct intent grouping"
+      ],
+      "technicalNotes": [
+        "File to edit: src/routes/admin/intent-manager.ts (add GET /intents/misclassification-report handler)",
+        "Test command: npm run test tests/unit/intent_misclassification_report.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-581",
+      "title": "Infer and Set Language Preference from First User Message",
+      "priority": "medium",
+      "description": "Detect language from the user's first message in a conversation and automatically set their language preference, avoiding per-message language detection overhead and improving UX by responding in their preferred language immediately.",
+      "acceptanceCriteria": [
+        "In message processor, detect language from first message using existing `detectLanguage()` and store in `language_preference` column of `rainbow_conversations` table if not already set",
+        "Skip language detection for subsequent messages if preference is already set, reducing DB overhead and improving latency on T1/T2 fast paths",
+        "Test `npm run test tests/unit/language_preference_inference.test.ts` validates language inference for multi-script messages (Tamil, English, mixed) and persistence"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/message-processor.ts (inferLanguagePreference function)",
+        "Test command: npm run test tests/unit/language_preference_inference.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-582",
+      "title": "Implement Booking Workflow State Resumption from Redis",
+      "priority": "high",
+      "description": "Persist booking workflow state to Redis with 48-hour TTL to enable users to resume incomplete bookings from the last completed step after re-engagement.",
+      "acceptanceCriteria": [
+        "Workflow executor saves state hash to Redis (conversation_id key) after each step with 48h TTL",
+        "On new user message, check Redis for active workflow state and resume from last completed step",
+        "Test verifies multi-turn workflow state persistence, resumption, and TTL expiry"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/redis-workflow-store.ts (RedisWorkflowStore class with save/load/clearExpired methods)",
+        "File to edit: src/assistant/pipeline/workflow-executor.ts (call saveState after each step, loadState on init)",
+        "File to edit: tests/workflow-executor.test.ts (add test case for multi-turn resumption)",
+        "Test command: npm run test tests/workflow-executor.test.ts -- --grep 'resumption'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T14:12:21Z"
+    },
+    {
+      "id": "US-583",
+      "title": "Add Intent Keyword Frequency Analysis CLI Tool",
+      "priority": "low",
+      "description": "Provide CLI tool to analyze keyword frequency across intent definitions and knowledge base files, identifying under/over-represented keywords to improve classification coverage.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run intent:analyze-keywords' scans all KB files and intent config, generates frequency report",
+        "Report shows keywords ranked by frequency with intent distribution and gap analysis",
+        "Test verifies accurate frequency counting across multiple profile KB files"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/intent-keyword-analyzer.ts (analyzeKeywordFrequency function)",
+        "File to edit: package.json (add 'intent:analyze-keywords' script)",
+        "File to create: tests/cli/intent-keyword-analyzer.test.ts",
+        "Test command: npm run test tests/cli/intent-keyword-analyzer.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }

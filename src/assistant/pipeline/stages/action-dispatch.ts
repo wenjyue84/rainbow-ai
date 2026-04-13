@@ -357,7 +357,8 @@ async function handleWorkflow(
   console.log(`[Dispatch] Starting workflow: ${workflow.name} (${workflowId})`);
   diaryEvent.workflowStarted = true;
   context.trackWorkflowStarted(phone, msg.pushName, workflow.name);
-  const workflowState = context.createWorkflowState(workflowId);
+  // US-582: Load existing workflow state from Redis or create new
+  const workflowState = await context.loadOrCreateWorkflowState(workflowId, phone);
   const workflowResult = await context.executeWorkflowStep(
     workflowState, null, { language: lang, phone, pushName: msg.pushName, instanceId: msg.instanceId, profileId: state.profileId }
   );

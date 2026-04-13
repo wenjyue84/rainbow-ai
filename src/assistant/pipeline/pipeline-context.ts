@@ -82,6 +82,7 @@ export interface IPipelineContext {
   createBookingState: () => BookingState;
   executeWorkflowStep: (state: WorkflowState, userInput: string | null, context: WorkflowContext) => Promise<any>;
   createWorkflowState: (workflowId: string) => WorkflowState;
+  loadOrCreateWorkflowState: (workflowId: string, conversationId?: string) => Promise<WorkflowState>;
   forwardWorkflowSummary: (phone: string, pushName: string, workflow: any, state: WorkflowState, instanceId?: string) => Promise<void>;
 
   // ─── Escalation ───────────────────────────────────────────────────
@@ -138,7 +139,7 @@ export async function createPipelineContext(
   const { classifyMessageWithContext } = await import('../intents.js');
   const { detectMessageType } = await import('../problem-detector.js');
   const { handleBookingStep, createBookingState } = await import('../booking.js');
-  const { executeWorkflowStep, createWorkflowState, forwardWorkflowSummary } = await import('../workflow-executor.js');
+  const { executeWorkflowStep, createWorkflowState, loadOrCreateWorkflowState, forwardWorkflowSummary } = await import('../workflow-executor.js');
   const { escalateToStaff, shouldEscalate } = await import('../escalation.js');
   const { logEscalationEvent } = await import('../../lib/escalation-events.js');
   const { trackIntentPrediction } = await import('../intent-tracker.js');
@@ -212,6 +213,7 @@ export async function createPipelineContext(
     createBookingState,
     executeWorkflowStep,
     createWorkflowState,
+    loadOrCreateWorkflowState,
     forwardWorkflowSummary,
 
     // Escalation
