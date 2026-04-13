@@ -3341,6 +3341,71 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-611",
+      "title": "Implement Intent Synonym Expansion from Profile-Specific Configuration",
+      "priority": "high",
+      "description": "Load intent synonyms from JSON config per profile to expand keyword matching during T2 classification, improving accuracy by 20%+ while enforcing business profile separation and preventing cross-profile contamination.",
+      "acceptanceCriteria": [
+        "intent-synonyms.json in each profile KB folder (.rainbow-kb/intent-synonyms.json, .rainbow-kb-makan/intent-synonyms.json) with structure: { 'booking': ['reserve', 'check-in', 'check_in'], 'inquiry': ['question', 'help', 'info'] }",
+        "IntentClassifier expands keyword matching to include synonyms during T2 classification phase",
+        "Contamination test verifies pelangi synonyms do not trigger matches in makan profile classifier"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/classifier/synonym-expander.ts (expandKeywordMatches method, ~50 lines)",
+        "File to edit: src/assistant/classifier/intent-classifier.ts (load synonyms at init, integrate expansion in T2 matching)",
+        "File to create: .rainbow-kb/intent-synonyms.json with booking/inquiry synonym mappings",
+        "Test command: npm run test tests/classifier/intent-synonym-expansion.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T23:38:15Z"
+    },
+    {
+      "id": "US-612",
+      "title": "Batch Intent Analytics Writes with In-Memory Buffer and Time-Based Flush",
+      "priority": "medium",
+      "description": "Reduce database round-trips for high-volume intent classification by collecting analytics events in memory and flushing them in batches (100 events or 5-second window). Improves P99 latency under traffic spikes without sacrificing data durability.",
+      "acceptanceCriteria": [
+        "IntentClassifier uses BatchAnalyticsWriter to queue intent_analytics events; DB inserts trigger only when buffer reaches 100 events OR 5 seconds elapsed",
+        "P99 classification latency drops by 10-20% under sustained 10+ messages/second load; no events lost on graceful shutdown",
+        "Test verifies: size-based trigger (100 events), time-based trigger (5s), and graceful flush on SIGTERM"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/batch-writer.ts (BatchAnalyticsWriter class with configurable batch size and flush interval)",
+        "Modify src/assistant/analyzers/intent-classifier.ts line ~210 to use batchWriter.enqueue() instead of direct db.insert()",
+        "Test command: npm run test -- tests/lib/batch-writer.test.ts -v && npm run test -- tests/integration/batch-analytics-flush.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-613",
+      "title": "Implement Knowledge Base Last-Accessed Tracking with Stale Content Detection",
+      "priority": "medium",
+      "description": "Track when KB files were last retrieved and modified. Identify unused or outdated knowledge base content that should be refreshed or removed, improving KB quality and relevance.",
+      "acceptanceCriteria": [
+        "Add last_accessed_at and access_count columns to rainbow_kb_files schema; run npm run db:push",
+        "Update last_accessed_at timestamp in response processor whenever KB content is retrieved for response generation",
+        "New CLI command: npm run kb:stale -- --profile=pelangi --days-since-update=60 --days-since-access=30 lists KB files matching criteria"
+      ],
+      "technicalNotes": [
+        "Update src/assistant/pipeline/response-processor.ts in KB retrieval section (function retrieveKnowledgeBase or similar)",
+        "Create src/cli/kb-stale-detector.ts to query rainbow_kb_files with WHERE (NOW() - updated_at > interval '60 days' OR access_count = 0)",
+        "Test with: npm run test -- src/cli/kb-stale-detector.test.ts; verify mock returns correct stale file list"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }

@@ -11,7 +11,7 @@ import intentExamplesData from './data/intent-examples.json' with { type: 'json'
 import intentsJsonData from './data/intents.json' with { type: 'json' };
 import intentSynonymsData from './data/intent-synonyms.json' with { type: 'json' };
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { keywordMatchCache } from '../lib/keyword-match-cache.js';
 
 // Re-export public API from extracted modules (keeps all imports from './intents.js' working)
@@ -157,10 +157,32 @@ function loadIntentSynonyms(): any {
 }
 
 /**
+ * US-611: Get the KB directory for a profile by reading profiles.json
+ * Returns the kbDir string for the profile, or null if not found
+ */
+function getProfileKBDir(profileId: string): string | null {
+  try {
+    const profilesPath = join(process.cwd(), 'profiles.json');
+    if (!existsSync(profilesPath)) {
+      return null;
+    }
+    const profilesFile = JSON.parse(readFileSync(profilesPath, 'utf-8'));
+    const profile = profilesFile.profiles?.find((p: any) => p.id === profileId);
+    return profile?.kbDir || null;
+  } catch (err: any) {
+    console.warn(`[Intents:US-611] Failed to get KB dir for profile "${profileId}": ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * US-577: Load intent synonyms for a specific language and profile
  * Checks for profile+language file first (intent-synonyms-{profile}-{lang}.json),
  * then profile-only file (intent-synonyms-{profile}.json),
  * then falls back to default intent-synonyms.json
+ *
+ * US-611: Also checks the profile's KB folder (.rainbow-kb/intent-synonyms.json)
+ * before falling back to src/assistant/data/
  *
  * Returns an object mapping intentId to array of synonyms for that language
  * Example: { "booking": ["reserve room", "book a stay"], "wifi": ["hotspot password"] }
@@ -168,7 +190,23 @@ function loadIntentSynonyms(): any {
 function loadSynonymsForLanguage(profileId: string = 'pelangi', language: string = 'en'): any {
   const dataDir = join(process.cwd(), 'src', 'assistant', 'data');
 
-  // Try profile-specific + language-specific file first
+  // US-611: Try profile's KB folder first (e.g., .rainbow-kb/intent-synonyms.json)
+  const kbDir = getProfileKBDir(profileId);
+  if (kbDir) {
+    const kbSynonymsPath = join(process.cwd(), kbDir, 'intent-synonyms.json');
+    if (existsSync(kbSynonymsPath)) {
+      try {
+        const content = readFileSync(kbSynonymsPath, 'utf-8');
+        const data = JSON.parse(content);
+        console.log(`[Intents:US-611] Loaded profile KB synonyms for "${profileId}" from ${kbDir}/intent-synonyms.json`);
+        return convertSynonymsFormat(data);
+      } catch (err: any) {
+        console.warn(`[Intents:US-611] Failed to load profile KB synonyms: ${err.message}`);
+      }
+    }
+  }
+
+  // Try profile-specific + language-specific file in data dir
   const profileLangPath = join(dataDir, `intent-synonyms-${profileId}-${language}.json`);
   if (existsSync(profileLangPath)) {
     try {
