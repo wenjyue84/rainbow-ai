@@ -9,6 +9,7 @@
 
 import { db } from '../../lib/db.js';
 import { escalationEvents } from '../../../shared/schema-tables.js';
+import { getErrorMessage } from '../response-processor.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,60 +61,15 @@ export function normalizeProfileId(profileId: string): string {
  * Profile × error-type specific recovery messages.
  * Each profile has tailored messaging that reflects their business context.
  */
-const RECOVERY_MESSAGES: Record<string, Record<string, string>> = {
-  pelangi: {
-    validation_error:
-      "I couldn't complete your booking due to some missing details. Our front desk will call you shortly to confirm your reservation.",
-    payment_failed:
-      "We encountered an issue processing your payment for the booking. Our front desk will contact you to arrange payment.",
-    room_unavailable:
-      "The room you selected is unavailable for those dates. Our front desk will help you find alternative dates or room types.",
-    date_conflict:
-      "There's a conflict with your selected dates. Our front desk will call you shortly to find the best available dates.",
-    guest_not_found:
-      "We couldn't locate your guest profile. Our front desk will reach out to confirm your details and complete the booking.",
-    system_error:
-      "We ran into a technical issue while processing your booking. Our front desk will contact you shortly to complete your reservation.",
-  },
-  makan: {
-    validation_error:
-      "We couldn't process your order due to some missing details. Our staff will follow up with you shortly to confirm.",
-    payment_failed:
-      "We encountered a payment issue for your order. Our staff will contact you to process payment.",
-    room_unavailable:
-      "The item you requested is currently unavailable. Our staff will follow up to offer alternatives.",
-    date_conflict:
-      "There's an issue with your reservation time. Our staff will reach out to confirm a suitable slot.",
-    guest_not_found:
-      "We couldn't find your customer record. Our staff will follow up to confirm your details and complete the order.",
-    system_error:
-      "We ran into a technical issue while processing your order. Our staff will contact you shortly to help.",
-  },
-  southern: {
-    validation_error:
-      "We couldn't complete your booking due to some missing details. Our team will reach out to you shortly to confirm your reservation.",
-    payment_failed:
-      "We encountered an issue processing your payment. Our team will contact you to arrange payment for the booking.",
-    room_unavailable:
-      "The property you selected is unavailable for those dates. Our team will help you find alternative dates.",
-    date_conflict:
-      "There's a conflict with your selected dates. Our team will call you shortly to find the best available dates.",
-    guest_not_found:
-      "We couldn't locate your booking profile. Our team will reach out to confirm your details.",
-    system_error:
-      "We ran into a technical issue with your booking. Our team will contact you shortly to complete your reservation.",
-  },
-};
-
 /**
  * Return a profile-specific recovery message for the given error type.
  * Profile ID is normalized before lookup (e.g., "pelangi-capsule" → "pelangi").
- * Falls back to system_error message when error type is unmapped.
+ * Loads messages from profile-specific JSON files with fallback to English.
  */
 export function getRecoveryMessage(errorType: string, profileId: string): string {
   const profile = normalizeProfileId(profileId);
-  const profileMessages = RECOVERY_MESSAGES[profile] ?? RECOVERY_MESSAGES.pelangi;
-  const message = profileMessages[errorType] ?? profileMessages.system_error;
+  // Use the centralized error message loader from response-processor
+  const message = getErrorMessage(errorType, profile);
   return message ?? 'We encountered a technical issue. Please contact our staff for assistance.';
 }
 

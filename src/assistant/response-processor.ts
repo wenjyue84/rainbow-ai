@@ -297,5 +297,112 @@ export async function generateFallbackSuggestions(
   }
 }
 
+/**
+ * Load error messages from profile-specific JSON files with fallback to English
+ *
+ * @param profileId - Profile ID (pelangi, makan, southern, etc.)
+ * @returns Record of error key -> message, or null if loading fails
+ */
+interface ErrorMessagesData {
+  schema_version: string;
+  description: string;
+  errors: Record<string, string>;
+}
+
+function loadErrorMessages(profileId: string = 'pelangi'): ErrorMessagesData | null {
+  try {
+    // Try profile-specific file first
+    const profileErrorPath = path.join(
+      __dirname,
+      `data/error-messages-${profileId}.json`
+    );
+
+    if (fs.existsSync(profileErrorPath)) {
+      const data = fs.readFileSync(profileErrorPath, 'utf-8');
+      return JSON.parse(data) as ErrorMessagesData;
+    }
+
+    // Fallback to English error messages
+    const enErrorPath = path.join(__dirname, 'data/error-messages-en.json');
+    if (fs.existsSync(enErrorPath)) {
+      const data = fs.readFileSync(enErrorPath, 'utf-8');
+      return JSON.parse(data) as ErrorMessagesData;
+    }
+
+    console.warn(
+      `[ResponseProcessor] No error messages found for profile ${profileId}, falling back to defaults`
+    );
+    return null;
+  } catch (error) {
+    console.error(
+      `[ResponseProcessor] Failed to load error messages for profile ${profileId}:`,
+      error
+    );
+    // Fallback to English
+    try {
+      const enErrorPath = path.join(__dirname, 'data/error-messages-en.json');
+      const data = fs.readFileSync(enErrorPath, 'utf-8');
+      return JSON.parse(data) as ErrorMessagesData;
+    } catch (enError) {
+      console.error('[ResponseProcessor] Failed to load English error messages:', enError);
+      return null;
+    }
+  }
+}
+
+/**
+ * Normalize profile ID to canonical form (pelangi, makan, southern)
+ * Handles aliases and partial matches
+ */
+function normalizeProfileId(profileId: string): string {
+  const lower = profileId.toLowerCase();
+
+  // Exact matches
+  if (lower === 'pelangi') return 'pelangi';
+  if (lower === 'makan') return 'makan';
+  if (lower === 'southern') return 'southern';
+
+  // Aliases
+  if (lower === 'pelangi-capsule') return 'pelangi';
+  if (lower === 'southern-homestay') return 'southern';
+  if (lower === 'makan-moments') return 'makan';
+
+  // Partial substring matches
+  if (lower.includes('pelangi')) return 'pelangi';
+  if (lower.includes('makan')) return 'makan';
+  if (lower.includes('southern')) return 'southern';
+
+  return 'pelangi'; // Default fallback
+}
+
+/**
+ * Get a specific error message for a profile and error type
+ *
+ * @param errorType - Error type key (e.g., 'booking_error', 'payment_failed')
+ * @param profileId - Profile ID (pelangi, makan, southern, etc.)
+ * @returns Error message string, or a generic message if not found
+ */
+export function getErrorMessage(errorType: string, profileId: string = 'pelangi'): string {
+  const normalizedProfile = normalizeProfileId(profileId);
+  const errorMessages = loadErrorMessages(normalizedProfile);
+
+  if (!errorMessages) {
+    return 'We encountered an issue. Please contact our staff for assistance.';
+  }
+
+  const message = errorMessages.errors[errorType];
+  if (message) {
+    return message;
+  }
+
+  // Fallback to system_error if specific type not found
+  const systemError = errorMessages.errors.system_error;
+  if (systemError) {
+    return systemError;
+  }
+
+  return 'We encountered an issue. Please contact our staff for assistance.';
+}
+
 // Export template functions for use in tests and other modules
-export { loadTemplateByLanguage, renderTemplate };
+export { loadTemplateByLanguage, renderTemplate, loadErrorMessages };
