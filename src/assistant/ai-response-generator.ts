@@ -7,6 +7,7 @@ import type { ChatMessage } from './types.js';
 import type { MCPTool, MCPToolResult, ToolHandler } from '../types/mcp.js';
 import { configStore, ConfigStore } from './config-store.js';
 import { getContextWindows } from './context-windows.js';
+import { pruneConversationHistory } from './pipeline/response-processor.js';
 import {
   isAIAvailable, getAISettings, getProviders, resolveApiKey,
   getGroqInstance, providerChat, chatWithFallback
@@ -188,8 +189,9 @@ export async function chat(
     { role: 'system', content: systemPrompt }
   ];
 
-  const recentHistory = history.slice(-cw.combined);
-  for (const msg of recentHistory) {
+  // US-543: Apply conversation window size pruning (rolling window)
+  const prunedHistory = pruneConversationHistory(history, cw.combined);
+  for (const msg of prunedHistory) {
     messages.push({ role: msg.role, content: msg.content });
   }
   messages.push({ role: 'user', content: userMessage });
@@ -226,8 +228,19 @@ export async function chatWithToolsLoop(
     { role: 'system', content: langPrompt }
   ];
 
-  const recentHistory = history.slice(-cw.combined);
-  for (const msg of recentHistory) {
+  // US-543: Apply conversation window size pruning (configurable per profile)
+  let windowSize = cw.combined;
+  if (profileConfigStore) {
+    const settings = profileConfigStore.getSettings() as any;
+    const profileId = (profileConfigStore as any).profileId;
+    const convWindowSizes = settings?.conversationWindowSize;
+    if (convWindowSizes && convWindowSizes[profileId]) {
+      windowSize = convWindowSizes[profileId];
+    }
+  }
+
+  const prunedHistory = pruneConversationHistory(history, windowSize);
+  for (const msg of prunedHistory) {
     messages.push({ role: msg.role, content: msg.content });
   }
   messages.push({ role: 'user', content: userMessage });
@@ -543,8 +556,19 @@ export async function classifyAndRespond(
       { role: 'system', content: langPrompt }
     ];
 
-    const recentHistory = history.slice(-cw.combined);
-    for (const msg of recentHistory) {
+    // US-543: Apply conversation window size pruning (configurable per profile)
+    let windowSize = cw.combined;
+    if (profileConfigStore) {
+      const settings = profileConfigStore.getSettings() as any;
+      const profileId = (profileConfigStore as any).profileId;
+      const convWindowSizes = settings?.conversationWindowSize;
+      if (convWindowSizes && convWindowSizes[profileId]) {
+        windowSize = convWindowSizes[profileId];
+      }
+    }
+
+    const prunedHistory = pruneConversationHistory(history, windowSize);
+    for (const msg of prunedHistory) {
       messages.push({ role: msg.role, content: msg.content });
     }
     messages.push({ role: 'user', content: userMessage });

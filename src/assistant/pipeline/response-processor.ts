@@ -7,6 +7,7 @@
  * logging, tracking, and feedback prompts.
  */
 import type { RouterContext, PipelineState } from './types.js';
+import type { ChatMessage } from '../types.js';
 import { ensureResponseText, getConversationMode } from './input-validator.js';
 import { getLLMSettings } from '../llm-settings-loader.js';
 import { addMessage } from '../conversation.js';
@@ -70,6 +71,25 @@ export function clearPendingFeedbackTimers(): void {
   }
   feedbackTimers.clear();
   console.log(`[Feedback] Cleared ${feedbackTimers.size} pending feedback timers.`);
+}
+
+/**
+ * US-543: Prune conversation history to rolling window size.
+ * Keeps only the last N messages to prevent token overflow in long conversations.
+ * Pruned messages remain in the database but are excluded from AI provider context.
+ *
+ * @param messages - Array of conversation messages
+ * @param windowSize - Maximum number of messages to keep (e.g., 10)
+ * @returns Pruned messages (last N messages only)
+ */
+export function pruneConversationHistory(
+  messages: ChatMessage[],
+  windowSize: number
+): ChatMessage[] {
+  if (messages.length <= windowSize) {
+    return messages;
+  }
+  return messages.slice(-windowSize);
 }
 
 /**

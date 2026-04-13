@@ -601,3 +601,50 @@ Completed: Track KB Document Sources in _sources.json Manifest per Profile (ID: 
 ## Iteration 1 - Mon, Apr 13, 2026 12:36:23 PM
 Completed: Track KB Document Sources in _sources.json Manifest per Profile (ID: US-540) in 4m
 
+
+## Iteration [N] - Story: Add Conversation Context Pruning with Rolling Window to Prevent Token Overflow (US-543)
+
+### What was implemented
+- Created `pruneConversationHistory(messages, windowSize)` function in `src/assistant/pipeline/response-processor.ts` that:
+  - Takes a ChatMessage array and window size
+  - Returns only the last N messages (rolling window)
+  - Preserves message order, roles, and metadata
+  - Prevents token overflow in long multi-turn conversations
+
+- Added `conversationWindowSize` config to `src/assistant/data/settings.json` with per-profile tuning:
+  - pelangi: 10 messages
+  - makan: 10 messages
+  - southern: 10 messages
+  - Tunable via settings for different profiles/use cases
+
+- Integrated pruning into message preparation in `src/assistant/ai-response-generator.ts`:
+  - Updated `classifyAndRespond()` to use per-profile window size from settings
+  - Updated `chatWithToolsLoop()` to use per-profile window size from settings
+  - Updated `chat()` to use pruning function with context windows
+  - Pruned messages remain in database but are excluded from AI provider context
+
+- Created comprehensive test suite `src/assistant/__tests__/conversation-pruning.test.ts` with 12 tests:
+  - Tests 20→10 message truncation (acceptance criteria)
+  - Tests window size boundaries and edge cases
+  - Tests message order and role preservation
+  - Tests per-profile configuration structure
+  - All tests passing: 12/12 ✓
+
+### Patterns discovered
+- Conversation history is already pruned via token-aware context compressor in summarization stage
+- Added pruneConversationHistory as explicit, configurable layer for additional control
+- Per-profile settings use profileConfigStore.getSettings() with profileId lookup
+- ChatMessage type includes optional timestamp and metadata fields
+
+### Gotchas
+- ProfileConfigStore doesn't expose profileId directly; had to cast to `any` and check (profileConfigStore as any).profileId
+- conversationWindowSize config is per-profile dict keyed by profile ID
+- Window size defaults to contextWindows.combined (20) if profile config is missing
+- Pruning happens before messages are sent to AI provider but after summarization/TTL filtering
+
+### Quality checks
+✅ Test: 12/12 passing (all conversation pruning tests)
+✅ Build: esbuild successful (2.6mb bundle, pre-existing warning about module)
+✅ Server startup: tsx loads without errors, configuration loads correctly
+✅ prd.json: Updated US-543.passes to true
+

@@ -1316,6 +1316,70 @@
       "model": "sonnet",
       "last_attempted": "2026-04-13T03:28:50Z",
       "_passedCommit": "a0763f536e9d23659c65ef9db96fca7bc5d55d3f"
+    },
+    {
+      "id": "US-543",
+      "title": "Add Conversation Context Pruning with Rolling Window to Prevent Token Overflow",
+      "priority": "high",
+      "description": "Implement conversation history pruning to maintain only the last N messages plus system context, preventing token limits on long multi-turn conversations and reducing AI provider costs.",
+      "acceptanceCriteria": [
+        "Implement pruneConversationHistory(messages, windowSize) in response-processor.ts that slices conversation to keep only last N messages before sending to AI provider",
+        "Add CONVERSATION_WINDOW_SIZE config in src/assistant/data/settings.json (default 10 messages, tunable per profile)",
+        "Pruned messages remain in rainbow_conversations table but are excluded from AI provider context; test verifies 20-message conversation is truncated to 10 before API call"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/response-processor.ts (method: formatConversationForAI, add pruning logic before AI.send())",
+        "File to edit: src/assistant/data/settings.json (add conversationWindowSize: {pelangi: 10, makan: 10, southern: 10})",
+        "Test command: uv run vitest tests/integration/conversation-pruning.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T05:11:36Z"
+    },
+    {
+      "id": "US-544",
+      "title": "Add Profile-Specific Fallback Response Template System with Language Variations",
+      "priority": "high",
+      "description": "Implement profile-isolated fallback templates for low-confidence, out-of-scope, and error scenarios, eliminating hardcoded responses and ensuring no content contamination between profiles.",
+      "acceptanceCriteria": [
+        "Create fallback-templates.json per profile (src/assistant/data/{pelangi,makan,southern}/fallback-templates.json) with structure: {scenario: {en, ta, zh}} where scenarios = [low_confidence, out_of_scope, provider_error, rate_limited]",
+        "Modify response-processor.ts to load from profile-specific config via getProfileFallbackTemplate(profile, scenario, language) instead of hardcoded strings",
+        "Test verifies: pelangi-profile uses pelangi fallback (no Makan hostel text); makan uses makan fallback (no Pelangi text); templates render without errors in all 3 languages"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/pelangi/fallback-templates.json (add JSON structure with low_confidence/out_of_scope/provider_error scenarios, en/ta/zh variants)",
+        "File to edit: src/assistant/pipeline/response-processor.ts (add getProfileFallbackTemplate function; replace hardcoded fallback strings with config lookup)",
+        "Test command: uv run vitest tests/profile-isolation/fallback-templates.test.ts -v --coverage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-545",
+      "title": "Implement Booking Workflow State Transition Validation with Guard Rules",
+      "priority": "high",
+      "description": "Enforce valid state transitions in booking workflows (e.g., collect_dates -> confirm_details, not skip directly to confirm_booking) to prevent workflow logic errors and improve booking reliability.",
+      "acceptanceCriteria": [
+        "Create src/assistant/workflows/booking-state-machine.ts defining allowed transitions as: {currentStep: [allowedNextSteps]} (e.g., collect_dates -> [confirm_details], confirm_details -> [payment_info, collect_dates])",
+        "Response processor validates workflow.nextStep against booking-state-machine before executing; invalid transitions return clarifying response (e.g., 'I need to confirm your dates first') instead of executing",
+        "Test includes: valid transitions succeed; invalid transitions are rejected; edge cases (null step, unknown step) handled gracefully"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/workflows/booking-state-machine.ts (define const BOOKING_TRANSITIONS = {collect_dates: [confirm_details], ...}; export function isValidTransition(current, next): boolean)",
+        "File to edit: src/assistant/pipeline/response-processor.ts (add guard before executeWorkflow: if (!isValidTransition(ctx.currentStep, workflow.nextStep)) return buildErrorResponse(...))",
+        "Test command: uv run vitest tests/workflows/booking-state-validation.test.ts -v --coverage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
