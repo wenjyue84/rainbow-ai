@@ -156,3 +156,56 @@ export function resolveEffectiveLanguage(
   // No stored preference and low confidence → fall back to detected (may be defaultLang)
   return detected;
 }
+
+// ─── US-581: Language Preference Inference from First Message ──────────
+
+/**
+ * US-581: Infer language preference from first user message and store in database.
+ *
+ * Flow:
+ * 1. If languagePreference is already set in DB, skip detection (use existing preference)
+ * 2. Otherwise, detect language from message using detectLanguage()
+ * 3. Store detected language in language_preference column
+ * 4. Return the inferred or existing preference
+ *
+ * This avoids per-message language detection overhead and ensures responses
+ * use the user's preferred language immediately.
+ *
+ * @param phone - Phone number / conversation key
+ * @param messageText - User's message text
+ * @param currentPreference - Current language_preference from DB (if already fetched)
+ * @returns The language preference (en|ms|zh|ta|null if unknown)
+ */
+export async function inferLanguagePreferenceFromFirstMessage(
+  phone: string,
+  messageText: string,
+  currentPreference?: string | null,
+): Promise<SupportedLanguage | null> {
+  // AC2: Skip language detection if preference already set
+  if (currentPreference) {
+    return currentPreference as SupportedLanguage | null;
+  }
+
+  // AC1: Detect language from first message using existing detectLanguage()
+  let { detectLanguage } = await import('./formatter.js');
+  const detected = detectLanguage(messageText);
+
+  // Only store if valid language detected (skip 'unknown')
+  if (detected !== 'unknown') {
+    try {
+      const { db } = await import('../lib/db.js');
+      const { eq } = await import('drizzle-orm');
+      const { rainbowConversations } = await import('../../shared/schema-tables.js');
+
+      await db
+        .update(rainbowConversations)
+        .set({ languagePreference: detected })
+        .where(eq(rainbowConversations.phone, phone));
+    } catch (err) {
+      // Log but don't throw — inferred value returned even if storage fails
+      console.debug(`[US-581] Failed to store language preference for ${phone}:`, err);
+    }
+  }
+
+  return detected === 'unknown' ? null : (detected as SupportedLanguage);
+}

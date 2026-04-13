@@ -2535,9 +2535,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-13T19:13:25Z"
     },
     {
       "id": "US-582",
@@ -2996,6 +2997,28 @@
         "Test command: uv run npm run test tests/cli/confidence-histogram.test.ts -v",
         "Query intent_analytics table (existing schema) filtered by profile and created_at >= Date.now() - days*86400; group by intent_name and classification_confidence buckets",
         "Bucket boundaries: [0, 0.2, 0.4, 0.6, 0.8, 1.0]; compute percentages relative to total per intent"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-600",
+      "title": "Add Intent Keyword Dead-Code Audit CLI with Usage Analytics",
+      "priority": "medium",
+      "description": "Scan all intent-keywords.json files per profile, identify keywords that never matched in production (unused for 30+ days), report with confidence scores to guide cleanup and reduce classification noise.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run kb:audit-keywords -- --profile pelangi' reads intent-keywords.json and queries intent_analytics table for last 30 days of matches",
+        "Output JSON report at reports/audit-keywords-{profile}-{date}.json with {intent, keyword, matchCount, lastUsedAt, confidence, recommendation}",
+        "Test asserts 3 unused keywords detected in test fixture and marked with recommendation='remove' when matchCount === 0"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/audit-keywords.ts (CLI entry point with argument parsing)",
+        "File to edit: package.json (add 'kb:audit-keywords' script that runs ts-node src/cli/audit-keywords.ts)",
+        "File to edit: src/lib/db.ts (add helper query getKeywordUsageStats(profile, days) if not exists)",
+        "Test command: npm run test:run tests/cli/audit-keywords.test.ts -v && npm run kb:audit-keywords -- --profile pelangi --dryrun"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

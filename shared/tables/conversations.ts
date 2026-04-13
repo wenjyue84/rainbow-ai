@@ -41,6 +41,8 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   contactDetailsJson: text("contact_details_json"),
   contextSummary: text("context_summary"),                    // US-447: LLM-generated context summary
   contextSummaryAt: timestamp("context_summary_at"),          // US-447: when the summary was generated
+  // US-581: Language preference inferred from first message
+  languagePreference: varchar("language_preference", { length: 2 }),  // 'en', 'ms', 'zh', 'ta', null if not yet inferred
   // US-910: Click-to-WhatsApp ad referral attribution
   referralCtwaClid: text("referral_ctwa_clid"),               // Meta Conversions API click ID
   referralSourceId: text("referral_source_id"),               // Campaign/source ID

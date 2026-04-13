@@ -37,9 +37,10 @@ export function ensureOptInColumns(): void {
     ALTER TABLE rainbow_conversations
     ADD COLUMN IF NOT EXISTS opt_in_method TEXT,
     ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS opt_in_channel TEXT
+    ADD COLUMN IF NOT EXISTS opt_in_channel TEXT,
+    ADD COLUMN IF NOT EXISTS language_preference VARCHAR(2)
   `).catch((err: Error) => {
-    console.warn('[ConvoDB] US-979 migration warn:', err.message);
+    console.warn('[ConvoDB] US-979/US-581 migration warn:', err.message);
   });
 }
 

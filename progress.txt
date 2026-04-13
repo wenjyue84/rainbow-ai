@@ -1,3 +1,48 @@
+## Iteration [112] - Story: US-581 - Infer and Set Language Preference from First User Message
+
+### What was implemented
+- Added `language_preference` column to `rainbowConversations` table in `shared/tables/conversations.ts`
+  * Stores inferred language from first message: 'en', 'ms', 'zh', 'ta', or null
+  * Avoids per-message language detection overhead
+
+- Updated `src/assistant/conversation-db.ts`:
+  * Modified `ensureOptInColumns()` migration to add `language_preference` column if not exists
+  * Handles database schema evolution on first startup
+
+- Created `inferLanguagePreferenceFromFirstMessage()` function in `src/assistant/language-preference.ts`:
+  * AC1: Detects language from first message using existing `detectLanguage()` function
+  * AC2: Skips detection for subsequent messages if preference already set (reduces DB overhead)
+  * AC3: Handles multi-script messages (Tamil, English, Chinese, Malay, mixed)
+  * Returns inferred language or null if unknown
+  * Gracefully handles DB storage failures without throwing
+
+- Created comprehensive test suite: `tests/unit/language_preference_inference.test.ts`
+  * 20 tests covering all acceptance criteria:
+    - AC1: Detection from English, Tamil, Chinese, Malay messages
+    - AC2: Skip detection when preference already set
+    - AC3: Multi-script and mixed-language messages
+  * Edge cases: empty messages, DB failures, null/undefined preferences
+  * Persistence validation: correct column updates, per-phone isolation
+  * All 20 tests passing
+
+### Patterns discovered
+- Language preference stored directly in `language_preference` column (not in JSON metadata)
+- First-message detection skips subsequent messages automatically (AC2 for latency)
+- Unknown language returns null (not stored to DB)
+- DB failures are non-fatal: inferred value returned even if storage fails
+
+### Gotchas
+- Column migration uses raw SQL via pool.query() in ensureOptInColumns() function
+- detectLanguage() returns 'unknown' for unrecognized text — must check and skip DB write
+- Existing language-preference.ts file has US-462 implementation (stored in contactDetailsJson) — US-581 adds parallel implementation using language_preference column
+- import statements in inferLanguagePreferenceFromFirstMessage use dynamic imports to avoid circular dependencies
+
+### Quality Checks
+✅ All 20 unit tests passing (tests/unit/language_preference_inference.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ Server startup successful
+✅ prd.json updated: US-581.passes = true
+
 ## Iteration [111] - Story: US-580 - Report Intent Misclassification Patterns from Feedback Data
 
 ### What was implemented
