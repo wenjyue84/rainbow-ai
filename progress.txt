@@ -2024,3 +2024,60 @@ Completed: Implement Profile Configuration Integrity Validator for Startup and A
 ## Iteration 4 - Tue, Apr 14, 2026 12:43:45 AM
 Completed: Load Error Messages from Profile-Specific JSON Files Instead of Hardcoded Globals (ID: US-564) in 2m
 
+## Iteration 5 - Tue, Apr 14, 2026 12:45:29 AM
+FAILED diagnosis-block gate: Implement Per-Profile Conversation Turn Limit with Auto-Escalation (ID: US-571) — no diagnosis block found — attempt 1/3
+
+
+## Iteration 5 - Tue, Apr 14, 2026 12:46 AM
+Completed: Implement Per-Profile Conversation Turn Limit with Auto-Escalation (ID: US-571) in 4m
+
+### What was implemented
+Verified and validated existing complete implementation from prior iterations. All acceptance criteria already implemented:
+
+- **src/assistant/pipeline/conversation-limiter.ts** — Enforces per-profile turn limits:
+  - `enforceConversationLimit(conversation, profile, sendMessage)` function
+  - Loads profile-limits.json at first call
+  - Checks if conversation.messages.length > profile maxTurns
+  - Logs escalation event to database (via `logEscalationEvent()`)
+  - Posts recovery message from recovery-messages.json with profile name substitution
+  - Returns `{escalated: boolean, reason?: string}`
+
+- **src/assistant/data/profile-limits.json** — Per-profile limits:
+  - data-pelangi: maxTurns 20
+  - data-makan: maxTurns 15
+  - data-southern: maxTurns 18
+
+- **src/assistant/data/recovery-messages.json** — Escalation template:
+  - `escalation-turn-limit` with multi-language support (en, ms, zh, ta)
+  - Supports {{profile}} placeholder for profile name substitution
+
+- **src/assistant/message-router.ts** — Integration:
+  - Calls `enforceConversationLimit()` at line 137-145
+  - Positioned before intent classification (phase 2 → phase 3)
+  - Returns early if escalated=true
+
+- **tests/unit/conversation-limiter.test.ts** — Comprehensive test suite:
+  - AC1 Turn Counting: 2 tests verify messages.length increments correctly
+  - AC2 Profile-Specific Limits: 5 tests verify escalation at exact boundaries (makan:15, southern:18, pelangi:20)
+  - AC3 Recovery Messages: 3 tests verify message posting exactly once, includes profile name, respects language
+  - Database Logging: 2 tests verify logEscalationEvent() called with correct metadata
+
+### Checks passed
+- ✅ 12/12 unit tests pass
+- ✅ Build succeeds (esbuild, 2.7MB bundle, 1 pre-existing warning in logger.ts unrelated to this story)
+- ✅ Server startup (with pre-existing profile integrity warnings from US-592, not US-571)
+- ✅ All 3 acceptance criteria met
+
+### Patterns discovered
+- Profile configuration pattern: JSON files in src/assistant/data/ loaded lazily on first use with caching
+- Escalation workflow: check condition → log event to database → post user message → return status
+- Recovery messages use {{placeholder}} pattern for dynamic content (profile name, user info, etc.)
+- Message-router integration point: critical sections are checked early in pipeline before classification
+
+### Gotchas
+- Server startup has profile integrity validation (US-592) that reports hash mismatches in pelangi/ files (pre-existing, not US-571)
+- ConversationState type has many fields (phone, profileId, messages[], language, bookingState, workflowState, etc.) — ensure all present when testing
+- escalation-turn-limit template requires exact key in recovery-messages.json, uses {{profile}} not {{profileName}}
+
+---
+
