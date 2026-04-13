@@ -669,3 +669,53 @@ Implementation was completed in attempt 1 (commit 1e07640). Attempt 2 verified a
 ✅ Server startup: tsx starts without errors
 ✅ Tests: 12/12 passing (vitest conversation-pruning.test.ts)
 ✅ prd.json: US-543.passes = true
+## Iteration 2 - Mon, Apr 13, 2026  1:20:58 PM
+Completed: Add Conversation Context Pruning with Rolling Window to Prevent Token Overflow (ID: US-543) in 3m
+
+
+## Iteration [75] - Story: Add Profile-Specific Fallback Response Template System (US-544)
+
+### What was implemented
+- Created `fallback-templates.json` for all three profiles (Pelangi, Makan, Southern) with scenario-based fallback responses
+  - Scenarios: `low_confidence`, `out_of_scope`, `provider_error`, `rate_limited`
+  - Languages: English (en), Tamil (ta), Mandarin Chinese (zh)
+  - Location: `src/assistant/data/fallback-templates.json`, `src/assistant/data-makan/fallback-templates.json`, `src/assistant/data-southern/fallback-templates.json`
+
+- Added `getProfileFallbackTemplate(dataDir, scenario, language)` function to response-processor.ts
+  - Loads and caches fallback templates per profile's data directory
+  - Gracefully handles missing languages (falls back to English)
+  - Gracefully handles unknown scenarios (returns generic default message)
+  - Prevents profile contamination: Pelangi templates mention hostels, Makan templates mention cafe/orders, etc.
+
+- Created comprehensive test suite (51 tests) at tests/unit/fallback-templates.test.ts
+  - ✅ All scenarios covered (low_confidence, out_of_scope, provider_error, rate_limited)
+  - ✅ All languages supported (en, ta, zh)
+  - ✅ Profile isolation verified: no content contamination between profiles
+  - ✅ Template rendering works without errors
+  - ✅ Language fallback handling validated
+  - ✅ Profile-specific context confirmed (Pelangi mentions hostel/check-in, Makan mentions menu/cafe, etc.)
+
+### Patterns discovered
+- Profile data directories follow naming: `src/assistant/data` (Pelangi), `src/assistant/data-makan`, `src/assistant/data-southern`
+- Existing pattern: profile-specific config files stored directly in their data directories (e.g., intents.json, knowledge.json)
+- Fallback template cache prevents repeated file I/O; loadFallbackTemplates() uses Map<string, FallbackTemplateMap>
+- Profile-specific keywords should differ while maintaining hospitality context (e.g., Southern can use "check-in" like Pelangi since both are lodging)
+
+### Gotchas
+- Southern Homestay can legitimately use "check-in" keyword since it's also a hospitality business; test was adjusted to exclude only unique terms (capsule, hostel)
+- ES module imports require `.js` extensions in TypeScript (following existing pattern)
+- Fallback template files must be copied to dist/ during build (handled by build script copying data-* directories)
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle)
+✅ Tests: 51/51 passing in fallback-templates.test.ts (100%)
+✅ Server startup: tsx runs without errors (no new warnings introduced)
+✅ prd.json: Updated US-544.passes to true
+
+### Related Files
+- src/assistant/pipeline/response-processor.ts: Added getProfileFallbackTemplate() function and loadFallbackTemplates() helper
+- src/assistant/data/fallback-templates.json: Pelangi fallback templates
+- src/assistant/data-makan/fallback-templates.json: Makan Moments fallback templates
+- src/assistant/data-southern/fallback-templates.json: Southern Homestay fallback templates
+- tests/unit/fallback-templates.test.ts: Comprehensive test suite for profile-specific templates
+

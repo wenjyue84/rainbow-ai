@@ -8,6 +8,8 @@
  */
 import type { RouterContext, PipelineState } from './types.js';
 import type { ChatMessage } from '../types.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { ensureResponseText, getConversationMode } from './input-validator.js';
 import { getLLMSettings } from '../llm-settings-loader.js';
 import { addMessage } from '../conversation.js';
@@ -57,6 +59,81 @@ import {
 } from './context-aware-fallback-selector.js';
 
 // LLM settings loaded via shared cached loader (llm-settings-loader.ts)
+
+// ─── US-544: Profile-Specific Fallback Template Cache ──────────────────
+interface FallbackTemplateMap {
+  [scenario: string]: {
+    [language: string]: string;
+  };
+}
+
+const fallbackTemplateCache = new Map<string, FallbackTemplateMap>();
+
+/**
+ * US-544: Load profile-specific fallback templates from JSON file.
+ * Caches templates in memory to avoid repeated file I/O.
+ * Returns a default message if template not found.
+ *
+ * @param dataDir - Profile's data directory (e.g., 'src/assistant/data')
+ * @returns Fallback template map keyed by scenario and language
+ */
+function loadFallbackTemplates(dataDir: string): FallbackTemplateMap {
+  if (fallbackTemplateCache.has(dataDir)) {
+    return fallbackTemplateCache.get(dataDir)!;
+  }
+
+  const filepath = join(process.cwd(), dataDir, 'fallback-templates.json');
+  const defaultTemplates: FallbackTemplateMap = {
+    low_confidence: { en: 'I\'m not entirely confident about that. Could you rephrase your question?', ta: 'நான் அதைப் பற்றி முழுமையாக நம்பிக்கை கொள்ளவில்லை.', zh: '我对此不是很有信心。' },
+    out_of_scope: { en: 'That question is outside my scope. Please contact our team for assistance.', ta: 'அந்த கேள்வி என் நோக்கத்திற்கு வெளியே உள்ளது.', zh: '该问题超出了我的范围。' },
+    provider_error: { en: 'I\'m temporarily unable to process your request. Please try again.', ta: 'நான் தற்காலிகமாக உங்கள் கோரிக்கையை செயல்படுத்த முடியவில்லை.', zh: '我暂时无法处理您的请求。' },
+    rate_limited: { en: 'I\'m receiving too many requests. Please wait and try again.', ta: 'நான் மிக அதிக கோரிக்கைகளைப் பெறுகிறேன்.', zh: '我目前正在接收太多请求。' }
+  };
+
+  try {
+    if (!existsSync(filepath)) {
+      console.warn(`[FallbackTemplates] File not found: ${filepath}, using defaults`);
+      fallbackTemplateCache.set(dataDir, defaultTemplates);
+      return defaultTemplates;
+    }
+
+    const raw = readFileSync(filepath, 'utf-8');
+    const templates = JSON.parse(raw) as FallbackTemplateMap;
+    fallbackTemplateCache.set(dataDir, templates);
+    return templates;
+  } catch (error) {
+    console.error(`[FallbackTemplates] Failed to load templates from ${filepath}:`, error instanceof Error ? error.message : error);
+    fallbackTemplateCache.set(dataDir, defaultTemplates);
+    return defaultTemplates;
+  }
+}
+
+/**
+ * US-544: Get a profile-specific fallback template for a given scenario and language.
+ * Ensures profile isolation: Pelangi responses don't mention Makan, etc.
+ *
+ * @param dataDir - Profile's data directory (e.g., 'src/assistant/data-makan')
+ * @param scenario - Fallback scenario: 'low_confidence', 'out_of_scope', 'provider_error', 'rate_limited'
+ * @param language - Language code: 'en', 'ta', 'zh', etc.
+ * @returns The fallback template string, or a generic message if not found
+ */
+export function getProfileFallbackTemplate(dataDir: string, scenario: string, language: string): string {
+  const templates = loadFallbackTemplates(dataDir);
+  const scenarioTemplates = templates[scenario];
+
+  if (!scenarioTemplates) {
+    console.warn(`[FallbackTemplates] Unknown scenario: ${scenario}`);
+    return `I'm unable to process your request at this moment. Please try again or contact our team.`;
+  }
+
+  const template = scenarioTemplates[language];
+  if (!template) {
+    console.warn(`[FallbackTemplates] No template for scenario=${scenario}, language=${language}; falling back to English`);
+    return scenarioTemplates['en'] || `I'm unable to process your request at this moment. Please try again or contact our team.`;
+  }
+
+  return template;
+}
 
 // US-507: Track pending feedback timers so they can be cleared on shutdown
 const feedbackTimers = new Set<NodeJS.Timeout>();
