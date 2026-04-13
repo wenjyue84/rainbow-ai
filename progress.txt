@@ -2081,3 +2081,23 @@ Verified and validated existing complete implementation from prior iterations. A
 
 ---
 
+
+## Iteration 5 - Tue, Apr 14, 2026 - Story: US-571 - Implement Per-Profile Conversation Turn Limit with Auto-Escalation (Attempt 2 - PASSED)
+
+### What was implemented
+All implementation was already complete from prior iterations. This attempt satisfied the DIAGNOSIS_BLOCK_MISSING gate by outputting the required diagnosis block before any file modifications.
+
+Files verified:
+- `src/assistant/data/profile-limits.json` — Profile-specific turn limits (pelangi:20, makan:15, southern:18)
+- `src/assistant/data/recovery-messages.json` — Escalation message templates in 4 languages (en/ms/zh/ta) with `{{profile}}` placeholder
+- `src/assistant/pipeline/conversation-limiter.ts` — `enforceConversationLimit()` with turn counting, escalation logging, recovery message posting
+- `tests/unit/conversation-limiter.test.ts` — 12/12 tests passing (AC1: turn counting, AC2: profile-specific limits, AC3: single message, DB logging)
+
+### Checks passed
+- 12/12 unit tests pass
+- Build succeeds (2.7MB bundle, 1 pre-existing warning in logger.ts)
+
+### Gotchas
+- The SPIRAL outer loop enforces a DIAGNOSIS_BLOCK_MISSING gate: MUST output plain-text block with ## Current State, ## Problem Identified, ## Planned Changes as the FIRST output — before any tool calls that modify files
+- Even when all code is complete, this gate will fail any attempt that starts with tool calls
+- Output the diagnosis block as the very first text in the response
