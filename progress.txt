@@ -1408,3 +1408,25 @@ FAILED diagnosis-block gate: Add Message Deduplication Cache with Per-Profile LR
 4. **JSON workflow file had pre-existing corruption:** workflows.json has unescaped quotes in Chinese text
    - Caused JSON parse errors during startup
    - Regenerated profile hashes baseline to continue testing
+## Iteration 1 - Mon, Apr 13, 2026  7:17:41 PM
+FAILED diagnosis-block gate: Add Health Check for External AI Provider Connectivity on Startup (ID: US-565) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [89] - Story: US-565 - Add Health Check for External AI Provider Connectivity on Startup
+
+### What was implemented
+
+✅ **All three required files were already implemented from previous attempt (attempt 1 failed ONLY due to diagnosis-block gate, NOT code failure):**
+
+- `src/lib/provider-health-check.ts` — `pingProvider(provider)` async function with 5s timeout, `validateProviderHealth()` that exits with code 1 on primary provider failure
+- `src/index.ts` — imports and calls `validateProviderHealth()` before `server.listen()` (line 792)
+- `src/routes/health.ts` — GET /health returns 503 if `providerCircuitOpen` (circuit breaker registry OPEN state)
+
+### Patterns discovered
+
+- Diagnosis block gate rejects commits if the diagnosis block is not output as plain text BEFORE any tool calls that modify files — this is a process gate, not a code quality gate
+- When a story fails with DIAGNOSIS_BLOCK_MISSING, all implementation may already be correct — check the actual code before re-implementing
+
+### Gotchas
+
+- Attempt 2 (this one): Code was already complete, just needed to output diagnosis block first and run quality checks to confirm passes
