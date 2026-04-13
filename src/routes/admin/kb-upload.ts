@@ -123,9 +123,12 @@ router.post(
 
       try {
         // ─── Extract markdown using kreuzberg ──────────────────────
+        // Check for ?ocr=true query parameter
+        const useOcr = req.query.ocr === 'true';
+
         let markdown: string;
         try {
-          markdown = await extractToMarkdown(tempPath);
+          markdown = await extractToMarkdown(tempPath, { ocr: useOcr });
         } catch (extractErr: any) {
           // Extraction failed (unsupported format, corruption, etc.)
           res.status(422).json({

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { extractToMarkdown, KBExtractorError } from '../kb-extractor.js';
 
-describe('KB Extractor (US-537)', () => {
+describe('KB Extractor (US-537, US-541)', () => {
   let testDir: string;
   let testFilePath: string;
 
@@ -116,6 +116,69 @@ describe('KB Extractor (US-537)', () => {
 
       expect(result).toBeTruthy();
       expect(typeof result).toBe('string');
+    });
+
+    it('should log warning when extracted text is less than 50 characters without OCR', async () => {
+      // Create a file with very short content (simulating scanned PDF with little text)
+      testFilePath = join(testDir, 'short-content.txt');
+      const shortContent = 'Hi'; // Only 2 characters
+      writeFileSync(testFilePath, shortContent, 'utf-8');
+
+      // Spy on console.warn
+      const warnSpy = vi.spyOn(console, 'warn');
+
+      // Extract without OCR (should trigger warning)
+      const result = await extractToMarkdown(testFilePath, { ocr: false });
+
+      // Verify warning was logged
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Warning: extracted text is very short -- consider re-running with --ocr'
+      );
+      expect(result).toBeTruthy();
+
+      warnSpy.mockRestore();
+    });
+
+    it('should not log warning when extracted text is less than 50 characters with OCR enabled', async () => {
+      // Create a file with very short content
+      testFilePath = join(testDir, 'short-content-ocr.txt');
+      const shortContent = 'Hi'; // Only 2 characters
+      writeFileSync(testFilePath, shortContent, 'utf-8');
+
+      // Spy on console.warn
+      const warnSpy = vi.spyOn(console, 'warn');
+
+      // Extract WITH OCR (should NOT trigger warning)
+      const result = await extractToMarkdown(testFilePath, { ocr: true });
+
+      // Verify warning was NOT logged
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'Warning: extracted text is very short -- consider re-running with --ocr'
+      );
+      expect(result).toBeTruthy();
+
+      warnSpy.mockRestore();
+    });
+
+    it('should not log warning when extracted text is 50+ characters without OCR', async () => {
+      // Create a file with 50+ characters
+      testFilePath = join(testDir, 'long-content.txt');
+      const longContent = 'This is a longer piece of text that is definitely more than 50 characters long.';
+      writeFileSync(testFilePath, longContent, 'utf-8');
+
+      // Spy on console.warn
+      const warnSpy = vi.spyOn(console, 'warn');
+
+      // Extract without OCR (should NOT trigger warning because text is long)
+      const result = await extractToMarkdown(testFilePath, { ocr: false });
+
+      // Verify warning was NOT logged
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'Warning: extracted text is very short -- consider re-running with --ocr'
+      );
+      expect(result).toBeTruthy();
+
+      warnSpy.mockRestore();
     });
   });
 

@@ -98,6 +98,12 @@ export async function extractToMarkdown(
           );
           return;
         }
+
+        // Check for very short extracted text (likely scanned/image-only PDF)
+        if (stdout.trim().length < 50 && !opts?.ocr) {
+          console.warn('Warning: extracted text is very short -- consider re-running with --ocr');
+        }
+
         resolve(stdout);
       } else {
         // Failure: kreuzberg returned non-zero exit code
