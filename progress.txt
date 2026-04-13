@@ -125,3 +125,23 @@
 ✅ TypeScript type-checking passes
 ✅ prd.json updated: US-575.passes = true
 
+
+
+## Iteration [104] - Story: US-576 - Add Workflow Step Dependency Validation (Attempt 2)
+
+### What was implemented
+- Added `dependencies: z.array(z.string()).optional()` to `workflowStepSchema` in `src/assistant/schemas.ts`
+- Created `src/assistant/workflow-engine.ts` with WorkflowEngine class:
+  - `validateDependencies(workflow, targetStepId, completedSteps)` — returns validation result with missing deps + guidance
+  - `progressToStep(workflow, targetStepId, completedSteps)` — calls validateDependencies before allowing transition
+- Added `dependencies: ["select_checkin_date", "select_guest_count"]` to `booking_confirmation` step in workflows.json
+- Created `tests/unit/workflow-engine.test.ts` with 10 tests covering dependency validation
+
+### Gotchas
+- esbuild cannot parse `export interface X { } | { }` union syntax — must use `export type X = { } | { }`
+- Prior attempt failed diagnosis-block gate; this attempt output diagnosis block first
+
+### Quality Checks
+- All 10 unit tests passing
+- Build successful (2.8MB, 1 pre-existing warning)
+- prd.json updated: US-576.passes = true

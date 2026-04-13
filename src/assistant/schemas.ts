@@ -209,6 +209,7 @@ export const workflowStepSchema = z.object({
   autoProgress: z.boolean().optional(),                    // US-555: Auto-advance to next step on user confirmation
   inputValidationRegex: z.string().optional(),             // US-560: Regex pattern to validate user input before step progression
   skip_if_guest_field: z.array(z.string()).optional(),    // US-574: Skip step if guest profile has these fields populated
+  dependencies: z.array(z.string()).optional(),            // US-576: Step IDs that must be completed before this step
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 
