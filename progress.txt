@@ -458,3 +458,115 @@ All implementation already existed from a prior pass:
 
 ## Iteration 87 - Sun, Apr 13, 2026  5:36:57 PM
 Completed: Implement Booking Availability Validation Before Workflow Confirmation (ID: US-556) in 5m
+## Iteration 1 - Mon, Apr 13, 2026  5:38:06 PM
+Completed: Implement Booking Availability Validation Before Workflow Confirmation (ID: US-556) in 6m
+
+
+
+## Iteration [85] - Story: US-556 - Implement Booking Availability Validation Before Workflow Confirmation
+
+### What was implemented
+
+✅ **Core Functionality:**
+- Enhanced existing checkAvailability() function in src/tools/bookings.ts
+  - Queries guest_bookings table for booking conflicts
+  - Returns {available: boolean, alternatives: [{checkIn, checkOut, daysCount}]}
+  - Generates 3 alternative date suggestions when dates unavailable
+
+✅ **Workflow Integration:**
+- Added new action handler in src/assistant/workflow-enhancer.ts
+  - New case: 'check_booking_availability' in executeAction switch
+  - handleCheckBookingAvailability() validates dates before booking confirmation
+  - Fail-open: allows booking to proceed if availability check fails (graceful degradation)
+- Updated booking_confirmation step in workflows.json
+  - Added action: { type: "check_booking_availability" }
+  - Step now validates availability before user confirmation
+
+✅ **Testing:**
+- Created comprehensive test suite: tests/unit/bookings.test.ts
+- 11 test cases covering:
+  - Available unit passes (available: true)
+  - Booked unit fails with alternatives
+  - Generates exactly 3 alternatives
+  - Date overlap edge cases (same check-in date)
+  - Multiple overlapping bookings
+  - Database error handling (fail-open)
+  - Invalid date format handling
+  - Query parameter verification
+  - Alternative dates don't overlap existing bookings
+- All tests passing, no failures
+
+✅ **Quality Checks:**
+- Build succeeds with esbuild (1 warning - CommonJS module reference, pre-existing)
+- Server starts successfully (MCP_SERVER_PORT=3002)
+- No runtime errors on initialization
+
+### Patterns discovered
+
+1. **Dual availability checking architecture:**
+   - `handleCheckAvailability()` in workflow-enhancer: checks general unit availability (simple list)
+   - `handleCheckBookingAvailability()`: checks specific date availability for bookings (date range overlap)
+   - Both serve different purposes in workflow stages
+
+2. **Workflow action handler pattern:**
+   - Switch case in executeAction() dispatches to handler functions
+   - Handlers receive context (collected workflow data) and callAPI function
+   - Return ActionResult with data (injected into message) and optional appendText
+   - Fail-open: errors don't break workflow, fallback messages returned
+
+3. **Date overlap detection (SQL):**
+   - Query filters: `check_out > requestCheckIn AND check_in < requestCheckOut`
+   - Correctly identifies any overlap, including same-day turnover conflicts
+   - Uses ISO string dates for consistency
+
+4. **Workflow state injection:**
+   - Workflow steps collect data in collectedData object
+   - Handler extracts: profile, unitId, checkInDate, checkOutDate from collectedData
+   - Keys: 'check_in_date', 'check_out_date', 'unit_id', 'unit', or 'room'
+
+### Gotchas
+
+1. **Test configuration:**
+   - vitest.config.ts doesn't include `tests/tools/` in include patterns
+   - Moved test from tests/tools/bookings.test.ts to tests/unit/bookings.test.ts
+   - Include patterns: `src/**/*.{test,spec}.ts`, `tests/unit/**/*.{test,spec}.ts`, etc.
+
+2. **Mock setup logic:**
+   - Each test needs mockPool.query.mockResolvedValueOnce() with correct return rows
+   - Query returns rows that match overlap condition
+   - Non-overlapping dates should return empty rows []
+   - Remember: query checks `check_out > requestCheckIn AND check_in < requestCheckOut`
+
+3. **Import path for checkAvailability:**
+   - In workflow-enhancer.ts, dynamically import: `await import('../../tools/bookings.js')`
+   - Path must be relative to src/ directory
+   - Export syntax: `const { checkAvailability } = await import(...)`
+
+4. **Workflow data key variations:**
+   - Different forms may use different field names: 'check_in_date' vs 'checkin_date'
+   - Handler checks multiple variations: `||` fallback chain
+   - Profile defaults to 'pelangi' if not in collectedData
+
+### Files modified
+
+1. `src/tools/bookings.ts` - Enhanced existing checkAvailability function
+2. `src/assistant/workflow-enhancer.ts` - Added handleCheckBookingAvailability() handler
+3. `src/assistant/data/workflows.json` - Added action to booking_confirmation step
+4. `tests/unit/bookings.test.ts` - New comprehensive test suite
+
+### Acceptance criteria met
+
+✅ New function checkAvailability(profile, unitId, checkIn, checkOut) in src/tools/bookings.ts
+   - Returns {available: boolean, alternatives: [{checkIn, checkOut, daysCount}]}
+   - Already implemented, enhanced for US-556
+
+✅ Workflow confirmation step calls checkAvailability
+   - booking_confirmation step now has action: check_booking_availability
+   - Fails gracefully with alternative suggestions
+
+✅ Unit tests verify:
+   - Available unit passes: test "returns available: true when no conflicting bookings exist"
+   - Booked unit fails: test "returns available: false with alternatives when unit is booked"
+   - Date overlap edge cases: test "handles date overlap edge case: same check-in date as existing booking"
+   - All 11 tests passing
+

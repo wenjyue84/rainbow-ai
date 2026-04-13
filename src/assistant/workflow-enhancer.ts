@@ -639,6 +639,86 @@ async function handleBookUnit(
   }
 }
 
+/**
+ * US-556: Check booking availability for requested dates
+ * Validates that requested unit and dates are available.
+ * Returns alternatives if booking is unavailable.
+ */
+async function handleCheckBookingAvailability(
+  context: WorkflowEnhancerContext,
+  callAPI: CallAPIFn
+): Promise<ActionResult> {
+
+  try {
+    const { checkAvailability } = await import('../../tools/bookings.js');
+
+    // Extract booking details from collected workflow data
+    const profile = context.collectedData['profile'] || 'pelangi';
+    const unitId = context.collectedData['unit_id'] || context.collectedData['unit'] || context.collectedData['room'];
+    const checkInDate = context.collectedData['check_in_date'] || context.collectedData['checkin_date'];
+    const checkOutDate = context.collectedData['check_out_date'] || context.collectedData['checkout_date'];
+
+    if (!unitId || !checkInDate || !checkOutDate) {
+      console.warn('[Workflow Enhancer] check_booking_availability: Missing required booking details', {
+        unitId, checkInDate, checkOutDate
+      });
+
+      return {
+        data: {
+          available: false,
+          availabilityMessage: 'Unable to validate dates. Please provide unit, check-in date, and check-out date.'
+        }
+      };
+    }
+
+    const result = await checkAvailability(profile, unitId, checkInDate, checkOutDate);
+
+    if (result.available) {
+      console.log(`[Workflow Enhancer] Booking is available: ${unitId} on ${checkInDate}-${checkOutDate}`);
+
+      return {
+        data: {
+          available: true,
+          availabilityMessage: '✅ Your requested dates are available!'
+        }
+      };
+    } else {
+      console.log(`[Workflow Enhancer] Booking is unavailable: ${unitId} on ${checkInDate}-${checkOutDate}`);
+
+      // Format alternative dates for display
+      let alternativesText = '❌ Your requested dates are not available.\n\n';
+      alternativesText += '📅 *Alternative dates:*\n';
+
+      if (result.alternatives && result.alternatives.length > 0) {
+        result.alternatives.forEach((alt, index) => {
+          alternativesText += `${index + 1}. ${alt.checkIn} to ${alt.checkOut} (${alt.daysCount} nights)\n`;
+        });
+      } else {
+        alternativesText += 'No alternative dates found. Please contact support.';
+      }
+
+      return {
+        data: {
+          available: false,
+          availabilityMessage: alternativesText,
+          alternatives: result.alternatives || []
+        },
+        appendText: alternativesText
+      };
+    }
+  } catch (error) {
+    console.error('[Workflow Enhancer] Failed to check booking availability:', error);
+
+    // Fail-open: allow booking to proceed if check fails
+    return {
+      data: {
+        available: true,
+        availabilityMessage: 'Unable to verify availability. Our staff will confirm your booking.'
+      }
+    };
+  }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
