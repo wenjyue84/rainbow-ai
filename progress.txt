@@ -228,3 +228,26 @@ US-574 successfully implemented booking workflow skip-step logic for returning g
 
 **Key Achievement:** Express path reduces booking friction for returning guests by 3-4 steps, improving UX for repeat visitors while maintaining full data collection for new guests.
 
+## Iteration 1 - Mon, Apr 13, 2026  9:31:18 PM
+Completed: Implement Booking Workflow Skip-Step Logic for Returning Guest Express Path (ID: US-574) in 9m
+
+
+## Iteration [92] - Story: US-559 - Add Message Deduplication Cache with Per-Profile LRU Eviction
+
+### What was implemented
+
+The implementation was already complete from a previous run (before the SPIRAL loop's diagnosis-block gate existed):
+- `src/lib/cache/message-dedup-cache.ts` — LRU cache class with SHA256(message+intent+profile) key, 300s TTL, 500-entry limit per profile, LRU eviction via Map insertion order
+- `src/lib/cache/message-dedup-cache.test.ts` — 12 tests covering all acceptance criteria
+- Integration in `src/assistant/pipeline/intent-classifier.ts` (lines 491-558): cache check before routing/dispatch, cache store after response, hit rate logging
+
+### Patterns discovered
+
+1. **Map-based LRU:** JavaScript `Map` preserves insertion order; delete+reinsert on access achieves O(1) LRU via iterator over `map.keys().next()` for eviction
+2. **SHA256 key normalization:** Trim + lowercase + collapse-whitespace before hashing ensures "I WANT a room" == "i want a room"
+3. **Intent classifier is the integration point:** Not `conversation-processor.ts` (doesn't exist) — the dedup cache check lives in `intent-classifier.ts` after classification, before routing
+
+### Gotchas
+
+1. **Diagnosis block gate:** Attempt 1 failed only due to missing `## Current State / ## Problem Identified / ## Planned Changes` block — not a code failure. Always output diagnosis block before any file edits.
+2. **NODE_OPTIONS env var:** `npm run test:run` uses `NODE_OPTIONS='...'` which fails on Windows CMD/PowerShell. Use `npx vitest run` directly instead.
