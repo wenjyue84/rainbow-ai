@@ -1590,3 +1590,118 @@ prd.json: passes=true confirmed
 ## Iteration 3 - Mon, Apr 13, 2026  3:37:53 PM
 Completed: Add Guest Context Quick-Lookup for Booking Workflow Pre-Population (ID: US-550) in 2m
 
+
+## Iteration - Mon, Apr 13, 2026 - Story: US-551 - Generate Clarifying Questions for Ambiguous Multi-Intent Classifications
+
+### What was implemented
+
+**Core disambiguation module** (src/assistant/disambiguator.ts):
+1. `detectAmbiguity(topIntents, confidenceThreshold=0.05)` — Checks if top 2+ intents differ by ≤5% confidence using epsilon-aware floating-point comparison to handle JavaScript precision issues
+2. `generateDisambiguationPrompt(topIntents, language, profileId)` — Creates context-aware clarifying questions from language-specific templates in disambiguation-prompts.json, returns { question, options, context_id }
+3. `handleClarificationResponse(clarificationResponse, originalMessage, context, systemPrompt, history, store)` — Processes user's response and re-classifies the original message with clarification context
+4. `parseIntentSelection(response, options)` — Extracts selected intent from user response, supporting: label matching (case-insensitive), intent name matching, numeric selection (1/2), text-based selection (first/second)
+5. `isStillAmbiguous(response)` — Detects unresolved clarification attempts (both, either, dunno, etc.) for escalation to human
+
+**Templated prompts** (src/assistant/data/disambiguation-prompts.json):
+- Intent pairs structure: `{ intent_pairs: { "booking_inquiry": { "en": {...}, "ms": {...}, "zh": {...}, "ta": {...} } } }`
+- Covers 5 common ambiguous pairs: booking_inquiry, checkout_info_luggage_storage, checkin_info_wifi, availability_pricing, complaint_general
+- Each pair has language-specific question text and intent labels
+- Fallback to generic template if intent pair not in database
+
+**Comprehensive test suite** (tests/unit/disambiguator.test.ts):
+- 31 tests covering all functions and edge cases
+- Tests for ambiguity detection with boundary conditions (exactly 5%, within 5%, exceeding 5%)
+- Prompt generation in all 4 languages (en, ms, zh, ta)
+- Intent selection parsing for all input formats
+- Ambiguity detection in clarification responses
+
+### Patterns discovered
+
+- JavaScript floating-point precision requires epsilon-based comparison: `0.65 - 0.60 = 0.050000000000000044`, not exactly `0.05`
+- Intent pair keys should be sorted lexicographically (booking_inquiry not inquiry_booking) for consistent lookup
+- Vitest caches transformed modules — file changes don't always propagate to tests without rebuild
+- Multi-language support uses parallel nested objects: `{ en: {question, labels}, ms: {...}, ... }` with en as fallback
+- Context IDs should include timestamp + random suffix for uniqueness across rapid requests
+
+### Gotchas
+
+- Floating-point comparison with `<=` fails at boundaries due to IEEE 754 precision — must use epsilon (1e-10) buffer
+- Test file paths must follow vitest include patterns (tests/unit/*.test.ts) or tests won't be discovered
+- JSON imports in TypeScript require `assert { type: 'json' }` syntax; require() doesn't work reliably in ESM context
+- The system auto-modified disambiguator.ts to use JSON import assertion syntax instead of require()
+
+### Quality checks
+
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning unrelated to changes)
+✅ Tests: All 31 passing in tests/unit/disambiguator.test.ts (detectAmbiguity, generateDisambiguationPrompt, parseIntentSelection, isStillAmbiguous)
+✅ Server startup: Verified with timeout 10 npx tsx src/index.ts
+✅ prd.json: Updated US-551.passes to true
+✅ All acceptance criteria met:
+   - detectAmbiguity() correctly identifies [booking: 0.65, inquiry: 0.62] (3% diff) as ambiguous
+   - generateDisambiguationPrompt() returns templated messages from disambiguation-prompts.json
+   - Language-specific variations supported for en, ms, zh, ta
+   - handleClarificationResponse() re-classifies with added context
+   - parseIntentSelection() handles label, intent name, numeric, and text-based inputs
+   - isStillAmbiguous() detects unresolved cases
+
+### Next steps for integration
+
+To use this in the chat flow:
+1. Hook `detectAmbiguity()` after initial intent classification in chat-engine.ts
+2. If ambiguous: call `generateDisambiguationPrompt()` and send question to user
+3. On user's next message: call `parseIntentSelection()` to extract choice
+4. If matched: use selected intent; if still ambiguous (isStillAmbiguous): escalate
+5. If not matched: call `handleClarificationResponse()` to re-classify with context
+
+## Iteration [US-551] - Generate Clarifying Questions for Ambiguous Multi-Intent Classifications
+
+### What was implemented
+
+1. **Fixed ambiguity detection logic** in `src/assistant/disambiguator.ts`:
+   - Changed confidence threshold comparison from `<` to `<=` to include exactly 5% difference
+   - Added epsilon tolerance (1e-10) to handle floating-point precision issues
+   - Example: 0.65 vs 0.62 (3% difference) → ambiguous, 0.65 vs 0.60 (5% difference) → ambiguous
+
+2. **Fixed JSON import for ESM compatibility**:
+   - Converted from CommonJS `require()` to ES6 import with `assert { type: 'json' }`
+   - Simplified `loadDisambiguationPrompts()` to use pre-imported data instead of dynamic loading
+   - Removed caching layer (not needed with static import)
+
+3. **Verified complete implementation**:
+   - `generateDisambiguationPrompt(topIntents, language, profileId)` - Generates clarifying questions with language-specific templates
+   - `handleClarificationResponse(response, originalMessage, context, ...)` - Re-classifies with clarification context
+   - `parseIntentSelection(response, options)` - Parses user's intent selection from text or numbers
+   - `isStillAmbiguous(response)` - Detects if user provided ambiguous clarification
+   - `detectAmbiguity(topIntents, threshold)` - Core ambiguity detection with 5% threshold
+
+4. **Data file in place**: `src/assistant/data/disambiguation-prompts.json`
+   - Intent pair templates for: booking_inquiry, checkout_info_luggage_storage, checkin_info_wifi, availability_pricing, complaint_general
+   - Supports 4 languages: English (en), Malay (ms), Mandarin (zh), Tamil (ta)
+   - Fallback generic template for unknown intent pairs
+
+### Patterns discovered
+
+- Floating-point comparison requires epsilon tolerance for binary decimal values (0.65 - 0.60 ≠ exactly 0.05)
+- Context ID generation uses timestamp + random string for tracking clarification responses
+- Intent pair key is lexicographically sorted for consistency (e.g., 'booking_inquiry' not 'inquiry_booking')
+- Language fallback: specified language → 'en' → generic template
+- All 31 test cases pass covering ambiguity detection, prompt generation, intent selection parsing, and ambiguity checking
+
+### Quality checks
+
+✅ Tests: 31/31 passing in tests/unit/disambiguator.test.ts
+✅ Build: esbuild successful (2.6mb bundle, pre-existing warning only)
+✅ Server startup: Successful (MCP_SERVER_PORT=3002)
+✅ prd.json: Updated US-551.passes to true
+✅ All acceptance criteria met:
+   - detectAmbiguity() identifies top 2+ intents within 5% confidence margin
+   - generateDisambiguationPrompt() returns templated messages from JSON with language/profile variations
+   - handleClarificationResponse() re-classifies with added context
+   - parseIntentSelection() extracts intent from user response
+   - isStillAmbiguous() detects inconclusive responses for escalation
+
+### Gotchas
+
+- Floating-point precision: JavaScript 0.65 - 0.60 = 0.050000000000000044, not exactly 0.05
+- ESM vs CommonJS: require() doesn't work in ES modules; must use import with `assert { type: 'json' }`
+- Cache invalidation: Removed unnecessary caching since JSON import is already optimized by bundler
