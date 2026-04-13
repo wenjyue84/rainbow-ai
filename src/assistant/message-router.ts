@@ -24,6 +24,7 @@ import { validateAndPrepare } from './pipeline/input-validator.js';
 import { handleActiveStates } from './pipeline/state-executor.js';
 import { classifyAndRoute } from './pipeline/intent-classifier.js';
 import { processAndSend } from './pipeline/response-processor.js';
+import { getWorkflowResumptionHint } from './pipeline/workflow-resumption.js';
 import { emitTrace } from '../lib/trace-collector.js';
 import { parseCartRecoveryReply, handleCartRecoveryReply, resetCartRecovery } from './cart-recovery.js';
 import { incrementQrScanByMessage } from '../routes/admin/qr-campaigns.js';
@@ -132,6 +133,14 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
     // Phase 2: Active state handling (feedback, workflow, booking, emergency)
     const stateResult = await handleActiveStates(state, ctx);
     if (stateResult.handled) return;
+
+    // US-590: Workflow resumption hints for interrupted sessions
+    const resumptionHint = getWorkflowResumptionHint(state);
+    if (resumptionHint) {
+      await ctx.sendMessage(phone, resumptionHint, msg.instanceId).catch(err => {
+        console.error(`[US-590] Failed to send resumption hint: ${err.message}`);
+      });
+    }
 
     // US-571: Check conversation turn limit before classification
     const limitResult = await enforceConversationLimit(
