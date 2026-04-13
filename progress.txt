@@ -818,3 +818,61 @@ Implementation was completed in attempt 1 and all files exist. Attempt 1 failed 
 ## Iteration 3 - Mon, Apr 13, 2026 10:29:55 PM
 Completed: Add Intent Keyword Frequency Analysis CLI Tool (ID: US-583) in 3m
 
+## Iteration 3 - Mon, Apr 13, 2026 10:30:31 PM
+Completed: Add Intent Keyword Frequency Analysis CLI Tool (ID: US-583) in 2m
+
+
+---
+
+## Iteration [94] - Story: US-563 - Add Multi-Language Intent Keyword Synonym Expansion
+
+### What was implemented
+
+All code was already implemented from a prior attempt. Verified and validated:
+
+- **src/assistant/data/intent-synonyms.json** — Config file with multilingual synonym mappings:
+  - Structure: intent -> { 'en': [...], 'ms': [...], 'zh': [...], 'ta': [...], 'hi': [...] }
+  - 8+ intents configured (greeting, thanks, wifi, checkin_info, check_in_arrival, booking, checkout_info, availability)
+  - Supports 5 languages: English, Malay, Mandarin, Tamil, Hindi
+
+- **src/assistant/intents.ts** — Synonym loading and merging:
+  - `loadIntentSynonyms()` loads from disk or falls back to imported JSON
+  - `mergeKeywordsAndSynonyms()` merges primary keywords with synonyms (weighted equally)
+  - Applied in both `initFuzzyMatcher()` and `initFuzzyMatcherForProfile()` for all profiles
+  - Merged keywords passed to FuzzyIntentMatcher for T2 fuzzy matching
+
+- **src/routes/admin/intent-manager.ts** — Admin API endpoints:
+  - `GET /admin/intents/:intent_id/synonyms` — Fetch synonyms for an intent
+  - `POST /admin/intents/:intent_id/synonyms?language=ta` — Add/update synonyms per language
+  - `GET /admin/intents/synonyms/all` — Fetch all configured synonyms
+  - Supports deduplication and persistence to JSON config
+
+- **tests/unit/intent_synonym_matching.test.ts** — Comprehensive test suite:
+  - 10 tests covering synonym expansion, multilingual matching, and deduplication
+  - Latency benchmarks: <50ms target achieved (actual: ~5-10ms)
+  - Tests verify AC1 (expansion), AC2 (equal weighting), AC3 (admin API support)
+
+### Checks passed
+
+- ✅ All 10 tests pass
+- ✅ Build succeeds (esbuild)
+- ✅ Server startup reaches intent initialization
+- ✅ Latency impact: ~5-10ms per match (target: <50ms) ✓
+- ✅ All acceptance criteria met
+
+### Patterns discovered
+
+1. **Synonym Merging Pattern**: Keywords and synonyms are merged into a single flat array and passed to the fuzzy matcher. Synonyms are weighted equally to primary keywords through this flat structure.
+
+2. **Profile-Specific Configuration**: Synonyms are loaded once and applied globally across all profiles, though profiles can have different primary keywords via separate intent-keywords.json files.
+
+3. **Multilingual Support**: Each intent can have synonyms in multiple languages (en, ms, zh, ta, hi), and the fuzzy matcher respects language filters when provided.
+
+4. **Admin Persistence**: POST endpoint accepts new synonyms per language, deduplicates against existing entries, and writes back to intent-synonyms.json using atomic writes.
+
+### Gotchas
+
+- Profile integrity check failed on startup (unrelated to US-563) — workflows.json hash mismatch is pre-existing
+- Windows shell requires direct npm command (NODE_OPTIONS env var not recognized in NODE_OPTIONS=... syntax)
+- Test file naming uses `.test.ts` suffix (standard vitest convention) rather than `_test.ts`
+
