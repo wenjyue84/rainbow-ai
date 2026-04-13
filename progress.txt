@@ -123,3 +123,93 @@ Based on the user story JSON for **US-537**, here is the technical brief for the
 ✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
 ✅ Tests: 11/11 passing in kb-extractor.test.ts
 ✅ prd.json: US-537.passes = true
+## Iteration 2 - Mon, Apr 13, 2026 11:17:37 AM
+Completed: Add Kreuzberg Document Extraction Module for KB Ingestion (ID: US-537) in 2m
+
+
+## Pre-analysis for US-538 (Gemini 2.5 Pro)
+**Correction:** The user story specifies a **Node.js/TypeScript** implementation, not Frappe/Python. The technical brief below is for the specified Node.js/TypeScript environment.
+
+---
+
+**To:** Claude Code Agent
+**From:** Gemini Preparatory Agent
+**Subject:** Technical Brief for US-538: Admin KB Document Upload
+
+Here is the plan for implementing the KB document upload endpoint.
+
+1.  **Files to Modify:**
+    *   Create `src/routes/admin/kb-upload.ts` to house the new endpoint logic.
+    *   Update `src/routes/admin/index.ts` to import and register the new router under the `/kb` path.
+    *   You will call the `extractToMarkdown()` function, which is expected to exist in `src/lib/kb-extractor.ts`.
+
+2.  **Framework/Entities Involved:**
+    *   **Framework:** Express.js (or similar Node.js web framework).
+    *   **Middleware:** Use `multer` or a similar library to handle the `multipart/form-data` upload.
+    *   **Key Objects:** `KnowledgeBaseInstance` (for `reloadKBFile` and `reindexKB` calls).
+
+3.  **Implementation Approach:**
+    *   In `kb-upload.ts`, define an Express router for the `POST /:profile/upload` route.
+    *   Use a `multer` middleware to process the uploaded `file` and place it in a temporary directory.
+    *   Validate the `:profile` param against `['pelangi', 'southern', 'makan']`; throw a 400 error if invalid.
+    *   In a `try/catch` block, call `extractToMarkdown()` with the temp file path.
+    *   Construct the destination path (e.g., `.rainbow-kb-southern/your-filename.md`).
+    *   Write the extracted markdown content to the destination file.
+    *   Call `reloadKBFile()` and `reindexKB()` on the relevant `KnowledgeBaseInstance`.
+    *   Return a 200 response with `{ success: true, kbFile: '...', extractedChars: ..., ragRebuilt: true }`.
+
+4.  **Edge Cases & Gotchas:**
+    *   **Extraction Failure:** Catch errors from `extractToMarkdown()` and return a 422 status code with the error message.
+    *   **File Naming:** Sanitize the optional `filename` from the request to prevent path traversal vulnerabilities. If not provided, generate a safe filename from the original upload name.
+    *   **Cleanup:** Ensure the temporary file created by `multer` is deleted after extraction is complete, even if an error occurs.
+    *   **RAG Indexing:** The `reindexKB()` call might be slow. The operation should be handled asynchronously without blocking the response. The `ragRebuilt: true` flag confirms its completion.
+
+
+## Iteration [3] - Story: Add Admin API Endpoint for KB Document Upload and Extraction (US-538)
+
+### What was implemented
+- Created `src/routes/admin/kb-upload.ts`:
+  - POST `/:profile/upload` endpoint accepting multipart/form-data
+  - Profile validation: pelangi, southern, makan (mapped to internal profile IDs)
+  - Filename sanitization with `sanitizeFilename()` function to prevent path traversal
+  - Uses multer with memoryStorage (50MB max file size)
+  - Calls `extractToMarkdown()` from kb-extractor.ts
+  - Writes extracted markdown to profile's KB directory
+  - Calls `reloadKBFile()` to refresh in-memory cache
+  - Calls new public `reindexKB()` method to rebuild RAG index
+  - Returns JSON: { success, kbFile, extractedChars, ragRebuilt }
+  - Handles 422 status for extraction failures, 400 for invalid profiles
+  - Proper cleanup of temp files in finally block
+
+- Updated `src/assistant/knowledge-base-instance.ts`:
+  - Added public `async reindexKB(): Promise<void>` method (US-538/US-542)
+  - Wraps existing private `rebuildRAGIndex()` method
+  - Enables kb-upload route to trigger RAG index rebuild after KB file written
+
+- Updated `src/routes/admin/index.ts`:
+  - Imported kb-upload router
+  - Registered at `/kb` path: `router.use('/kb', kbUploadRoutes)`
+  - Full endpoint path: `/api/admin/kb/:profile/upload`
+
+### Patterns discovered
+- KnowledgeBaseInstance exposes kbDir as public readonly property for path resolution
+- Profile registry maps internal profile IDs to user-facing names
+- ResolvedProfile contains configStore and kb (KnowledgeBaseInstance) for admin operations
+- Filename validation reuses existing `validateFilename()` helper from http-utils.ts
+- RAG rebuilding is async and non-blocking; upload response doesn't wait for completion
+
+### Edge cases handled
+- Profile aliasing: URL param "makan" → internal ID "makan-moments"
+- Empty/default filename: generates "untitled.md" if no name provided
+- Path traversal prevention: sanitizeFilename strips slashes, dots, and non-alphanumeric chars
+- Extraction failure: returns 422 with error message from KBExtractorError
+- RAG rebuild failure: logs warning but doesn't fail the upload
+- Temp file cleanup: uses finally block to delete temp file even if errors occur
+
+### Quality checks
+✅ Build: esbuild successful (2.6mb bundle, 1 pre-existing warning)
+✅ Type check: No errors in kb-upload.ts, knowledge-base-instance.ts
+✅ Pre-existing errors: context-window-benchmark.ts (expected, noted in CLAUDE.md)
+✅ Server startup: tsx runs without errors
+✅ prd.json: US-538.passes = true
+

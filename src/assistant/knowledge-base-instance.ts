@@ -378,6 +378,15 @@ export class KnowledgeBaseInstance {
   }
 
   /**
+   * US-538/US-542: Rebuild RAG index after KB document ingestion.
+   * Public API for triggering RAG reindexing when KB files are uploaded via admin API.
+   * Called by kb-upload route after writing extracted markdown file.
+   */
+  async reindexKB(): Promise<void> {
+    await this.rebuildRAGIndex();
+  }
+
+  /**
    * Rebuild RAG index (called when KB files change).
    */
   private async rebuildRAGIndex(): Promise<void> {

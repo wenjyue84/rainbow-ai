@@ -43,6 +43,7 @@ import integrationHealthRoutes from './integration-health.js';
 import diagnosticsRoutes from './diagnostics.js';
 import optOutsRoutes from './opt-outs.js';
 import kbHealthRoutes from './kb-health.js';
+import kbUploadRoutes from './kb-upload.js';
 import dataRetentionRoutes from './data-retention.js';
 import gdprErasureRoutes from './gdpr-erasure.js';
 import gdprDataExportRoutes from './gdpr-data-export.js';
@@ -339,6 +340,7 @@ router.use(integrationHealthRoutes);
 router.use(diagnosticsRoutes);
 router.use(optOutsRoutes);
 router.use(kbHealthRoutes);
+router.use('/kb', kbUploadRoutes);  // US-538: KB document upload and extraction
 router.use(dataRetentionRoutes);
 router.use(gdprErasureRoutes);    // Data deletion — super-admin enforced below
 router.use(gdprDataExportRoutes);
