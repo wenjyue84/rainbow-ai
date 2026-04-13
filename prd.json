@@ -2271,7 +2271,16 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "sonnet"
+      "model": "sonnet",
+      "_phaseI": {
+        "diagnosisBlock": "## Current State\n\nLet me first read the required context files.\nNow let me read the relevant source files to understand the current intent classification system.\nThere's already a `classifier/keyword-weights.ts` file. Let me check what exists.\nThere's already a prior attempt that created `keyword-weights.ts`. Now let me check the classifier and existing test.\nGood, there's already a test file. Let me check the rest of intents.ts and the existing test.\nNow let me check where the T2 fuzzy matching actually happens to see if `applyLanguageWeight` is being called there.\nNow let me see the rest of the T2 matching to understand the full flow.\nNow let me check if `intent-keywords.json` already has `keyword_weights` entries.\n## Current State\n\nThe previous attempt (attempt 1) for US-572 already implemented most of the code:\n\n1. **`src/assistant/classifier/keyword-weights.ts`** - Already exists with `applyLanguageWeight()`, `buildIntentWeightsMap()`, and `Keyword`/`KeywordWeights` interfaces\n2. **`src/assistant/intents.ts`** - Already imports and calls `applyLanguageWeight()` at line 513, already builds `intentWeightsByProfile` map at line 288\n3. **`src/assistant/data/intent-keywords.json`** - Already has `keyword_weights` entries with `ta_weight: 1.3` and `ml_weight: 1.2` on 14+ intents (booking, inquiry, etc.)\n4. **`tests/unit/keyword-weighting.test.ts`** - Already exists with 9 tests covering all acceptance criteria\n\n## Problem Identified\n\nThe previous attempt failed solely due to the DIAGNOSIS_BLOCK_MISSING gate — the code changes were all already made. I need to verify the tests pass, build succeeds, then mark `passes: true`.\n\n## Planned Changes\n\n- Run `npx vitest run tests/unit/keyword-weighting.test.ts` to verify tests pass\n- Run `npm run build` to verify build succeeds\n- Update `prd.json` to set `passes: true` for US-572\n- Append documentation to `progress.txt`\n- Commit\n\n---\n\nNow executing the plan:\n9/9 tests pass. Now build:\nBuild passes (2.7MB bundle, only the pre-existing logger warning). Now resolve the merge conflict in prd.json and update it:\nThe conflict is around US-572 itself. Let me resolve it by accepting our version (with `passes: false`) and then setting it to `true`:\nNow append to progress.txt:\nNow commit:\nUS-572 is complete.\n\n**Summary:**\n- All code was already implemented in attempt 1 (which failed only on the diagnosis-block gate)\n- `src/assistant/classifier/keyword-weights.ts` — `applyLanguageWeight()` and `buildIntentWeightsMap()`\n- `src/assistant/intents.ts` — Integrates weight application at T2 fuzzy matching (line 513)\n- `src/assistant/data/intent-keywords.json` — 14+ intents with `keyword_weights` (`ta_weight: 1.3`, `ml_weight: 1.2`)\n- `tests/unit/keyword-weighting.test.ts` — 9/9 tests pass\n- Build succeeds, `prd.json` updated with `passes: true`"
+      },
+      "_contextStats": {
+        "tokensBeforeMasking": 186,
+        "tokensAfterMasking": 185,
+        "reductionPct": 0,
+        "contextWindow": 10
+      }
     },
     {
       "id": "US-573",
