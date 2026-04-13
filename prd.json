@@ -3251,6 +3251,73 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-608",
+      "title": "Booking Workflow Step Circuit Breaker for External Service Failures",
+      "priority": "high",
+      "description": "Add circuit breaker pattern to booking workflow steps that call external services (payment processing, availability checks). Gracefully degrade to manual fallback after repeated failures.",
+      "acceptanceCriteria": [
+        "Circuit breaker tracks consecutive failures per booking step; opens after 3 failures and blocks requests for 60 seconds",
+        "Log circuit state transitions (CLOSED -> OPEN -> HALF_OPEN) with timestamp and failure count to debug logs",
+        "When circuit is OPEN, workflow escalates to manual escalation instead of failing; user receives 'Please wait while we check availability manually' response"
+      ],
+      "technicalNotes": [
+        "File to create: src/workflows/circuit-breaker.ts (implement circuit breaker state machine with 60s timeout)",
+        "File to modify: src/workflows/booking-executor.ts (wrap external service calls with circuit breaker)",
+        "Test command: uv run vitest run tests/circuit-breaker.test.ts",
+        "Test assertion: verify 3 consecutive failures trigger OPEN state; verify half-open state transitions after 60s delay"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-13T22:48:47Z"
+    },
+    {
+      "id": "US-609",
+      "title": "Conversation Automatic Cleanup and Archival Policy Engine",
+      "priority": "medium",
+      "description": "Implement conversation archival for inactive conversations (>30 days no messages) to prevent database bloat and improve query performance. Add CLI command to preview and execute archival with dry-run support.",
+      "acceptanceCriteria": [
+        "CLI command `npm run maintenance:cleanup-conversations --dry-run` lists conversations that would be archived without modifying data",
+        "CLI command `npm run maintenance:cleanup-conversations --execute` marks conversations as archived (sets archived_at timestamp)",
+        "Archived conversations are not returned in default conversation queries; separate endpoint to retrieve archived conversations"
+      ],
+      "technicalNotes": [
+        "File to edit: shared/schema-tables.ts (add archived_at column to conversations table)",
+        "File to create: src/tools/conversation-cleanup.ts (implement archival logic with 30-day threshold)",
+        "File to modify: src/lib/db-utils.ts (add archiveConversations() function)",
+        "Test command: uv run vitest run tests/conversation-cleanup.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-610",
+      "title": "Language-Specific Response Quality Scorer with Confidence Thresholds",
+      "priority": "medium",
+      "description": "Score response quality based on language and intent type, with stricter thresholds for non-English languages (e.g., Tamil) where translation quality is critical. Escalate low-quality responses instead of sending them.",
+      "acceptanceCriteria": [
+        "Settings file includes language-specific quality thresholds per profile (e.g., tamil: 0.75, english: 0.70) in src/assistant/data/{profile}/settings.json",
+        "Response processor calls scorer before sending; if score < threshold, escalate to human instead and log 'Low confidence response for language: tamil (score: 0.65)'",
+        "Scorer accounts for: language match (prefer native responses), intent confidence score, translation quality indicators"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/response-quality-scorer.ts (implement language-aware scoring function)",
+        "File to modify: src/assistant/pipeline/response-processor.ts (call scorer before sending response)",
+        "File to modify: src/assistant/data/settings.json (add quality_thresholds object per language)",
+        "Test command: uv run vitest run tests/response-quality-scorer.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
