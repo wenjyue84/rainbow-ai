@@ -1954,3 +1954,56 @@ PASSED: Implement Conversation Context Relevance Scoring to Filter Token Bloat
 ## Iteration 2 - Mon, Apr 13, 2026  4:22:17 PM
 Completed: Implement Conversation Context Relevance Scoring to Filter Token Bloat (ID: US-553) in 3m
 
+
+
+## Pre-analysis for US-552 (Gemini 2.5 Pro)
+This is a brief for implementing latency metrics in a TypeScript/Node.js application. The user story's mention of Frappe/Python appears to be incorrect, as the project structure and technical notes clearly point to a TypeScript implementation.
+
+**1. Python/Frappe Files to Modify:**
+*   None. This is a TypeScript/Node.js project. The core logic will be implemented in TypeScript files. The user story's reference to Python/Frappe is likely a mistake.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   None. Instead of Frappe DocTypes, this implementation will involve:
+    *   Modifying the existing TypeScript module `src/lib/metrics.ts`.
+    *   Creating a new API endpoint route at `src/routes/admin/intent-latency-metrics.ts`.
+    *   Integrating the metric collection into the intent classification pipeline, likely within `src/lib/intent/classifier.ts`.
+
+**3. Recommended Implementation Approach:**
+*   **Metric Storage:** In `src/lib/metrics.ts`, use a simple in-memory object to store latency arrays, e.g., `const latencies = { pelangi: [], southern: [], makan: [] }`.
+*   **Record Latency:** Implement `recordIntentLatency(profile, durationMs)`. This function will push the `durationMs` to the correct profile's array.
+*   **SLA Alerting:** After adding a new latency measurement, this function should also trigger the percentile calculation and log a `WARN` if the p95 exceeds 500ms.
+*   **Percentile Calculation:** Implement a `computePercentiles(samples)` helper. It should calculate p50, p95, and p99. This must pass the assertion from the acceptance criteria.
+*   **API Endpoint:** Create the file `src/routes/admin/intent-latency-metrics.ts` to define the `GET /admin/metrics/intent-latency` endpoint. This endpoint will iterate through the profiles, call the percentile calculation logic, and return the structured JSON response.
+*   **Integration:** In `src/lib/intent/classifier.ts`, wrap the intent classification logic to measure its execution time and call `recordIntentLatency` with the profile and duration.
+
+**4. Edge Cases & Gotchas:**
+*   **Test Mismatch:** The story mentions a `pytest` command. A new TypeScript test file (e.g., `tests/lib/metrics.test.ts`) should be created using the project's existing test framework (likely Vitest) to validate the percentile logic.
+*   **Performance:** Calculating percentiles on every request can be inefficient with large sample sizes. For this implementation, a simple sort-and-pick method is acceptable, but for production, consider using a more advanced data structure like a histogram or a sampled approach if performance becomes a concern.
+*   **Memory Usage:** The in-memory latency arrays will grow indefinitely, consuming memory and resetting on each app restart. This is likely sufficient for the requirement, but be aware that a persistent solution (e.g., a time-series database) would be needed for long-term analysis.
+
+
+## Pre-analysis for US-552 (Gemini 2.5 Pro)
+This is a brief for implementing latency metrics in a TypeScript/Node.js application. The user story's mention of Frappe/Python appears to be incorrect, as the project structure and technical notes clearly point to a TypeScript implementation.
+
+**1. Python/Frappe Files to Modify:**
+*   None. This is a TypeScript/Node.js project. The core logic will be implemented in TypeScript files. The user story's reference to Python/Frappe is likely a mistake.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   None. Instead of Frappe DocTypes, this implementation will involve:
+    *   Modifying the existing TypeScript module `src/lib/metrics.ts`.
+    *   Creating a new API endpoint route at `src/routes/admin/intent-latency-metrics.ts`.
+    *   Integrating the metric collection into the intent classification pipeline, likely within `src/lib/intent/classifier.ts`.
+
+**3. Recommended Implementation Approach:**
+*   **Metric Storage:** In `src/lib/metrics.ts`, use a simple in-memory object to store latency arrays, e.g., `const latencies = { pelangi: [], southern: [], makan: [] }`.
+*   **Record Latency:** Implement `recordIntentLatency(profile, durationMs)`. This function will push the `durationMs` to the correct profile's array.
+*   **SLA Alerting:** After adding a new latency measurement, this function should also trigger the percentile calculation and log a `WARN` if the p95 exceeds 500ms.
+*   **Percentile Calculation:** Implement a `computePercentiles(samples)` helper. It should calculate p50, p95, and p99. This must pass the assertion from the acceptance criteria.
+*   **API Endpoint:** Create the file `src/routes/admin/intent-latency-metrics.ts` to define the `GET /admin/metrics/intent-latency` endpoint. This endpoint will iterate through the profiles, call the percentile calculation logic, and return the structured JSON response.
+*   **Integration:** In `src/lib/intent/classifier.ts`, wrap the intent classification logic to measure its execution time and call `recordIntentLatency` with the profile and duration.
+
+**4. Edge Cases & Gotchas:**
+*   **Test Mismatch:** The story mentions a `pytest` command. A new TypeScript test file (e.g., `tests/lib/metrics.test.ts`) should be created using the project's existing test framework (likely Vitest) to validate the percentile logic.
+*   **Performance:** Calculating percentiles on every request can be inefficient with large sample sizes. For this implementation, a simple sort-and-pick method is acceptable, but for production, consider using a more advanced data structure like a histogram or a sampled approach if performance becomes a concern.
+*   **Memory Usage:** The in-memory latency arrays will grow indefinitely, consuming memory and resetting on each app restart. This is likely sufficient for the requirement, but be aware that a persistent solution (e.g., a time-series database) would be needed for long-term analysis.
+
