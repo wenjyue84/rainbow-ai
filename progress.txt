@@ -1257,3 +1257,128 @@ Completed: Add Intent Keyword Matching Cache with LRU Eviction Policy (ID: US-53
 ## Iteration 3 - Mon, Apr 13, 2026  3:05:33 PM
 Completed: Add Conversation Message Cursor-Based Pagination for Efficient Retrieval (ID: US-548) in 4m
 
+
+## Pre-analysis for US-549 (Gemini 2.5 Pro)
+### Technical Brief: US-549 Workflow Timeline Tracer (Frappe/Python)
+
+This technical brief outlines the implementation of a workflow execution timeline tracer for the `lhdn_payroll_integration` app, translating the user story from its original JS/TS context into a Frappe/Python plan.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/payroll_process/payroll_process.py`**: The primary file to modify. The core workflow logic (e.g., a method like `execute_steps`) will be updated here to build the timeline.
+*   **`lhdn_payroll_integration/api.py`**: A new file (or existing API file) to house the new whitelisted API endpoint for retrieving timeline data.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **`Payroll Process` DocType**: A new field named `execution_timeline` (Type: JSON) should be added to this DocType to store the serialized timeline array for each workflow run.
+*   **`@frappe.whitelist()`**: This decorator will be used on the `get_workflow_timeline` function in `api.py` to expose it as a public GET endpoint.
+
+**3. Implementation Approach:**
+
+1.  In `payroll_process.py`, modify the main workflow execution method. Before iterating through steps, initialize an empty list, `timeline = []`.
+2.  Wrap each step's execution in a `try...finally` block to ensure data is captured.
+3.  Inside the loop, record `start_time` before execution and `end_time` after. Append a dictionary `{step_name, start_time, end_time, duration_ms, input, output, ...}` to the `timeline` list for each step.
+4.  After the workflow completes (or fails), serialize the `timeline` list and save it to the `execution_timeline` JSON field of the `Payroll Process` document.
+5.  Create a whitelisted function `get_workflow_timeline(execution_id)` in `api.py`. It will load the `Payroll Process` doc, parse the `execution_timeline` field, and return the data, adding the `slow_step` flag where `duration_ms > 500`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Workflow Failures**: The implementation must save the partial timeline even if a step fails. Capturing the exception details within the failed step's timeline entry is crucial for debugging.
+*   **Data Volume**: Be cautious about logging large `input`/`output` objects. This could bloat the database. Consider logging only key fields or truncating large values.
+*   **State Snapshots**: The `output` should represent the state *after* the step completes to accurately trace state changes.
+
+
+## Pre-analysis for US-549 (Gemini 2.5 Pro)
+### Technical Brief: US-549 Workflow Timeline Tracer (Frappe/Python)
+
+This technical brief outlines the implementation of a workflow execution timeline tracer for the `lhdn_payroll_integration` app, translating the user story from its original JS/TS context into a Frappe/Python plan.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/payroll_process/payroll_process.py`**: The primary file to modify. The core workflow logic (e.g., a method like `execute_steps`) will be updated here to build the timeline.
+*   **`lhdn_payroll_integration/api.py`**: A new file (or existing API file) to house the new whitelisted API endpoint for retrieving timeline data.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **`Payroll Process` DocType**: A new field named `execution_timeline` (Type: JSON) should be added to this DocType to store the serialized timeline array for each workflow run.
+*   **`@frappe.whitelist()`**: This decorator will be used on the `get_workflow_timeline` function in `api.py` to expose it as a public GET endpoint.
+
+**3. Implementation Approach:**
+
+1.  In `payroll_process.py`, modify the main workflow execution method. Before iterating through steps, initialize an empty list, `timeline = []`.
+2.  Wrap each step's execution in a `try...finally` block to ensure data is captured.
+3.  Inside the loop, record `start_time` before execution and `end_time` after. Append a dictionary `{step_name, start_time, end_time, duration_ms, input, output, ...}` to the `timeline` list for each step.
+4.  After the workflow completes (or fails), serialize the `timeline` list and save it to the `execution_timeline` JSON field of the `Payroll Process` document.
+5.  Create a whitelisted function `get_workflow_timeline(execution_id)` in `api.py`. It will load the `Payroll Process` doc, parse the `execution_timeline` field, and return the data, adding the `slow_step` flag where `duration_ms > 500`.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Workflow Failures**: The implementation must save the partial timeline even if a step fails. Capturing the exception details within the failed step's timeline entry is crucial for debugging.
+*   **Data Volume**: Be cautious about logging large `input`/`output` objects. This could bloat the database. Consider logging only key fields or truncating large values.
+*   **State Snapshots**: The `output` should represent the state *after* the step completes to accurately trace state changes.
+
+
+## Iteration [N] - Story: US-549 - Implement Booking Workflow Step Execution Timeline Tracer
+
+### What was implemented
+
+1. **src/lib/workflow-timeline.ts** — In-memory timeline storage module
+   - `StepExecution` interface capturing {step_name, start_time, end_time, duration_ms, input, output, next_step, slow_step}
+   - `WorkflowTimeline` interface for tracking execution metadata (execution_id, workflow_id, phone, profile_id, steps)
+   - `WorkflowTimelineStore` singleton managing timeline lifecycle
+   - Functions: createTimeline(), logStepExecution(), completeTimeline(), getTimeline(), getAllTimelines()
+   - Auto-cleanup with 1-hour TTL on timelines
+   - Automatic slow_step flag computation (duration_ms > 500)
+
+2. **src/assistant/workflow-executor.ts** — Enhanced to track step execution timing
+   - Updated `WorkflowState` interface to include `executionId?: string`
+   - Updated `WorkflowExecutionResult` interface to include `timeline?: StepExecution[]` and `executionId?: string`
+   - Modified `createWorkflowState()` to generate unique execution ID on workflow start
+   - Modified `executeWorkflowStep()` to:
+     - Initialize timeline on first execution
+     - Log each step execution with timing before/after enhancement
+     - Preserve executionId across step transitions
+     - Include executionId in all return statements
+     - Log timeout steps to timeline
+   - Timeline persistence through newState carry-forward
+
+3. **src/routes/admin/workflow-timeline.ts** — Admin API endpoints for timeline retrieval
+   - GET `/admin/workflows/:execution_id/timeline` — Returns full timeline with steps sorted by start_time
+   - GET `/admin/workflows/:execution_id/timeline/summary` — Returns performance metrics (total_duration_ms, avg/max step duration, slow_steps)
+   - Proper error handling for missing executions (404)
+   - Validation of execution_id format (must start with "exec_")
+
+4. **tests/integration/workflow-timeline.test.ts** — Comprehensive test suite
+   - 17 tests covering:
+     - Timeline creation and unique execution ID generation
+     - Step execution logging with timing data
+     - Multiple steps logged in order
+     - Slow step detection (>500ms boundary testing)
+     - Timeline completion marking
+     - Retrieval by execution_id and null handling
+     - Input/output data structure preservation
+     - Phone and profile_id tracking
+     - Timing accuracy and duration calculation
+
+### Patterns discovered
+
+- Execution ID format: `exec_${timestamp}_${randomId}` ensures global uniqueness
+- Timeline retention: 1-hour TTL prevents unbounded memory growth in production
+- Slow step threshold: Exactly 500ms is the boundary; >500ms is flagged as slow
+- Step order preservation: Array maintains insertion order for chronological analysis
+- State mutation pattern: executionId threaded through newState ensures persistence across steps
+
+### Gotchas
+
+- Execution ID must be generated before timeline creation (not lazy)
+- nextStepIndex calculation must account for workflow.steps.length to avoid undefined next_step
+- Timeline completion is optional — timelines remain queryable even if incomplete
+- Timeout steps logged with special "error" key in output for debugging
+
+### Quality checks
+
+Tests: 17/17 passing (all workflow-timeline.test.ts tests)
+Build: esbuild successful (2.6mb bundle, pre-existing warning unrelated to changes)
+Server startup: Successful (tsx src/index.ts)
+prd.json: Updated US-549.passes to true
+Type safety: All TypeScript types properly defined and exported

@@ -19,6 +19,7 @@ import {
   callAPIWrapper, syncWorkflowDataToContact, getTimeoutEscalationMessage,
   executeNodeWorkflowStep,
 } from './workflow-executor-node.js';
+import { workflowTimelineStore, generateExecutionId, type StepExecution } from '../lib/workflow-timeline.js';
 
 // ─── US-313: Booking Workflow Execution Audit Trail ──────────────────
 
@@ -97,6 +98,8 @@ export interface WorkflowState {
   collectedData: Record<string, string>; // step id -> user response
   startedAt: number;
   lastUpdateAt: number;
+  // US-549: Execution timeline tracking
+  executionId?: string;              // Unique ID for this workflow execution (for timeline retrieval)
   // Node-based workflow fields (optional — only set for node workflows)
   currentNodeId?: string;            // Current position in node graph
   nodeOutputs?: Record<string, any>; // Accumulated outputs from API/action nodes
@@ -111,6 +114,8 @@ export interface WorkflowExecutionResult {
   workflowId?: string;  // For conversation log edit support
   stepId?: string;      // For conversation log edit support
   escalation_reason?: string; // US-470: reason code when booking unit check fails
+  timeline?: StepExecution[]; // US-549: Step execution timeline for this step
+  executionId?: string; // US-549: Execution ID for retrieving full timeline
 }
 
 /**
@@ -139,12 +144,16 @@ export function createWorkflowState(workflowId: string): WorkflowState {
   const workflow = workflows.workflows.find(w => w.id === workflowId) as HybridWorkflowDefinition | undefined;
   const isNodes = workflow ? isNodeBasedWorkflow(workflow) : false;
 
+  // US-549: Generate execution ID for timeline tracking
+  const executionId = generateExecutionId();
+
   return {
     workflowId,
     currentStepIndex: 0,
     collectedData: {},
     startedAt: Date.now(),
     lastUpdateAt: Date.now(),
+    executionId,
     // Set node-based fields if applicable
     ...(isNodes && workflow?.startNodeId ? {
       currentNodeId: workflow.startNodeId,
@@ -163,10 +172,22 @@ export async function executeWorkflowStep(
   const workflows = configStore.getWorkflows();
   const workflow = workflows.workflows.find(w => w.id === state.workflowId);
 
+  // US-549: Initialize execution timeline if not present
+  const executionId = state.executionId || generateExecutionId();
+  if (!state.executionId) {
+    workflowTimelineStore.createTimeline(
+      executionId,
+      state.workflowId,
+      phone || 'unknown',
+      context.profileId || 'unknown'
+    );
+  }
+
   if (!workflow) {
     return {
       response: 'Workflow not found. Please contact support.',
-      newState: null
+      newState: null,
+      executionId
     };
   }
 
@@ -180,7 +201,8 @@ export async function executeWorkflowStep(
     console.error(`[WorkflowExecutor] ${errorMessage}`);
     return {
       response: 'Workflow configuration error. Please contact support.',
-      newState: null
+      newState: null,
+      executionId
     };
   }
 
@@ -202,7 +224,8 @@ export async function executeWorkflowStep(
       console.log(`[WorkflowExecutor] US-020: Cancel detected in workflow "${state.workflowId}" — exiting gracefully`);
       return {
         response: cancelMessages[language as keyof typeof cancelMessages] || cancelMessages.en,
-        newState: null
+        newState: null,
+        executionId
       };
     }
   }
@@ -225,7 +248,8 @@ export async function executeWorkflowStep(
     );
     return {
       response: 'This service is temporarily unavailable. Our team has been notified. Please contact staff directly.',
-      newState: null
+      newState: null,
+      executionId
     };
   }
 
@@ -237,7 +261,8 @@ export async function executeWorkflowStep(
     );
     return {
       response: 'This service is temporarily unavailable. Our team has been notified. Please contact staff directly.',
-      newState: null
+      newState: null,
+      executionId
     };
   }
 
@@ -268,13 +293,20 @@ export async function executeWorkflowStep(
     const adminPhone = configStore.getWorkflow().payment.forward_to || '+60127088789';
 
     const lastStep = workflow.steps[workflow.steps.length - 1];
+
+    // US-549: Mark timeline as complete and retrieve it
+    workflowTimelineStore.completeTimeline(executionId);
+    const timeline = workflowTimelineStore.getTimeline(executionId);
+
     return {
       response: getStepMessage(lastStep, language),
       newState: null,
       shouldForward: true,
       conversationSummary: summary,
       workflowId: state.workflowId,
-      stepId: lastStep.id
+      stepId: lastStep.id,
+      executionId,
+      timeline: timeline?.steps || []
     };
   }
 
@@ -388,7 +420,8 @@ export async function executeWorkflowStep(
           newState: null,
           shouldForward: true,
           workflowId: state.workflowId,
-          stepId: currentStep.id
+          stepId: currentStep.id,
+          executionId
         };
       }
 
@@ -433,7 +466,8 @@ export async function executeWorkflowStep(
           newState: null, // Complete workflow with error
           shouldForward: true, // Escalate for staff review
           workflowId: state.workflowId,
-          stepId: currentStep.id
+          stepId: currentStep.id,
+          executionId
         };
       }
     } catch (err) {
@@ -462,7 +496,8 @@ export async function executeWorkflowStep(
           shouldForward: true,
           workflowId: state.workflowId,
           stepId: currentStep.id,
-          escalation_reason: availabilityResult.escalation_reason || 'unit_unavailable'
+          escalation_reason: availabilityResult.escalation_reason || 'unit_unavailable',
+          executionId
         };
       }
     } catch (err) {
@@ -507,7 +542,8 @@ export async function executeWorkflowStep(
           shouldForward: true,
           workflowId: state.workflowId,
           stepId: currentStep.id,
-          escalation_reason: 'booking_rules_validation_failed'
+          escalation_reason: 'booking_rules_validation_failed',
+          executionId
         };
       }
 
@@ -537,7 +573,7 @@ export async function executeWorkflowStep(
     // US-324: timeoutMs takes precedence over max_duration_ms
     const maxDurationMs = (currentStep as any).timeoutMs || (currentStep as any).max_duration_ms || 30000;
 
-    // US-121: Start profiling this step
+    // US-121 / US-549: Start profiling this step and timeline recording
     const stepStartTime = Date.now();
     const inputSize = JSON.stringify(enhancerContext).length;
 
@@ -559,8 +595,10 @@ export async function executeWorkflowStep(
 
       response = enhanced.message; // Use enhanced message
 
+      const stepEndTime = Date.now();
+
       // US-121: Record step execution metrics
-      const stepDuration = Date.now() - stepStartTime;
+      const stepDuration = stepEndTime - stepStartTime;
       const outputSize = response.length;
       recordStepMetric({
         stepId: currentStep.id,
@@ -577,6 +615,19 @@ export async function executeWorkflowStep(
         conversationId: phone,
       });
 
+      // US-549: Log step execution to timeline
+      const nextStepIndex = state.currentStepIndex + 1;
+      const nextStepId = nextStepIndex < workflow.steps.length ? workflow.steps[nextStepIndex].id : null;
+      workflowTimelineStore.logStepExecution(
+        executionId,
+        currentStep.id || `step_${state.currentStepIndex}`,
+        stepStartTime,
+        stepEndTime,
+        enhancerContext,
+        { message: response, ...enhanced.metadata },
+        nextStepId
+      );
+
       // Log metadata for debugging
       if (enhanced.metadata) {
         console.log(`[WorkflowExecutor] Step ${currentStep.id} metadata:`, enhanced.metadata);
@@ -586,9 +637,24 @@ export async function executeWorkflowStep(
       if (error instanceof WorkflowTimeoutError) {
         console.error(`[WorkflowExecutor] US-324: Step timeout:`, error.message);
 
+        const stepEndTime = Date.now();
+
         // US-324: Use per-step fallbackResponse if configured, else generic escalation
         const fallbackResponse = (currentStep as any).fallbackResponse || getTimeoutEscalationMessage(language);
         const hasFallback = !!(currentStep as any).fallbackResponse;
+
+        // US-549: Log timeout step to timeline
+        const nextStepIndex = state.currentStepIndex + 1;
+        const nextStepId = nextStepIndex < workflow.steps.length ? workflow.steps[nextStepIndex].id : null;
+        workflowTimelineStore.logStepExecution(
+          executionId,
+          currentStep.id || `step_${state.currentStepIndex}`,
+          stepStartTime,
+          stepEndTime,
+          enhancerContext,
+          { error: 'timeout', message: fallbackResponse },
+          nextStepId
+        );
 
         // US-324: Log to booking_workflow_events for per-step timeout metrics
         try {
@@ -636,7 +702,8 @@ export async function executeWorkflowStep(
           newState: null, // Complete the workflow
           shouldForward: true, // Escalate to staff
           workflowId: state.workflowId,
-          stepId: currentStep.id
+          stepId: currentStep.id,
+          executionId
         };
       }
 
@@ -647,8 +714,10 @@ export async function executeWorkflowStep(
   }
 
   // Update state
+  // US-549: Preserve executionId for timeline tracking across steps
   const newState: WorkflowState = {
     ...state,
+    executionId,
     lastUpdateAt: Date.now()
   };
 
@@ -678,9 +747,10 @@ export async function executeWorkflowStep(
       // Return error response without advancing state
       return {
         response: clarifyingMessages[language as keyof typeof clarifyingMessages] || clarifyingMessages.en,
-        newState: state, // Keep current state (don't advance)
+        newState: { ...state, executionId },
         workflowId: state.workflowId,
-        stepId: currentStep.id
+        stepId: currentStep.id,
+        executionId
       };
     }
   }
@@ -702,7 +772,8 @@ export async function executeWorkflowStep(
     newState,
     shouldForward: false,
     workflowId: state.workflowId,
-    stepId: currentStep.id
+    stepId: currentStep.id,
+    executionId
   };
 }
 
