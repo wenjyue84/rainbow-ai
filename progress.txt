@@ -1159,3 +1159,58 @@ All code was already fully implemented from a prior attempt (discovery during ve
 - Temporal keyword regex includes many languages but doesn't cover all possible booking duration phrases globally (acceptable scope for Phase 1)
 
 ---
+
+## Iteration [96] - Story: US-564 - Load Error Messages from Profile-Specific JSON Files
+
+### What was implemented
+
+Refactored error message handling to load from profile-specific JSON configuration files with graceful fallback:
+
+**JSON Configuration Files Created:**
+- `src/assistant/data/error-messages-pelangi.json` — Pelangi Capsule Hostel messaging (front desk, guest, booking context)
+- `src/assistant/data/error-messages-makan.json` — Makan Moments Cafe messaging (staff, customer, order context)
+- `src/assistant/data/error-messages-southern.json` — Southern Homestay messaging (team, property, booking context)
+- `src/assistant/data/error-messages-en.json` — English fallback (generic messages)
+
+Each file contains error messages for:
+- validation_error
+- payment_failed
+- room_unavailable
+- date_conflict
+- guest_not_found
+- system_error
+- booking_error
+
+**Code Changes:**
+- **src/assistant/response-processor.ts** — New `getErrorMessage(errorType, profileId)` function + `loadErrorMessages()` loader
+  - Implements profile normalization (pelangi-capsule → pelangi)
+  - Graceful fallback chain: profile-specific → English
+  - Supports all three business profiles with distinct messaging
+- **src/assistant/booking/step-error-handler.ts** — Refactored `getRecoveryMessage()` to call `getErrorMessage()`
+  - Removed hardcoded RECOVERY_MESSAGES constant
+  - Now loads dynamically from JSON files
+
+**Tests Created:**
+- `tests/integration/profile-specific-errors.test.ts` — 10 tests validating:
+  - Profile-specific error messages load correctly (pelangi, makan, southern)
+  - Messages are distinct across profiles for the same error type
+  - Fallback to English works for missing/malformed profiles
+  - All error types return non-empty messages
+  - Profile aliases (pelangi-capsule, southern-homestay) normalize correctly
+  - Business context is preserved (hostel vs cafe vs homestay language)
+
+### Checks passed
+- 20/20 tests pass (10 tests × 2 runs — integration + unit pool)
+- Build succeeds (esbuild)
+- Server starts successfully
+- Error message files properly copied to dist/
+
+### Key Features
+- **Profile Separation:** Each profile has business-appropriate messaging (hostel operations, cafe service, property management)
+- **Graceful Degradation:** Falls back to English if profile-specific file missing
+- **Testable:** Profile separation validated with distinct message assertions
+- **Centralized Loading:** Single function handles all error message loading
+
+### Gotchas
+- None encountered; implementation straightforward
+
