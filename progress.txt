@@ -269,3 +269,27 @@ Completed: Add Intent Classification Latency Metrics per Profile with SLA Monito
 
 ## Iteration 85 - Sun, Apr 13, 2026  5:21:15 PM
 Completed: Implement Per-Intent Custom System Prompt Configuration (ID: US-554) in 23m
+
+## Iteration [85] - Story: US-554 - Per-Intent Custom System Prompt Configuration
+
+### What was implemented
+All implementation already existed from a prior pass:
+- `src/assistant/data/intent-prompts.json` — 11 intent prompts (greeting, pricing, availability, booking, directions, amenities, checkout, checkin, thanks, contact_staff, unknown)
+- `src/assistant/intent-prompt-manager.ts` — Singleton class with load/get/set/reload methods, graceful fallback if file missing
+- `src/assistant/ai-response-generator.ts` — `getIntentSystemPrompt(intentType, defaultPrompt)` exported function
+- `src/routes/admin/intent-prompts.ts` — POST/GET /:intent_type/prompt + GET /prompts/all endpoints
+- `src/routes/admin/index.ts` — Already registered at /intents
+- `tests/unit/intent-prompts.test.ts` — 16 tests covering all acceptance criteria
+
+### Patterns discovered
+- vitest include paths don't cover `tests/*.test.ts` (root level) — tests must be in `tests/unit/`, `tests/lib/`, or `tests/integration/`
+- ESM files in this project can use `require()` dynamically via esbuild bundling (it still compiles), but better to use top-level named imports
+- The story was marked passes:false but all files existed — only needed to run and verify tests
+
+### Quality checks passed
+✅ npm run build — No errors (1 pre-existing warning)
+✅ npx vitest run tests/unit/intent-prompts.test.ts — 16 tests passing
+✅ Server startup — IntentPromptManager loads 11 custom intent prompts
+## Iteration 2 - Mon, Apr 13, 2026  5:06:19 PM
+FAILED diagnosis-block gate: Implement Per-Intent Custom System Prompt Configuration (ID: US-554) — no diagnosis block found — attempt 1/3
+
