@@ -206,6 +206,7 @@ export const workflowStepSchema = z.object({
     base_delay_ms: z.number().int().min(0),
     backoff_multiplier: z.number().min(1),
   }).optional(),
+  autoProgress: z.boolean().optional(),                    // US-555: Auto-advance to next step on user confirmation
 });
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 

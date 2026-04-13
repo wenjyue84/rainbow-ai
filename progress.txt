@@ -319,3 +319,30 @@ All implementation already existed from prior iterations. This pass verified all
 ### Gotcha
 - Previous attempt failed due to diagnosis block gate (pre-change diagnosis required by SPIRAL hook)
 - Implementation was complete; only re-verification was needed
+## Iteration 3 - Mon, Apr 13, 2026  5:10:13 PM
+Completed: Implement Per-Intent Custom System Prompt Configuration (ID: US-554) in 2m
+
+## Iteration 3 - Mon, Apr 13, 2026  5:11:05 PM
+Completed: Implement Per-Intent Custom System Prompt Configuration (ID: US-554) in 2m
+
+
+## Iteration [86] - Story: US-555 - Booking Workflow Step Auto-Progression with User Confirmation
+
+### What was implemented
+- `src/assistant/data/workflows.json` — Added "booking" workflow with 3 steps (`select_checkin_date`, `select_guest_count`, `booking_confirmation`), each with `autoProgress: true`
+- `src/assistant/schemas.ts` — Added `autoProgress: z.boolean().optional()` to `workflowStepSchema` (US-555 comment)
+- `src/assistant/pipeline/booking-processor.ts` — New file with `advanceBookingStep()` function using CONFIRMATION_REGEX `/confirm|yes|proceed/i`, `BOOKING_STEPS` list, and `isAutoProgressStep()` helper
+- `tests/unit/booking-workflow.test.ts` — 35 tests covering CONFIRMATION_REGEX, BOOKING_STEPS config, all 3 step transitions, edge cases, and integration test (step 1→2→3 with 3 sequential confirmations)
+
+### Patterns discovered
+- vitest test files must be in `tests/unit/` (not tests/ root) to be picked up by glob
+- BookingState stages: 'inquiry' | 'dates' | 'guests' | 'confirm' | 'done' | 'cancelled' | 'save_sale'
+- The booking-processor.ts was placed at `src/assistant/pipeline/` (not `src/pipeline/` which doesn't exist)
+
+### Gotchas
+- PRD technical notes reference `src/pipeline/booking-processor.ts` but the pipeline dir is `src/assistant/pipeline/`
+- CONFIRMATION_REGEX is stateful (global flag) — using `.test()` without reset on a cached regex can cause alternating results; here the regex is declared without /g so no issue
+
+### Quality checks passed
+✅ npm run build — No errors (1 pre-existing warning)
+✅ npx vitest run tests/unit/booking-workflow.test.ts — 35/35 tests passing
