@@ -661,3 +661,75 @@ Completed: Add Booking Workflow Abandonment Recovery with Smart Reminders (ID: U
 ✅ Resilience: Graceful degradation if Redis unavailable
 
 **Ready for production deployment.**
+## Iteration 1 - Mon, Apr 13, 2026 10:20:38 PM
+Completed: Implement Booking Workflow State Resumption from Redis (ID: US-582) in 13m
+
+## Iteration 1 - Mon, Apr 13, 2026 10:23:27 PM
+FAILED diagnosis-block gate: Implement Booking Workflow State Resumption from Redis (ID: US-582) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-582 (Gemini 2.5 Pro)
+### **Technical Brief: US-582 - Workflow State Resumption**
+
+**Objective:** Implement a mechanism to persist workflow state in Redis, allowing users to resume an incomplete process from their last completed step within a 48-hour window.
+
+**1. Python Files to Modify:**
+
+*   **`lhdn_payroll_integration/api.py` (or a new controller file):** This is the likely entry point. A whitelisted method (`@frappe.whitelist()`) will receive user input, check for existing state in Redis, and either resume or start a new workflow.
+*   **`lhdn_payroll_integration/lhdn_payroll_integration/doctype/payroll_entry/payroll_entry.py` (or similar business logic file):** This file will contain the core workflow logic (the state machine). It will be modified to save its state to Redis after each step.
+*   **`lhdn_payroll_integration/hooks.py`:** May be used to define a scheduled job (`all`) to periodically clear any expired or orphaned Redis keys if manual cleanup is desired.
+
+**2. Frappe DocTypes & Hooks:**
+
+*   **DocType:** A central DocType like `Payroll Entry` or `Booking` will have its state managed by this workflow. The workflow's purpose is to complete this document.
+*   **Hooks:** No specific document event hooks are needed. The process is initiated via a whitelisted API call rather than a DocType event (like `on_save`).
+
+**3. Implementation Approach:**
+
+1.  Define a whitelisted function in `api.py` that serves as the workflow's entry point.
+2.  On invocation, this function will generate a user-specific Redis key (e.g., `f"payroll_workflow:{frappe.session.user}"`).
+3.  Use `frappe.cache().get(key)` to check for a saved state (a Python dictionary).
+4.  If state exists, resume the workflow from the `last_completed_step` defined in the state.
+5.  After each step is processed in `payroll_entry.py`, call `frappe.cache().set(key, new_state, expires_in_seconds=172800)` to persist the updated state with a 48-hour TTL.
+
+**4. Edge Cases & Gotchas:**
+
+*   **State Serialization:** Ensure the state dictionary saved to Redis contains only simple, serializable data types (strings, numbers). Do not store full Frappe document objects; use their names (`doc.name`) instead.
+*   **Concurrency:** If multiple requests could arrive simultaneously for the same user, use `frappe.cache().lock()` to prevent race conditions when reading/writing the workflow state.
+*   **State Validation:** Upon resumption, re-validate critical data (e.g., item availability, policy changes) as it may have changed since the state was last saved.
+
+
+## Iteration [93] - Story: US-583 - Add Intent Keyword Frequency Analysis CLI Tool
+
+### What was implemented
+
+- `src/cli/intent-keyword-analyzer.ts` — `analyzeKeywordFrequency()` function + CLI entry point
+  - Scans all profile `intent-keywords.json` files (pelangi, southern, makan)
+  - Collects KB markdown files recursively from `.rainbow-kb*` dirs
+  - Counts keyword frequency across all intents and languages
+  - Generates gap analysis (keywords in intents but absent from KB)
+  - Detects over-represented keywords (>3 intents)
+  - Supports `--json`, `--profile` flags; pretty-prints a frequency report
+- `tests/cli/intent-keyword-analyzer.test.ts` — 10 tests, all passing
+- `package.json` — added `"intent:analyze-keywords": "tsx src/cli/intent-keyword-analyzer.ts"` script
+
+### Patterns discovered
+
+1. **ESM module guard:** When a CLI file calls `main()` at the top level, tests that import it
+   get `process.exit` thrown. Guard with:
+   ```ts
+   const isMain = process.argv[1]?.includes('my-cli-filename');
+   if (isMain) main();
+   ```
+   This is simpler than `import.meta.url` comparisons and works with tsx.
+
+2. **PROFILE_DIRS convention:** The existing `intent-keyword-lint.ts` defines the canonical
+   profile directory mapping. New CLI tools should use the same mapping for consistency.
+
+3. **Recursive KB file collection:** `.rainbow-kb/` and `.rainbow-kb-southern/` contain nested
+   subdirs (`guests/`, `contacts/`, `memory/`). Use `readdirSync` + `statSync` recursion.
+
+### Gotchas
+
+1. **Windows encoding:** `prd.json` must be read/written with `encoding='utf-8'` explicitly in
+   Python — default `cp1252` codec fails on Unicode characters in the file.
