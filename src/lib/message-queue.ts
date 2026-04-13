@@ -368,6 +368,15 @@ export function getDedupStats(): { dedupHits: number; ttlSeconds: number; memory
   };
 }
 
+/**
+ * Get the Redis client for external modules to attach to (e.g., conversation recovery).
+ * Returns null if Redis is unavailable or not yet initialized.
+ * US-586: Used by ConversationRecovery to snapshot conversation state.
+ */
+export function getRedisClient(): Redis | null {
+  return redisClient;
+}
+
 // ─── Health Metrics ──────────────────────────────────────────────
 
 /**

@@ -12,7 +12,8 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { ensureResponseText, getConversationMode } from './input-validator.js';
 import { getLLMSettings } from '../llm-settings-loader.js';
-import { addMessage } from '../conversation.js';
+import { addMessage, get as getConversation } from '../conversation.js';
+import { conversationRecovery } from '../../lib/conversation-recovery.js';
 import { isAIAvailable, translateText } from '../ai-client.js';
 import { getTemplate } from '../formatter.js';
 import { escalateToStaff } from '../escalation.js';
@@ -539,6 +540,12 @@ export async function processAndSend(
   }
 
   addMessage(phone, 'assistant', response, profileId);
+
+  // US-586: Snapshot conversation state to Redis for recovery from transient provider failures
+  const conversationState = getConversation(phone, profileId);
+  if (conversationState) {
+    conversationRecovery.snapshot(phone, conversationState);
+  }
 
   // ─── Mode dispatch: manual / copilot / autopilot ───────────────
   const mode = getConversationMode(phone, profileConfig);

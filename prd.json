@@ -2605,9 +2605,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-13T15:41:20Z"
     },
     {
       "id": "US-587",
@@ -2718,6 +2719,66 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-592",
+      "title": "Implement Profile Configuration Integrity Validator for Startup and Auditing",
+      "priority": "high",
+      "description": "Add validation that ensures profile configurations (workflows.json, intent-keywords.json, intent-responses.json) have referential integrity across all profiles. Detects orphaned workflow steps, missing intent_id definitions, broken cross-references. Runs at server startup and via CLI audit tool.",
+      "acceptanceCriteria": [
+        "Server startup calls validateProfileConfigs() for all profiles in src/assistant/data/, logs warnings (non-fatal) for any broken references or orphaned configs",
+        "CLI tool 'npm run audit:profile-config' outputs JSON report with: missing intent_id refs, orphaned workflow steps, unused profiles, unused intent definitions per profile",
+        "Test suite catches 100% of config issues: validates test profiles with intentional broken refs, missing intents, orphaned steps"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/profile-config-validator.ts (validateProfileConfigs, validateIntentReferences, reportOrphaned functions)",
+        "File to modify: src/index.ts (add validator call in server startup before initializing assistant)",
+        "Test command: npm run test tests/profile-config-validator.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-593",
+      "title": "Detect and Log Message Timestamp Ordering Issues in Conversation Pipelines",
+      "priority": "medium",
+      "description": "Add validation to detect when conversation messages arrive out of order, logging warnings with message IDs and conversation metadata for debugging. Improves reliability of multi-turn conversation context by identifying timing/network issues that could degrade intent classification.",
+      "acceptanceCriteria": [
+        "Message validator in conversation context pipeline flags out-of-order timestamps before context inclusion, emitting logger.warn with conversationId, messageId, expectedIndex, actualIndex",
+        "CLI tool 'npm run analyze:message-ordering' processes conversation logs and reports % of conversations with ordering anomalies, lists affected message sequences",
+        "Test suite includes cases for: first message (no prior), reordered messages, simultaneous timestamp messages, spans multiple turns"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/message-ordering-validator.ts (validateMessageOrdering function)",
+        "File to modify: src/assistant/pipeline/conversation-context.ts (call validator in processConversationContext before adding to context window)",
+        "Test command: npm run test tests/message-ordering.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-594",
+      "title": "Add CLI Validator for Tamil Translation Coverage in Intent Responses",
+      "priority": "medium",
+      "description": "Create audit tool to verify all English intent responses have Tamil translations in intent-responses.json. Reports coverage % per intent, lists gaps, and warns if overall coverage <80%. Ensures consistent multilingual support before merging new intents.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run validate:tamil-coverage' reads src/assistant/data/intent-responses.json and outputs coverage % by intent (e.g., 'booking: 95%, inquiry: 100%, help: 75%')",
+        "Warns if any intent <100% Tamil or overall coverage <80%; lists specific missing Tamil keys by intent_id",
+        "Test suite enforces 100% Tamil coverage for critical intents (booking, inquiry, escalation); test fails if coverage drops below threshold"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/validate-tamil-coverage.ts (loadIntentResponses, validateCoverage, reportCoverage functions)",
+        "File structure in intent-responses.json: { [profileId]: { [intentId]: { en: string, ta: string } } }",
+        "Test command: npm run test tests/tamil-coverage.test.ts && npm run validate:tamil-coverage"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }

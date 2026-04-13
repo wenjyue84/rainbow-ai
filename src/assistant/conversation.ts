@@ -158,6 +158,10 @@ export function addMessage(phone: string, role: 'user' | 'assistant', content: s
   }
 }
 
+export function get(phone: string, profileId?: string): ConversationState | null {
+  return conversationManager.get(convoKey(phone, profileId)) || null;
+}
+
 export function getMessages(phone: string, profileId?: string): ChatMessage[] {
   return conversationManager.get(convoKey(phone, profileId))?.messages || [];
 }

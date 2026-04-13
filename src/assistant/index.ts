@@ -10,7 +10,8 @@ import { initBooking } from './booking.js';
 import { initEscalation, destroyEscalation } from './escalation.js';
 import { initRouter, handleIncomingMessage } from './message-router.js';
 import { initKnowledgeBase } from './knowledge-base.js';
-import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler, setDedupTtl } from '../lib/message-queue.js';
+import { initMessageQueue, enqueueMessage, closeQueue, setDLQAlertHandler, setDedupTtl, getRedisClient } from '../lib/message-queue.js';
+import { initConversationRecovery } from '../lib/conversation-recovery.js';
 import { initFlows } from './flows/index.js';
 import { loadConsentCache } from './consent.js';
 import { initCartRecovery, destroyCartRecovery } from './cart-recovery.js';
@@ -61,6 +62,15 @@ export async function initAssistant(deps: AssistantDependencies): Promise<void> 
     setDedupTtl(dedupTtl);
   }
   const queueEnabled = await initMessageQueue(handleIncomingMessage, queueConcurrency);
+
+  // US-586: Initialize conversation recovery with Redis client
+  const redisClient = getRedisClient();
+  if (redisClient) {
+    initConversationRecovery(redisClient);
+    console.log('[Assistant] Conversation recovery initialized (US-586)');
+  } else {
+    console.warn('[Assistant] Redis unavailable — conversation recovery disabled (US-586)');
+  }
 
   // Register DLQ depth alert handler (US-413)
   // Sends a WhatsApp staff notification when DLQ depth exceeds 10 jobs
