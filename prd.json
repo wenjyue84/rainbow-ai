@@ -3094,6 +3094,72 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-603",
+      "title": "Audit Per-Profile Intent Keywords for Cross-Profile Contamination",
+      "priority": "high",
+      "description": "CLI audit tool that loads intent keyword configs from all profiles (pelangi, southern, makan) and detects keywords appearing in multiple profiles' intent definitions. Reports collisions with affected profiles and intents to help identify data contamination.",
+      "acceptanceCriteria": [
+        "CLI command npm run cli audit-keywords --output=report.json loads src/assistant/data/{profile}/intent-keywords.json for all profiles and detects overlapping keywords",
+        "Audit output contains: keyword, profiles where it appears, intent mappings per profile, and severity flag (critical=appears in 3+ profiles)",
+        "Test at tests/cli/audit-keywords.test.ts mocks 3 profiles with intentional collisions and verifies detection returns correct results"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/audit-keywords.ts (loads configs, compares, generates report)",
+        "File to create: tests/cli/audit-keywords.test.ts (unit tests with mock profile configs)",
+        "Test command: npm run test -- tests/cli/audit-keywords.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "_passedCommit": "ff1cf77c4a467562bff6babb9208b747defc5c5d"
+    },
+    {
+      "id": "US-604",
+      "title": "Add Intent Keyword Override CLI for Runtime Classification Corrections",
+      "priority": "medium",
+      "description": "CLI tool that allows manual override of intent routing for specific keywords without redeploying. Overrides are stored in src/assistant/data/overrides.json and checked at startup. Intent classifier respects overrides with highest priority before fuzzy matching.",
+      "acceptanceCriteria": [
+        "CLI command npm run cli keyword-override --profile=pelangi --keyword='check in' --intent=booking stores override in src/assistant/data/overrides.json with timestamp",
+        "Intent classifier in src/assistant/pipeline/intent-classifier.ts checks overrides.json before fuzzy matching and applies overrides with highest confidence score",
+        "Test at tests/cli/keyword-override.test.ts verifies override is persisted, applied correctly, and does not affect other keywords"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/keyword-override.ts (CLI command handler)",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts (add checkOverrides() call in classify function)",
+        "File to create: tests/cli/keyword-override.test.ts",
+        "Test command: npm run test -- tests/cli/keyword-override.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-605",
+      "title": "Add Booking Workflow Dry-Run Simulator for Safe Testing",
+      "priority": "medium",
+      "description": "API endpoint that simulates executing a booking workflow without writing to the database. Allows testing workflow logic, step validation, and AI responses in a sandbox environment. Useful for testing config changes before rolling out to production.",
+      "acceptanceCriteria": [
+        "POST /admin/simulate/booking-workflow accepts workflow steps and conversation context; returns simulated step outputs (responses, validations) without DB commits",
+        "Dry-run mode in workflow engine (src/assistant/workflows/engine.ts) skips all database writes but executes all other logic (AI calls, validation, branching)",
+        "Test at tests/routes/admin/workflow-simulator.test.ts runs 3 booking workflows (check-in, modification, cancellation) and verifies simulation outputs match expected structure"
+      ],
+      "technicalNotes": [
+        "File to create: src/routes/admin/workflow-simulator.ts (endpoint handler, simulation orchestrator)",
+        "File to modify: src/assistant/workflows/engine.ts (add dryRun parameter and conditional DB write guards)",
+        "File to create: tests/routes/admin/workflow-simulator.test.ts",
+        "Test command: npm run test -- tests/routes/admin/workflow-simulator.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
