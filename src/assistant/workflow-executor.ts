@@ -22,6 +22,29 @@ import {
 import { workflowTimelineStore, generateExecutionId, type StepExecution } from '../lib/workflow-timeline.js';
 import { loadGuestContext } from '../tools/guest-data-injector.js';
 
+// ─── US-574: Booking Workflow Skip-Step Logic for Returning Guests ────
+/**
+ * Check if a workflow step should be skipped based on guest profile fields.
+ * If skip_if_guest_field is defined and all specified fields are populated in
+ * the guest profile, the step is skipped.
+ *
+ * @param step - Current workflow step
+ * @param collectedData - Accumulated workflow data (may include guest fields)
+ * @returns true if step should be skipped, false otherwise
+ */
+function shouldSkipStep(step: WorkflowStep, collectedData: Record<string, string>): boolean {
+  if (!step.skip_if_guest_field || step.skip_if_guest_field.length === 0) {
+    return false;
+  }
+
+  // Check if all specified fields are populated in collected data
+  // Fields are considered populated if they exist and are non-empty strings
+  return step.skip_if_guest_field.every(field => {
+    const value = collectedData[field];
+    return value !== undefined && value !== null && value.trim() !== '';
+  });
+}
+
 // ─── US-313: Booking Workflow Execution Audit Trail ──────────────────
 
 export type WorkflowExecutionStatus = 'success' | 'error' | 'timeout' | 'skipped';
@@ -410,6 +433,47 @@ export async function executeWorkflowStep(
   }
 
   const currentStep = workflow.steps[state.currentStepIndex];
+
+  // ─── US-574: Skip Step Logic for Returning Guest Express Path ──────
+  // Check if current step should be skipped based on guest profile fields
+  // Loop to handle consecutive skippable steps
+  let stepIndex = state.currentStepIndex;
+  let finalStep = currentStep;
+  while (stepIndex < workflow.steps.length) {
+    const step = workflow.steps[stepIndex];
+    if (shouldSkipStep(step, state.collectedData)) {
+      console.log(`[WorkflowExecutor] US-574: Skipping step "${step.id}" - required guest fields already populated`);
+      stepIndex++;
+    } else {
+      finalStep = step;
+      break;
+    }
+  }
+
+  // If all remaining steps are skipped, workflow is complete
+  if (stepIndex >= workflow.steps.length) {
+    const summary = buildConversationSummary(workflow, state);
+    const lastStep = workflow.steps[workflow.steps.length - 1];
+
+    workflowTimelineStore.completeTimeline(executionId);
+    const timeline = workflowTimelineStore.getTimeline(executionId);
+
+    console.log(`[WorkflowExecutor] US-574: Express path completed - all remaining steps skipped`);
+
+    return {
+      response: getStepMessage(lastStep, language),
+      newState: null,
+      shouldForward: true,
+      conversationSummary: summary,
+      workflowId: state.workflowId,
+      stepId: lastStep.id,
+      executionId,
+      timeline: timeline?.steps || []
+    };
+  }
+
+  // Update state to point to non-skipped step (if we skipped any)
+  state.currentStepIndex = stepIndex;
 
   // ─── NEW: Evaluation Logic (Smart Workflows) ──────────────────────
   if (currentStep.evaluation) {
