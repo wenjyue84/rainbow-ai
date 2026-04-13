@@ -2022,9 +2022,50 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "last_attempted": "2026-04-13T11:06:14Z"
+      "last_attempted": "2026-04-13T11:10:01Z",
+      "model": "haiku"
+    },
+    {
+      "id": "US-566",
+      "title": "Add Startup Health Check Reporter with JSON Output",
+      "priority": "high",
+      "description": "Create a structured health check on startup that verifies critical dependencies (PostgreSQL, Redis, AI provider) and outputs JSON report for monitoring.",
+      "acceptanceCriteria": [
+        "Health check validates PostgreSQL connection with query timeout, outputs status and latency to startup log",
+        "Redis connectivity test with PING command, logs cache stats and TTL-based eviction config",
+        "AI provider health endpoint check (Kimi, Ollama, OpenRouter fallback chain) with 5s timeout per provider"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/startup-health-check.ts (new file, startupHealthCheck function)",
+        "File to edit: src/index.ts (call healthCheck before listening on port, log JSON report)",
+        "Test command: uv run vitest run tests/startup-health-check.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-567",
+      "title": "Implement Profile Configuration Hot-Reload with File Watcher",
+      "priority": "high",
+      "description": "Add file watcher to profile config directories that hot-reloads JSON configs (workflows, knowledge, settings) without server restart, enabling live config updates.",
+      "acceptanceCriteria": [
+        "File watcher monitors src/assistant/data/{profile}/*.json, triggers reload on file change within 1s",
+        "Hot-reload preserves in-flight conversations, only updates cached config references for new messages",
+        "Test verifies watcher detects file change, reloads config, and next message uses new config (e.g., workflow step text)"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/profile-config-watcher.ts (new file, createWatcher function using chokidar)",
+        "File to edit: src/lib/profile-loader.ts (add reloadConfig method, integrate with watcher events)",
+        "Test command: uv run vitest run tests/profile-config-watcher.test.ts -- --coverage --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }

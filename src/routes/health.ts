@@ -58,15 +58,31 @@ function isDbPoolExhausted(): boolean {
 
 // Health check endpoint (liveness — is the process alive?)
 // US-505: Return 503 if critical services are down
-router.get('/health', (req, res) => {
+// US-565: Return 503 if primary provider is unreachable
+router.get('/health', async (req, res) => {
   const webhookHealth = getWebhookHealthState();
 
   // Check critical service status
   const dbPoolExhausted = isDbPoolExhausted();
   const whatsappDisconnectedLong = isWhatsAppDisconnectedLong();
 
+  // US-565: Check if primary AI provider circuit breaker is open (provider unreachable)
+  let providerCircuitOpen = false;
+  try {
+    const { circuitBreakerRegistry } = await import('../assistant/circuit-breaker.js');
+    const cbStatuses = circuitBreakerRegistry.getAllStatuses();
+    const openCircuits = Object.entries(cbStatuses)
+      .filter(([, s]) => s.state === 'OPEN')
+      .map(([id]) => id);
+    // If primary provider (first enabled) circuit is open, provider is unreachable
+    // For now, we check if ANY circuit is open; in future, could prioritize by provider order
+    providerCircuitOpen = openCircuits.length > 0;
+  } catch (err: any) {
+    // Ignore errors getting circuit breaker status
+  }
+
   // Return 503 if critical services are down
-  if (dbPoolExhausted || whatsappDisconnectedLong) {
+  if (dbPoolExhausted || whatsappDisconnectedLong || providerCircuitOpen) {
     res.status(503).json({
       status: 'unhealthy',
       service: 'pelangi-mcp-server',
@@ -76,7 +92,8 @@ router.get('/health', (req, res) => {
       timestamp: new Date().toISOString(),
       failureReasons: {
         dbPoolExhausted,
-        whatsappDisconnectedLong
+        whatsappDisconnectedLong,
+        providerCircuitOpen
       }
     });
     return;

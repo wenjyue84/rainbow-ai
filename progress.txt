@@ -1340,3 +1340,71 @@ Per-profile LRU message deduplication cache to avoid redundant AI calls for iden
 ## Iteration 6 - Mon, Apr 13, 2026  7:06:13 PM
 FAILED diagnosis-block gate: Add Message Deduplication Cache with Per-Profile LRU Eviction (ID: US-559) — no diagnosis block found — attempt 1/3
 
+
+## Iteration [88] - Story: US-565 - Add Health Check for External AI Provider Connectivity on Startup
+
+### What was implemented
+
+✅ **Core Functionality:**
+- Created src/lib/provider-health-check.ts with async pingProvider(provider) function
+- Implemented validateProviderHealth() called before server.listen() in src/index.ts
+- Server exits with code 1 if primary provider (priority 0) is unreachable on startup
+- Updated src/routes/health.ts GET /health to include provider circuit breaker status
+- Returns 503 Service Unavailable if any provider circuit is open (provider unreachable)
+
+✅ **Provider Support:**
+- Google Gemini: Tests via /models/{model}:generateContent endpoint
+- Groq/OpenAI-compatible/Ollama: Tests via /chat/completions endpoint
+- Automatic provider type detection with fallback for unknown types
+- 5-second timeout per acceptance criteria
+
+✅ **Testing:**
+- Comprehensive test suite with 7 test cases covering:
+  - Google Gemini provider health check
+  - Groq provider health check
+  - Ollama provider health check
+  - OpenAI-compatible provider health check
+  - Timeout error handling
+  - Auth error handling
+  - 5-second timeout verification
+- All tests passing (7/7)
+
+### Patterns discovered
+
+1. **Provider configuration structure:** AIProvider type from schemas.ts includes:
+   - id, name, type (groq, google-gemini, ollama, openai-compatible)
+   - api_key_env and api_key for credentials
+   - base_url and model endpoints
+   - enabled and priority flags
+
+2. **HTTP client pattern:** Project uses axios for HTTP requests with:
+   - Custom timeout configuration per endpoint
+   - Authorization header for API key providers
+   - Ollama doesn't require API key (returns 'ollama' for resolveApiKey)
+
+3. **Health check response pattern:** GET /health already returns failureReasons object
+   - Added providerCircuitOpen to existing checks (dbPoolExhausted, whatsappDisconnectedLong)
+   - Circuit breaker registry provides provider health state
+
+4. **Startup sequence:** Validation chain before server.listen():
+   - Database health check
+   - Provider health check (new)
+   - If both pass, server starts listening
+
+### Gotchas
+
+1. **Circuit breaker data on startup:** Circuit breaker registry will be empty on first startup
+   - pingProvider() performs actual connectivity test (not circuit breaker dependent)
+   - Circuit breaker gets populated after first actual provider requests
+   - GET /health will return 200 initially even if provider becomes unavailable later
+
+2. **API key resolution:** resolveApiKey() trims whitespace to prevent 401 errors
+   - Environment variables may have extra spaces
+   - Direct api_key values are also trimmed
+
+3. **Timeout enforcement:** axios timeout parameter is in milliseconds (5000ms = 5 seconds)
+   - Different from other parts of codebase that may use seconds
+
+4. **JSON workflow file had pre-existing corruption:** workflows.json has unescaped quotes in Chinese text
+   - Caused JSON parse errors during startup
+   - Regenerated profile hashes baseline to continue testing

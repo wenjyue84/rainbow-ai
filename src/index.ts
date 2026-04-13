@@ -90,6 +90,7 @@ import { createErrorHandlerMiddleware } from './lib/error-handler.js';
 import { validateDataFilesOnStartup, startDataFileWatcher } from './lib/data-file-validator.js';
 import { validateAll as validateConfig, ConfigValidationError } from './lib/config-validator.js';
 import { initializeWorkers, shutdownWorkers } from './lib/jobs/init-workers.js';
+import { validateProviderHealth } from './lib/provider-health-check.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -785,6 +786,10 @@ try {
   console.error('[Startup] FATAL: Database unreachable:', err.message);
   process.exit(1);
 }
+
+// US-565: AI Provider health check before server startup
+// Validate that configured AI providers are reachable with 5s timeout
+await validateProviderHealth();
 
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {
