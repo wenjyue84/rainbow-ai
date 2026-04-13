@@ -129,6 +129,37 @@ export class ConfigStore extends EventEmitter {
     return this.routing;
   }
 
+  /**
+   * Get fallback templates for a profile (used by knowledge-retriever for KB retrieval failures).
+   * Loads from {dataDir}/{profileId}/fallback-templates.json if available,
+   * otherwise returns the shared fallback-templates.json from dataDir.
+   */
+  getTemplatesByProfile(profileId: string): Record<string, Record<string, string>> {
+    try {
+      const profileDir = join(this.dataDir, profileId);
+      const fallbackPath = join(profileDir, 'fallback-templates.json');
+
+      if (existsSync(fallbackPath)) {
+        const raw = readFileSync(fallbackPath, 'utf-8');
+        const templates = JSON.parse(raw);
+        return templates as Record<string, Record<string, string>>;
+      }
+
+      // Fall back to shared fallback-templates.json in main data directory
+      const sharedPath = join(this.dataDir, 'fallback-templates.json');
+      if (existsSync(sharedPath)) {
+        const raw = readFileSync(sharedPath, 'utf-8');
+        const templates = JSON.parse(raw);
+        return templates as Record<string, Record<string, string>>;
+      }
+    } catch (err) {
+      console.warn(`[ConfigStore] Failed to load fallback templates for ${profileId}:`, (err as any).message);
+    }
+
+    // Return empty object if no templates found (knowledge-retriever will use final fallback)
+    return {};
+  }
+
   /** Intent categories marked time_sensitive (e.g. check_in_arrival, late_checkout_request). */
   getTimeSensitiveIntentSet(): Set<string> {
     const set = new Set<string>();

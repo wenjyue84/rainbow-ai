@@ -1587,3 +1587,71 @@ This iteration (Iter 96) verified the existing implementation is correct:
 ✅ AC1: ConversationRecovery snapshots full message history + metadata to Redis with 24h TTL
 ✅ AC2: On provider timeout, recovery handler pulls snapshot and retries with original context
 ✅ AC3: Test verifies recovery succeeds after simulated OpenRouter 503 error
+## Iteration 2 - Mon, Apr 13, 2026 11:53:28 PM
+Completed: Add Conversation Recovery from Transient Provider Failures with State Snapshots (ID: US-586) in 2m
+
+
+## Iteration [98] - Story: US-587 - Implement Fallback Response Pipeline for Knowledge Base Retrieval Failures
+
+### What was implemented
+
+✅ **Fallback Response Pipeline for KB Retrieval Failures:**
+- **src/assistant/knowledge-retriever.ts** — New module with timeout handling and fallback logic:
+  - `retrieveWithFallback()` function wraps knowledge base retrieval with 5-second timeout
+  - Returns fallback responses from intent-specific templates when KB retrieval times out
+  - `retrieve()` legacy API function for backward compatibility
+  - Helper functions: `isFallbackResponse()`, `getFallbackContent()`
+  - Language-aware and profile-specific fallback response selection
+
+✅ **Intent-Specific Fallback Templates:**
+- **src/assistant/data/fallback-templates.json** — Updated with intent-specific entries:
+  - Added entries for: checkin_info, checkout_info, wifi, facilities, pricing, availability, booking, rules_policy, payment, directions, greeting, thanks, complaint
+  - Each intent has multilingual fallback (en, ms, zh, ta)
+  - Generic `kb_retrieval_failed` template for unknown intents
+  - Profile-specific content for Pelangi hostel operations
+
+- **src/assistant/data-makan/fallback-templates.json** — Cafe-specific fallback templates:
+  - Entries for menu, order, reservation, prices, hours, facilities, location
+  - Multilingual support (en, ms, zh, ta)
+  - Cafe-focused language (e.g., "cafe staff" instead of "front desk")
+
+✅ **Unit Tests (`src/assistant/__tests__/knowledge-retriever.test.ts`):**
+- 17 tests passing covering:
+  - **AC1:** Timeout handling (>5s) returns fallback response
+  - **AC1:** Fallback latency is recorded and ≥5000ms
+  - **AC2:** Intent-specific templates for checkin_info, wifi, booking
+  - **AC2:** Falls back to generic template when intent template not found
+  - **AC3:** Language-aware responses (en, ms, zh, ta)
+  - **AC3:** Profile-specific fallback (Pelangi hostel vs Makan cafe)
+  - Helper function tests: `isFallbackResponse()`, `getFallbackContent()`
+  - Legacy API tests: `retrieve()` function
+
+### Checks passed
+- ✅ 17/17 unit tests pass
+- ✅ Build succeeds (esbuild, 2.7MB bundle)
+- ✅ All acceptance criteria met
+- ✅ Timeout correctly triggered at 5 second threshold
+- ✅ Fallback templates loaded from profile-specific configStore
+- ✅ Language-aware message selection working for all 4 languages
+
+### Architecture Notes
+- Knowledge-retriever wraps KnowledgeBaseInstance.retrieveContext() with Promise.race() timeout
+- Fallback templates loaded from profile-specific ConfigStore (not hardcoded)
+- FallbackResponse interface extends RetrievalResult with: content, isFallback, reason, retrievalLatencyMs
+- Backward compatible: retrieve() legacy function returns empty result on timeout
+- Timeout is global constant (5000ms) per story requirements
+
+### Patterns discovered
+- Profile-specific data loaded via ConfigStore.getTemplates() from each profile's data directory
+- Intent-specific fallbacks stored as top-level keys in fallback-templates.json
+- Multilingual fallbacks stored as nested { en, ms, zh, ta } objects
+- Timeout must be less than overall message processing timeout to prevent cascading timeouts
+- Promise.race() with setTimeout(reject) is correct pattern for timeout handling in Node.js
+
+### Gotchas
+- Fallback templates must exist in both data/ and data-makan/ directories (profile-specific)
+- Intent names in fallback templates must match IntentCategory union type values
+- Timeout of 5000ms each + multiple intents could add up in sequence
+- ConfigStore passed to retrieveWithFallback, not profileId (profile data is scoped via ConfigStore)
+
+---
