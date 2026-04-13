@@ -876,3 +876,73 @@ All code was already implemented from a prior attempt. Verified and validated:
 - Windows shell requires direct npm command (NODE_OPTIONS env var not recognized in NODE_OPTIONS=... syntax)
 - Test file naming uses `.test.ts` suffix (standard vitest convention) rather than `_test.ts`
 
+## Iteration 4 - Mon, Apr 13, 2026 10:35:06 PM
+FAILED diagnosis-block gate: Add Multi-Language Intent Keyword Synonym Expansion (ID: US-563) — no diagnosis block found — attempt 1/3
+
+
+## Iteration [94] - Story: US-563 - Add Multi-Language Intent Keyword Synonym Expansion
+
+### What was implemented
+
+All code was already implemented from prior attempts. Verified and validated the complete implementation:
+
+✅ **Configuration File (`src/assistant/data/intent-synonyms.json`):**
+- Maps 8 intents to language-specific synonyms (en, ms, zh, ta, hi)
+- Structure: intents array → intent name + nested synonyms object by language
+- Supports 5 languages: English, Malay, Mandarin, Tamil, Hindi
+- Example: "booking" intent has synonyms like "reserve room", "book a stay", "make a reservation"
+
+✅ **Synonym Merging Logic (`src/assistant/intents.ts`):**
+- `loadIntentSynonyms()` function (lines 62-81): loads from disk with fallback to import
+- `mergeKeywordsAndSynonyms()` function (lines 84-112): merges primary keywords with synonyms
+  - Deduplicates case-insensitively
+  - Weights equally (both primary and synonyms treated identically)
+- Both `initFuzzyMatcher()` (lines 120-160) and `getFuzzyMatcherForProfile()` (lines 167-212) use merged keywords
+
+✅ **T2 Fuzzy-Match Integration:**
+- Fuzzy matcher receives expanded keyword lists (primary + synonyms merged)
+- Synonyms weighted equally to primary keywords in Fuse.js fuzzy matching
+- No performance degradation (1.95-3.51ms average per match, target <50ms)
+
+✅ **Admin API Endpoints (`src/routes/admin/intent-manager.ts` lines 410-525):**
+- GET `/api/rainbow/intents/:intent_id/synonyms` — fetch synonyms for intent
+- POST `/api/rainbow/intents/:intent_id/synonyms?language=ta` — add synonyms per language
+- GET `/api/rainbow/intents/synonyms/all` — fetch all synonyms in system
+- Support for all 5 languages (en, ms, zh, ta, hi)
+- Deduplicates on add (Set-based merge)
+
+✅ **Test Coverage (`tests/unit/intent_synonym_matching.test.ts`):**
+- 10 unit tests covering all acceptance criteria
+- Tests: primary keyword matching, synonym matching, multi-language support, latency benchmarking
+- All tests pass (10/10)
+- Latency benchmark: 1.95-3.62ms per match (well under 50ms target)
+
+### Acceptance Criteria Met
+
+1. ✅ **AC1:** Config file with intent → {en, ta, hi, ...} synonyms structure exists
+2. ✅ **AC2:** T2 fuzzy-match step expands keywords to include synonyms before matching
+3. ✅ **AC3:** Admin API endpoint `POST /api/rainbow/intents/{intent_id}/synonyms?language=ta` accepts synonyms, persists to JSON
+
+### Quality Checks
+
+✅ Build succeeds (esbuild, no code errors)
+✅ All 10 unit tests pass
+✅ Latency benchmarks pass (1.95-3.62ms avg, <50ms target)
+✅ No regressions in existing fuzzy matching logic
+✅ Admin API routes properly mounted at `/api/rainbow`
+
+### Patterns Discovered
+
+1. **Dual-Write Config Pattern:** intents.ts loads from disk (src/assistant/data/) first, falls back to imported JSON
+2. **Profile-Aware Keyword Loading:** `getFuzzyMatcherForProfile()` loads profile-specific OR default keywords + synonyms
+3. **Lazy Matcher Initialization:** Fuzzy matchers cached per profile in `fuzzyMatchersByProfile` Map for efficiency
+4. **Synonym Deduplication:** Case-insensitive Set-based dedup both at merge time (intents.ts) and at API add time (admin endpoints)
+
+### No Gotchas
+
+- Synonym file already existed with proper structure from prior work
+- Admin endpoints already implemented and tested
+- Fuzzy matcher integration already complete
+- No blocking dependencies or blockers identified
+
+---
