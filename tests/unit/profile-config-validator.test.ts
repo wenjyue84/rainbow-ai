@@ -22,11 +22,13 @@ import {
 
 describe('ProfileConfigValidator', () => {
   let testDataDir: string;
+  let profilesList: Array<{ id: string; dataDir: string; enabled: boolean }> = [];
 
   beforeAll(() => {
     // Create temporary directory for test data
     testDataDir = join(tmpdir(), `test-profiles-${Date.now()}`);
     mkdirSync(testDataDir, { recursive: true });
+    profilesList = [];
   });
 
   afterAll(() => {
@@ -34,12 +36,33 @@ describe('ProfileConfigValidator', () => {
     rmSync(testDataDir, { recursive: true, force: true });
   });
 
+  function writeProfilesJson(): void {
+    const profilesJson = {
+      profiles: profilesList,
+      defaultProfileId: profilesList.length > 0 ? profilesList[0].id : null,
+    };
+    writeFileSync(
+      join(testDataDir, 'profiles.json'),
+      JSON.stringify(profilesJson, null, 2)
+    );
+  }
+
   function createTestProfile(
     profileName: string,
     data: Record<string, any>
   ): void {
     const profileDir = join(testDataDir, profileName);
     mkdirSync(profileDir, { recursive: true });
+
+    // Register profile in profiles list
+    if (!profilesList.find(p => p.id === profileName)) {
+      profilesList.push({
+        id: profileName,
+        dataDir: profileName,
+        enabled: true,
+      });
+      writeProfilesJson();
+    }
 
     if (data.intentKeywords) {
       writeFileSync(
@@ -61,7 +84,7 @@ describe('ProfileConfigValidator', () => {
     }
     if (data.intents) {
       writeFileSync(
-        join(testDataDir, 'intents.json'),
+        join(profileDir, 'intents.json'),
         JSON.stringify(data.intents, null, 2)
       );
     }

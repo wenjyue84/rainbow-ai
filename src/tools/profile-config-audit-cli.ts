@@ -22,11 +22,11 @@ const __dirname = dirname(__filename);
 
 async function main() {
   try {
-    const dataDir = join(__dirname, '..', 'assistant', 'data');
+    const projectRoot = join(__dirname, '..', '..');
 
     console.log('[ProfileConfigAudit] Generating audit report...\n');
 
-    const reports = generateAuditReport(dataDir);
+    const reports = generateAuditReport(projectRoot);
 
     const jsonReport = formatAuditReportAsJson(reports);
     console.log(jsonReport);

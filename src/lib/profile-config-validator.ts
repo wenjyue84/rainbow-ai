@@ -62,42 +62,37 @@ function loadJsonFile(filePath: string): any {
 }
 
 /**
- * Gets all profile directories from src/assistant/data/
+ * Gets all profile directories from profiles.json
  */
-function getProfileDirectories(dataDir: string): string[] {
-  const profiles = new Set<string>();
+function getProfilesFromJson(projectRoot: string): Array<{ id: string; dataDir: string }> {
+  const profiles: Array<{ id: string; dataDir: string }> = [];
 
   try {
-    const items = readdirSync(dataDir, { withFileTypes: true });
+    const profilesJsonPath = join(projectRoot, 'profiles.json');
+    if (!existsSync(profilesJsonPath)) {
+      console.warn('[ProfileConfigValidator] Warning: profiles.json not found at', profilesJsonPath);
+      return [];
+    }
 
-    for (const item of items) {
-      // Profile-specific folders (pelangi, makan, etc.)
-      if (
-        item.isDirectory() &&
-        !item.name.startsWith('.') &&
-        !item.name.startsWith('_') &&
-        item.name !== 'schemas'
-      ) {
-        // Check if it has profile-specific data files
-        const profilePath = join(dataDir, item.name);
-        const hasProfileData = readdirSync(profilePath).some(f =>
-          ['intent-keywords', 'workflows', 'routing', 'intents'].some(p =>
-            f.includes(p)
-          )
-        );
-        if (hasProfileData) {
-          profiles.add(item.name);
+    const profilesData = loadJsonFile(profilesJsonPath);
+    if (profilesData && Array.isArray(profilesData.profiles)) {
+      profilesData.profiles.forEach((profile: any) => {
+        if (profile.id && profile.dataDir && profile.enabled !== false) {
+          profiles.push({
+            id: profile.id,
+            dataDir: join(projectRoot, profile.dataDir),
+          });
         }
-      }
+      });
     }
   } catch (error) {
     console.warn(
-      '[ProfileConfigValidator] Warning: Could not read data directory:',
+      '[ProfileConfigValidator] Warning: Could not load profiles.json:',
       (error as Error).message
     );
   }
 
-  return Array.from(profiles);
+  return profiles;
 }
 
 /**
@@ -105,7 +100,7 @@ function getProfileDirectories(dataDir: string): string[] {
  */
 function validateProfile(
   profileId: string,
-  dataDir: string
+  profileDataDir: string
 ): ValidationReport {
   const report: ValidationReport = {
     profile: profileId,
@@ -118,25 +113,11 @@ function validateProfile(
     unusedProfiles: [],
   };
 
-  // Load files (profile-specific or global fallback)
-  const globalPath = join(dataDir);
-  const profilePath = join(dataDir, profileId);
-
-  const intentKeywordsPath = existsSync(
-    join(profilePath, 'intent-keywords.json')
-  )
-    ? join(profilePath, 'intent-keywords.json')
-    : join(globalPath, 'intent-keywords.json');
-
-  const workflowsPath = existsSync(join(profilePath, 'workflows.json'))
-    ? join(profilePath, 'workflows.json')
-    : join(globalPath, 'workflows.json');
-
-  const routingPath = existsSync(join(profilePath, 'routing.json'))
-    ? join(profilePath, 'routing.json')
-    : join(globalPath, 'routing.json');
-
-  const intentsPath = join(globalPath, 'intents.json');
+  // Load files from profile's data directory
+  const intentKeywordsPath = join(profileDataDir, 'intent-keywords.json');
+  const workflowsPath = join(profileDataDir, 'workflows.json');
+  const routingPath = join(profileDataDir, 'routing.json');
+  const intentsPath = join(profileDataDir, 'intents.json');
 
   const intentKeywords = loadJsonFile(intentKeywordsPath) || { intents: [] };
   const workflows = loadJsonFile(workflowsPath) || { workflows: [] };
@@ -257,17 +238,16 @@ function validateProfile(
  * Logs warnings but does not throw errors (non-fatal)
  */
 export async function validateProfileConfigs(): Promise<void> {
-  const dataDir = join(__dirname, '..', 'assistant', 'data');
+  const projectRoot = join(__dirname, '..', '..');
 
   console.log('[ProfileConfigValidator] Starting validation...');
 
   try {
-    const profiles = getProfileDirectories(dataDir);
+    const profiles = getProfilesFromJson(projectRoot);
 
     if (profiles.length === 0) {
       console.warn(
-        '[ProfileConfigValidator] No profiles found in',
-        dataDir
+        '[ProfileConfigValidator] No profiles found in profiles.json'
       );
       return;
     }
@@ -275,11 +255,11 @@ export async function validateProfileConfigs(): Promise<void> {
     let hasIssues = false;
 
     for (const profile of profiles) {
-      const report = validateProfile(profile, dataDir);
+      const report = validateProfile(profile.id, profile.dataDir);
 
       if (!report.isValid) {
         hasIssues = true;
-        console.warn(`[ProfileConfigValidator] Issues found in profile '${profile}':`);
+        console.warn(`[ProfileConfigValidator] Issues found in profile '${profile.id}':`);
 
         if (report.missingIntentRefs.length > 0) {
           console.warn(
@@ -328,7 +308,7 @@ export async function validateProfileConfigs(): Promise<void> {
         }
       } else {
         console.log(
-          `✓ Profile '${profile}' configuration integrity verified`
+          `✓ Profile '${profile.id}' configuration integrity verified`
         );
       }
     }
@@ -348,10 +328,11 @@ export async function validateProfileConfigs(): Promise<void> {
 
 /**
  * Generates detailed audit report for all profiles (used by CLI tool)
+ * projectRoot: path to project root (where profiles.json is located)
  */
-export function generateAuditReport(dataDir: string): ValidationReport[] {
-  const profiles = getProfileDirectories(dataDir);
-  const reports = profiles.map(profile => validateProfile(profile, dataDir));
+export function generateAuditReport(projectRoot: string): ValidationReport[] {
+  const profiles = getProfilesFromJson(projectRoot);
+  const reports = profiles.map(profile => validateProfile(profile.id, profile.dataDir));
 
   return reports;
 }
