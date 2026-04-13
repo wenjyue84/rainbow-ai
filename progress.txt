@@ -1,3 +1,51 @@
+## Iteration [111] - Story: US-580 - Report Intent Misclassification Patterns from Feedback Data
+
+### What was implemented
+- Created endpoint handler in `src/routes/admin/intent-manager.ts`:
+  * Added GET `/intents/misclassification-report` endpoint
+  * Accepts query parameters: `days` (default 7, clamped 1-365)
+  * Queries rainbowFeedback table for messages with confidence > 0.8 AND rating < 3 (satisfaction < 0.5)
+  * Groups misclassifications by intent, sorts by count (descending)
+  * Returns top 5 intent groups with count, average confidence (3 decimal places), and sample conversation IDs (max 5 per intent)
+  * Includes period metadata: startDate, endDate, days parameter
+
+- Created comprehensive test file: `tests/unit/intent_misclassification_report.test.ts`
+  * 17 tests covering all acceptance criteria:
+    - AC1: Filtering by confidence > 0.8 AND satisfaction < 0.5 (rating < 3 on 1-5 scale)
+    - AC2: Correct grouping by intent and top 5 sorting
+    - AC3: Count, average confidence, and sample conversation IDs
+  * Tests for date range filtering (1-365 days)
+  * Tests for edge cases: null intents, boundary confidence values, no misclassifications
+  * Response structure validation
+  * All 17 tests passing
+
+### Patterns discovered
+- rainbowFeedback table uses rating (integer 1-5) for satisfaction, not a normalized 0-1 scale
+- Satisfaction < 0.5 maps to rating < 3 (treating 1-5 scale as satisfaction metric)
+- SQL aggregation: COUNT(*) for count, AVG() for average confidence, array_agg(DISTINCT) for conversation IDs
+- Date filtering: createdAt >= (now - days) captures the date range properly
+- Top 5 limit prevents report from becoming too large for high-volume production data
+
+### Gotchas
+- rainbowFeedback table doesn't have profileId field; profile filtering done via getProfileDataDir(req) pattern
+- SQL array_agg returns PostgreSQL array type; needs careful type handling in TypeScript
+- Confidence averaging requires handling NULL values gracefully
+- Conversation ID deduplication via DISTINCT prevents reporting duplicate examples
+
+### Quality Checks
+✅ All 17 unit tests passing (tests/unit/intent_misclassification_report.test.ts)
+✅ Build successful (2.8MB, 1 pre-existing warning in logger.ts)
+✅ Endpoint properly compiled in dist/index.js bundle
+✅ Response structure matches expected schema:
+   {
+     period: { days, startDate, endDate },
+     misclassifications: [
+       { intent, count, avgConfidence, sampleConversationIds },
+       ...top 5
+     ]
+   }
+✅ prd.json updated: US-580.passes = true
+
 ## Iteration [108] - Story: US-598 - Tamil Numeral and Date Slot Extractor for Booking Intent Classification
 
 ### What was implemented
@@ -497,3 +545,6 @@ Completed: Count Conversation Tokens and Emit Warning at 80% Capacity (ID: US-57
 
 ### Next Steps
 Integration: Need to wire getFallbackPrompt() into response generation pipeline when confidence < 0.5 for low-confidence classifications (would be in a follow-up story)
+## Iteration 1 - Tue, Apr 14, 2026  2:46:06 AM
+Completed: Tamil Numeral and Date Slot Extractor for Booking Intent Classification (ID: US-598) in 7m
+

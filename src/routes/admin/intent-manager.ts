@@ -523,4 +523,76 @@ router.get('/intents/synonyms/all', async (req: Request, res: Response) => {
   }
 });
 
+// ─── US-580: Intent Misclassification Report ─────────────────────────────
+
+/**
+ * GET /admin/intents/misclassification-report?profile=pelangi&days=7
+ * Returns intents with high confidence but low user satisfaction
+ * Groups by intent and returns top 5 with counts, average confidence, and sample conversation IDs
+ */
+router.get('/intents/misclassification-report', async (req: Request, res: Response) => {
+  try {
+    const daysParam = req.query.days ? parseInt(req.query.days as string) : 7;
+    const days = Math.max(1, Math.min(365, daysParam)); // Clamp to 1-365 days
+
+    if (!Number.isInteger(days)) {
+      return badRequest(res, 'days must be an integer');
+    }
+
+    // Get database connection
+    const db = getStore(res).getDb();
+    if (!db) {
+      return serverError(res, 'Database connection not available');
+    }
+
+    // Import rainbowFeedback table
+    const { rainbowFeedback } = await import('../../shared/schema-tables.js');
+    const { desc, gte, and, lt, sql } = await import('drizzle-orm');
+
+    // Calculate date range
+    const now = new Date();
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // Query for misclassifications: high confidence (> 0.8) but low satisfaction (rating < 3)
+    // rating is on 1-5 scale, so rating < 3 corresponds to satisfaction < 0.5 when normalized
+    const results = await db
+      .select({
+        intent: rainbowFeedback.intent,
+        count: sql<number>`CAST(COUNT(*) AS INTEGER)`.mapWith(Number),
+        avgConfidence: sql<number>`CAST(AVG(${rainbowFeedback.confidence}) AS FLOAT)`.mapWith(Number),
+        sampleConversationIds: sql<string>`array_agg(DISTINCT ${rainbowFeedback.conversationId})`.mapWith(JSON.parse as any)
+      })
+      .from(rainbowFeedback)
+      .where(
+        and(
+          gte(rainbowFeedback.confidence, 0.8),
+          lt(rainbowFeedback.rating, 3),
+          gte(rainbowFeedback.createdAt, startDate)
+        )
+      )
+      .groupBy(rainbowFeedback.intent)
+      .orderBy(desc(sql<number>`COUNT(*)`))
+      .limit(5);
+
+    // Format response
+    const report = {
+      period: {
+        days,
+        startDate: startDate.toISOString(),
+        endDate: now.toISOString()
+      },
+      misclassifications: results.map(r => ({
+        intent: r.intent || 'unknown',
+        count: r.count,
+        avgConfidence: Number((r.avgConfidence || 0).toFixed(3)),
+        sampleConversationIds: Array.isArray(r.sampleConversationIds) ? r.sampleConversationIds.slice(0, 5) : []
+      }))
+    };
+
+    res.json(report);
+  } catch (err: any) {
+    serverError(res, err?.message || 'Failed to generate misclassification report');
+  }
+});
+
 export default router;
