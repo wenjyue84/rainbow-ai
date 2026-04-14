@@ -56,3 +56,47 @@ Here is the technical brief based on the actual content of the user story for th
 - `classifier-t2.ts` is a new standalone module (file didn't exist) — T2 in the PRD refers to the fuzzy tier, not an existing file
 - Non-timeout errors from provider are re-thrown; only AbortError triggers keyword fallback
 - Analytics uses `intentType: timeout:${intent}` prefix to distinguish timeout events from normal classifications (schema lacks a dedicated fallback_method column)
+## Iteration 3 - Tue, Apr 14, 2026 11:11:20 AM
+FAILED diagnosis-block gate: Add Intent Classification Provider Latency Tracking with Timeout-Based Fallback to Keyword Matching (ID: US-619) — no diagnosis block found — attempt 1/3
+
+## Iteration 4 - Mon, Apr 14, 2026
+PASSED: US-619 — Add Intent Classification Provider Latency Tracking with Timeout-Based Fallback to Keyword Matching
+- Implementation was already complete from attempt 1 (classifier-t2.ts, settings.json config, 10 tests)
+- Previous attempt failed only due to missing diagnosis block in response text
+- 20/20 tests pass, esbuild build succeeds
+- Marked passes: true in prd.json
+
+
+## Pre-analysis for US-619 (Gemini 2.5 Pro)
+Based on the user story JSON provided, there appears to be a discrepancy. The story describes a task for a **TypeScript/Node.js** project, not a Frappe/Python one. The `technicalNotes` explicitly mention editing `.ts` files and running `npm test`.
+
+Here is the technical brief based on the actual content of the user story for the **TypeScript** project:
+
+**Project:** Rainbow AI Knowledge Base Tooling
+**User Story:** US-619 - Makan Profile Knowledge Base Reconstruction
+
+**1. Python Files to Modify / Key Files:**
+*   `src/cli/audit-profile-kb.ts`: This is the primary file for modification. It needs a new function to perform a keyword-based audit of knowledge base files.
+*   `tests/cli/audit-profile-kb.test.ts`: A new or updated test file is required to validate the audit functionality.
+*   `.rainbow-kb-makan/`: This directory contains the content to be audited and replaced. No code changes here, but files will be deleted/overwritten.
+*   `.rainbow-kb/`: This directory will be used as the source for "contamination" keywords (e.g., "check-in", "room").
+
+**2. Frappe DocTypes or Hooks Involved / Core Entities:**
+*   **CLI Command:** The core implementation is a new command-line tool, not a Frappe DocType or hook.
+*   **Knowledge Base (KB) Files:** The task revolves around processing Markdown (`.md`) and JSON (`.json`) files within the `.rainbow-kb-*` directories.
+
+**3. Recommended Implementation Approach:**
+1.  **Enhance `audit-profile-kb.ts`:**
+    *   Implement a function that accepts a profile name (e.g., "makan") as an argument.
+    *   This function should read a predefined list of "hostel-specific" keywords.
+    *   Iterate through each file in the specified profile's KB directory (`.rainbow-kb-makan/`).
+    *   For each file, scan its content for the hostel keywords and log any matches.
+2.  **Generate Report:** The script must output a JSON report detailing which files are contaminated and with what severity (e.g., keyword count).
+3.  **Content Replacement:** After the audit, the contaminated files in `.rainbow-kb-makan/` will be manually replaced with new cafe-specific documents covering menus, ordering, hours, etc.
+4.  **Validation Test:** Create a test in `tests/cli/audit-profile-kb.test.ts` that runs the audit on a fixture and asserts that the generated report is accurate.
+
+**4. Edge Cases and Gotchas:**
+*   **Ambiguous Keywords:** Be cautious of generic keywords like "contact" or "payment" that apply to both cafes and hostels. Focus on uniquely lodging-related terms like "room", "booking", "check-in", "amenities".
+*   **Test Scope:** The acceptance criteria mention a validation test for an "intent classifier." The primary coding task should focus on building the audit script and its unit tests. The intent classification test may be a separate step.
+*   **Manual Work:** The story involves a manual content replacement step after the audit is complete. The script's role is to identify what needs replacing, not to perform the replacement itself.
+
