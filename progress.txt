@@ -1808,3 +1808,56 @@ This user story is for a TypeScript/Node.js project, not Python/Frappe. Here is 
 ✅ No new TypeScript errors introduced
 ✅ Integration: validateBookingStep() ready for integration into workflow-executor
 ✅ prd.json updated: US-616.passes = true
+
+## Iteration [123] - Story: US-616 - Implement Per-Profile Custom Validation Rules Engine for Booking Steps
+
+### What was implemented
+- Per-Profile Custom Validation Rules Engine for booking workflows
+  * Module: src/assistant/workflow-validator.ts
+  * validateBookingStep(stepData, profile) - Main validation function with profile isolation
+  * loadValidationRules(profile) - Loads rules from src/assistant/data/booking-validators-{profile}.json
+  * evaluateRule(rule, data) - Evaluates individual rules in vm2 sandbox
+  * evaluateRuleUnsafed(rule, data) - Test helper for unit testing
+
+- Profile-specific validation rule files (JSON-based configurations)
+  * src/assistant/data/booking-validators-pelangi.json: 5 hostel rules (age>=18, required fields)
+  * src/assistant/data/booking-validators-makan.json: 6 cafe rules (party_size constraints, dietary restrictions optional)
+
+- Validation Rule Format: [{field, operator, value, message, required?: boolean}]
+  * Operators: 'exists', '>', '<', '>=', '<=', '===', '!==', 'in', 'regex'
+  * Safe evaluation: vm2 sandbox with 1-second timeout prevents malicious code
+  * Optional fields supported via required: false flag
+
+- Comprehensive test suite: tests/workflow-validator.test.ts
+  * 26 tests covering all acceptance criteria
+  * AC1: Load rules from profile-specific files
+  * AC2: Execute rules in sandboxed environment (safe evaluation)
+  * AC3: Return error messages with contextual text
+  * Unit tests for all operators, edge cases, integration scenarios
+
+### Patterns discovered
+- VM2 sandbox behavior: Must return values from expressions (not assign to sandbox variables)
+  * Correct: `vm.run('fieldValue >= ruleValue')` returns boolean
+  * Incorrect: `vm.run('result = fieldValue >= ruleValue')` - result won't propagate back
+  * Fixed version returns the expression directly as a value
+- Rule evaluation order: Rules processed sequentially, ALL errors collected before returning
+- Profile isolation: Rules loaded per-profile, non-existent profiles default to pass (no rules = allow)
+- Optional field behavior: Fields with required: false skip validation if missing/null/empty-string
+
+### Gotchas
+- VM2 sandbox isolation: Direct primitive assignments don't propagate back to caller
+  * Solution: Return the expression value directly from vm.run()
+- Required field validation: Must check field existence BEFORE operator evaluation
+- Whitespace-only strings treated as missing (uses String.trim() check)
+- Pre-existing warnings in Tamil month parsing (duplicate keys in tamil-slot-parser.ts) unrelated
+
+### Quality checks
+✅ npm run test tests/workflow-validator.test.ts: 26/26 PASS (all test suites pass)
+✅ npm run build: SUCCESS (2.8MB, 6 pre-existing warnings only)
+✅ MCP_SERVER_PORT=3002 npx tsx src/index.ts: Server starts successfully
+✅ No new TypeScript or type errors introduced
+✅ vm2 evaluations working correctly for all operator types
+✅ prd.json: US-616.passes = true
+## Iteration 1 - Tue, Apr 14, 2026  8:50:43 AM
+FAILED diagnosis-block gate: Implement Per-Profile Custom Validation Rules Engine for Booking Steps (ID: US-616) — no diagnosis block found — attempt 1/3
+
