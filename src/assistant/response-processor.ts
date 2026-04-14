@@ -404,5 +404,117 @@ export function getErrorMessage(errorType: string, profileId: string = 'pelangi'
   return 'We encountered an issue. Please contact our staff for assistance.';
 }
 
+/**
+ * Interface for clarifying questions
+ */
+interface ClarifyingQuestionsData {
+  schema_version: string;
+  description: string;
+  clarifying_questions: Record<string, Record<string, string[]>>;
+}
+
+/**
+ * Load clarifying-questions.json for low-confidence intents
+ * Returns intent-specific questions with multilingual support
+ */
+function loadClarifyingQuestions(profileId: string = 'pelangi'): ClarifyingQuestionsData | null {
+  try {
+    // Try profile-specific questions first
+    const profileQuestionsPath = path.join(
+      __dirname,
+      `data-${profileId}/clarifying-questions.json`
+    );
+    if (fs.existsSync(profileQuestionsPath)) {
+      const data = fs.readFileSync(profileQuestionsPath, 'utf-8');
+      return JSON.parse(data) as ClarifyingQuestionsData;
+    }
+
+    // Fall back to shared questions
+    const sharedQuestionsPath = path.join(__dirname, 'data/clarifying-questions.json');
+    if (fs.existsSync(sharedQuestionsPath)) {
+      const data = fs.readFileSync(sharedQuestionsPath, 'utf-8');
+      return JSON.parse(data) as ClarifyingQuestionsData;
+    }
+
+    console.warn(
+      `[ResponseProcessor] No clarifying-questions.json found for profile ${profileId}`
+    );
+    return null;
+  } catch (error) {
+    console.error('[ResponseProcessor] Failed to load clarifying questions:', error);
+    return null;
+  }
+}
+
+/**
+ * Generate context-aware clarifying questions for low-confidence intents
+ *
+ * @param intent - The classified intent with low confidence
+ * @param language - Language code (en, ms, zh, ta)
+ * @param recentMessages - Last 3 messages from conversation for context
+ * @param profileId - Profile ID (pelangi, makan, southern, etc.)
+ * @returns Array of 2-3 clarifying questions or empty array if not found
+ */
+export interface ClarifyingResponse {
+  message: string;
+  suggestions: Array<{
+    text: string;
+    payload: string;
+  }>;
+}
+
+export function generateClarifyingQuestions(
+  intent: string,
+  language: string = 'en',
+  recentMessages: Array<{ content: string }> = [],
+  profileId: string = 'pelangi'
+): ClarifyingResponse {
+  const questions = loadClarifyingQuestions(profileId);
+
+  if (!questions) {
+    return {
+      message: 'Could you provide more details about what you need?',
+      suggestions: []
+    };
+  }
+
+  // Get questions for this intent, or use default
+  const intentQuestions = questions.clarifying_questions[intent] || questions.clarifying_questions['default'];
+
+  if (!intentQuestions) {
+    return {
+      message: 'Could you provide more details about what you need?',
+      suggestions: []
+    };
+  }
+
+  // Get questions in the requested language, fallback to English
+  const questionsForLang = intentQuestions[language] || intentQuestions['en'] || [];
+
+  if (questionsForLang.length === 0) {
+    return {
+      message: 'Could you provide more details about what you need?',
+      suggestions: []
+    };
+  }
+
+  // Take 2-3 questions (pick first 2 for conciseness)
+  const selectedQuestions = questionsForLang.slice(0, 2);
+
+  // Build response message - combine questions into one message
+  const combinedMessage = selectedQuestions.join('\n\n');
+
+  // Create button suggestions from the questions
+  const suggestions = selectedQuestions.map((question, index) => ({
+    text: question,
+    payload: `${index + 1}`
+  }));
+
+  return {
+    message: combinedMessage,
+    suggestions
+  };
+}
+
 // Export template functions for use in tests and other modules
-export { loadTemplateByLanguage, renderTemplate, loadErrorMessages };
+export { loadTemplateByLanguage, renderTemplate, loadErrorMessages, loadClarifyingQuestions };

@@ -14,6 +14,7 @@ import { isAIAvailable, classifyAndRespond } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
 import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
 import { filterByRelevance, pruneContextByRelevance } from './pipeline/context-manager.js';
+import { generateClarifyingQuestions } from './response-processor.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -416,9 +417,49 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     intentResult.detectedLanguage = preferredLanguage;
   }
 
+  // US-633: Implement Intent Classification Low-Confidence Clarification Flow
+  // When confidence < 0.6, generate clarifying questions to help guest specify intent
+  const lowConfidenceThreshold = 0.6;
+  const clarificationLang = (preferredLanguage || intentResult.detectedLanguage || 'en') as 'en' | 'ms' | 'zh' | 'ta';
+
   // US-002: Confidence threshold gating — route low-confidence intents to fallback
   const confidenceGateThreshold = store.getSettings().confidence_threshold ?? 0.5;
-  if (intentResult.confidence < confidenceGateThreshold && intentResult.category !== 'unknown') {
+
+  // Check if we should use clarification flow (0.5 <= confidence < 0.6)
+  const useClarificationFlow =
+    intentResult.confidence < lowConfidenceThreshold &&
+    intentResult.confidence >= confidenceGateThreshold &&
+    intentResult.category !== 'unknown';
+
+  if (useClarificationFlow) {
+    // Get last 3 messages for context
+    const recentMessages = conversationHistory.slice(-3);
+    const clarifyingResponse = generateClarifyingQuestions(
+      intentResult.category,
+      clarificationLang,
+      recentMessages,
+      profileId || 'pelangi'
+    );
+
+    console.log(
+      `[Clarification] Intent "${intentResult.category}" confidence ${intentResult.confidence.toFixed(2)} ` +
+      `< 0.6 → generating clarifying questions`
+    );
+
+    const responseTime = Date.now() - startTime;
+    return {
+      message: clarifyingResponse.message,
+      intent: intentResult.category,
+      confidence: intentResult.confidence,
+      responseTime,
+      model: 'clarification',
+      suggestions: clarifyingResponse.suggestions.map(s => ({
+        label: s.text,
+        payload: s.payload
+      })),
+      source: 'clarification_flow'
+    };
+  } else if (intentResult.confidence < confidenceGateThreshold && intentResult.category !== 'unknown') {
     console.log(
       `[ConfidenceGate] Intent "${intentResult.category}" confidence ${intentResult.confidence.toFixed(2)} ` +
       `below threshold ${confidenceGateThreshold.toFixed(2)} → routing to fallback`

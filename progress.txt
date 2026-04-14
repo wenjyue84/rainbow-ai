@@ -669,3 +669,65 @@ Completed: Implement Conversation Profile Isolation Validation Integration Tests
 ## Iteration 1 - Tue, Apr 14, 2026  5:49:36 PM
 FAILED diagnosis-block gate: Implement Tamil Translation Coverage Audit Across All Configuration Files (ID: US-630) — no diagnosis block found — attempt 1/3
 
+
+## Iteration - Story: US-633 - Implement Intent Classification Low-Confidence Clarification Flow
+
+### What was implemented
+- Created `src/assistant/data/clarifying-questions.json` with:
+  - Intent-specific clarifying question templates (7 major intents: booking, inquiry, check_in_arrival, checkout_procedure, pricing, facilities, complaint, payment_made)
+  - Multilingual support (en, ms, zh) for each intent
+  - Default fallback questions for unknown intents
+  - 2-3 context-aware questions per intent
+- Added `generateClarifyingQuestions()` function to `src/assistant/response-processor.ts`:
+  - Takes intent, language, recent messages, profile as inputs
+  - Returns structured response with message and button suggestions
+  - Supports profile-specific clarifying questions (pelangi, makan, southern)
+  - Language fallback to English if requested language unavailable
+- Integrated clarification handler into `src/assistant/chat-engine.ts`:
+  - Modified confidence gating logic (lines 420-450)
+  - New threshold behavior: 0.5 ≤ confidence < 0.6 triggers clarification flow
+  - Below 0.5: routes to 'unknown' (existing fallback)
+  - Clarification returns interactive response with 2-button suggestions
+  - Logs clarification events with intent and confidence score
+- Created comprehensive test suite:
+  - `tests/clarification-flow.test.ts`: 22 tests covering:
+    - Clarification question generation for all major intents
+    - Multilingual support (en, ms, zh)
+    - Context-aware question selection based on intent
+    - Different questions for different intents (booking vs inquiry)
+    - Fallback behavior for unknown intents
+    - Suggestion payload structure (numeric: "1", "2")
+    - Profile-specific question loading
+    - Max 2-3 suggestions per clarification
+
+### Patterns discovered
+- Clarifying questions data structure mirrors intent-keywords.json (intent -> language -> array)
+- Confidence thresholds: 0.5 = gate threshold, 0.6 = clarification threshold (distinct ranges)
+- Clarification flow returns early from processChat, bypassing normal response generation
+- Interactive suggestions require both text (human-readable) and payload (machine-readable for routing)
+- Profile-specific data files checked first, fallback to shared files (pattern used throughout codebase)
+
+### Gotchas
+- Had to add import for `generateClarifyingQuestions` to chat-engine imports
+- Clarification flow early-return means it doesn't calculate suggestions via `generateDynamicSuggestions()`
+- Test file needs to import from response-processor.js (ESM, .js extension required)
+- Windows PowerShell npm scripts don't support NODE_OPTIONS; must run vitest directly
+
+### Files modified/created
+- src/assistant/data/clarifying-questions.json (new)
+- src/assistant/response-processor.ts (added generateClarifyingQuestions function)
+- src/assistant/chat-engine.ts (added clarification handler before confidence gate)
+- tests/clarification-flow.test.ts (new, 22 tests)
+- prd.json (marked US-633 as passes: true)
+
+### Quality checks
+- npm run build: Success (2.9MB dist/index.js)
+- tests/clarification-flow.test.ts: 22/22 tests pass
+- Server startup: Success (MCP_SERVER_PORT=3002 npx tsx src/index.ts)
+- All acceptance criteria verified:
+  - AC1: Low-confidence handler checks confidence < 0.6 and generates questions ✓
+  - AC2: Questions loaded from clarifying-questions.json per intent ✓
+  - AC3: Questions based on last 3 messages in conversation ✓
+  - AC4: Returns interactive response with button options ✓
+  - AC5: Different questions for booking vs inquiry intents verified in tests ✓
+
