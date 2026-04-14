@@ -6,6 +6,7 @@ import { whatsappManager } from '../../lib/baileys-client.js';
 import { pool } from '../../lib/db.js';
 import { getKBFilesHealth } from '../../lib/config-db.js';
 import { getDLQDepth, isQueueActive } from '../../lib/message-queue.js';
+import { getRedisPool } from '../../lib/redis-pool.js';
 
 const router = Router();
 
@@ -173,6 +174,46 @@ router.get('/integration-health', async (_req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/health/redis', async (_req: Request, res: Response) => {
+  try {
+    const redisPool = getRedisPool();
+
+    if (!redisPool) {
+      return res.status(503).json({
+        status: 'down',
+        activeConnections: 0,
+        poolSize: 0,
+        responseTime: null,
+        error: 'Redis pool not initialized',
+      });
+    }
+
+    const result = await redisPool.healthCheck();
+    const status = result.status === 'ok' ? 'ok' : result.status === 'degraded' ? 'degraded' : 'down';
+
+    res.json({
+      status,
+      activeConnections: result.metrics.activeConnections,
+      poolSize: result.metrics.poolSize,
+      responseTime: result.responseTimeMs,
+      metrics: {
+        idleConnections: result.metrics.idleConnections,
+        totalCreated: result.metrics.totalCreated,
+        totalDestroyed: result.metrics.totalDestroyed,
+        isHealthy: result.metrics.isHealthy,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      status: 'down',
+      activeConnections: 0,
+      poolSize: 0,
+      responseTime: null,
+      error: err.message,
+    });
   }
 });
 
