@@ -1051,3 +1051,35 @@ All acceptance criteria met:
 ✓ Exponential backoff retry on connection failures
 ✓ Health check endpoint returns {status, activeConnections, poolSize, responseTime}
 ✓ Pool handles connection stale/eviction and leak prevention
+
+## Iteration - Story: US-653 - Create Knowledge Base Schema Validator CLI with Cross-Profile Contamination Detection
+
+### What was implemented
+- Created `src/lib/kb-validator.ts` (pure logic module):
+  - `CONTAMINATION_BLACKLISTS` — per-profile keyword blacklists (makan: hostel terms, southern: cafe terms, pelangi: cross-profile terms)
+  - `scoreFile(content, blacklist)` — scores a file 0-100, caps at 100, records phrase occurrences + context snippets
+  - `detectContamination(profileDir, profileType)` — recursive .md scanner returning FileValidationResult[]
+  - `buildSummary(results, profile)` — generates ProfileSummary with contamination stats and recommendations
+
+- Created `src/cli/validate-kb-schema.ts` (CLI entry point):
+  - Flags: `--profile <pelangi|makan|southern>` (default: all), `--report <path>` (default: stdout)
+  - Runs detectContamination + buildSummary per profile, outputs ValidationReport JSON
+  - Integrated via `npm run cli` in package.json (already existed)
+
+- Created `tests/cli/kb-validator.test.ts`:
+  - 35 tests across 4 suites: scoreFile (10), detectContamination (8), buildSummary (8), real KB smoke tests (9)
+  - All 35 tests passing
+
+- Real-world result: makan profile has 1/5 files contaminated with hostel terms (avg score 6)
+
+### Patterns discovered
+- `npm run cli` was already configured to point to `src/cli/validate-kb-schema.ts`
+- Score capping: each phrase contribution capped at `weight * min(count, 3)` to avoid runaway scores
+- `profile_type_valid` threshold: score < 30 = valid (low contamination acceptable)
+
+### Acceptance Criteria Met
+- ✅ Scans .rainbow-kb/, .rainbow-kb-makan/, .rainbow-kb-southern/ and generates JSON report
+- ✅ Detects hostel contamination in makan profile, cafe contamination in southern profile
+- ✅ Report includes contamination_score (0-100), flagged_phrases[], profile_type_valid per file
+- ✅ Summary: {profile, total_files, contaminated_files, avg_contamination_score, recommendations}
+- ✅ 35/35 tests pass, build passes
