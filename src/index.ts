@@ -94,6 +94,7 @@ import { validateProfileConfigs } from './lib/profile-config-validator.js';
 import { initializeWorkers, shutdownWorkers } from './lib/jobs/init-workers.js';
 import { validateProviderHealth } from './lib/provider-health-check.js';
 import { startupHealthCheck } from './lib/startup-health-check.js';
+import { checkConversationTimestampIntegrity } from './lib/conversation-timestamp-validator.js';
 
 const __filename_main = fileURLToPath(import.meta.url);
 const __dirname_main = dirname(__filename_main);
@@ -817,6 +818,12 @@ await validateProviderHealth();
 // US-566: Comprehensive startup health check with JSON report
 // Tests PostgreSQL, Redis, and AI providers with structured JSON output
 await startupHealthCheck();
+
+// US-644: Conversation message timestamp integrity check
+// Samples 10 random conversations per profile, warns if any have out-of-order messages
+checkConversationTimestampIntegrity().catch(err =>
+  console.warn('[Startup] Timestamp integrity check failed (non-fatal):', err?.message)
+);
 
 // Start server - listen on 0.0.0.0 for Docker containers
 server.listen(PORT, '0.0.0.0', () => {

@@ -945,3 +945,43 @@ All code was already present from Attempt 1. Attempt 2 verified it still works:
 ## Iteration 2 - Tue, Apr 14, 2026  7:56:55 PM
 Completed: Add Slow Query Detection and Alert System (ID: US-640) in 4m
 
+
+## Iteration N - Story: US-644 - Add Conversation Message Timestamp Integrity Validator with Reordering Detection
+
+### What was implemented
+- Created `src/lib/conversation-timestamp-validator.ts`:
+  - `validateMessageOrdering(messages): Generator<TimestampWarning>` — Generator that lazily yields violations for each consecutive out-of-order pair (curr.timestamp < prev.timestamp)
+  - Each `TimestampWarning` includes: messageId, messageTimestamp (ISO), prevMessageId, prevMessageTimestamp (ISO), phone
+  - `checkConversationTimestampIntegrity()` — async startup health check that:
+    - Queries distinct profiles from rainbow_conversations
+    - Samples up to 10 random conversations per profile (ORDER BY RANDOM() LIMIT 10)
+    - Fetches messages per conversation (ORDER BY id ASC)
+    - Runs validator, logs per-pair warnings with message IDs + ISO timestamps
+    - Returns TimestampIntegrityReport with total, healthy, unhealthy, healthPercent, hasIssues, profiles breakdown
+
+- Created `src/assistant/conversation-retriever.ts`:
+  - `retrieveConversationMessages(phone, profileId)` wraps getConversationMessages() from src/lib/conversation.ts
+  - Runs validateMessageOrdering() generator over fetched messages
+  - Logs per-violation: "Message {id} ts={ISO} before {prevId} ts={prevISO}"
+  - Returns original messages unchanged (observability only)
+
+- Modified `src/index.ts`:
+  - Imported checkConversationTimestampIntegrity from conversation-timestamp-validator.js
+  - Added non-blocking call after startupHealthCheck(): fire-and-forget with catch handler
+
+- Created `tests/integration/message-ordering.test.ts`:
+  - 7 unit tests for validateMessageOrdering: empty, single, ascending (0 warnings), reversed (4 warnings), equal timestamps, single violation, specific pair IDs
+  - 3 integration tests for checkConversationTimestampIntegrity: 100% healthy, detects violations with reversed timestamps, empty report on no conversations
+  - All 20 tests (10 unit + 10 integration across 2 workers) passing
+
+### Patterns discovered
+- Existing `src/lib/message-ordering-validator.ts` (US-593) uses object-based return with full reordering detection; this new one uses Generator + consecutive-pair check
+- `vi.doMock` + `vi.resetModules()` pattern needed for pool mocking in integration tests (same as db-metrics pattern)
+- Generator-based API: callers can early-exit via `break`, get lazy evaluation — better than materializing full array
+- The `checkConversationTimestampIntegrity` health check is fire-and-forget in index.ts (non-blocking startup)
+
+### Acceptance Criteria Met
+- ✅ Startup health check samples 10 random conversations per profile, reports % healthy, warns on any out-of-order
+- ✅ Retriever logs "Message {id} ts={ISO} before {prevId} ts={prevISO}" for each violation
+- ✅ Integration test: 5 messages reversed timestamps → 4 violations detected with correct pair IDs
+- ✅ 20/20 tests pass, build passes
