@@ -3922,7 +3922,8 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-14T11:13:26Z"
     },
     {
       "id": "US-635",
@@ -4141,6 +4142,46 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-645",
+      "title": "Implement Redis Connection Pooling and Health Monitoring",
+      "priority": "high",
+      "description": "Create a Redis connection pool to optimize resource usage and add health check monitoring endpoint that verifies Redis connectivity during requests.",
+      "acceptanceCriteria": [
+        "Redis connection pool initialized with configurable min/max size from settings.json with exponential backoff retry on connection failures",
+        "Health check endpoint GET /admin/health/redis returns {status: 'ok'|'degraded'|'down', activeConnections: N, poolSize: N, responseTime: Nms}",
+        "Pool handles connection stale/eviction, prevents connection leaks during BullMQ worker shutdown"
+      ],
+      "technicalNotes": [
+        "Create src/lib/redis-pool.ts with RedisPool class wrapping redis.createClient() and connection state management",
+        "Integrate health check into src/routes/admin/health.ts endpoint for server startup sequence",
+        "Test command: npm run test -- tests/lib/redis-pool.test.ts --run"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-646",
+      "title": "Add Fallback Response Template Completeness Validator CLI",
+      "priority": "medium",
+      "description": "Create CLI tool that validates all intents have Tamil and English fallback response templates defined in workflows.json, generating completeness report with missing coverage gaps.",
+      "acceptanceCriteria": [
+        "CLI command: npm run validate:fallback-templates -- --profile pelangi outputs JSON {profile, totalIntents, coverageTa: 94%, coverageEn: 100%, missingTamil: [{intent, reason}], missingEnglish: [...]}",
+        "Validates existence and non-empty values for fallbackResponse_ta and fallbackResponse_en fields in each workflow intent definition",
+        "Exit code 1 if coverage < 100%, enables use in pre-commit hooks"
+      ],
+      "technicalNotes": [
+        "Create src/cli/validate-fallback-templates.ts that reads src/assistant/data/[profile]/workflows.json",
+        "Iterate intents array, check for required response template fields with length > 0",
+        "Test command: npm run test -- tests/cli/validate-fallback-templates.test.ts --run"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example"
     }
   ]
 }
