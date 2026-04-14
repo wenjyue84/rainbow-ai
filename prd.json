@@ -3901,8 +3901,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-14T10:18:32Z"
+      "model": "haiku"
     },
     {
       "id": "US-634",
@@ -3921,6 +3920,27 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
@@ -3947,6 +3967,72 @@
       "model": "haiku"
     },
     {
+      "id": "US-637",
+      "title": "Add Profile-Level Default Language Preference in Settings to Optimize DB Queries",
+      "priority": "medium",
+      "description": "Load default language preference per profile from settings.json at startup, allowing intent classifier to skip DB query when guest has no explicit language preference stored.",
+      "acceptanceCriteria": [
+        "settings.json includes `defaultLanguage` key per profile object (e.g., 'pelangi': { 'defaultLanguage': 'en', ... }); loaded into memory at startup and refreshed on profile hot-reload",
+        "IntentClassifier.getLanguagePreference(guestId, profileId) checks lookup chain: guest_language_preference DB record > profile default language > fallback 'en'; skips DB query if guest record not found and profile default exists",
+        "Unit test verifies preference lookup returns profile default when guest preference not in DB, and guest preference overrides profile default when present"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/settings.json (add defaultLanguage: 'en' to each profile)",
+        "File to edit: src/assistant/intent-classifier.ts (update getLanguagePreference method to check profile default)",
+        "File to edit: tests/intent-classifier.test.ts (add test for preference lookup chain)",
+        "Test command: npm run test -- tests/intent-classifier.test.ts -t 'getLanguagePreference'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-638",
+      "title": "Add No-Show Detection and Automated Guest Follow-Up Handler",
+      "priority": "medium",
+      "description": "Implement background job that detects guests who checked in but failed to check out within expected timeframe, automatically triggering follow-up message via existing workflow to recover abandoned bookings.",
+      "acceptanceCriteria": [
+        "Background job runs every 6 hours via node-cron, queries bookings with checked_in=true and no checkout_timestamp for >12 hours, triggers 'no_show_followup' workflow intent for each guest",
+        "Follow-up message respects guest language preference and uses profile-specific recovery template from workflows.json; updates booking record with no_show_timestamp and no_show_status='contacted'",
+        "Admin GET /admin/profiles/:profile/no-shows?days=7 endpoint returns list of no-show bookings in last N days with guest contact attempts and timestamps"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/no-show-detector.ts (job logic using pg query, workflow trigger call)",
+        "File to edit: src/index.ts (initialize background job on server startup)",
+        "File to edit: src/routes/admin/bookings.ts (add GET /no-shows endpoint handler)",
+        "File to create: tests/lib/no-show-detector.test.ts (mock DB, test job detection logic, test workflow trigger)",
+        "Test command: npm run test -- tests/lib/no-show-detector.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-639",
+      "title": "Add Tamil Language Bias Detection in Intent Classification",
+      "priority": "medium",
+      "description": "Detect message language composition (Tamil vs English percentage) and apply language-specific weighting to intent keywords to prevent bias towards English keywords in multilingual inputs.",
+      "acceptanceCriteria": [
+        "Language detector analyzes input message and returns tamilPercentage (0-100) using Tamil Unicode ranges (U+0B80-U+0BFF)",
+        "Intent keyword matching applies language weight boost: if message >= 50% Tamil, apply +0.2 confidence multiplier to Tamil keywords; if >= 50% English, apply +0.2 to English keywords",
+        "Classification logs detected language composition (debug level) with weights applied for each intent match"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/language-bias-detector.ts - exports detectLanguageComposition(message: string) returning {tamilPercentage, englishPercentage}",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts - call language-bias-detector in classifyIntent(), apply weights to confidence scores in keyword matching loop",
+        "Test command: npm run test tests/language-bias.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-640",
       "title": "Add Slow Query Detection and Alert System",
       "priority": "high",
@@ -3962,6 +4048,72 @@
         "File to edit: src/routes/admin/health.ts (query metrics in health check)",
         "File to create: tests/unit/db-metrics.test.ts",
         "Test command: uv run npm run test -- tests/unit/db-metrics.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-641",
+      "title": "Implement Guest Data Export Tool with Profile-Specific CSV/JSON Output",
+      "priority": "medium",
+      "description": "Create CLI tool to export guest records, booking history, and conversation summaries filtered by profile and date range. Enables data analysis and compliance reporting while enforcing profile isolation boundaries.",
+      "acceptanceCriteria": [
+        "CLI command npm run export:guests -- --profile pelangi --format csv --output ./exports/guests.csv exports guests to CSV with columns: phone, name, check_in_date, check_out_date, booking_status, sentiment",
+        "Export retrieves data from rainbow_guests and rainbow_conversations tables filtered by profile and contains zero records from other profiles (verified by integration test assertion)",
+        "Output file includes export metadata as header comments: timestamp, profile name, row count, and data sorted deterministically by guest_id"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/cli/export-guests.ts (CLI argument parser and orchestration)",
+        "File to create: src/lib/data-exporter.ts (CSV/JSON formatter, database queries)",
+        "File to create: tests/integration/export-guests.test.ts",
+        "Test command: npm run export:guests -- --profile pelangi --format csv --output /tmp/test.csv && wc -l /tmp/test.csv"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-642",
+      "title": "Create Tamil Unit Test Data Generator for Intent Classification Test Coverage",
+      "priority": "medium",
+      "description": "Generate diverse, realistic Tamil language test cases with expected intent classifications to improve test coverage for multilingual intent classification. Tests will validate accuracy across booking, inquiry, escalation, and greeting intents in Tamil.",
+      "acceptanceCriteria": [
+        "CLI command npm run test:generate-tamil-data creates 50+ Tamil test sentences, each labeled with expected intent classification (booking, inquiry, escalation, greeting) and profile context",
+        "Generated test data stored in tests/data/tamil-test-cases.json with structure: { sentence, language, intent, confidence_threshold, profile, expected_keywords }",
+        "Intent classification test suite tests/intent-classifier-tamil.test.ts validates Tamil accuracy with 90%+ assertion pass rate on generated data, including edge cases like Tamil numerals and date references"
+      ],
+      "technicalNotes": [
+        "File to create: scripts/generate-tamil-test-data.ts (use Ollama or Kimi K2.5 to generate realistic Tamil test cases)",
+        "File to create: tests/data/tamil-test-cases.json (store generated test fixtures)",
+        "File to create: tests/intent-classifier-tamil.test.ts (assertions validating classification accuracy per intent)",
+        "Test command: npm run test:generate-tamil-data && uv run vitest tests/intent-classifier-tamil.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-643",
+      "title": "Create Intent Keyword Phonetic Matching for Tamil and English Misspellings",
+      "priority": "medium",
+      "description": "Extend intent classification to match misspelled and phonetically similar keywords in both Tamil and English, improving classification accuracy for user messages with typos and transliteration variations.",
+      "acceptanceCriteria": [
+        "Phonetic matcher handles English misspellings (bookinng→booking, chck-in→check-in) and returns confidence score ≥ 0.7 for valid matches within edit distance ≤ 2",
+        "Tamil phonetic matching supports transliteration variants (பூக்கிங் via romanization matches booking) using Tamil grapheme cluster normalization; test includes 20+ common misspellings per language",
+        "IntentClassifier uses phonetic matcher before exact keyword lookup; mismatches with confidence > 0.7 are cached per-profile to avoid repeated matching on identical inputs"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/phonetic-matcher.ts (Levenshtein distance matching + Tamil transliteration via diacritic normalization)",
+        "File to edit: src/assistant/intent-classifier.ts (integrate matcher in keyword matching pipeline before exact lookup)",
+        "File to create: tests/phonetic-matcher.test.ts (test English misspellings, Tamil variants, confidence scoring)",
+        "Test command: uv run vitest tests/phonetic-matcher.test.ts -v"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
