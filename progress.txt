@@ -417,3 +417,39 @@ FAILED diagnosis-block gate: Add Booking Confirmation Number Generation with Tim
 ## Iteration 2 - Tue, Apr 14, 2026  3:50:33 PM
 Completed: Add Booking Confirmation Number Generation with Timestamp and Profile Encoding (ID: US-625) in 4m
 
+
+## Iteration 5 - Mon, Apr 14, 2026
+PASSED: US-626 — Add Data-Makan Profile Workflow Validation Tests with Cafe-Specific Content Assertions
+- Implementation completed: 
+  - Created `tests/helpers/profile-contamination-detector.ts` (~110 lines)
+    - Scans profile directories for blacklisted keywords
+    - Returns matches with filename:line:column format
+    - Formats contamination reports for display
+    - Supports case-insensitive word-boundary-aware regex matching
+  
+  - Created `tests/profiles/data-makan.test.ts` (~280 lines)
+    - 13 tests organized into 6 describe blocks
+    - Contamination detection (blacklist keywords: check-in, check-out, room, guest arrival, etc.)
+    - Workflow validation (cafe operations only)
+    - Error messages validation (cafe terminology only)
+    - Intent keywords validation (cafe-only intents)
+    - Allowed intents validation (no hostel-specific intents)
+    - File structure validation
+    - Summary report with detailed contamination context
+
+### Patterns discovered
+- Blacklisted keywords for data-makan defined in `src/assistant/data/profile-keyword-blacklist.json` under `forbidden_keywords.data-makan`
+- Intent-based keywords (e.g., `check_in_arrival`) vs text-based keywords (e.g., `check-in`) — detector handles both
+- Profile subdirectory structure: `src/assistant/data/makan/`, `src/assistant/data/pelangi/`, etc.
+- Test output uses console.log for contamination reports, making verbose mode more informative
+- Word-boundary regex matching prevents false positives (e.g., `\bcheck-in\b` won't match "recheck-in-line")
+
+### Gotchas
+- Data-makan directory only had 1 file (fallback-templates.json), so scan count is low but passing
+- Allowed intents for data-makan defined in `profile-keyword-blacklist.json` allowed_intents section
+- Tests pass even if blacklist is empty; detector gracefully handles missing profile directories
+- Vitest verbose output may suppress console.log in some test modes; used explicit stdout collection
+
+All 13 tests passing, esbuild build succeeds, server startup succeeds.
+Marked passes: true in prd.json
+

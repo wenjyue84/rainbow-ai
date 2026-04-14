@@ -3754,9 +3754,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-14T08:13:19Z"
     },
     {
       "id": "US-627",
@@ -3840,18 +3841,19 @@
       "model": "haiku"
     },
     {
-      "id": "US-631",
-      "title": "Add Intent Keyword-vs-AI Classification Performance Benchmarking CLI",
-      "priority": "medium",
-      "description": "Create a CLI tool benchmarking T2 (keyword matching) versus T3 (AI classification) latency and accuracy. Supports goal #1 (improve accuracy) and #11 (optimize performance) by showing when keyword-only matching is sufficient versus when AI classification is required.",
+      "id": "US-633",
+      "title": "Implement Intent Classification Low-Confidence Clarification Flow",
+      "priority": "high",
+      "description": "When intent classifier confidence falls below threshold (0.6), generate 2-3 context-aware clarifying questions to help the guest specify their intent more clearly, improving classification accuracy on retry.",
       "acceptanceCriteria": [
-        "CLI: npm run benchmark:intent-classification [--profile=pelangi] runs 100 sample messages through both T2 and T3 paths, outputs CSV with columns: intent_name, keyword_match_ms, ai_match_ms, accuracy_t2, accuracy_t3",
-        "Output includes summary line with avg latency per method and a recommendation (e.g., 'Consider keyword-only for 60% time savings with 5% accuracy loss')",
-        "Test verifies output CSV is valid and summary recommendation is included"
+        "Response processor checks confidence score; if < 0.6, loads clarifying-questions.json for that intent and generates 2 context-specific questions based on last 3 messages in conversation",
+        "Clarifying questions are returned as interactive response with button options (e.g., 'Are you asking about [option1] or [option2]?')",
+        "Tests verify that low-confidence booking intents generate different clarification questions than low-confidence inquiry intents"
       ],
       "technicalNotes": [
-        "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
-        "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+        "File to edit: src/assistant/response-processor.ts (add low-confidence handler before sending response)",
+        "File to create: src/assistant/data/clarifying-questions.json with intent-specific question templates",
+        "Test command: npm run test -- tests/clarification-flow.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -3860,18 +3862,19 @@
       "model": "haiku"
     },
     {
-      "id": "US-632",
-      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
-      "priority": "medium",
-      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "id": "US-634",
+      "title": "Add Knowledge Base Document Relevance Filtering for Context Assembly",
+      "priority": "high",
+      "description": "Improve response quality by filtering knowledge base documents based on relevance to the detected intent. Exclude low-relevance KB entries that add noise to the AI context and may trigger irrelevant responses.",
       "acceptanceCriteria": [
-        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
-        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
-        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+        "Context assembler scores KB documents against intent keywords using cosine similarity (0-1 scale); includes only documents with relevance score >= 0.7 in context prompt",
+        "Logs skipped documents to debug output: {intent, doc_id, score, reason='below_threshold'} for monitoring KB quality",
+        "Tests verify that booking intent includes booking KB docs but excludes inquiry templates, and that profile-specific docs are preferred over generic docs"
       ],
       "technicalNotes": [
-        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
-        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+        "File to create: src/lib/kb-relevance-scorer.ts (scoring logic with TF-IDF or simple cosine similarity)",
+        "File to edit: src/assistant/context-assembler.ts (filter KB results before building context)",
+        "Test command: npm run test -- tests/kb-relevance.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
