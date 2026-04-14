@@ -43,7 +43,7 @@ import { logBookingClassificationFailure, BOOKING_INTENT_CATEGORIES, BOOKING_FAI
 import { recordTurnConfidence } from '../turn-confidence-scorer.js';
 import { generateClarifyingResponse, formatClarifyingResponseForDisplay } from './fallback-handler.js';
 import { getIntentThreshold } from '../../lib/intent-confidence-config.js';
-import { classifyBookingSubtype } from '../classifiers/booking-microclassifier.js';
+import { classifyBookingSubIntent } from '../classifiers/booking-microclassifier.js';
 import { parseSlots } from '../utils/tamil-slot-parser.js';
 import fs from 'fs';
 import path from 'path';
@@ -238,19 +238,19 @@ export async function classifyAndRoute(
   devMetadata.responseTime = result.responseTime;
   devMetadata.usage = result.usage;
 
-  // ─── US-535: Booking Intent Micro-Classifier ────────────────────────
+  // ─── US-655: Booking Intent Micro-Classifier ────────────────────────
   // When a booking intent is classified with high confidence (>=0.7),
-  // apply the micro-classifier to disambiguate into subtypes:
-  // check_in, check_out, modification, or general_inquiry
-  let bookingSubtype: string | undefined;
+  // apply the micro-classifier to disambiguate into sub-intents:
+  // check_in_confirm, modification_request, cancellation, or availability_check
+  let bookingSubIntent: string | undefined;
   if (result.intent === 'booking' && result.confidence >= 0.7) {
-    const microClassifierResult = classifyBookingSubtype(processText, lang);
-    bookingSubtype = microClassifierResult.subtype;
-    devMetadata.bookingSubtype = bookingSubtype;
+    const microClassifierResult = classifyBookingSubIntent(processText, lang, 'pelangi'); // TODO: pass actual profile
+    bookingSubIntent = microClassifierResult.sub_intent;
+    devMetadata.bookingSubIntent = bookingSubIntent;
     devMetadata.bookingMicroclassifierConfidence = microClassifierResult.confidence;
     console.log(
-      `[BookingMicroClassifier-US535] "${processText.slice(0, 50)}" → ` +
-      `${bookingSubtype} (confidence: ${microClassifierResult.confidence.toFixed(2)})`
+      `[BookingMicroClassifier-US655] "${processText.slice(0, 50)}" → ` +
+      `${bookingSubIntent} (confidence: ${microClassifierResult.confidence.toFixed(2)})`
     );
 
     // ─── US-598: Tamil Numeral and Date Slot Extractor ────────────────

@@ -3,11 +3,14 @@
  *
  * Provides explainIntentClassification() — a single-call function that classifies
  * a message and returns metadata: matched keywords, confidence, and classification method.
+ *
+ * For booking intent: invokes bookingMicroclassifier to disambiguate sub-intent (US-655)
  */
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import defaultKeywordsData from './data/intent-keywords.json' with { type: 'json' };
+import { classifyBookingSubIntent } from './classifiers/booking-microclassifier.js';
 
 export interface MatchedKeyword {
   keyword: string;
@@ -22,6 +25,8 @@ export interface IntentClassificationResult {
   matchedKeywords: MatchedKeyword[];
   classificationMethod: ClassificationMethod;
   processingTime: number;
+  sub_intent?: string; // Set by booking microclassifier (US-655)
+  sub_intent_confidence?: number;
 }
 
 // ─── Keyword Loading ─────────────────────────────────────────────────────────
@@ -136,6 +141,18 @@ export function explainIntentClassification(
     bestMatches = [];
   }
 
+  // If booking intent with high confidence, invoke microclassifier (US-655)
+  let subIntentResult: any = undefined;
+  if (bestIntent === 'booking' && bestScore >= 0.7) {
+    try {
+      const detectedLanguage = detectLanguageFromMessage(messageNorm);
+      subIntentResult = classifyBookingSubIntent(message, detectedLanguage, profile);
+    } catch (err) {
+      // Log but don't fail — microclassifier errors are non-critical
+      console.warn('[booking-microclassifier] Failed to classify sub-intent:', err);
+    }
+  }
+
   const processingTime = Date.now() - startTime;
 
   return {
@@ -144,5 +161,24 @@ export function explainIntentClassification(
     matchedKeywords: bestMatches.slice(0, 10), // return top-10 at most
     classificationMethod,
     processingTime,
+    ...(subIntentResult && {
+      sub_intent: subIntentResult.sub_intent,
+      sub_intent_confidence: subIntentResult.confidence,
+    }),
   };
+}
+
+/**
+ * Detect language from message content.
+ * Simple heuristic: check for non-ASCII characters.
+ */
+function detectLanguageFromMessage(message: string): string {
+  const hasZh = /[\u4E00-\u9FFF]/.test(message); // Mandarin
+  const hasMs = /[\u0621-\u064A]/.test(message) || /aha|kata|aku|saya|kami|mereka/.test(message); // Arabic subset or Malay words
+  const hasTa = /[\u0B80-\u0BFF]/.test(message); // Tamil
+
+  if (hasZh) return 'zh';
+  if (hasTa) return 'ta';
+  if (hasMs) return 'ms';
+  return 'en'; // Default to English
 }

@@ -1108,3 +1108,96 @@ FAILED diagnosis-block gate: Create Knowledge Base Schema Validator CLI with Cro
 ## Iteration 2 - Tue, Apr 14, 2026  9:27:46 PM
 Completed: Create Knowledge Base Schema Validator CLI with Cross-Profile Contamination Detection (ID: US-653) in 4m
 
+
+## Pre-analysis for US-655 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. The following technical brief is adjusted accordingly.
+
+**Technical Brief: US-655 Booking Intent Microclassifier**
+
+**1. Target Files for Modification:**
+
+*   **Create:** `src/assistant/booking-microclassifier.ts`
+    *   This new file will export the core `classifyBookingSubIntent(message, language, profile)` function.
+*   **Modify:** `src/assistant/intent-classifier.ts`
+    *   This file's primary classification logic needs to be updated. When the result is `intent: 'booking'`, it must call the new microclassifier and add the `sub_intent` to the final output.
+*   **Modify (Data):**
+    *   `src/assistant/data/intent-keywords-pelangi.json`
+    *   `src/assistant/data/intent-keywords-makan.json`
+    *   `src/assistant/data/intent-keywords-southern.json`
+    *   These require a new top-level `booking_sub` object containing keyword arrays for each sub-category.
+
+**2. DocTypes / Hooks:**
+
+*   Not applicable. The trigger is the `intent-classifier.ts` successfully identifying a `'booking'` intent.
+
+**3. Implementation Approach:**
+
+1.  In the `.json` keyword files, add a `"booking_sub"` object. Inside, define keyword arrays for: `check-in-confirm`, `modification-request`, `cancellation`, and `availability-check`.
+2.  Implement `classifyBookingSubIntent` in its new file. It should perform case-insensitive keyword matching against the message for the categories defined in `booking_sub`.
+3.  In `intent-classifier.ts`, after confirming `intent === 'booking'`, invoke `classifyBookingSubIntent` and merge the returned `sub_intent` into the classification result.
+4.  Create a new test file `tests/booking-microclassifier.test.ts` to validate the logic against at least 15 sample queries.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Keyword Ambiguity:** Ensure matching logic is deterministic (e.g., first match wins) if a query contains keywords for multiple sub-intents.
+*   **No Match:** The function must gracefully return a default `sub_intent` (e.g., `'unknown'`) if no keywords are matched.
+*   **Profile Context:** The classifier must correctly load and use the keywords specific to the active user profile.
+
+## Iteration 1 - Tue, Apr 14, 2026  9:46:56 PM
+FAILED diagnosis-block gate: Add Booking Intent Microclassifier for Disambiguating Vague Queries (ID: US-655) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-655 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Frappe/Python. The following technical brief is adjusted accordingly.
+
+**Technical Brief: US-655 Booking Intent Microclassifier**
+
+**1. Target Files for Modification:**
+
+*   **Create:** `src/assistant/booking-microclassifier.ts`
+    *   This new file will export the core `classifyBookingSubIntent(message, language, profile)` function.
+*   **Modify:** `src/assistant/intent-classifier.ts`
+    *   This file's primary classification logic needs to be updated. When the result is `intent: 'booking'`, it must call the new microclassifier and add the `sub_intent` to the final output.
+*   **Modify (Data):**
+    *   `src/assistant/data/intent-keywords-pelangi.json`
+    *   `src/assistant/data/intent-keywords-makan.json`
+    *   `src/assistant/data/intent-keywords-southern.json`
+    *   These require a new top-level `booking_sub` object containing keyword arrays for each sub-category.
+
+**2. DocTypes / Hooks:**
+
+*   Not applicable. The trigger is the `intent-classifier.ts` successfully identifying a `'booking'` intent.
+
+**3. Implementation Approach:**
+
+1.  In the `.json` keyword files, add a `"booking_sub"` object. Inside, define keyword arrays for: `check-in-confirm`, `modification-request`, `cancellation`, and `availability-check`.
+2.  Implement `classifyBookingSubIntent` in its new file. It should perform case-insensitive keyword matching against the message for the categories defined in `booking_sub`.
+3.  In `intent-classifier.ts`, after confirming `intent === 'booking'`, invoke `classifyBookingSubIntent` and merge the returned `sub_intent` into the classification result.
+4.  Create a new test file `tests/booking-microclassifier.test.ts` to validate the logic against at least 15 sample queries.
+
+**4. Edge Cases & Gotchas:**
+
+*   **Keyword Ambiguity:** Ensure matching logic is deterministic (e.g., first match wins) if a query contains keywords for multiple sub-intents.
+*   **No Match:** The function must gracefully return a default `sub_intent` (e.g., `'unknown'`) if no keywords are matched.
+*   **Profile Context:** The classifier must correctly load and use the keywords specific to the active user profile.
+
+
+## Iteration 3 - Mon, Apr 14, 2026 9:49 PM
+Completed: Add Booking Intent Microclassifier for Disambiguating Vague Queries (ID: US-655)
+
+### What was implemented
+- `src/assistant/classifiers/booking-microclassifier.ts` — `classifyBookingSubIntent(message, language, profile)` with keyword-based sub-intent scoring
+- `src/assistant/schemas.ts` — `bookingMicroclassifierSchema` with sub_intent enum
+- `src/assistant/intent-classifier.ts` — invokes microclassifier after booking intent detected (>= 0.7 confidence)
+- `src/assistant/pipeline/intent-classifier.ts` — also invokes microclassifier in pipeline
+- `tests/booking-microclassifier.test.ts` — 36 tests covering 5 sub-intents, multi-language, edge cases
+
+### Patterns discovered
+- Test file imports from `../src/assistant/classifiers/booking-microclassifier.js` (classifiers subdirectory)
+- Default keywords are embedded in the microclassifier itself as fallback when JSON profile has no booking_sub section
+- Confidence scoring: 2+ keyword matches = 0.90, single long keyword = 0.75, single short = 0.65
+
+### Gotchas
+- Previous iteration failed DIAGNOSIS_BLOCK_MISSING gate — always output diagnosis block first
+- All 36 tests passed: `npx vitest run tests/booking-microclassifier.test.ts`
+- Build succeeds with only pre-existing warnings
