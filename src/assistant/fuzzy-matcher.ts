@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js';
 import type { ChatMessage } from './types.js';
+import { normalizeTamilInput } from '../lib/tamil-normalization.js';
 
 export interface KeywordIntent {
   intent: string;
@@ -88,7 +89,11 @@ export class FuzzyIntentMatcher {
    * @returns Best matching intent with confidence score
    */
   match(text: string, languageFilter?: 'en' | 'ms' | 'zh' | 'ta'): FuzzyMatchResult | null {
-    const normalized = text.toLowerCase().trim();
+    let normalized = text.toLowerCase().trim();
+    // Apply Tamil-specific normalization for T2 keyword matching
+    if (languageFilter === 'ta' || text.match(/[\u0B80-\u0BFF]/)) {
+      normalized = normalizeTamilInput(normalized);
+    }
     const results = this.fuse.search(normalized);
 
     // Filter by language if specified
@@ -134,7 +139,11 @@ export class FuzzyIntentMatcher {
    * @returns All matching intents above threshold
    */
   matchAll(text: string, threshold = 0.6): FuzzyMatchResult[] {
-    const normalized = text.toLowerCase().trim();
+    let normalized = text.toLowerCase().trim();
+    // Apply Tamil-specific normalization for T2 keyword matching
+    if (text.match(/[\u0B80-\u0BFF]/)) {
+      normalized = normalizeTamilInput(normalized);
+    }
     const results = this.fuse.search(normalized);
 
     return results
@@ -162,7 +171,11 @@ export class FuzzyIntentMatcher {
     lastIntent: string | null = null,
     languageFilter?: 'en' | 'ms' | 'zh' | 'ta'
   ): FuzzyMatchResult | null {
-    const normalized = text.toLowerCase().trim();
+    let normalized = text.toLowerCase().trim();
+    // Apply Tamil-specific normalization for context-aware matching
+    if (languageFilter === 'ta' || text.match(/[\u0B80-\u0BFF]/)) {
+      normalized = normalizeTamilInput(normalized);
+    }
 
     // First, try regular matching
     const regularMatch = this.match(text, languageFilter);
