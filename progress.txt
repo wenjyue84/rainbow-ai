@@ -1909,3 +1909,40 @@ This user story is for a TypeScript/Node.js project, not Python/Frappe. Here is 
 ### Gotchas
 - Attempt 1 failed at a process gate (diagnosis block missing), NOT at code level
 - All files persisted from attempt 1 — re-verification confirmed everything still works
+
+## Iteration [123] - Story: US-616 - Implement Per-Profile Custom Validation Rules Engine for Booking Steps
+
+### What was implemented
+- Verified existing implementation from prior attempt (all files already present and functional)
+  * `src/assistant/workflow-validator.ts` - Safe rule evaluation using vm2 sandbox
+  * `src/assistant/data/booking-validators-pelangi.json` - Hostel validation rules (5 rules)
+  * `src/assistant/data/booking-validators-makan.json` - Cafe validation rules (6 rules)
+  * `tests/workflow-validator.test.ts` - Comprehensive test suite (26 tests)
+
+- Integrated validateBookingStep() into the booking workflow execution pipeline
+  * Added import of validateBookingStep() to src/assistant/workflow-executor.ts
+  * Added US-616 validation block that executes after other booking validations (US-228, US-470, US-547)
+  * Validation runs against collectedData before step completion
+  * Returns validation_error escalation reason when rules fail
+
+### Patterns discovered
+- Previous attempt had all code correct but failed at process gate check (missing diagnosis block)
+- vm2 sandbox used safely with 1-second timeout to prevent infinite loops
+- Validation rules support 8 operators: exists, >, <, >=, <=, ===, !==, in, regex
+- Rules marked as "required": false are optional and don't error when missing
+- Validation executes synchronously, returns array of human-friendly error messages
+- Integration point: workflow-executor.ts checks validations in sequence before step enhancement
+
+### Gotchas
+- vm2 sandbox has 1-second timeout - infinite loops fail gracefully
+- Whitespace-only strings treated as missing for "exists" operator
+- Profile must match a rules file name (booking-validators-{profile}.json), otherwise returns valid: true (fail-open)
+- evaluateRuleUnsafed() exported for testing to avoid vm2 overhead in unit tests
+
+### Quality checks
+✅ npm run build: SUCCESS (2.8MB, 6 pre-existing warnings only)
+✅ npm run test tests/workflow-validator.test.ts: SUCCESS (26/26 tests pass)
+✅ Integration verified: validateBookingStep() integrated into workflow-executor.ts
+✅ No new TypeScript errors introduced
+✅ prd.json updated: US-616.passes = true
+
