@@ -481,3 +481,39 @@ FAILED diagnosis-block gate: Add Data-Makan Profile Workflow Validation Tests wi
 ## Iteration 2 - Tue, Apr 14, 2026  4:23:03 PM
 Completed: Add Data-Makan Profile Workflow Validation Tests with Cafe-Specific Content Assertions (ID: US-626) in 2m
 
+
+## Iteration 7 - Story: US-628 - Add Intent Classification Explainability Endpoint with Keyword Matches and Confidence Scores
+### What was implemented
+- Created `src/assistant/intent-classifier.ts` (~130 lines)
+  - `explainIntentClassification(message, profile)` function
+  - Returns {intent, confidence, matchedKeywords, classificationMethod, processingTime}
+  - Profile-aware keyword loading (falls back to default intent-keywords.json)
+  - Scoring: exact match (1.0), substring (0.85), word partial (0.65), prefix fuzzy (0.5)
+  - Classification method: 'keyword_match' if best score >= 0.5, otherwise 'fallback'
+
+- Created `src/routes/admin/debug.ts` (~55 lines)
+  - POST /admin/debug/intent-explain handler
+  - Accepts {message: string, profile?: string}
+  - Returns full classification result from explainIntentClassification()
+
+- Registered route in `src/routes/admin/index.ts` under `/debug` prefix
+
+- Created `tests/intent-explainability.test.ts` (17 tests)
+  - Unit tests for explainIntentClassification() — shape, values, sorting, fallback
+  - Integration auth tests — 401 without key, auth middleware logic
+  - Handler validation tests
+
+### Patterns discovered
+- Admin routes: import + `router.use('/debug', routerModule)` pattern in index.ts
+- Auth middleware: local IPs (127.0.0.1, ::1) bypass all auth automatically
+- Fuzzy prefix matching can false-positive on gibberish — use special chars (!, @) for "no match" tests
+- Profile-specific keyword files: `intent-keywords-{profileId}.json` pattern
+
+### Gotchas
+- Prefix fuzzy (3-char) can match "xyzzy" to keywords starting with "xyz" — avoid word gibberish in no-match tests; use non-alphanumeric chars instead
+- `with { type: 'json' }` import assertion required for JSON imports in this project
+- Empty profile string handled by treating '' as default 'pelangi' in the route handler
+
+### Quality checks
+- npm run build: SUCCESS (2.9MB dist/index.js, pre-existing warnings only)
+- vitest run tests/intent-explainability.test.ts: 17/17 PASS

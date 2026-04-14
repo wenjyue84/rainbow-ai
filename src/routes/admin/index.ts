@@ -134,6 +134,7 @@ import intentLatencyMetricsRoutes from './intent-latency-metrics.js'; // US-552:
 import intentPromptsRoutes from './intent-prompts.js'; // US-554: Per-intent custom system prompt configuration
 import intentDebugRoutes from './intent-debug.js'; // US-591: Intent confidence score debugging endpoint
 import workflowMetricsRoutes from './workflow-metrics.js'; // US-623: Booking workflow step duration SLA monitoring
+import debugIntentExplainRoutes from './debug.js'; // US-628: Intent classification explainability endpoint
 
 const router = Router();
 
@@ -433,6 +434,7 @@ router.use(routingAuditRoutes);                   // US-343: Live message routin
 router.use(hardCasesRoutes);                      // US-376: Hard-case review queue with admin labeling
 router.use('/debug', debugExplainIntentRoutes);   // US-378: Intent classification explanation debugger
 router.use('/debug', intentDebugRoutes);          // US-591: Intent confidence score debugging endpoint
+router.use('/debug', debugIntentExplainRoutes);   // US-628: Intent classification explainability endpoint
 router.use('/validation', validationRoutes);      // US-470: Booking unit availability validation
 router.use(guestsQuickLookupRoutes);              // US-550: Guest context quick-lookup for booking pre-population
 router.use('/intents', intentPromptsRoutes);      // US-554: Per-intent custom system prompt configuration
