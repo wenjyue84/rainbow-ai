@@ -3797,17 +3797,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "sonnet",
-      "last_attempted": "2026-04-14T08:56:11Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nUS-628 was fully implemented in attempt 1 (Iteration 7). All three files exist:\n- `src/assistant/intent-classifier.ts` (4884 bytes) — `explainIntentClassification()` function\n- `src/routes/admin/debug.ts` (1736 bytes) — POST `/admin/debug/intent-explain` endpoint\n- `tests/intent-explainability.test.ts` (8117 bytes) — 17 tests\n\nThe previous attempt failed **only** because the diagnosis block was missing from the response text. The implementation itself was correct (17/17 tests passed, build succeeded).\n\n## Problem Identified\n\nStory US-628 `passes` is still `false` in `prd.json` because the SPIRAL gate rejected the previous attempt for lacking a diagnosis block. No code changes are needed — just need to verify the existing implementation still works and update `prd.json`.\n\n## Planned Changes\n\n- Run `npm run build` to verify build passes\n- Run `npx vitest run tests/intent-explainability.test.ts` to verify all 17 tests pass\n- Update `prd.json` to set `passes: true` for US-628\n- Append to `progress.txt` documenting this retry\n- Commit all changes\n\n---\n\nNow let me verify the existing implementation:\nBuild passes, 17/17 tests pass. Now update `prd.json` and document.\nNow commit:\nUS-628 is complete. \n\n**Summary:**\n- All implementation files existed from attempt 1: `src/assistant/intent-classifier.ts`, `src/routes/admin/debug.ts`, `tests/intent-explainability.test.ts`\n- Build: SUCCESS (2.9MB)\n- Tests: 17/17 PASS\n- `prd.json`: US-628 `passes: true`\n- Previous failure was solely the missing diagnosis block gate — no code changes needed"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 363,
-        "tokensAfterMasking": 362,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "model": "sonnet"
     },
     {
       "id": "US-629",
@@ -3870,6 +3860,26 @@
       "model": "haiku"
     },
     {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-633",
       "title": "Implement Intent Classification Low-Confidence Clarification Flow",
       "priority": "high",
@@ -3907,6 +3917,27 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
