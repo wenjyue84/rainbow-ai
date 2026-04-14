@@ -3261,7 +3261,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-14T04:22:42Z"
+      "last_attempted": "2026-04-14T05:55:28Z"
     },
     {
       "id": "US-606",
@@ -3668,6 +3668,52 @@
       "passes": false,
       "_source": "ai-example",
       "model": "sonnet"
+    },
+    {
+      "id": "US-623",
+      "title": "Create Admin CLI for Intent Classification Accuracy Testing on Custom Datasets",
+      "priority": "medium",
+      "description": "Admin CLI tool to evaluate intent classifier accuracy on custom test datasets. Load test cases (message + expected intent), run through classifier, report F1 scores, precision, recall, and confusion matrix per intent type.",
+      "acceptanceCriteria": [
+        "Load test dataset from JSON file: [{message: '...', intent: 'booking', language: 'en', profile: 'pelangi'}, ...]",
+        "Run full classification pipeline on each test case, compare predicted intent vs expected",
+        "Report per-intent metrics (precision, recall, F1), overall accuracy, and confusion matrix; output to JSON or table format"
+      ],
+      "technicalNotes": [
+        "File to edit: src/cli/index.ts (add new command: test:intent-accuracy <dataset-path> [--format json|table])",
+        "New file: src/cli/test-intent-accuracy.ts (implement runAccuracyTest function that loads JSON, runs classification, calculates metrics)",
+        "Create sample: tests/datasets/booking-accuracy-test.json (20-30 booking test cases covering edge cases)",
+        "Test command: npm run test -- tests/cli/test-intent-accuracy.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example"
+    },
+    {
+      "id": "US-623",
+      "title": "Implement Booking Workflow Step Duration SLA Monitoring with Batch Writes",
+      "priority": "high",
+      "description": "Implement system to monitor booking workflow step execution durations, track SLA violations, and batch-write metrics to database. Expose metrics via admin API endpoint with aggregated statistics (avg duration, P95, violations, trends).",
+      "acceptanceCriteria": [
+        "Admin API endpoint GET /api/rainbow/metrics/workflow-metrics?profile=pelangi returns {success, profile, timestamp, steps[], summary}",
+        "Step metrics include: name, avgDuration_ms, p95Duration_ms, slaViolations, totalSamples, trend (improving/degrading/stable)",
+        "Summary includes: totalSteps, totalSamples, totalSlaViolations, worstPerformingStep",
+        "Batch write metrics to database when buffer reaches threshold or timer triggers (300 samples or 60s)",
+        "Calculate trend by comparing current 24h avg vs previous 24h avg"
+      ],
+      "technicalNotes": [
+        "File to create/edit: src/lib/workflow-metrics.ts - add getProfileMetrics(profile) function",
+        "File to create/edit: src/lib/workflow-metrics.ts - add DurationMetrics interface and batch buffer",
+        "File to create/edit: src/lib/workflow-metrics.ts - add recordStepDuration(profile, step, durationMs)",
+        "File exists: src/routes/admin/workflow-metrics.ts - admin endpoint that calls getProfileMetrics",
+        "Test command: npm run test:run -- tests/routes/admin/workflow-metrics.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }

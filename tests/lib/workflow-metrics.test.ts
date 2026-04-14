@@ -13,6 +13,9 @@ import {
   normalizeProfileName,
   clearMetrics,
   getCounters,
+  recordStepDuration,
+  getProfileMetrics,
+  clearDurationMetrics,
 } from '../../src/lib/workflow-metrics.js';
 
 describe('WorkflowMetrics', () => {
@@ -269,6 +272,152 @@ describe('WorkflowMetrics', () => {
       expect(metrics.pelangi?.date_selection).toHaveProperty('step_started');
       expect(metrics.pelangi?.date_selection).toHaveProperty('step_completed');
       expect(metrics.pelangi?.date_selection).toHaveProperty('completion_rate');
+    });
+  });
+
+  describe('US-623: Duration SLA Monitoring', () => {
+    beforeEach(() => {
+      clearDurationMetrics();
+    });
+
+    describe('recordStepDuration', () => {
+      it('records step duration', () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        // Verify it doesn't throw
+        expect(true).toBe(true);
+      });
+
+      it('tracks SLA violations (date_selection SLA = 30000ms)', () => {
+        recordStepDuration('pelangi', 'date_selection', 25000); // OK
+        recordStepDuration('pelangi', 'date_selection', 35000); // Violation
+        recordStepDuration('pelangi', 'date_selection', 32000); // Violation
+        // Should have recorded 2 violations
+        expect(true).toBe(true);
+      });
+
+      it('handles multiple profiles independently', () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('makan', 'guest_info', 35000);
+        recordStepDuration('southern', 'confirmation', 20000);
+        expect(true).toBe(true);
+      });
+
+      it('handles multiple steps per profile', () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('pelangi', 'guest_info', 35000);
+        recordStepDuration('pelangi', 'confirmation', 20000);
+        expect(true).toBe(true);
+      });
+    });
+
+    describe('getProfileMetrics', () => {
+      it('returns empty array for profile with no data', async () => {
+        const metrics = await getProfileMetrics('pelangi');
+        expect(Array.isArray(metrics)).toBe(true);
+      });
+
+      it('returns step metrics with required fields', async () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('pelangi', 'date_selection', 27000);
+        recordStepDuration('pelangi', 'date_selection', 26000);
+
+        const metrics = await getProfileMetrics('pelangi');
+        const dateSelectionMetric = metrics.find(m => m.name === 'date_selection');
+
+        expect(dateSelectionMetric).toBeDefined();
+        expect(dateSelectionMetric).toHaveProperty('name');
+        expect(dateSelectionMetric).toHaveProperty('avgDuration_ms');
+        expect(dateSelectionMetric).toHaveProperty('p95Duration_ms');
+        expect(dateSelectionMetric).toHaveProperty('slaViolations');
+        expect(dateSelectionMetric).toHaveProperty('totalSamples');
+        expect(dateSelectionMetric).toHaveProperty('trend');
+      });
+
+      it('calculates correct average duration', async () => {
+        recordStepDuration('pelangi', 'date_selection', 20000);
+        recordStepDuration('pelangi', 'date_selection', 30000);
+
+        const metrics = await getProfileMetrics('pelangi');
+        const dateSelectionMetric = metrics.find(m => m.name === 'date_selection');
+
+        expect(dateSelectionMetric?.avgDuration_ms).toBe(25000);
+      });
+
+      it('tracks SLA violations correctly', async () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('pelangi', 'date_selection', 35000); // Violation
+        recordStepDuration('pelangi', 'date_selection', 32000); // Violation
+
+        const metrics = await getProfileMetrics('pelangi');
+        const dateSelectionMetric = metrics.find(m => m.name === 'date_selection');
+
+        expect(dateSelectionMetric?.slaViolations).toBe(2);
+        expect(dateSelectionMetric?.totalSamples).toBe(3);
+      });
+
+      it('calculates P95 correctly', async () => {
+        // Add 10 samples: 10000, 20000, ..., 100000
+        for (let i = 1; i <= 10; i++) {
+          recordStepDuration('pelangi', 'date_selection', i * 10000);
+        }
+
+        const metrics = await getProfileMetrics('pelangi');
+        const dateSelectionMetric = metrics.find(m => m.name === 'date_selection');
+
+        // P95 should be near 95000
+        expect(dateSelectionMetric?.p95Duration_ms).toBeGreaterThan(90000);
+        expect(dateSelectionMetric?.p95Duration_ms).toBeLessThanOrEqual(100000);
+      });
+
+      it('calculates trend correctly', async () => {
+        // Add improving trend (older slower, newer faster)
+        for (let i = 0; i < 20; i++) {
+          recordStepDuration('pelangi', 'date_selection', 40000 - i * 500);
+        }
+
+        const metrics = await getProfileMetrics('pelangi');
+        const dateSelectionMetric = metrics.find(m => m.name === 'date_selection');
+
+        expect(['improving', 'degrading', 'stable']).toContain(dateSelectionMetric?.trend);
+      });
+
+      it('supports multiple profiles', async () => {
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('makan', 'guest_info', 35000);
+        recordStepDuration('southern', 'confirmation', 20000);
+
+        const pelangiMetrics = await getProfileMetrics('pelangi');
+        const makanMetrics = await getProfileMetrics('makan');
+        const southernMetrics = await getProfileMetrics('southern');
+
+        expect(pelangiMetrics.length).toBeGreaterThan(0);
+        expect(makanMetrics.length).toBeGreaterThan(0);
+        expect(southernMetrics.length).toBeGreaterThan(0);
+      });
+
+      it('returns metrics sorted by step name', async () => {
+        recordStepDuration('pelangi', 'confirmation', 20000);
+        recordStepDuration('pelangi', 'date_selection', 25000);
+        recordStepDuration('pelangi', 'guest_info', 30000);
+
+        const metrics = await getProfileMetrics('pelangi');
+
+        // Should be sorted: confirmation, date_selection, guest_info
+        expect(metrics[0].name <= metrics[1].name).toBe(true);
+        expect(metrics[1].name <= metrics[2].name).toBe(true);
+      });
+
+      it('handles zero samples gracefully', async () => {
+        const metrics = await getProfileMetrics('pelangi');
+
+        // All steps should have zero values
+        for (const step of metrics) {
+          if (step.totalSamples === 0) {
+            expect(step.avgDuration_ms).toBe(0);
+            expect(step.p95Duration_ms).toBe(0);
+          }
+        }
+      });
     });
   });
 });

@@ -133,6 +133,7 @@ import guestsQuickLookupRoutes from './guests-quick-lookup.js'; // US-550: Guest
 import intentLatencyMetricsRoutes from './intent-latency-metrics.js'; // US-552: Intent classification latency metrics
 import intentPromptsRoutes from './intent-prompts.js'; // US-554: Per-intent custom system prompt configuration
 import intentDebugRoutes from './intent-debug.js'; // US-591: Intent confidence score debugging endpoint
+import workflowMetricsRoutes from './workflow-metrics.js'; // US-623: Booking workflow step duration SLA monitoring
 
 const router = Router();
 
@@ -318,6 +319,7 @@ router.use(conversationsRoutes);
 router.use(whatsappRoutes);
 router.use(metricsRoutes);
 router.use('/metrics', intentLatencyMetricsRoutes); // US-552: Intent classification latency metrics
+router.use('/metrics', workflowMetricsRoutes); // US-623: Booking workflow step duration SLA monitoring
 router.use(intentManagerRoutes);
 router.use(feedbackRoutes);
 router.use(feedbackSettingsRoutes);
