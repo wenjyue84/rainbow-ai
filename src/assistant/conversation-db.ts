@@ -118,6 +118,8 @@ const BSUID_KEY_PREFIX = 'bsuid:';
 export function canonicalPhoneKey(phone: string): string {
   // US-477: Preserve BSUID-prefixed keys as-is
   if (phone.startsWith(BSUID_KEY_PREFIX)) return phone;
+  // LC-01: Preserve webchat session keys as-is (they contain digits that would be extracted)
+  if (phone.startsWith('webchat-')) return phone;
   const digits = phone.replace(/\D/g, '');
   return digits || phone.replace(/[^a-zA-Z0-9@._-]/g, '_');
 }
@@ -129,6 +131,8 @@ export function canonicalPhoneKey(phone: string): string {
  */
 export function conversationKey(from: string, bsuid?: string): string {
   const stripped = from.replace(/@.*$/, ''); // strip JID suffix
+  // LC-01: Preserve webchat session keys as-is
+  if (stripped.startsWith('webchat-')) return stripped;
   const digits = stripped.replace(/\D/g, '');
 
   // Real phone number: 7+ digits

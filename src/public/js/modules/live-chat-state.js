@@ -31,10 +31,18 @@ function getInitials(name) {
  * @param {string} fallbackInitials - Display name or text for initials
  */
 export function avatarImg(phone, fallbackInitials) {
-  var clean = (phone || '').replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9]/g, '');
+  var raw = phone || '';
+  var initials = getInitials(fallbackInitials);
+
+  // LC-01: Webchat users have no WhatsApp avatar — show colored initials directly
+  if (raw.startsWith('webchat-')) {
+    var bgColor = avatarColorFromPhone(raw);
+    return '<span class="avatar-initials" style="background:' + bgColor + '">' + escapeHtml(initials) + '</span>';
+  }
+
+  var clean = raw.replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9]/g, '');
   var src = '/api/rainbow/whatsapp/avatar/' + encodeURIComponent(clean);
   var bgColor = avatarColorFromPhone(clean);
-  var initials = getInitials(fallbackInitials);
   // onerror: retry once after 3s (avatar may be fetching in background), then show colored initials
   return '<img src="' + src +
     '" onerror="var i=this;if(!i.dataset.retried){i.dataset.retried=1;setTimeout(function(){i.src=\'' + src + '?\'+Date.now()},3000)}else{i.style.display=\'none\';i.nextElementSibling.style.display=\'\'}" loading="lazy">' +

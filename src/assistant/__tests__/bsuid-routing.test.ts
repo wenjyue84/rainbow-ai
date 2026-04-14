@@ -87,6 +87,11 @@ describe('conversationKey', () => {
   test('fallback: non-phone non-BSUID returns sanitized string', () => {
     expect(conversationKey('webchat-session-abc')).toBe('webchat-session-abc');
   });
+
+  test('webchat keys with digits are preserved as-is (LC-01)', () => {
+    expect(conversationKey('webchat-web_zjc78qz5_1774492351497')).toBe('webchat-web_zjc78qz5_1774492351497');
+    expect(conversationKey('webchat-web_8zcwkjuc_1776148858315')).toBe('webchat-web_8zcwkjuc_1776148858315');
+  });
 });
 
 // ─── canonicalPhoneKey ──────────────────────────────────────────────
@@ -105,5 +110,10 @@ describe('canonicalPhoneKey with BSUID support', () => {
 
   test('non-digit non-BSUID strings are sanitized', () => {
     expect(canonicalPhoneKey('webchat-abc')).toBe('webchat-abc');
+  });
+
+  test('webchat keys with digits are preserved as-is (LC-01)', () => {
+    expect(canonicalPhoneKey('webchat-web_zjc78qz5_1774492351497')).toBe('webchat-web_zjc78qz5_1774492351497');
+    expect(canonicalPhoneKey('webchat-web_8zcwkjuc_1776148858315')).toBe('webchat-web_8zcwkjuc_1776148858315');
   });
 });
