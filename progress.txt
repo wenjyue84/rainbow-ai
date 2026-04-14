@@ -1861,3 +1861,51 @@ This user story is for a TypeScript/Node.js project, not Python/Frappe. Here is 
 ## Iteration 1 - Tue, Apr 14, 2026  8:50:43 AM
 FAILED diagnosis-block gate: Implement Per-Profile Custom Validation Rules Engine for Booking Steps (ID: US-616) — no diagnosis block found — attempt 1/3
 
+
+## Pre-analysis for US-616 (Gemini 2.5 Pro)
+This user story is for a TypeScript/Node.js project, not Python/Frappe. Here is the technical brief for the specified TypeScript implementation:
+
+**Project:** rainbow-ai (TypeScript/Node.js)
+**Objective:** Implement a per-profile custom validation engine for the booking workflow.
+
+**1. Files to Modify/Create:**
+*   **Create:** `src/assistant/workflow-validator.ts` - This new file will contain the core rule evaluation logic.
+*   **Create:** `src/assistant/data/booking-validators-pelangi.json` - Defines validation rules for the 'pelangi' profile (e.g., age checks).
+*   **Create:** `src/assistant/data/booking-validators-makan.json` - Defines rules for the 'makan' profile (e.g., dietary restrictions).
+*   **Modify:** The existing booking workflow module (not specified, but likely where booking steps are processed) to call the new validation service.
+
+**2. Key Architectural Components:**
+*   **Function:** `validateBookingStep()` in `workflow-validator.ts` will be the entry point for executing validation.
+*   **Data Structures:** The `booking-validators-*.json` files define the rules using a `field`, `operator`, `value`, and `message` schema.
+
+**3. Recommended Implementation Approach:**
+1.  In `workflow-validator.ts`, create the `validateBookingStep()` function.
+2.  It should dynamically read the appropriate `booking-validators-{profile}.json` file based on the current user's profile.
+3.  For each rule in the JSON, use the `vm2` library to create a secure sandbox.
+4.  Evaluate the booking data against the rule's logic (e.g., `sandbox.run("data.age >= 18")`).
+5.  If any rule evaluation returns `false`, the function should immediately throw an exception containing the rule's specific error `message`.
+
+**4. Edge Cases & Gotchas:**
+*   **Security:** The `vm2` sandbox is critical to prevent code injection from the JSON rules. Ensure it's configured with strict permissions.
+*   **Input Validation:** The data passed to the validator must be sanitized to prevent unexpected evaluation errors.
+*   **Rule Schema:** The validator must handle potential syntax errors or missing fields in the JSON rule files gracefully.
+*   **Contextual Errors:** Ensure the exact error `message` from the failed rule is bubbled up to the UI to provide clear, actionable feedback to the user.
+
+
+## Iteration [124] - Story: US-616 - Implement Per-Profile Custom Validation Rules Engine for Booking Steps (Attempt 2 - Re-verification)
+
+### What was implemented
+- All files were already created in attempt 1 (gate failure only, not code failure)
+  * src/assistant/workflow-validator.ts — validateBookingStep(), loadValidationRules(), evaluateRule()
+  * src/assistant/data/booking-validators-pelangi.json — 5 hostel rules (age>=18, required fields)
+  * src/assistant/data/booking-validators-makan.json — 6 cafe rules (party_size, dietary)
+  * tests/workflow-validator.test.ts — 26 tests covering all AC
+
+### Re-verification results
+- npm run test tests/workflow-validator.test.ts: 26/26 PASS ✅
+- npm run build: SUCCESS (2.8MB, 6 pre-existing warnings only) ✅
+- prd.json: US-616.passes = true ✅
+
+### Gotchas
+- Attempt 1 failed at a process gate (diagnosis block missing), NOT at code level
+- All files persisted from attempt 1 — re-verification confirmed everything still works
