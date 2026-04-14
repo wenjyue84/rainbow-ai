@@ -12,6 +12,9 @@ import type { ChatMessage } from '../assistant/types.js';
 import { configStore } from '../assistant/config-store.js';
 import intentKeywordsData from '../assistant/data/intent-keywords.json' assert { type: 'json' };
 import { validateMessageOrdering } from './message-ordering-validator.js';
+import { db } from './db.js';
+import { rainbowMessages } from '../../shared/schema-tables.js';
+import { and, eq, orderBy, limit } from 'drizzle-orm';
 
 interface PruningConfig {
   contextPruningWindowMinutes: number;
@@ -147,4 +150,26 @@ export function getPruningReport(
     windowMinutes: config.contextPruningWindowMinutes,
     intentKeywords,
   };
+}
+
+/**
+ * Get conversation context messages for a specific profile.
+ * Enforces profile isolation by filtering messages via profile_id in WHERE clause.
+ *
+ * @param profileId - The profile ID (e.g., 'pelangi', 'makan', 'southern')
+ * @param limit_count - Maximum number of messages to retrieve (default: 10)
+ * @returns Array of messages for this profile only
+ */
+export async function getConversationContext(
+  profileId: string,
+  limit_count: number = 10
+): Promise<Array<{ phone: string; role: string; content: string; timestamp: Date; profileId: string }>> {
+  const messages = await db
+    .select()
+    .from(rainbowMessages)
+    .where(eq(rainbowMessages.profileId, profileId))
+    .orderBy(rainbowMessages.timestamp)
+    .limit(limit_count);
+
+  return messages;
 }

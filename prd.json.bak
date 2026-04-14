@@ -3687,10 +3687,11 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-14T05:30:54Z"
+      "last_attempted": "2026-04-14T05:30:54Z",
+      "_scopeCreep": true
     },
     {
       "id": "US-624",
@@ -3731,8 +3732,9 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example"
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-626",
@@ -3752,8 +3754,9 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example"
+      "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-627",
@@ -3769,6 +3772,190 @@
         "File to edit: src/assistant/pipeline/intent-classifier.ts (add matchKeywordsWithFuzzy method, ~40 lines)",
         "File to create: src/lib/levenshtein.ts (distance calculator utility, ~25 lines)",
         "Test command: npm run test -- src/tests/intent-classifier.test.ts -t 'Levenshtein'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-628",
+      "title": "Add Intent Classification Explainability Endpoint with Keyword Matches and Confidence Scores",
+      "priority": "high",
+      "description": "Create a POST /admin/debug/intent-explain endpoint that returns which keywords matched, AI confidence scores, the selected intent, and fallback reason. This helps developers understand classification decisions, supporting goal #1 (improve intent classification accuracy) and #6 (prioritize reliability).",
+      "acceptanceCriteria": [
+        "POST /admin/debug/intent-explain accepts {message: string, profile: string} and returns {intent: string, confidence: number, matchedKeywords: [{keyword: string, score: number}], classificationMethod: 'keyword_match'|'ai_classification'|'fallback', processingTime: number}",
+        "Unit test in tests/intent-explainability.test.ts verifies matched keywords and confidence scores for known test messages",
+        "Integration test confirms endpoint returns 401 without proper admin authentication"
+      ],
+      "technicalNotes": [
+        "Add POST handler in src/routes/admin/debug.ts that calls explainIntentClassification() from src/assistant/intent-classifier.ts; modify IntentClassifier.classify() to return metadata including matched keywords and scores",
+        "Test command: npm run test -- tests/intent-explainability.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": true,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-629",
+      "title": "Implement Conversation Profile Isolation Validation Integration Tests",
+      "priority": "high",
+      "description": "Add integration tests ensuring conversations from one business profile never leak into another profile's context window. Directly addresses goal #7 (enforce strict business profile separation) by catching cross-profile contamination bugs.",
+      "acceptanceCriteria": [
+        "Test creates 2 conversations in profile-pelangi and 2 in profile-makan, then verifies getConversationContext(profileId='pelangi', limit=10) returns 0 messages from makan conversations",
+        "Test confirms that conversation retrieval query in src/lib/conversation-context.ts filters by profile_id in WHERE clause",
+        "Teardown deletes test data from both profiles without affecting other test isolation"
+      ],
+      "technicalNotes": [
+        "Add tests/integration/profile-isolation.test.ts with setup/teardown using test DB from tests/setup.ts; call getConversationContext() from src/lib/conversation-context.ts with profile-specific queries",
+        "Test command: npm run test -- tests/integration/profile-isolation.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-630",
+      "title": "Implement Tamil Translation Coverage Audit Across All Configuration Files",
+      "priority": "high",
+      "description": "Create a comprehensive audit CLI scanning all JSON configuration and markdown files to report Tamil translation completeness. Extends goal #9 (enhance multilingual support) by showing exactly which files and sections need Tamil translations.",
+      "acceptanceCriteria": [
+        "CLI: npm run audit:tamil-coverage outputs report with % Tamil coverage per file (e.g., 'workflows.json: 85% complete', 'knowledge.json: 72% complete') and list of untranslated sections",
+        "Report identifies and flags hardcoded English strings in files that should be bilingual (checks for en_* and ta_* key pairs in JSON)",
+        "Test verifies report correctly identifies a test file with 0% Tamil coverage and one with 100%"
+      ],
+      "technicalNotes": [
+        "Create src/cli/audit-tamil-coverage.ts recursively scanning src/assistant/data/*.json and .rainbow-kb/*.md; for JSON, count en_* vs ta_* key pairs; for markdown, count {{en:*}} vs {{ta:*}} template placeholders",
+        "Test command: npm run test -- tests/cli/audit-tamil-coverage.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-631",
+      "title": "Add Intent Keyword-vs-AI Classification Performance Benchmarking CLI",
+      "priority": "medium",
+      "description": "Create a CLI tool benchmarking T2 (keyword matching) versus T3 (AI classification) latency and accuracy. Supports goal #1 (improve accuracy) and #11 (optimize performance) by showing when keyword-only matching is sufficient versus when AI classification is required.",
+      "acceptanceCriteria": [
+        "CLI: npm run benchmark:intent-classification [--profile=pelangi] runs 100 sample messages through both T2 and T3 paths, outputs CSV with columns: intent_name, keyword_match_ms, ai_match_ms, accuracy_t2, accuracy_t3",
+        "Output includes summary line with avg latency per method and a recommendation (e.g., 'Consider keyword-only for 60% time savings with 5% accuracy loss')",
+        "Test verifies output CSV is valid and summary recommendation is included"
+      ],
+      "technicalNotes": [
+        "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
+        "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-633",
+      "title": "Implement Intent Classification Low-Confidence Clarification Flow",
+      "priority": "high",
+      "description": "When intent classifier confidence falls below threshold (0.6), generate 2-3 context-aware clarifying questions to help the guest specify their intent more clearly, improving classification accuracy on retry.",
+      "acceptanceCriteria": [
+        "Response processor checks confidence score; if < 0.6, loads clarifying-questions.json for that intent and generates 2 context-specific questions based on last 3 messages in conversation",
+        "Clarifying questions are returned as interactive response with button options (e.g., 'Are you asking about [option1] or [option2]?')",
+        "Tests verify that low-confidence booking intents generate different clarification questions than low-confidence inquiry intents"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/response-processor.ts (add low-confidence handler before sending response)",
+        "File to create: src/assistant/data/clarifying-questions.json with intent-specific question templates",
+        "Test command: npm run test -- tests/clarification-flow.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-634",
+      "title": "Add Knowledge Base Document Relevance Filtering for Context Assembly",
+      "priority": "high",
+      "description": "Improve response quality by filtering knowledge base documents based on relevance to the detected intent. Exclude low-relevance KB entries that add noise to the AI context and may trigger irrelevant responses.",
+      "acceptanceCriteria": [
+        "Context assembler scores KB documents against intent keywords using cosine similarity (0-1 scale); includes only documents with relevance score >= 0.7 in context prompt",
+        "Logs skipped documents to debug output: {intent, doc_id, score, reason='below_threshold'} for monitoring KB quality",
+        "Tests verify that booking intent includes booking KB docs but excludes inquiry templates, and that profile-specific docs are preferred over generic docs"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/kb-relevance-scorer.ts (scoring logic with TF-IDF or simple cosine similarity)",
+        "File to edit: src/assistant/context-assembler.ts (filter KB results before building context)",
+        "Test command: npm run test -- tests/kb-relevance.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-636",
+      "title": "Implement Intent Classification Performance Regression Detector CLI",
+      "priority": "high",
+      "description": "Weekly accuracy regression detection comparing current period against baseline. Alert when accuracy drops > 2% for any profile or intent type to catch model drift early.",
+      "acceptanceCriteria": [
+        "CLI command `npm run cli check-regression [--profile=pelangi]` compares current 7-day window accuracy against previous 7-day baseline",
+        "Output JSON with per-intent regression delta, overall accuracy_current, accuracy_baseline, regression_percentage, and flagged_intents array",
+        "Exits with code 1 if regression > 2%, code 0 if within tolerance; includes per-profile breakdown"
+      ],
+      "technicalNotes": [
+        "File to edit: src/tools/regression-detector.ts - implement calculateRegression(profile, currentData, baselineData) function",
+        "File to edit: src/lib/analytics.ts - add queryIntentAccuracy(profile, startDate, endDate) helper",
+        "Test command: npm run test tests/tools.test.ts -- --grep 'regression detector'"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

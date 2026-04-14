@@ -3815,9 +3815,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-14T09:23:49Z"
     },
     {
       "id": "US-630",
@@ -3852,26 +3853,6 @@
       "technicalNotes": [
         "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
         "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
-      ],
-      "dependencies": [],
-      "estimatedComplexity": "small",
-      "passes": false,
-      "_source": "ai-example",
-      "model": "haiku"
-    },
-    {
-      "id": "US-632",
-      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
-      "priority": "medium",
-      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
-      "acceptanceCriteria": [
-        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
-        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
-        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
-      ],
-      "technicalNotes": [
-        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
-        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -3922,22 +3903,22 @@
       "model": "haiku"
     },
     {
-      "id": "US-635",
-      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
-      "priority": "medium",
-      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "id": "US-636",
+      "title": "Implement Intent Classification Performance Regression Detector CLI",
+      "priority": "high",
+      "description": "Weekly accuracy regression detection comparing current period against baseline. Alert when accuracy drops > 2% for any profile or intent type to catch model drift early.",
       "acceptanceCriteria": [
-        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
-        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
-        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+        "CLI command `npm run cli check-regression [--profile=pelangi]` compares current 7-day window accuracy against previous 7-day baseline",
+        "Output JSON with per-intent regression delta, overall accuracy_current, accuracy_baseline, regression_percentage, and flagged_intents array",
+        "Exits with code 1 if regression > 2%, code 0 if within tolerance; includes per-profile breakdown"
       ],
       "technicalNotes": [
-        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
-        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
-        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+        "File to edit: src/tools/regression-detector.ts - implement calculateRegression(profile, currentData, baselineData) function",
+        "File to edit: src/lib/analytics.ts - add queryIntentAccuracy(profile, startDate, endDate) helper",
+        "Test command: npm run test tests/tools.test.ts -- --grep 'regression detector'"
       ],
       "dependencies": [],
-      "estimatedComplexity": "medium",
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
