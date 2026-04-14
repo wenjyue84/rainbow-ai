@@ -3429,6 +3429,71 @@
       "model": "haiku"
     },
     {
+      "id": "US-613",
+      "title": "Implement Knowledge Base Last-Accessed Tracking with Stale Content Detection",
+      "priority": "medium",
+      "description": "Track when KB files were last retrieved and modified. Identify unused or outdated knowledge base content that should be refreshed or removed, improving KB quality and relevance.",
+      "acceptanceCriteria": [
+        "Add last_accessed_at and access_count columns to rainbow_kb_files schema; run npm run db:push",
+        "Update last_accessed_at timestamp in response processor whenever KB content is retrieved for response generation",
+        "New CLI command: npm run kb:stale -- --profile=pelangi --days-since-update=60 --days-since-access=30 lists KB files matching criteria"
+      ],
+      "technicalNotes": [
+        "Update src/assistant/pipeline/response-processor.ts in KB retrieval section (function retrieveKnowledgeBase or similar)",
+        "Create src/cli/kb-stale-detector.ts to query rainbow_kb_files with WHERE (NOW() - updated_at > interval '60 days' OR access_count = 0)",
+        "Test with: npm run test -- src/cli/kb-stale-detector.test.ts; verify mock returns correct stale file list"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-614",
+      "title": "Implement Message Queueing for Offline Scenarios with Retry on Reconnection",
+      "priority": "medium",
+      "description": "Queue outbound WhatsApp messages when Baileys connection drops. Automatically retry queued messages when connection is restored with exponential backoff. Prevents message loss during network flaps and improves production resilience (Goal 10).",
+      "acceptanceCriteria": [
+        "When Baileys reports disconnected state, new outbound messages are queued to Redis with {recipient, message_text, intent, profile, timestamp}",
+        "Retry logic fires on 'connection_restored' event with exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped at 60s)",
+        "Logs queue size every 30s and emits WARN level alert if queue exceeds 100 messages"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/whatsapp/message-queue.ts (MessageQueue class using Redis with TTL 3600s, includes backoff calculation)",
+        "File to edit: src/lib/whatsapp/baileys-client.ts (add 'connection_lost' handler to enqueue, 'connection_restored' handler to dequeue and retry)",
+        "File to edit: src/lib/logger.ts (add queue_size and retry_attempts to structured log fields)",
+        "Test command: npm run test:run message-queue -- --grep 'should retry queued messages with exponential backoff'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-615",
+      "title": "Add Webhook Handler for Booking Confirmation Callbacks from External Systems",
+      "priority": "medium",
+      "description": "Implement secure webhook endpoint to receive booking confirmation callbacks from external reservation systems (Booking.com, Airbnb). Validate HMAC signatures, ensure idempotency, update conversation state, and send templated confirmation message to guest.",
+      "acceptanceCriteria": [
+        "New POST /webhooks/booking/confirmed endpoint in src/routes/webhooks/booking-confirmation.ts validates HMAC-SHA256 signature using WEBHOOK_SECRET env var, returns 401 for unsigned requests",
+        "Endpoint extracts booking_id, guest_phone, guest_name from JSON payload, performs idempotency check using booking_id+event_timestamp to prevent duplicate processing, updates rainbow_conversations.state = 'booking_confirmed'",
+        "After confirmation, sends WhatsApp message to guest_phone with booking confirmation template from src/assistant/data/knowledge.json, logs event with status/error to webhook_events table"
+      ],
+      "technicalNotes": [
+        "File to create: src/routes/webhooks/booking-confirmation.ts (POST handler with signature/idempotency validation)",
+        "File to create: src/lib/webhook-validator.ts (exports validateWebhookSignature function using crypto.timingSafeEqual)",
+        "Test command: npm run test:run -- tests/unit/webhook-validator.test.ts",
+        "Add WEBHOOK_SECRET to .env.example, create webhook_events table migration if missing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-616",
       "title": "Implement Per-Profile Custom Validation Rules Engine for Booking Steps",
       "priority": "high",
@@ -3497,6 +3562,28 @@
       "_passedCommit": "c655d42c767bc421ef6a83d4e697248ab09972cf"
     },
     {
+      "id": "US-618",
+      "title": "Implement Conversation Message Snapshot Inspector CLI for Recovery Validation",
+      "priority": "medium",
+      "description": "Create a CLI tool to validate conversation state snapshots used in recovery flows, ensuring data integrity and completeness before restoration",
+      "acceptanceCriteria": [
+        "CLI command `uv run src/cli/validate-snapshots.ts --profile <name> --message-id <id>` validates a specific snapshot and returns pass/fail status",
+        "Output includes checksum verification, required field presence (conversation_id, messages array, timestamp, language), and any corruption warnings",
+        "`--report` flag generates summary: total snapshots, valid count, corrupted count, average size, oldest/newest snapshot timestamps"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/validate-snapshots.ts (parses argv, calls SnapshotValidator, outputs JSON or table)",
+        "File to create: src/lib/snapshot-validator.ts (SnapshotValidator class with validateSnapshot and generateReport methods)",
+        "File to modify: src/lib/recovery-manager.ts (ensure snapshots are stored with checksums in existing recovery storage)",
+        "Test command: uv run vitest tests/lib/snapshot-validator.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-619",
       "title": "Add Intent Classification Provider Latency Tracking with Timeout-Based Fallback to Keyword Matching",
       "priority": "high",
@@ -3517,6 +3604,27 @@
       "_source": "ai-example",
       "last_attempted": "2026-04-14T03:11:23Z",
       "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files."
+    },
+    {
+      "id": "US-620",
+      "title": "Add Intent Classification Tier 0 Regex Patterns for Ultra-Fast Phone Number Extraction",
+      "priority": "medium",
+      "description": "Add phone number extraction regex patterns to T0 classifier to avoid database lookups for booking intents containing phone numbers. Detect Malaysian (+601XX) and local (01XX) formats in user input to skip intent_keywords table query.",
+      "acceptanceCriteria": [
+        "Add phone number regex patterns in src/assistant/pipeline/classifier-t0.ts supporting Malaysian (+60123456789) and local (01234567890) formats",
+        "Populate intent_keywords.json with phonePatterns object per profile (pelangi, southern, makan) mapping extracted numbers to booking intent",
+        "Unit tests pass in tests/unit/assistant/classifier-t0.test.ts verifying phone extraction triggers instant booking classification"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/classifier-t0.ts (addPhoneNumberExtractor function)",
+        "Config file: src/assistant/data/intent-keywords.json (add phonePatterns object per profile)",
+        "Test command: npm run test:run -- tests/unit/assistant/classifier-t0.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-621",
@@ -3541,6 +3649,27 @@
       "last_attempted": "2026-04-14T04:44:12Z"
     },
     {
+      "id": "US-622",
+      "title": "Add Conversation State Snapshot Export CLI for Multi-Turn Debugging",
+      "priority": "medium",
+      "description": "Implement CLI command to export conversation state snapshots as JSON for debugging multi-turn dialogue issues. Snapshots include message history, language preference, detected intents with confidence scores, and workflow state at each turn, enabling replay and root-cause analysis.",
+      "acceptanceCriteria": [
+        "CLI command `npm run snapshot:export -- <conversation_id>` outputs JSON with structure: {messages[], language, intent_history[], workflow_state, confidence_scores, timestamp}",
+        "Snapshot parser `npm run snapshot:replay -- <snapshot_file>` loads and validates schema, can re-execute workflow steps against saved state for alternative provider testing",
+        "tests/cli/snapshot.test.ts includes round-trip assertion: export snapshot → parse → verify all fields match original conversation state"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/snapshot.ts (export exportConversationSnapshot(conversationId: string): Promise<SnapshotJSON>)",
+        "File to create: src/lib/snapshot-parser.ts (export loadSnapshot(filePath: string) → ConversationSnapshot, replaySnapshot(snapshot) → void)",
+        "Test command: npm run test:run -- tests/cli/snapshot.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
       "id": "US-623",
       "title": "Implement Booking Workflow Step Duration SLA Monitoring with Batch Writes",
       "priority": "high",
@@ -3563,6 +3692,27 @@
       "model": "haiku",
       "last_attempted": "2026-04-14T05:30:54Z",
       "_scopeCreep": true
+    },
+    {
+      "id": "US-624",
+      "title": "Implement Intent Keyword Overlap Detection and Conflict Report CLI",
+      "priority": "medium",
+      "description": "Add CLI tool to scan intent-keywords.json across profiles and detect keywords shared by multiple intents. High overlap creates ambiguous intent boundaries and misclassifications. Report generated with overlap severity and suggests exclusions or reweighting per profile.",
+      "acceptanceCriteria": [
+        "CLI command npm run audit:keyword-overlap --profile pelangi scans src/assistant/data/pelangi/intent-keywords.json and outputs JSON: {keyword, intents: [...], count, severity: 'high'|'medium'|'low'}",
+        "Tool groups overlaps by language and calculates impact score based on keyword frequency and intent importance",
+        "Tests validate overlap detection algorithm with fixture keyword files and verify report generation matches expected output"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/keyword-overlap-auditor.ts (main CLI implementation with overlap detection algorithm)",
+        "File to edit: src/cli/index.ts (register new CLI command)",
+        "Test command: npm run test tests/cli/keyword-overlap-auditor.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-625",
@@ -3605,6 +3755,27 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": true,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-627",
+      "title": "Add Intent Keyword Typo Tolerance with Levenshtein Distance Matching",
+      "priority": "medium",
+      "description": "Improve intent classification accuracy by allowing fuzzy matching of keywords with Levenshtein distance ≤2. When primary keyword matching fails (confidence <0.7), fall back to typo-tolerant matching to catch misspellings like 'chck-in' for 'check-in' or 'resevasion' for 'reservation'.",
+      "acceptanceCriteria": [
+        "Intent classifier in src/assistant/pipeline/intent-classifier.ts implements Levenshtein distance check for keywords when base confidence <0.7, with configurable threshold per intent",
+        "Typo matching distance is configured in src/assistant/data/intent-keywords.json with optional 'levenshtein_distance' field per intent (defaults to 2 if omitted)",
+        "CLI command 'npm run cli:test-typo-matching -- --profile pelangi --intent booking' demonstrates typo matches with distance scores and matched keywords for validation"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts (add matchKeywordsWithFuzzy method, ~40 lines)",
+        "File to create: src/lib/levenshtein.ts (distance calculator utility, ~25 lines)",
+        "Test command: npm run test -- src/tests/intent-classifier.test.ts -t 'Levenshtein'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     },
@@ -3672,6 +3843,46 @@
       "last_attempted": "2026-04-14T09:49:40Z"
     },
     {
+      "id": "US-631",
+      "title": "Add Intent Keyword-vs-AI Classification Performance Benchmarking CLI",
+      "priority": "medium",
+      "description": "Create a CLI tool benchmarking T2 (keyword matching) versus T3 (AI classification) latency and accuracy. Supports goal #1 (improve accuracy) and #11 (optimize performance) by showing when keyword-only matching is sufficient versus when AI classification is required.",
+      "acceptanceCriteria": [
+        "CLI: npm run benchmark:intent-classification [--profile=pelangi] runs 100 sample messages through both T2 and T3 paths, outputs CSV with columns: intent_name, keyword_match_ms, ai_match_ms, accuracy_t2, accuracy_t3",
+        "Output includes summary line with avg latency per method and a recommendation (e.g., 'Consider keyword-only for 60% time savings with 5% accuracy loss')",
+        "Test verifies output CSV is valid and summary recommendation is included"
+      ],
+      "technicalNotes": [
+        "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
+        "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-633",
       "title": "Implement Intent Classification Low-Confidence Clarification Flow",
       "priority": "high",
@@ -3725,6 +3936,27 @@
       "_passedCommit": "d13fdc7d732b44f67b4b3a9ded6e55ef5f432ece"
     },
     {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-636",
       "title": "Implement Intent Classification Performance Regression Detector CLI",
       "priority": "high",
@@ -3744,17 +3976,73 @@
       "passes": true,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-14T11:43:18Z",
-      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me read the required files first.\nNow let me check if the files from the previous attempt already exist:\nAll files from the previous attempt already exist. The implementation was completed but the story was marked as failed only because the diagnosis block was missing before edits. Let me verify everything works correctly.\n\n---\n\n## Current State\n\nThe previous attempt successfully created all required files:\n- `src/lib/analytics.ts` — `queryIntentAccuracy()` helper\n- `src/tools/regression-detector.ts` — `calculateRegression()` core function  \n- `src/tools/regression-detector-cli.ts` — CLI entrypoint\n- `tests/tools/regression-detector.test.ts` — unit tests\n- `package.json` — `check:regression` script added\n\n## Problem Identified\n\nStory US-636 requires a CLI tool that detects intent classification accuracy regressions by comparing current 7-day vs previous 7-day windows. The previous attempt completed the implementation but was blocked by a diagnosis gate check.\n\n## Planned Changes\n\n- Verify all files are correct and complete\n- Run build and tests to confirm passing\n- Update `prd.json` to mark `passes: true`\n- Commit and document\nBuild passes. 8/8 tests pass. Now update `prd.json`:\nUS-636 is complete.\n\n**Summary:**\n- All implementation files were already created in the previous attempt (the failure was only due to a missing diagnosis block output)\n- Verified: 8/8 tests pass, build succeeds\n- Marked `passes: true` in `prd.json` and committed"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 336,
-        "tokensAfterMasking": 334,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "last_attempted": "2026-04-14T11:20:20Z"
+    },
+    {
+      "id": "US-637",
+      "title": "Add Profile-Level Default Language Preference in Settings to Optimize DB Queries",
+      "priority": "medium",
+      "description": "Load default language preference per profile from settings.json at startup, allowing intent classifier to skip DB query when guest has no explicit language preference stored.",
+      "acceptanceCriteria": [
+        "settings.json includes `defaultLanguage` key per profile object (e.g., 'pelangi': { 'defaultLanguage': 'en', ... }); loaded into memory at startup and refreshed on profile hot-reload",
+        "IntentClassifier.getLanguagePreference(guestId, profileId) checks lookup chain: guest_language_preference DB record > profile default language > fallback 'en'; skips DB query if guest record not found and profile default exists",
+        "Unit test verifies preference lookup returns profile default when guest preference not in DB, and guest preference overrides profile default when present"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/settings.json (add defaultLanguage: 'en' to each profile)",
+        "File to edit: src/assistant/intent-classifier.ts (update getLanguagePreference method to check profile default)",
+        "File to edit: tests/intent-classifier.test.ts (add test for preference lookup chain)",
+        "Test command: npm run test -- tests/intent-classifier.test.ts -t 'getLanguagePreference'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-638",
+      "title": "Add No-Show Detection and Automated Guest Follow-Up Handler",
+      "priority": "medium",
+      "description": "Implement background job that detects guests who checked in but failed to check out within expected timeframe, automatically triggering follow-up message via existing workflow to recover abandoned bookings.",
+      "acceptanceCriteria": [
+        "Background job runs every 6 hours via node-cron, queries bookings with checked_in=true and no checkout_timestamp for >12 hours, triggers 'no_show_followup' workflow intent for each guest",
+        "Follow-up message respects guest language preference and uses profile-specific recovery template from workflows.json; updates booking record with no_show_timestamp and no_show_status='contacted'",
+        "Admin GET /admin/profiles/:profile/no-shows?days=7 endpoint returns list of no-show bookings in last N days with guest contact attempts and timestamps"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/no-show-detector.ts (job logic using pg query, workflow trigger call)",
+        "File to edit: src/index.ts (initialize background job on server startup)",
+        "File to edit: src/routes/admin/bookings.ts (add GET /no-shows endpoint handler)",
+        "File to create: tests/lib/no-show-detector.test.ts (mock DB, test job detection logic, test workflow trigger)",
+        "Test command: npm run test -- tests/lib/no-show-detector.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-639",
+      "title": "Add Tamil Language Bias Detection in Intent Classification",
+      "priority": "medium",
+      "description": "Detect message language composition (Tamil vs English percentage) and apply language-specific weighting to intent keywords to prevent bias towards English keywords in multilingual inputs.",
+      "acceptanceCriteria": [
+        "Language detector analyzes input message and returns tamilPercentage (0-100) using Tamil Unicode ranges (U+0B80-U+0BFF)",
+        "Intent keyword matching applies language weight boost: if message >= 50% Tamil, apply +0.2 confidence multiplier to Tamil keywords; if >= 50% English, apply +0.2 to English keywords",
+        "Classification logs detected language composition (debug level) with weights applied for each intent match"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/language-bias-detector.ts - exports detectLanguageComposition(message: string) returning {tamilPercentage, englishPercentage}",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts - call language-bias-detector in classifyIntent(), apply weights to confidence scores in keyword matching loop",
+        "Test command: npm run test tests/language-bias.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-640",
@@ -3777,8 +4065,73 @@
       "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-14T11:43:09Z"
+      "model": "haiku"
+    },
+    {
+      "id": "US-641",
+      "title": "Implement Guest Data Export Tool with Profile-Specific CSV/JSON Output",
+      "priority": "medium",
+      "description": "Create CLI tool to export guest records, booking history, and conversation summaries filtered by profile and date range. Enables data analysis and compliance reporting while enforcing profile isolation boundaries.",
+      "acceptanceCriteria": [
+        "CLI command npm run export:guests -- --profile pelangi --format csv --output ./exports/guests.csv exports guests to CSV with columns: phone, name, check_in_date, check_out_date, booking_status, sentiment",
+        "Export retrieves data from rainbow_guests and rainbow_conversations tables filtered by profile and contains zero records from other profiles (verified by integration test assertion)",
+        "Output file includes export metadata as header comments: timestamp, profile name, row count, and data sorted deterministically by guest_id"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/cli/export-guests.ts (CLI argument parser and orchestration)",
+        "File to create: src/lib/data-exporter.ts (CSV/JSON formatter, database queries)",
+        "File to create: tests/integration/export-guests.test.ts",
+        "Test command: npm run export:guests -- --profile pelangi --format csv --output /tmp/test.csv && wc -l /tmp/test.csv"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-642",
+      "title": "Create Tamil Unit Test Data Generator for Intent Classification Test Coverage",
+      "priority": "medium",
+      "description": "Generate diverse, realistic Tamil language test cases with expected intent classifications to improve test coverage for multilingual intent classification. Tests will validate accuracy across booking, inquiry, escalation, and greeting intents in Tamil.",
+      "acceptanceCriteria": [
+        "CLI command npm run test:generate-tamil-data creates 50+ Tamil test sentences, each labeled with expected intent classification (booking, inquiry, escalation, greeting) and profile context",
+        "Generated test data stored in tests/data/tamil-test-cases.json with structure: { sentence, language, intent, confidence_threshold, profile, expected_keywords }",
+        "Intent classification test suite tests/intent-classifier-tamil.test.ts validates Tamil accuracy with 90%+ assertion pass rate on generated data, including edge cases like Tamil numerals and date references"
+      ],
+      "technicalNotes": [
+        "File to create: scripts/generate-tamil-test-data.ts (use Ollama or Kimi K2.5 to generate realistic Tamil test cases)",
+        "File to create: tests/data/tamil-test-cases.json (store generated test fixtures)",
+        "File to create: tests/intent-classifier-tamil.test.ts (assertions validating classification accuracy per intent)",
+        "Test command: npm run test:generate-tamil-data && uv run vitest tests/intent-classifier-tamil.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-643",
+      "title": "Create Intent Keyword Phonetic Matching for Tamil and English Misspellings",
+      "priority": "medium",
+      "description": "Extend intent classification to match misspelled and phonetically similar keywords in both Tamil and English, improving classification accuracy for user messages with typos and transliteration variations.",
+      "acceptanceCriteria": [
+        "Phonetic matcher handles English misspellings (bookinng→booking, chck-in→check-in) and returns confidence score ≥ 0.7 for valid matches within edit distance ≤ 2",
+        "Tamil phonetic matching supports transliteration variants (பூக்கிங் via romanization matches booking) using Tamil grapheme cluster normalization; test includes 20+ common misspellings per language",
+        "IntentClassifier uses phonetic matcher before exact keyword lookup; mismatches with confidence > 0.7 are cached per-profile to avoid repeated matching on identical inputs"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/phonetic-matcher.ts (Levenshtein distance matching + Tamil transliteration via diacritic normalization)",
+        "File to edit: src/assistant/intent-classifier.ts (integrate matcher in keyword matching pipeline before exact lookup)",
+        "File to create: tests/phonetic-matcher.test.ts (test English misspellings, Tamil variants, confidence scoring)",
+        "Test command: uv run vitest tests/phonetic-matcher.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     },
     {
       "id": "US-644",
@@ -3815,6 +4168,27 @@
         "Create src/lib/redis-pool.ts with RedisPool class wrapping redis.createClient() and connection state management",
         "Integrate health check into src/routes/admin/health.ts endpoint for server startup sequence",
         "Test command: npm run test -- tests/lib/redis-pool.test.ts --run"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-646",
+      "title": "Add Fallback Response Template Completeness Validator CLI",
+      "priority": "medium",
+      "description": "Create CLI tool that validates all intents have Tamil and English fallback response templates defined in workflows.json, generating completeness report with missing coverage gaps.",
+      "acceptanceCriteria": [
+        "CLI command: npm run validate:fallback-templates -- --profile pelangi outputs JSON {profile, totalIntents, coverageTa: 94%, coverageEn: 100%, missingTamil: [{intent, reason}], missingEnglish: [...]}",
+        "Validates existence and non-empty values for fallbackResponse_ta and fallbackResponse_en fields in each workflow intent definition",
+        "Exit code 1 if coverage < 100%, enables use in pre-commit hooks"
+      ],
+      "technicalNotes": [
+        "Create src/cli/validate-fallback-templates.ts that reads src/assistant/data/[profile]/workflows.json",
+        "Iterate intents array, check for required response template fields with length > 0",
+        "Test command: npm run test -- tests/cli/validate-fallback-templates.test.ts --run"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",

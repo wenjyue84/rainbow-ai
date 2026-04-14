@@ -15,6 +15,7 @@ import { checkSecretsHealth } from '../lib/secrets.js';
 import { getPoolMetrics } from '../lib/db.js';
 import { getWebhookHealthState } from '../lib/waba-webhook-health.js';
 import { getCompletionHealthStatus } from '../lib/workflow-metrics.js';
+import { getQueryLatencyPercentiles } from '../lib/metrics.js';
 
 // Track consecutive /health/ready checks where pool.waitingCount > 0
 let _poolWaitingStreak = 0;
@@ -224,6 +225,21 @@ router.get('/health/ready', async (req, res) => {
       ? `Pool pressure: ${poolMetrics.waiting} client(s) waiting (${_poolWaitingStreak} consecutive checks)`
       : `Pool healthy — total: ${poolMetrics.total}, idle: ${poolMetrics.idle}, waiting: ${poolMetrics.waiting}`
   } as { ok: boolean; detail?: string; pool: { total: number; idle: number; waiting: number } };
+
+  // 11. Query latency metrics (US-640: Slow Query Detection)
+  const queryLatencies = getQueryLatencyPercentiles();
+  const slowQueryThresholdMs = 200;
+  const slowQueryTypes = Object.entries(queryLatencies)
+    .filter(([, stats]) => stats.p95 > slowQueryThresholdMs)
+    .map(([type, stats]) => `${type}(p95=${stats.p95.toFixed(2)}ms)`);
+
+  checks.queryLatency = {
+    ok: slowQueryTypes.length === 0,
+    detail: slowQueryTypes.length > 0
+      ? `WARNING: Slow queries detected — ${slowQueryTypes.join(', ')}`
+      : `Query latency healthy (${Object.keys(queryLatencies).length} query type(s) tracked)`,
+    ...(Object.keys(queryLatencies).length > 0 && { latencies: queryLatencies }),
+  };
 
   const allHealthy = Object.values(checks).every(c => c.ok);
   // WhatsApp can be disconnected and system still works (manual mode)

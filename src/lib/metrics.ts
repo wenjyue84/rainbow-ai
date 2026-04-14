@@ -1,8 +1,10 @@
 /**
  * metrics.ts — Intent classification latency tracking per profile
+ * + Database query performance metrics (US-640)
  *
  * Tracks p50, p95, p99 percentiles for intent classification latency
  * per profile (pelangi, southern, makan) with SLA monitoring.
+ * Also tracks database query latencies for slow query detection.
  */
 
 import { createModuleLogger } from './logger.js';
@@ -28,6 +30,14 @@ export interface LatencyMetrics {
   [key: string]: LatencyStats | undefined;
 }
 
+export interface QueryMetric {
+  queryType: string;
+  durationMs: number;
+  tableNames: string[];
+  profile: string;
+  executedAt: Date;
+}
+
 // ─── In-Memory Storage ───────────────────────────────────────────────
 
 const latencySamples: Map<string, number[]> = new Map([
@@ -35,6 +45,10 @@ const latencySamples: Map<string, number[]> = new Map([
   ['southern', []],
   ['makan', []],
 ]);
+
+// US-640: Store query metrics with timestamps for p50/p95/p99 calculation
+const queryMetrics: QueryMetric[] = [];
+const MAX_QUERY_METRICS = 50000; // Keep last 50k query metrics in memory
 
 const SLA_THRESHOLD_MS = 500;
 const MAX_SAMPLES_PER_PROFILE = 10000; // Prevent unbounded memory growth
@@ -187,4 +201,92 @@ export function normalizeProfileName(profileId: string): string {
   if (lower.includes('southern')) return 'southern';
   if (lower.includes('pelangi')) return 'pelangi';
   return 'pelangi'; // Default fallback
+}
+
+// ─── Database Query Metrics (US-640) ────────────────────────────────
+
+/**
+ * Record a database query execution metric
+ * @param queryType - Type of query (SELECT, INSERT, UPDATE, DELETE, etc.)
+ * @param durationMs - Query execution duration in milliseconds
+ * @param tableNames - List of table names involved in the query
+ * @param profile - Profile ID (e.g., pelangi, southern, makan)
+ */
+export function recordQueryMetric(
+  queryType: string,
+  durationMs: number,
+  tableNames: string[],
+  profile: string = 'pelangi'
+): void {
+  const metric: QueryMetric = {
+    queryType,
+    durationMs,
+    tableNames,
+    profile: normalizeProfileName(profile),
+    executedAt: new Date(),
+  };
+
+  queryMetrics.push(metric);
+
+  // Log WARNING if query exceeds 100ms threshold
+  if (durationMs > 100) {
+    logger.warn(
+      `[SlowQuery] ${queryType} on ${tableNames.join(', ')} took ${durationMs}ms (profile: ${profile})`
+    );
+  }
+
+  // Keep array bounded
+  if (queryMetrics.length > MAX_QUERY_METRICS) {
+    queryMetrics.shift();
+  }
+}
+
+/**
+ * Get query metrics from the last hour
+ * @returns Array of query metrics from the last 60 minutes
+ */
+export function getQueryMetricsLastHour(): QueryMetric[] {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  return queryMetrics.filter(m => m.executedAt >= oneHourAgo);
+}
+
+/**
+ * Calculate p50/p95/p99 latencies by query type for the last hour
+ * @returns Object with latency stats per query type
+ */
+export function getQueryLatencyPercentiles(): Record<string, LatencyStats> {
+  const lastHourMetrics = getQueryMetricsLastHour();
+  const byQueryType: Record<string, number[]> = {};
+
+  for (const metric of lastHourMetrics) {
+    if (!byQueryType[metric.queryType]) {
+      byQueryType[metric.queryType] = [];
+    }
+    byQueryType[metric.queryType].push(metric.durationMs);
+  }
+
+  const result: Record<string, LatencyStats> = {};
+  for (const [queryType, durations] of Object.entries(byQueryType)) {
+    if (durations.length > 0) {
+      const sorted = [...durations].sort((a, b) => a - b);
+      result[queryType] = {
+        p50: calculatePercentile(sorted, 50),
+        p95: calculatePercentile(sorted, 95),
+        p99: calculatePercentile(sorted, 99),
+        sample_count: durations.length,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        mean: Math.round((sorted.reduce((a, b) => a + b, 0) / durations.length) * 100) / 100,
+      };
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Clear all query metrics (for testing)
+ */
+export function clearQueryMetrics(): void {
+  queryMetrics.length = 0;
 }

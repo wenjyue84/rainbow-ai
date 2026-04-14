@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import * as schema from '../../shared/schema.js';
 import { lt } from 'drizzle-orm';
 import { checkPoolerWarning } from './db-url.js';
+import { recordQueryMetric } from './metrics.js';
 
 // CRITICAL: Load .env before accessing process.env
 // This module is imported early, before index.ts calls dotenv.config()
@@ -88,6 +89,62 @@ export function initDb(): void {
   pool.on('error', (err) => {
     console.error('[DB] ⚠️ Unexpected pool error:', err.message);
   });
+
+  // US-640: Wrap pool.query to instrument query timing
+  const originalQuery = pool.query.bind(pool);
+  pool.query = async function(queryOrConfig: any, values?: any[], callback?: any) {
+    const start = Date.now();
+    let query = '';
+    let tableNames: string[] = [];
+
+    // Extract query string and determine table names
+    if (typeof queryOrConfig === 'string') {
+      query = queryOrConfig;
+    } else if (queryOrConfig && typeof queryOrConfig === 'object' && queryOrConfig.text) {
+      query = queryOrConfig.text;
+    }
+
+    // Extract table names from query
+    const fromMatch = query.match(/FROM\s+(\w+)/i);
+    const insertMatch = query.match(/INSERT\s+INTO\s+(\w+)/i);
+    const updateMatch = query.match(/UPDATE\s+(\w+)/i);
+    const deleteMatch = query.match(/DELETE\s+FROM\s+(\w+)/i);
+    const joinMatches = query.match(/(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+)?JOIN\s+(\w+)/gi);
+
+    if (fromMatch) tableNames.push(fromMatch[1]);
+    if (insertMatch) tableNames.push(insertMatch[1]);
+    if (updateMatch) tableNames.push(updateMatch[1]);
+    if (deleteMatch) tableNames.push(deleteMatch[1]);
+    if (joinMatches) {
+      joinMatches.forEach(match => {
+        const table = match.match(/(\w+)$/)?.[1];
+        if (table && !tableNames.includes(table)) tableNames.push(table);
+      });
+    }
+
+    // Determine query type
+    let queryType = 'UNKNOWN';
+    if (query.match(/^\s*SELECT\b/i)) queryType = 'SELECT';
+    else if (query.match(/^\s*INSERT\b/i)) queryType = 'INSERT';
+    else if (query.match(/^\s*UPDATE\b/i)) queryType = 'UPDATE';
+    else if (query.match(/^\s*DELETE\b/i)) queryType = 'DELETE';
+
+    try {
+      // Call original query with all arguments
+      const result = await originalQuery(queryOrConfig, values, callback);
+      const duration = Date.now() - start;
+
+      // Record metric (profile defaults to 'pelangi')
+      recordQueryMetric(queryType, duration, tableNames.length > 0 ? tableNames : ['unknown'], 'pelangi');
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - start;
+      // Record metric even on failure
+      recordQueryMetric(queryType, duration, tableNames.length > 0 ? tableNames : ['unknown'], 'pelangi');
+      throw error;
+    }
+  } as any;
 
   db = drizzle(pool, { schema });
   dbReady = testConnection();
