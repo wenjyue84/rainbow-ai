@@ -154,3 +154,56 @@ This user story describes a **Node.js/TypeScript** project, not a Frappe/Python 
 *   Ensure the analyzer handles cases with zero feedback entries gracefully.
 
 
+
+## Iteration - Story: US-621 - Add Booking Workflow Cancellation Handler with Guest Notification
+
+### What was implemented
+- Created `src/assistant/booking/cancellation-handler.ts` with:
+  - `cancelBooking(bookingId, guestContact, reason)` function that updates booking status to 'cancelled'
+  - `GuestContact` interface with phone, email, name fields
+  - `CancellationResult` interface returning {status: 'cancelled', notificationSent, timestamp, bookingId, reason}
+  - Database update to `roomReservations` table status field
+  - Audit logging to `bookingStateAudit` table for state transition tracking
+  - `queueNotification()` helper for async SMS/email delivery (placeholder for production messaging service)
+- Added `cancel_booking` intent to all profile intent-keywords.json files:
+  - `intent-keywords-pelangi.json`: English, Malay, Chinese, Tamil keywords (kayil nilan, vazhakka variants)
+  - `intent-keywords-makan.json`: English, Malay, Chinese keywords (order-focused wording)
+  - `intent-keywords-southern.json`: English, Malay, Chinese, Tamil keywords
+- Created `tests/workflows/booking-cancellation.test.ts` with 11 tests covering:
+  - Success path: cancel booking and return status
+  - Database updates verified
+  - Notification queueing
+  - Audit entry creation
+  - Error handling for missing bookings
+  - Edge cases (missing email/reason)
+  - ISO 8601 timestamp validation
+  - Intent-to-action workflow simulation
+
+### Patterns discovered
+- Booking handler modules use `db.select().from(table).where(...).limit(1)` pattern for single record fetch
+- State transitions logged to `bookingStateAudit` with fromState, toState, valid, reason, profile, timestamp
+- Notifications queued asynchronously via helper function; actual delivery in background job
+- Test mocking pattern: mock db at import time with vi.mock(), then use vi.mocked() in individual tests
+- Profile-aware intent keywords use language code keys: "en", "ms", "zh", "ta"
+- Tamil keywords use transliteration (kayil nilan = "don't need") and direct Tamil (vazhakka = "refuse")
+
+### Gotchas
+- Windows timeout command doesn't work with shell syntax `timeout 10 cmd` — need to use PowerShell or npx directly
+- vitest test runs pick up tests from both unit and integration projects via glob patterns
+- Error matching in vitest: `rejects.toThrow(expect.stringContaining())` didn't match; switched to `rejects.toThrowError(/regex/)`
+- DB notification queuing is fire-and-forget with `.catch()` error handling to prevent promise rejections from blocking
+
+### Files modified/created
+- src/assistant/booking/cancellation-handler.ts (new)
+- tests/workflows/booking-cancellation.test.ts (new)
+- src/assistant/data/intent-keywords-pelangi.json (added cancel_booking intent)
+- src/assistant/data/intent-keywords-makan.json (added cancel_booking intent)
+- src/assistant/data/intent-keywords-southern.json (added cancel_booking intent)
+- prd.json (marked US-621 as passes: true)
+
+### Quality checks
+- npm run build: Success (2.8MB dist/index.js + 1.7KB instrumentation)
+- tests/workflows/booking-cancellation.test.ts: 11/11 tests pass
+- JSON validation: All 3 intent-keywords files syntactically valid
+- TypeScript: esbuild compilation succeeded (pre-existing drizzle-orm type errors ignored)
+

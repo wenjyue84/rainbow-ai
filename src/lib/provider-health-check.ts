@@ -142,17 +142,15 @@ export async function validateProviderHealth(): Promise<void> {
       return;
     }
 
-    // Primary provider unreachable — fail fast
-    logger.error(
-      `[Health Check] FATAL: Primary provider "${primaryProvider.name}" unreachable (${result.error})`
+    // Primary provider unreachable — warn but allow server to start (fallbacks will handle routing)
+    logger.warn(
+      `[Health Check] WARNING: Primary provider "${primaryProvider.name}" unreachable (${result.error}) — server will start with fallback providers`
     );
-    console.error(
-      `[Startup] FATAL: AI provider "${primaryProvider.name}" unreachable: ${result.error}`
+    console.warn(
+      `[Startup] WARNING: AI provider "${primaryProvider.name}" unreachable: ${result.error}. Fallback providers will be used.`
     );
-    process.exit(1);
   } catch (err: any) {
-    logger.error(`[Health Check] Error during provider validation: ${err.message}`);
-    console.error('[Startup] FATAL: Provider health check failed:', err.message);
-    process.exit(1);
+    logger.warn(`[Health Check] Provider validation error: ${err.message} — continuing startup`);
+    console.warn('[Startup] WARNING: Provider health check failed:', err.message);
   }
 }

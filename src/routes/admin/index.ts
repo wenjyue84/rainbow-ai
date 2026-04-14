@@ -121,6 +121,7 @@ import debugFailedBookingsRoutes from './debug-failed-bookings.js'; // US-226: B
 import modelRollbackRoutes from './model-rollback.js'; // US-236: Intent classification accuracy auto-rollback
 import lowconfMessagesRoutes from './lowconf-messages.js'; // US-280: Low-confidence message archival + QA review
 import workflowsRoutes from './workflows.js'; // US-290: Workflow dry-run endpoint
+import workflowSimulatorRoutes from './workflow-simulator.js'; // US-605: Booking workflow dry-run simulator
 import contextStatsRoutes from './context-stats.js'; // US-308: Context relevance reranker stats
 import bookingTraceRoutes from './booking-trace.js'; // US-309: Booking workflow trace timeline
 import keywordMinerRoutes from './keyword-miner.js'; // US-323: Intent Keyword Auto-Miner
@@ -422,6 +423,7 @@ router.use(debugFailedBookingsRoutes);       // US-226: Booking classification f
 router.use('/model-rollback', modelRollbackRoutes); // US-236: Intent classification accuracy auto-rollback
 router.use(lowconfMessagesRoutes);                 // US-280: Low-confidence message archival + QA review
 router.use(workflowsRoutes);                      // US-290: Workflow dry-run endpoint
+router.use(workflowSimulatorRoutes);               // US-605: Booking workflow dry-run simulator
 router.use(contextStatsRoutes);                   // US-308: Context relevance reranker stats
 router.use(bookingTraceRoutes);                   // US-309: Booking workflow trace timeline
 router.use(keywordMinerRoutes);                   // US-323: Intent Keyword Auto-Miner

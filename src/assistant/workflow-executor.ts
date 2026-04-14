@@ -58,6 +58,7 @@ export type WorkflowExecutionStatus = 'success' | 'error' | 'timeout' | 'skipped
  * US-313: Log a booking workflow step execution to the booking_execution_audit table.
  * Inserts an audit record with the step name, input/output data, status, and timestamp.
  * Returns the step result (output) unchanged so it can be used as a transparent wrapper.
+ * In dry-run mode (dryRun=true), skips database write but returns output unchanged.
  */
 export async function logWorkflowExecution(
   step: string,
@@ -65,8 +66,15 @@ export async function logWorkflowExecution(
   output: Record<string, unknown>,
   status: WorkflowExecutionStatus,
   bookingId?: string,
+  dryRun: boolean = false,
 ): Promise<Record<string, unknown>> {
   const resolvedBookingId = bookingId || input.bookingId as string || `booking-${Date.now()}`;
+
+  // Skip database write in dry-run mode
+  if (dryRun) {
+    console.log(`[WorkflowExecutor] US-313: [DRY-RUN] Would log audit for step "${step}" (booking: ${resolvedBookingId}, status: ${status})`);
+    return output;
+  }
 
   try {
     await pool.query(
@@ -312,7 +320,8 @@ export async function persistWorkflowState(
 export async function executeWorkflowStep(
   state: WorkflowState,
   userMessage: string | null,
-  context: WorkflowContext
+  context: WorkflowContext,
+  dryRun: boolean = false
 ): Promise<WorkflowExecutionResult> {
   const { language, phone, pushName, instanceId } = context;
   const workflows = configStore.getWorkflows();
@@ -596,7 +605,7 @@ export async function executeWorkflowStep(
         // to see it potentially? Or strictly distinct?
         // Let's assume evaluation steps are invisible. The user's input triggered the evaluation.
         // The NEXT step will be the "response" to that input.
-        return executeWorkflowStep(nextState, null, context);
+        return executeWorkflowStep(nextState, null, context, dryRun);
       } else {
         console.error(`[WorkflowExecutor] Evaluation target step ${nextStepId} not found!`);
       }
@@ -927,14 +936,18 @@ export async function executeWorkflowStep(
         );
 
         // US-324: Log to booking_workflow_events for per-step timeout metrics
-        try {
-          await pool.query(
-            `INSERT INTO booking_workflow_events (step_name, workflow_id, profile_id, elapsed_ms, timed_out_at, fallback_used)
-             VALUES ($1, $2, $3, $4, NOW(), $5)`,
-            [currentStep.id, state.workflowId, context.profileId || null, error.actualDurationMs, hasFallback]
-          );
-        } catch (dbErr) {
-          console.error(`[WorkflowExecutor] US-324: Failed to log to booking_workflow_events:`, dbErr);
+        if (!dryRun) {
+          try {
+            await pool.query(
+              `INSERT INTO booking_workflow_events (step_name, workflow_id, profile_id, elapsed_ms, timed_out_at, fallback_used)
+               VALUES ($1, $2, $3, $4, NOW(), $5)`,
+              [currentStep.id, state.workflowId, context.profileId || null, error.actualDurationMs, hasFallback]
+            );
+          } catch (dbErr) {
+            console.error(`[WorkflowExecutor] US-324: Failed to log to booking_workflow_events:`, dbErr);
+          }
+        } else {
+          console.log(`[WorkflowExecutor] US-324: [DRY-RUN] Would log timeout event for step "${currentStep.id}"`);
         }
 
         // Also log escalation event to rainbow_messages (US-120 pattern)
@@ -1164,10 +1177,16 @@ export function hasAutoAdvanceSteps(workflow: WorkflowDefinition, fromIndex: num
 export async function executeWorkflowStepWithTransaction(
   state: WorkflowState,
   userMessage: string | null,
-  context: WorkflowContext
+  context: WorkflowContext,
+  dryRun: boolean = false
 ): Promise<WorkflowExecutionResult> {
+  // Skip transaction wrapping in dry-run mode (no DB writes to commit/rollback)
+  if (dryRun) {
+    return executeWorkflowStep(state, userMessage, context, dryRun);
+  }
+
   const [result, metrics] = await executeWorkflowInTransaction(
-    () => executeWorkflowStep(state, userMessage, context),
+    () => executeWorkflowStep(state, userMessage, context, dryRun),
     state.workflowId
   );
 
