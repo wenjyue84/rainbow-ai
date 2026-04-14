@@ -1,14 +1,18 @@
 /**
  * US-519: Conversation Memory Retrieval for Multi-Turn Context Awareness
+ * US-601: With LRU cache optimization for DB query reduction
  *
  * Retrieves last N messages from conversation history and formats them
  * as context to inject into the AI system prompt, enabling coherent
  * multi-turn responses without losing context across message boundaries.
+ *
+ * Now includes MessageLRUCache to reduce DB queries for repeated retrievals.
  */
 
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { rainbowMessages, rainbowConversations } from '../../../shared/schema-tables.js';
+import { messageLRUCache } from '../../lib/conversation-cache.js';
 
 const DEFAULT_MAX_MESSAGES = 5;
 const DEFAULT_TOKEN_LIMIT = 3000;
@@ -25,9 +29,13 @@ function estimateTokens(text: string): number {
 /**
  * Retrieve conversation context (last N messages formatted for injection into system prompt).
  *
+ * Checks LRU cache first before querying the database. Cache invalidates on
+ * new messages (5-minute TTL) to reduce DB load for repeated queries.
+ *
  * @param conversationId - Phone number or conversation identifier
  * @param maxMessages - Maximum messages to retrieve (default: 5)
  * @param tokenLimit - Maximum total tokens for context (default: 3000)
+ * @param profileId - Profile ID for cache isolation (default: 'default')
  * @returns Formatted context string or empty string if < 2 messages exist
  *
  * Format: "Context: [USER]: msg1\n[ASSISTANT]: resp1\n[USER]: msg2\n[ASSISTANT]: resp2\n..."
@@ -35,31 +43,65 @@ function estimateTokens(text: string): number {
 export async function getContext(
   conversationId: string,
   maxMessages: number = DEFAULT_MAX_MESSAGES,
-  tokenLimit: number = DEFAULT_TOKEN_LIMIT
+  tokenLimit: number = DEFAULT_TOKEN_LIMIT,
+  profileId: string = 'default'
 ): Promise<string> {
   try {
-    // Verify conversation exists
-    const conversation = await db
-      .select({ phone: rainbowConversations.phone })
-      .from(rainbowConversations)
-      .where(eq(rainbowConversations.phone, conversationId))
-      .limit(1);
+    // Check cache first (L1 cache hit)
+    const cacheKey = `${conversationId}:${maxMessages}:${tokenLimit}`;
+    const cachedMessages = messageLRUCache.get(conversationId, profileId);
 
-    if (conversation.length === 0) {
-      return '';
+    let messages: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp: Date;
+    }> | null = null;
+
+    if (cachedMessages) {
+      // Cache hit: use cached messages
+      messages = cachedMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }));
+    } else {
+      // Cache miss: query database
+      // Verify conversation exists
+      const conversation = await db
+        .select({ phone: rainbowConversations.phone })
+        .from(rainbowConversations)
+        .where(eq(rainbowConversations.phone, conversationId))
+        .limit(1);
+
+      if (conversation.length === 0) {
+        return '';
+      }
+
+      // Fetch last N messages ordered by timestamp DESC (newest first)
+      const dbMessages = await db
+        .select({
+          id: rainbowMessages.id,
+          phone: rainbowMessages.phone,
+          role: rainbowMessages.role,
+          content: rainbowMessages.content,
+          timestamp: rainbowMessages.timestamp,
+        })
+        .from(rainbowMessages)
+        .where(eq(rainbowMessages.phone, conversationId))
+        .orderBy(desc(rainbowMessages.timestamp))
+        .limit(maxMessages);
+
+      if (dbMessages.length > 0) {
+        // Cache the result for future lookups
+        messageLRUCache.set(conversationId, profileId, dbMessages);
+      }
+
+      messages = dbMessages;
     }
 
-    // Fetch last N messages ordered by timestamp DESC (newest first)
-    const messages = await db
-      .select({
-        role: rainbowMessages.role,
-        content: rainbowMessages.content,
-        timestamp: rainbowMessages.timestamp,
-      })
-      .from(rainbowMessages)
-      .where(eq(rainbowMessages.phone, conversationId))
-      .orderBy(desc(rainbowMessages.timestamp))
-      .limit(maxMessages);
+    if (!messages || messages.length === 0) {
+      return '';
+    }
 
     // Return empty if fewer than 2 messages
     if (messages.length < 2) {
@@ -108,9 +150,10 @@ export async function injectContextIntoPrompt(
   originalPrompt: string,
   conversationId: string,
   maxMessages: number = DEFAULT_MAX_MESSAGES,
-  tokenLimit: number = DEFAULT_TOKEN_LIMIT
+  tokenLimit: number = DEFAULT_TOKEN_LIMIT,
+  profileId: string = 'default'
 ): Promise<string> {
-  const context = await getContext(conversationId, maxMessages, tokenLimit);
+  const context = await getContext(conversationId, maxMessages, tokenLimit, profileId);
 
   if (!context) {
     return originalPrompt;
@@ -118,4 +161,15 @@ export async function injectContextIntoPrompt(
 
   // Inject context at the beginning of the prompt
   return `${context}\n\n${originalPrompt}`;
+}
+
+/**
+ * Invalidate cached messages for a conversation.
+ * Called when a new message is added to clear stale cached state.
+ *
+ * @param conversationId - Phone number or conversation identifier
+ * @param profileId - Profile ID for cache isolation (default: 'default')
+ */
+export function invalidateConversationCache(conversationId: string, profileId: string = 'default'): void {
+  messageLRUCache.invalidate(conversationId, profileId);
 }

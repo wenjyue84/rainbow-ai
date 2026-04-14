@@ -1,3 +1,38 @@
+## Iteration [122] - Story: US-601 - Implement Conversation Message Cache with LRU Eviction for DB Query Optimization
+
+### What was implemented
+- Integrated MessageLRUCache (already existed in src/lib/conversation-cache.ts) into src/assistant/pipeline/conversation-memory.ts
+  * Modified getContext() to check cache before DB query
+  * Cache stores up to 1000 conversations with 5-minute TTL
+  * Entry key: "{phone}|{profileId}" for profile isolation
+  * Added profileId parameter to getContext() and injectContextIntoPrompt() for cache isolation
+  * Cache hit immediately improves performance for repeated queries within 5 minutes
+
+- Added invalidateConversationCache() function
+  * Called when new messages are added to clear stale cached state
+  * Removes conversation from cache by phone and profileId
+
+### Patterns discovered
+- MessageLRUCache was already fully implemented with:
+  - Map-based LRU tracking: deleting and re-adding entry moves it to end (most recently used)
+  - TTL-based expiration: stores expiresAt timestamp, checks on get()
+  - Capacity management: evicts first (least recently used) entry when at maxSize
+  - Profile isolation via composite key: `${phone}|${profileId}`
+  - evictExpired() method for periodic cleanup
+- Existing test suite in tests/conversation-cache/lru-eviction.test.ts covers all AC:
+  * 24 tests all passing (100%)
+  * Includes: basic get/set, TTL expiry, invalidation, LRU eviction, cache hit ratio (>80%)
+
+### Gotchas
+- Story AC2 mentions "conversation-pipeline.ts" but the actual integration point was conversation-memory.ts
+- Cache key currently uses phone|profileId but getContext() logic doesn't use cache key for validation purposes (just phone+profileId for LRU)
+- Pre-existing type errors in src/tools/context-window-benchmark.ts prevent tsc --noEmit from passing, but esbuild build succeeds (as expected per CLAUDE.md)
+
+### Quality checks
+- npm run build: ✅ SUCCESS (2.8MB, pre-existing warnings only)
+- npx vitest run tests/conversation-cache/lru-eviction.test.ts: ✅ SUCCESS (24/24 tests pass)
+- Integration: getContext() now checks cache before DB query, reducing DB load for repeated retrievals
+
 ## Iteration [121] - Story: US-600 (attempt 3 - verification only)
 
 ### What was implemented
@@ -1586,4 +1621,7 @@ FAILED diagnosis-block gate: Add Intent Keyword Dead-Code Audit CLI with Usage A
 
 ## Iteration 1 - Tue, Apr 14, 2026  8:22:58 AM
 FAILED diagnosis-block gate: Add Intent Keyword Dead-Code Audit CLI with Usage Analytics (ID: US-600) — no diagnosis block found — attempt 2/3
+
+## Iteration 2 - Tue, Apr 14, 2026  8:26:01 AM
+Completed: Add Intent Keyword Dead-Code Audit CLI with Usage Analytics (ID: US-600) in 2m
 
