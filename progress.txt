@@ -766,3 +766,86 @@ VERIFIED: US-634 — Add Knowledge Base Document Relevance Filtering for Context
 ## Iteration 2 - Tue, Apr 14, 2026  7:20:17 PM
 Completed: Add Knowledge Base Document Relevance Filtering for Context Assembly (ID: US-634) in 4m
 
+
+## Iteration 125 - Story: US-636 - Implement Intent Classification Performance Regression Detector CLI
+
+### What was implemented
+
+Successfully implemented a complete regression detection system for intent classification accuracy:
+
+1. **src/lib/analytics.ts** (NEW)
+   - `queryIntentAccuracy(profile, startDate, endDate)` — queries intentAnalytics table, groups by intent, calculates accuracy % per intent
+   - Returns `IntentAccuracyData[]` with profileId, intentType, totalCount, correctCount, accuracyPct
+   - Uses Drizzle ORM with profile and date range filtering
+
+2. **src/tools/regression-detector.ts** (NEW)
+   - `calculateRegression(profile, currentData, baselineData)` — core analysis function
+   - Compares current vs baseline accuracy, detects per-intent regressions
+   - Threshold: 2 percentage points (configurable via REGRESSION_THRESHOLD constant)
+   - Returns `RegressionAnalysis` with:
+     - Overall accuracy_current, accuracy_baseline, regressionPct
+     - hasRegression boolean (true if < -2%)
+     - flaggedIntents array (per-intent drops > 2%)
+     - perIntentBreakdown array (all intents with delta and isFlagged)
+   - Handles edge cases: missing intents, new intents, empty data
+
+3. **src/tools/regression-detector-cli.ts** (NEW)
+   - CLI tool that orchestrates queryIntentAccuracy + calculateRegression
+   - Arguments: --profile=pelangi (default: pelangi, valid: pelangi/southern/makan)
+   - Calculates two 7-day windows: current and baseline (14 days ago - 7 days ago)
+   - Output: JSON with timestamp, profile, accuracy metrics, flagged_intents, per_intent_breakdown
+   - Exit codes: 1 if hasRegression=true, 0 otherwise
+   - Properly handles DB initialization and error reporting
+
+4. **tests/tools/regression-detector.test.ts** (NEW)
+   - 8 comprehensive unit tests covering:
+     - Stable accuracy (no regression)
+     - Regression detection (> 2% drop)
+     - Per-intent breakdown output
+     - New intents in current period
+     - Missing intents in current period
+     - Overall accuracy calculation (aggregate across intents)
+     - Empty data handling
+     - Improvement (should NOT be flagged as regression)
+   - All tests pass (✓ 8/8)
+
+5. **package.json** (UPDATED)
+   - Added npm script: `"check:regression": "tsx src/tools/regression-detector-cli.ts"`
+   - Usage: `npm run check:regression` or `npm run check:regression -- --profile=southern`
+
+### Patterns discovered
+
+- **Database query pattern with Drizzle ORM:** Use `and()`, `gte()`, `lt()` from drizzle-orm for composable filters. Avoids N+1 by grouping in application code instead of GROUP BY SQL (simpler to count correct vs total).
+- **CLI argument parsing:** Simple loop through process.argv, prefix matching for `--key=value` format. No need for yargs/commander for simple CLIs.
+- **Time window calculation:** `new Date(now.getTime() - ms)` for relative dates. Window setup: current = [now - 7d, now], baseline = [now - 14d, now - 7d].
+- **IntentAccuracyData structure:** Flattened design with profileId, intentType, totalCount, correctCount, accuracyPct — makes grouping and comparison trivial.
+- **Regression threshold as constant:** REGRESSION_THRESHOLD = 2 at module level. Easy to adjust; could be profile-specific in future.
+
+### Gotchas
+
+- **Drizzle `equals()` method:** Not a typo — it's `.equals(value)` not `.eq(value)` in the where clause for string columns. (Other types use different methods: `gte()`, `lt()` for ranges.)
+- **Window date arithmetic:** "current period" is the last 7 days from now. "Baseline" is the 7 days *before* that (not: the 14 days before now). Queries use `< baselineEnd` not `<= baselineEnd` to avoid overlap.
+- **Missing intents:** Intents that existed in baseline but not in current should be flagged. Handled by checking baselineMap for items not in currentData and adding them with currentAccuracy=0, delta=-baseline%.
+- **Empty dataset:** Both currentData and baselineData can be empty. Should return accuracyCurrent=0, accuracyBaseline=0, hasRegression=false (no data = no regression alert).
+- **Rounding in CLI output:** JSON output rounds to 2 decimal places for readability: `Math.round(value * 100) / 100`.
+
+### Quality checks completed
+
+✓ Build: esbuild bundle succeeds with 2 files (dist/index.js, dist/instrumentation.js)
+✓ Tests: `npx vitest run tests/tools/regression-detector.test.ts` → 8/8 tests pass, 17ms
+✓ Imports: Both analytics.ts and regression-detector.ts import without errors
+✓ Package script: `npm run check:regression` resolves correctly
+✓ Pre-existing type errors: tsc check shows errors in unrelated files (context-window-benchmark.ts), not in new code
+
+### Files created
+
+- src/lib/analytics.ts (67 lines)
+- src/tools/regression-detector.ts (127 lines)
+- src/tools/regression-detector-cli.ts (104 lines)
+- tests/tools/regression-detector.test.ts (210 lines)
+
+### Files modified
+
+- package.json: +1 line (check:regression script)
+- prd.json: US-636.passes = true
+
