@@ -82,6 +82,16 @@ function stopInitProgressTimer() {
  * Main Dashboard tab loader
  */
 export async function loadDashboard() {
+  // Set guest chat link from URL hash: #dashboard/yoongmei → /chat/yoongmei
+  const hashParts = window.location.hash.replace('#', '').split('/');
+  const profileId = (hashParts.length > 1 && hashParts[1]) ||
+    (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
+  const chatUrl = window.location.origin + '/chat/' + profileId;
+  const guestLink = document.getElementById('guest-chat-link');
+  const guestOpenBtn = document.getElementById('guest-chat-open-btn');
+  if (guestLink) { guestLink.href = chatUrl; guestLink.textContent = chatUrl; }
+  if (guestOpenBtn) { guestOpenBtn.href = chatUrl; }
+
   try {
     // Kick off status + stats fetches in parallel (US-154)
     // Both are independent network calls — no need to wait for one before starting the other

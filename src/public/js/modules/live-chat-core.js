@@ -182,7 +182,7 @@ export async function loadLiveChat() {
 
   try {
     var results = await Promise.all([
-      api('/conversations'),
+      api('/conversations/unified'),
       api('/status')
     ]);
     $.conversations = results[0];
@@ -231,7 +231,7 @@ export async function loadLiveChat() {
         return;
       }
       try {
-        var fresh = await api('/conversations');
+        var fresh = await api('/conversations/unified');
         $.conversations = fresh;
         buildInstanceFilter();
         if ($.tagFilter && $.tagFilter.length > 0) loadContactTagsMap(); // US-009: Refresh tags map when filter active
@@ -449,6 +449,13 @@ export function renderList(conversations) {
     filtered = filtered.filter(function (c) {
       var contactUnit = $.contactUnitsMap[c.phone];
       return contactUnit && contactUnit.toLowerCase() === $.unitFilter.toLowerCase();
+    });
+  }
+
+  // Apply channel filter (LC-01)
+  if ($.channelFilter && $.channelFilter !== 'all') {
+    filtered = filtered.filter(function (c) {
+      return c.channel === $.channelFilter;
     });
   }
 

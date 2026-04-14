@@ -3261,7 +3261,7 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku",
-      "last_attempted": "2026-04-14T05:55:28Z"
+      "last_attempted": "2026-04-14T05:09:02Z"
     },
     {
       "id": "US-606",
@@ -3673,24 +3673,208 @@
       "id": "US-623",
       "title": "Implement Booking Workflow Step Duration SLA Monitoring with Batch Writes",
       "priority": "high",
-      "description": "Implement system to monitor booking workflow step execution durations, track SLA violations, and batch-write metrics to database. Expose metrics via admin API endpoint with aggregated statistics (avg duration, P95, violations, trends).",
+      "description": "Track time guests spend on each booking workflow step. Alert admins when step duration exceeds 2-minute SLA (indicating confusion or abandonment risk). Implement batch metrics writes to reduce database load. Expose SLA dashboard widget for ops monitoring.",
       "acceptanceCriteria": [
-        "Admin API endpoint GET /api/rainbow/metrics/workflow-metrics?profile=pelangi returns {success, profile, timestamp, steps[], summary}",
-        "Step metrics include: name, avgDuration_ms, p95Duration_ms, slaViolations, totalSamples, trend (improving/degrading/stable)",
-        "Summary includes: totalSteps, totalSamples, totalSlaViolations, worstPerformingStep",
-        "Batch write metrics to database when buffer reaches threshold or timer triggers (300 samples or 60s)",
-        "Calculate trend by comparing current 24h avg vs previous 24h avg"
+        "Workflow metrics tracked on step entry/exit: {step_name, profile, duration_ms, guest_id}. Alert if duration > 120s for any step.",
+        "Admin endpoint GET /admin/profiles/:profile/workflow-metrics returns: {steps: [{name, avgDuration_ms, p95Duration_ms, slaViolations}]} with trend indicator",
+        "Metrics writes batched in-memory (flush every 10s or at 100 events) to reduce DB load from high-frequency tracking"
       ],
       "technicalNotes": [
-        "File to create/edit: src/lib/workflow-metrics.ts - add getProfileMetrics(profile) function",
-        "File to create/edit: src/lib/workflow-metrics.ts - add DurationMetrics interface and batch buffer",
-        "File to create/edit: src/lib/workflow-metrics.ts - add recordStepDuration(profile, step, durationMs)",
-        "File exists: src/routes/admin/workflow-metrics.ts - admin endpoint that calls getProfileMetrics",
-        "Test command: npm run test:run -- tests/routes/admin/workflow-metrics.test.ts"
+        "File to create: src/lib/workflow-metrics.ts (BatchedMetricsCollector class with flush timer and size threshold)",
+        "File to create: src/routes/admin/workflow-metrics.ts (endpoint handler)",
+        "File to edit: src/assistant/workflows/booking.ts (emit metrics on step entry/exit)",
+        "Test command: npm run test tests/lib/workflow-metrics.test.ts tests/routes/admin/workflow-metrics.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
       "passes": true,
+      "_source": "ai-example",
+      "model": "haiku",
+      "last_attempted": "2026-04-14T05:30:54Z"
+    },
+    {
+      "id": "US-624",
+      "title": "Implement Intent Keyword Overlap Detection and Conflict Report CLI",
+      "priority": "medium",
+      "description": "Add CLI tool to scan intent-keywords.json across profiles and detect keywords shared by multiple intents. High overlap creates ambiguous intent boundaries and misclassifications. Report generated with overlap severity and suggests exclusions or reweighting per profile.",
+      "acceptanceCriteria": [
+        "CLI command npm run audit:keyword-overlap --profile pelangi scans src/assistant/data/pelangi/intent-keywords.json and outputs JSON: {keyword, intents: [...], count, severity: 'high'|'medium'|'low'}",
+        "Tool groups overlaps by language and calculates impact score based on keyword frequency and intent importance",
+        "Tests validate overlap detection algorithm with fixture keyword files and verify report generation matches expected output"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/keyword-overlap-auditor.ts (main CLI implementation with overlap detection algorithm)",
+        "File to edit: src/cli/index.ts (register new CLI command)",
+        "Test command: npm run test tests/cli/keyword-overlap-auditor.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-625",
+      "title": "Add Booking Confirmation Number Generation with Timestamp and Profile Encoding",
+      "priority": "high",
+      "description": "Generate unique, profile-scoped booking confirmation codes that encode profile prefix and timestamp (e.g., 'PEL-260414-K9X2M5'). Enables cross-profile confirmation validation and prevents guest confusion when multiple profiles exist.",
+      "acceptanceCriteria": [
+        "Confirmation code format: {PROFILE_PREFIX}-{TIMESTAMP_HASH}-{RANDOM_6} where PROFILE_PREFIX comes from profiles.json (pelangi='PEL', data-makan='MAK', data-southern='SOU')",
+        "Booking reducer validates confirmation codes match profile prefix; rejects and escalates if guest attempts to redeem code from different profile",
+        "Generated confirmation code persists to rainbow_bookings.confirmation_code and appears in booking confirmation message template"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/confirmation-code.ts (generate and validate functions, ~50 lines)",
+        "File to edit: src/assistant/tools/booking.ts (integrate confirmation_code into booking completion, ~25 lines)",
+        "Database migration: ALTER TABLE rainbow_bookings ADD COLUMN confirmation_code VARCHAR(255) UNIQUE",
+        "Test command: npm run test -- src/tests/booking.test.ts -t 'ConfirmationCode'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-626",
+      "title": "Add Data-Makan Profile Workflow Validation Tests with Cafe-Specific Content Assertions",
+      "priority": "high",
+      "description": "Create integration test suite validating that data-makan profile contains only cafe-operations workflows and zero hostel/room-specific content. Detects and prevents incomplete profile separation where data-makan still contains copy-pasted Pelangi Capsule Hostel content.",
+      "acceptanceCriteria": [
+        "Test suite tests/profiles/data-makan.test.ts validates: (1) all workflows reference cafe operations, (2) error messages say 'cafe' not 'hostel', (3) blacklisted hostel keywords ('check-in', 'check-out', 'room', 'guest arrival') do not appear in any template or workflow file",
+        "Test scans entire src/assistant/data/data-makan/ directory for blacklisted terms; test failure shows filename:line_number for each occurrence with surrounding context",
+        "CLI command 'npm run test -- tests/profiles/data-makan.test.ts --verbose' produces contamination report listing files needing content replacement with cafe-specific alternatives"
+      ],
+      "technicalNotes": [
+        "File to create: tests/profiles/data-makan.test.ts (profile validation test, ~85 lines)",
+        "File to create: tests/helpers/profile-contamination-detector.ts (reusable detector utility, ~55 lines)",
+        "File to edit: shared/schema-validation.ts (add profile-specific validation rules if needed)",
+        "Test command: npm run test -- tests/profiles/data-makan.test.ts -t 'contamination|blacklist'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-627",
+      "title": "Add Intent Keyword Typo Tolerance with Levenshtein Distance Matching",
+      "priority": "medium",
+      "description": "Improve intent classification accuracy by allowing fuzzy matching of keywords with Levenshtein distance ≤2. When primary keyword matching fails (confidence <0.7), fall back to typo-tolerant matching to catch misspellings like 'chck-in' for 'check-in' or 'resevasion' for 'reservation'.",
+      "acceptanceCriteria": [
+        "Intent classifier in src/assistant/pipeline/intent-classifier.ts implements Levenshtein distance check for keywords when base confidence <0.7, with configurable threshold per intent",
+        "Typo matching distance is configured in src/assistant/data/intent-keywords.json with optional 'levenshtein_distance' field per intent (defaults to 2 if omitted)",
+        "CLI command 'npm run cli:test-typo-matching -- --profile pelangi --intent booking' demonstrates typo matches with distance scores and matched keywords for validation"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/pipeline/intent-classifier.ts (add matchKeywordsWithFuzzy method, ~40 lines)",
+        "File to create: src/lib/levenshtein.ts (distance calculator utility, ~25 lines)",
+        "Test command: npm run test -- src/tests/intent-classifier.test.ts -t 'Levenshtein'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-628",
+      "title": "Add Intent Classification Explainability Endpoint with Keyword Matches and Confidence Scores",
+      "priority": "high",
+      "description": "Create a POST /admin/debug/intent-explain endpoint that returns which keywords matched, AI confidence scores, the selected intent, and fallback reason. This helps developers understand classification decisions, supporting goal #1 (improve intent classification accuracy) and #6 (prioritize reliability).",
+      "acceptanceCriteria": [
+        "POST /admin/debug/intent-explain accepts {message: string, profile: string} and returns {intent: string, confidence: number, matchedKeywords: [{keyword: string, score: number}], classificationMethod: 'keyword_match'|'ai_classification'|'fallback', processingTime: number}",
+        "Unit test in tests/intent-explainability.test.ts verifies matched keywords and confidence scores for known test messages",
+        "Integration test confirms endpoint returns 401 without proper admin authentication"
+      ],
+      "technicalNotes": [
+        "Add POST handler in src/routes/admin/debug.ts that calls explainIntentClassification() from src/assistant/intent-classifier.ts; modify IntentClassifier.classify() to return metadata including matched keywords and scores",
+        "Test command: npm run test -- tests/intent-explainability.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
+    },
+    {
+      "id": "US-629",
+      "title": "Implement Conversation Profile Isolation Validation Integration Tests",
+      "priority": "high",
+      "description": "Add integration tests ensuring conversations from one business profile never leak into another profile's context window. Directly addresses goal #7 (enforce strict business profile separation) by catching cross-profile contamination bugs.",
+      "acceptanceCriteria": [
+        "Test creates 2 conversations in profile-pelangi and 2 in profile-makan, then verifies getConversationContext(profileId='pelangi', limit=10) returns 0 messages from makan conversations",
+        "Test confirms that conversation retrieval query in src/lib/conversation-context.ts filters by profile_id in WHERE clause",
+        "Teardown deletes test data from both profiles without affecting other test isolation"
+      ],
+      "technicalNotes": [
+        "Add tests/integration/profile-isolation.test.ts with setup/teardown using test DB from tests/setup.ts; call getConversationContext() from src/lib/conversation-context.ts with profile-specific queries",
+        "Test command: npm run test -- tests/integration/profile-isolation.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-630",
+      "title": "Implement Tamil Translation Coverage Audit Across All Configuration Files",
+      "priority": "high",
+      "description": "Create a comprehensive audit CLI scanning all JSON configuration and markdown files to report Tamil translation completeness. Extends goal #9 (enhance multilingual support) by showing exactly which files and sections need Tamil translations.",
+      "acceptanceCriteria": [
+        "CLI: npm run audit:tamil-coverage outputs report with % Tamil coverage per file (e.g., 'workflows.json: 85% complete', 'knowledge.json: 72% complete') and list of untranslated sections",
+        "Report identifies and flags hardcoded English strings in files that should be bilingual (checks for en_* and ta_* key pairs in JSON)",
+        "Test verifies report correctly identifies a test file with 0% Tamil coverage and one with 100%"
+      ],
+      "technicalNotes": [
+        "Create src/cli/audit-tamil-coverage.ts recursively scanning src/assistant/data/*.json and .rainbow-kb/*.md; for JSON, count en_* vs ta_* key pairs; for markdown, count {{en:*}} vs {{ta:*}} template placeholders",
+        "Test command: npm run test -- tests/cli/audit-tamil-coverage.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-631",
+      "title": "Add Intent Keyword-vs-AI Classification Performance Benchmarking CLI",
+      "priority": "medium",
+      "description": "Create a CLI tool benchmarking T2 (keyword matching) versus T3 (AI classification) latency and accuracy. Supports goal #1 (improve accuracy) and #11 (optimize performance) by showing when keyword-only matching is sufficient versus when AI classification is required.",
+      "acceptanceCriteria": [
+        "CLI: npm run benchmark:intent-classification [--profile=pelangi] runs 100 sample messages through both T2 and T3 paths, outputs CSV with columns: intent_name, keyword_match_ms, ai_match_ms, accuracy_t2, accuracy_t3",
+        "Output includes summary line with avg latency per method and a recommendation (e.g., 'Consider keyword-only for 60% time savings with 5% accuracy loss')",
+        "Test verifies output CSV is valid and summary recommendation is included"
+      ],
+      "technicalNotes": [
+        "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
+        "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
       "_source": "ai-example",
       "model": "haiku"
     }

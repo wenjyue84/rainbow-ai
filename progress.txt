@@ -306,3 +306,37 @@ This user story describes a **Node.js/TypeScript** project, not a Frappe/Python 
 - tests/routes/admin/workflow-metrics.test.ts: 14/14 tests pass
 - All acceptance criteria met
 
+## Iteration 1 - Tue, Apr 14, 2026  2:19:05 PM
+FAILED diagnosis-block gate: Implement Booking Workflow Step Duration SLA Monitoring with Batch Writes (ID: US-623) — no diagnosis block found — attempt 1/3
+
+
+## Pre-analysis for US-623 (Gemini 2.5 Pro)
+**Technical Brief for US-623: Booking Workflow SLA Monitoring (Frappe/Python)**
+
+**Note**: The provided story JSON details a TypeScript/Node.js implementation. This brief translates the requirements for the requested Frappe/Python (`lhdn_payroll_integration`) context.
+
+1.  **Python Files to Modify/Create**:
+    *   `lhdn_payroll_integration/hooks.py`: To define scheduler jobs and DocType event hooks.
+    *   `lhdn_payroll_integration/.../doctype/booking/booking.py`: (Or the relevant DocType with the workflow) to house the core metric-capturing logic on state changes.
+    *   `lhdn_payroll_integration/api/workflow.py`: New file for the `@frappe.whitelist()` API endpoint for the dashboard.
+    *   `lhdn_payroll_integration/utils/metrics_batcher.py`: New file to manage caching and bulk-writing metrics.
+
+2.  **Frappe DocTypes & Hooks**:
+    *   **DocTypes**:
+        *   `Workflow Step Metric` (New): A new DocType to store `{step, duration_ms, guest_id, sla_violation}`.
+        *   `Booking` (Existing): The DocType being tracked.
+    *   **Hooks (`hooks.py`)**:
+        *   `doc_events` on `Booking` (`on_update`): To detect workflow state changes and trigger metric recording.
+        *   `scheduler_events`: A short-interval cron job (e.g., `* * * * *`) to call the function that flushes batched metrics.
+
+3.  **Implementation Approach**:
+    *   On workflow state change (compare `doc.workflow_state` with `doc.get_doc_before_save().workflow_state`), calculate the duration.
+    *   Add the metric to a list in `frappe.cache()`. If duration > 120s, immediately create a `System Notification` for admins.
+    *   The scheduled job will call a function that atomically reads the metrics from cache, performs a bulk `frappe.db.sql` insert into `tabWorkflow Step Metric`, and clears the cache key.
+    *   The whitelisted API function will query this new table to calculate and return aggregated stats (Avg, P95, Violations).
+
+4.  **Edge Cases & Gotchas**:
+    *   **Data Loss on Restart**: Use Redis for the Frappe cache backend to prevent the loss of un-flushed metrics.
+    *   **Concurrency**: Implement a cache lock (`frappe.cache().lock()`) during the flush operation to prevent race conditions between the web worker adding a metric and the scheduler flushing them.
+    *   **First Step Duration**: The first step's duration should be calculated from the document's `creation` timestamp.
+

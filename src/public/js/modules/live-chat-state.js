@@ -90,5 +90,7 @@ export var $ = {
   /** @type {Object<string, {checkIn: string, checkOut: string}>} phone→dates map for date suffix display (US-014) */
   contactDatesMap: {},
   /** @type {string} Current staff display name for manual message attribution (US-011) */
-  staffName: 'Staff'
+  staffName: 'Staff',
+  /** @type {string} Channel filter for unified list: 'all' | 'whatsapp' | 'webchat' (LC-01) */
+  channelFilter: 'all'
 };

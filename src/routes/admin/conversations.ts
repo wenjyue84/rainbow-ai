@@ -8,6 +8,7 @@ import type { ConversationLog, LoggedMessage } from '../../assistant/conversatio
 import { whatsappManager } from '../../lib/baileys-client.js';
 import { sessionWindowActive, logSessionExpired } from '../../lib/session-window.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
+import { pool } from '../../lib/db.js';
 import contactsRouter from './conversations-contacts.js';
 import sseRouter from './conversations-sse.js';
 
@@ -69,6 +70,77 @@ router.get('/conversations/search', async (req: Request, res: Response) => {
   const profileId = (req.query.profileId as string) || res.locals.profileId as string | undefined;
   const conversations = await searchConversations(q, profileId);
   res.json(conversations);
+});
+
+// ─── Unified conversation list (LC-01): WhatsApp + WebChat merged ──────────
+router.get('/conversations/unified', async (_req: Request, res: Response) => {
+  const profileId = res.locals.profileId as string | undefined;
+
+  // Fetch WhatsApp conversations (excludes webchat-%  by default in listConversations)
+  const waConvs = await listConversations(profileId);
+  const waResult = waConvs.map((c: any) => ({ ...c, channel: 'whatsapp' }));
+
+  // Fetch WebChat conversations
+  const profileFilter = profileId ? 'AND c.profile_id = $1' : '';
+  const params: any[] = profileId ? [profileId] : [];
+  const wcRows = await pool.query(`
+    SELECT
+      c.phone,
+      c.push_name,
+      c.pinned,
+      c.last_read_at,
+      c.created_at,
+      lm.content  AS last_msg_content,
+      lm.role     AS last_msg_role,
+      lm.timestamp AS last_msg_at,
+      COALESCE(mc.total, 0)::int  AS message_count,
+      COALESCE(uc.unread, 0)::int AS unread_count
+    FROM rainbow_conversations c
+    LEFT JOIN LATERAL (
+      SELECT content, role, timestamp
+      FROM rainbow_messages
+      WHERE phone = c.phone
+      ORDER BY timestamp DESC
+      LIMIT 1
+    ) lm ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS total
+      FROM rainbow_messages
+      WHERE phone = c.phone
+    ) mc ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS unread
+      FROM rainbow_messages
+      WHERE phone = c.phone
+        AND role = 'user'
+        AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)
+    ) uc ON true
+    WHERE c.phone LIKE 'webchat-%'
+      AND lm.content IS NOT NULL
+      ${profileFilter}
+    ORDER BY lm.timestamp DESC
+  `, params);
+
+  const wcResult = wcRows.rows.map((r: any) => ({
+    phone: r.phone,
+    pushName: r.push_name || ('Web-' + r.phone.replace('webchat-', '').slice(0, 6)),
+    lastMessage: (r.last_msg_content || '').slice(0, 100),
+    lastMessageRole: r.last_msg_role,
+    lastMessageAt: r.last_msg_at instanceof Date ? r.last_msg_at.getTime() : new Date(r.last_msg_at).getTime(),
+    messageCount: Number(r.message_count ?? 0),
+    unreadCount: Number(r.unread_count ?? 0),
+    pinned: r.pinned,
+    createdAt: r.created_at instanceof Date ? r.created_at.getTime() : new Date(r.created_at).getTime(),
+    channel: 'webchat',
+  }));
+
+  const all = ([...waResult, ...wcResult] as any[]).sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return b.lastMessageAt - a.lastMessageAt;
+  });
+
+  res.json(all);
 });
 
 router.get('/conversations', async (req: Request, res: Response) => {
