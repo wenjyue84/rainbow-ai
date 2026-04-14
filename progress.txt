@@ -988,3 +988,66 @@ Completed: Add Slow Query Detection and Alert System (ID: US-640) in 4m
 ## Iteration 2 - Tue, Apr 14, 2026  8:26:55 PM
 FAILED diff-guard: Add Conversation Message Timestamp Integrity Validator with Reordering Detection (ID: US-644) — 664 lines > 500 limit — attempt 1/3
 
+
+
+## Iteration - Story: US-645 - Implement Redis Connection Pooling and Health Monitoring
+
+### What was implemented
+- Created `src/lib/redis-pool.ts` with RedisPool class providing:
+  - Connection pool management with configurable min/max sizes (default 2-10)
+  - Exponential backoff retry on connection failures (100ms initial, max 3000ms)
+  - Health check endpoint: `async healthCheck()` returning status (ok/degraded/down), responseTimeMs, and metrics
+  - Connection stale detection via ping() + response time tracking (>1000ms = stale)
+  - Singleton pattern: `initializeRedisPool()` + `getRedisPool()` for global instance
+  - Graceful shutdown preventing new connections and closing existing ones
+
+- Added Redis configuration to `src/assistant/data/settings.json`:
+  - `redis.pool.minSize` (default: 2)
+  - `redis.pool.maxSize` (default: 10)
+  - `redis.pool.connectionRetryMs` (default: 100)
+  - `redis.pool.maxRetries` (default: 5)
+  - `redis.pool.idleTimeoutMs` (default: 60000)
+
+- Integrated health check into `src/routes/admin/integration-health.ts`:
+  - GET /admin/health/redis endpoint returning:
+    - `status` (ok/degraded/down)
+    - `activeConnections` (number in use)
+    - `poolSize` (total alive)
+    - `responseTime` (PING roundtrip in ms)
+    - `metrics` (details: idleConnections, totalCreated, totalDestroyed, isHealthy)
+
+- Created `tests/lib/redis-pool.test.ts` with 18 tests:
+  - Initialization (default + custom config, singleton pattern)
+  - Pool metrics tracking (active, idle, total created/destroyed)
+  - Health checks with invalid Redis host
+  - Shutdown lifecycle and resource cleanup
+  - Configuration validation
+  - Singleton pattern enforcement
+  - All tests passing, no external Redis required (tests use invalid hosts)
+
+### Patterns discovered
+- Logger module exports `createModuleLogger()` function, not a named `logger` export — required dynamic import pattern
+- ioredis `conn.status` is a string like 'ready', 'connecting', 'disconnected'
+- Health check design: acquire connection → ping → release → return metrics (vs. direct TCP probe used elsewhere in codebase)
+- Pool exhaustion handled via promise-based polling (100ms intervals) with 10-second timeout
+- Settings.json configuration now centralized: pool defaults moved from constants to JSON with _description fields
+
+### Gotchas
+- esbuild requires actual file existence — Write tool with backslash Windows paths had issues, switched to forward slashes
+- Node v20 on Windows: `NODE_OPTIONS` env var syntax doesn't work in PowerShell — had to run vitest directly
+- ioredis `createConnection()` method doesn't exist — must use `new Redis()` + `connect()` instead
+- Connection status check via `conn.status.includes('ready')` more reliable than disconnection event listening
+- Test runs pick up both unit and integration vitest projects — 18 tests run once per project config
+
+### Files modified/created
+- src/lib/redis-pool.ts (new)
+- tests/lib/redis-pool.test.ts (new)
+- src/routes/admin/integration-health.ts (added /health/redis endpoint)
+- src/assistant/data/settings.json (added redis.pool config block)
+- prd.json (marked US-645 passes: true)
+
+All acceptance criteria met:
+✓ Redis connection pool initialized with min/max size from settings.json
+✓ Exponential backoff retry on connection failures
+✓ Health check endpoint returns {status, activeConnections, poolSize, responseTime}
+✓ Pool handles connection stale/eviction and leak prevention
