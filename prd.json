@@ -3756,17 +3756,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-14T08:19:24Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\nThe test files `tests/profiles/data-makan.test.ts` and `tests/helpers/profile-contamination-detector.ts` were already created and are fully passing (13/13 tests). The `prd.json` still has `passes: false` because the previous iteration failed the SPIRAL diagnosis gate before it could update prd.json.\n\n## Problem Identified\nAll acceptance criteria are implemented and tests are passing — only need to mark `passes: true` in `prd.json` and document this in `progress.txt`.\n\n## Planned Changes\n- Update `prd.json`: set `passes: true` for US-626 and remove `_failureReason`\n- Append iteration notes to `progress.txt`\n- Commit the changes\nBuild passes. Now update `prd.json`:\nNow append to progress.txt:\nUS-626 is complete. Summary:\n\n- **Tests already existed** from the previous iteration — `tests/profiles/data-makan.test.ts` (13 tests) and `tests/helpers/profile-contamination-detector.ts`\n- **All 13 tests pass** (contamination detection, workflow validation, cafe terminology, intent keywords, file structure)\n- **Build passes** (2.8MB, pre-existing warnings only)\n- **prd.json** updated: `passes: true`, `_failureReason` removed\n- Committed as `4d39253`"
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 326,
-        "tokensAfterMasking": 325,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "model": "haiku"
     },
     {
       "id": "US-627",
@@ -3850,6 +3840,46 @@
       "model": "haiku"
     },
     {
+      "id": "US-631",
+      "title": "Add Intent Keyword-vs-AI Classification Performance Benchmarking CLI",
+      "priority": "medium",
+      "description": "Create a CLI tool benchmarking T2 (keyword matching) versus T3 (AI classification) latency and accuracy. Supports goal #1 (improve accuracy) and #11 (optimize performance) by showing when keyword-only matching is sufficient versus when AI classification is required.",
+      "acceptanceCriteria": [
+        "CLI: npm run benchmark:intent-classification [--profile=pelangi] runs 100 sample messages through both T2 and T3 paths, outputs CSV with columns: intent_name, keyword_match_ms, ai_match_ms, accuracy_t2, accuracy_t3",
+        "Output includes summary line with avg latency per method and a recommendation (e.g., 'Consider keyword-only for 60% time savings with 5% accuracy loss')",
+        "Test verifies output CSV is valid and summary recommendation is included"
+      ],
+      "technicalNotes": [
+        "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
+        "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-633",
       "title": "Implement Intent Classification Low-Confidence Clarification Flow",
       "priority": "high",
@@ -3887,6 +3917,27 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
