@@ -38,6 +38,13 @@ export async function ensureOptInColumns(): Promise<void> {
 
   // Run each ALTER TABLE separately to avoid one failure blocking others
   const migrations = [
+    // Core columns that may be missing from older DB deployments
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS status VARCHAR(16) NOT NULL DEFAULT 'active'`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS favourite BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS response_mode TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS contact_details_json TEXT`,
     // US-979: Opt-in audit trail
     `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS opt_in_method TEXT`,
     `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ`,
@@ -72,6 +79,14 @@ export async function ensureOptInColumns(): Promise<void> {
     `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
     // US-477: BSUID on rainbow_messages
     `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS bsuid VARCHAR(128)`,
+    // US-438: Voice note transcription flag
+    `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS transcribed BOOLEAN`,
+    // US-893: Locally-saved media path
+    `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS local_media_url TEXT`,
+    // US-899: Faithfulness check score
+    `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS faithfulness_score REAL`,
+    // US-535: Booking intent subtype
+    `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS booking_subtype VARCHAR(20)`,
   ];
 
   for (const sql of migrations) {
