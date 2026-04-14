@@ -13,6 +13,7 @@ import { validateBookingPreconditions, extractBookingContext } from './booking-v
 import { checkBookingUnitAvailability } from './booking-unit-availability-check.js';
 import { createProfileSanitizer, type BookingInput } from '../lib/booking-input-sanitizer.js';
 import { validateBookingRules, type BookingRequest } from '../lib/booking-rules-validator.js';
+import { validateBookingStep } from './workflow-validator.js';
 import type { HybridWorkflowDefinition } from './workflow-nodes.js';
 import { isNodeBasedWorkflow, convertRawPhonesToLinks } from './workflow-nodes.js';
 import {
@@ -786,6 +787,41 @@ export async function executeWorkflowStep(
       // Fail-open: log error but allow workflow to proceed
       console.error(
         `[WorkflowExecutor] US-547: Unexpected error during booking rules validation:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // ─── US-616: Per-Profile Custom Validation Rules Engine ──────────────
+  // Execute profile-specific validation rules against booking step data
+  if (currentStep.id && (state.workflowId.includes('book') || state.workflowId.includes('booking'))) {
+    try {
+      const profile = context.profileId || 'pelangi';
+      const validationResult = validateBookingStep(state.collectedData, profile);
+
+      if (!validationResult.valid) {
+        // Return validation errors as guest-friendly message
+        const errorMessage = validationResult.errors.join('\n\n');
+        console.warn(
+          `[WorkflowExecutor] US-616: Custom validation rules failed for step "${currentStep.id}": ${errorMessage}`
+        );
+
+        return {
+          response: errorMessage,
+          newState: null,
+          shouldForward: true,
+          workflowId: state.workflowId,
+          stepId: currentStep.id,
+          escalation_reason: 'validation_error',
+          executionId
+        };
+      }
+
+      console.log(`[WorkflowExecutor] US-616: Custom validation rules passed for step "${currentStep.id}"`);
+    } catch (err) {
+      // Fail-open: log error but allow workflow to proceed
+      console.error(
+        `[WorkflowExecutor] US-616: Unexpected error during custom validation rules:`,
         err instanceof Error ? err.message : err
       );
     }

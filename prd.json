@@ -3496,9 +3496,54 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": true,
+      "_source": "ai-example",
+      "last_attempted": "2026-04-14T00:45:37Z",
+      "model": "haiku"
+    },
+    {
+      "id": "US-617",
+      "title": "Implement Tamil Grapheme Cluster Normalization for Intent Matching",
+      "priority": "high",
+      "description": "Add Tamil-specific Unicode normalization to handle combining characters and script variants, improving keyword matching accuracy for Tamil-language booking and inquiry intents",
+      "acceptanceCriteria": [
+        "New utility function `normalizeTamilInput(text: string): string` in src/lib/tamil-normalization.ts converts NFKD→NFC and removes floating diacriticals; test verifies classical ஸ்ரீ matches modern ஸ்ரீ",
+        "Intent keyword matching (T2 fuzzy match) uses normalized input; modify src/assistant/intent-classifier.ts line ~180 to call normalizeTamilInput before keyword lookup",
+        "Unit test includes 5+ Tamil variant pairs (modern/classical, with/without diacriticals) to ensure normalization produces identical results"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/tamil-normalization.ts (normalizeTamilInput using Node.js String.prototype.normalize, regex for diacritical removal)",
+        "File to modify: src/assistant/intent-classifier.ts (add normalizeTamilInput call in T2 keyword matching loop around line 180)",
+        "File to modify: src/assistant/data/intent-keywords.json (add Tamil variant test cases if not present)",
+        "Test command: uv run vitest tests/lib/tamil-normalization.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
-      "last_attempted": "2026-04-14T00:31:40Z"
+      "model": "haiku"
+    },
+    {
+      "id": "US-618",
+      "title": "Implement Conversation Message Snapshot Inspector CLI for Recovery Validation",
+      "priority": "medium",
+      "description": "Create a CLI tool to validate conversation state snapshots used in recovery flows, ensuring data integrity and completeness before restoration",
+      "acceptanceCriteria": [
+        "CLI command `uv run src/cli/validate-snapshots.ts --profile <name> --message-id <id>` validates a specific snapshot and returns pass/fail status",
+        "Output includes checksum verification, required field presence (conversation_id, messages array, timestamp, language), and any corruption warnings",
+        "`--report` flag generates summary: total snapshots, valid count, corrupted count, average size, oldest/newest snapshot timestamps"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/validate-snapshots.ts (parses argv, calls SnapshotValidator, outputs JSON or table)",
+        "File to create: src/lib/snapshot-validator.ts (SnapshotValidator class with validateSnapshot and generateReport methods)",
+        "File to modify: src/lib/recovery-manager.ts (ensure snapshots are stored with checksums in existing recovery storage)",
+        "Test command: uv run vitest tests/lib/snapshot-validator.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
