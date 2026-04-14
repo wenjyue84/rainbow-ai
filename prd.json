@@ -4162,7 +4162,7 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
       "model": "sonnet",
       "last_attempted": "2026-04-14T11:56:56Z"
@@ -4349,7 +4349,8 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "sonnet"
     },
     {
       "id": "US-654",
@@ -4369,7 +4370,51 @@
       "dependencies": [],
       "estimatedComplexity": "small",
       "passes": false,
-      "_source": "ai-example"
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-655",
+      "title": "Add Booking Intent Microclassifier for Disambiguating Vague Queries",
+      "priority": "high",
+      "description": "Implement a secondary classifier triggered on booking intent to disambiguate into sub-categories: check-in-confirm, modification-request, cancellation, availability-check. Routes to correct workflow step with higher confidence.",
+      "acceptanceCriteria": [
+        "When primary classification returns intent=booking, invoke bookingMicroclassifier() returning sub_intent field (one of: check-in-confirm, modification-request, cancellation, availability-check, unknown)",
+        "Microclassifier uses keyword matching from 'booking_sub' section in profile-specific intent-keywords JSON files",
+        "Test suite covers 15+ real booking queries with expected sub-intent output; pass rate >95% on golden dataset"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/booking-microclassifier.ts with classifyBookingSubIntent(message, language, profile) function",
+        "File to modify: src/assistant/intent-classifier.ts to invoke microclassifier after primary classification",
+        "File to modify: src/assistant/data/intent-keywords-pelangi.json, intent-keywords-data-makan.json, intent-keywords-data-southern.json to add booking_sub keyword sections",
+        "Test command: npm run test:run -- tests/booking-microclassifier.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-656",
+      "title": "Add Intent Classification Performance Profiler CLI with JSON Report Output",
+      "priority": "medium",
+      "description": "Create CLI tool to profile intent classification latency from intent_analytics table. Generates JSON report with percentile distributions (p50/p95/p99) and flags slow intents (>200ms threshold) for optimization.",
+      "acceptanceCriteria": [
+        "CLI command: npm run cli:profile-intent-perf --profile pelangi --duration 24h queries intent_analytics and outputs JSON report",
+        "Report includes: intent name, call count, p50/p95/p99 latency (ms), slow_flag (true if p99 > 200ms), provider breakdown",
+        "Histogram distribution buckets: 0-50ms, 50-100ms, 100-200ms, 200-500ms, 500ms+ with counts per bucket"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/profile-intent-perf.ts with profileIntentPerf() CLI handler",
+        "File to modify: src/cli/index.ts to register new command",
+        "Test command: npm run test:run -- tests/cli/profile-intent-perf.test.ts (mock analytics data, verify JSON schema, test percentile calculations, test slow intent detection)"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
     }
   ]
 }
