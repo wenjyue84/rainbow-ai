@@ -121,3 +121,35 @@ Here is the technical brief based on the actual content of the user story for th
 - The story was already fully implemented; just needed to verify and mark passing
 - Confidence capped at 0.85 for keyword-based fallback results
 - Non-timeout errors are re-thrown; only AbortError (err.name === 'AbortError' or controller.signal.aborted) triggers the keyword fallback
+
+
+## Pre-analysis for US-602 (Gemini 2.5 Pro)
+This user story describes a **Node.js/TypeScript** project, not a Frappe/Python one. The technical brief below is for the described TypeScript project.
+
+**Project:** Intent Classification Feedback System
+**Frameworks:** Node.js, Drizzle ORM, TypeScript
+
+**1. Python Files to Modify:**
+*   N/A. This is a TypeScript project. The key files are:
+    *   `shared/schema-tables.ts`: To define the new database table.
+    *   `src/lib/intent-feedback-analyzer.ts`: To house the core analysis logic.
+    *   `package.json`: To add the new CLI command.
+    *   `tests/intent-feedback/pattern-analysis.test.ts`: For testing the new logic.
+
+**2. Frappe DocTypes / Hooks Involved:**
+*   N/A. Instead, this involves:
+    *   **Drizzle Schema:** A new table schema `intentFeedback` will be defined in `shared/schema-tables.ts`.
+    *   **NPM Scripts:** A new script `analyze:intent-feedback` will be added to `package.json`.
+
+**3. Recommended Implementation Approach:**
+1.  **Schema:** In `shared/schema-tables.ts`, define the `intentFeedback` table using Drizzle's `pgTable` syntax with the specified columns.
+2.  **Analyzer:** In `src/lib/intent-feedback-analyzer.ts`, create `analyzeMisclassifications`. This async function should use Drizzle to query the `intentFeedback` table. It will need to group results by `predicted_intent` and `ground_truth_intent` to calculate frequencies.
+3.  **CLI Script:** Create a small executable TS script that imports and calls `analyzeMisclassifications`, then `console.log`s the result as a JSON string.
+4.  **package.json:** Add `"analyze:intent-feedback": "tsx ./path/to/cli-script.ts"` to the `scripts` section.
+
+**4. Edge Cases & Gotchas:**
+*   The story implies a mechanism to store feedback, but doesn't specify its implementation. This brief only covers the analysis part.
+*   Keyword suggestion logic is not defined; a basic implementation could extract common words from messages associated with specific misclassification pairs.
+*   The "daily batch job" is implemented as a manual CLI command. A separate process (e.g., cron) would be needed for full automation.
+*   Ensure the analyzer handles cases with zero feedback entries gracefully.
+
