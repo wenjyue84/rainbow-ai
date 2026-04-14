@@ -2206,3 +2206,27 @@ This user story is for a TypeScript/Node.js project, not Python/Frappe. Here is 
 *   **Rule Schema:** The validator must handle potential syntax errors or missing fields in the JSON rule files gracefully.
 *   **Contextual Errors:** Ensure the exact error `message` from the failed rule is bubbled up to the UI to provide clear, actionable feedback to the user.
 
+
+## Iteration [124] - Story: US-617 - Implement Tamil Grapheme Cluster Normalization for Intent Matching (Retry 2)
+
+### What was implemented
+- Implementation was already complete from iteration 123/previous attempts
+- `src/lib/tamil-normalization.ts`: normalizeTamilInput() function (NFKD→NFC + floating diacritical removal)
+- `src/assistant/fuzzy-matcher.ts`: already integrates normalizeTamilInput at lines 95, 145, 177
+- `tests/lib/tamil-normalization.test.ts`: 26/26 tests passing
+
+### Patterns discovered
+- SPIRAL outer loop requires a diagnosis block (## Current State / ## Problem Identified / ## Planned Changes) as plain text BEFORE any tool calls that modify files
+- If diagnosis block is missing from output, SPIRAL marks the attempt as failed even if prd.json was updated correctly
+- On retry, if story already passes=true and implementation is verified, simply document and commit clean
+
+### Gotchas
+- Diagnosis block MUST appear as plain markdown text before any Edit/Write/Bash-modify calls
+- The fuzzy-matcher.ts (not a nonexistent intent-classifier.ts) is the actual T2 match integration point
+- Pre-existing warnings in tamil-slot-parser.ts (duplicate object keys) are unrelated to US-617
+
+### Quality checks
+✅ npm run build: SUCCESS (2.8MB, pre-existing warnings only)
+✅ npx vitest run tests/lib/tamil-normalization.test.ts: 26/26 tests PASS
+✅ Server startup: OK (node deprecation warning only, pre-existing)
+✅ prd.json: US-617.passes = true
