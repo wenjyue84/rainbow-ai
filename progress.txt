@@ -1,3 +1,48 @@
+## Iteration [119] - Story: US-599 - Intent Classification Confidence Score Distribution Histogram CLI Tool
+
+### What was implemented
+- Created `src/cli/confidence-histogram.ts` - CLI tool for analyzing confidence score distributions
+  * parseCliArgs() - parses --profile, --days, --format flags
+  * queryConfidenceScores() - queries intent_analytics table filtered by profile and time window
+  * generateHistogram() - groups scores by intent and creates 5 confidence buckets: [0-0.2], [0.2-0.4], [0.4-0.6], [0.6-0.8], [0.8-1.0]
+  * exportCsv() - exports histogram to CSV format with columns: intent, confidence_bucket, message_count, percentage
+  * Support for three output formats: text (default), CSV, and JSON
+
+- Created comprehensive test suite: `tests/cli/confidence-histogram.test.ts`
+  * 24 tests covering all acceptance criteria
+  * AC1: CLI command parsing and histogram bucket distribution (7 tests)
+  * AC2: Per-intent breakdown with high/medium/low confidence percentages (8 tests)
+  * AC3: CSV export with proper formatting (6 tests)
+  * Integration tests for edge cases and high-volume datasets (3 tests)
+  * All 24 tests passing
+
+- Updated `package.json` with new npm script
+  * `npm run analytics:confidence-histogram --profile pelangi --days 7`
+  * `npm run analytics:confidence-histogram --profile pelangi --days 7 --format=csv`
+
+### Patterns discovered
+- Histogram bucketing uses boundaries [0, 0.2, 0.4, 0.6, 0.8, 1.0] for 5 equal buckets
+- Confidence categories: high (0.8+), medium (0.5-0.8), low (<0.5)
+- Query uses intent_analytics table with profile_id and created_at filters
+- Percentages calculated relative to total messages per intent, not globally
+- CSV export includes bucket ranges as decimal format (e.g., "0.0-0.2")
+- Intent sorting by total message count (descending) for better readability
+
+### Gotchas
+- Edge case: confidence=1.0 must be included in [0.8-1.0] bucket (requires explicit check)
+- Database URL required from DATABASE_URL environment variable
+- Time window calculated as: created_at >= NOW() - INTERVAL '1 day' * days
+- Percentages must sum to 100% per intent (no rounding errors with precision)
+- Test mocking uses pg.Pool interface
+
+### Quality Checks
+✅ All 24 tests passing (unit tests in tests/cli/confidence-histogram.test.ts)
+✅ Build successful (no new TypeScript errors introduced)
+✅ Server startup successful (verified with tsx src/index.ts)
+✅ prd.json updated: US-599.passes = true
+✅ Git commit created with conventional commit format
+✅ No compilation warnings related to new code
+
 ## Iteration [118] - Story: US-596 - Add Profile-Specific System Prompt Overrides in workflows.json
 
 ### What was implemented
