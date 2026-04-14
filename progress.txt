@@ -100,3 +100,24 @@ Here is the technical brief based on the actual content of the user story for th
 *   **Test Scope:** The acceptance criteria mention a validation test for an "intent classifier." The primary coding task should focus on building the audit script and its unit tests. The intent classification test may be a separate step.
 *   **Manual Work:** The story involves a manual content replacement step after the audit is complete. The script's role is to identify what needs replacing, not to perform the replacement itself.
 
+
+## Iteration - Story: US-619 Intent Classification Provider Latency Tracking with Timeout-Based Fallback
+
+### What was implemented
+- `src/assistant/pipeline/classifier-t2.ts` already existed with a full implementation
+- The file provides `providerTimeoutHandler`, `classifyByKeyword`, and `clearT2Caches` exports
+- `tests/integration/classifier/t2-latency-fallback.test.ts` already existed with 10 test cases
+- `settings.json` already had `classification.providerTimeoutMs` config added
+- All 20 tests pass (10 integration + 10 unit mode), build succeeds
+
+### Patterns discovered
+- The existing `classifier-t2.ts` uses a word-boundary regex approach for ASCII keywords and substring match for CJK
+- DB analytics logging uses `.execute().catch()` pattern (not raw promise .catch())
+- Tests mock `../../lib/db.js` and `../../lib/logger.js` at module load time via `vi.mock()`
+- Module-level caches (`settingsCache`, `defaultKeywordsCache`, `profileKeywordsCache`) cleared via `clearT2Caches()` between tests
+- The test file is picked up by both `unit` and `integration` vitest projects (20 total runs)
+
+### Gotchas
+- The story was already fully implemented; just needed to verify and mark passing
+- Confidence capped at 0.85 for keyword-based fallback results
+- Non-timeout errors are re-thrown; only AbortError (err.name === 'AbortError' or controller.signal.aborted) triggers the keyword fallback
