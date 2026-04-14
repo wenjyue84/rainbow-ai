@@ -341,3 +341,27 @@ export const bookingWorkflows = pgTable("booking_workflows", {
 
 export type BookingWorkflow = typeof bookingWorkflows.$inferSelect;
 export type InsertBookingWorkflow = typeof bookingWorkflows.$inferInsert;
+
+// ─── Bookings (US-625) ──────────────────────────────────────────
+// Stores completed bookings with unique confirmation codes scoped to profile.
+// Enables cross-profile confirmation validation and prevents guest confusion.
+
+export const rainbowBookings = pgTable("rainbow_bookings", {
+  id: varchar("id", { length: 36 }).primaryKey().default('gen_random_uuid()'),
+  bookingId: varchar("booking_id", { length: 36 }).notNull(),  // Foreign key to bookingWorkflows
+  guestPhone: varchar("guest_phone", { length: 32 }).notNull(),
+  guestName: text("guest_name").notNull(),
+  confirmationCode: varchar("confirmation_code", { length: 255 }).unique().notNull(),  // PEL-260414-K9X2M5
+  profile: varchar("profile", { length: 64 }).notNull().default("pelangi"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_rainbow_bookings_booking_id").on(table.bookingId),
+  index("idx_rainbow_bookings_guest_phone").on(table.guestPhone),
+  index("idx_rainbow_bookings_confirmation_code").on(table.confirmationCode),
+  index("idx_rainbow_bookings_profile").on(table.profile),
+  index("idx_rainbow_bookings_created_at").on(table.createdAt),
+  index("idx_rainbow_bookings_profile_code").on(table.profile, table.confirmationCode),
+]));
+
+export type RainbowBooking = typeof rainbowBookings.$inferSelect;
+export type InsertRainbowBooking = typeof rainbowBookings.$inferInsert;

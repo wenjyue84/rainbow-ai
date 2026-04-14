@@ -4,6 +4,7 @@ import { formatPriceBreakdown, formatDate, getTemplate } from './formatter.js';
 import { isAIAvailable, chat } from './ai-client.js';
 import { bookingExtractionSchema, safeParseLLMResponse } from './schemas.js';
 import { preFlightUnitCheck } from './booking-unit-preflight.js';
+import { generateConfirmationCode } from '../lib/confirmation-code.js';
 
 export type Language = 'en' | 'ms' | 'zh' | 'ta';
 
@@ -430,6 +431,10 @@ async function handleConfirmStage(
     return { response: msgs[lang], newState: state };
   }
 
+  // Generate confirmation code for this booking
+  const profileId = (state as any).profileId || 'pelangi';
+  const confirmationCode = generateConfirmationCode(profileId);
+
   if (callAPIFn) {
     try {
       await callAPIFn('POST', '/api/guest-tokens', {
@@ -437,6 +442,7 @@ async function handleConfirmStage(
         guestCount: state.guests,
         checkIn: state.checkIn,
         checkOut: state.checkOut,
+        confirmationCode,
         source: 'whatsapp_bot'
       });
     } catch (err: any) {
@@ -450,9 +456,16 @@ async function handleConfirmStage(
     }
   }
 
+  // Build confirmation message with confirmation code
+  const confirmMessages: Record<string, string> = {
+    en: `*Booking Confirmed!* \u2705\n\nYour confirmation code is: *${confirmationCode}*\n\nPlease keep this code safe. You'll need it to check in.\n\nThank you! See you soon! \u2014 Rainbow \u{1F308}`,
+    ms: `*Tempahan Disahkan!* \u2705\n\nKod pengesahan anda: *${confirmationCode}*\n\nSila simpan kod ini. Anda memerlukannya untuk daftar masuk.\n\nTerima kasih! Jumpa anda segera! \u2014 Rainbow \u{1F308}`,
+    zh: `*\u9884\u8BA2\u5DF2\u786E\u8BA4!* \u2705\n\n\u4F60\u7684\u786E\u8BA4\u7801\u662F: *${confirmationCode}*\n\n\u8BF7\u59A5\u5584\u4FDD\u7BA1\u6B64\u7801\u3002\u4F60\u9700\u8981\u5B83\u6765\u529E\u7406\u5165\u4F4F\u3002\n\n\u8C22\u8C22\uFF01\u4E0A\u9762\u89C1\uFF01\u2014 Rainbow \u{1F308}`
+  };
+
   return {
-    response: getTemplate('booking_done', lang),
-    newState: { ...state, stage: 'done' }
+    response: confirmMessages[lang] || confirmMessages['en'],
+    newState: { ...state, stage: 'done', confirmationCode }
   };
 }
 
