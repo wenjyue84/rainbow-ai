@@ -3091,9 +3091,10 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
-      "passes": false,
+      "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "last_attempted": "2026-04-14T00:12:49.816Z"
     },
     {
       "id": "US-600",
@@ -3427,6 +3428,28 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-615",
+      "title": "Add Webhook Handler for Booking Confirmation Callbacks from External Systems",
+      "priority": "medium",
+      "description": "Implement secure webhook endpoint to receive booking confirmation callbacks from external reservation systems (Booking.com, Airbnb). Validate HMAC signatures, ensure idempotency, update conversation state, and send templated confirmation message to guest.",
+      "acceptanceCriteria": [
+        "New POST /webhooks/booking/confirmed endpoint in src/routes/webhooks/booking-confirmation.ts validates HMAC-SHA256 signature using WEBHOOK_SECRET env var, returns 401 for unsigned requests",
+        "Endpoint extracts booking_id, guest_phone, guest_name from JSON payload, performs idempotency check using booking_id+event_timestamp to prevent duplicate processing, updates rainbow_conversations.state = 'booking_confirmed'",
+        "After confirmation, sends WhatsApp message to guest_phone with booking confirmation template from src/assistant/data/knowledge.json, logs event with status/error to webhook_events table"
+      ],
+      "technicalNotes": [
+        "File to create: src/routes/webhooks/booking-confirmation.ts (POST handler with signature/idempotency validation)",
+        "File to create: src/lib/webhook-validator.ts (exports validateWebhookSignature function using crypto.timingSafeEqual)",
+        "Test command: npm run test:run -- tests/unit/webhook-validator.test.ts",
+        "Add WEBHOOK_SECRET to .env.example, create webhook_events table migration if missing"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
