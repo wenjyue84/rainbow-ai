@@ -1,3 +1,59 @@
+## Iteration [120] - Story: US-600 - Add Intent Keyword Dead-Code Audit CLI with Usage Analytics
+
+### What was implemented
+- Created `src/cli/audit-keywords.ts` - Intent Keyword Dead-Code Audit CLI Tool
+  * parseCliArgs() - parses --profile, --days, --dryrun flags
+  * loadIntentKeywords() - loads intent-keywords-{profile}.json and extracts all keywords by intent and language
+  * queryKeywordUsageStats() - queries intent_analytics table for keyword usage in last N days
+  * generateAuditReport() - generates comprehensive audit report with:
+    - intent: keyword intent mapping
+    - matchCount: number of times keyword matched in period
+    - lastUsedAt: ISO timestamp of last usage
+    - confidence: average confidence score from intent_analytics
+    - recommendation: 'remove' (0 matches), 'review' (<5 matches or <0.5 confidence), 'keep' (frequent/high-confidence)
+  * writeAuditReport() - outputs JSON report to reports/audit-keywords-{profile}-{date}.json
+  * formatReport() - human-readable text output with summary and unused keyword list
+
+- Updated `package.json`
+  * Added npm script: `kb:audit-keywords` -> `tsx src/cli/audit-keywords.ts`
+
+- Created comprehensive test suite: `tests/cli/audit-keywords.test.ts`
+  * 20 tests covering all acceptance criteria:
+    - AC1: Load and extract keywords from intent-keywords.json (6 tests)
+    - AC2: Query usage stats and identify unused keywords with recommendations (4 tests)
+    - AC3: Report structure with intent, keyword, matchCount, lastUsedAt, confidence, recommendation (8 tests)
+    - Integration: JSON serialization, text formatting, edge cases (2 tests)
+  * All 20 tests passing
+
+### Patterns discovered
+- Keyword extraction: nested by intent > language > keyword array
+- Keywords stored in intent_analytics table as keyword_matched field
+- Usage stat aggregation groups by lowercase keyword, counts matches, tracks most recent lastUsedAt
+- Duplicate keywords deduplicated by `${intent}|${keyword}` composite key
+- Recommendation logic:
+  - remove: matchCount === 0
+  - review: matchCount < 5 OR confidence < 0.5
+  - keep: matchCount >= 5 AND confidence >= 0.5
+- Report sorting: by matchCount ascending (unused first), then alphabetically by keyword
+
+### Gotchas
+- Profile-specific keyword files exist in two patterns:
+  - `src/assistant/data/intent-keywords-{profile}.json` (preferred)
+  - `src/assistant/data-{profile}/intent-keywords.json` (fallback)
+- Keywords normalized to lowercase for matching
+- intent_analytics table field names use snake_case: keyword_matched, intent_type, confidence, profile_id
+- Report directory (reports/) must be created if it doesn't exist
+- Duplicate keywords across languages for same intent are deduplicated via composite key
+
+### Quality Checks
+✅ All 20 tests passing (unit + integration in tests/cli/audit-keywords.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ prd.json updated: US-600.passes = true
+✅ No new TypeScript errors introduced
+✅ CLI tool runs with tsx execution
+✅ Report JSON structure validates against spec
+
+
 ## Iteration [119] - Story: US-599 - Intent Classification Confidence Score Distribution Histogram CLI Tool
 
 ### What was implemented
@@ -1512,3 +1568,6 @@ Completed: Intent Classification Confidence Score Distribution Histogram CLI Too
 ### Gotchas
 - Previous attempt (iteration 119) was blocked by diagnosis-gate before prd.json could be updated
 - Implementation was already complete from that iteration; this retry just needed the diagnosis block first
+## Iteration 2 - Tue, Apr 14, 2026  8:20:33 AM
+Completed: Intent Classification Confidence Score Distribution Histogram CLI Tool (ID: US-599) in 4m
+
