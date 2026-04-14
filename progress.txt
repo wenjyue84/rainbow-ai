@@ -2039,3 +2039,104 @@ Completed: Implement Per-Profile Custom Validation Rules Engine for Booking Step
 ## Iteration 3 - Tue, Apr 14, 2026  8:59:22 AM
 Completed: Implement Per-Profile Custom Validation Rules Engine for Booking Steps (ID: US-616) in 3m
 
+
+## Iteration [125] - Story: US-617 - Implement Tamil Grapheme Cluster Normalization for Intent Matching
+
+### What was implemented
+- Verified existing implementation of Tamil normalization utility
+  * src/lib/tamil-normalization.ts - normalizeTamilInput() function
+  * Converts NFKD (decomposed) → NFC (composed) Unicode forms
+  * Removes floating diacriticals (combining marks without valid base characters)
+  * Uses Tamil base character and combining mark detection for proper filtering
+  
+- Verified integration in fuzzy-matcher.ts
+  * T2 keyword matching applies normalizeTamilInput before Fuse.js search
+  * Applied in match(), matchAll(), and matchWithContext() methods
+  * Language filter detects Tamil text via Unicode block (U+0B80-U+0BFF)
+  
+- Tests: tests/lib/tamil-normalization.test.ts
+  * 26 unit tests covering 5+ Tamil variant pairs
+  * Tests classical ஸ்ரீ matching modern ஸ்ரீ (NFKD/NFC normalization)
+  * Tests floating diacritical removal
+  * Tests idempotence and NFC output guarantee
+  * Real-world keyword tests (புக்கிங், விசாரணை, விடுதி)
+
+### Patterns discovered
+- Tamil grapheme normalization integrated via fuzzy-matcher.ts, not directly in intents.ts
+- FuzzyIntentMatcher automatically applies normalizeTamilInput before searching
+- Language filter ('ta') OR Tamil Unicode detection triggers normalization
+- Floating diacriticals removed by checking if combining mark has valid base before it
+- NFKD decomposition + NFC recomposition ensures canonical forms match
+
+### Gotchas
+- Tamil Unicode range: U+0B80-U+0BFF (used for language detection)
+- Tamil combining marks range: U+0B3C-U+0B44 (virama, vowel signs) + U+0B82-U+0B83 (anusvara, visarga)
+- Floating combining marks must be removed AFTER decomposition, BEFORE recomposition
+- The function handles null/undefined by returning early (falsy check)
+- Pre-existing warnings in tamil-slot-parser.ts (duplicate keys) unrelated to US-617
+
+### Quality checks
+✅ npm run test tests/lib/tamil-normalization.test.ts: 26/26 tests PASS
+✅ npm run build: SUCCESS (2.8MB, 6 pre-existing warnings in tamil-slot-parser.ts only)
+✅ MCP_SERVER_PORT=3002 npx tsx src/index.ts: Server starts successfully
+✅ No new TypeScript or type errors introduced
+✅ prd.json updated: US-617.passes = true
+✅ Git commit: feat: US-617 - Implement Tamil Grapheme Cluster Normalization
+
+
+## Iteration [123] - Story: US-617 - Implement Tamil Grapheme Cluster Normalization for Intent Matching
+
+### What was implemented
+- Created `src/lib/tamil-normalization.ts` - Tamil Unicode Normalization utility
+  * `normalizeTamilInput(text: string): string` function converts NFKD→NFC for consistent intent matching
+  * Process: normalize to NFD (decompose) → remove floating diacriticals → normalize back to NFC
+  * Handles Tamil combining marks in Unicode ranges 0x0B82–0x0B44 (vowel signs, virama, anusvara, visarga)
+  * Removes floating diacriticals (combining marks without a valid base character)
+  * Ensures classical ஸ்ரீ matches modern ஸ்ரீ and other variant forms
+
+- Modified `src/assistant/fuzzy-matcher.ts` - Integrated Tamil normalization into T2 fuzzy matching
+  * Imported normalizeTamilInput from tamil-normalization.ts
+  * Modified match() method: applies Tamil normalization after .toLowerCase().trim() (line 94-95)
+  * Applied normalization conditionally: if languageFilter === 'ta' OR text contains Tamil Unicode (0xB80-0xBFF)
+  * Also applied to matchAll() and matchWithContext() for consistency across all keyword matching paths
+  * Normalization happens before Fuse.js search to ensure consistent keyword matching
+
+- Created comprehensive test suite: `tests/lib/tamil-normalization.test.ts`
+  * 26 tests covering all acceptance criteria:
+    - AC1: Classical vs modern Tamil variants (5+ variant pairs: ஸ்ரீ, கூறினார், விசாரணை, நாட்டுப்பளம், புக்கிங், விடுதி)
+    - AC2: Floating diacritical removal (combining marks at start, consecutive marks, valid combinations)
+    - AC3: Real-world booking keywords (புக்கிங், விசாரணை, விடுதி, mixed Tamil+numbers)
+    - Idempotence: normalizeTamilInput(normalizeTamilInput(x)) === normalizeTamilInput(x)
+    - NFC output verification: all results are NFC-normalized
+  * All 26 tests passing (100%)
+
+### Patterns discovered
+- Tamil grapheme clusters require special handling due to combining characters (virama, vowel signs)
+- Unicode ranges for Tamil combining marks:
+  - 0x0B82–0x0B83: Anusvara (ं), Visarga (ः)
+  - 0x0B3C–0x0B44: Virama, vowel signs
+- Floating diacriticals occur when combining marks appear at string start or after another combining mark
+- NFD (decomposed) form separates base chars from combining marks, making floating diacriticals detectable
+- NFC (composed) form is final output for consistent keyword matching
+- Tamil keywords are typically in NFC form but user input may be in decomposed or variant forms
+
+### Gotchas
+- Case conversion happens BEFORE Tamil normalization in the caller (fuzzy-matcher.ts line 92)
+- Tamil normalization function preserves input case; case conversion is caller's responsibility
+- The test initially failed because it expected the normalization function to do case conversion (it doesn't)
+- Unicode ranges must be correct: Tamil is 0x0B80–0x0BFF; detection checks for any character in this range
+- Floating diacritical removal is done via regex replace during NFD form, before NFC normalization
+- Must check for previous character being a combining mark to avoid false positives
+
+### Quality Checks
+✅ All 26 tests passing (unit tests in tests/lib/tamil-normalization.test.ts)
+✅ Build successful (2.8MB, pre-existing warnings only)
+✅ No new TypeScript errors introduced (esbuild compilation succeeds)
+✅ prd.json updated: US-617.passes = true
+✅ Acceptance criteria fully met:
+  - Utility function with NFKD→NFC conversion + floating diacritical removal ✅
+  - T2 fuzzy matching integrates Tamil normalization ✅
+  - 5+ Tamil variant pairs tested ✅
+## Iteration 3 - Tue, Apr 14, 2026  9:04:00 AM
+FAILED diagnosis-block gate: Implement Tamil Grapheme Cluster Normalization for Intent Matching (ID: US-617) — no diagnosis block found — attempt 1/3
+
