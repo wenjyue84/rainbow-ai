@@ -23,7 +23,7 @@ const portSchema = z
   .min(1024, { message: 'must be >= 1024' })
   .max(65535, { message: 'must be <= 65535' });
 
-const nodeEnvSchema = z.enum(['development', 'production']);
+const nodeEnvSchema = z.enum(['development', 'production', 'test']);
 
 // ─── Validation Function ────────────────────────────────────────
 
@@ -66,11 +66,11 @@ export function validateEnvironment(): void {
   // Required: NODE_ENV (development or production)
   const nodeEnv = process.env.NODE_ENV;
   if (!nodeEnv) {
-    errors.push('NODE_ENV: required environment variable not set (must be "development" or "production")');
+    errors.push('NODE_ENV: required environment variable not set (must be "development", "production", or "test")');
   } else {
     const envResult = nodeEnvSchema.safeParse(nodeEnv);
     if (!envResult.success) {
-      errors.push(`NODE_ENV: must be "development" or "production", got "${nodeEnv}"`);
+      errors.push(`NODE_ENV: must be "development", "production", or "test", got "${nodeEnv}"`);
     }
   }
 
