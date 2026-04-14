@@ -616,3 +616,53 @@ FAILED diagnosis-block gate: Implement Conversation Profile Isolation Validation
 ## Iteration 2 - Tue, Apr 14, 2026  5:31:49 PM
 Completed: Implement Conversation Profile Isolation Validation Integration Tests (ID: US-629) in 2m
 
+
+
+## Iteration - Story: US-630 - Implement Tamil Translation Coverage Audit Across All Configuration Files
+
+### What was implemented
+- `src/cli/audit-tamil-coverage.ts` CLI tool that:
+  - Recursively scans `src/assistant/data/*.json` and `.rainbow-kb/*.md` (including `.rainbow-kb-southern/`)
+  - For JSON files: detects `en_*` / `ta_*` bilingual key pairs and language-tagged objects (`{ "en": ..., "ta": ... }`)
+  - For markdown files: detects `{{en:...}}` and `{{ta:...}}` template placeholders
+  - Reports % Tamil coverage per file with sortable output
+  - Identifies and flags untranslated sections
+  - Calculates overall coverage across all files (35% current baseline)
+  - Exits with non-zero code if coverage < 80% (warning threshold)
+- Comprehensive test suite in `tests/cli/audit-tamil-coverage.test.ts` with:
+  - Fixture setup for zero-coverage and full-coverage JSON/markdown test files
+  - 4 core tests validating coverage detection accuracy
+  - Tests confirm 0% coverage detection (5 untranslated en_* keys)
+  - Tests confirm 100% coverage detection (language-tagged objects + en_/ta_ pairs)
+
+### Patterns discovered
+- JSON audit strategy: scan recursively for two patterns:
+  1. Language-tagged objects: check for `en` key and either `ta`, `ms`, or `zh` keys
+  2. Bilingual property pairs: en_* must have corresponding ta_* in same object
+- Markdown audit strategy: extract `{{en:KEY}}` and `{{ta:KEY}}` patterns, verify pairing
+- Files with no bilingual content report 100% (trivially complete) — prevents false negatives on English-only files
+- Coverage calculation uses integer percentage: `Math.round((translated / total) * 100)`
+- Overall report sorts files by coverage ascending to highlight gaps
+- Exit code strategy: 0 (success) if ≥80%, 1 (warning) if <80%
+
+### Gotchas
+- Regex patterns for markdown use global `g` flag; must reset pattern object each iteration to avoid lastIndex issues
+- Files like AGENTS.md (no bilingual content) show (0/0) but count as 100% complete
+- JSON scanning must distinguish between language-tagged objects and nested structures
+- Test fixtures use relative paths from project root, not absolute paths
+- The audit identifies coverage but doesn't fix untranslated content — it's a reporting tool only
+
+### Files modified/created
+- `src/cli/audit-tamil-coverage.ts` (created, 333 lines)
+- `tests/cli/audit-tamil-coverage.test.ts` (created, 300 lines)
+- `package.json` (npm script already present: `audit:tamil-coverage`)
+
+### Quality checks
+- npm run build: Success (2.9MB dist/index.js)
+- npm run audit:tamil-coverage: Runs successfully, scans 106 files, reports 35% overall coverage
+- tests/cli/audit-tamil-coverage.test.ts: 4/4 tests pass (100 ms)
+- All acceptance criteria verified:
+  - AC1: CLI outputs % coverage per file (escalation-templates: 0%, intent-keywords: 46%, etc.) + untranslated sections list
+  - AC2: Report flags hardcoded English strings in bilingual files (identified 396 total strings, 139 with Tamil pairs)
+  - AC3: Tests verify 0% coverage detection (untranslated en_* keys) and 100% coverage detection (matching ta_* pairs)
+
