@@ -116,3 +116,157 @@ export const conversationCache = new ConversationCache();
 export function initConversationCache(redis: Redis): void {
   conversationCache.attachRedis(redis);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MessageLRUCache for conversation message storage (US-601)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CachedConversationMessage {
+  id: string;
+  phone: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  [key: string]: any;
+}
+
+interface MessageCacheEntry {
+  messages: CachedConversationMessage[];
+  expiresAt: number;
+}
+
+/**
+ * LRU (Least Recently Used) cache for conversation messages.
+ *
+ * Reduces database queries for repeated message retrievals with automatic
+ * TTL-based eviction and capacity management.
+ *
+ * - Max capacity: 1000 conversations
+ * - TTL: 5 minutes (300,000 ms)
+ * - Entry key: "{phone}|{profileId}" for profile isolation
+ */
+export class MessageLRUCache {
+  private cache: Map<string, MessageCacheEntry> = new Map();
+  private maxSize: number;
+  private ttlMs: number;
+
+  constructor(maxSize = 1000, ttlMs = 5 * 60 * 1000) {
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  /**
+   * Build cache key from phone and profileId.
+   * Format: "{phone}|{profileId}" for profile isolation.
+   */
+  private buildKey(phone: string, profileId: string): string {
+    return `${phone}|${profileId}`;
+  }
+
+  /**
+   * Get cached messages for a conversation.
+   * Returns null if not found or expired (TTL exceeded).
+   * Moves accessed entry to end (most recently used) for LRU tracking.
+   */
+  get(phone: string, profileId: string): CachedConversationMessage[] | null {
+    const key = this.buildKey(phone, profileId);
+    const entry = this.cache.get(key);
+
+    if (!entry) return null;
+
+    const now = Date.now();
+    const age = now - entry.expiresAt + this.ttlMs; // Calculate age from expiration time
+
+    // Check if entry has expired
+    if (age > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    // Move to end (most recently used) for LRU tracking
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+
+    return entry.messages;
+  }
+
+  /**
+   * Set/update cached messages for a conversation.
+   * Evicts least recently used entry if cache is at capacity.
+   *
+   * @param phone - Canonical phone key identifying the conversation
+   * @param profileId - Profile ID that owns this conversation
+   * @param messages - Message array to cache
+   */
+  set(phone: string, profileId: string, messages: CachedConversationMessage[]): void {
+    const key = this.buildKey(phone, profileId);
+
+    // Remove old entry if exists (to move it to end)
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    }
+
+    // If at capacity, evict LRU (first entry = oldest)
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
+    }
+
+    // Add new entry at end (most recently used)
+    this.cache.set(key, {
+      messages,
+      expiresAt: Date.now() + this.ttlMs,
+    });
+  }
+
+  /**
+   * Invalidate cache entry for a specific conversation.
+   * Called when a new message is added to invalidate stale cached state.
+   *
+   * @param phone - Canonical phone key
+   * @param profileId - Profile ID
+   */
+  invalidate(phone: string, profileId: string): void {
+    const key = this.buildKey(phone, profileId);
+    this.cache.delete(key);
+  }
+
+  /**
+   * Clear all cached entries.
+   */
+  clear(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Get current cache size (number of entries).
+   * Useful for testing and monitoring.
+   */
+  size(): number {
+    return this.cache.size;
+  }
+
+  /**
+   * Evict expired entries from cache.
+   * Should be called periodically to maintain memory efficiency.
+   */
+  evictExpired(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      this.cache.delete(key);
+    }
+  }
+}
+
+/** Singleton instance for message caching. */
+export const messageLRUCache = new MessageLRUCache();
