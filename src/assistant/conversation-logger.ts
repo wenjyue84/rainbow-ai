@@ -14,6 +14,7 @@
 import { eq, gt, sql, and, isNull } from 'drizzle-orm';
 import { db } from '../lib/db.js';
 import { withFallback } from '../lib/with-fallback.js';
+import { trackError } from '../lib/activity-tracker.js';
 import { rainbowConversations, rainbowMessages } from '../../shared/schema-tables.js';
 import {
   ensureDb,
@@ -174,6 +175,7 @@ export async function logMessage(
     }
   } catch (err: any) {
     console.error(`[ConvoLogger] Failed to log message for ${phone}:`, err.message);
+    trackError('conversation-logger', `logMessage failed for ${phone}: ${err.message}`);
   }
 }
 

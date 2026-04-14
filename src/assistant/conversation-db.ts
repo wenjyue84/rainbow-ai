@@ -20,7 +20,7 @@ export async function ensureDb(): Promise<boolean> {
   try {
     const ready = await dbReady;
     dbAvailable = !!ready;
-    if (dbAvailable) ensureOptInColumns();
+    if (dbAvailable) await ensureOptInColumns();
   } catch {
     dbAvailable = false;
   }
@@ -30,10 +30,10 @@ export async function ensureDb(): Promise<boolean> {
 // ─── US-979: Opt-in audit columns migration ─────────────────────────
 
 let _optInMigrationDone = false;
-export function ensureOptInColumns(): void {
+export async function ensureOptInColumns(): Promise<void> {
   if (_optInMigrationDone || !pool) return;
   _optInMigrationDone = true;
-  pool.query(`
+  await pool.query(`
     ALTER TABLE rainbow_conversations
     ADD COLUMN IF NOT EXISTS opt_in_method TEXT,
     ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ,

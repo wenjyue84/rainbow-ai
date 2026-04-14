@@ -199,8 +199,9 @@ export async function handleIncomingMessage(msg: IncomingMessage): Promise<void>
       // Non-fatal — never crash the router over diary writes
     }
   } catch (err: any) {
-    console.error(`[Router] [${rid}] Error processing message from ${phone}:`, err.message);
-    trackError('message-router', `[${rid}] ${err.message}`);
+    console.error(`[Router] [${rid}] Error processing message from ${phone}:`, err.message, err.stack);
+    const stackHint = err.stack?.split('\n')[1]?.trim() ?? '';
+    trackError('message-router', `[${rid}] ${err.message} | ${stackHint}`);
     try {
       const lang = detectLanguage(text);
       await ctx.sendMessage(phone, getTemplate('error', lang), msg.instanceId);

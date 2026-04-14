@@ -11,7 +11,7 @@ for (const w of warnings) {
 }
 
 export default defineConfig({
-  schema: "./shared/schema-tables.ts",
+  schema: "./shared/schema-drizzle.ts",
   dialect: "postgresql",
   dbCredentials: {
     url,

@@ -3817,17 +3817,7 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku",
-      "last_attempted": "2026-04-14T09:28:10Z",
-      "_phaseI": {
-        "diagnosisBlock": "## Current State\n\nLet me first read the relevant files to understand what's needed.\nNow let me check the current state of the code files:\nGood — the files from the previous attempt already exist. Let me verify their contents and run the tests:\n## Current State\n\nBoth files from the previous attempt exist:\n- `src/lib/conversation-context.ts` — has `getConversationContext()` function already added\n- `tests/integration/profile-isolation.test.ts` — 10 test cases across 3 describe blocks\n\n## Problem Identified\n\nThe previous attempt implemented everything correctly but failed the SPIRAL diagnosis-block gate (no diagnosis block was output before edits). The `prd.json` was never updated to `passes: true` because the outer loop rejected the attempt. The implementation itself is complete and correct.\n\n## Planned Changes\n\n- Run `npm run build` to verify build still passes\n- Run `npm run test -- tests/integration/profile-isolation.test.ts` to verify tests pass\n- Update `prd.json` to set `passes: true` for US-629 and remove `_failureReason`\n- Commit the changes\n\n---\n\nNow executing:\nBuild passes (pre-existing warnings only). Now run the tests:\n20/20 tests pass. Now update prd.json:\nUS-629 complete.\n\n**Summary:**\n- Build: 2.9MB, SUCCESS\n- Tests: 20/20 pass (`tests/integration/profile-isolation.test.ts`)\n- `prd.json`: US-629 `passes: true`\n- Committed: `bf28139`\n\nThe implementation was already in place from attempt 1 — this retry just needed the diagnosis block first, then verified the checks and updated `prd.json`."
-      },
-      "_contextStats": {
-        "tokensBeforeMasking": 451,
-        "tokensAfterMasking": 449,
-        "reductionPct": 0,
-        "contextWindow": 10
-      }
+      "model": "haiku"
     },
     {
       "id": "US-630",
@@ -3862,6 +3852,26 @@
       "technicalNotes": [
         "Create src/cli/benchmark-intent-classification.ts that loads sample messages from tests/fixtures/benchmark-intents.json; call IntentClassifier.classifyKeywordOnly() and IntentClassifier.classifyWithAI() separately, measure with performance.now()",
         "Test command: npm run test -- tests/cli/benchmark-intent-classification.test.ts"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-632",
+      "title": "Add Booking Workflow State Machine Diagram Generator with Mermaid Export",
+      "priority": "medium",
+      "description": "Create a CLI tool that reads workflows.json and generates a Mermaid flowchart diagram showing all state transitions, decision points, and fallback paths. Supports goal #4 (improve booking workflow steps) by making workflow logic visual and easier to debug.",
+      "acceptanceCriteria": [
+        "CLI: npm run generate:workflow-diagram [profile] generates a .mmd file (e.g., workflow-diagram-pelangi.mmd) with workflow states as nodes and transitions as labeled edges",
+        "Diagram includes decision diamonds for conditional logic (e.g., 'Guest available?') with dashed edges for fallback/escalation paths marked as [fallback]",
+        "Test verifies output .mmd file is valid Mermaid syntax and contains all workflow step names from the input profile's workflows.json"
+      ],
+      "technicalNotes": [
+        "Create src/cli/generate-workflow-diagram.ts that parses src/assistant/data/workflows.json, traverses workflow step definitions, outputs Mermaid flowchart syntax (graph TD) to dist/workflow-diagram-[profile].mmd",
+        "Test command: npm run test -- tests/cli/workflow-diagram.test.ts"
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
@@ -3912,6 +3922,27 @@
       "model": "haiku"
     },
     {
+      "id": "US-635",
+      "title": "Build Intent Keyword Performance Benchmark CLI with Per-Profile Metrics",
+      "priority": "medium",
+      "description": "Optimize intent classification by benchmarking keyword-based matching against AI classifier latency and accuracy. Identify underperforming keywords that slow down classification and suggest optimizations.",
+      "acceptanceCriteria": [
+        "CLI command 'npm run benchmark:intent-keywords' runs 500 test intents (booking, inquiry, escalation) through both keyword matcher and AI classifier, measuring latency and accuracy per profile",
+        "Outputs benchmark_results.csv with columns: profile, intent, keyword_latency_ms, ai_latency_ms, accuracy_improvement, false_positive_rate",
+        "Tests verify that keyword matcher is at least 10x faster than AI, and identifies keywords with >20% false-positive rate for removal"
+      ],
+      "technicalNotes": [
+        "File to create: src/cli/commands/benchmark-intent-keywords.ts (entry point)",
+        "File to create: src/lib/intent-benchmarker.ts (benchmark runner)",
+        "Test command: npm run test -- tests/intent-benchmark.test.ts && npm run benchmark:intent-keywords -- --dry-run --profile pelangi"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
       "id": "US-636",
       "title": "Implement Intent Classification Performance Regression Detector CLI",
       "priority": "high",
@@ -3928,6 +3959,51 @@
       ],
       "dependencies": [],
       "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-637",
+      "title": "Add Profile-Level Default Language Preference in Settings to Optimize DB Queries",
+      "priority": "medium",
+      "description": "Load default language preference per profile from settings.json at startup, allowing intent classifier to skip DB query when guest has no explicit language preference stored.",
+      "acceptanceCriteria": [
+        "settings.json includes `defaultLanguage` key per profile object (e.g., 'pelangi': { 'defaultLanguage': 'en', ... }); loaded into memory at startup and refreshed on profile hot-reload",
+        "IntentClassifier.getLanguagePreference(guestId, profileId) checks lookup chain: guest_language_preference DB record > profile default language > fallback 'en'; skips DB query if guest record not found and profile default exists",
+        "Unit test verifies preference lookup returns profile default when guest preference not in DB, and guest preference overrides profile default when present"
+      ],
+      "technicalNotes": [
+        "File to edit: src/assistant/data/settings.json (add defaultLanguage: 'en' to each profile)",
+        "File to edit: src/assistant/intent-classifier.ts (update getLanguagePreference method to check profile default)",
+        "File to edit: tests/intent-classifier.test.ts (add test for preference lookup chain)",
+        "Test command: npm run test -- tests/intent-classifier.test.ts -t 'getLanguagePreference'"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-638",
+      "title": "Add No-Show Detection and Automated Guest Follow-Up Handler",
+      "priority": "medium",
+      "description": "Implement background job that detects guests who checked in but failed to check out within expected timeframe, automatically triggering follow-up message via existing workflow to recover abandoned bookings.",
+      "acceptanceCriteria": [
+        "Background job runs every 6 hours via node-cron, queries bookings with checked_in=true and no checkout_timestamp for >12 hours, triggers 'no_show_followup' workflow intent for each guest",
+        "Follow-up message respects guest language preference and uses profile-specific recovery template from workflows.json; updates booking record with no_show_timestamp and no_show_status='contacted'",
+        "Admin GET /admin/profiles/:profile/no-shows?days=7 endpoint returns list of no-show bookings in last N days with guest contact attempts and timestamps"
+      ],
+      "technicalNotes": [
+        "File to create: src/lib/no-show-detector.ts (job logic using pg query, workflow trigger call)",
+        "File to edit: src/index.ts (initialize background job on server startup)",
+        "File to edit: src/routes/admin/bookings.ts (add GET /no-shows endpoint handler)",
+        "File to create: tests/lib/no-show-detector.test.ts (mock DB, test job detection logic, test workflow trigger)",
+        "Test command: npm run test -- tests/lib/no-show-detector.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
