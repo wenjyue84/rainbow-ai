@@ -226,3 +226,25 @@ export const intentClassificationMetrics = pgTable("intent_classification_metric
 export type IntentClassificationMetric = typeof intentClassificationMetrics.$inferSelect;
 export type InsertIntentClassificationMetric = typeof intentClassificationMetrics.$inferInsert;
 
+// ─── US-602: Intent Classification Feedback Loop ────────────────────────────
+// Stores ground truth feedback when users report misclassified intents.
+// Used by daily batch analysis to find misclassification patterns.
+export const intentClassificationFeedback = pgTable("intent_classification_feedback", {
+  id: serial("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  messageId: text("message_id").notNull(),
+  predictedIntent: text("predicted_intent").notNull(),
+  groundTruthIntent: text("ground_truth_intent").notNull(),
+  feedbackTimestamp: timestamp("feedback_timestamp").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ([
+  index("idx_icf_conversation_id").on(table.conversationId),
+  index("idx_icf_predicted_intent").on(table.predictedIntent),
+  index("idx_icf_ground_truth_intent").on(table.groundTruthIntent),
+  index("idx_icf_feedback_timestamp").on(table.feedbackTimestamp),
+  index("idx_icf_predicted_ground_truth").on(table.predictedIntent, table.groundTruthIntent),
+]));
+
+export type IntentClassificationFeedback = typeof intentClassificationFeedback.$inferSelect;
+export type InsertIntentClassificationFeedback = typeof intentClassificationFeedback.$inferInsert;
+
