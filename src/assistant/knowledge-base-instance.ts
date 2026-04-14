@@ -16,6 +16,7 @@ import { HybridRetriever } from './rag/hybrid-retriever.js';
 import type { RetrievalResult } from './rag/hybrid-retriever.js';
 import { runAccessGuard } from './rag/vector-access-guard.js';
 import type { VectorQueryContext } from './rag/vector-access-guard.js';
+import { defaultKBScorer } from '../lib/kb-relevance-scorer.js';
 
 const DURABLE_MEMORY_FILE = 'memory.md';
 
@@ -588,6 +589,51 @@ ${coreContent}${memoryContent}`;
     console.log(`[KB:${this.profileId}] System prompt base cached (v${this.systemPromptCacheVersion}, ${basePrompt.length} chars)`);
 
     return basePrompt;
+  }
+
+  /**
+   * Filter topic files by relevance to an intent (US-634)
+   * Scores KB documents against intent keywords and filters based on threshold (0.7)
+   *
+   * @param intent - Intent name (e.g., "booking_inquiry")
+   * @param topicFiles - List of topic file names to filter
+   * @returns Filtered list of relevant topic files and skipped files with debug info
+   */
+  filterTopicFilesByIntent(
+    intent: string,
+    topicFiles: string[]
+  ): { filteredFiles: string[]; skipped: Array<{ docId: string; score: number }> } {
+    // Build map of document ID -> content for files to filter
+    const documentsMap = new Map<string, string>();
+    for (const file of topicFiles) {
+      const content = this.kbCache.get(file);
+      if (content) {
+        documentsMap.set(file, content);
+      }
+    }
+
+    if (documentsMap.size === 0) {
+      return { filteredFiles: topicFiles, skipped: [] };
+    }
+
+    // Score documents against intent
+    const scoringResult = defaultKBScorer.scoreDocumentsByIntent(
+      intent,
+      documentsMap,
+      this.profileId
+    );
+
+    // Log skipped documents for debugging
+    for (const doc of scoringResult.skipped) {
+      console.log(
+        `[KB:${this.profileId}] [${intent}] Skipped doc="${doc.docId}" score=${doc.score.toFixed(3)} reason=below_threshold`
+      );
+    }
+
+    return {
+      filteredFiles: scoringResult.documents.map(d => d.docId),
+      skipped: scoringResult.skipped,
+    };
   }
 
   buildSystemPrompt(basePersona: string, topicFiles: string[], configStore: ConfigStore): string {
