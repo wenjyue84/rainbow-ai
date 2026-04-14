@@ -27,21 +27,62 @@ export async function ensureDb(): Promise<boolean> {
   return dbAvailable;
 }
 
-// ─── US-979: Opt-in audit columns migration ─────────────────────────
+// ─── Schema migration: ensure all newer columns exist ────────────────
+// Applied once per server startup. Covers columns added across multiple
+// US stories that may not have been pushed to production DB via db:push.
 
 let _optInMigrationDone = false;
 export async function ensureOptInColumns(): Promise<void> {
   if (_optInMigrationDone || !pool) return;
   _optInMigrationDone = true;
-  await pool.query(`
-    ALTER TABLE rainbow_conversations
-    ADD COLUMN IF NOT EXISTS opt_in_method TEXT,
-    ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS opt_in_channel TEXT,
-    ADD COLUMN IF NOT EXISTS language_preference VARCHAR(2)
-  `).catch((err: Error) => {
-    console.warn('[ConvoDB] US-979/US-581 migration warn:', err.message);
-  });
+
+  // Run each ALTER TABLE separately to avoid one failure blocking others
+  const migrations = [
+    // US-979: Opt-in audit trail
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS opt_in_method TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS opt_in_channel TEXT`,
+    // US-581: Language preference
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS language_preference VARCHAR(2)`,
+    // US-477: WhatsApp Business-Scoped User ID
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS bsuid VARCHAR(128)`,
+    // US-477: BSUID unique index (safe to run if already exists via IF NOT EXISTS)
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_rainbow_conversations_bsuid ON rainbow_conversations (bsuid)`,
+    // US-447: LLM-generated context summary
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS context_summary TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS context_summary_at TIMESTAMPTZ`,
+    // US-910: Click-to-WhatsApp referral attribution
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_ctwa_clid TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_source_id TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_source_type TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_headline TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_body TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS referral_json TEXT`,
+    // US-155: Explicit WhatsApp consent
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS whatsapp_opted_in BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS whatsapp_opted_in_at TIMESTAMPTZ`,
+    // US-119: Guest metadata blob
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS metadata TEXT`,
+    // US-237: Clarification dialog state
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS clarification_state TEXT`,
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS clarification_data TEXT`,
+    // US-245: Turn confidence metadata
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS turn_metadata JSONB`,
+    // Soft-delete support
+    `ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+    // US-477: BSUID on rainbow_messages
+    `ALTER TABLE rainbow_messages ADD COLUMN IF NOT EXISTS bsuid VARCHAR(128)`,
+  ];
+
+  for (const sql of migrations) {
+    await pool.query(sql).catch((err: Error) => {
+      // Column already exists or other benign error — log and continue
+      if (!err.message.includes('already exists')) {
+        console.warn('[ConvoDB] Migration warn:', err.message.slice(0, 120));
+      }
+    });
+  }
+  console.log('[ConvoDB] Schema migration complete');
 }
 
 // ─── US-477: BSUID helpers ──────────────────────────────────────────
