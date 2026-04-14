@@ -3838,7 +3838,9 @@
       "estimatedComplexity": "small",
       "passes": true,
       "_source": "ai-example",
-      "model": "haiku"
+      "model": "haiku",
+      "_failureReason": "DIAGNOSIS_BLOCK_MISSING: Diagnosis block required before making changes. Please output your diagnosis first.\n\nBefore making ANY file edits, output a diagnosis block with these exact headers:\n\n## Current State\n[describe the relevant current state of the code]\n\n## Problem Identified\n[what you are solving for this story]\n\n## Planned Changes\n[bullet list of specific files and changes you will make]\n\nOutput this block as plain text BEFORE calling Edit, Write, or any Bash command that modifies files.",
+      "last_attempted": "2026-04-14T09:49:40Z"
     },
     {
       "id": "US-631",
@@ -4008,6 +4010,72 @@
       "passes": false,
       "_source": "ai-example",
       "model": "haiku"
+    },
+    {
+      "id": "US-639",
+      "title": "Add Tamil Language Bias Detection in Intent Classification",
+      "priority": "medium",
+      "description": "Detect message language composition (Tamil vs English percentage) and apply language-specific weighting to intent keywords to prevent bias towards English keywords in multilingual inputs.",
+      "acceptanceCriteria": [
+        "Language detector analyzes input message and returns tamilPercentage (0-100) using Tamil Unicode ranges (U+0B80-U+0BFF)",
+        "Intent keyword matching applies language weight boost: if message >= 50% Tamil, apply +0.2 confidence multiplier to Tamil keywords; if >= 50% English, apply +0.2 to English keywords",
+        "Classification logs detected language composition (debug level) with weights applied for each intent match"
+      ],
+      "technicalNotes": [
+        "File to create: src/assistant/pipeline/language-bias-detector.ts - exports detectLanguageComposition(message: string) returning {tamilPercentage, englishPercentage}",
+        "File to modify: src/assistant/pipeline/intent-classifier.ts - call language-bias-detector in classifyIntent(), apply weights to confidence scores in keyword matching loop",
+        "Test command: npm run test tests/language-bias.test.ts -- --reporter=verbose"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-640",
+      "title": "Add Slow Query Detection and Alert System",
+      "priority": "high",
+      "description": "Monitor database query execution times, log slow queries exceeding 100ms threshold, and emit alerts when p95 latency degrades. Enables proactive identification of database bottlenecks before impacting production performance.",
+      "acceptanceCriteria": [
+        "All Drizzle queries in src/lib/db.ts are wrapped with timing instrumentation that logs WARNING to debug logger when execution time exceeds 100ms, including query type, duration_ms, and table names",
+        "ConversationProcessor emits query performance metrics to intent_analytics table with columns: query_type, duration_ms, profile, executed_at for historical analysis",
+        "GET /admin/health endpoint calculates p50/p95/p99 latencies from queries executed in last hour and returns WARNING status if any query type's p95 exceeds 200ms threshold"
+      ],
+      "technicalNotes": [
+        "File to edit: src/lib/db.ts (add queryTimer wrapper middleware)",
+        "File to edit: src/lib/metrics.ts (add query latency recording)",
+        "File to edit: src/routes/admin/health.ts (query metrics in health check)",
+        "File to create: tests/unit/db-metrics.test.ts",
+        "Test command: uv run npm run test -- tests/unit/db-metrics.test.ts -v"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "small",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "haiku"
+    },
+    {
+      "id": "US-641",
+      "title": "Implement Guest Data Export Tool with Profile-Specific CSV/JSON Output",
+      "priority": "medium",
+      "description": "Create CLI tool to export guest records, booking history, and conversation summaries filtered by profile and date range. Enables data analysis and compliance reporting while enforcing profile isolation boundaries.",
+      "acceptanceCriteria": [
+        "CLI command npm run export:guests -- --profile pelangi --format csv --output ./exports/guests.csv exports guests to CSV with columns: phone, name, check_in_date, check_out_date, booking_status, sentiment",
+        "Export retrieves data from rainbow_guests and rainbow_conversations tables filtered by profile and contains zero records from other profiles (verified by integration test assertion)",
+        "Output file includes export metadata as header comments: timestamp, profile name, row count, and data sorted deterministically by guest_id"
+      ],
+      "technicalNotes": [
+        "File to create: src/tools/cli/export-guests.ts (CLI argument parser and orchestration)",
+        "File to create: src/lib/data-exporter.ts (CSV/JSON formatter, database queries)",
+        "File to create: tests/integration/export-guests.test.ts",
+        "Test command: npm run export:guests -- --profile pelangi --format csv --output /tmp/test.csv && wc -l /tmp/test.csv"
+      ],
+      "dependencies": [],
+      "estimatedComplexity": "medium",
+      "passes": false,
+      "_source": "ai-example",
+      "model": "sonnet"
     }
   ]
 }
