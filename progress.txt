@@ -3,6 +3,50 @@
 ## Pre-analysis for US-619 (Gemini 2.5 Pro)
 Based on the user story JSON provided, there appears to be a discrepancy. The story describes a task for a **TypeScript/Node.js** project, not a Frappe/Python one. The `technicalNotes` explicitly mention editing `.ts` files and running `npm test`.
 
+## Iteration [Current] - Story: US-605 - Add Booking Workflow Dry-Run Simulator for Safe Testing
+### What was implemented
+- **src/routes/admin/workflow-simulator.ts**: API endpoint POST /admin/simulate/booking-workflow
+  - Accepts workflowId, conversationContext, initialData, steps
+  - Executes workflow steps in dry-run mode (dryRun=true flag)
+  - Returns structured response with step outputs, duration metrics, success/error counts
+  
+- **src/assistant/workflow-executor.ts**: Enhanced to support dry-run mode
+  - `executeWorkflowStep()` function accepts dryRun parameter (default: false)
+  - `executeWorkflowStepWithTransaction()` wrapper function skips transaction wrapping in dry-run mode
+  - `logWorkflowExecution()` already had dryRun support (lines 63-77)
+  - Timeout logging protected by `if (!dryRun)` check (line 939)
+  - dryRun flag is recursively passed through evaluation steps (line 608)
+
+- **tests/routes/admin/workflow-simulator.test.ts**: Comprehensive test suite with 13 tests
+  - Tests all three booking workflow types: check-in, modification, cancellation
+  - Validates multi-step execution, execution timeline, language support
+  - Tests database isolation (no audit logs created in dry-run mode)
+  - Validates response structure matches simulator requirements
+  - All 13 tests passing
+
+### Patterns discovered
+- The workflow-executor.ts already had most of the dry-run infrastructure in place
+- `executeWorkflowStepWithTransaction()` is the public API; internal recursive calls use `executeWorkflowStep()` directly
+- Database writes are guarded by `if (!dryRun)` checks throughout the codebase
+- Dry-run mode doesn't create transactions (avoids BEGIN/COMMIT overhead)
+
+### Gotchas
+- The acceptance criteria references "src/assistant/workflows/engine.ts" but the actual workflow execution logic is in "src/assistant/workflow-executor.ts" — this is the correct file
+- Some tests show "Workflow has empty steps array" warnings during load because test workflows don't have complete definitions, but the tests still pass correctly
+- Booking precondition validation (US-228) runs in dry-run mode and returns appropriate error messages
+
+### Quality checks
+- ✅ 13/13 tests passing (npm run test -- tests/routes/admin/workflow-simulator.test.ts)
+- ✅ Build succeeds (npm run build) — 6 pre-existing warnings unrelated to this change
+- ✅ All three acceptance criteria met:
+  1. POST /admin/simulate/booking-workflow endpoint created and working
+  2. Dry-run mode skips all DB writes but executes all other logic
+  3. Tests verify 3 booking workflows + simulation output structure
+
+
+## Pre-analysis for US-619 (Gemini 2.5 Pro)
+Based on the user story JSON provided, there appears to be a discrepancy. The story describes a task for a **TypeScript/Node.js** project, not a Frappe/Python one. The `technicalNotes` explicitly mention editing `.ts` files and running `npm test`.
+
 Here is the technical brief based on the actual content of the user story for the **TypeScript** project:
 
 **Project:** Rainbow AI Knowledge Base Tooling
@@ -1201,3 +1245,6 @@ Completed: Add Booking Intent Microclassifier for Disambiguating Vague Queries (
 - Previous iteration failed DIAGNOSIS_BLOCK_MISSING gate — always output diagnosis block first
 - All 36 tests passed: `npx vitest run tests/booking-microclassifier.test.ts`
 - Build succeeds with only pre-existing warnings
+## Iteration 2 - Tue, Apr 14, 2026  9:52:21 PM
+Completed: Add Booking Intent Microclassifier for Disambiguating Vague Queries (ID: US-655) in 3m
+

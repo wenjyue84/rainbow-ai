@@ -9,6 +9,58 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { WorkflowState, WorkflowContext } from '../../../src/assistant/workflow-executor.js';
 import { executeWorkflowStep, createWorkflowState, type WorkflowExecutionResult } from '../../../src/assistant/workflow-executor.js';
 
+// Mock configStore to avoid undefined errors in tests
+vi.mock('../../../src/assistant/config-store.js', () => ({
+  configStore: {
+    getWorkflows: () => ({
+      workflows: [
+        {
+          id: 'booking_check_in',
+          name: 'Check In',
+          steps: [
+            {
+              id: 'greeting',
+              type: 'message',
+              message: { en: 'Welcome to booking!' }
+            }
+          ]
+        },
+        {
+          id: 'booking_modify',
+          name: 'Modify Booking',
+          steps: [
+            {
+              id: 'greeting',
+              type: 'message',
+              message: { en: 'Modify your booking' }
+            }
+          ]
+        },
+        {
+          id: 'booking_cancel',
+          name: 'Cancel Booking',
+          steps: [
+            {
+              id: 'greeting',
+              type: 'message',
+              message: { en: 'Cancel booking' }
+            }
+          ]
+        },
+      ]
+    }),
+    getWorkflow: () => ({ payment: { forward_to: '+60127088789' } }),
+    getSettings: () => ({
+      sentiment_analysis: { consecutive_threshold: 0.6 }
+    }),
+    getRouting: () => ({}),
+    getIntents: () => ({}),
+    on: () => {}, // EventEmitter method stub
+    once: () => {}, // EventEmitter method stub
+    off: () => {}, // EventEmitter method stub
+  }
+}));
+
 describe('US-605: Workflow Simulator (Dry-Run Mode)', () => {
   describe('executeWorkflowStep with dryRun=true', () => {
     it('should execute a booking check-in workflow step without database writes', async () => {

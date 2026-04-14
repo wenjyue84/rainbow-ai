@@ -96,6 +96,9 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   const label = reasonLabels[context.reason] || 'Unknown reason';
 
+  // US-908: Resolve profileId early — needed by both DB query and deep-link
+  const profileId = context.profileId || 'pelangi';
+
   // US-813: Fetch last 5 messages from DB; fallback to in-memory slice
   // US-908: Pass profileId (tenant_id) to enforce tenant isolation in DB query
   const dbMessages = await fetchLastDbMessages(context.phone, 5, profileId);
@@ -106,7 +109,6 @@ export async function escalateToStaff(context: EscalationContext): Promise<strin
 
   // US-813: Build admin panel deep-link
   const adminBaseUrl = (process.env.DIGIMAN_API_URL || process.env.PELANGI_API_URL || '').replace(/\/+$/, '');
-  const profileId = context.profileId || 'pelangi';
   const deepLink = adminBaseUrl
     ? `${adminBaseUrl}/admin#conversations?profileId=${profileId}&phone=${context.phone}`
     : '';
