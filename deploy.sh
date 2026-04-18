@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Rainbow AI — Lightsail Deploy Script
+# Rainbow AI — Hetzner VPS Deploy Script
 # Usage: ./deploy.sh [--skip-build]
 
 # ── Config ───────────────────────────────────────────────────────────
-REMOTE_HOST="18.142.14.142"
-REMOTE_USER="ubuntu"
+REMOTE_HOST="5.223.54.57"
+REMOTE_USER="deploy"
 REMOTE_PATH="/var/www/rainbow-ai"
-SSH_KEY="$HOME/.ssh/LightsailDefaultKeyPair.pem"
+SSH_KEY="$HOME/.ssh/id_ed25519"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no"
 TARBALL="rainbow-ai-deploy.tar.gz"
 PM2_APP="rainbow-ai"
@@ -67,9 +67,8 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" && nvm use 24 2>/dev/null || true
 echo "==> Node.js $(node -v), OpenSSL $(node -e "process.stdout.write(process.versions.openssl)")"
 
-# Ensure target dir exists
+# Ensure target dir exists (symlink /var/www/rainbow-ai → /opt/rainbow-ai on Hetzner)
 sudo mkdir -p "$REMOTE_PATH"
-sudo chown ubuntu:ubuntu "$REMOTE_PATH"
 
 # Stop PM2 process (ignore if not running)
 pm2 stop rainbow-ai 2>/dev/null || true

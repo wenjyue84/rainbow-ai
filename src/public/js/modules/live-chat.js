@@ -64,6 +64,8 @@ import {
 window.loadLiveChat = async function () {
   await loadLiveChat();
   initPrismaPanel(); // US-010: wire drag-to-move after DOM is ready
+  // Load webchat conversations into the unified sidebar list
+  if (typeof window.loadWebchatAdmin === 'function') window.loadWebchatAdmin();
 };
 window.cleanupLiveChat = function () {
   cleanupLiveChat();

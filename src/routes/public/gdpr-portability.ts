@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import crypto from 'crypto';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, dbReady, pool } from '../../lib/db.js';
 import {
@@ -56,7 +56,7 @@ const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
   keyGenerator: (req: Request) => {
-    const phone = (req.body?.phone as string | undefined) || req.ip || '';
+    const phone = (req.body?.phone as string | undefined) || ipKeyGenerator(req.ip ?? '');
     return `portability-otp:${phone}`;
   },
   handler: (_req: Request, res: Response) => {

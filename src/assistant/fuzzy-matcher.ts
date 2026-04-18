@@ -89,6 +89,20 @@ export class FuzzyIntentMatcher {
    */
   match(text: string, languageFilter?: 'en' | 'ms' | 'zh' | 'ta'): FuzzyMatchResult | null {
     const normalized = text.toLowerCase().trim();
+
+    // Exact-match fast path: Fuse.js scores poorly on very short strings
+    // (e.g. "hi" → score ≈ 1.0 → confidence ≈ 0.00), so check exact matches first
+    for (const entry of this.searchData) {
+      if (languageFilter && entry.language !== languageFilter && entry.language !== 'en') continue;
+      if (entry.keyword === normalized) {
+        return {
+          intent: entry.intent,
+          score: 1.0,
+          matchedKeyword: entry.keyword
+        };
+      }
+    }
+
     const results = this.fuse.search(normalized);
 
     // Filter by language if specified

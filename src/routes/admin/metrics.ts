@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getWhatsAppStatus, whatsappManager } from '../../lib/baileys-client.js';
 import { isAIAvailable } from '../../assistant/ai-client.js';
-import { checkServerHealth } from './utils.js';
 import { trackConfigReloaded } from '../../lib/activity-tracker.js';
 import { ok, getStore } from './http-utils.js';
 import { getConfigAuditLog } from '../../lib/config-db.js';
@@ -27,11 +26,6 @@ router.get('/status', async (_req: Request, res: Response) => {
   const wa = getWhatsAppStatus();
   const instances = whatsappManager.getAllStatuses();
 
-  const [backendHealth, frontendHealth] = await Promise.all([
-    checkServerHealth('http://localhost:5000/api/health'),
-    checkServerHealth('http://localhost:3000')
-  ]);
-
   const lastCheckedAt = new Date().toISOString();
   const settings = getStore(res).getSettings();
   const configuredProviders = settings.ai.providers || [];
@@ -55,28 +49,10 @@ router.get('/status', async (_req: Request, res: Response) => {
     servers: {
       mcp: {
         name: 'Rainbow AI',
-        description: 'WhatsApp AI + Admin Dashboard (MCP tools moved to port 5000)',
+        description: 'WhatsApp AI + Admin Dashboard',
         port: parseInt(process.env.MCP_SERVER_PORT || '3002', 10),
         online: true,
         responseTime: 0,
-        lastCheckedAt
-      },
-      backend: {
-        name: 'Backend API',
-        port: 5000,
-        online: backendHealth.online,
-        responseTime: backendHealth.responseTime,
-        url: 'http://localhost:5000',
-        error: backendHealth.error,
-        lastCheckedAt
-      },
-      frontend: {
-        name: 'Frontend (Vite)',
-        port: 3000,
-        online: frontendHealth.online,
-        responseTime: frontendHealth.responseTime,
-        url: 'http://localhost:3000',
-        error: frontendHealth.error,
         lastCheckedAt
       }
     },

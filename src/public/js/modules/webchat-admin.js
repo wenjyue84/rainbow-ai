@@ -2,8 +2,8 @@
 // Webchat Admin Module — Admin view of webchat conversations
 // ═══════════════════════════════════════════════════════════════════
 //
-// Provides sub-tab switching, conversation list, message view,
-// and staff reply for webchat sessions in the Live Chat tab.
+// Injects webchat sessions into the unified Live Chat sidebar list.
+// Clicking a webchat item opens wc-chat-view inside lc-main.
 // ═══════════════════════════════════════════════════════════════════
 
 let _wcListInterval = null;
@@ -42,38 +42,12 @@ function wcFormatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// ─── Sub-tab Switching ────────────────────────────────────────────
+// ─── No-op sub-tab switch (kept for backward-compat, now unified) ─
 
 export function switchLiveChatTab(tabName, updateHash) {
-  if (updateHash === undefined) updateHash = true;
-
-  const waBtn = document.getElementById('lc-subtab-whatsapp');
-  const wcBtn = document.getElementById('lc-subtab-webchat');
-  const waContent = document.getElementById('whatsapp-chat-content');
-  const wcContent = document.getElementById('webchat-content');
-
-  if (!waBtn || !wcBtn || !waContent || !wcContent) return;
-
-  if (tabName === 'webchat') {
-    waBtn.classList.remove('text-primary-600', 'border-primary-500', 'bg-primary-50');
-    waBtn.classList.add('text-neutral-600');
-    wcBtn.classList.add('text-primary-600', 'border-primary-500', 'bg-primary-50');
-    wcBtn.classList.remove('text-neutral-600');
-    waContent.classList.add('hidden');
-    wcContent.classList.remove('hidden');
-    loadWebchatAdmin();
-  } else {
-    wcBtn.classList.remove('text-primary-600', 'border-primary-500', 'bg-primary-50');
-    wcBtn.classList.add('text-neutral-600');
-    waBtn.classList.add('text-primary-600', 'border-primary-500', 'bg-primary-50');
-    waBtn.classList.remove('text-neutral-600');
-    wcContent.classList.add('hidden');
-    waContent.classList.remove('hidden');
-    cleanupWebchatAdmin();
-  }
-
-  if (updateHash) {
-    window.location.hash = tabName === 'webchat' ? 'live-chat/webchat' : 'live-chat';
+  // Unified layout: no sub-tabs. Keep hash compat for 'live-chat' links.
+  if (updateHash !== false && tabName !== 'webchat') {
+    window.location.hash = 'live-chat';
   }
 }
 
@@ -92,68 +66,45 @@ async function fetchWebchatList() {
     if (profileId) headers['x-profile-id'] = profileId;
 
     const resp = await fetch('/api/rainbow/webchat/conversations', { headers });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      console.error('[WebchatAdmin] /api/rainbow/webchat/conversations returned', resp.status, body.slice(0, 200));
+      return;
+    }
 
     _wcConversations = await resp.json();
-    renderWebchatSidebar();
+    // Expose globally so renderList in live-chat-core.js can merge them
+    window._wcConversations = _wcConversations;
+    window._wcActiveSession = _wcActiveSession;
+    // Trigger re-render of the unified conversation list
+    if (typeof window.lcFilterConversations === 'function') window.lcFilterConversations();
   } catch (err) {
     console.error('[WebchatAdmin] Failed to fetch conversations:', err);
   }
-}
-
-function renderWebchatSidebar() {
-  const listEl = document.getElementById('wc-conversation-list');
-  if (!listEl) return;
-
-  if (_wcConversations.length === 0) {
-    listEl.innerHTML = '<div class="lc-empty-state"><p>No webchat conversations yet</p><p class="text-sm text-neutral-400 mt-1">Conversations will appear when visitors use the webchat widget</p></div>';
-    return;
-  }
-
-  listEl.innerHTML = _wcConversations.map(c => {
-    const isActive = _wcActiveSession === c.sessionId;
-    const timeStr = wcTimeAgo(c.lastMessageAt);
-    const unreadBadge = c.unreadCount > 0
-      ? `<span class="lc-unread-badge">${c.unreadCount}</span>`
-      : '';
-    const profileLabel = c.profileId ? `<span class="wc-profile-badge">${wcEsc(c.profileId)}</span>` : '';
-
-    return `
-      <div class="lc-conv-item ${isActive ? 'lc-conv-active' : ''}" onclick="wcOpenConversation('${wcAttr(c.sessionId)}')">
-        <div class="lc-conv-avatar wc-avatar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
-          </svg>
-        </div>
-        <div class="lc-conv-info">
-          <div class="lc-conv-top">
-            <span class="lc-conv-name">${wcEsc(c.pushName || 'Web Visitor')}</span>
-            <span class="lc-conv-time">${timeStr}</span>
-          </div>
-          <div class="lc-conv-bottom">
-            <span class="lc-conv-preview">${wcEsc(c.lastMessage)}</span>
-            ${unreadBadge}
-          </div>
-          <div class="wc-conv-meta">${profileLabel} <span class="wc-session-id">${wcEsc(c.sessionId.slice(0, 12))}...</span></div>
-        </div>
-      </div>
-    `;
-  }).join('');
 }
 
 // ─── Open Conversation ────────────────────────────────────────────
 
 export async function openWebchatConversation(sessionId) {
   _wcActiveSession = sessionId;
+  window._wcActiveSession = sessionId;
+  // Clear active WA phone so WA items don't stay highlighted
+  if (window._lcState) window._lcState.activePhone = null;
 
-  // Clear previous message polling
+  // Stop previous message polling
   if (_wcMsgInterval) { clearInterval(_wcMsgInterval); _wcMsgInterval = null; }
 
-  // Show chat view, hide placeholder
-  const placeholder = document.getElementById('wc-chat-placeholder');
-  const chatView = document.getElementById('wc-chat-view');
-  if (placeholder) placeholder.classList.add('hidden');
-  if (chatView) chatView.classList.remove('hidden');
+  // Hide WA views, show webchat view in lc-main
+  const emptyState = document.getElementById('lc-empty-state');
+  const activeChat = document.getElementById('lc-active-chat');
+  const wcView = document.getElementById('wc-chat-view');
+
+  if (emptyState) emptyState.style.display = 'none';
+  if (activeChat) activeChat.style.display = 'none';
+  // Hide lc-main (sibling of wc-chat-view in .lc-container) so wc-chat-view fills the space
+  const lcMain = document.getElementById('lc-main');
+  if (lcMain) lcMain.style.display = 'none';
+  if (wcView) wcView.style.display = 'flex';
 
   // Mark as read
   try {
@@ -167,8 +118,8 @@ export async function openWebchatConversation(sessionId) {
 
   await fetchWebchatMessages(sessionId);
 
-  // Re-render sidebar to highlight active
-  renderWebchatSidebar();
+  // Re-render unified list to highlight active webchat item
+  if (typeof window.lcFilterConversations === 'function') window.lcFilterConversations();
 
   // Start polling messages
   _wcMsgInterval = setInterval(() => fetchWebchatMessages(sessionId), WC_MSG_POLL_MS);
@@ -266,7 +217,6 @@ export async function sendWebchatReply(sessionId) {
     });
 
     if (resp.ok) {
-      // Refresh messages immediately
       await fetchWebchatMessages(sessionId);
     }
   } catch (err) {
@@ -284,6 +234,7 @@ export function cleanupWebchatAdmin() {
 // ─── Window Exports ──────────────────────────────────────────────
 
 window.switchLiveChatTab = switchLiveChatTab;
+window.loadWebchatAdmin = loadWebchatAdmin;
 window.wcOpenConversation = openWebchatConversation;
 window.wcSendReply = function () { sendWebchatReply(_wcActiveSession); };
 window.wcReplyKeydown = function (e) {

@@ -90,7 +90,7 @@ async function fetchUnits(): Promise<UnitEntry[]> {
     if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
       logger.warn('Dashboard API timed out', { type: 'timeout', upstream: 'digiman', timeoutMs: DIGIMAN_TIMEOUT_MS });
     } else {
-      logger.warn('Dashboard API unavailable', { code: err?.code, message: err?.message });
+      logger.debug('Dashboard API unavailable (non-fatal — using custom units only)', { code: err?.code });
     }
     return [];
   }

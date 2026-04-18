@@ -57,6 +57,15 @@ import {
   whatsappSendGuestStatus
 } from './whatsapp.js';
 
+// Guest enquiry tools (availability, rates, reservation lookup, property info)
+import {
+  guestEnquiryTools,
+  checkDateAvailability,
+  getRates,
+  lookupReservation,
+  getPropertyInfo
+} from './guest-enquiry.js';
+
 class ToolRegistry {
   private tools: Map<string, MCPTool> = new Map();
   private handlers: Map<string, ToolHandler> = new Map();
@@ -106,6 +115,12 @@ class ToolRegistry {
     this.register(whatsappTools[1], whatsappQrcode);
     this.register(whatsappTools[2], whatsappSend);
     this.register(whatsappTools[3], whatsappSendGuestStatus);
+
+    // Guest enquiry tools via PMS MCP (4 tools — for answering guest WhatsApp questions)
+    this.register(guestEnquiryTools[0], checkDateAvailability);
+    this.register(guestEnquiryTools[1], getRates);
+    this.register(guestEnquiryTools[2], lookupReservation);
+    this.register(guestEnquiryTools[3], getPropertyInfo);
 
     // FnB tools (makan-moments profile only)
     for (const tool of fnbMenuTools) this.register(tool, this.getFnbMenuHandler(tool.name));

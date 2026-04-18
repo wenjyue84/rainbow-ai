@@ -453,4 +453,33 @@ router.post('/webhooks/meta/messages', metaSignatureGuard, (req: Request, res: R
   }
 });
 
+// ─── PMS2 real-time event webhook (Phase 4) ──────────────────────────────────
+//
+// POST /webhooks/pms-events
+//
+// PMS2 pushes availability, housekeeping, check-in, and checkout events here
+// whenever state changes occur. This keeps Rainbow AI's in-memory context
+// up-to-date without polling. Authentication via shared WEBHOOK_SECRET.
+//
+// Payload: { "event": "availability_updated|housekeeping_updated|checkin|checkout",
+//            "unitId": "L01", "status": "occupied", "guestName": "...", "ts": "..." }
+router.post('/webhooks/pms-events', signatureGuard, (req: Request, res: Response) => {
+  // Acknowledge immediately
+  res.status(200).json({ ok: true });
+
+  const { event, unitId, status, guestName } = req.body as {
+    event?: string;
+    unitId?: string;
+    status?: string;
+    guestName?: string;
+  };
+
+  if (!event) return;
+
+  console.log(`[webhook:pms-events] ${event} unitId=${unitId ?? '-'} status=${status ?? '-'} guest=${guestName ?? '-'}`);
+
+  // Future: update in-memory unit availability cache, trigger KB refresh, etc.
+  // For now, logging is sufficient — Rainbow AI will pick up changes on next MCP call.
+});
+
 export default router;

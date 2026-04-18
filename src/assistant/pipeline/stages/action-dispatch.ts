@@ -26,6 +26,42 @@ import {
 } from '../../product-card.js';
 import { findMenuItemMatches } from '../../menu-matcher.js';
 import { detectStarRating, getFollowUpMessage, handleFeedbackRating, isFeedbackMessage } from '../../order-feedback-handler.js';
+import { chatWithToolsLoop } from '../../ai-response-generator.js';
+import {
+  guestEnquiryTools,
+  checkDateAvailability,
+  getRates,
+  lookupReservation,
+  getPropertyInfo,
+  searchGuests,
+  getGuest,
+  listTodayArrivals,
+  listUpcomingReservations,
+  checkReservationAvailability,
+} from '../../../tools/guest-enquiry.js';
+
+// ─── Pelangi PMS Guest Enquiry Tools ─────────────────────────────────────────
+// Intents that should query PMS2 for live data rather than static KB responses.
+const PELANGI_ENQUIRY_INTENTS = new Set([
+  'availability', 'pricing', 'reservation_lookup',
+  'checkin_info', 'checkout_info', 'facilities_info', 'facilities',
+  'rules_policy', 'room_type_inquiry',
+  // Phase 2: expanded intents for live PMS2 data
+  'booking', 'extend_stay', 'check_in_arrival', 'late_checkout_request', 'booking_status',
+]);
+
+const pelangiEnquiryHandlers = new Map([
+  ['pelangi_check_date_availability', checkDateAvailability],
+  ['pelangi_get_rates', getRates],
+  ['pelangi_lookup_reservation', lookupReservation],
+  ['pelangi_get_property_info', getPropertyInfo],
+  // Phase 2: expanded handlers
+  ['pelangi_search_guests', searchGuests],
+  ['pelangi_get_guest', getGuest],
+  ['pelangi_list_today_arrivals', listTodayArrivals],
+  ['pelangi_list_upcoming_reservations', listUpcomingReservations],
+  ['pelangi_check_reservation_availability', checkReservationAvailability],
+]);
 
 /**
  * Stage 6: Action Dispatch
@@ -473,6 +509,31 @@ async function handleLLMReply(
   // US-870: Handle MENU_RECOMMEND intent — proactive popular items suggestion
   if (result.intent === 'MENU_RECOMMEND') {
     await handleMenuRecommend(state, context);
+    return;
+  }
+
+  // ─── Pelangi PMS Guest Enquiry: live availability / rates / reservation lookup ──
+  // For Pelangi profile, route enquiry intents through chatWithToolsLoop so the LLM
+  // can call the PMS2 tools (pelangi_check_date_availability, pelangi_get_rates,
+  // pelangi_lookup_reservation, pelangi_get_property_info) to answer with live data.
+  if (state.profileId === 'pelangi' && PELANGI_ENQUIRY_INTENTS.has(result.intent)) {
+    try {
+      const topicFiles = context.guessTopicFiles(state.text);
+      const systemPrompt = context.buildSystemPrompt('', topicFiles);
+      const history = convo.messages.slice(-10);
+      state.response = await chatWithToolsLoop(
+        systemPrompt,
+        history,
+        state.text,
+        guestEnquiryTools,
+        pelangiEnquiryHandlers,
+      );
+      console.log(`[Dispatch] Pelangi PMS tool loop returned for intent "${result.intent}"`);
+    } catch (err: any) {
+      console.warn(`[Dispatch] Pelangi PMS tool loop failed for intent "${result.intent}": ${err.message}`);
+      // Fall through to result.response as graceful degradation
+      state.response = result.response;
+    }
     return;
   }
 

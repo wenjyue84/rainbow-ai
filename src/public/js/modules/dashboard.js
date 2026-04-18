@@ -81,7 +81,62 @@ function stopInitProgressTimer() {
 /**
  * Main Dashboard tab loader
  */
+/** Render the Guest Webchat share link card at the top of the dashboard. */
+function renderWebchatShareLink() {
+  const input = document.getElementById('webchat-share-url');
+  if (!input) return; // card not present (older template)
+
+  let profileId = 'pelangi';
+  try {
+    if (window.profileSwitcher && typeof window.profileSwitcher.getActiveProfileId === 'function') {
+      profileId = window.profileSwitcher.getActiveProfileId() || 'pelangi';
+    } else {
+      const m = (location.hash || '').match(/^#[^/]+\/([^/]+)/);
+      if (m) profileId = m[1];
+    }
+  } catch (_) { /* keep default */ }
+
+  const url = location.origin + '/chat/' + encodeURIComponent(profileId);
+  input.value = url;
+
+  const openBtn = document.getElementById('webchat-share-open');
+  if (openBtn) openBtn.href = url;
+
+  const waBtn = document.getElementById('webchat-share-whatsapp');
+  if (waBtn) {
+    const msg = 'Hi! You can chat with us here: ' + url;
+    waBtn.href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+  }
+}
+
+/** Copy the webchat share URL to clipboard (exposed on window for inline onclick). */
+export function copyWebchatShareUrl() {
+  const input = document.getElementById('webchat-share-url');
+  if (!input) return;
+  const url = input.value;
+  const done = () => {
+    const note = document.getElementById('webchat-share-copied');
+    if (note) {
+      note.classList.remove('hidden');
+      setTimeout(() => note.classList.add('hidden'), 2000);
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(() => {
+      input.select(); document.execCommand('copy'); done();
+    });
+  } else {
+    input.select(); document.execCommand('copy'); done();
+  }
+}
+if (typeof window !== 'undefined') {
+  window.copyWebchatShareUrl = copyWebchatShareUrl;
+}
+
 export async function loadDashboard() {
+  // Render the webchat share link immediately — doesn't depend on API calls
+  renderWebchatShareLink();
+
   try {
     // Kick off status + stats fetches in parallel (US-154)
     // Both are independent network calls — no need to wait for one before starting the other

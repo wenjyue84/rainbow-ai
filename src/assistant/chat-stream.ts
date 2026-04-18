@@ -19,7 +19,31 @@ import { isProviderOverBudget } from './llm-cost-budget.js';
 import { getContextWindows } from './context-windows.js';
 import { looksLikeJson } from './ai-response-generator.js';
 
-const STREAM_FALLBACK = "AI service temporarily unavailable. Please try again in a moment, or ask our staff for help.";
+const STREAM_FALLBACK = "I'm having trouble reaching my AI service right now — please try again in a moment, or contact our staff at +60 10-308 4289.";
+
+/**
+ * Tries to extract a human-readable reply from a JSON-shaped LLM output.
+ * Handles common wrappers like `{ "response": "..." }`, `{ "text": "..." }`,
+ * `{ "message": "..." }`, or a top-level string in an array.
+ */
+function extractFromJsonLike(raw: string): string | null {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return null;
+  // Try strict JSON first
+  try {
+    const j = JSON.parse(trimmed);
+    const candidate = (j && typeof j === 'object')
+      ? (j.response ?? j.text ?? j.message ?? j.answer ?? j.reply)
+      : null;
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  } catch { /* fall through */ }
+  // Regex fallback — some providers append trailing text after the JSON block
+  const m = trimmed.match(/"(?:response|text|message|answer|reply)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (m) {
+    try { return JSON.parse(`"${m[1]}"`); } catch { /* ignore */ }
+  }
+  return null;
+}
 
 // ─── SSE Helpers ──────────────────────────────────────────────────────
 
@@ -65,7 +89,18 @@ function buildMessages(
 
 // ─── Provider Streaming ───────────────────────────────────────────────
 
-/** Stream tokens from a single provider. Returns accumulated text. */
+/**
+ * Stream tokens from a single provider. Returns the accumulated text.
+ *
+ * JSON-safe emission: tokens are not forwarded to the client until we know the
+ * output is not a JSON wrapper like `{"intent":..., "response":"..."}` — some
+ * providers (or misconfigured system prompts) emit structured JSON, which would
+ * otherwise leak to end users. Once the first non-whitespace character arrives:
+ *   • starts with `{` or `[` → buffer silently; on stream end, extract the
+ *     `response`/`text`/`message` field and emit it as a single token.
+ *   • anything else → flush the small lookahead buffer and stream subsequent
+ *     deltas live (no added latency beyond the first char).
+ */
 async function streamFromProvider(
   res: Response,
   provider: any,
@@ -75,6 +110,30 @@ async function streamFromProvider(
 ): Promise<string> {
   const apiKey = resolveApiKey(provider);
   let fullText = '';
+  let buffered = '';
+  let decided: 'text' | 'json' | null = null;
+
+  const onDelta = (delta: string) => {
+    if (!delta) return;
+    fullText += delta;
+    if (decided === 'text') {
+      sseEvent(res, { token: delta });
+      return;
+    }
+    buffered += delta;
+    if (decided === null) {
+      const firstNonWs = buffered.replace(/^\s+/, '').charAt(0);
+      if (!firstNonWs) return; // still only whitespace, keep waiting
+      if (firstNonWs === '{' || firstNonWs === '[') {
+        decided = 'json';
+        // keep buffering silently until stream ends
+      } else {
+        decided = 'text';
+        sseEvent(res, { token: buffered });
+        buffered = '';
+      }
+    }
+  };
 
   if (provider.type === 'groq') {
     const groq = getGroqInstance(provider.id);
@@ -89,19 +148,13 @@ async function streamFromProvider(
     });
     for await (const chunk of stream) {
       const delta = (chunk as any).choices?.[0]?.delta?.content;
-      if (delta) {
-        fullText += delta;
-        sseEvent(res, { token: delta });
-      }
+      if (delta) onDelta(delta);
     }
 
   } else if (provider.type === 'google-gemini') {
     // Gemini streaming API differs; fall back to non-streaming single chunk
     const result = await providerChat(provider, messages, maxTokens, temperature);
-    if (result?.content) {
-      fullText = result.content;
-      sseEvent(res, { token: result.content });
-    }
+    if (result?.content) onDelta(result.content);
 
   } else {
     // OpenAI-compatible / Ollama
@@ -147,16 +200,28 @@ async function streamFromProvider(
         if (d === '[DONE]') continue;
         try {
           const delta = JSON.parse(d).choices?.[0]?.delta?.content;
-          if (delta) {
-            fullText += delta;
-            sseEvent(res, { token: delta });
-          }
+          if (delta) onDelta(delta);
         } catch { /* skip malformed chunks */ }
       }
     }
   }
 
   if (!fullText) throw new Error('Empty streaming response');
+
+  // Post-stream JSON recovery: if the provider emitted a JSON wrapper, we've
+  // buffered everything silently — now extract the human-readable field.
+  if (decided === 'json') {
+    const extracted = extractFromJsonLike(buffered);
+    if (extracted) {
+      sseEvent(res, { token: extracted });
+      return extracted;
+    }
+    // Extraction failed — treat as an empty response so the caller can fall
+    // back to a fresh retry (same contract as an actually empty stream).
+    console.warn(`[AI Stream] ${provider.name} returned JSON we could not parse (${buffered.length} chars)`);
+    throw new Error('Unparseable JSON response');
+  }
+
   return fullText;
 }
 
@@ -257,7 +322,19 @@ export async function streamChatWithTools(
           sseEvent(res, { token: content });
           return content;
         }
-        // No content (or LLM returned raw JSON) — stream a fresh LLM response (plain text, no tools)
+        // LLM returned raw JSON (e.g. intent-classification format) — try to extract the
+        // human-readable response field before falling back to a fresh provider round-trip.
+        if (content && looksLikeJson(content)) {
+          try {
+            const j = JSON.parse(content);
+            const extracted = j.response || j.text || j.message || null;
+            if (extracted && typeof extracted === 'string' && !looksLikeJson(extracted)) {
+              sseEvent(res, { token: extracted });
+              return extracted;
+            }
+          } catch { /* not valid JSON — fall through */ }
+        }
+        // No usable content — stream a fresh plain-text response (no tools)
         return streamFromProviders(res, messages, chatCfg.max_chat_tokens, chatCfg.chat_temperature);
       }
       // Tools were called previously; break to stream final response

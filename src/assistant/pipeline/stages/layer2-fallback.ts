@@ -11,6 +11,7 @@ import type { DevMetadata } from '../types.js';
 import type { ChatMessage } from '../../types.js';
 import type { ClassificationResult } from './tier-classification.js';
 import { getLLMSettings } from '../../llm-settings-loader.js';
+import { getUnknownFallbackMessages } from '../../ai-response-generator.js';
 
 /**
  * Stage 4: Layer 2 Fallback
@@ -39,22 +40,56 @@ export async function applyLayer2Fallback(
   const llmSettings = getLLMSettings();
   const layer2Threshold = llmSettings.thresholds?.layer2 ?? 0.80;
 
-  // Skip if confidence is already above threshold or AI unavailable
-  if (result.confidence >= layer2Threshold || !context.isAIAvailable()) {
+  // AI must be available to retry
+  if (!context.isAIAvailable()) {
     return result;
   }
 
-  console.log(
-    `[Layer2] confidence ${result.confidence.toFixed(2)} < ${layer2Threshold.toFixed(2)} → retrying with smart fallback`
-  );
+  // Detect "rescue-worthy" responses that should trigger Layer 2 even at high confidence:
+  //   - Empty / whitespace-only response (primary LLM returned nothing — "all_llm_failed" case)
+  //   - Response exactly matches the default unknown-fallback template in any language
+  const responseText = (result.response || '').trim();
+  const isEmptyResponse = !responseText;
+  const fallbackMessages = getUnknownFallbackMessages();
+  const isDefaultFallback =
+    !isEmptyResponse && (
+      responseText === fallbackMessages.en.trim() ||
+      responseText === fallbackMessages.ms.trim() ||
+      responseText === fallbackMessages.zh.trim() ||
+      responseText === fallbackMessages.ta.trim()
+    );
+  const needsRescue = isEmptyResponse || isDefaultFallback;
+
+  // Skip if confidence is already above threshold AND the response is substantive
+  if (result.confidence >= layer2Threshold && !needsRescue) {
+    return result;
+  }
+
+  const reason = needsRescue
+    ? (isEmptyResponse ? 'empty response' : 'default fallback emitted')
+    : `confidence ${result.confidence.toFixed(2)} < ${layer2Threshold.toFixed(2)}`;
+  console.log(`[Layer2] ${reason} → retrying with smart fallback`);
 
   const fallbackResult = await context.classifyAndRespondWithSmartFallback(
     systemPrompt, contextMessages, processText, detectedLanguage
   );
 
-  if (fallbackResult.confidence > result.confidence) {
+  // Accept fallback if it improved confidence, OR if we were rescuing an
+  // empty/default-fallback and the rescue produced a non-empty, non-default reply.
+  const fallbackText = (fallbackResult.response || '').trim();
+  const fallbackIsEmpty = !fallbackText;
+  const fallbackIsDefault =
+    !fallbackIsEmpty && (
+      fallbackText === fallbackMessages.en.trim() ||
+      fallbackText === fallbackMessages.ms.trim() ||
+      fallbackText === fallbackMessages.zh.trim() ||
+      fallbackText === fallbackMessages.ta.trim()
+    );
+  const rescueSucceeded = needsRescue && !fallbackIsEmpty && !fallbackIsDefault;
+
+  if (fallbackResult.confidence > result.confidence || rescueSucceeded) {
     console.log(
-      `[Layer2] Improved confidence: ${result.confidence.toFixed(2)} → ${fallbackResult.confidence.toFixed(2)} (${fallbackResult.model})`
+      `[Layer2] ${rescueSucceeded ? 'Rescued' : 'Improved'} confidence: ${result.confidence.toFixed(2)} → ${fallbackResult.confidence.toFixed(2)} (${fallbackResult.model})`
     );
 
     devMetadata.source = (devMetadata.source || 'llm') + '+layer2';

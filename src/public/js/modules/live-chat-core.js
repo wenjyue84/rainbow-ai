@@ -210,9 +210,7 @@ export async function loadLiveChat() {
     addOverdueBadgeToList(); // US-022: Add overdue badges to left pane
 
     // WhatsApp Web style: show last active conversation when none selected
-    // Skip auto-open when the webchat sub-tab is active (hash contains /webchat)
-    var isWebchatTab = window.location.hash.indexOf('/webchat') !== -1;
-    if ($.conversations.length > 0 && $.activePhone === null && !isWebchatTab) {
+    if ($.conversations.length > 0 && $.activePhone === null) {
       openConversation($.conversations[0].phone);
     }
 
@@ -380,7 +378,12 @@ export function renderList(conversations) {
   // Always hide skeleton when rendering real data (US-145)
   if (skeleton) skeleton.style.display = 'none';
 
-  if (!conversations.length) {
+  // Fix: webchat-only rendering. Previously we returned early when the WhatsApp
+  // list was empty, which hid all webchat sessions. Only treat as "empty" when
+  // both WA and webchat lists are empty.
+  conversations = conversations || [];
+  var _wcCount = (window._wcConversations || []).length;
+  if (!conversations.length && !_wcCount) {
     if (empty) empty.style.display = '';
     list.innerHTML = '';
     if (empty) list.appendChild(empty);
@@ -459,12 +462,8 @@ export function renderList(conversations) {
     return b.lastMessageAt - a.lastMessageAt;
   });
 
-  if (!filtered.length) {
-    list.innerHTML = '<div class="lc-sidebar-empty"><p>No matching conversations.</p></div>';
-    return;
-  }
-
-  list.innerHTML = filtered.map(function (c) {
+  // Build WA conversation items
+  var waItems = filtered.map(function (c) {
     var initials = (c.pushName || '?').slice(0, 2).toUpperCase();
     var time = formatRelativeTime(c.lastMessageAt);
     var preview = c.lastMessage || '';
@@ -483,7 +482,8 @@ export function renderList(conversations) {
     if (c.favourite) bottomIcons += '<span class="lc-fav-indicator" title="Favourite"><svg width="12" height="12" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>';
     if (c.pinned) bottomIcons += '<span class="lc-pin-indicator" title="Pinned"><svg width="12" height="12" viewBox="0 0 24 24" fill="#8696a0" stroke="none"><path d="M9 4v6l-2 4h10l-2-4V4M12 14v7M8 4h8"/></svg></span>';
 
-    return '<div class="lc-chat-item' + isActive + '" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')">' +
+    return { ts: c.lastMessageAt || 0, html:
+      '<div class="lc-chat-item' + isActive + '" style="border-left:3px solid #25d366;" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')">' +
       '<div class="lc-avatar">' + avatarImg(c.phone, initials) + '</div>' +
       '<div class="lc-chat-info">' +
       '<div class="lc-chat-top">' +
@@ -496,8 +496,55 @@ export function renderList(conversations) {
       '<span class="lc-bottom-icons">' + bottomIcons + unread + '</span>' +
       '</div>' +
       '</div>' +
-      '</div>';
-  }).join('');
+      '</div>'
+    };
+  });
+
+  // Build webchat conversation items from window._wcConversations
+  var wcAll = (window._wcConversations || []);
+  var wcActiveSession = window._wcActiveSession || null;
+  if (searchVal) {
+    wcAll = wcAll.filter(function (c) {
+      var name = (c.pushName || 'Web Visitor').toLowerCase();
+      return name.includes(searchVal) || (c.lastMessage || '').toLowerCase().includes(searchVal);
+    });
+  }
+  var wcItems = wcAll.map(function (c) {
+    var time = formatRelativeTime(c.lastMessageAt);
+    var preview = c.lastMessage || '';
+    if (preview.length > 45) preview = preview.substring(0, 42) + '...';
+    var isActive = wcActiveSession === c.sessionId ? ' active' : '';
+    var unreadCount = typeof c.unreadCount === 'number' ? c.unreadCount : 0;
+    var unread = unreadCount > 0 ? '<div class="lc-unread">' + Math.min(unreadCount, 99) + '</div>' : '';
+    var webBadge = '<span style="font-size:9px;background:#eff6ff;color:#3b82f6;padding:1px 4px;border-radius:3px;font-weight:600;margin-left:4px;">WEB</span>';
+    var wcAvatarSvg = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/></svg>';
+    return { ts: c.lastMessageAt || 0, html:
+      '<div class="lc-chat-item' + isActive + '" style="border-left:3px solid #3b82f6;" onclick="wcOpenConversation(\'' + escapeAttr(c.sessionId) + '\')" title="Webchat: ' + escapeAttr(c.sessionId) + '">' +
+      '<div class="lc-avatar" style="background:#e2e8f0;color:#64748b;display:flex;align-items:center;justify-content:center;">' + wcAvatarSvg + '</div>' +
+      '<div class="lc-chat-info">' +
+      '<div class="lc-chat-top">' +
+      '<span class="lc-chat-name">' + escapeHtml(c.pushName || 'Web Visitor') + webBadge + '</span>' +
+      '<span class="lc-chat-time">' + time + '</span>' +
+      '</div>' +
+      '<div class="lc-chat-bottom">' +
+      '<span class="lc-chat-preview">' + escapeHtml(preview) + '</span>' +
+      '<span class="lc-bottom-icons">' + unread + '</span>' +
+      '</div>' +
+      '</div>' +
+      '</div>'
+    };
+  });
+
+  // Merge all items sorted by most recent
+  var allItems = waItems.concat(wcItems);
+  allItems.sort(function (a, b) { return b.ts - a.ts; });
+
+  if (!allItems.length) {
+    list.innerHTML = '<div class="lc-sidebar-empty"><p>No matching conversations.</p></div>';
+    return;
+  }
+
+  list.innerHTML = allItems.map(function (item) { return item.html; }).join('');
 }
 
 export function filterConversations() {
@@ -667,6 +714,11 @@ function _showChatSpinner(show) {
 
 export function renderChat(log) {
   document.getElementById('lc-empty-state').style.display = 'none';
+  // Hide webchat view if switching to a WA conversation; restore lc-main
+  var wcView = document.getElementById('wc-chat-view');
+  if (wcView) wcView.style.display = 'none';
+  var lcMain = document.getElementById('lc-main');
+  if (lcMain) lcMain.style.display = '';
   var chat = document.getElementById('lc-active-chat');
   chat.style.display = 'flex';
 

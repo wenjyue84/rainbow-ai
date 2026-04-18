@@ -33,13 +33,17 @@ function showInstanceQR(id, label) {
   document.getElementById('qr-modal').classList.remove('hidden');
   if (qrRefreshInterval) clearInterval(qrRefreshInterval);
 
+  let _qrTimeoutId = null;
+
   async function fetchQR() {
     try {
       const d = await api('/whatsapp/instances/' + encodeURIComponent(id) + '/qr');
       const el = document.getElementById('qr-modal-content');
+      if (!el) return;
       if (d.state === 'open') {
-        el.innerHTML = '<p class="text-success-600 font-medium py-4">Connected!</p>';
         clearInterval(qrRefreshInterval);
+        if (_qrTimeoutId) { clearTimeout(_qrTimeoutId); _qrTimeoutId = null; }
+        el.innerHTML = '<p class="text-success-600 font-medium py-4">Connected!</p>';
         if (typeof window.refreshWhatsAppList === 'function') window.refreshWhatsAppList();
         else if (typeof loadStatus === 'function') loadStatus();
       } else if (d.qrDataUrl) {
@@ -48,12 +52,33 @@ function showInstanceQR(id, label) {
         el.innerHTML = '<p class="text-neutral-500 text-sm py-4">Waiting for QR code...</p>';
       }
     } catch (e) {
-      document.getElementById('qr-modal-content').innerHTML = `<p class="text-danger-500 text-sm">Error: ${e.message}</p>`;
-      clearInterval(qrRefreshInterval);
+      // Transient error — show warning but keep polling (do not stop the interval)
+      const el = document.getElementById('qr-modal-content');
+      if (el) el.innerHTML = `<p class="text-warning-500 text-sm py-2">Retrying\u2026 (${e.message})</p>`;
     }
   }
+
   fetchQR();
-  qrRefreshInterval = setInterval(fetchQR, 5000);
+  qrRefreshInterval = setInterval(fetchQR, 2000);
+
+  // 90-second hard timeout with retry button
+  _qrTimeoutId = setTimeout(() => {
+    clearInterval(qrRefreshInterval);
+    qrRefreshInterval = null;
+    _qrTimeoutId = null;
+    const el = document.getElementById('qr-modal-content');
+    if (el) el.innerHTML =
+      '<p class="text-danger-500 text-sm mb-3">QR timed out. The instance may still be starting.</p>' +
+      `<button onclick="showInstanceQR(${JSON.stringify(id)}, ${JSON.stringify(label)})" class="text-xs bg-primary-500 hover:bg-primary-600 text-white px-3 py-1.5 rounded-lg">Retry</button>`;
+  }, 90_000);
+
+  // Patch closeQRModal to also clear the timeout for this session
+  const _prevClose = window.closeQRModal;
+  window.closeQRModal = function () {
+    if (_qrTimeoutId) { clearTimeout(_qrTimeoutId); _qrTimeoutId = null; }
+    window.closeQRModal = _prevClose;
+    _prevClose();
+  };
 }
 
 /**

@@ -10,8 +10,22 @@ import type { KnowledgeBaseInstance } from './knowledge-base-instance.js';
 import type { MCPTool, ToolHandler } from '../types/mcp.js';
 import type { ChatMessage as TypesChatMessage } from './types.js';
 import type { SupportedLanguage } from './language-router.js';
-import { isAIAvailable, classifyAndRespond } from './ai-client.js';
+import { isAIAvailable, classifyAndRespond, classifyAndRespondWithSmartFallback } from './ai-client.js';
 import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
+
+// Helper: detect if a response is empty or matches the default unknown-fallback
+// template in any supported language. Used to trigger Layer-2 smart-fallback rescue.
+function isRescueWorthy(responseText: string, store: ConfigStore): boolean {
+  const trimmed = (responseText || '').trim();
+  if (!trimmed) return true;
+  const fallbacks = getUnknownFallbackMessages(store);
+  return (
+    trimmed === fallbacks.en.trim() ||
+    trimmed === fallbacks.ms.trim() ||
+    trimmed === fallbacks.zh.trim() ||
+    trimmed === fallbacks.ta.trim()
+  );
+}
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -431,6 +445,26 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
         finalMessage = result.response;
         llmModel = result.model || 'unknown';
         llmUsage = result.usage;
+
+        // Layer-2 rescue: if primary LLM returned empty or the default
+        // fallback (e.g. "all_llm_failed"), retry with the smart fallback
+        // (larger model + expanded context). Mirrors pipeline/stages/layer2-fallback.ts.
+        if (isRescueWorthy(finalMessage, store)) {
+          console.log('[ChatEngine] Empty/default-fallback response — attempting Layer 2 rescue');
+          try {
+            const rescue = await classifyAndRespondWithSmartFallback(
+              systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage
+            );
+            if (!isRescueWorthy(rescue.response, store)) {
+              finalMessage = rescue.response;
+              llmModel = `${llmModel}+layer2:${rescue.model || 'unknown'}`;
+              llmUsage = rescue.usage;
+              console.log(`[ChatEngine] Layer 2 rescue succeeded (${rescue.model})`);
+            }
+          } catch (e: any) {
+            console.warn('[ChatEngine] Layer 2 rescue failed:', e?.message || e);
+          }
+        }
       } else {
         finalMessage = 'Workflow not configured';
       }
@@ -443,6 +477,24 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     finalMessage = result.response;
     llmModel = result.model || 'unknown';
     llmUsage = result.usage;
+
+    // Layer-2 rescue for empty/default-fallback responses
+    if (isRescueWorthy(finalMessage, store)) {
+      console.log('[ChatEngine] Empty/default-fallback response — attempting Layer 2 rescue');
+      try {
+        const rescue = await classifyAndRespondWithSmartFallback(
+          systemPrompt, conversationHistory, message, intentResult.detectedLanguage as SupportedLanguage
+        );
+        if (!isRescueWorthy(rescue.response, store)) {
+          finalMessage = rescue.response;
+          llmModel = `${llmModel}+layer2:${rescue.model || 'unknown'}`;
+          llmUsage = rescue.usage;
+          console.log(`[ChatEngine] Layer 2 rescue succeeded (${rescue.model})`);
+        }
+      } catch (e: any) {
+        console.warn('[ChatEngine] Layer 2 rescue failed:', e?.message || e);
+      }
+    }
   } else {
     finalMessage = 'AI not available';
   }

@@ -27,7 +27,7 @@ const PELANGI_WEBSITE_URL =
 const KB_DIR =
   process.env.RAINBOW_KB_DIR || resolve(__dirname, '..', '..', '.rainbow-kb');
 
-const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 interface KbPayload {
   version: string;
@@ -42,24 +42,51 @@ interface KbPayload {
   };
 }
 
-async function fetchKbPayload(): Promise<KbPayload> {
+/** Cached ETag from the last successful fetch — enables conditional requests. */
+let _lastEtag: string | null = null;
+
+/**
+ * Fetches the KB payload from the website. Returns null on 304 Not Modified.
+ */
+async function fetchKbPayload(): Promise<KbPayload | null> {
   const url = `${PELANGI_WEBSITE_URL}/api/kb`;
+  const headers: Record<string, string> = { 'User-Agent': 'rainbow-ai/kb-sync' };
+  if (_lastEtag) {
+    headers['If-None-Match'] = _lastEtag;
+  }
+
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'rainbow-ai/kb-sync' },
+    headers,
     signal: AbortSignal.timeout(15_000),
   });
+
+  if (res.status === 304) {
+    return null; // Content unchanged
+  }
   if (!res.ok) {
     throw new Error(`/api/kb responded ${res.status} ${res.statusText}`);
   }
+
+  // Store ETag for next request
+  const etag = res.headers.get('etag');
+  if (etag) {
+    _lastEtag = etag;
+  }
+
   return res.json() as Promise<KbPayload>;
 }
 
 export async function syncWebsiteKb(): Promise<void> {
-  let payload: KbPayload;
+  let payload: KbPayload | null;
   try {
     payload = await fetchKbPayload();
   } catch (err: any) {
     console.warn(`[WebsiteKBSync] Fetch failed (non-fatal): ${err.message}`);
+    return;
+  }
+
+  if (payload === null) {
+    console.log('[WebsiteKBSync] Content unchanged (304), skipping write');
     return;
   }
 
@@ -86,6 +113,12 @@ export async function syncWebsiteKb(): Promise<void> {
   } catch (err: any) {
     console.warn(`[WebsiteKBSync] Write failed (non-fatal): ${err.message}`);
   }
+}
+
+/** Force an immediate sync, bypassing the interval timer and ETag cache. */
+export async function forceSync(): Promise<void> {
+  _lastEtag = null; // Clear cached ETag to force a fresh fetch
+  await syncWebsiteKb();
 }
 
 let _timer: NodeJS.Timeout | null = null;

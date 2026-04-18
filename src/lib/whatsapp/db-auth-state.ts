@@ -260,3 +260,12 @@ export async function useDbAuthState(profileId: string): Promise<{
     saveCreds,
   };
 }
+
+/**
+ * Delete all auth state rows for a given instance.
+ * Called after a loggedOut disconnect so the next start() generates a fresh QR.
+ */
+export async function clearAuthState(instanceId: string): Promise<void> {
+  await pool.query('DELETE FROM baileys_auth_state WHERE profile_id = $1', [instanceId]);
+  console.log(`[DbAuth:${instanceId}] Auth state cleared — ready for QR re-pair`);
+}

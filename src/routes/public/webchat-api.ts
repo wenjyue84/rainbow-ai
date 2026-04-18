@@ -24,6 +24,13 @@ import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js'
 import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
+import {
+  guestEnquiryTools,
+  checkDateAvailability,
+  getRates,
+  lookupReservation,
+  getPropertyInfo,
+} from '../../tools/guest-enquiry.js';
 
 const router = Router();
 
@@ -645,6 +652,18 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
           res, systemPrompt, conversationHistory, sanitizedMessage,
           ctx.allTools, ctx.allHandlers
         );
+      } else if (profileId === 'pelangi') {
+        // Pelangi: stream with PMS guest enquiry tools
+        const pelangiHandlers = new Map<string, any>([
+          ['pelangi_check_date_availability', checkDateAvailability],
+          ['pelangi_get_rates', getRates],
+          ['pelangi_lookup_reservation', lookupReservation],
+          ['pelangi_get_property_info', getPropertyInfo],
+        ]);
+        fullText = await streamChatWithTools(
+          res, systemPrompt, conversationHistory, sanitizedMessage,
+          guestEnquiryTools, pelangiHandlers
+        );
       } else {
         // Non-tool path: stream LLM response directly
         fullText = await streamChatResponse(res, systemPrompt, conversationHistory, sanitizedMessage);
@@ -684,6 +703,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   // ─── Non-Streaming JSON Path (existing behavior) ─────────────────────
   try {
     const isMakanMoments = profileId === 'makan-moments';
+    const isPelangi = profileId === 'pelangi';
     let allTools = isMakanMoments ? toolRegistry.getToolsForProfile('makan-moments') : [];
     let allHandlers = isMakanMoments ? toolRegistry.getHandlersForProfile('makan-moments') : new Map();
     let systemPromptSuffix: string | undefined;
@@ -693,6 +713,14 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       allTools = ctx.allTools;
       allHandlers = ctx.allHandlers;
       systemPromptSuffix = ctx.systemPromptSuffix;
+    } else if (isPelangi) {
+      allTools = guestEnquiryTools;
+      allHandlers = new Map<string, any>([
+        ['pelangi_check_date_availability', checkDateAvailability],
+        ['pelangi_get_rates', getRates],
+        ['pelangi_lookup_reservation', lookupReservation],
+        ['pelangi_get_property_info', getPropertyInfo],
+      ]);
     }
 
     const result = await processChat({

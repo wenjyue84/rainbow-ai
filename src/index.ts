@@ -41,6 +41,8 @@ import { initAdminNotificationSettings } from './lib/admin-notification-settings
 import { configStore } from './assistant/config-store.js';
 import { profileRegistry } from './assistant/profile-registry.js';
 import { initKnowledgeBase, initKBFromDB, checkKBStaleness } from './assistant/knowledge-base.js';
+import { startWebsiteKbSync } from './lib/website-kb-sync.js';
+import { pmsMCPClient } from './lib/pms-mcp-client.js';
 import { initUnitCache } from './lib/unit-cache.js';
 import { initScheduler } from './lib/message-scheduler.js';
 import { ensureConfigTables } from './lib/config-db.js';
@@ -151,6 +153,8 @@ try {
   console.log('[Startup] Default KnowledgeBase initialized');
   // US-409: Check KB file staleness on startup (fire-and-forget)
   checkKBStaleness().catch(() => {});
+  // Sync supplementary KB content from the website (blog guides, published FAQs)
+  startWebsiteKbSync();
 } catch (err: any) {
   console.error('[Startup] Failed to initialize KnowledgeBase:', err.message);
 }
@@ -257,6 +261,21 @@ runCanaryProbesOnStartup().catch(err =>
   console.warn('[canary-probe] Startup probe failed (non-fatal):', err.message)
 );
 startCanaryScheduler(); // daily at 03:00 MY time
+
+// PMS MCP connectivity check — verify pelangi_ping responds on startup (fire-and-forget)
+pmsMCPClient.callTool('pelangi_ping', {}).then(result => {
+  console.log('[PMS] Startup ping OK:', JSON.stringify(result).slice(0, 120));
+}).catch(err => {
+  // Auth failures are silent misconfigurations (4xx doesn't trip the client's
+  // circuit breaker), so surface them loudly and separately from transient
+  // network / cold-start failures.
+  const msg = err?.message || String(err);
+  if (/401|unauthor/i.test(msg)) {
+    console.error('[PMS] MCP auth failed — check PMS_MCP_KEY in .env (must match MCP_API_KEY on PMS2):', msg);
+  } else {
+    console.warn('[PMS] Startup ping failed (guest enquiry tools will degrade gracefully):', msg);
+  }
+});
 
 // US-515: Enable pg_stat_statements and start slow query monitor
 ensurePgStatStatements(pool).then(() => {

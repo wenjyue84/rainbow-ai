@@ -3,19 +3,77 @@
     {
       "id": "booking_payment_handler",
       "name": "Booking & Payment Handler",
+      "steps": [
+        {
+          "id": "s1",
+          "message": {
+            "en": "I'll help you with your booking or payment. Let me gather some information first.",
+            "ms": "Saya akan membantu anda dengan tempahan atau pembayaran. Biar saya kumpul maklumat dahulu.",
+            "zh": "我会帮您处理预订或付款。让我先收集一些信息。"
+          },
+          "waitForReply": false
+        },
+        {
+          "id": "s2",
+          "message": {
+            "en": "How many guests will be staying?",
+            "ms": "Berapa orang tetamu?",
+            "zh": "请问有几位客人入住？"
+          },
+          "waitForReply": true
+        },
+        {
+          "id": "s3",
+          "message": {
+            "en": "What are your check-in and check-out dates?",
+            "ms": "Apakah tarikh daftar masuk dan daftar keluar anda?",
+            "zh": "您的入住和退房日期是什么时候？"
+          },
+          "waitForReply": true
+        },
+        {
+          "id": "s4",
+          "message": {
+            "en": "If you have made a payment, please share your payment receipt. Otherwise, I'll forward this conversation to our admin at +60127088789 for further assistance.",
+            "ms": "Jika anda sudah buat pembayaran, sila kongsi resit pembayaran. Jika tidak, saya akan hantar perbualan ini ke admin kami di +60127088789 untuk bantuan lanjut.",
+            "zh": "如果您已付款，请分享您的付款收据。否则，我会将此对话转发给我们的管理员 +60127088789 以获得进一步帮助。"
+          },
+          "waitForReply": true
+        },
+        {
+          "id": "s5",
+          "message": {
+            "en": "Thank you! I'm forwarding your booking details and payment information to our admin at +60127088789. They will contact you shortly to confirm your reservation.",
+            "ms": "Terima kasih! Saya menghantar butiran tempahan dan maklumat pembayaran anda ke admin kami di +60127088789. Mereka akan hubungi anda tidak lama lagi untuk sahkan tempahan.",
+            "zh": "谢谢！我正在将您的预订详情和付款信息转发给我们的管理员 +60127088789。他们会尽快与您联系确认预订。"
+          },
+          "waitForReply": false,
+          "action": {
+            "type": "forward_payment"
+          }
+        },
+        {
+          "id": "s6",
+          "message": {
+            "en": "✅ Message sent to admin (+60127088789). They will review your booking and contact you soon!",
+            "ms": "✅ Mesej dihantar ke admin (+60127088789). Mereka akan semak tempahan anda dan hubungi anda tidak lama lagi!",
+            "zh": "✅ 消息已发送给管理员 (+60127088789)。他们会审核您的预订并尽快联系您！"
+          },
+          "waitForReply": false
+        }
+      ],
       "format": "nodes",
-      "startNodeId": "wait_guest_name",
+      "startNodeId": "booking_welcome_msg",
       "nodes": [
         {
-          "id": "wait_guest_name",
-          "type": "wait_reply",
-          "label": "Ask guest name",
+          "id": "booking_welcome_msg",
+          "type": "message",
+          "label": "Booking welcome",
           "config": {
-            "storeAs": "guest_name",
-            "prompt": {
-              "en": "Happy to help with your booking! First, what is your full name?",
-              "ms": "Boleh bantu dengan tempahan! Pertama, boleh bagi nama penuh anda?",
-              "zh": "很高兴帮您预订！首先，请问您的全名是什么？"
+            "message": {
+              "en": "I'll help you with your booking or payment. Let me gather some information first.",
+              "ms": "Saya akan membantu anda dengan tempahan atau pembayaran. Biar saya kumpul maklumat dahulu.",
+              "zh": "我会帮您处理预订或付款。让我先收集一些信息。"
             }
           },
           "next": "wait_guest_count"
@@ -25,12 +83,12 @@
           "type": "wait_reply",
           "label": "Ask guest count",
           "config": {
-            "storeAs": "guest_count",
             "prompt": {
-              "en": "Thank you, {{workflow.data.guest_name}}! How many guests will be staying?",
-              "ms": "Terima kasih, {{workflow.data.guest_name}}! Berapa orang tetamu nak menginap?",
-              "zh": "谢谢，{{workflow.data.guest_name}}！请问几位客人入住？"
-            }
+              "en": "How many guests will be staying?",
+              "ms": "Berapa orang tetamu?",
+              "zh": "请问有几位客人入住？"
+            },
+            "storeAs": "guest_count"
           },
           "next": "wait_booking_dates"
         },
@@ -39,50 +97,38 @@
           "type": "wait_reply",
           "label": "Ask check-in/out dates",
           "config": {
-            "storeAs": "booking_dates",
             "prompt": {
-              "en": "What are your check-in and check-out dates?\n(e.g., Check-in: 15 Feb, Check-out: 17 Feb)",
-              "ms": "Apakah tarikh check-in dan check-out anda?\n(contoh: Check-in: 15 Feb, Check-out: 17 Feb)",
-              "zh": "您的入住和退房日期是什么？\n（例如：入住：2月15日，退房：2月17日）"
-            }
+              "en": "What are your check-in and check-out dates?",
+              "ms": "Apakah tarikh daftar masuk dan daftar keluar anda?",
+              "zh": "您的入住和退房日期是什么时候？"
+            },
+            "storeAs": "booking_dates"
           },
-          "next": "validate_dates"
+          "next": "wait_payment_receipt"
         },
         {
-          "id": "validate_dates",
-          "type": "condition",
-          "label": "Validate date format",
-          "config": {
-            "field": "{{workflow.data.booking_dates}}",
-            "operator": "regex",
-            "value": "(\\d{1,2}[\\s\\-\\/](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*[\\s\\-\\/]\\d{1,2}|\\d{1,2}[\\-\\/]\\d{1,2}[\\-\\/]\\d{2,4})",
-            "trueNext": "confirm_booking_msg",
-            "falseNext": "date_error_reprompt"
-          }
-        },
-        {
-          "id": "date_error_reprompt",
+          "id": "wait_payment_receipt",
           "type": "wait_reply",
-          "label": "Re-prompt after invalid date input",
+          "label": "Ask for payment receipt",
           "config": {
-            "storeAs": "booking_dates",
             "prompt": {
-              "en": "Sorry, I couldn't quite understand those dates. Please enter your dates in a clear format, e.g.:\n- Check-in: 15 Feb, Check-out: 17 Feb\n- 15/2/2026 to 17/2/2026",
-              "ms": "Maaf, saya tak faham tarikh tu. Sila masukkan tarikh dalam format yang jelas, contoh:\n- Check-in: 15 Feb, Check-out: 17 Feb\n- 15/2/2026 hingga 17/2/2026",
-              "zh": "抱歉，我无法理解那些日期。请用清晰的格式输入日期，例如：\n- 入住：2月15日，退房：2月17日\n- 2026年2月15日至2026年2月17日"
-            }
+              "en": "If you have made a payment, please share your payment receipt. Otherwise, I'll forward this conversation to our admin at +60127088789 for further assistance.",
+              "ms": "Jika anda sudah buat pembayaran, sila kongsi resit pembayaran. Jika tidak, saya akan hantar perbualan ini ke admin kami di +60127088789 untuk bantuan lanjut.",
+              "zh": "如果您已付款，请分享您的付款收据。否则，我会将此对话转发给我们的管理员 +60127088789 以获得进一步帮助。"
+            },
+            "storeAs": "payment_info"
           },
-          "next": "confirm_booking_msg"
+          "next": "booking_forwarding_msg"
         },
         {
-          "id": "confirm_booking_msg",
+          "id": "booking_forwarding_msg",
           "type": "message",
-          "label": "Confirm booking details with guest",
+          "label": "Forwarding to admin",
           "config": {
             "message": {
-              "en": "Got it! Here are your booking details:\n\nName: {{workflow.data.guest_name}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\n\nIf you have already made payment, please share your payment receipt now. Otherwise, I will forward your details to our admin for assistance.",
-              "ms": "Baik! Ini butiran tempahan anda:\n\nNama: {{workflow.data.guest_name}}\nTetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\n\nKalau dah bayar, boleh share resit sekarang. Kalau belum, saya akan forward ke admin kami untuk bantuan lanjut.",
-              "zh": "好的！您的预订详情：\n\n姓名：{{workflow.data.guest_name}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n\n如果您已付款，请现在分享付款收据。否则，我将把您的详情转发给我们的管理员。"
+              "en": "Thank you! I'm forwarding your booking details and payment information to our admin. They will contact you shortly to confirm your reservation.",
+              "ms": "Terima kasih! Saya menghantar butiran tempahan dan maklumat pembayaran anda ke admin kami. Mereka akan hubungi anda tidak lama lagi untuk sahkan tempahan.",
+              "zh": "谢谢！我正在将您的预订详情和付款信息转发给我们的管理员。他们会尽快与您联系确认预订。"
             }
           },
           "next": "booking_notify_admin"
@@ -92,25 +138,25 @@
           "type": "whatsapp_send",
           "label": "Notify admin about booking",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
-              "en": "New Booking Request\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\nPlease review and confirm.",
-              "ms": "Tempahan Baru\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{guest.phone}}\nBilangan tetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\nSila semak dan sahkan.",
-              "zh": "新预订请求\n客人：{{workflow.data.guest_name}}\n电话：{{guest.phone}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n请审核并确认。"
+              "en": "📋 *New Booking Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\nPayment info: {{workflow.data.payment_info}}\nPlease review and confirm.",
+              "ms": "📋 *Tempahan Baru*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nBilangan tetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\nMaklumat pembayaran: {{workflow.data.payment_info}}\nSila semak dan sahkan.",
+              "zh": "📋 *新预订请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n付款信息：{{workflow.data.payment_info}}\n请审核并确认。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "booking_confirm_msg"
         },
         {
           "id": "booking_confirm_msg",
           "type": "message",
-          "label": "Booking confirmation to guest",
+          "label": "Booking confirmation",
           "config": {
             "message": {
-              "en": "Your booking request has been sent to our admin! They will contact you shortly to confirm your reservation. Thank you for choosing Pelangi Capsule Hostel!",
-              "ms": "Permintaan tempahan anda dah dihantar ke admin kami! Mereka akan hubungi anda tidak lama lagi untuk sahkan tempahan. Terima kasih kerana memilih Pelangi Capsule Hostel!",
-              "zh": "您的预订请求已发送给我们的管理员！他们将尽快联系您确认预订。感谢您选择 Pelangi Capsule Hostel！"
+              "en": "✅ Message sent to admin (+60127088789). They will review your booking and contact you soon!",
+              "ms": "✅ Mesej dihantar ke admin (+60127088789). Mereka akan semak tempahan anda dan hubungi anda tidak lama lagi!",
+              "zh": "✅ 消息已发送给管理员 (+60127088789)。他们会审核您的预订并尽快联系您！"
             }
           }
         }
@@ -123,54 +169,60 @@
         {
           "id": "s1",
           "message": {
-            "en": "Welcome to Pelangi Capsule Hostel! I'll guide you through the check-in process. Have you arrived at the hostel?",
-            "ms": "Selamat datang ke Pelangi Capsule Hostel! Saya akan pandu anda melalui proses check-in. Adakah anda sudah tiba di hostel?",
-            "zh": "欢迎来到Pelangi胶囊旅舍！我来带您完成入住流程(check-in process)。您到达(arrived)旅舍了吗？"
+            "en": "Welcome to Pelangi Capsule Hostel! 🎉 I'll help you with check-in.\n\nWhat is your full name (as on your passport or IC)?",
+            "ms": "Selamat datang ke Pelangi Capsule Hostel! 🎉 Saya akan bantu anda check-in.\n\nApakah nama penuh anda (seperti dalam pasport atau IC)?",
+            "zh": "欢迎来到Pelangi胶囊旅舍！🎉 我来帮您办理入住。\n\n请问您的全名是什么（护照或身份证上的）？"
           },
           "waitForReply": true
         },
         {
           "id": "s2",
           "message": {
-            "en": "Great! Please provide your full name as shown on your passport or IC for verification.",
-            "ms": "Bagus! Sila berikan nama penuh anda seperti dalam pasport atau IC untuk pengesahan.",
-            "zh": "好的！请提供您护照(passport)或身份证(IC)上的全名以供核实。"
+            "en": "Thank you! What is your phone number? (We'll send you a check-in link) 📱",
+            "ms": "Terima kasih! Apakah nombor telefon anda? (Kami akan hantar link check-in) 📱",
+            "zh": "谢谢！请问您的手机号码是？（我们会发送入住链接给您）📱"
           },
           "waitForReply": true
         },
         {
           "id": "s3",
           "message": {
-            "en": "Thank you! Please upload a photo of your passport or IC document for our records.",
-            "ms": "Terima kasih! Sila muat naik (upload) foto pasport atau IC anda untuk rekod kami.",
-            "zh": "谢谢！请上传(upload)您的护照(passport)或身份证照片供我们存档。"
+            "en": "Got it! What are your check-in and check-out dates?\n(e.g., Check-in: 15 Feb, Check-out: 17 Feb)",
+            "ms": "Baik! Apakah tarikh check-in dan check-out anda?\n(contoh: Check-in: 15 Feb, Check-out: 17 Feb)",
+            "zh": "好的！您的入住和退房日期是？\n（例如：入住：2月15日，退房：2月17日）"
           },
           "waitForReply": true
         },
         {
           "id": "s4",
           "message": {
-            "en": "Got it! What is your check-in date? (e.g., 12 Feb 2026)",
-            "ms": "Baik! Apakah tarikh check-in anda? (contoh: 12 Feb 2026)",
-            "zh": "好的！您的入住(check-in)日期是？（例如：2026年2月12日）"
+            "en": "Let me check available capsules for you... 🔍",
+            "ms": "Biar saya check capsule yang ada untuk anda... 🔍",
+            "zh": "让我为您查询可用的胶囊房... 🔍"
           },
-          "waitForReply": true
+          "waitForReply": false,
+          "action": {
+            "type": "check_availability"
+          }
         },
         {
           "id": "s5",
           "message": {
-            "en": "And when will you be checking out?",
-            "ms": "Dan bilakah anda akan check-out?",
-            "zh": "您什么时候退房？"
+            "en": "We have {{availableCount}} capsules available ({{availableCapsules}}) 🎊\n\nI've assigned capsule *{{assignedCapsule}}* for you and sent a self-check-in link to your WhatsApp.\n\nPlease fill in the form to complete your check-in! Our admin will be notified automatically once you're done.",
+            "ms": "Kami ada {{availableCount}} capsule tersedia ({{availableCapsules}}) 🎊\n\nSaya telah assign capsule *{{assignedCapsule}}* untuk anda dan hantar link self-check-in ke WhatsApp anda.\n\nSila isi borang untuk lengkapkan check-in anda! Admin kami akan diberitahu secara automatik selepas selesai.",
+            "zh": "我们有 {{availableCount}} 个胶囊房可用 ({{availableCapsules}}) 🎊\n\n我已为您分配了胶囊房 *{{assignedCapsule}}* 并发送了自助入住链接到您的WhatsApp。\n\n请填写表格以完成入住！完成后我们的管理员会自动收到通知。"
           },
-          "waitForReply": true
+          "waitForReply": false,
+          "action": {
+            "type": "create_checkin_link"
+          }
         },
         {
           "id": "s6",
           "message": {
-            "en": "Thank you! We have capsules available for your stay. I've forwarded your check-in details to our admin team at +60127088789. They will confirm your capsule assignment shortly.",
-            "ms": "Terima kasih! Kami ada capsule tersedia untuk penginapan anda. Saya dah forward butiran check-in anda ke pasukan admin kami di +60127088789. Mereka akan sahkan penugasan capsule anda tidak lama lagi.",
-            "zh": "谢谢！我们有胶囊房(capsule)可供入住。我已将您的入住详情转发(forward)给管理员(admin) +60127088789。他们将尽快确认您的胶囊房分配。"
+            "en": "✅ You're all set! Here's some useful info:\n\n📋 *Quick Reference:*\n• Check-in time: *2:00 PM*\n• Check-out time: *12:00 PM*\n• Door password: *1270#*\n• WiFi: *PelangiHostel*\n• Address: Jalan Dato Haji Hassan, JB\n\n🎥 First time? Watch our video guide: https://youtu.be/bYj1M37xJiE\n\nNeed anything else? Just ask! 😊",
+            "ms": "✅ Semua siap! Ini maklumat berguna:\n\n📋 *Rujukan Pantas:*\n• Masa check-in: *2:00 PM*\n• Masa check-out: *12:00 PM*\n• Password pintu: *1270#*\n• WiFi: *PelangiHostel*\n• Alamat: Jalan Dato Haji Hassan, JB\n\n🎥 Pertama kali? Tonton video panduan: https://youtu.be/bYj1M37xJiE\n\nPerlukan apa-apa lagi? Tanya sahaja! 😊",
+            "zh": "✅ 一切就绪！以下是一些有用信息：\n\n📋 *快速参考：*\n• 入住时间: *下午2:00*\n• 退房时间: *中午12:00*\n• 门密码: *1270#*\n• WiFi: *PelangiHostel*\n• 地址: Jalan Dato Haji Hassan, JB\n\n🎥 第一次来？观看视频指南: https://youtu.be/bYj1M37xJiE\n\n还需要其他帮助吗？随时问我！😊"
           },
           "waitForReply": false
         }
@@ -196,12 +248,12 @@
           "type": "wait_reply",
           "label": "Ask guest name",
           "config": {
-            "storeAs": "guest_name",
             "prompt": {
               "en": "What is your full name (as on your passport or IC)?",
               "ms": "Apakah nama penuh anda (seperti dalam pasport atau IC)?",
               "zh": "请问您的全名是什么（护照或身份证上的）？"
-            }
+            },
+            "storeAs": "guest_name"
           },
           "next": "wait_dates"
         },
@@ -210,12 +262,12 @@
           "type": "wait_reply",
           "label": "Ask check-in/out dates",
           "config": {
-            "storeAs": "stay_dates",
             "prompt": {
               "en": "Thank you, {{workflow.data.guest_name}}! What are your check-in and check-out dates?\n(e.g., Check-in: 15 Feb, Check-out: 17 Feb)",
               "ms": "Terima kasih, {{workflow.data.guest_name}}! Apakah tarikh check-in dan check-out anda?\n(contoh: Check-in: 15 Feb, Check-out: 17 Feb)",
               "zh": "谢谢，{{workflow.data.guest_name}}！您的入住和退房日期是？\n（例如：入住：2月15日，退房：2月17日）"
-            }
+            },
+            "storeAs": "stay_dates"
           },
           "next": "check_avail"
         },
@@ -241,8 +293,8 @@
           "label": "Capsules available?",
           "config": {
             "field": "{{pelangi.availableCount}}",
-            "operator": "gt",
             "value": 0,
+            "operator": "gt",
             "trueNext": "create_link",
             "falseNext": "no_capsules_msg"
           }
@@ -265,13 +317,13 @@
           "type": "whatsapp_send",
           "label": "Notify admin about waitlist",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "📋 *Waitlist Request*\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nDates: {{workflow.data.stay_dates}}\nNo capsules available — please follow up.",
               "ms": "📋 *Permintaan Senarai Tunggu*\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{guest.phone}}\nTarikh: {{workflow.data.stay_dates}}\nTiada capsule — sila follow up.",
               "zh": "📋 *等候名单*\n客人：{{workflow.data.guest_name}}\n电话：{{guest.phone}}\n日期：{{workflow.data.stay_dates}}\n无可用胶囊房——请跟进。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           }
         },
         {
@@ -404,8 +456,8 @@
           "label": "Any lower deck available?",
           "config": {
             "field": "{{pelangi.lowerDeckCount}}",
-            "operator": "gt",
             "value": 0,
+            "operator": "gt",
             "trueNext": "lower_deck_available_msg",
             "falseNext": "lower_deck_unavailable_msg"
           }
@@ -441,12 +493,12 @@
           "type": "wait_reply",
           "label": "Ask to proceed with booking",
           "config": {
-            "storeAs": "proceed_booking",
             "prompt": {
               "en": "Would you like to proceed with booking?",
               "ms": "Nak proceed booking?",
               "zh": "您想继续预订吗？"
-            }
+            },
+            "storeAs": "proceed_booking"
           }
         }
       ]
@@ -458,9 +510,9 @@
         {
           "id": "s1",
           "message": {
-            "en": "Wonderful! Johor Bahru has amazing attractions! 🎡🏖️ Here are the TOP destinations near our hostel:\n\n🎢 **LEGOLAND Malaysia** (25 mins drive) - Malaysia's first international theme park with thrilling rides!\n\n🏖️ **Desaru Beach** (1 hour) - 25km of beautiful coastline perfect for swimming and water sports\n\n🕌 **Sultan Abu Bakar Mosque** (15 mins) - Stunning hilltop mosque with breathtaking views\n\n🛍️ **Johor Bahru City Square** (10 mins) - Premier shopping and dining destination\n\n🌊 **Danga Bay** (20 mins) - Beachfront paradise with amazing sunset views and seafood\n\n🐯 **Johor Zoo** (25 mins) - Newly renovated with diverse wildlife\n\n🏛️ **Chinese Heritage Museum** (12 mins) - Learn about Chinese immigration history\n\n🙏 **Arulmigu Sri Rajakaliamman Glass Temple** (15 mins) - Spectacular glass Hindu temple\n\n🌐 For more info: https://pelangicapsule.local/\n\nWould you like specific directions or recommendations for any of these places?",
-            "ms": "Hebat! Johor Bahru ada banyak tempat menarik! 🎡🏖️ Ini tempat-tempat TOP dekat hostel kami:\n\n🎢 **LEGOLAND Malaysia** (25 minit) - Taman tema antarabangsa pertama Malaysia!\n\n🏖️ **Pantai Desaru** (1 jam) - 25km pantai cantik untuk berenang\n\n🕌 **Masjid Sultan Abu Bakar** (15 minit) - Masjid di atas bukit dengan pemandangan cantik\n\n🛍️ **Johor Bahru City Square** (10 minit) - Pusat beli-belah utama\n\n🌊 **Danga Bay** (20 minit) - Pantai dengan sunset cantik dan makanan laut\n\n🐯 **Zoo Johor** (25 minit) - Baru direnovasi dengan pelbagai haiwan\n\n🏛️ **Muzium Warisan Cina** (12 minit) - Sejarah imigrasi Cina\n\n🙏 **Kuil Kaca Sri Rajakaliamman** (15 minit) - Kuil Hindu kaca yang cantik\n\n🌐 Maklumat lanjut: https://pelangicapsule.local/\n\nNak direction atau cadangan untuk mana-mana tempat ini?",
-            "zh": "太好了！新山有很多精彩景点！🎡🏖️ 以下是我们旅舍附近的热门目的地：\n\n🎢 **乐高乐园** (25分钟车程) - 马来西亚第一个国际主题公园！\n\n🏖️ **迪沙鲁海滩** (1小时) - 25公里美丽海岸线，适合游泳和水上运动\n\n🕌 **苏丹阿布峇卡清真寺** (15分钟) - 山顶清真寺，景色壮观\n\n🛍️ **新山城市广场** (10分钟) - 顶级购物和餐饮目的地\n\n🌊 **丹加湾** (20分钟) - 海滨天堂，日落美景和海鲜美食\n\n🐯 **新山动物园** (25分钟) - 新装修，各种野生动物\n\n🏛️ **华人文物馆** (12分钟) - 了解华人移民历史\n\n🙏 **玻璃兴都庙** (15分钟) - 壮观的玻璃兴都庙\n\n🌐 更多信息: https://pelangicapsule.local/\n\n需要这些地方的具体路线或推荐吗？"
+            "en": "Wonderful! Johor Bahru has amazing attractions! 🎡🏖️ Here are the TOP destinations near our hostel:\n\n🎢 **LEGOLAND Malaysia** (25 mins drive) - Malaysia's first international theme park with thrilling rides!\n\n🏖️ **Desaru Beach** (1 hour) - 25km of beautiful coastline perfect for swimming and water sports\n\n🕌 **Sultan Abu Bakar Mosque** (15 mins) - Stunning hilltop mosque with breathtaking views\n\n🛍️ **Johor Bahru City Square** (10 mins) - Premier shopping and dining destination\n\n🌊 **Danga Bay** (20 mins) - Beachfront paradise with amazing sunset views and seafood\n\n🐯 **Johor Zoo** (25 mins) - Newly renovated with diverse wildlife\n\n🏛️ **Chinese Heritage Museum** (12 mins) - Learn about Chinese immigration history\n\n🙏 **Arulmigu Sri Rajakaliamman Glass Temple** (15 mins) - Spectacular glass Hindu temple\n\n🌐 For more info: https://pelangicapsulehostel.com/\n\nWould you like specific directions or recommendations for any of these places?",
+            "ms": "Hebat! Johor Bahru ada banyak tempat menarik! 🎡🏖️ Ini tempat-tempat TOP dekat hostel kami:\n\n🎢 **LEGOLAND Malaysia** (25 minit) - Taman tema antarabangsa pertama Malaysia!\n\n🏖️ **Pantai Desaru** (1 jam) - 25km pantai cantik untuk berenang\n\n🕌 **Masjid Sultan Abu Bakar** (15 minit) - Masjid di atas bukit dengan pemandangan cantik\n\n🛍️ **Johor Bahru City Square** (10 minit) - Pusat beli-belah utama\n\n🌊 **Danga Bay** (20 minit) - Pantai dengan sunset cantik dan makanan laut\n\n🐯 **Zoo Johor** (25 minit) - Baru direnovasi dengan pelbagai haiwan\n\n🏛️ **Muzium Warisan Cina** (12 minit) - Sejarah imigrasi Cina\n\n🙏 **Kuil Kaca Sri Rajakaliamman** (15 minit) - Kuil Hindu kaca yang cantik\n\n🌐 Maklumat lanjut: https://pelangicapsulehostel.com/\n\nNak direction atau cadangan untuk mana-mana tempat ini?",
+            "zh": "太好了！新山有很多精彩景点！🎡🏖️ 以下是我们旅舍附近的热门目的地：\n\n🎢 **乐高乐园** (25分钟车程) - 马来西亚第一个国际主题公园！\n\n🏖️ **迪沙鲁海滩** (1小时) - 25公里美丽海岸线，适合游泳和水上运动\n\n🕌 **苏丹阿布峇卡清真寺** (15分钟) - 山顶清真寺，景色壮观\n\n🛍️ **新山城市广场** (10分钟) - 顶级购物和餐饮目的地\n\n🌊 **丹加湾** (20分钟) - 海滨天堂，日落美景和海鲜美食\n\n🐯 **新山动物园** (25分钟) - 新装修，各种野生动物\n\n🏛️ **华人文物馆** (12分钟) - 了解华人移民历史\n\n🙏 **玻璃兴都庙** (15分钟) - 壮观的玻璃兴都庙\n\n🌐 更多信息: https://pelangicapsulehostel.com/\n\n需要这些地方的具体路线或推荐吗？"
           },
           "waitForReply": true
         },
@@ -483,66 +535,9 @@
           "label": "Attraction recommendations",
           "config": {
             "message": {
-              "en": "Wonderful! Johor Bahru has amazing attractions! 🎡🏖️ Here are the TOP destinations near our hostel:\n\n🎢 **LEGOLAND Malaysia** (25 mins drive)\n🏖️ **Desaru Beach** (1 hour)\n🕌 **Sultan Abu Bakar Mosque** (15 mins)\n🛍️ **Johor Bahru City Square** (10 mins)\n🌊 **Danga Bay** (20 mins)\n🐯 **Johor Zoo** (25 mins)\n🏛️ **Chinese Heritage Museum** (12 mins)\n🙏 **Glass Temple** (15 mins)\n\n🌐 More info: https://pelangicapsule.local/\n\nWould you like specific directions or recommendations?",
-              "ms": "Hebat! Johor Bahru ada banyak tempat menarik! 🎡🏖️ Ini tempat-tempat TOP dekat hostel kami:\n\n🎢 **LEGOLAND Malaysia** (25 minit)\n🏖️ **Pantai Desaru** (1 jam)\n🕌 **Masjid Sultan Abu Bakar** (15 minit)\n🛍️ **Johor Bahru City Square** (10 minit)\n🌊 **Danga Bay** (20 minit)\n🐯 **Zoo Johor** (25 minit)\n🏛️ **Muzium Warisan Cina** (12 minit)\n🙏 **Kuil Kaca** (15 minit)\n\n🌐 Maklumat lanjut: https://pelangicapsule.local/\n\nNak direction atau cadangan?",
-              "zh": "太好了！新山有很多精彩景点！🎡🏖️ 以下是我们旅舍附近的热门目的地：\n\n🎢 **乐高乐园** (25分钟车程)\n🏖️ **迪沙鲁海滩** (1小时)\n🕌 **苏丹阿布峇卡清真寺** (15分钟)\n🛍️ **新山城市广场** (10分钟)\n🌊 **丹加湾** (20分钟)\n🐯 **新山动物园** (25分钟)\n🏛️ **华人文物馆** (12分钟)\n🙏 **玻璃兴都庙** (15分钟)\n\n🌐 更多信息: https://pelangicapsule.local/\n\n需要具体路线或推荐吗？"
-            },
-            "interactiveList": {
-              "title": "JB Tourist Attractions",
-              "description": "Tap to browse top destinations near Pelangi Capsule Hostel",
-              "buttonText": "View Attractions",
-              "sections": [
-                {
-                  "title": "Popular Attractions",
-                  "rows": [
-                    {
-                      "rowId": "legoland",
-                      "title": "LEGOLAND Malaysia",
-                      "description": "25 min drive - Theme park"
-                    },
-                    {
-                      "rowId": "desaru",
-                      "title": "Desaru Beach",
-                      "description": "1 hour - Coastal resort"
-                    },
-                    {
-                      "rowId": "mosque",
-                      "title": "Sultan Abu Bakar Mosque",
-                      "description": "15 min - Hilltop mosque"
-                    },
-                    {
-                      "rowId": "citysquare",
-                      "title": "JB City Square",
-                      "description": "10 min - Shopping mall"
-                    },
-                    {
-                      "rowId": "dangabay",
-                      "title": "Danga Bay",
-                      "description": "20 min - Seafront dining"
-                    }
-                  ]
-                },
-                {
-                  "title": "Culture & Nature",
-                  "rows": [
-                    {
-                      "rowId": "zoo",
-                      "title": "Johor Zoo",
-                      "description": "25 min - Wildlife park"
-                    },
-                    {
-                      "rowId": "heritage",
-                      "title": "Chinese Heritage Museum",
-                      "description": "12 min - History museum"
-                    },
-                    {
-                      "rowId": "glasstemple",
-                      "title": "Glass Temple",
-                      "description": "15 min - Hindu temple"
-                    }
-                  ]
-                }
-              ]
+              "en": "Wonderful! Johor Bahru has amazing attractions! 🎡🏖️ Here are the TOP destinations near our hostel:\n\n🎢 **LEGOLAND Malaysia** (25 mins drive)\n🏖️ **Desaru Beach** (1 hour)\n🕌 **Sultan Abu Bakar Mosque** (15 mins)\n🛍️ **Johor Bahru City Square** (10 mins)\n🌊 **Danga Bay** (20 mins)\n🐯 **Johor Zoo** (25 mins)\n🏛️ **Chinese Heritage Museum** (12 mins)\n🙏 **Glass Temple** (15 mins)\n\n🌐 More info: https://pelangicapsulehostel.com/\n\nWould you like specific directions or recommendations?",
+              "ms": "Hebat! Johor Bahru ada banyak tempat menarik! 🎡🏖️ Ini tempat-tempat TOP dekat hostel kami:\n\n🎢 **LEGOLAND Malaysia** (25 minit)\n🏖️ **Pantai Desaru** (1 jam)\n🕌 **Masjid Sultan Abu Bakar** (15 minit)\n🛍️ **Johor Bahru City Square** (10 minit)\n🌊 **Danga Bay** (20 minit)\n🐯 **Zoo Johor** (25 minit)\n🏛️ **Muzium Warisan Cina** (12 minit)\n🙏 **Kuil Kaca** (15 minit)\n\n🌐 Maklumat lanjut: https://pelangicapsulehostel.com/\n\nNak direction atau cadangan?",
+              "zh": "太好了！新山有很多精彩景点！🎡🏖️ 以下是我们旅舍附近的热门目的地：\n\n🎢 **乐高乐园** (25分钟车程)\n🏖️ **迪沙鲁海滩** (1小时)\n🕌 **苏丹阿布峇卡清真寺** (15分钟)\n🛍️ **新山城市广场** (10分钟)\n🌊 **丹加湾** (20分钟)\n🐯 **新山动物园** (25分钟)\n🏛️ **华人文物馆** (12分钟)\n🙏 **玻璃兴都庙** (15分钟)\n\n🌐 更多信息: https://pelangicapsulehostel.com/\n\n需要具体路线或推荐吗？"
             }
           },
           "next": "tourist_wait_choice"
@@ -552,12 +547,12 @@
           "type": "wait_reply",
           "label": "Wait for direction request",
           "config": {
-            "storeAs": "attraction_choice",
             "prompt": {
               "en": "Which attraction would you like directions or more info about?",
               "ms": "Tempat mana yang anda nak direction atau maklumat lanjut?",
               "zh": "您想了解哪个景点的路线或更多信息？"
-            }
+            },
+            "storeAs": "attraction_choice"
           },
           "next": "tourist_transport_msg"
         },
@@ -652,12 +647,12 @@
           "type": "wait_reply",
           "label": "Ask complaint details",
           "config": {
-            "storeAs": "complaint_details",
             "prompt": {
               "en": "Could you please describe the issue in detail? (e.g., noise, cleanliness, facility problem, etc.)",
               "ms": "Boleh terangkan masalah dengan lebih terperinci? (contoh: bunyi bising, kebersihan, masalah kemudahan, dll)",
               "zh": "能否详细描述一下问题？（例如：噪音、清洁、设施问题等）"
-            }
+            },
+            "storeAs": "complaint_details"
           },
           "next": "complaint_wait_photo"
         },
@@ -666,12 +661,12 @@
           "type": "wait_reply",
           "label": "Ask for photo evidence",
           "config": {
-            "storeAs": "complaint_photo",
             "prompt": {
               "en": "Thank you for explaining. If possible, could you share a photo of the issue? This will help us address it more effectively.",
               "ms": "Terima kasih atas penjelasan. Jika boleh, boleh kongsi gambar masalah tersebut? Ini akan bantu kami selesaikan dengan lebih berkesan.",
               "zh": "感谢您的说明。如果可以，能否分享问题的照片？这将帮助我们更有效地解决问题。"
-            }
+            },
+            "storeAs": "complaint_photo"
           },
           "next": "complaint_escalating_msg"
         },
@@ -693,13 +688,13 @@
           "type": "whatsapp_send",
           "label": "Notify admin about complaint",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "⚠️ *PRIORITY Complaint*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nIssue: {{workflow.data.complaint_details}}\nPlease respond urgently.",
               "ms": "⚠️ *Aduan KEUTAMAAN*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nMasalah: {{workflow.data.complaint_details}}\nSila respons segera.",
               "zh": "⚠️ *优先投诉*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n问题：{{workflow.data.complaint_details}}\n请紧急回复。"
             },
-            "urgency": "high"
+            "urgency": "high",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "complaint_confirm_msg"
         },
@@ -806,12 +801,12 @@
           "type": "wait_reply",
           "label": "Ask stolen items",
           "config": {
-            "storeAs": "stolen_items",
             "prompt": {
               "en": "What item(s) were stolen or missing? Please provide details (e.g., phone, wallet, laptop, jewelry, etc.)",
               "ms": "Barang apa yang telah dicuri? Sila beri butiran (contoh: telefon, dompet, laptop, dll)",
               "zh": "什么物品被盗了？请提供详细信息（例如：手机、钱包、笔记本电脑等）"
-            }
+            },
+            "storeAs": "stolen_items"
           },
           "next": "theft_wait_time"
         },
@@ -820,12 +815,12 @@
           "type": "wait_reply",
           "label": "Ask time of theft",
           "config": {
-            "storeAs": "theft_time",
             "prompt": {
               "en": "When did you notice the theft? (e.g., just now, 1 hour ago, this morning)",
               "ms": "Bila anda notice kecurian ini? (contoh: baru tadi, 1 jam lepas, pagi tadi)",
               "zh": "您什么时候发现被盗的？（例如：刚刚、1小时前、今天早上）"
-            }
+            },
+            "storeAs": "theft_time"
           },
           "next": "theft_wait_location"
         },
@@ -834,12 +829,12 @@
           "type": "wait_reply",
           "label": "Ask location of theft",
           "config": {
-            "storeAs": "theft_location",
             "prompt": {
               "en": "Where did the theft occur? (e.g., in capsule, bathroom, common area)",
               "ms": "Di mana lokasi kejadian? (contoh: dalam capsule, bilik air, ruang bersama)",
               "zh": "在什么地方发生的？（例如：胶囊房内、浴室、公共区域）"
-            }
+            },
+            "storeAs": "theft_location"
           },
           "next": "theft_urgent_msg"
         },
@@ -861,13 +856,13 @@
           "type": "whatsapp_send",
           "label": "URGENT notify admin about theft",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "🚨 *URGENT THEFT CASE*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nItems: {{workflow.data.stolen_items}}\nTime: {{workflow.data.theft_time}}\nLocation: {{workflow.data.theft_location}}\nIMMediate response required!",
               "ms": "🚨 *KES KECURIAN SEGERA*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nBarang: {{workflow.data.stolen_items}}\nMasa: {{workflow.data.theft_time}}\nLokasi: {{workflow.data.theft_location}}\nRespon segera diperlukan!",
               "zh": "🚨 *紧急盗窃案件*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n物品：{{workflow.data.stolen_items}}\n时间：{{workflow.data.theft_time}}\n地点：{{workflow.data.theft_location}}\n需要立即响应！"
             },
-            "urgency": "critical"
+            "urgency": "critical",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "theft_next_steps_msg"
         },
@@ -944,12 +939,12 @@
           "type": "wait_reply",
           "label": "Wait for guest response",
           "config": {
-            "storeAs": "lock_response",
             "prompt": {
               "en": "Were you able to find and use any of the emergency release mechanisms?",
               "ms": "Dapat jumpa dan guna mana-mana mekanisme emergency release?",
               "zh": "您能找到并使用这些紧急释放装置吗？"
-            }
+            },
+            "storeAs": "lock_response"
           },
           "next": "locked_contacting_msg"
         },
@@ -971,13 +966,13 @@
           "type": "whatsapp_send",
           "label": "Notify admin about locked guest",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "⚠️ *Card Locked in Capsule*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nGuest is locked — needs master key access. Please respond ASAP.",
               "ms": "⚠️ *Kad Terkunci dalam Kapsul*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nTetamu terkunci — perlukan master key. Sila respons segera.",
               "zh": "⚠️ *卡锁在胶囊内*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n客人被锁住——需要主钥匙。请尽快响应。"
             },
-            "urgency": "high"
+            "urgency": "high",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "locked_reassure_msg"
         },
@@ -1042,13 +1037,13 @@
           "type": "whatsapp_send",
           "label": "Notify admin for review",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "📋 *Escalation Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nReason: Billing dispute / issue requiring staff review.\nPlease contact the guest.",
               "ms": "📋 *Permintaan Eskalasi*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nSebab: Pertikaian bil / isu memerlukan semakan staf.\nSila hubungi tetamu.",
               "zh": "📋 *升级请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n原因：账单争议 / 需要员工审核的问题。\n请联系客人。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "escalate_confirm_msg"
         },
@@ -1101,13 +1096,13 @@
           "type": "whatsapp_send",
           "label": "Forward payment to admin",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "💰 *Payment Receipt Forwarded*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nPayment receipt shared — please verify and confirm booking.",
               "ms": "💰 *Resit Pembayaran Diforward*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nResit pembayaran dikongsi — sila sahkan dan confirm tempahan.",
               "zh": "💰 *付款收据已转发*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n已分享付款收据——请核实并确认预订。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           }
         }
       ]
@@ -1180,12 +1175,12 @@
           "type": "wait_reply",
           "label": "Ask capsule number",
           "config": {
-            "storeAs": "capsule_number",
             "prompt": {
               "en": "What is your capsule number? (e.g., C5, C16, J3)",
               "ms": "Apakah nombor capsule anda? (contoh: C5, C16, J3)",
               "zh": "请问您的胶囊号是什么？（例如：C5、C16、J3）"
-            }
+            },
+            "storeAs": "capsule_number"
           },
           "next": "checkout_checklist_msg"
         },
@@ -1207,12 +1202,12 @@
           "type": "wait_reply",
           "label": "Wait for done confirmation",
           "config": {
-            "storeAs": "checkout_confirmation",
             "prompt": {
               "en": "Say *done* when you're ready to complete checkout.",
               "ms": "Cakap *done* bila dah siap untuk checkout.",
               "zh": "准备好退房时请说 *done*。"
-            }
+            },
+            "storeAs": "checkout_confirmation"
           },
           "next": "checkout_processing_msg"
         },
@@ -1234,13 +1229,13 @@
           "type": "whatsapp_send",
           "label": "Notify admin about checkout",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "📋 *Guest Checkout*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nCapsule: {{workflow.data.capsule_number}}\nGuest has checked out. Please prepare capsule for cleaning.",
               "ms": "📋 *Checkout Tetamu*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nKapsul: {{workflow.data.capsule_number}}\nTetamu sudah checkout. Sila sediakan kapsul untuk pembersihan.",
               "zh": "📋 *客人退房*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n胶囊房：{{workflow.data.capsule_number}}\n客人已退房。请准备清洁胶囊房。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "checkout_farewell_msg"
         },
@@ -1326,12 +1321,12 @@
           "type": "wait_reply",
           "label": "Ask what items needed",
           "config": {
-            "storeAs": "requested_items",
             "prompt": {
               "en": "What items do you need? (e.g., towels, pillows, blankets, hangers, etc.)",
               "ms": "Anda perlukan barang apa? (contoh: tuala, bantal, selimut, penyangkut baju, dll)",
               "zh": "您需要什么物品？（例如：毛巾、枕头、毯子、衣架等）"
-            }
+            },
+            "storeAs": "requested_items"
           },
           "next": "amenity_delivering_msg"
         },
@@ -1353,13 +1348,13 @@
           "type": "whatsapp_send",
           "label": "Notify housekeeping staff",
           "config": {
-            "receiver": "{{system.admin_phone}}",
             "content": {
               "en": "🧺 *Amenity Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nItems requested: {{workflow.data.requested_items}}\nPlease deliver to guest's capsule.",
               "ms": "🧺 *Permintaan Kemudahan*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nBarang diperlukan: {{workflow.data.requested_items}}\nSila hantar ke kapsul tetamu.",
               "zh": "🧺 *设施请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n请求物品：{{workflow.data.requested_items}}\n请送至客人胶囊房。"
             },
-            "urgency": "normal"
+            "urgency": "normal",
+            "receiver": "{{system.admin_phone}}"
           },
           "next": "amenity_confirm_msg"
         },
@@ -1380,7 +1375,6 @@
     {
       "id": "capsule_conflict_handling",
       "name": "Capsule Conflict Resolution",
-      "description": "Handles cases where a guest finds someone already in their assigned capsule",
       "steps": [
         {
           "id": "s1",
@@ -1400,8 +1394,7 @@
           },
           "waitForReply": false,
           "action": {
-            "type": "notify_staff",
-            "message": "🚨 CAPSULE CONFLICT: Guest reports someone already in their assigned capsule. Please check and resolve immediately."
+            "type": "notify_staff"
           }
         },
         {
@@ -1423,289 +1416,6 @@
           "waitForReply": false
         }
       ]
-    },
-    {
-      "id": "service_request_handler",
-      "name": "Guest Service Request Handler",
-      "steps": [
-        {
-          "id": "s1",
-          "message": {
-            "en": "Of course! I will arrange that for you right away. 🙏",
-            "ms": "Tentu! Saya akan uruskan untuk anda sekarang. 🙏",
-            "zh": "当然！我马上为您安排。🙏"
-          },
-          "waitForReply": false
-        },
-        {
-          "id": "s2",
-          "message": {
-            "en": "Please describe your request in detail (e.g. extra towels, room cleaning, broken AC).",
-            "ms": "Sila huraikan permintaan anda dengan lengkap (contoh: tuala tambahan, bilik perlu dikemas, aircond rosak).",
-            "zh": "请详细描述您的需求（例如：额外毛巾、房间清洁、空调故障）。"
-          },
-          "waitForReply": true
-        },
-        {
-          "id": "s3",
-          "message": {
-            "en": "✅ Got it! Our staff have been notified and will attend to your request shortly.",
-            "ms": "✅ Baik! Staf kami telah dimaklumkan dan akan menguruskan permintaan anda tidak lama lagi.",
-            "zh": "✅ 好的！我们的工作人员已经收到通知，将很快为您处理。"
-          },
-          "waitForReply": false,
-          "action": {
-            "type": "log_service_request",
-            "params": {
-              "urgency": "normal"
-            }
-          }
-        },
-        {
-          "id": "s4",
-          "message": {
-            "en": "Is there anything else you need? 😊",
-            "ms": "Ada apa-apa lagi yang diperlukan? 😊",
-            "zh": "还有什么需要帮助的吗？😊"
-          },
-          "waitForReply": true
-        }
-      ],
-      "format": "nodes",
-      "startNodeId": "sr_intro_msg",
-      "nodes": [
-        {
-          "id": "sr_intro_msg",
-          "type": "message",
-          "label": "Acknowledge request",
-          "config": {
-            "message": {
-              "en": "Of course! I will arrange that for you right away. 🙏",
-              "ms": "Tentu! Saya akan uruskan untuk anda sekarang. 🙏",
-              "zh": "当然！我马上为您安排。🙏"
-            }
-          },
-          "next": "sr_ask_details"
-        },
-        {
-          "id": "sr_ask_details",
-          "type": "wait_reply",
-          "label": "Collect request details",
-          "config": {
-            "storeAs": "request_details",
-            "prompt": {
-              "en": "Please describe your request in detail (e.g. extra towels, room cleaning, broken AC).",
-              "ms": "Sila huraikan permintaan anda dengan lengkap (contoh: tuala tambahan, bilik perlu dikemas, aircond rosak).",
-              "zh": "请详细描述您的需求（例如：额外毛巾、房间清洁、空调故障）。"
-            }
-          },
-          "next": "sr_log_request"
-        },
-        {
-          "id": "sr_log_request",
-          "type": "pelangi_api",
-          "label": "Log service request to DB and notify staff",
-          "config": {
-            "action": "log_service_request",
-            "params": {
-              "urgency": "normal"
-            }
-          },
-          "next": "sr_confirm_msg"
-        },
-        {
-          "id": "sr_confirm_msg",
-          "type": "message",
-          "label": "Confirmation with estimated wait",
-          "config": {
-            "message": {
-              "en": "✅ Request logged! Our staff have been notified and will attend to you shortly.\n\nEstimated wait: ~15 minutes. Is there anything else you need? 😊",
-              "ms": "✅ Permintaan direkod! Staf kami telah dimaklumkan dan akan hadir tidak lama lagi.\n\nAnggaran masa tunggu: ~15 minit. Ada apa-apa lagi yang diperlukan? 😊",
-              "zh": "✅ 请求已记录！我们的工作人员已收到通知，将很快为您服务。\n\n预计等待时间：约15分钟。还有什么需要帮助的吗？😊"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "emergency_escalate",
-      "name": "Emergency / SOS Escalation",
-      "steps": [
-        {
-          "id": "s1",
-          "message": {
-            "en": "🚨 EMERGENCY ALERT — I have immediately notified ALL our staff. Help is on the way. Please stay calm and stay safe.",
-            "ms": "🚨 AMARAN KECEMASAN — Saya telah memberitahu SEMUA staf kami. Bantuan sedang dalam perjalanan. Sila kekal tenang dan selamat.",
-            "zh": "🚨 紧急警报 — 我已立即通知所有员工。帮助正在路上。请保持冷静，注意安全。"
-          },
-          "waitForReply": false,
-          "action": {
-            "type": "send_to_all_staff",
-            "params": {
-              "urgency": "critical",
-              "phones": [
-                "{{system.staff_phones}}"
-              ]
-            }
-          }
-        },
-        {
-          "id": "s2",
-          "message": {
-            "en": "✅ All staff notified. If you need emergency services, call 999 (Police/Fire/Ambulance) or 112 (Emergency).",
-            "ms": "✅ Semua staf telah diberitahu. Jika perlukan perkhidmatan kecemasan, hubungi 999 (Polis/Bomba/Ambulans) atau 112 (Kecemasan).",
-            "zh": "✅ 所有员工已通知。如需紧急服务，请拨打999（警察/消防/救护车）或112（紧急）。"
-          },
-          "waitForReply": false
-        }
-      ],
-      "format": "nodes",
-      "startNodeId": "sos_immediate_ack",
-      "nodes": [
-        {
-          "id": "sos_immediate_ack",
-          "type": "message",
-          "label": "Immediate SOS acknowledgement",
-          "config": {
-            "message": {
-              "en": "🚨 EMERGENCY ALERT — I have immediately notified ALL our staff. Help is on the way. Please stay calm and stay safe.",
-              "ms": "🚨 AMARAN KECEMASAN — Saya telah memberitahu SEMUA staf kami. Bantuan sedang dalam perjalanan. Sila kekal tenang dan selamat.",
-              "zh": "🚨 紧急警报 — 我已立即通知所有员工。帮助正在路上。请保持冷静，注意安全。"
-            }
-          },
-          "next": "sos_notify_staff_1"
-        },
-        {
-          "id": "sos_notify_staff_1",
-          "type": "whatsapp_send",
-          "label": "Alert staff phone 1 (Alston)",
-          "config": {
-            "receiver": "{{system.alston_phone}}",
-            "content": {
-              "en": "🚨 *EMERGENCY SOS*\nGuest: {{guest.phone}}\nMessage: {{message.text}}\nACTION REQUIRED IMMEDIATELY.",
-              "ms": "🚨 *KECEMASAN SOS*\nTetamu: {{guest.phone}}\nMesej: {{message.text}}\nTINDAKAN SEGERA DIPERLUKAN.",
-              "zh": "🚨 *紧急SOS*\n客人: {{guest.phone}}\n消息: {{message.text}}\n需要立即采取行动。"
-            },
-            "urgency": "critical"
-          },
-          "next": "sos_notify_staff_2"
-        },
-        {
-          "id": "sos_notify_staff_2",
-          "type": "whatsapp_send",
-          "label": "Alert staff phone 2 (Jay)",
-          "config": {
-            "receiver": "{{system.jay_phone}}",
-            "content": {
-              "en": "🚨 *EMERGENCY SOS*\nGuest: {{guest.phone}}\nMessage: {{message.text}}\nACTION REQUIRED IMMEDIATELY.",
-              "ms": "🚨 *KECEMASAN SOS*\nTetamu: {{guest.phone}}\nMesej: {{message.text}}\nTINDAKAN SEGERA DIPERLUKAN.",
-              "zh": "🚨 *紧急SOS*\n客人: {{guest.phone}}\n消息: {{message.text}}\n需要立即采取行动。"
-            },
-            "urgency": "critical"
-          },
-          "next": "sos_notify_staff_3"
-        },
-        {
-          "id": "sos_notify_staff_3",
-          "type": "whatsapp_send",
-          "label": "Alert staff phone 3",
-          "config": {
-            "receiver": "60103084289",
-            "content": {
-              "en": "🚨 *EMERGENCY SOS*\nGuest: {{guest.phone}}\nMessage: {{message.text}}\nACTION REQUIRED IMMEDIATELY.",
-              "ms": "🚨 *KECEMASAN SOS*\nTetamu: {{guest.phone}}\nMesej: {{message.text}}\nTINDAKAN SEGERA DIPERLUKAN.",
-              "zh": "🚨 *紧急SOS*\n客人: {{guest.phone}}\n消息: {{message.text}}\n需要立即采取行动。"
-            },
-            "urgency": "critical"
-          },
-          "next": "sos_confirm_msg"
-        },
-        {
-          "id": "sos_confirm_msg",
-          "type": "message",
-          "label": "Confirmation with emergency numbers",
-          "config": {
-            "message": {
-              "en": "✅ All staff notified. If you need emergency services, call 999 (Police/Fire/Ambulance) or 112 (Emergency).",
-              "ms": "✅ Semua staf telah diberitahu. Jika perlukan perkhidmatan kecemasan, hubungi 999 (Polis/Bomba/Ambulans) atau 112 (Kecemasan).",
-              "zh": "✅ 所有员工已通知。如需紧急服务，请拨打999（警察/消防/救护车）或112（紧急）。"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "extension_request",
-      "name": "Stay Extension Request",
-      "description": "US-021: Guest wants to extend their current booking by additional nights. Collects new check-out date and forwards to admin for availability confirmation.",
-      "format": "nodes",
-      "startNodeId": "ext_ask_date",
-      "nodes": [
-        {
-          "id": "ext_ask_date",
-          "type": "message",
-          "label": "Ask for new check-out date",
-          "config": {
-            "message": {
-              "en": "Sure! I can help with extending your stay 😊\n\nWhat would be your new check-out date? (e.g. 20 March 2026)",
-              "ms": "Boleh! Saya boleh bantu untuk lanjutkan penginapan anda 😊\n\nApakah tarikh daftar keluar baru anda? (cth. 20 Mac 2026)",
-              "zh": "没问题！我可以帮您延长住宿 😊\n\n您新的退房日期是哪天？（例如：2026年3月20日）"
-            },
-            "waitForReply": true
-          },
-          "next": "ext_collect_date"
-        },
-        {
-          "id": "ext_collect_date",
-          "type": "collect_input",
-          "label": "Collect new check-out date",
-          "config": {
-            "variable": "new_checkout_date",
-            "validation": "date_like"
-          },
-          "next": "ext_notify_admin"
-        },
-        {
-          "id": "ext_notify_admin",
-          "type": "whatsapp_send",
-          "label": "Forward extension request to admin",
-          "config": {
-            "receiver": "{{system.admin_phone}}",
-            "content": {
-              "en": "🏨 *Stay Extension Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nRequested new check-out: {{workflow.data.new_checkout_date}}\n\nPlease check availability and confirm with the guest.",
-              "ms": "🏨 *Permintaan Lanjut Penginapan*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nTarikh daftar keluar baru: {{workflow.data.new_checkout_date}}\n\nSila semak ketersediaan dan sahkan dengan tetamu.",
-              "zh": "🏨 *延长住宿请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n新退房日期：{{workflow.data.new_checkout_date}}\n\n请核对空房情况并与客人确认。"
-            },
-            "urgency": "normal"
-          },
-          "next": "ext_confirm_guest"
-        },
-        {
-          "id": "ext_confirm_guest",
-          "type": "message",
-          "label": "Confirm request forwarded to guest",
-          "config": {
-            "message": {
-              "en": "✅ Your extension request has been forwarded to our team. We'll confirm availability within 30 minutes. Thank you for your patience!",
-              "ms": "✅ Permintaan lanjutan anda telah dihantar ke pasukan kami. Kami akan sahkan ketersediaan dalam masa 30 minit. Terima kasih atas kesabaran anda!",
-              "zh": "✅ 您的延长住宿请求已转交给我们的团队。我们将在30分钟内确认空房情况。感谢您的耐心等待！"
-            },
-            "waitForReply": false
-          }
-        }
-      ]
-    },
-    {
-      "id": "post_stay_review",
-      "name": "Post-Stay Review Request",
-      "trigger": "post_workflow:checkout_full",
-      "description": "US-018: Scheduled 2h after checkout_full completes. Sends a personalised review request with Google Maps link. Not a standard interactive workflow — handled by post-stay-review.ts scheduler.",
-      "format": "scheduled",
-      "message": {
-        "en": "Hi {{guest_name}}, thank you for your recent stay at Pelangi Capsule Hostel.\n\nIf you have a moment, a short review would be helpful for future travellers:\n{{review_url}}\n\nThank you.",
-        "ms": "Hi {{guest_name}}, terima kasih kerana menginap di Pelangi Capsule Hostel baru-baru ini.\n\nJika ada masa, ulasan pendek anda sangat membantu pelancong lain:\n{{review_url}}\n\nTerima kasih.",
-        "zh": "您好，{{guest_name}}，感谢您近期在Pelangi胶囊旅舍的入住。\n\n如果您有时间，您的小简评价对其他旅行者很有帮助：\n{{review_url}}\n\n谢谢。"
-      }
     }
   ]
 }

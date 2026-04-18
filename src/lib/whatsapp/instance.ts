@@ -6,7 +6,7 @@ import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifie
 import type { WhatsAppInstanceStatus, MessageHandler, MessageStatusHandler } from './types.js';
 import { LidMapper } from './lid-mapper.js';
 import { ensureAvatar } from './avatar-cache.js';
-import { useDbAuthState, validateAuthState } from './db-auth-state.js';
+import { useDbAuthState, validateAuthState, clearAuthState } from './db-auth-state.js';
 import { notifyAdminAuthStateCorruption } from '../admin-notifier.js';
 
 // US-830: Circuit breaker states for connection management
@@ -18,6 +18,30 @@ interface CircuitBreakerState {
   lastOpenedAt: number | null;   // Date.now() timestamp
   cooldownMs: number;            // 30 minutes default
   maxFailures: number;           // 5 consecutive failures to trip
+}
+
+// Module-level WA Web version cache — avoids repeated network calls on every reconnect
+let _waVersionCache: readonly [number, number, number] | null = null;
+let _waVersionCachedAt = 0;
+const WA_VERSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+async function getWaVersion(): Promise<readonly [number, number, number]> {
+  const now = Date.now();
+  if (_waVersionCache && (now - _waVersionCachedAt) < WA_VERSION_CACHE_TTL_MS) {
+    return _waVersionCache;
+  }
+  try {
+    const { version } = await fetchLatestWaWebVersion();
+    _waVersionCache = version;
+    _waVersionCachedAt = now;
+    return version;
+  } catch (err) {
+    if (_waVersionCache) {
+      console.warn('[Baileys] fetchLatestWaWebVersion failed; using cached version');
+      return _waVersionCache;
+    }
+    throw err;
+  }
 }
 
 // US-477: BSUID pattern — two-letter country code + dot + alphanumeric (up to 128 chars)
@@ -114,7 +138,7 @@ export class WhatsAppInstance {
 
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts: number = 0;
-  private static readonly MAX_RECONNECT_ATTEMPTS = 3;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 10;
   private lastDisconnectCode: number | null = null;
   private lastDisconnectAt: string | null = null;
 
@@ -167,6 +191,15 @@ export class WhatsAppInstance {
   }
 
   async start(notifyUnlinkedFn: (id: string, label: string) => Promise<void>): Promise<void> {
+    // Clean up existing socket before creating a new one (prevents stale listeners)
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        this.sock.end(undefined);
+      } catch {}
+      this.sock = null;
+    }
+
     // Ensure auth dir exists (still needed for LID mapper cache files)
     if (!fs.existsSync(this.authDir)) {
       fs.mkdirSync(this.authDir, { recursive: true });
@@ -187,7 +220,7 @@ export class WhatsAppInstance {
     // US-480: DB-backed auth state replaces useMultiFileAuthState
     const { state, saveCreds } = await useDbAuthState(this.id);
 
-    const { version } = await fetchLatestWaWebVersion();
+    const version = await getWaVersion();
     console.log(`[Baileys:${this.id}] Using WA Web version: ${version.join('.')}`);
 
     this.sock = makeWASocket({
@@ -338,21 +371,23 @@ export class WhatsAppInstance {
         return;
       }
 
-      // 408 = request timeout — use longer delay to avoid rapid retry spam
+      // Exponential backoff with ±20% jitter to prevent thundering herd
+      // 408 = request timeout — use longer base delay to avoid rapid retry spam
       const is408 = statusCode === 408;
-      const baseDelay = this.reconnectTimeout ? 5000 : (is408 ? 30000 : 2000);
-      const delay = Math.min(baseDelay * this.reconnectAttempts, 60000);
+      const baseMs = is408 ? 15_000 : 3_000;
+      const expDelay = Math.min(baseMs * Math.pow(2, this.reconnectAttempts - 1), 60_000);
+      const jitteredDelay = Math.round(expDelay * (0.8 + Math.random() * 0.4));
 
-      console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
+      console.log(`[Baileys:${this.id}] Disconnected (code: ${statusCode}), reconnecting in ${jitteredDelay}ms (attempt ${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})...`);
       trackWhatsAppDisconnected(this.id, `code ${statusCode}, reconnecting (${this.reconnectAttempts}/${WhatsAppInstance.MAX_RECONNECT_ATTEMPTS})`);
 
       if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = setTimeout(() => {
         this.reconnectTimeout = null;
         this.start(notifyUnlinkedFn);
-      }, delay);
+      }, jitteredDelay);
     } else {
-      console.error(`[Baileys:${this.id}] Logged out from WhatsApp (user unlinked). Remove auth dir and re-pair.`);
+      console.error(`[Baileys:${this.id}] Logged out from WhatsApp. Clearing credentials for QR re-pair.`);
       trackWhatsAppUnlinked(this.id);
 
       // Mark as unlinked from WhatsApp side
@@ -364,6 +399,21 @@ export class WhatsAppInstance {
         this.notifyUnlinked(notifyUnlinkedFn);
         this.unlinkNotificationSent = true;
       }
+
+      // Clear stale DB credentials — old creds cause loggedOut loop where QR is never generated.
+      // After clearing, restart so Baileys generates a fresh QR for the user to scan.
+      clearAuthState(this.id).then(() => {
+        console.log(`[Baileys:${this.id}] Credentials cleared — restarting for QR re-pair in 3s`);
+        setTimeout(() => {
+          this.unlinkedFromWhatsApp = false;
+          this.lastUnlinkedAt = null;
+          this.unlinkNotificationSent = false;
+          this.qr = null;
+          this.start(notifyUnlinkedFn);
+        }, 3000);
+      }).catch(err => {
+        console.error(`[Baileys:${this.id}] Failed to clear credentials after logout:`, err.message);
+      });
     }
   }
 
@@ -706,7 +756,8 @@ export class WhatsAppInstance {
   }
 
   getStatus(): Omit<WhatsAppInstanceStatus, 'firstConnectedAt'> {
-    const user = (this.sock as any)?.user;
+    // When unlinked, the sock may still hold stale user info — hide it to avoid showing wrong phone
+    const user = !this.unlinkedFromWhatsApp ? (this.sock as any)?.user : null;
 
     // US-830: Compute cooldown end timestamp for API consumers
     let cooldownEndsAt: string | null = null;

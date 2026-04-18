@@ -71,7 +71,7 @@ export async function ensureMenuItemsTable(): Promise<void> {
     // Add translations column if it doesn't exist (migration for existing tables)
     await pool.query(`
       ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS translations TEXT NOT NULL DEFAULT '{}';
-    `).catch(() => { /* column may already exist */ });
+    `).catch((err: any) => console.warn('[MenuItemsStore] Migration warning (translations column):', err.message));
   } catch (err: any) {
     console.error('[MenuItemsStore] Failed to ensure table:', err.message);
   }

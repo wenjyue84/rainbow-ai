@@ -14,7 +14,7 @@ WhatsApp AI assistant for Pelangi Capsule Hostel & Southern Homestay. Extracted 
 | WhatsApp | Baileys (direct WebSocket — **unofficial, ToS risk**, see [architecture doc](docs/architecture/whatsapp-transport-layer.md)) |
 | AI | NVIDIA Kimi K2.5 / Ollama / OpenRouter (multi-provider fallback) |
 | Testing | Vitest (unit/integration/semantic) + Promptfoo (eval) |
-| Deploy | AWS Lightsail + PM2 |
+| Deploy | Hetzner VPS + PM2 |
 
 ## Key Directories
 
@@ -80,13 +80,14 @@ See `.env.example` for full list.
 ## Deployment
 
 ```bash
-bash deploy.sh           # Build, package, upload, deploy to Lightsail
+bash deploy.sh           # Build, package, upload, deploy to Hetzner
 bash deploy.sh --skip-build  # Skip build step
 ```
 
-**Target:** `ubuntu@18.142.14.142:/var/www/rainbow-ai`
+**Target:** `deploy@5.223.54.57:/var/www/rainbow-ai` (symlink → `/opt/rainbow-ai`)
+**SSH key:** `~/.ssh/id_ed25519`
 **Process manager:** PM2 (config in `ecosystem.config.cjs`)
-- Memory limit: 450MB (`--max-old-space-size=450`)
+- Memory limit: 1800MB (`--max-old-space-size=1400`)
 - Auto-restart on crash (max 10 restarts)
 - Logs at `/var/www/rainbow-ai/logs/`
 
@@ -106,6 +107,48 @@ bash deploy.sh --skip-build  # Skip build step
 - **Zod schemas** in `src/assistant/schemas.ts` are source of truth for config types
 - **Import paths** use `.js` extensions (NodeNext module resolution)
 - Build copies `src/assistant/data/` and `src/public/` to `dist/` (static assets)
+
+## 3-Service Integration (MCP Architecture)
+
+Rainbow AI is the **MCP Client + conversational layer** in a 3-service stack. See full integration docs at:
+`C:\Users\Jyue\Documents\1-projects\Software Projects\rainbow-pms-pelangi-site\`
+
+### MCP Client → PMS2
+
+**File:** `src/lib/pms-mcp-client.ts`
+
+```env
+PMS_MCP_URL=https://pms-capsule.vercel.app/api/mcp
+PMS_MCP_KEY=<must match PMS2's MCP_API_KEY>
+```
+
+Called when guest asks about live data: availability, reservations, check-in status, guest lookup.
+
+### KB Sync from Pelangi Website
+
+**File:** `src/assistant/knowledge-base.ts`
+
+```env
+PELANGI_WEBSITE_URL=https://pelangicapsulehostel.com
+```
+
+On startup, syncs `/llms.txt`, `/llms-full.txt`, and key pages into `.rainbow-kb/`.  
+Static facts (pricing, WiFi password, FAQ, policies) come from this KB — no MCP call needed.
+
+### Decision: MCP vs KB
+
+| Guest asks about | Source |
+|-----------------|--------|
+| Room availability, specific dates | MCP → PMS2 `check_date_availability` |
+| Current reservation / booking | MCP → PMS2 `lookup_reservation` |
+| Guest check-in status | MCP → PMS2 `get_guest` |
+| Room prices, policies, WiFi, FAQ | KB (website-synced) |
+| Directions, location, check-in guide | KB (website-synced) |
+
+### MCP Server (Built-in)
+
+Rainbow AI also exposes its own MCP server at `POST /mcp` (30+ tools).  
+PMS2 uses this for `whatsapp_send`, `whatsapp_status`, etc. via `server/mcp/tools/whatsapp-proxy.ts`.
 
 ## Architecture Documentation
 
