@@ -287,7 +287,29 @@ export function enforceProfileDataVersionCompatibility(
     try {
       const content = readFileSync(filePath, 'utf-8');
       const json = JSON.parse(content);
-      const version = json.schema_version as string | undefined;
+
+      // Skip array-shaped data files (e.g. regex-patterns.json,
+      // booking-validators-*.json). These are lists of rows, not
+      // configs with metadata, so they carry no schema_version.
+      if (Array.isArray(json) || json === null || typeof json !== 'object') {
+        continue;
+      }
+
+      // US-114 post-SQLite-migration update: schema_version can be a
+      // string (simple config files) OR an object with its own shape
+      // (templates.json, routing.json, workflows.json each define a
+      // structured version object in their Zod schema). Files that
+      // omit schema_version entirely make "no claim" about version
+      // and are skipped from the equality check — treat them as
+      // compatible with whatever version the peers declare.
+      const rawVersion = (json as Record<string, unknown>).schema_version;
+      if (rawVersion === undefined) {
+        continue; // no-version files don't participate in the check
+      }
+      const version =
+        typeof rawVersion === 'string'
+          ? rawVersion
+          : JSON.stringify(rawVersion); // canonicalize object-shaped versions
 
       fileVersions[fileName] = version;
 

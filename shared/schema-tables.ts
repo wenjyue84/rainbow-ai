@@ -1,49 +1,49 @@
 /**
  * schema-tables.ts — Drizzle ORM table definitions for Rainbow AI
  *
- * Contains Rainbow-owned pgTable definitions and table-derived types.
+ * Contains Rainbow-owned sqliteTable definitions and table-derived types.
  * Extracted from digiman/shared/schema-tables.ts during decomposition.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer, real, serial, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
 
 // ─── Settings ────────────────────────────────────────────────────────
 // Rainbow stores its own settings with `rainbow_*` prefixed keys
 
-export const appSettings = pgTable("app_settings", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const appSettings = sqliteTable("app_settings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   key: text("key").notNull().unique(),
   value: text("value").notNull(),
   description: text("description"),
-  updatedBy: varchar("updated_by"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_app_settings_key").on(table.key),
 ]));
 
 // ─── Rainbow AI ──────────────────────────────────────────────────────
 
-export const intentDetectionSettings = pgTable("intent_detection_settings", {
-  id: serial("id").primaryKey(),
-  tier1Enabled: boolean("tier1_enabled").default(true).notNull(),
+export const intentDetectionSettings = sqliteTable("intent_detection_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tier1Enabled: integer("tier1_enabled", { mode: "boolean" }).default(true).notNull(),
   tier1ContextMessages: integer("tier1_context_messages").default(0).notNull(),
-  tier2Enabled: boolean("tier2_enabled").default(true).notNull(),
+  tier2Enabled: integer("tier2_enabled", { mode: "boolean" }).default(true).notNull(),
   tier2ContextMessages: integer("tier2_context_messages").default(3).notNull(),
   tier2Threshold: real("tier2_threshold").default(0.80).notNull(),
-  tier3Enabled: boolean("tier3_enabled").default(true).notNull(),
+  tier3Enabled: integer("tier3_enabled", { mode: "boolean" }).default(true).notNull(),
   tier3ContextMessages: integer("tier3_context_messages").default(5).notNull(),
   tier3Threshold: real("tier3_threshold").default(0.70).notNull(),
-  tier4Enabled: boolean("tier4_enabled").default(true).notNull(),
+  tier4Enabled: integer("tier4_enabled", { mode: "boolean" }).default(true).notNull(),
   tier4ContextMessages: integer("tier4_context_messages").default(5).notNull(),
-  trackLastIntent: boolean("track_last_intent").default(true).notNull(),
-  trackSlots: boolean("track_slots").default(true).notNull(),
+  trackLastIntent: integer("track_last_intent", { mode: "boolean" }).default(true).notNull(),
+  trackSlots: integer("track_slots", { mode: "boolean" }).default(true).notNull(),
   maxHistoryMessages: integer("max_history_messages").default(20).notNull(),
   contextTTL: integer("context_ttl_minutes").default(30).notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).$defaultFn(() => new Date()).notNull(),
 });
 
-export const rainbowFeedback = pgTable("rainbow_feedback", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const rainbowFeedback = sqliteTable("rainbow_feedback", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   conversationId: text("conversation_id").notNull(),
   messageId: text("message_id"),
   phoneNumber: text("phone_number").notNull(),
@@ -54,7 +54,7 @@ export const rainbowFeedback = pgTable("rainbow_feedback", {
   responseModel: text("response_model"),
   responseTime: integer("response_time_ms"),
   tier: text("tier"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_rainbow_feedback_conversation_id").on(table.conversationId),
   index("idx_rainbow_feedback_phone_number").on(table.phoneNumber),
@@ -64,8 +64,8 @@ export const rainbowFeedback = pgTable("rainbow_feedback", {
   index("idx_rainbow_feedback_created_intent").on(table.createdAt, table.intent),
 ]));
 
-export const intentPredictions = pgTable("intent_predictions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const intentPredictions = sqliteTable("intent_predictions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   conversationId: text("conversation_id").notNull(),
   phoneNumber: text("phone_number").notNull(),
   messageText: text("message_text").notNull(),
@@ -75,10 +75,10 @@ export const intentPredictions = pgTable("intent_predictions", {
   model: text("model"),
   profile: text("profile"),
   actualIntent: text("actual_intent"),
-  wasCorrect: boolean("was_correct"),
+  wasCorrect: integer("was_correct", { mode: "boolean" }),
   correctionSource: text("correction_source"),
-  correctedAt: timestamp("corrected_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  correctedAt: integer("corrected_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_intent_predictions_conversation_id").on(table.conversationId),
   index("idx_intent_predictions_phone_number").on(table.phoneNumber),
@@ -93,14 +93,14 @@ export const intentPredictions = pgTable("intent_predictions", {
 // Tracks confidence metrics and latency for each intent classification
 // Used for calculating per-profile and per-intent success rates and baselines
 
-export const intentAnalytics = pgTable("intent_analytics", {
-  id: serial("id").primaryKey(),
+export const intentAnalytics = sqliteTable("intent_analytics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
   intentType: text("intent_type").notNull(),
   confidence: real("confidence").notNull(),
   latencyMs: integer("latency_ms").notNull(),
-  wasCorrect: boolean("was_correct"),  // populated by feedback correlation later
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  wasCorrect: integer("was_correct", { mode: "boolean" }),  // populated by feedback correlation later
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_intent_analytics_profile_id").on(table.profileId),
   index("idx_intent_analytics_intent_type").on(table.intentType),
@@ -112,15 +112,15 @@ export const intentAnalytics = pgTable("intent_analytics", {
 // Stores baseline accuracy metrics per profile and intent type
 // Used to detect classifier degradation and performance regressions
 
-export const intentClassifierBaselines = pgTable("intent_classifier_baselines", {
-  id: serial("id").primaryKey(),
+export const intentClassifierBaselines = sqliteTable("intent_classifier_baselines", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull(),
   intentType: text("intent_type").notNull(),
   accuracyPct: real("accuracy_pct").notNull(),  // percentage (0-100)
   sampleCount: integer("sample_count").notNull(),  // number of messages evaluated
-  baselineDate: timestamp("baseline_date").notNull(),  // when this baseline was established
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  baselineDate: integer("baseline_date", { mode: "timestamp_ms" }).notNull(),  // when this baseline was established
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_classifier_baselines_profile_intent").on(table.profileId, table.intentType),
   index("idx_classifier_baselines_profile_id").on(table.profileId),
@@ -135,18 +135,18 @@ export type InsertIntentClassifierBaseline = typeof intentClassifierBaselines.$i
 // Stores alerts when intent classifier accuracy drops >5% from baseline
 // Status: active = unresolved regression, resolved = accuracy recovered
 
-export const regressionAlerts = pgTable("regression_alerts", {
-  id: serial("id").primaryKey(),
+export const regressionAlerts = sqliteTable("regression_alerts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull(),
   intentType: text("intent_type").notNull(),
   baselineAccuracy: real("baseline_accuracy").notNull(),  // accuracy_pct at baseline
   currentAccuracy: real("current_accuracy").notNull(),    // accuracy_pct at detection time
   accuracyDrop: real("accuracy_drop").notNull(),          // drop in percentage points
   status: text("status").notNull().default('active'),     // 'active' | 'resolved'
-  detectedAt: timestamp("detected_at").notNull().defaultNow(),
-  resolvedAt: timestamp("resolved_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  detectedAt: integer("detected_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_regression_alerts_profile_id").on(table.profileId),
   index("idx_regression_alerts_intent_type").on(table.intentType),
@@ -161,15 +161,15 @@ export type InsertRegressionAlert = typeof regressionAlerts.$inferInsert;
 // Stores conversations with ambiguous intent classifications for manual review
 // Flags low confidence and multi-candidate scenarios for product team analysis
 
-export const intentHardCases = pgTable("intent_hard_cases", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const intentHardCases = sqliteTable("intent_hard_cases", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   conversationId: text("conversation_id").notNull(),
   intentId: text("intent_id").notNull(),
   confidence: real("confidence").notNull(),
-  candidateIntents: jsonb("candidate_intents"),  // array of {intent, confidence}
+  candidateIntents: text("candidate_intents", { mode: "json" }),  // array of {intent, confidence}
   reason: text("reason"),
   profile: text("profile").notNull().default('pelangi'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_intent_hard_cases_profile").on(table.profile),
   index("idx_intent_hard_cases_intent_id").on(table.intentId),
@@ -181,42 +181,42 @@ export const intentHardCases = pgTable("intent_hard_cases", {
 export type IntentHardCase = typeof intentHardCases.$inferSelect;
 export type InsertIntentHardCase = typeof intentHardCases.$inferInsert;
 
-export const rainbowConversationState = pgTable("rainbow_conversation_state", {
-  phone: varchar("phone", { length: 32 }).primaryKey(),
+export const rainbowConversationState = sqliteTable("rainbow_conversation_state", {
+  phone: text("phone").primaryKey(),
   pushName: text("push_name").notNull(),
-  language: varchar("language", { length: 2 }).notNull().default('en'),
+  language: text("language").notNull().default('en'),
   bookingStateJson: text("booking_state_json"),
   workflowStateJson: text("workflow_state_json"),
   activeFlowJson: text("active_flow_json"),  // US-408: Unified flow state for new flow types
   unknownCount: integer("unknown_count").notNull().default(0),
   lastIntent: text("last_intent"),
   lastIntentConfidence: real("last_intent_confidence"),
-  lastIntentTimestamp: timestamp("last_intent_timestamp"),
+  lastIntentTimestamp: integer("last_intent_timestamp", { mode: "timestamp_ms" }),
   slotsJson: text("slots_json"),
   repeatCount: integer("repeat_count").notNull().default(0),
   profileId: text("profile_id").default('pelangi'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  lastActiveAt: timestamp("last_active_at").notNull().defaultNow(),
-  lastUserMessageAt: timestamp("last_user_message_at"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  lastActiveAt: integer("last_active_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  lastUserMessageAt: integer("last_user_message_at", { mode: "timestamp_ms" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
 // ─── Rainbow Conversations (Hybrid Storage: replaces JSON files) ─────
 
-export const rainbowConversations = pgTable("rainbow_conversations", {
-  phone: varchar("phone", { length: 64 }).primaryKey(),
-  bsuid: varchar("bsuid", { length: 128 }),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
+export const rainbowConversations = sqliteTable("rainbow_conversations", {
+  phone: text("phone").primaryKey(),
+  bsuid: text("bsuid"),   // US-477: WhatsApp Business-Scoped User ID (format: CC.BSUID)
   pushName: text("push_name").notNull().default(''),
   instanceId: text("instance_id"),
   profileId: text("profile_id").default('pelangi'),
-  pinned: boolean("pinned").notNull().default(false),
-  favourite: boolean("favourite").notNull().default(false),
-  lastReadAt: timestamp("last_read_at"),
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  favourite: integer("favourite", { mode: "boolean" }).notNull().default(false),
+  lastReadAt: integer("last_read_at", { mode: "timestamp_ms" }),
   responseMode: text("response_mode"),
-  status: varchar("status", { length: 16 }).notNull().default('active'),  // US-444: 'active' or 'ended'
+  status: text("status").notNull().default('active'),  // US-444: 'active' or 'ended'
   contactDetailsJson: text("contact_details_json"),
   contextSummary: text("context_summary"),                    // US-447: LLM-generated context summary
-  contextSummaryAt: timestamp("context_summary_at"),          // US-447: when the summary was generated
+  contextSummaryAt: integer("context_summary_at", { mode: "timestamp_ms" }),          // US-447: when the summary was generated
   // US-910: Click-to-WhatsApp ad referral attribution
   referralCtwaClid: text("referral_ctwa_clid"),               // Meta Conversions API click ID
   referralSourceId: text("referral_source_id"),               // Campaign/source ID
@@ -226,30 +226,30 @@ export const rainbowConversations = pgTable("rainbow_conversations", {
   referralJson: text("referral_json"),                        // Full referral object as JSON
   // US-979: WhatsApp marketing opt-in audit trail
   optInMethod: text("opt_in_method"),                         // 'inbound' | 'double_optin' | 'web_form' | 'ctwa_ad' | 'qr_code' | 'in_person'
-  optInAt: timestamp("opt_in_at"),                            // Timestamp of confirmed opt-in
+  optInAt: integer("opt_in_at", { mode: "timestamp_ms" }),                            // Timestamp of confirmed opt-in
   optInChannel: text("opt_in_channel"),                       // Channel where opt-in occurred
   // US-155: WhatsApp message sending consent (Meta Cloud API requirement)
-  whatsappOptedIn: boolean("whatsapp_opted_in").notNull().default(false), // Explicit consent to receive WhatsApp messages
-  whatsappOptedInAt: timestamp("whatsapp_opted_in_at"),       // Timestamp when consent was given
+  whatsappOptedIn: integer("whatsapp_opted_in", { mode: "boolean" }).notNull().default(false), // Explicit consent to receive WhatsApp messages
+  whatsappOptedInAt: integer("whatsapp_opted_in_at", { mode: "timestamp_ms" }),       // Timestamp when consent was given
   // US-119: Guest language preference persistence
   metadata: text("metadata"),                                  // JSON string for additional context (e.g., preferredLanguage)
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 }, (table) => ([
   uniqueIndex("idx_rainbow_conversations_bsuid").on(table.bsuid),
 ]));
 
-export const rainbowMessages = pgTable("rainbow_messages", {
-  id: serial("id").primaryKey(),
-  phone: varchar("phone", { length: 64 }).notNull(),
-  role: varchar("role", { length: 10 }).notNull(),
+export const rainbowMessages = sqliteTable("rainbow_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  phone: text("phone").notNull(),
+  role: text("role").notNull(),
   content: text("content").notNull(),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   intent: text("intent"),
   confidence: real("confidence"),
   action: text("action"),
-  manual: boolean("manual"),
+  manual: integer("manual", { mode: "boolean" }),
   source: text("source"),
   model: text("model"),
   responseTime: integer("response_time_ms"),
@@ -263,12 +263,12 @@ export const rainbowMessages = pgTable("rainbow_messages", {
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
   staffName: text("staff_name"),
-  transcribed: boolean("transcribed"),  // US-438: true if voice note was transcribed
+  transcribed: integer("transcribed", { mode: "boolean" }),  // US-438: true if voice note was transcribed
   mediaUrl: text("media_url"),          // US-840: ephemeral media URL (if available from Baileys)
   localMediaUrl: text("local_media_url"), // US-893: locally-saved media path after auto-download
   faithfulnessScore: real("faithfulness_score"), // US-899: 0.0-1.0 faithfulness check score (null = not checked)
   profileId: text("profile_id").default('pelangi'),
-  deletedAt: timestamp("deleted_at"),
+  deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 }, (table) => ([
   index("idx_rainbow_messages_phone").on(table.phone),
   index("idx_rainbow_messages_phone_timestamp").on(table.phone, table.timestamp),
@@ -283,17 +283,17 @@ export const rainbowMessages = pgTable("rainbow_messages", {
 // Immutable audit log for PDPA compliance and conversation quality debugging.
 // Insert-only table; deletions only via automated data retention policy (US-157).
 
-export const conversationAudit = pgTable("conversation_audit", {
-  id: serial("id").primaryKey(),
-  phone: varchar("phone", { length: 64 }).notNull(),
-  guestId: varchar("guest_id", { length: 128 }),  // optional guest ID if available
+export const conversationAudit = sqliteTable("conversation_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  phone: text("phone").notNull(),
+  guestId: text("guest_id"),  // optional guest ID if available
   message: text("message").notNull(),              // full message content
   intent: text("intent"),                          // detected intent
   confidence: real("confidence"),                  // intent confidence score (0.0-1.0)
   actionTaken: text("action_taken"),               // action/workflow triggered
   tier: text("tier"),                              // classification tier (T1-T4)
   profileId: text("profile_id").default('pelangi'),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_conv_audit_phone").on(table.phone),
   index("idx_conv_audit_timestamp").on(table.timestamp),
@@ -309,14 +309,14 @@ export type InsertConversationAudit = typeof conversationAudit.$inferInsert;
 
 // ─── Message Delivery Status (US-426) ────────────────────────────────
 
-export const messageDeliveryStatus = pgTable("message_delivery_status", {
-  id: serial("id").primaryKey(),
-  baileysMessageId: varchar("baileys_message_id", { length: 128 }).notNull(),
-  phone: varchar("phone", { length: 64 }).notNull(),
-  status: varchar("status", { length: 16 }).notNull(), // pending|sent|delivered|read|played|failed
-  statusTimestamp: timestamp("status_timestamp").notNull().defaultNow(),
+export const messageDeliveryStatus = sqliteTable("message_delivery_status", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  baileysMessageId: text("baileys_message_id").notNull(),
+  phone: text("phone").notNull(),
+  status: text("status").notNull(), // pending|sent|delivered|read|played|failed
+  statusTimestamp: integer("status_timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   instanceId: text("instance_id"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_msg_delivery_baileys_id").on(table.baileysMessageId),
   index("idx_msg_delivery_phone").on(table.phone),
@@ -325,21 +325,21 @@ export const messageDeliveryStatus = pgTable("message_delivery_status", {
 
 // ─── Escalation Events (US-428) ──────────────────────────────────────
 
-export const escalationEvents = pgTable("escalation_events", {
-  id: serial("id").primaryKey(),
-  jid: varchar("jid", { length: 64 }).notNull(),
+export const escalationEvents = sqliteTable("escalation_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jid: text("jid").notNull(),
   profileId: text("profile_id").default('pelangi'),
-  trigger: varchar("trigger", { length: 64 }).notNull(), // consecutive_fallback, human_request, complaint, etc.
+  trigger: text("trigger").notNull(), // consecutive_fallback, human_request, complaint, etc.
   count: integer("count"),
   metadata: text("metadata"), // JSON string for additional context
   summary: text("summary"), // US-429: AI-generated warm handoff summary
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   // US-836: SLA timer fields
-  slaBreachedAt: timestamp("sla_breached_at"),       // set when SLA window expires without human response
-  humanRespondedAt: timestamp("human_responded_at"), // set when outbound message sent after escalation
+  slaBreachedAt: integer("sla_breached_at", { mode: "timestamp_ms" }),       // set when SLA window expires without human response
+  humanRespondedAt: integer("human_responded_at", { mode: "timestamp_ms" }), // set when outbound message sent after escalation
   // US-077: Fallback effectiveness tracking
   fallbackResponseTemplateId: text("fallback_response_template_id"), // template that was used before escalation
-  escalationWithin2Msgs: boolean("escalation_within_2_msgs"),        // true if escalation within 2 msgs of fallback
+  escalationWithin2Msgs: integer("escalation_within_2_msgs", { mode: "boolean" }),        // true if escalation within 2 msgs of fallback
 }, (table) => ([
   index("idx_escalation_events_jid").on(table.jid),
   index("idx_escalation_events_trigger").on(table.trigger),
@@ -348,12 +348,12 @@ export const escalationEvents = pgTable("escalation_events", {
 
 // ─── Conversation Traces (US-427) ────────────────────────────────────
 
-export const conversationTraces = pgTable("conversation_traces", {
-  id: serial("id").primaryKey(),
-  traceId: varchar("trace_id", { length: 64 }).notNull(),
-  jid: varchar("jid", { length: 64 }).notNull(),
+export const conversationTraces = sqliteTable("conversation_traces", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  traceId: text("trace_id").notNull(),
+  jid: text("jid").notNull(),
   profileId: text("profile_id").default('pelangi'),
-  tier: varchar("tier", { length: 8 }).notNull(), // T1, T2, T3, T4
+  tier: text("tier").notNull(), // T1, T2, T3, T4
   intent: text("intent"),
   llmProvider: text("llm_provider"),
   model: text("model"),
@@ -363,7 +363,7 @@ export const conversationTraces = pgTable("conversation_traces", {
   llmMs: integer("llm_ms"),
   totalMs: integer("total_ms"),
   error: text("error"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_conv_traces_jid").on(table.jid),
   index("idx_conv_traces_created_at").on(table.createdAt),
@@ -372,16 +372,16 @@ export const conversationTraces = pgTable("conversation_traces", {
 
 // ─── Message Quality Metrics (US-431) ────────────────────────────────
 
-export const messageQualityMetrics = pgTable("message_quality_metrics", {
-  id: serial("id").primaryKey(),
+export const messageQualityMetrics = sqliteTable("message_quality_metrics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
-  date: timestamp("date").notNull(), // day bucket (start of day UTC)
+  date: integer("date", { mode: "timestamp_ms" }).notNull(), // day bucket (start of day UTC)
   messagesSent: integer("messages_sent").notNull().default(0),
   optOutEvents: integer("opt_out_events").notNull().default(0),
   blockEvents: integer("block_events").notNull().default(0),
   optOutRate: real("opt_out_rate"), // opt_out_events / messages_sent
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_quality_metrics_profile_date").on(table.profileId, table.date),
   index("idx_quality_metrics_date").on(table.date),
@@ -389,20 +389,20 @@ export const messageQualityMetrics = pgTable("message_quality_metrics", {
 
 // ─── Opt-Out / STOP Compliance (US-403) ──────────────────────────────
 
-export const optOuts = pgTable("opt_outs", {
-  phone: varchar("phone", { length: 64 }).primaryKey(),
-  optedOutAt: timestamp("opted_out_at").notNull().defaultNow(),
-  optedInAt: timestamp("opted_in_at"),
+export const optOuts = sqliteTable("opt_outs", {
+  phone: text("phone").primaryKey(),
+  optedOutAt: integer("opted_out_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  optedInAt: integer("opted_in_at", { mode: "timestamp_ms" }),
   // US-812: compliance tracking — when was the opt-out enforced (messages blocked)
-  processedAt: timestamp("processed_at"),
+  processedAt: integer("processed_at", { mode: "timestamp_ms" }),
 }, (table) => ([
   index("idx_opt_outs_opted_out_at").on(table.optedOutAt),
 ]));
 
 // ─── LLM Cost Daily (US-433) ────────────────────────────────────────
 
-export const llmCostDaily = pgTable("llm_cost_daily", {
-  id: serial("id").primaryKey(),
+export const llmCostDaily = sqliteTable("llm_cost_daily", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   date: text("date").notNull(), // YYYY-MM-DD (UTC)
   provider: text("provider").notNull(), // provider id (e.g. "groq-llama-70b")
   profileId: text("profile_id").notNull().default('pelangi'),
@@ -411,9 +411,9 @@ export const llmCostDaily = pgTable("llm_cost_daily", {
   estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
   requestCount: integer("request_count").notNull().default(0),
   budgetCapUsd: real("budget_cap_usd"), // null = unlimited
-  budgetBreached: boolean("budget_breached").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  budgetBreached: integer("budget_breached", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_llm_cost_daily_date_provider_profile").on(table.date, table.provider, table.profileId),
   index("idx_llm_cost_daily_date").on(table.date),
@@ -424,18 +424,18 @@ export const llmCostDaily = pgTable("llm_cost_daily", {
 // Tracks per-message WhatsApp template costs under July 2025 pricing model.
 // Aggregated daily by template_type + country_code + profile.
 
-export const whatsappCostDaily = pgTable("whatsapp_cost_daily", {
-  id: serial("id").primaryKey(),
+export const whatsappCostDaily = sqliteTable("whatsapp_cost_daily", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   date: text("date").notNull(), // YYYY-MM-DD (UTC)
   profileId: text("profile_id").notNull().default('pelangi'),
-  templateType: varchar("template_type", { length: 32 }).notNull(), // marketing, utility, authentication, service
-  countryCode: varchar("country_code", { length: 4 }).notNull().default('MY'), // ISO 3166-1 alpha-2
+  templateType: text("template_type").notNull(), // marketing, utility, authentication, service
+  countryCode: text("country_code").notNull().default('MY'), // ISO 3166-1 alpha-2
   totalMessages: integer("total_messages").notNull().default(0),
   billableMessages: integer("billable_messages").notNull().default(0), // excludes CSW-free utility
   cswFreeMessages: integer("csw_free_messages").notNull().default(0), // utility sent within CSW
   estimatedCostUsd: real("estimated_cost_usd").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_wa_cost_daily_date_profile_type_country").on(table.date, table.profileId, table.templateType, table.countryCode),
   index("idx_wa_cost_daily_date").on(table.date),
@@ -446,13 +446,13 @@ export const whatsappCostDaily = pgTable("whatsapp_cost_daily", {
 // Replaces useMultiFileAuthState with DB-backed auth persistence.
 // Each row stores a single credential or signal key, namespaced by profile + type + key id.
 
-export const baileysAuthState = pgTable("baileys_auth_state", {
-  id: serial("id").primaryKey(),
+export const baileysAuthState = sqliteTable("baileys_auth_state", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull(),           // WhatsApp instance id (e.g. "default", "60103084289")
-  keyType: varchar("key_type", { length: 64 }).notNull(),  // "creds" or signal type: "pre-key", "session", "sender-key", etc.
-  keyId: varchar("key_id", { length: 256 }).notNull(),     // specific key identifier (or "creds" for credentials)
+  keyType: text("key_type").notNull(),  // "creds" or signal type: "pre-key", "session", "sender-key", etc.
+  keyId: text("key_id").notNull(),     // specific key identifier (or "creds" for credentials)
   value: text("value").notNull(),                     // JSON-serialized value (using BufferJSON)
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_baileys_auth_profile_type_id").on(table.profileId, table.keyType, table.keyId),
   index("idx_baileys_auth_profile").on(table.profileId),
@@ -460,15 +460,15 @@ export const baileysAuthState = pgTable("baileys_auth_state", {
 
 // ─── Utterance Gaps (US-432) ─────────────────────────────────────────
 
-export const utteranceGaps = pgTable("utterance_gaps", {
-  id: serial("id").primaryKey(),
+export const utteranceGaps = sqliteTable("utterance_gaps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
-  utteranceSample: varchar("utterance_sample", { length: 120 }).notNull(),
-  normalizedKey: varchar("normalized_key", { length: 120 }).notNull(), // lowercase, no punctuation
-  tierReached: varchar("tier_reached", { length: 16 }).notNull(), // T4, layer2, default, etc.
+  utteranceSample: text("utterance_sample").notNull(),
+  normalizedKey: text("normalized_key").notNull(), // lowercase, no punctuation
+  tierReached: text("tier_reached").notNull(), // T4, layer2, default, etc.
   count: integer("count").notNull().default(1),
-  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_utterance_gaps_profile_id").on(table.profileId),
   index("idx_utterance_gaps_count").on(table.count),
@@ -482,18 +482,18 @@ export const utteranceGaps = pgTable("utterance_gaps", {
 export const ADMIN_ROLES = ['viewer', 'operator', 'super-admin'] as const;
 export type AdminRole = typeof ADMIN_ROLES[number];
 
-export const adminUsers = pgTable("admin_users", {
-  id: serial("id").primaryKey(),
-  username: varchar("username", { length: 64 }).notNull().unique(),
+export const adminUsers = sqliteTable("admin_users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default('operator'),  // US-898: viewer | operator | super-admin
   allowedTenants: text("allowed_tenants"),   // US-908: JSON array of tenant_ids this admin can access (null = unrestricted / super-admin)
   totpSecret: text("totp_secret"),          // AES-256-GCM encrypted, null if 2FA not enrolled
-  totpEnabled: boolean("totp_enabled").notNull().default(false),
+  totpEnabled: integer("totp_enabled", { mode: "boolean" }).notNull().default(false),
   failedTotpAttempts: integer("failed_totp_attempts").notNull().default(0),
-  totpLockedUntil: timestamp("totp_locked_until"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  totpLockedUntil: integer("totp_locked_until", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_admin_users_username").on(table.username),
 ]));
@@ -534,20 +534,18 @@ export type WhatsappCostDaily = typeof whatsappCostDaily.$inferSelect;
 export type InsertWhatsappCostDaily = typeof whatsappCostDaily.$inferInsert;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = typeof adminUsers.$inferInsert;
-export type IntentHardCase = typeof intentHardCases.$inferSelect;
-export type InsertIntentHardCase = typeof intentHardCases.$inferInsert;
 
 // ─── Template Quality Events (US-831) ─────────────────────────────────
 // Tracks Meta Cloud API message_template_status_update webhook events.
 // Records template status transitions (APPROVED → PAUSED → DISABLED etc.)
-export const templateQualityEvents = pgTable("template_quality_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const templateQualityEvents = sqliteTable("template_quality_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   templateName: text("template_name").notNull(),
   oldStatus: text("old_status"),
   newStatus: text("new_status").notNull(),
   reason: text("reason"),
   profileId: text("profile_id").default('pelangi'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_template_quality_events_name").on(table.templateName),
   index("idx_template_quality_events_created").on(table.createdAt),
@@ -559,16 +557,16 @@ export type InsertTemplateQualityEvent = typeof templateQualityEvents.$inferInse
 // ─── WhatsApp Templates (US-900) ─────────────────────────────────────
 // Stores current status of WhatsApp message templates per profile.
 // Used by template-rejection-monitor to detect APPROVED → REJECTED/PAUSED transitions.
-export const whatsappTemplates = pgTable("whatsapp_templates", {
-  id: serial("id").primaryKey(),
+export const whatsappTemplates = sqliteTable("whatsapp_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   templateName: text("template_name").notNull(),
   status: text("status").notNull(),
   previousStatus: text("previous_status"),
   rejectedReason: text("rejected_reason"),
   profileId: text("profile_id").notNull().default('pelangi'),
-  lastCheckedAt: timestamp("last_checked_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  lastCheckedAt: integer("last_checked_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_whatsapp_templates_name_profile").on(table.templateName, table.profileId),
   index("idx_whatsapp_templates_status").on(table.status),
@@ -582,18 +580,18 @@ export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
 // Tracks per-variant metrics for A/B experiment framework.
 // Aggregated daily by experiment + variant + phone hash.
 
-export const experimentMetrics = pgTable("experiment_metrics", {
-  id: serial("id").primaryKey(),
-  experimentId: varchar("experiment_id", { length: 128 }).notNull(),
-  variantId: varchar("variant_id", { length: 128 }).notNull(),
-  phoneHash: varchar("phone_hash", { length: 64 }).notNull(), // MD5 hash of phone for privacy
+export const experimentMetrics = sqliteTable("experiment_metrics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  experimentId: text("experiment_id").notNull(),
+  variantId: text("variant_id").notNull(),
+  phoneHash: text("phone_hash").notNull(), // MD5 hash of phone for privacy
   messageCount: integer("message_count").notNull().default(0),
   fallbackCount: integer("fallback_count").notNull().default(0),
   csatSum: integer("csat_sum").notNull().default(0),
   csatCount: integer("csat_count").notNull().default(0),
   windowDate: text("window_date").notNull(), // YYYY-MM-DD (UTC)
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_experiment_metrics_exp_var_phone_date").on(table.experimentId, table.variantId, table.phoneHash, table.windowDate),
   index("idx_experiment_metrics_experiment").on(table.experimentId),
@@ -607,12 +605,12 @@ export type InsertExperimentMetric = typeof experimentMetrics.$inferInsert;
 // Records timestamped opt-in consent from webchat widget visitors.
 // Session IDs are truncated hashes for privacy; user agents are hashed.
 
-export const webchatConsentLog = pgTable("webchat_consent_log", {
-  id: serial("id").primaryKey(),
-  sessionIdHash: varchar("session_id_hash", { length: 64 }).notNull(),
-  acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
+export const webchatConsentLog = sqliteTable("webchat_consent_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionIdHash: text("session_id_hash").notNull(),
+  acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   profileId: text("profile_id").notNull().default('pelangi'),
-  userAgentHash: varchar("user_agent_hash", { length: 64 }),
+  userAgentHash: text("user_agent_hash"),
 }, (table) => ([
   index("idx_webchat_consent_log_profile").on(table.profileId),
   index("idx_webchat_consent_log_accepted_at").on(table.acceptedAt),
@@ -625,17 +623,17 @@ export type InsertWebchatConsentLog = typeof webchatConsentLog.$inferInsert;
 // Tracks in-stay housekeeping and maintenance requests from WhatsApp guests.
 // Scoped to Pelangi Capsule Hostel profile.
 
-export const serviceRequests = pgTable("service_requests", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const serviceRequests = sqliteTable("service_requests", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   jid: text("jid").notNull(),
   profile: text("profile").notNull().default('pelangi'),
   roomNumber: text("room_number"),
   requestType: text("request_type").notNull(), // extra_towel | extra_pillow | room_cleaning | maintenance_issue | wifi_password | amenity
   details: text("details"),
   status: text("status").notNull().default('pending'), // pending | resolved
-  staffNotified: boolean("staff_notified").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  resolvedAt: timestamp("resolved_at"),
+  staffNotified: integer("staff_notified", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
 }, (table) => ([
   index("idx_service_requests_jid").on(table.jid),
   index("idx_service_requests_profile").on(table.profile),
@@ -650,17 +648,17 @@ export type InsertServiceRequest = typeof serviceRequests.$inferInsert;
 // Persistent fallback queue for KDS/POS webhook deliveries that failed
 // in-memory retries. Allows manual retry via admin API.
 
-export const orderWebhookQueue = pgTable("order_webhook_queue", {
-  id: serial("id").primaryKey(),
+export const orderWebhookQueue = sqliteTable("order_webhook_queue", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   orderId: text("order_id").notNull(),
   payloadJson: text("payload_json").notNull(), // JSON-serialized KdsOrderPayload
-  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | delivered | failed
+  status: text("status").notNull().default('pending'), // pending | delivered | failed
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   profileId: text("profile_id").notNull().default('makan-moments'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  lastAttemptAt: timestamp("last_attempt_at"),
-  deliveredAt: timestamp("delivered_at"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  lastAttemptAt: integer("last_attempt_at", { mode: "timestamp_ms" }),
+  deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
 }, (table) => ([
   index("idx_order_webhook_queue_status").on(table.status),
   index("idx_order_webhook_queue_order_id").on(table.orderId),
@@ -674,18 +672,18 @@ export type InsertOrderWebhookQueue = typeof orderWebhookQueue.$inferInsert;
 // DB-backed scheduler for pre-arrival booking sequences and future scheduled sends.
 // Each row represents a single scheduled message with template interpolation.
 
-export const scheduledMessagesDb = pgTable("scheduled_messages", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jid: varchar("jid", { length: 64 }).notNull(),
+export const scheduledMessagesDb = sqliteTable("scheduled_messages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  jid: text("jid").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
-  sendAt: timestamp("send_at").notNull(),
-  templateKey: varchar("template_key", { length: 128 }).notNull(),
+  sendAt: integer("send_at", { mode: "timestamp_ms" }).notNull(),
+  templateKey: text("template_key").notNull(),
   variables: text("variables"), // JSON string for template interpolation
-  status: varchar("status", { length: 16 }).notNull().default('pending'), // pending | sent | cancelled | skipped
-  bookingId: varchar("booking_id", { length: 128 }),
-  sequenceStep: varchar("sequence_step", { length: 32 }), // confirmation | directions | ready
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  sentAt: timestamp("sent_at"),
+  status: text("status").notNull().default('pending'), // pending | sent | cancelled | skipped
+  bookingId: text("booking_id"),
+  sequenceStep: text("sequence_step"), // confirmation | directions | ready
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
   error: text("error"),
 }, (table) => ([
   index("idx_scheduled_messages_status_send_at").on(table.status, table.sendAt),
@@ -700,12 +698,12 @@ export type InsertScheduledMessageDb = typeof scheduledMessagesDb.$inferInsert;
 // Persists every inbound webhook payload to durable storage before processing.
 // Enables replay of lost/failed events and provides an audit trail.
 
-export const webhookRawEvents = pgTable("webhook_raw_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  receivedAt: timestamp("received_at").notNull().defaultNow(),
+export const webhookRawEvents = sqliteTable("webhook_raw_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   profileId: text("profile_id").notNull().default('pelangi'),
   payload: text("payload").notNull(), // JSON-serialized raw IncomingMessage
-  processed: boolean("processed").notNull().default(false),
+  processed: integer("processed", { mode: "boolean" }).notNull().default(false),
 }, (table) => ([
   index("idx_webhook_raw_events_received_at").on(table.receivedAt),
   index("idx_webhook_raw_events_processed").on(table.processed),
@@ -719,12 +717,12 @@ export type InsertWebhookRawEvent = typeof webhookRawEvents.$inferInsert;
 // Tracks order_confirmed and order_corrected events for AI waiter accuracy KPI.
 // A "correction" = cart modification after the AI showed order confirmation.
 
-export const orderAccuracyEvents = pgTable("order_accuracy_events", {
-  id: serial("id").primaryKey(),
-  sessionId: varchar("session_id", { length: 128 }).notNull(),
+export const orderAccuracyEvents = sqliteTable("order_accuracy_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
   profileId: text("profile_id").notNull().default('makan-moments'),
-  eventType: varchar("event_type", { length: 32 }).notNull(), // order_confirmed | order_corrected
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  eventType: text("event_type").notNull(), // order_confirmed | order_corrected
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_order_accuracy_events_type").on(table.eventType),
   index("idx_order_accuracy_events_created_at").on(table.createdAt),
@@ -739,8 +737,8 @@ export type InsertOrderAccuracyEvent = typeof orderAccuracyEvents.$inferInsert;
 // WhatsApp sticker uploads for Malaysian festive season engagement.
 // Stickers are webp format, 512×512px, ≤100KB with transparent background.
 
-export const festiveStickers = pgTable("festive_stickers", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const festiveStickers = sqliteTable("festive_stickers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   profileId: text("profile_id").notNull().default('pelangi'),
   stickerName: text("sticker_name").notNull(),
   mediaId: text("media_id"), // WhatsApp media_id after upload
@@ -748,8 +746,8 @@ export const festiveStickers = pgTable("festive_stickers", {
   fileName: text("file_name").notNull(),
   mimeType: text("mime_type").notNull().default('image/webp'),
   uploadedBy: text("uploaded_by"),
-  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
-  isActive: boolean("is_active").notNull().default(true),
+  uploadedAt: integer("uploaded_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
 }, (table) => ([
   index("idx_festive_stickers_profile_active").on(table.profileId, table.isActive),
   index("idx_festive_stickers_profile_name").on(table.profileId, table.stickerName),
@@ -758,15 +756,15 @@ export const festiveStickers = pgTable("festive_stickers", {
 export type FestiveSticker = typeof festiveStickers.$inferSelect;
 export type InsertFestiveSticker = typeof festiveStickers.$inferInsert;
 
-export const stickerIntents = pgTable("sticker_intents", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const stickerIntents = sqliteTable("sticker_intents", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   profileId: text("profile_id").notNull().default('pelangi'),
   intent: text("intent").notNull(),
-  stickerId: varchar("sticker_id").notNull().references(() => festiveStickers.id, { onDelete: 'cascade' }),
+  stickerId: text("sticker_id").notNull().references(() => festiveStickers.id, { onDelete: 'cascade' }),
   greetingText: text("greeting_text").notNull(),
-  isEnabled: boolean("is_enabled").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_sticker_intents_profile_intent").on(table.profileId, table.intent),
   index("idx_sticker_intents_enabled").on(table.isEnabled),
@@ -781,20 +779,20 @@ export type InsertStickerIntent = typeof stickerIntents.$inferInsert;
 // When error 131049 is returned with a batch context, the message is held
 // (not permanently failed) and queued here for operator review/re-send.
 
-export const campaignPacingEvents = pgTable("campaign_pacing_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const campaignPacingEvents = sqliteTable("campaign_pacing_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   batchId: text("batch_id").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
-  phone: varchar("phone", { length: 32 }).notNull(),
+  phone: text("phone").notNull(),
   templateName: text("template_name"),
   messageContent: text("message_content"),
   errorCode: integer("error_code").notNull().default(131049),
   // 'held' = pacing pause hold; 'hard_failure' = permanent delivery failure
-  failureType: varchar("failure_type", { length: 16 }).notNull().default('held'),
+  failureType: text("failure_type").notNull().default('held'),
   // operator review state: 'pending' | 'resent' | 'cancelled'
-  reviewStatus: varchar("review_status", { length: 16 }).notNull().default('pending'),
-  heldAt: timestamp("held_at").notNull().defaultNow(),
-  reviewedAt: timestamp("reviewed_at"),
+  reviewStatus: text("review_status").notNull().default('pending'),
+  heldAt: integer("held_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
   reviewedBy: text("reviewed_by"),
   instanceId: text("instance_id").notNull().default('default'),
 }, (table) => ([
@@ -812,14 +810,14 @@ export type InsertCampaignPacingEvent = typeof campaignPacingEvents.$inferInsert
 // Records confidence scores, top-3 candidate intents, and message hashes
 // for debugging accuracy regressions and identifying weak categories.
 
-export const intentClassificationDecisions = pgTable("intent_classification_decisions", {
-  id: serial("id").primaryKey(),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+export const intentClassificationDecisions = sqliteTable("intent_classification_decisions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   profileName: text("profile_name").notNull().default('pelangi'),
-  messageHash: varchar("message_hash", { length: 64 }).notNull(),
+  messageHash: text("message_hash").notNull(),
   classifiedIntent: text("classified_intent").notNull(),
   confidenceScore: real("confidence_score").notNull(),
-  top3CandidatesJson: jsonb("top_3_candidates_json").notNull().default('[]'),  // array of { intent, score }
+  top3CandidatesJson: text("top_3_candidates_json", { mode: "json" }).notNull().default('[]'),  // array of { intent, score }
   actualIntent: text("actual_intent"),  // populated later by feedback/correction
 }, (table) => ([
   index("idx_icd_profile_name").on(table.profileName),
@@ -837,12 +835,12 @@ export type InsertIntentClassificationDecision = typeof intentClassificationDeci
 // Logs every RAG retrieval call for 90-day audit trail.
 // Enables cross-namespace contamination detection and similarity attack alerting.
 
-export const vectorAccessLogs = pgTable("vector_access_logs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const vectorAccessLogs = sqliteTable("vector_access_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   /** Property that made the query (e.g., "pelangi", "southern") */
   propertyId: text("property_id").notNull(),
   /** Hashed query text (SHA-256 truncated to 16 hex chars for privacy) */
-  queryHash: varchar("query_hash", { length: 16 }).notNull(),
+  queryHash: text("query_hash").notNull(),
   /** Number of chunks returned */
   chunksReturned: integer("chunks_returned").notNull().default(0),
   /** Source filenames of returned chunks (JSON array) */
@@ -850,14 +848,14 @@ export const vectorAccessLogs = pgTable("vector_access_logs", {
   /** Top similarity score (0-1) of returned chunks */
   topScore: real("top_score"),
   /** Whether any returned chunk had a mismatched propertyId (cross-namespace leak) */
-  crossNamespaceDetected: boolean("cross_namespace_detected").notNull().default(false),
+  crossNamespaceDetected: integer("cross_namespace_detected", { mode: "boolean" }).notNull().default(false),
   /** Whether a similarity attack was suspected (anomalously high score) */
-  similarityAttackSuspected: boolean("similarity_attack_suspected").notNull().default(false),
+  similarityAttackSuspected: integer("similarity_attack_suspected", { mode: "boolean" }).notNull().default(false),
   /** Retrieval latency in ms */
   latencyMs: integer("latency_ms"),
   /** Service identity that performed the retrieval */
   serviceIdentity: text("service_identity").notNull().default('rainbow-ai'),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_val_property_created").on(table.propertyId, table.createdAt),
   index("idx_val_cross_namespace").on(table.crossNamespaceDetected),
@@ -879,26 +877,26 @@ export type InsertVectorAccessLog = typeof vectorAccessLogs.$inferInsert;
 //   revoked   → guest replied with revoke keyword (STOP) or admin-revoked
 //   expired   → 48h passed without confirmation; excluded from campaigns
 
-export const marketingSubscriptions = pgTable("marketing_subscriptions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  phone: varchar("phone", { length: 64 }).notNull(),
+export const marketingSubscriptions = sqliteTable("marketing_subscriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  phone: text("phone").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
   /** 'pending' | 'confirmed' | 'revoked' | 'expired' */
-  consentStatus: varchar("consent_status", { length: 16 }).notNull().default('pending'),
+  consentStatus: text("consent_status").notNull().default('pending'),
   /** How the contact was added: 'checkin' | 'web_form' | 'admin_add' | 'qr_code' */
-  channel: varchar("channel", { length: 32 }).notNull().default('admin_add'),
+  channel: text("channel").notNull().default('admin_add'),
   /** IP/source identifier where consent was initiated (for PDPA audit) */
   collectedVia: text("collected_via"),
   /** When the opt-in confirmation template was sent */
-  optInSentAt: timestamp("opt_in_sent_at"),
+  optInSentAt: integer("opt_in_sent_at", { mode: "timestamp_ms" }),
   /** When consent was confirmed (keyword reply received) */
-  confirmedAt: timestamp("confirmed_at"),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp_ms" }),
   /** When consent was revoked (STOP or admin action) */
-  revokedAt: timestamp("revoked_at"),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
   /** 48h deadline — if no confirmation by this time, status → expired */
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_marketing_sub_phone_profile").on(table.phone, table.profileId),
   index("idx_marketing_sub_status").on(table.consentStatus),
@@ -919,33 +917,33 @@ export type InsertMarketingSubscription = typeof marketingSubscriptions.$inferIn
 // deliveryStatus lifecycle: queued → sent → delivered | failed | expired
 //   expired = message not delivered before ttlExpiresAt
 
-export const mmLiteSends = pgTable("mm_lite_sends", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const mmLiteSends = sqliteTable("mm_lite_sends", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   /** Campaign identifier (admin-assigned, e.g. "makan-daily-2026-03-16") */
   campaignId: text("campaign_id").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
-  phone: varchar("phone", { length: 64 }).notNull(),
+  phone: text("phone").notNull(),
   templateName: text("template_name").notNull(),
   /** 'mm_lite' | 'standard' — which send path was used */
-  sendApi: varchar("send_api", { length: 16 }).notNull().default('mm_lite'),
+  sendApi: text("send_api").notNull().default('mm_lite'),
   /** TTL in hours set at send time (default 720h = 30 days) */
   ttlHours: integer("ttl_hours").notNull().default(720),
   /** Computed expiry timestamp (sentAt + ttlHours) */
-  ttlExpiresAt: timestamp("ttl_expires_at"),
+  ttlExpiresAt: integer("ttl_expires_at", { mode: "timestamp_ms" }),
   /** 'queued' | 'sent' | 'delivered' | 'failed' | 'expired' */
-  deliveryStatus: varchar("delivery_status", { length: 16 }).notNull().default('queued'),
+  deliveryStatus: text("delivery_status").notNull().default('queued'),
   /** Timestamp when MM Lite API accepted the send */
-  sentAt: timestamp("sent_at"),
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
   /** Timestamp when delivery confirmation received via webhook */
-  deliveredAt: timestamp("delivered_at"),
+  deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
   /** Timestamp when TTL expiry was detected */
-  expiredAt: timestamp("expired_at"),
+  expiredAt: integer("expired_at", { mode: "timestamp_ms" }),
   /** Meta message ID returned from Cloud API */
   metaMessageId: text("meta_message_id"),
   /** Error code/message if send failed */
   errorInfo: text("error_info"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_mm_lite_campaign").on(table.campaignId),
   index("idx_mm_lite_profile_status").on(table.profileId, table.deliveryStatus),
@@ -964,8 +962,8 @@ export type InsertMmLiteSend = typeof mmLiteSends.$inferInsert;
 // DPIA is mandatory for processing >10,000 data subjects with AI decisions.
 // TIA is required for each external AI provider per CBPDT Guidelines.
 
-export const dpiaRecords = pgTable("dpia_records", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const dpiaRecords = sqliteTable("dpia_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   /** Profile this DPIA applies to ('pelangi', 'makan-moments', etc.) */
   profileId: text("profile_id").notNull(),
   /** DPIA title/description */
@@ -979,13 +977,13 @@ export const dpiaRecords = pgTable("dpia_records", {
   /** Mitigation measures documented */
   mitigations: text("mitigations").notNull(),
   /** Last review date */
-  lastReviewedAt: timestamp("last_reviewed_at").notNull().defaultNow(),
+  lastReviewedAt: integer("last_reviewed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   /** Next review due (must be within 3 years per CBPDT Guidelines) */
-  nextReviewDue: timestamp("next_review_due").notNull(),
+  nextReviewDue: integer("next_review_due", { mode: "timestamp_ms" }).notNull(),
   /** Reviewer name/email */
   reviewedBy: text("reviewed_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_dpia_profile_id").on(table.profileId),
   index("idx_dpia_next_review_due").on(table.nextReviewDue),
@@ -994,8 +992,8 @@ export const dpiaRecords = pgTable("dpia_records", {
 export type DpiaRecord = typeof dpiaRecords.$inferSelect;
 export type InsertDpiaRecord = typeof dpiaRecords.$inferInsert;
 
-export const tiaRecords = pgTable("tia_records", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const tiaRecords = sqliteTable("tia_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   /** Profile this TIA applies to */
   profileId: text("profile_id").notNull(),
   /** AI provider name ('NVIDIA', 'OpenRouter', 'Ollama', etc.) */
@@ -1003,7 +1001,7 @@ export const tiaRecords = pgTable("tia_records", {
   /** Destination jurisdiction code (e.g. 'US', 'SG') */
   destinationJurisdiction: text("destination_jurisdiction").notNull(),
   /** Data protection equivalence assessment */
-  equivalenceLevel: varchar("equivalence_level", { length: 16 }).notNull(), // 'adequate' | 'similar' | 'assessed'
+  equivalenceLevel: text("equivalence_level").notNull(), // 'adequate' | 'similar' | 'assessed'
   /** API endpoint URL for this provider */
   apiEndpoint: text("api_endpoint").notNull(),
   /** Transfer mechanism (e.g. 'standard_contractual_clauses', 'adequacy_decision') */
@@ -1017,13 +1015,13 @@ export const tiaRecords = pgTable("tia_records", {
   /** Controls in place */
   controls: text("controls").notNull(),
   /** Last review date */
-  lastReviewedAt: timestamp("last_reviewed_at").notNull().defaultNow(),
+  lastReviewedAt: integer("last_reviewed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   /** Valid until (max 3 years per CBPDT) */
-  validUntil: timestamp("valid_until").notNull(),
+  validUntil: integer("valid_until", { mode: "timestamp_ms" }).notNull(),
   /** Reviewed by */
   reviewedBy: text("reviewed_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_tia_profile_provider").on(table.profileId, table.aiProvider),
   index("idx_tia_valid_until").on(table.validUntil),
@@ -1037,12 +1035,12 @@ export type InsertTiaRecord = typeof tiaRecords.$inferInsert;
 // Audit log for automated AI decisions under Malaysia PDPA 2025 (PCP 3/2025)
 // Records decision type, confidence, human review requests, and outcomes.
 
-export const aiDecisionAudit = pgTable("ai_decision_audit", {
-  id: serial("id").primaryKey(),
+export const aiDecisionAudit = sqliteTable("ai_decision_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
-  phone: varchar("phone", { length: 64 }).notNull(),
+  phone: text("phone").notNull(),
   /** Category of automated decision: booking | escalation | order_confirmation | menu_recommendation */
-  decisionType: varchar("decision_type", { length: 64 }).notNull(),
+  decisionType: text("decision_type").notNull(),
   /** Intent that triggered this decision */
   intent: text("intent"),
   /** AI confidence score (0-1) at time of decision */
@@ -1050,18 +1048,18 @@ export const aiDecisionAudit = pgTable("ai_decision_audit", {
   /** AI provider that produced the decision */
   aiProvider: text("ai_provider"),
   /** Whether the guest requested human review */
-  humanReviewRequested: boolean("human_review_requested").notNull().default(false),
+  humanReviewRequested: integer("human_review_requested", { mode: "boolean" }).notNull().default(false),
   /** Final outcome: accepted | human_review | escalated | cancelled */
-  outcome: varchar("outcome", { length: 64 }),
+  outcome: text("outcome"),
   /** When the disclosure message was sent to the guest */
-  disclosureSentAt: timestamp("disclosure_sent_at"),
+  disclosureSentAt: integer("disclosure_sent_at", { mode: "timestamp_ms" }),
   /** When the guest requested human review (null if not requested) */
-  reviewRequestedAt: timestamp("review_requested_at"),
+  reviewRequestedAt: integer("review_requested_at", { mode: "timestamp_ms" }),
   /** When the decision was resolved */
-  resolvedAt: timestamp("resolved_at"),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
   /** Additional context (JSON string) */
   metadata: text("metadata"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_aidecision_profile_phone").on(table.profileId, table.phone),
   index("idx_aidecision_created_at").on(table.createdAt),
@@ -1073,14 +1071,14 @@ export type InsertAiDecisionAuditRecord = typeof aiDecisionAudit.$inferInsert;
 
 // ─── Prompt Injection Events (US-998) ────────────────────────────────
 
-export const promptInjectionEvents = pgTable("prompt_injection_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const promptInjectionEvents = sqliteTable("prompt_injection_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   jid: text("jid").notNull(),
   profileId: text("profile_id").notNull().default("pelangi"),
   originalMessageText: text("original_message_text").notNull(),
   matchedPattern: text("matched_pattern").notNull(),
-  actionTaken: varchar("action_taken", { length: 64 }).notNull().default("blocked"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  actionTaken: text("action_taken").notNull().default("blocked"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_injection_events_jid").on(table.jid),
   index("idx_injection_events_profile").on(table.profileId),
@@ -1092,20 +1090,20 @@ export type InsertPromptInjectionEvent = typeof promptInjectionEvents.$inferInse
 
 // ─── Vendor DPA Registry (US-958) ───────────────────────────────────
 
-export const dpaRegistry = pgTable("dpa_registry", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const dpaRegistry = sqliteTable("dpa_registry", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   vendorName: text("vendor_name").notNull(),
   registeredAddress: text("registered_address").notNull().default(""),
   dataCategories: text("data_categories").notNull(),
   processingPurpose: text("processing_purpose").notNull(),
   retentionPeriod: text("retention_period").notNull().default(""),
   subProcessors: text("sub_processors").notNull().default("[]"),
-  dpaStatus: varchar("dpa_status", { length: 32 }).notNull().default("pending"),
-  dpaExpiryDate: timestamp("dpa_expiry_date"),
-  dpaSigned: timestamp("dpa_signed"),
+  dpaStatus: text("dpa_status").notNull().default("pending"),
+  dpaExpiryDate: integer("dpa_expiry_date", { mode: "timestamp_ms" }),
+  dpaSigned: integer("dpa_signed", { mode: "timestamp_ms" }),
   notes: text("notes"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_dpa_registry_vendor").on(table.vendorName),
   index("idx_dpa_registry_status").on(table.dpaStatus),
@@ -1118,10 +1116,10 @@ export type InsertDpaRegistryEntry = typeof dpaRegistry.$inferInsert;
 // ─── E-Invoice Queue (US-1039) ──────────────────────────────────────
 // Malaysia LHDN MyInvois e-invoice submission queue with retry tracking.
 
-export const einvoiceQueue = pgTable("einvoice_queue", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const einvoiceQueue = sqliteTable("einvoice_queue", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   /** Source transaction: 'order' or 'booking' */
-  transactionType: varchar("transaction_type", { length: 32 }).notNull(),
+  transactionType: text("transaction_type").notNull(),
   /** External reference ID (order ID or booking ID) */
   transactionId: text("transaction_id").notNull(),
   /** Profile/tenant that owns this invoice */
@@ -1141,7 +1139,7 @@ export const einvoiceQueue = pgTable("einvoice_queue", {
   /** SST amount */
   sstAmount: real("sst_amount").notNull().default(0),
   /** Queue status: pending | submitted | validated | delivered | failed | expired */
-  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  status: text("status").notNull().default("pending"),
   /** MyInvois Unique Identification Number (set after validation) */
   uin: text("uin"),
   /** Number of submission attempts */
@@ -1149,13 +1147,13 @@ export const einvoiceQueue = pgTable("einvoice_queue", {
   /** Last error message from MyInvois API */
   lastError: text("last_error"),
   /** When the invoice was successfully submitted to MyInvois */
-  submittedAt: timestamp("submitted_at"),
+  submittedAt: integer("submitted_at", { mode: "timestamp_ms" }),
   /** When the PDF was delivered via WhatsApp */
-  deliveredAt: timestamp("delivered_at"),
+  deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
   /** Next scheduled retry time */
-  nextRetryAt: timestamp("next_retry_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  nextRetryAt: integer("next_retry_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_einvoice_queue_status").on(table.status),
   index("idx_einvoice_queue_profile").on(table.profileId),
@@ -1170,17 +1168,17 @@ export type InsertEinvoiceQueueEntry = typeof einvoiceQueue.$inferInsert;
 // ─── Dead Letter Queue (DLQ) (US-055) ───────────────────────────────
 // Stores failed WhatsApp messages for manual admin retry
 
-export const deadLetterQueue = pgTable("dead_letter_queue", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const deadLetterQueue = sqliteTable("dead_letter_queue", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   messageId: text("message_id").notNull(),
-  guestId: varchar("guest_id", { length: 64 }).notNull(),  // phone number
+  guestId: text("guest_id").notNull(),  // phone number
   body: text("body").notNull(),
   failureReason: text("failure_reason").notNull(),
-  failedAt: timestamp("failed_at").notNull().defaultNow(),
+  failedAt: integer("failed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   retryCount: integer("retry_count").notNull().default(0),
   profile: text("profile").notNull().default("pelangi"),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_dlq_guest_id").on(table.guestId),
   index("idx_dlq_profile").on(table.profile),
@@ -1195,18 +1193,18 @@ export type InsertDeadLetterQueueMessage = typeof deadLetterQueue.$inferInsert;
 // Stores confirmed/pending room reservations for real-time availability checks.
 // Used by the booking workflow's dbAvailabilityCheck operator (US-056).
 
-export const roomReservations = pgTable("room_reservations", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
-  roomId: varchar("room_id", { length: 64 }).notNull(),
-  guestPhone: varchar("guest_phone", { length: 32 }).notNull(),
+export const roomReservations = sqliteTable("room_reservations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  roomId: text("room_id").notNull(),
+  guestPhone: text("guest_phone").notNull(),
   guestName: text("guest_name").notNull(),
-  checkInDate: timestamp("check_in_date").notNull(),
-  checkOutDate: timestamp("check_out_date").notNull(),
+  checkInDate: integer("check_in_date", { mode: "timestamp_ms" }).notNull(),
+  checkOutDate: integer("check_out_date", { mode: "timestamp_ms" }).notNull(),
   /** pending | confirmed | cancelled */
-  status: varchar("status", { length: 32 }).notNull().default("pending"),
-  profile: varchar("profile", { length: 64 }).notNull().default("pelangi"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  status: text("status").notNull().default("pending"),
+  profile: text("profile").notNull().default("pelangi"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_room_reservations_check_in").on(table.checkInDate),
   index("idx_room_reservations_check_out").on(table.checkOutDate),
@@ -1222,18 +1220,18 @@ export type InsertRoomReservation = typeof roomReservations.$inferInsert;
 // Stores workflow step execution failures with typed error codes and recovery metadata
 // Used for logging failures, sending guest-friendly messages, and debugging
 
-export const bookingStepErrors = pgTable("booking_step_errors", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+export const bookingStepErrors = sqliteTable("booking_step_errors", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   stepId: text("step_id").notNull(),           // workflow step identifier
   errorCode: text("error_code").notNull(),     // e.g. 'payment_failed', 'room_unavailable'
   errorMessage: text("error_message"),         // technical error details
   profile: text("profile").notNull().default("pelangi"),
   conversationId: text("conversation_id"),     // optional: tie to conversation for context
-  guestPhone: varchar("guest_phone", { length: 32 }),
+  guestPhone: text("guest_phone"),
   workflowId: text("workflow_id"),             // which booking workflow this belonged to
-  recoveryMessageSent: boolean("recovery_message_sent").notNull().default(false),
-  recoveryMessageAt: timestamp("recovery_message_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  recoveryMessageSent: integer("recovery_message_sent", { mode: "boolean" }).notNull().default(false),
+  recoveryMessageAt: integer("recovery_message_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_booking_step_errors_step_id").on(table.stepId),
   index("idx_booking_step_errors_error_code").on(table.errorCode),
@@ -1249,8 +1247,8 @@ export type InsertBookingStepError = typeof bookingStepErrors.$inferInsert;
 // Auto-flags intent classifications with confidence < 40% for human review.
 // Enables quick manual triage to improve keyword coverage and reduce fallbacks.
 
-export const escalationQueue = pgTable("escalation_queue", {
-  id: serial("id").primaryKey(),
+export const escalationQueue = sqliteTable("escalation_queue", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   conversationId: text("conversation_id").notNull(),
   originalIntent: text("original_intent").notNull(),
   confidenceScore: real("confidence_score").notNull(),
@@ -1258,7 +1256,7 @@ export const escalationQueue = pgTable("escalation_queue", {
   recommendedKeywords: text("recommended_keywords"), // JSON array of suggested keywords
   guestCorrectionIntent: text("guest_correction_intent"), // filled in by admin after review
   profile: text("profile").notNull().default('pelangi'),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_escalation_queue_profile").on(table.profile),
   index("idx_escalation_queue_confidence").on(table.confidenceScore),
@@ -1273,14 +1271,14 @@ export type InsertEscalationQueueEntry = typeof escalationQueue.$inferInsert;
 // Tracks all config file changes (settings.json, workflows.json, knowledge.json)
 // with user, timestamp, content hashes, and unified diff for rollback/compliance
 
-export const adminAuditLog = pgTable("admin_audit_log", {
-  id: serial("id").primaryKey(),
+export const adminAuditLog = sqliteTable("admin_audit_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   configFile: text("config_file").notNull(),
   changedBy: text("changed_by"),
   previousHash: text("previous_hash"),
   newHash: text("new_hash").notNull(),
   diffSummary: text("diff_summary").notNull(),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_admin_audit_log_config_file").on(table.configFile),
   index("idx_admin_audit_log_changed_by").on(table.changedBy),
@@ -1295,15 +1293,15 @@ export type InsertAdminAuditLogEntry = typeof adminAuditLog.$inferInsert;
 // Logs validation failures when booking workflow step outputs don't conform
 // to expected schema, enabling admin review and debugging
 
-export const workflowStepValidationErrors = pgTable("workflow_step_validation_errors", {
-  id: serial("id").primaryKey(),
+export const workflowStepValidationErrors = sqliteTable("workflow_step_validation_errors", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   stepId: text("step_id").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
-  expectedSchema: jsonb("expected_schema").notNull(),    // The schema the output should conform to
-  actualOutput: jsonb("actual_output").notNull(),         // The output that failed validation
-  errorMessages: jsonb("error_messages").notNull(),       // Array of detailed error strings
+  expectedSchema: text("expected_schema", { mode: "json" }).notNull(),    // The schema the output should conform to
+  actualOutput: text("actual_output", { mode: "json" }).notNull(),         // The output that failed validation
+  errorMessages: text("error_messages", { mode: "json" }).notNull(),       // Array of detailed error strings
   workflowId: text("workflow_id"),                        // Which workflow this step belongs to
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_wf_step_validation_step_id").on(table.stepId),
   index("idx_wf_step_validation_profile_id").on(table.profileId),
@@ -1319,13 +1317,13 @@ export type InsertWorkflowStepValidationError = typeof workflowStepValidationErr
 // classifyIntent() compares confidence against threshold and returns
 // 'uncertain' if below the configured min_confidence.
 
-export const intentClassificationThresholds = pgTable("intent_classification_thresholds", {
-  id: serial("id").primaryKey(),
+export const intentClassificationThresholds = sqliteTable("intent_classification_thresholds", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
   intent: text("intent").notNull(),
   minConfidence: real("min_confidence").notNull(),  // 0.0 - 1.0
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   uniqueIndex("idx_classification_thresholds_profile_intent").on(table.profileId, table.intent),
   index("idx_classification_thresholds_profile_id").on(table.profileId),
@@ -1340,15 +1338,15 @@ export type InsertIntentClassificationThreshold = typeof intentClassificationThr
 // Records any attempt to access data belonging to a different profile
 // for post-incident review and cross-profile leakage prevention.
 
-export const profileIsolationViolations = pgTable("profile_isolation_violations", {
-  id: serial("id").primaryKey(),
+export const profileIsolationViolations = sqliteTable("profile_isolation_violations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   attemptedProfile: text("attempted_profile").notNull(),
   actualProfile: text("actual_profile").notNull(),
   queryText: text("query_text").notNull(),
   routePath: text("route_path").notNull(),
-  method: varchar("method", { length: 10 }).notNull(),
+  method: text("method").notNull(),
   ipAddress: text("ip_address"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_piv_actual_profile").on(table.actualProfile),
   index("idx_piv_attempted_profile").on(table.attemptedProfile),
@@ -1363,14 +1361,14 @@ export type InsertProfileIsolationViolation = typeof profileIsolationViolations.
 // Records inputs, outputs, status, and timing for each step to enable
 // debugging of failed bookings and compliance auditing.
 
-export const bookingExecutionAudit = pgTable("booking_execution_audit", {
-  id: serial("id").primaryKey(),
+export const bookingExecutionAudit = sqliteTable("booking_execution_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   bookingId: text("booking_id").notNull(),
   stepName: text("step_name").notNull(),
-  input: jsonb("input").notNull(),
-  output: jsonb("output").notNull(),
+  input: text("input", { mode: "json" }).notNull(),
+  output: text("output", { mode: "json" }).notNull(),
   status: text("status").notNull(),  // 'success' | 'error' | 'timeout' | 'skipped'
-  executedAt: timestamp("executed_at").notNull().defaultNow(),
+  executedAt: integer("executed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_booking_exec_audit_booking_id").on(table.bookingId),
   index("idx_booking_exec_audit_step_name").on(table.stepName),
@@ -1386,16 +1384,16 @@ export type InsertBookingExecutionAudit = typeof bookingExecutionAudit.$inferIns
 // Captures staff feedback on escalated conversations to improve intent
 // classification and fallback handling over time.
 
-export const escalationFeedback = pgTable("escalation_feedback", {
-  id: serial("id").primaryKey(),
+export const escalationFeedback = sqliteTable("escalation_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   escalationId: integer("escalation_id").notNull(),
   profileId: text("profile_id").notNull().default('pelangi'),
   staffId: text("staff_id"),
-  feedbackType: varchar("feedback_type", { length: 64 }).notNull(), // intent_misclassified, missing_knowledge, wrong_workflow, poor_response, other
-  correctIntent: varchar("correct_intent", { length: 64 }),
-  severity: varchar("severity", { length: 16 }).notNull().default('medium'), // low, medium, high, critical
+  feedbackType: text("feedback_type").notNull(), // intent_misclassified, missing_knowledge, wrong_workflow, poor_response, other
+  correctIntent: text("correct_intent"),
+  severity: text("severity").notNull().default('medium'), // low, medium, high, critical
   notes: text("notes"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_escalation_feedback_escalation_id").on(table.escalationId),
   index("idx_escalation_feedback_profile_id").on(table.profileId),
@@ -1411,13 +1409,13 @@ export type InsertEscalationFeedback = typeof escalationFeedback.$inferInsert;
 // Tracks fallback response template effectiveness by measuring
 // escalation-to-resolution rates per template per profile.
 
-export const fallbackResponseMetrics = pgTable("fallback_response_metrics", {
-  id: serial("id").primaryKey(),
+export const fallbackResponseMetrics = sqliteTable("fallback_response_metrics", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   profileId: text("profile_id").notNull().default('pelangi'),
   templateId: text("template_id").notNull(),
   escalationCount: integer("escalation_count").notNull().default(0),
   resolutionCount: integer("resolution_count").notNull().default(0),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_fallback_resp_metrics_profile").on(table.profileId),
   index("idx_fallback_resp_metrics_template").on(table.templateId),
@@ -1433,15 +1431,15 @@ export type InsertFallbackResponseMetric = typeof fallbackResponseMetrics.$infer
 // Records whether the transition was valid per the booking state machine,
 // enabling detection of workflow bugs and malformed step sequences.
 
-export const bookingStateAudit = pgTable("booking_state_audit", {
-  id: serial("id").primaryKey(),
+export const bookingStateAudit = sqliteTable("booking_state_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   bookingId: text("booking_id").notNull(),
   fromState: text("from_state").notNull(),
   toState: text("to_state").notNull(),
-  valid: boolean("valid").notNull(),
+  valid: integer("valid", { mode: "boolean" }).notNull(),
   reason: text("reason").notNull(),
   profile: text("profile").notNull().default('pelangi'),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 }, (table) => ([
   index("idx_booking_state_audit_booking_id").on(table.bookingId),
   index("idx_booking_state_audit_from_state").on(table.fromState),

@@ -211,8 +211,9 @@ async function flushToDb(
       estimatedCostUsd: sql`${llmCostDaily.estimatedCostUsd} + excluded.estimated_cost_usd`,
       requestCount: sql`${llmCostDaily.requestCount} + excluded.request_count`,
       budgetCapUsd: budgetCap !== null ? sql`${budgetCap}` : sql`NULL`,
-      budgetBreached: sql`${acc.budgetBreached}`,
-      updatedAt: sql`NOW()`,
+      // SQLite driver rejects boolean bind params — coerce to 0/1 for raw sql template.
+      budgetBreached: sql`${acc.budgetBreached ? 1 : 0}`,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
     },
   });
 }

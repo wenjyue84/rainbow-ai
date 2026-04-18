@@ -10,11 +10,23 @@ import { z } from 'zod';
 
 // ─── Validation Schemas ──────────────────────────────────────────
 
+// After SQLite migration, DATABASE_URL accepts either a Postgres URL
+// (postgres://, postgresql://) or a SQLite file path (./data/x.db,
+// /abs/path/x.db, file:..., or plain *.db). The db.ts shim picks the
+// driver based on the scheme; PG URLs will fail at connect time since
+// only better-sqlite3 is linked.
 const postgresUrlSchema = z
   .string()
   .refine(
-    (val) => val.startsWith('postgres://') || val.startsWith('postgresql://'),
-    { message: 'must start with postgres:// or postgresql://' }
+    (val) =>
+      val.startsWith('postgres://') ||
+      val.startsWith('postgresql://') ||
+      val.startsWith('file:') ||
+      val.startsWith('./') ||
+      val.startsWith('/') ||
+      val.endsWith('.db') ||
+      val === ':memory:',
+    { message: 'must be a postgres:// URL or a SQLite path (./file.db, /abs/file.db, file:..., :memory:)' }
   );
 
 const portSchema = z

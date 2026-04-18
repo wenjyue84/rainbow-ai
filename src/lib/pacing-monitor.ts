@@ -478,7 +478,7 @@ async function persistPacingState(state: PacingState): Promise<void> {
         target: [appSettings.key],
         set: {
           value: JSON.stringify(state),
-          updatedAt: sql`NOW()`,
+          updatedAt: sql`CURRENT_TIMESTAMP`,
         },
       });
   } catch (err: any) {

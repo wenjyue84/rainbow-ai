@@ -88,7 +88,7 @@ export const DEFAULT_TEMPLATES: TemplatesData = {
  * Minimal settings with single AI provider (Ollama local - no API key required)
  */
 export const DEFAULT_SETTINGS: SettingsData = {
-  system_prompt: `You are ${process.env.BOT_NAME || 'Rainbow'}, an AI assistant for ${process.env.BUSINESS_NAME || 'Pelangi Capsule Hostel'}. You're currently in safe mode. Please help guests contact staff if needed.`,
+  system_prompt: `You are ${process.env.BOT_NAME || 'Rainbow'}, an AI assistant for ${process.env.BUSINESS_DISPLAY_NAME || process.env.BUSINESS_NAME || 'Pelangi Capsule Hostel'}. You're currently in safe mode. Please help guests contact staff if needed.`,
   ai: {
     nvidia_model: "moonshotai/kimi-k2.5",
     nvidia_base_url: "https://integrate.api.nvidia.com/v1",

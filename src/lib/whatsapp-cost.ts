@@ -422,7 +422,7 @@ async function flushToDb(
       billableMessages: sql`excluded.billable_messages`,
       cswFreeMessages: sql`excluded.csw_free_messages`,
       estimatedCostUsd: sql`excluded.estimated_cost_usd`,
-      updatedAt: sql`NOW()`,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
     },
   });
 }

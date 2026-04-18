@@ -310,7 +310,7 @@ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Respons
       })
       .onConflictDoUpdate({
         target: [appSettings.key],
-        set: { value: String(tier), updatedAt: sql`NOW()` },
+        set: { value: String(tier), updatedAt: sql`CURRENT_TIMESTAMP` },
       });
 
     // Upsert updated_at timestamp
@@ -323,7 +323,7 @@ router.put('/analytics/messaging-limits/tier', async (req: Request, res: Respons
       })
       .onConflictDoUpdate({
         target: [appSettings.key],
-        set: { value: now, updatedAt: sql`NOW()` },
+        set: { value: now, updatedAt: sql`CURRENT_TIMESTAMP` },
       });
 
     // US-1030: Log tier change to audit table for Meta eligibility audit trail
@@ -370,7 +370,7 @@ async function migrateObsoleteTiers(): Promise<void> {
     if (current && OBSOLETE_TIERS.includes(current)) {
       await db
         .update(appSettings)
-        .set({ value: '10000', updatedAt: sql`NOW()` })
+        .set({ value: '10000', updatedAt: sql`CURRENT_TIMESTAMP` })
         .where(eq(appSettings.key, SETTING_KEY_TIER));
       console.log(`[messaging-limits] Auto-migrated tier from '${current}' to '10000' (US-890)`);
       notifyAdminConfigError(

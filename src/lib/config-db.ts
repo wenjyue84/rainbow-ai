@@ -121,12 +121,15 @@ export async function ensureConfigTables(): Promise<void> {
         dietary_flags TEXT NOT NULL DEFAULT '[]',
         available     BOOLEAN NOT NULL DEFAULT TRUE,
         display_order INTEGER NOT NULL DEFAULT 0,
+        translations  TEXT NOT NULL DEFAULT '{}',
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_menu_items_profile ON menu_items(profile);
       CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(profile, category);
       CREATE INDEX IF NOT EXISTS idx_menu_items_available ON menu_items(profile, available);
+      -- Idempotent migration for DBs that pre-date the translations column
+      ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS translations TEXT NOT NULL DEFAULT '{}';
 
       -- US-962: Campaign pacing batch events (portfolio pacing pause tracking)
       CREATE TABLE IF NOT EXISTS campaign_pacing_events (

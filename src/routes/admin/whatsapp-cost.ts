@@ -174,7 +174,7 @@ router.put('/analytics/whatsapp-cost/rate-table', async (req: Request, res: Resp
       })
       .onConflictDoUpdate({
         target: [appSettings.key],
-        set: { value, updatedAt: sql`NOW()` },
+        set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
       });
 
     ok(res, { rateTable, updatedAt: new Date().toISOString() });
