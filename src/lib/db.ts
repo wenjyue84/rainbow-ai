@@ -16,9 +16,21 @@
  */
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { lt } from 'drizzle-orm';
 import dotenv from 'dotenv';
+import { join } from 'path';
 import * as schema from '../../shared/schema.js';
+
+// Declare the monkey-patched .execute() method on BetterSQLite3Database so
+// TypeScript knows about it without changing runtime behaviour.
+declare module 'drizzle-orm/better-sqlite3' {
+  interface BetterSQLite3Database<
+    TSchema extends Record<string, unknown> = Record<string, never>
+  > {
+    execute(query: import('drizzle-orm').SQL): Promise<{ rows: any[]; rowCount: number }>;
+  }
+}
 
 dotenv.config();
 
@@ -273,7 +285,12 @@ export function initDb(): void {
   if (_initialized) return;
   _initialized = true;
 
-  const dbPath = process.env.DATABASE_URL ?? DEFAULT_DB_PATH;
+  // Prefer SQLITE_PATH; ignore a Postgres-style DATABASE_URL (leftover from Neon era)
+  const envPath = process.env.SQLITE_PATH
+    ?? (process.env.DATABASE_URL && !/^postgres/i.test(process.env.DATABASE_URL)
+        ? process.env.DATABASE_URL
+        : undefined);
+  const dbPath = envPath ?? DEFAULT_DB_PATH;
   console.log('[DB] Opening SQLite at:', dbPath);
 
   sqlite = new Database(dbPath);
@@ -287,6 +304,15 @@ export function initDb(): void {
   sqlite.pragma('busy_timeout = 5000');
 
   _db = drizzle(sqlite, { schema });
+
+  // Auto-apply SQLite migrations (idempotent — tracks in __drizzle_migrations table)
+  try {
+    const migrationsFolder = join(process.cwd(), 'drizzle');
+    migrate(_db, { migrationsFolder });
+    console.log('[DB] ✅ Migrations applied');
+  } catch (err: any) {
+    console.warn('[DB] ⚠️ Migration warning (non-fatal):', err.message);
+  }
 
   // Neon-compat: db.execute(sql``) returns `{ rows: [...], rowCount }`.
   // Drizzle's better-sqlite3 adapter has no `.execute()`, so we patch the

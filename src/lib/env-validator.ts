@@ -48,11 +48,13 @@ export function validateEnvironment(): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Required: DATABASE_URL (postgres connection string)
+  // DATABASE_URL is optional when SQLITE_PATH is set (SQLite-only mode).
+  // Required only when neither DATABASE_URL nor SQLITE_PATH is set.
   const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    errors.push('DATABASE_URL: required environment variable not set');
-  } else {
+  const sqlitePath = process.env.SQLITE_PATH;
+  if (!dbUrl && !sqlitePath) {
+    errors.push('DATABASE_URL or SQLITE_PATH: at least one database path must be set');
+  } else if (dbUrl) {
     const dbResult = postgresUrlSchema.safeParse(dbUrl);
     if (!dbResult.success) {
       errors.push(`DATABASE_URL: ${dbResult.error.issues[0]?.message || 'invalid postgres:// URL'}`);

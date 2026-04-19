@@ -20,7 +20,7 @@ import {
 } from './prisma-ai.js';
 import {
   loadLiveChat, filterConversations, openConversation, refreshChat, resetDateFilter, debouncedSearch,
-  cleanupLiveChat, editStaffName
+  cleanupLiveChat, editStaffName, setChannelFilter
 } from './live-chat-core.js';
 import {
   deleteChat, sendReply, toggleAttachMenu, pickFile, fileSelected, clearFile,
@@ -70,6 +70,7 @@ window.cleanupLiveChat = function () {
   if (typeof window.cleanupWebchatAdmin === 'function') window.cleanupWebchatAdmin();
 };
 window.lcFilterConversations = filterConversations;
+window.lcSetChannelFilter = setChannelFilter;
 window.lcDebouncedSearch = debouncedSearch;
 window.lcOpenConversation = openConversation;
 window.lcRefreshChat = refreshChat;

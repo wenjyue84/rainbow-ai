@@ -16,7 +16,10 @@ import { pool } from './db.js';
 // ─── Guard: skip all DB ops when no DATABASE_URL ────────────────────
 
 function hasDB(): boolean {
-  return !!process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL ?? '';
+  // Only enable Postgres config-sync for actual Postgres connections.
+  // SQLite paths (./data/...) or unset DATABASE_URL → JSON-only mode.
+  return url.startsWith('postgresql://') || url.startsWith('postgres://');
 }
 
 // ─── Table Creation (idempotent) ────────────────────────────────────

@@ -12,13 +12,14 @@ let _currentTab = null;
 // US-809: Profile-specific tabs include profileId in URL hash
 const PROFILE_SPECIFIC_TABS = [
   'dashboard', 'intents', 'understanding', 'responses',
-  'performance', 'chat-simulator', 'tests', 'knowledge-base', 'workflows'
+  'performance', 'chat-simulator', 'tests', 'knowledge-base', 'workflows',
+  'settings', 'staff-review', 'wa-template-authoring'
 ];
 window.PROFILE_SPECIFIC_TABS = PROFILE_SPECIFIC_TABS;
 
 // Default known profile IDs (updated by profile-switcher.js after API load)
 if (!window.KNOWN_PROFILE_IDS) {
-  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern'];
+  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern', 'yoongmei'];
 }
 
 /**
@@ -317,7 +318,8 @@ function handleNavigation() {
   // Auto-append profileId for profile-specific tabs if missing
   if (PROFILE_SPECIFIC_TABS.includes(main) && !profileId) {
     const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
-    window.location.hash = main + '/' + activeProfile + (sub ? '/' + sub : '');
+    var safeSub = (sub && sub !== activeProfile) ? '/' + sub : '';
+    window.location.hash = main + '/' + activeProfile + safeSub;
     return; // hashchange will fire again with profileId present
   }
 

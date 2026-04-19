@@ -124,25 +124,40 @@ export async function loadStaticReplies() {
     window.cachedRouting = routingData;
     window.cachedKnowledge = knowledgeData;
 
-    // Build intent → phase mapping from intents.json
+    // Build intent → phase mapping and phase display config from intents.json
     const intentPhaseMap = {};
     const phases = intentsData.categories || [];
+    // Build PHASE_CONFIG dynamically from intents data (profile-agnostic)
+    const PHASE_CONFIG = {
+      'UNCATEGORIZED': { label: 'Uncategorized', icon: '📋', desc: 'Not mapped to a phase' }
+    };
+    const phaseOrderFromData = [];
     for (const phaseData of phases) {
+      const phaseKey = phaseData.phase;
+      // Auto-generate label from phase key (e.g. PRICING_QUOTING → Pricing & Quoting)
+      const autoLabel = phaseKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/ And /g, ' & ');
+      PHASE_CONFIG[phaseKey] = {
+        label: autoLabel,
+        icon: phaseData.icon || '📋',
+        desc: phaseData.description || ''
+      };
+      phaseOrderFromData.push(phaseKey);
       for (const intent of (phaseData.intents || [])) {
         intentPhaseMap[intent.category] = phaseData.phase;
       }
     }
 
-    // Phase display config
-    const PHASE_CONFIG = {
-      'GENERAL_SUPPORT': { label: 'General Support', icon: '👋', desc: 'Greetings & general inquiries' },
-      'PRE_ARRIVAL': { label: 'Pre-Arrival', icon: '🔍', desc: 'Enquiry & booking phase' },
-      'ARRIVAL_CHECKIN': { label: 'Arrival & Check-in', icon: '🏨', desc: 'Guest has arrived' },
-      'DURING_STAY': { label: 'During Stay', icon: '🛏️', desc: 'Currently staying' },
-      'CHECKOUT_DEPARTURE': { label: 'Checkout & Departure', icon: '🚪', desc: 'Checking out' },
-      'POST_CHECKOUT': { label: 'Post-Checkout', icon: '📬', desc: 'After departure' },
-      'UNCATEGORIZED': { label: 'Uncategorized', icon: '📋', desc: 'Not mapped to a phase' }
-    };
+    // Render dynamic phase filter buttons
+    const filtersEl = document.getElementById('static-phase-filters');
+    if (filtersEl) {
+      let filterHtml = '<button onclick="filterStaticCategory(\'all\')" data-category="all" class="static-category-btn text-xs px-3 py-1.5 rounded-full border bg-primary-500 text-white border-primary-500 transition">All</button>';
+      for (const phaseKey of phaseOrderFromData) {
+        const cfg = PHASE_CONFIG[phaseKey];
+        const shortLabel = cfg.label.replace(/ & /g, ' & ').replace(/^(.*?)(?:\s*[-—].*)?$/, '$1');
+        filterHtml += `<button onclick="filterStaticCategory('${esc(phaseKey)}')" data-category="${esc(phaseKey)}" class="static-category-btn text-xs px-3 py-1.5 rounded-full border border-neutral-300 hover:bg-neutral-50 transition">${cfg.icon} ${esc(shortLabel)}</button>`;
+      }
+      filtersEl.innerHTML = filterHtml;
+    }
 
     // Validation warnings — build structured data, then render via renderWarnings()
     _cachedWarnings = [];
@@ -177,9 +192,9 @@ export async function loadStaticReplies() {
     if (!knowledgeData.static || knowledgeData.static.length === 0) {
       repliesEl.innerHTML = '<p class="text-neutral-400 text-sm">No intent replies configured</p>';
     } else {
-      // Group replies by phase
+      // Group replies by phase (order from intents data, UNCATEGORIZED last)
       const grouped = {};
-      const phaseOrder = ['GENERAL_SUPPORT', 'PRE_ARRIVAL', 'ARRIVAL_CHECKIN', 'DURING_STAY', 'CHECKOUT_DEPARTURE', 'POST_CHECKOUT', 'UNCATEGORIZED'];
+      const phaseOrder = [...phaseOrderFromData, 'UNCATEGORIZED'];
 
       for (const e of knowledgeData.static) {
         const phase = intentPhaseMap[e.intent] || 'UNCATEGORIZED';
