@@ -2,21 +2,11 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { ok, badRequest, notFound, getStore } from './http-utils.js';
 import { toolRegistry } from '../../tools/registry.js';
+import type { McpConnection } from '../../lib/mcp-client.js';
+
+export type { McpConnection };
 
 const router = Router();
-
-// ─── Types ──────────────────────────────────────────────────────────
-
-interface McpConnection {
-  id: string;
-  name: string;
-  description: string;
-  url: string;
-  transport: 'sse' | 'stdio';
-  auth_type: 'none' | 'bearer';
-  api_key_env: string;
-  enabled: boolean;
-}
 
 interface McpServerConfig {
   enabled: boolean;
@@ -49,6 +39,15 @@ function saveMcpSettings(res: Response, mcpSettings: McpSettings): void {
   const settings = getStore(res).getSettings();
   (settings as any).mcp_servers = mcpSettings;
   getStore(res).setSettings(settings);
+}
+
+/**
+ * Returns all enabled MCP client connections for a given config store.
+ * Used by the chat pipeline to inject external tools at message-processing time.
+ */
+export function getActiveMcpConnections(configStore: { getSettings(): any }): McpConnection[] {
+  const mcpSettings: McpSettings = configStore.getSettings().mcp_servers || { connections: [], server: {} };
+  return (mcpSettings.connections ?? []).filter((c: McpConnection) => c.enabled);
 }
 
 // ─── Server Config (static routes BEFORE parameterized /:id) ────────
@@ -163,22 +162,25 @@ router.post('/mcp-servers/:id/test', async (req: Request, res: Response) => {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const headers: Record<string, string> = { 'Accept': 'text/event-stream' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (conn.auth_type === 'bearer' && conn.api_key_env) {
       const key = process.env[conn.api_key_env];
       if (key) headers['Authorization'] = `Bearer ${key}`;
     }
     const response = await fetch(conn.url, {
-      method: 'GET',
+      method: 'POST',
       headers,
-      signal: controller.signal
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      signal: controller.signal,
     });
     clearTimeout(timeout);
-    ok(res, {
-      status: response.status,
-      statusText: response.statusText,
-      reachable: response.ok || response.status < 500
-    });
+    if (!response.ok) {
+      ok(res, { status: response.status, statusText: response.statusText, reachable: false });
+      return;
+    }
+    const json = await response.json() as any;
+    const toolCount = json.result?.tools?.length ?? 0;
+    ok(res, { status: response.status, reachable: true, toolCount });
   } catch (err: any) {
     const message = err.name === 'AbortError' ? 'Connection timed out (5s)' : err.message;
     res.json({ ok: false, error: message, reachable: false });
