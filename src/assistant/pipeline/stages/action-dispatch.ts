@@ -96,6 +96,10 @@ export async function dispatchAction(
       await handleDataPortabilityRequest(state, result, context);
       break;
 
+    case 'unit_assignment':
+      await handleUnitAssignment(state, result, context);
+      break;
+
     case 'llm_reply':
     case 'reply':
     default:
@@ -840,6 +844,104 @@ async function handleDataPortabilityRequest(
     });
   } catch (err: any) {
     console.error('[Dispatch] US-019: Failed to import admin-notifier:', err.message);
+  }
+}
+
+/**
+ * Unit Assignment handler
+ *
+ * Guest asks which capsule/unit they are assigned to.
+ * Calls PMS2 to look up the guest's active check-in by phone, then returns
+ * their unit number. If not checked in yet, shows available units and prompts
+ * to start check-in. Falls back to staff escalation if API fails.
+ */
+async function handleUnitAssignment(
+  state: PipelineState,
+  result: ClassificationResult,
+  context: IPipelineContext
+): Promise<void> {
+  const { phone, lang, msg, convo } = state;
+  context.resetUnknown(phone);
+
+  const callAPI = context.routerContext.callAPI;
+
+  try {
+    // Try to find the guest's active check-in by phone number
+    const checkedIn = await callAPI('GET', '/api/guests/checked-in');
+    const guests = Array.isArray(checkedIn) ? checkedIn : (checkedIn as any)?.data ?? [];
+
+    // Phone from WhatsApp is in format 601xxxxxxxx@s.whatsapp.net — strip suffix and non-digits
+    const cleanPhone = phone.replace(/@s\.whatsapp\.net|@c\.us/g, '');
+    const cleanDigits = cleanPhone.replace(/\D/g, '');
+
+    const match = guests.find((g: any) => {
+      if (!g.phoneNumber) return false;
+      const gDigits = String(g.phoneNumber).replace(/\D/g, '');
+      // Match on last 8 digits to handle country code variants
+      return gDigits.slice(-8) === cleanDigits.slice(-8);
+    });
+
+    if (match?.unitNumber) {
+      const unitLabel = String(match.unitNumber);
+      const responses: Record<string, string> = {
+        en: `Your assigned capsule is *${unitLabel}*. Please head there and enjoy your stay! 😊 If you have any questions, feel free to ask.`,
+        ms: `Kapsul anda ialah *${unitLabel}*. Sila pergi ke sana dan selamat menikmati penginapan anda! 😊`,
+        zh: `您的舱位是 *${unitLabel}*。请前往该舱位，祝您入住愉快！😊`,
+        ta: `உங்கள் கேப்சூல் *${unitLabel}*. தயவுசெய்து அங்கு செல்லுங்கள்!`,
+      };
+      state.response = responses[lang] ?? responses.en;
+      console.log(`[UnitAssignment] Matched guest to unit ${unitLabel} (phone: ${cleanPhone})`);
+      return;
+    }
+
+    // Guest not checked in yet — show available units and prompt check-in
+    const available = await callAPI('GET', '/api/units/available');
+    const units: any[] = Array.isArray(available) ? available : (available as any)?.units ?? [];
+
+    if (units.length > 0) {
+      const unitList = units.slice(0, 5)
+        .map((u: any) => u.unitNumber ?? u.number ?? u.id)
+        .filter(Boolean)
+        .join(', ');
+      const responses: Record<string, string> = {
+        en: `I couldn't find an active check-in for your number. Available capsules right now: *${unitList}*.\n\nIf you have a reservation, our staff will assign your capsule when you arrive. You can also start the check-in process by typing *check in* 😊`,
+        ms: `Saya tidak jumpa check-in aktif untuk nombor anda. Kapsul yang tersedia sekarang: *${unitList}*.\n\nJika anda ada tempahan, staf kami akan tetapkan kapsul anda semasa ketibaan. Taip *check in* untuk memulakan proses. 😊`,
+        zh: `未找到您的活跃入住记录。目前可用舱位：*${unitList}*。\n\n如有预订，工作人员到达时会为您分配舱位。输入 *check in* 开始办理入住。😊`,
+        ta: `உங்கள் எண்ணில் செயலில் உள்ள check-in காணவில்லை. தற்போது கிடைக்கும் capsule: *${unitList}*. *check in* என்று தட்டச்சு செய்யுங்கள். 😊`,
+      };
+      state.response = responses[lang] ?? responses.en;
+    } else {
+      // No available units — escalate to staff
+      state.response = result.response ?? context.getTemplate('unavailable', lang);
+      await context.escalateToStaff({
+        phone,
+        pushName: msg.pushName,
+        reason: 'unit_query',
+        recentMessages: convo.messages.slice(-5).map(m => `${m.role}: ${m.content}`),
+        originalMessage: state.text,
+        instanceId: msg.instanceId,
+        profileId: state.profileId,
+        triggerDetail: 'Guest asked for capsule assignment — no active check-in found and no available units',
+      });
+    }
+  } catch (err: any) {
+    console.error('[UnitAssignment] Error looking up unit:', err.message);
+    // Graceful fallback — escalate to staff
+    state.response = result.response ?? context.getTemplate('unavailable', lang);
+    try {
+      await context.escalateToStaff({
+        phone,
+        pushName: msg.pushName,
+        reason: 'unit_query',
+        recentMessages: convo.messages.slice(-5).map(m => `${m.role}: ${m.content}`),
+        originalMessage: state.text,
+        instanceId: msg.instanceId,
+        profileId: state.profileId,
+        triggerDetail: `Unit assignment lookup failed: ${err.message}`,
+      });
+    } catch {
+      // Ignore escalation errors
+    }
   }
 }
 

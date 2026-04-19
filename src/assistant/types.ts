@@ -67,6 +67,7 @@ export type IntentCategory =
   | 'general'
   | 'general_complaint_in_stay'
   | 'check_in_arrival'
+  | 'unit_assignment_query'
   | 'lower_deck_preference'
   | 'climate_control_complaint'
   | 'noise_complaint'

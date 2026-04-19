@@ -543,7 +543,7 @@ export async function classifyAndRespond(
       const routing = configStore.getRouting();
       const definedIntents = Object.keys(routing);
       const intent = definedIntents.includes(data.intent) ? data.intent : 'general';
-      const response = looksLikeJson(data.response) ? '' : data.response;
+      const response = sanitizeResponse(data.response);
       const result: AIResponse = { ...data, intent, response };
       result.model = provider?.name || provider?.model || 'unknown';
       result.responseTime = responseTime;
@@ -800,7 +800,7 @@ Respond with ONLY valid JSON: {"response":"<your reply>", "confidence": 0.0-1.0}
         return { response: '', confidence: 0.5, model: provider?.name || 'unknown', responseTime };
       }
       return {
-        response: raw,
+        response: stripConfidenceSuffix(raw),
         confidence: 0.5,
         model: provider?.name || 'unknown',
         responseTime
@@ -833,7 +833,7 @@ function recoverPartial(obj: Record<string, unknown>): AIResponse {
     : 'reply';
 
   const rawResponse = typeof obj.response === 'string' ? obj.response : '';
-  const response = rawResponse && !looksLikeJson(rawResponse) ? rawResponse : '';
+  const response = sanitizeResponse(rawResponse);
 
   const rawConfidence = typeof obj.confidence === 'number' ? obj.confidence : NaN;
   const confidence = Number.isFinite(rawConfidence) ? Math.min(1, Math.max(0, rawConfidence)) : 0.5;
@@ -885,7 +885,7 @@ export function parseAIResponse(raw: string): AIResponse {
     const routing = configStore.getRouting();
     const definedIntents = Object.keys(routing);
     const intent = definedIntents.includes(result.data.intent) ? result.data.intent : 'general';
-    const response = looksLikeJson(result.data.response) ? '' : result.data.response;
+    const response = sanitizeResponse(result.data.response);
     return { ...result.data, intent, response };
   }
 
@@ -897,5 +897,47 @@ export function parseAIResponse(raw: string): AIResponse {
 /** True if the string looks like raw JSON to avoid leaking to guests. */
 export function looksLikeJson(s: string): boolean {
   const t = s.trim();
-  return (t.startsWith('{') && t.includes('"')) || (t.startsWith('[{') && t.includes('"'));
+  return (t.startsWith('{') && t.includes('"'))
+      || (t.startsWith('[{') && t.includes('"'))
+      || /^```(?:json)?\s*\{/i.test(t);  // catch markdown-fenced JSON
+}
+
+/**
+ * Sanitizes the `response` field from an LLM-generated JSON object.
+ * Handles cases where the LLM wraps its reply in a markdown code fence
+ * or nests another JSON object inside the response field.
+ *
+ * - Strips markdown fences (```json ... ```)
+ * - If the result is JSON, attempts to extract the nested `response` field
+ * - Returns empty string if content cannot be recovered as plain text
+ */
+/**
+ * Strips trailing LLM-generated confidence annotations from plain-text fallback responses.
+ * e.g. '...— Rainbow " Confidence: 0.9' → '...— Rainbow'
+ */
+function stripConfidenceSuffix(text: string): string {
+  return text.replace(/"?\s*[Cc]onfidence:\s*[\d.]+\s*$/, '').trim();
+}
+
+function sanitizeResponse(s: string): string {
+  if (!s) return '';
+  const t = s.trim();
+  // Strip markdown fence if present
+  const core = t.startsWith('```')
+    ? t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '').trim()
+    : t;
+  // If it looks like JSON, try to extract the nested response field
+  if (core.startsWith('{') && core.includes('"')) {
+    try {
+      const parsed = JSON.parse(core);
+      const text = parsed?.response ?? parsed?.message ?? parsed?.text ?? parsed?.reply;
+      if (typeof text === 'string') {
+        const inner = text.trim();
+        // One level of recursion to handle double-nesting; bail if still JSON
+        return inner.startsWith('{') || inner.startsWith('```') ? '' : inner;
+      }
+    } catch { /* fall through */ }
+    return '';
+  }
+  return core; // Return fence-stripped clean text
 }

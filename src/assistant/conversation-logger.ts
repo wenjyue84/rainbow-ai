@@ -94,15 +94,14 @@ export async function logMessage(
     const now = new Date();
 
     // DB-level dedup: skip if identical message was logged in the last 10 seconds.
-    // This prevents duplicates from multiple servers (local + Lightsail) writing
-    // to the same Neon DB, or from Baileys double-fire events.
-    const windowStart = new Date(now.getTime() - 10_000);
+    // Uses integer ms epoch to match SQLite integer timestamp column (not ISO string).
+    const windowStartMs = now.getTime() - 10_000;
     const dupeCheck = await db.execute(sql`
       SELECT 1 FROM rainbow_messages
       WHERE phone = ${key}
         AND role = ${role}
         AND content = ${content}
-        AND timestamp > ${windowStart}
+        AND timestamp > ${windowStartMs}
       LIMIT 1
     `);
     if ((dupeCheck as any).rows?.length > 0) {
@@ -115,13 +114,13 @@ export async function logMessage(
       // Upsert conversation (with profileId, bsuid, and referral so it's correctly attributed)
       await upsertConversation(phone, pushName, meta?.instanceId, tx, meta?.profileId, bsuid, meta?.referralData);
 
-      // Insert message
+      // Insert message — profileId defaults to 'pelangi' to satisfy CHECK constraint
       await tx.insert(rainbowMessages).values({
         phone: key,
         role,
         content,
         timestamp: now,
-        profileId: meta?.profileId ?? null,
+        profileId: meta?.profileId ?? 'pelangi',
         intent: meta?.intent ?? null,
         confidence: meta?.confidence ?? null,
         action: meta?.action ?? null,
@@ -197,13 +196,13 @@ export async function logNonTextExchange(
     const nowPlus1 = new Date(now.getTime() + 1);
 
     // DB-level dedup: skip if this non-text exchange was already logged recently
-    const windowStart = new Date(now.getTime() - 10_000);
+    const windowStartMs = now.getTime() - 10_000;
     const dupeCheck = await db.execute(sql`
       SELECT 1 FROM rainbow_messages
       WHERE phone = ${key}
         AND role = 'user'
         AND content = ${userPlaceholder}
-        AND timestamp > ${windowStart}
+        AND timestamp > ${windowStartMs}
       LIMIT 1
     `);
     if ((dupeCheck as any).rows?.length > 0) {
@@ -217,8 +216,8 @@ export async function logNonTextExchange(
 
       // Insert both messages (US-840: include messageType, US-893: include localMediaUrl)
       await tx.insert(rainbowMessages).values([
-        { phone: key, role: 'user', content: userPlaceholder, timestamp: now, profileId: profileId ?? null, messageType: messageType ?? null, localMediaUrl: localMediaUrl ?? null },
-        { phone: key, role: 'assistant', content: assistantReply, timestamp: nowPlus1, responseTime: 0, profileId: profileId ?? null },
+        { phone: key, role: 'user', content: userPlaceholder, timestamp: now, profileId: profileId ?? 'pelangi', messageType: messageType ?? null, localMediaUrl: localMediaUrl ?? null },
+        { phone: key, role: 'assistant', content: assistantReply, timestamp: nowPlus1, responseTime: 0, profileId: profileId ?? 'pelangi' },
       ]);
     });
   } catch (err: any) {
@@ -235,13 +234,18 @@ export async function listConversations(profileId?: string): Promise<Conversatio
 
   return withFallback(
     async () => {
-      // Single query with LATERAL JOINs — eliminates N+1 problem
-      // NOTE: db.execute(sql``) returns raw PG column names (snake_case), NOT Drizzle camelCase
+      // SQLite-compatible query: CTE + window function replaces LATERAL JOINs
+      // NOTE: db.execute(sql``) returns raw column names (snake_case), NOT Drizzle camelCase
       const profileFilter = profileId
         ? sql`AND c.profile_id = ${profileId}`
         : sql``;
 
       const result = await db.execute(sql`
+        WITH ranked_msgs AS (
+          SELECT phone, content, role, timestamp,
+            ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+          FROM rainbow_messages
+        )
         SELECT
           c.phone,
           c.push_name,
@@ -253,41 +257,14 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           c.created_at,
           c.last_read_at,
           lm.content   AS last_msg_content,
-          lm.role       AS last_msg_role,
-          lm.timestamp  AS last_msg_at,
-          COALESCE(mc.total, 0)::int  AS message_count,
-          COALESCE(uc.unread, 0)::int AS unread_count,
-          -- US-815: session window — true if last user msg within 24h
-          COALESCE(sw.last_user_at > NOW() - INTERVAL '24 hours', false) AS session_active
+          lm.role      AS last_msg_role,
+          lm.timestamp AS last_msg_at,
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone), 0) AS message_count,
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count,
+          -- US-815: session window — 1 if last user msg within 24h (SQLite: datetime instead of INTERVAL)
+          CASE WHEN (SELECT MAX(timestamp) FROM rainbow_messages WHERE phone = c.phone AND role = 'user') > datetime('now', '-24 hours') THEN 1 ELSE 0 END AS session_active
         FROM rainbow_conversations c
-        LEFT JOIN LATERAL (
-          SELECT content, role, timestamp
-          FROM rainbow_messages
-          WHERE phone = c.phone
-          ORDER BY timestamp DESC
-          LIMIT 1
-        ) lm ON true
-        LEFT JOIN LATERAL (
-          SELECT count(*)::int AS total
-          FROM rainbow_messages
-          WHERE phone = c.phone
-        ) mc ON true
-        LEFT JOIN LATERAL (
-          SELECT count(*)::int AS unread
-          FROM rainbow_messages
-          WHERE phone = c.phone
-            AND role = 'user'
-            AND (
-              c.last_read_at IS NULL
-              OR timestamp > c.last_read_at
-            )
-        ) uc ON true
-        LEFT JOIN LATERAL (
-          SELECT MAX(timestamp) AS last_user_at
-          FROM rainbow_messages
-          WHERE phone = c.phone
-            AND role = 'user'
-        ) sw ON true
+        JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
         WHERE lm.content IS NOT NULL
           AND c.phone NOT LIKE 'webchat-%'
           ${profileFilter}
@@ -314,7 +291,7 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         createdAt: r.created_at instanceof Date
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
-        sessionActive: r.session_active === true || r.session_active === 't', // US-815
+        sessionActive: r.session_active === true || r.session_active === 't' || r.session_active === 1, // US-815
       }));
       setListCache(summaries, profileId);
       return summaries;
@@ -336,12 +313,27 @@ export async function searchConversations(
   return withFallback(
     async () => {
       const searchTerm = `%${query.trim()}%`;
+      // No table alias inside CTE — use bare column name
       const profileFilter = profileId
-        ? sql`AND m.profile_id = ${profileId}`
+        ? sql`AND profile_id = ${profileId}`
         : sql``;
 
       const result = await db.execute(sql`
-        SELECT DISTINCT ON (c.phone)
+        WITH ranked_msgs AS (
+          SELECT phone, content, role, timestamp,
+            ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+          FROM rainbow_messages
+          WHERE deleted_at IS NULL
+        ),
+        matching AS (
+          SELECT phone, MAX(timestamp) AS latest_match
+          FROM rainbow_messages
+          WHERE content LIKE ${searchTerm}
+            AND deleted_at IS NULL
+            ${profileFilter}
+          GROUP BY phone
+        )
+        SELECT
           c.phone,
           c.push_name,
           c.bsuid,
@@ -352,60 +344,22 @@ export async function searchConversations(
           c.created_at,
           c.last_read_at,
           lm.content   AS last_msg_content,
-          lm.role       AS last_msg_role,
-          lm.timestamp  AS last_msg_at,
-          COALESCE(mc.total, 0)::int  AS message_count,
-          COALESCE(uc.unread, 0)::int AS unread_count,
-          COALESCE(sw.last_user_at > NOW() - INTERVAL '24 hours', false) AS session_active,
-          match_ts.latest_match
+          lm.role      AS last_msg_role,
+          lm.timestamp AS last_msg_at,
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND deleted_at IS NULL), 0) AS message_count,
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count,
+          CASE WHEN (SELECT MAX(timestamp) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL) > datetime('now', '-24 hours') THEN 1 ELSE 0 END AS session_active,
+          matching.latest_match
         FROM rainbow_conversations c
-        -- Find conversations that have at least one matching message
-        INNER JOIN (
-          SELECT phone, MAX(timestamp) AS latest_match
-          FROM rainbow_messages
-          WHERE content ILIKE ${searchTerm}
-            AND deleted_at IS NULL
-            ${profileFilter}
-          GROUP BY phone
-        ) match_ts ON match_ts.phone = c.phone
-        -- Last message
-        LEFT JOIN LATERAL (
-          SELECT content, role, timestamp
-          FROM rainbow_messages
-          WHERE phone = c.phone AND deleted_at IS NULL
-          ORDER BY timestamp DESC LIMIT 1
-        ) lm ON true
-        -- Message count
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*)::int AS total
-          FROM rainbow_messages
-          WHERE phone = c.phone AND deleted_at IS NULL
-        ) mc ON true
-        -- Unread count
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*)::int AS unread
-          FROM rainbow_messages
-          WHERE phone = c.phone
-            AND role = 'user'
-            AND deleted_at IS NULL
-            AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)
-        ) uc ON true
-        -- Session window
-        LEFT JOIN LATERAL (
-          SELECT MAX(timestamp) AS last_user_at
-          FROM rainbow_messages
-          WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL
-        ) sw ON true
+        INNER JOIN matching ON matching.phone = c.phone
+        LEFT JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
         WHERE c.deleted_at IS NULL
           AND c.phone NOT LIKE 'webchat-%'
-        ORDER BY c.phone, match_ts.latest_match DESC
+        ORDER BY matching.latest_match DESC
         LIMIT ${limit}
       `);
 
-      // Re-sort by latest match descending (DISTINCT ON requires ORDER BY phone first)
-      const rows: any[] = (result.rows as any[]).sort(
-        (a: any, b: any) => new Date(b.latest_match).getTime() - new Date(a.latest_match).getTime()
-      );
+      const rows: any[] = result.rows as any[];
 
       return rows.map((r: any) => ({
         phone: r.phone,
@@ -426,7 +380,7 @@ export async function searchConversations(
         createdAt: r.created_at instanceof Date
           ? r.created_at.getTime()
           : new Date(r.created_at).getTime(),
-        sessionActive: r.session_active === true || r.session_active === 't',
+        sessionActive: r.session_active === true || r.session_active === 't' || r.session_active === 1,
       }));
     },
     async () => [],
@@ -715,4 +669,18 @@ export async function deduplicateMessages(): Promise<number> {
     console.error('[ConvoLogger] Dedup cleanup failed:', err.message);
     return 0;
   }
+}
+
+/**
+ * Returns all conversations with their contact details flattened.
+ * Used by event-triggers.ts for broadcast trigger evaluation.
+ */
+export async function getAllConversationsWithContacts(): Promise<
+  Array<{ phone: string; contactDetails: Record<string, any> }>
+> {
+  const conversations = await listConversations();
+  return conversations.map((c) => ({
+    phone: c.phone,
+    contactDetails: (c as any).contactDetails ?? {},
+  }));
 }

@@ -45,6 +45,14 @@ export function getYesterdayDate(): string {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kuala_Lumpur' });
 }
 
+export function getCurrentDateTime(): string {
+  const now = new Date();
+  const date = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Kuala_Lumpur' });
+  const time = now.toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', hour12: false });
+  const dayName = now.toLocaleDateString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'long' });
+  return `${dayName}, ${date} ${time} (Malaysia time)`;
+}
+
 export function getMYTTimestamp(): string {
   return new Date().toLocaleTimeString('en-GB', {
     timeZone: 'Asia/Kuala_Lumpur',
@@ -571,7 +579,14 @@ ${coreContent}${memoryContent}`;
       .filter(Boolean)
       .join('\n\n---\n\n');
 
+    const currentDateTime = getCurrentDateTime();
+
     return `${basePrompt}${topicContent ? `\n\n---\n\n${topicContent}` : ''}
-</knowledge_base>`;
+</knowledge_base>
+
+<current_time>
+The current date and time is: ${currentDateTime}
+Use this to answer time-sensitive questions such as "can I check in now?", "is it too late to check out?", "what time is it?", etc.
+</current_time>`;
   }
 }

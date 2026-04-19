@@ -1,11 +1,10 @@
 {
-  "schema_version": "1.0.0",
   "ai": {
     "nvidia_model": "moonshotai/kimi-k2.5",
     "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
     "groq_model": "llama-3.3-70b-versatile",
     "max_classify_tokens": 100,
-    "max_chat_tokens": 500,
+    "max_chat_tokens": 800,
     "classify_temperature": 0.05,
     "chat_temperature": 0.7,
     "providers": [
@@ -20,7 +19,7 @@
         "enabled": true,
         "priority": 0,
         "available": true,
-        "timeout_ms": 6000
+        "timeout_ms": 30000
       },
       {
         "id": "ollama-gemini-flash",
@@ -82,7 +81,7 @@
         "api_key_env": "GROQ_API_KEY",
         "base_url": "https://api.groq.com/openai/v1",
         "model": "qwen3-32b",
-        "enabled": true,
+        "enabled": false,
         "priority": 5,
         "available": true,
         "timeout_ms": 6000
@@ -235,11 +234,6 @@
     "per_minute": 40,
     "per_hour": 200
   },
-  "rateLimiting": {
-    "enabled": true,
-    "perUserWindowMs": 60000,
-    "perUserMaxMessages": 10
-  },
   "staff": {
     "phones": [
       "60167620815",
@@ -251,17 +245,36 @@
   },
   "conversation_management": {
     "enabled": true,
-    "max_context_tokens": 6000,
-    "keep_recent_turns": 4,
-    "context_pruning_window_minutes": 30,
     "summarize_threshold": 6,
     "summarize_from_message": 1,
     "summarize_to_message": 5,
     "keep_verbatim_from": 6,
     "keep_verbatim_to": 20,
-    "summarization_providers": [],
-    "context_window_alert_threshold": 0.8,
     "description": "Token-aware pruning: when context exceeds max_context_tokens (6000), older messages beyond the last keep_recent_turns (4) turns are summarized. context_pruning_window_minutes (30): removes messages older than this window unless they contain keywords matching current intent (US-102). summarization_providers: optional list of cheap provider IDs for summarization calls (empty = use default). context_window_alert_threshold: alert when LLM call tokens exceed this fraction of model context window (US-978)."
+  },
+  "sentiment_analysis": {
+    "enabled": true,
+    "consecutive_threshold": 3,
+    "cooldown_minutes": 30,
+    "description": "Automatically detect frustrated users and escalate to staff when they send consecutive negative messages"
+  },
+  "failover": {
+    "enabled": false,
+    "heartbeatIntervalMs": 20000,
+    "failoverThresholdMs": 60000,
+    "handbackMode": "immediate",
+    "handbackGracePeriodMs": 30000
+  },
+  "retention": {
+    "enabled": true,
+    "retention_days": 730,
+    "grace_period_days": 30
+  },
+  "schema_version": "1.0.0",
+  "rateLimiting": {
+    "enabled": true,
+    "perUserWindowMs": 60000,
+    "perUserMaxMessages": 30
   },
   "confidence_threshold": 0.5,
   "consecutive_fallback_threshold": 1,
@@ -294,17 +307,6 @@
     ],
     "description": "Multi-stage fallback (US-445). First unrecognized message shows suggested options; second consecutive unrecognized triggers escalation."
   },
-  "sentiment_analysis": {
-    "enabled": true,
-    "consecutive_threshold": 3,
-    "cooldown_minutes": 30,
-    "escalation_messages": {
-      "en": "\n\nI sense you may be frustrated. I've alerted our team, and someone will reach out to you shortly.",
-      "ms": "\n\nSaya faham anda mungkin kecewa. Saya telah maklumkan pasukan kami, dan seseorang akan menghubungi anda tidak lama lagi.",
-      "zh": "\n\n我感觉到您可能有些不满。我已通知我们的团队,他们会尽快与您联系。"
-    },
-    "description": "Automatically detect frustrated users and escalate to staff when they send consecutive negative messages"
-  },
   "escalation_rules": {
     "enabled": true,
     "high_stakes_keywords": [
@@ -318,13 +320,6 @@
     "consecutive_low_confidence_limit": 2,
     "sla_minutes": 15,
     "description": "US-914: Structured escalation rules — high-stakes keywords trigger immediate escalation, consecutive low-confidence AI responses escalate after 2 turns"
-  },
-  "failover": {
-    "enabled": false,
-    "heartbeatIntervalMs": 20000,
-    "failoverThresholdMs": 60000,
-    "handbackMode": "immediate",
-    "handbackGracePeriodMs": 30000
   },
   "whatsapp_compliance": {
     "enforce_24h_window": true,
@@ -376,13 +371,13 @@
     },
     "connections": [
       {
-        "id": "pms2-pelangi",
-        "name": "PMS2 (Property Management)",
-        "description": "Pelangi Capsule Hostel property management � guests, units, check-in/out, occupancy, availability, maintenance, reservations, and dashboard analytics. 24 tools via JSON-RPC.",
+        "id": "pms2",
+        "name": "PMS2",
+        "description": "Pelangi Capsule Hostel PMS — guests, reservations, units, expenses, folios, analytics",
         "url": "http://localhost:5000/api/mcp",
         "transport": "sse",
-        "auth_type": "none",
-        "api_key_env": "",
+        "auth_type": "bearer",
+        "api_key_env": "DIGIMAN_API_TOKEN",
         "enabled": true
       }
     ]
@@ -439,13 +434,6 @@
   },
   "piiRedaction": {
     "enabled": true
-  },
-  "retention": {
-    "enabled": true,
-    "retention_days": 730,
-    "grace_period_days": 30,
-    "archival_retention_days": 2555,
-    "description": "US-907: PDPA 2024 default retention 24 months (730 days). Conversations and message logs older than retention_days are flagged for disposal. US-157: archival_retention_days=2555 (7 years) for hard-delete of oldest conversations for legal compliance."
   },
   "typingIndicator": {
     "enabled": true,
@@ -608,34 +596,39 @@
     "timezone": "Asia/Kuala_Lumpur",
     "schedule": [
       {
+        "day": 0,
+        "open": "10:00",
+        "close": "24:00"
+      },
+      {
         "day": 1,
-        "open": "09:00",
-        "close": "17:00"
+        "open": "10:00",
+        "close": "24:00"
       },
       {
         "day": 2,
-        "open": "09:00",
-        "close": "17:00"
+        "open": "10:00",
+        "close": "24:00"
       },
       {
         "day": 3,
-        "open": "09:00",
-        "close": "17:00"
+        "open": "10:00",
+        "close": "24:00"
       },
       {
         "day": 4,
-        "open": "09:00",
-        "close": "17:00"
+        "open": "10:00",
+        "close": "24:00"
       },
       {
         "day": 5,
-        "open": "09:00",
-        "close": "17:00"
+        "open": "10:00",
+        "close": "24:00"
       },
       {
         "day": 6,
         "open": "10:00",
-        "close": "14:00"
+        "close": "24:00"
       }
     ],
     "holidays": []

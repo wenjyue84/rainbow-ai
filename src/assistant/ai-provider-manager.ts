@@ -195,7 +195,7 @@ function validateProviderResponse(data: any, providerName: string, startTime: nu
 }
 
 /** Validate Google Gemini response structure; throws descriptive errors to trigger fallback */
-function validateGeminiResponse(data: any, providerName: string, startTime: number): { content: string; usage?: any } {
+function validateGeminiResponse(data: any, providerName: string, startTime: number): { content: string; usage?: any; toolCalls?: any[] } {
   if (!data) {
     throw new Error(`${providerName}: empty response body`);
   }
@@ -206,6 +206,30 @@ function validateGeminiResponse(data: any, providerName: string, startTime: numb
   if (!Array.isArray(parts) || parts.length === 0) {
     throw new Error(`${providerName}: candidates[0] missing content.parts`);
   }
+
+  // Extract Gemini usage metadata (different format from OpenAI)
+  const usage = data.usageMetadata ? {
+    prompt_tokens: data.usageMetadata.promptTokenCount,
+    completion_tokens: data.usageMetadata.candidatesTokenCount,
+    total_tokens: data.usageMetadata.totalTokenCount
+  } : undefined;
+
+  // Check for functionCall parts — Gemini tool use response
+  const functionCallParts = parts.filter((p: any) => p.functionCall);
+  if (functionCallParts.length > 0) {
+    const toolCalls = functionCallParts.map((p: any, idx: number) => ({
+      id: `call_gemini_${idx}_${Date.now()}`,
+      type: 'function',
+      function: {
+        name: p.functionCall.name,
+        arguments: JSON.stringify(p.functionCall.args ?? {})
+      }
+    }));
+    const elapsed = Date.now() - startTime;
+    console.log(`[AI] ✓ ${providerName} responded with ${toolCalls.length} tool call(s) (${elapsed}ms)`);
+    return { content: '', usage, toolCalls };
+  }
+
   const text = parts[0]?.text;
   if (typeof text !== 'string') {
     throw new Error(`${providerName}: parts[0].text is not a string (got ${typeof text})`);
@@ -216,13 +240,6 @@ function validateGeminiResponse(data: any, providerName: string, startTime: numb
   }
   const elapsed = Date.now() - startTime;
   console.log(`[AI] ✓ ${providerName} responded (${elapsed}ms, ${trimmed.length} chars)`);
-
-  // Extract Gemini usage metadata (different format from OpenAI)
-  const usage = data.usageMetadata ? {
-    prompt_tokens: data.usageMetadata.promptTokenCount,
-    completion_tokens: data.usageMetadata.candidatesTokenCount,
-    total_tokens: data.usageMetadata.totalTokenCount
-  } : undefined;
 
   return { content: trimmed, usage };
 }
@@ -331,15 +348,62 @@ export async function providerChat(
         result = validateProviderResponse(response, provider.name, startTime);
 
       } else if (provider.type === 'google-gemini') {
-        // Convert OpenAI-style messages to Gemini format
-        const contents = messages.map(msg => ({
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }]
-        }));
+        // Separate system messages → systemInstruction (Gemini doesn't accept system role in contents)
+        const systemMsgs = messages.filter(m => m.role === 'system');
+        const nonSystemMsgs = messages.filter(m => m.role !== 'system');
+
+        // Build a lookup of tool_call_id → function name for resolving tool result names
+        const toolCallIdToName = new Map<string, string>();
+        for (const msg of nonSystemMsgs) {
+          const m = msg as any;
+          if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+            for (const tc of m.tool_calls) {
+              if (tc.id && tc.function?.name) toolCallIdToName.set(tc.id, tc.function.name);
+            }
+          }
+        }
+
+        // Convert OpenAI-style messages to Gemini format, including tool call/result messages
+        const contents: any[] = [];
+        for (const msg of nonSystemMsgs) {
+          const m = msg as any;
+          if (m.role === 'assistant') {
+            if (m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+              // Assistant requesting tool calls → Gemini functionCall parts
+              contents.push({
+                role: 'model',
+                parts: m.tool_calls.map((tc: any) => ({
+                  functionCall: {
+                    name: tc.function.name,
+                    args: (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })()
+                  }
+                }))
+              });
+            } else {
+              contents.push({ role: 'model', parts: [{ text: m.content || '' }] });
+            }
+          } else if (m.role === 'tool') {
+            // Tool result → Gemini functionResponse (must be in a user turn)
+            // OpenAI format has tool_call_id but no name — look up via the id map
+            const toolName = m.name || toolCallIdToName.get(m.tool_call_id) || m.tool_call_id || 'unknown_tool';
+            contents.push({
+              role: 'user',
+              parts: [{
+                functionResponse: {
+                  name: toolName,
+                  response: { content: m.content }
+                }
+              }]
+            });
+          } else {
+            contents.push({ role: 'user', parts: [{ text: m.content || '' }] });
+          }
+        }
 
         const generationConfig: Record<string, unknown> = {
           maxOutputTokens: maxTokens,
-          temperature
+          temperature,
+          thinkingConfig: { thinkingBudget: 0 }  // disable thinking — budget shared with response tokens
         };
 
         // Add JSON response format if requested
@@ -347,7 +411,23 @@ export async function providerChat(
           generationConfig.responseMimeType = 'application/json';
         }
 
-        const body = { contents, generationConfig };
+        const body: any = { contents, generationConfig };
+
+        // System instruction (separate from contents in Gemini API)
+        if (systemMsgs.length > 0) {
+          body.systemInstruction = { parts: systemMsgs.map(m => ({ text: m.content })) };
+        }
+
+        // Tool declarations — convert OpenAI function format to Gemini functionDeclarations
+        if (tools && tools.length > 0) {
+          body.tools = [{
+            functionDeclarations: tools.map((t: any) => ({
+              name: t.function.name,
+              description: t.function.description || '',
+              parameters: t.function.parameters || {}
+            }))
+          }];
+        }
 
         const url = `${provider.base_url}/models/${provider.model}:generateContent?key=${apiKey}`;
         const axiosPromise = axios.post(url, body, {

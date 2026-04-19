@@ -11,9 +11,9 @@ import type { MCPTool, ToolHandler } from '../types/mcp.js';
 import type { ChatMessage as TypesChatMessage } from './types.js';
 import type { SupportedLanguage } from './language-router.js';
 import { isAIAvailable, classifyAndRespond } from './ai-client.js';
-import { getUnknownFallbackMessages, chatWithToolsLoop } from './ai-response-generator.js';
+import { getUnknownFallbackMessages, chatWithToolsLoop, looksLikeJson } from './ai-response-generator.js';
 import { detectPromptInjection } from './pipeline/prompt-injection-guard.js';
-import { filterByRelevance } from './pipeline/context-manager.js';
+import { filterByRelevance, pruneContextByRelevance } from './pipeline/context-manager.js';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -497,11 +497,14 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     finalMessage = 'AI not available';
   }
 
-  // Catch-all fallback
-  if (!finalMessage || !finalMessage.trim()) {
+  // Catch-all fallback — also guards against raw JSON leaking as a chat response
+  if (!finalMessage || !finalMessage.trim() || looksLikeJson(finalMessage)) {
     const detectedLang = (['ms', 'zh', 'ta'].includes(intentResult.detectedLanguage || ''))
       ? intentResult.detectedLanguage as 'en' | 'ms' | 'zh' | 'ta'
       : 'en';
+    if (looksLikeJson(finalMessage)) {
+      console.warn('[ChatEngine] Caught raw JSON in finalMessage, using fallback');
+    }
     finalMessage = getUnknownFallbackMessages(store)[detectedLang];
     llmModel = llmModel === 'none' ? 'static_fallback' : llmModel;
   }
