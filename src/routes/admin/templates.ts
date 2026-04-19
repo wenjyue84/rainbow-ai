@@ -22,11 +22,14 @@ router.get('/:name', (req, res) => {
   // Sanitize template name (prevent directory traversal)
   const safeName = name.replace(/[^a-z0-9_-]/gi, '');
 
-  // Dev: templates live in src/public/templates/tabs (tsx mode, cwd = RainbowAI/)
-  // Prod: deploy.sh copies src/public → dist/public; only dist/ is uploaded to server
+  // In production, always use dist/ (src/ may be stale or absent on the server).
+  // In development (tsx watch mode), prefer src/ for live edits without a rebuild.
   const srcPath = join(process.cwd(), 'src', 'public', 'templates', 'tabs', `${safeName}.html`);
   const distPath = join(process.cwd(), 'dist', 'public', 'templates', 'tabs', `${safeName}.html`);
-  const templatePath = existsSync(srcPath) ? srcPath : distPath;
+  const isProd = process.env.NODE_ENV === 'production';
+  const templatePath = isProd
+    ? (existsSync(distPath) ? distPath : srcPath)
+    : (existsSync(srcPath) ? srcPath : distPath);
 
   if (!existsSync(templatePath)) {
     return notFound(res, 'Template');

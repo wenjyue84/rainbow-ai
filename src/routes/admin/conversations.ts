@@ -6,6 +6,7 @@ import path from 'path';
 import { listConversations, searchConversations, getConversation, deleteConversation, getResponseTimeStats, togglePin, toggleFavourite, markConversationAsRead, updateConversationMode } from '../../assistant/conversation-logger.js';
 import type { ConversationLog, LoggedMessage } from '../../assistant/conversation-logger.js';
 import { whatsappManager } from '../../lib/baileys-client.js';
+import { pool } from '../../lib/db.js';
 import { sessionWindowActive, logSessionExpired } from '../../lib/session-window.js';
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
 import contactsRouter from './conversations-contacts.js';
@@ -69,6 +70,66 @@ router.get('/conversations/search', async (req: Request, res: Response) => {
   const profileId = (req.query.profileId as string) || res.locals.profileId as string | undefined;
   const conversations = await searchConversations(q, profileId);
   res.json(conversations);
+});
+
+router.get('/conversations/unified', async (req: Request, res: Response) => {
+  const profileId = res.locals.profileId as string | undefined;
+
+  // 1. WhatsApp conversations
+  const waConvos = await listConversations(profileId);
+
+  // 2. Webchat conversations (phones matching 'webchat-%')
+  let webchatConvos: any[] = [];
+  try {
+    const profileFilter = profileId ? `AND c.profile_id = '${profileId}'` : '';
+    const result = await pool.query(`
+      WITH ranked_msgs AS (
+        SELECT phone, content, role, timestamp,
+          ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+        FROM rainbow_messages
+      )
+      SELECT
+        c.phone, c.push_name, c.pinned, c.last_read_at, c.created_at, c.status,
+        lm.content AS last_msg_content,
+        lm.role    AS last_msg_role,
+        lm.timestamp AS last_msg_at,
+        COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone), 0) AS message_count,
+        COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count
+      FROM rainbow_conversations c
+      JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
+      WHERE c.phone LIKE 'webchat-%'
+        AND lm.content IS NOT NULL
+        ${profileFilter}
+      ORDER BY lm.timestamp DESC
+    `);
+
+    webchatConvos = result.rows.map((r: any) => ({
+      phone: r.phone,
+      pushName: r.push_name || 'Web Guest',
+      lastMessage: (r.last_msg_content || '').slice(0, 100),
+      lastMessageRole: r.last_msg_role as 'user' | 'assistant',
+      lastMessageAt: r.last_msg_at instanceof Date
+        ? r.last_msg_at.getTime()
+        : new Date(r.last_msg_at).getTime(),
+      messageCount: Number(r.message_count ?? 0),
+      unreadCount: Number(r.unread_count ?? 0),
+      pinned: r.pinned ?? false,
+      favourite: false,
+      createdAt: r.created_at instanceof Date
+        ? r.created_at.getTime()
+        : new Date(r.created_at).getTime(),
+      sessionActive: true,
+      channel: 'webchat',
+    }));
+  } catch (err) {
+    console.warn('[Unified] Webchat query failed:', (err as Error).message);
+  }
+
+  // 3. Merge + sort by lastMessageAt DESC
+  const merged = [...waConvos, ...webchatConvos]
+    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  res.json(merged);
 });
 
 router.get('/conversations', async (req: Request, res: Response) => {

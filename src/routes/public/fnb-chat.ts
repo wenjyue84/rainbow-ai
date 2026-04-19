@@ -18,7 +18,7 @@ const router = Router();
 // ─── Rate Limit ──────────────────────────────────────────────────────
 const fnbChatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: parseInt(process.env.FNB_CHAT_RATE_LIMIT || '10', 10),
+  max: parseInt(process.env.FNB_CHAT_RATE_LIMIT || '30', 10),
   message: { error: 'Too many messages. Please wait a moment.' },
   standardHeaders: true,
   legacyHeaders: false,

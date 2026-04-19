@@ -374,20 +374,23 @@ runCanaryProbesOnStartup().catch(err =>
 );
 startCanaryScheduler(); // daily at 03:00 MY time
 
-// US-515: Enable pg_stat_statements and start slow query monitor
-ensurePgStatStatements(pool).then(() => {
-  setSlowQueryAlertHandler(async (report) => {
-    const critical = report.rows.filter(r => r.meanExecTimeMs > 2000);
-    if (critical.length > 0) {
-      await notifyAdminSlowQuery(
-        critical[0].query,
-        critical[0].meanExecTimeMs,
-        critical.length
-      );
-    }
-  });
-  startSlowQueryMonitor(pool);
-}).catch(err => console.warn('[Startup] Slow query monitor init failed:', err.message));
+// US-515: Enable pg_stat_statements and start slow query monitor (PostgreSQL only)
+const isPostgresDb = !!(process.env.DATABASE_URL?.startsWith('postgresql') || process.env.DATABASE_URL?.startsWith('postgres:'));
+if (isPostgresDb) {
+  ensurePgStatStatements(pool as any).then(() => {
+    setSlowQueryAlertHandler(async (report) => {
+      const critical = report.rows.filter(r => r.meanExecTimeMs > 2000);
+      if (critical.length > 0) {
+        await notifyAdminSlowQuery(
+          critical[0].query,
+          critical[0].meanExecTimeMs,
+          critical.length
+        );
+      }
+    });
+    startSlowQueryMonitor(pool as any);
+  }).catch(err => console.warn('[Startup] Slow query monitor init failed:', err.message));
+}
 
 const app = express();
 const PORT = parseInt(process.env.MCP_SERVER_PORT || '3002', 10);
@@ -446,6 +449,9 @@ app.use(helmet({
       baseUri: ["'self'"],
       formAction: ["'self'"],
       reportUri: '/csp-report',
+      // Disabled: server runs HTTP-only (no TLS), so upgrade-insecure-requests
+      // would cause all subresource loads to fail with ERR_SSL_PROTOCOL_ERROR.
+      upgradeInsecureRequests: null,
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -456,7 +462,8 @@ app.use(helmet({
   // US-1006: Referrer-Policy — Helmet default is no-referrer; override to strict-origin-when-cross-origin
   // to send origin on same-site requests and stripped referrer on cross-site.
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
+  // Disabled: server runs plain HTTP on Hetzner VPS — HSTS would lock browsers into HTTPS.
+  hsts: false,
 }));
 
 // US-1006: Permissions-Policy — restrict sensitive browser APIs (Helmet v8 does not include this header natively)
@@ -774,7 +781,7 @@ async function getDashboardHtml(_url: string, nonce: string): Promise<string> {
   const adminKey = process.env.RAINBOW_ADMIN_KEY || '';
   const interceptorScript = `<script nonce="${nonce}">
 window.__ADMIN_KEY__=${JSON.stringify(adminKey)};
-(function(){var _f=window.fetch;window.fetch=function(url,opts){opts=opts||{};if(typeof url==='string'&&url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var h=Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},opts.headers||{});opts=Object.assign({},opts,{headers:h});}return _f.call(this,url,opts);};})();
+(function(){var _f=window.fetch;window.fetch=function(url,opts){opts=opts||{};if(typeof url==='string'&&url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var hdrs=opts.headers||{};var hasKey=Object.keys(hdrs).some(function(k){return k.toLowerCase()==='x-admin-key';});if(!hasKey){var h=Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},hdrs);opts=Object.assign({},opts,{headers:h});}}return _f.call(this,url,opts);};})();
 </script>`;
   html = html.replace('<head>', `<head>\n  ${interceptorScript}`);
   return html;
@@ -1052,7 +1059,11 @@ server.listen(PORT, '0.0.0.0', () => {
     await initAdminNotificationSettings();
 
     // Initialize WhatsApp (Baileys) with crash isolation supervisor
-    await startBaileysWithSupervision();
+    if (process.env.DISABLE_WHATSAPP === '1' || process.env.DISABLE_WHATSAPP === 'true') {
+      console.warn('[Startup] DISABLE_WHATSAPP set — skipping Baileys init (webapp only mode)');
+    } else {
+      await startBaileysWithSupervision();
+    }
 
     // Initialize scheduled message checker (US-019)
     initScheduler();

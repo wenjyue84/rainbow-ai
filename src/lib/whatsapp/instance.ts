@@ -20,6 +20,23 @@ interface CircuitBreakerState {
   maxFailures: number;           // 5 consecutive failures to trip
 }
 
+// Cache WA Web version to avoid repeated network round-trips on every reconnect attempt.
+// Version changes rarely (days/weeks); a 24-hour TTL is more than sufficient.
+let _cachedWaVersion: number[] | null = null;
+let _cachedWaVersionAt = 0;
+const WA_VERSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+async function getWaVersion(): Promise<number[]> {
+  const now = Date.now();
+  if (_cachedWaVersion && now - _cachedWaVersionAt < WA_VERSION_CACHE_TTL_MS) {
+    return _cachedWaVersion;
+  }
+  const { version } = await fetchLatestWaWebVersion();
+  _cachedWaVersion = version;
+  _cachedWaVersionAt = now;
+  return version;
+}
+
 // US-477: BSUID pattern — two-letter country code + dot + alphanumeric (up to 128 chars)
 const BSUID_PATTERN = /^[A-Z]{2}\.[A-Za-z0-9]{1,125}$/;
 
@@ -114,7 +131,7 @@ export class WhatsAppInstance {
 
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts: number = 0;
-  private static readonly MAX_RECONNECT_ATTEMPTS = 3;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 7;
   private lastDisconnectCode: number | null = null;
   private lastDisconnectAt: string | null = null;
 
@@ -187,14 +204,18 @@ export class WhatsAppInstance {
     // US-480: DB-backed auth state replaces useMultiFileAuthState
     const { state, saveCreds } = await useDbAuthState(this.id);
 
-    const { version } = await fetchLatestWaWebVersion();
+    const version = await getWaVersion();
     console.log(`[Baileys:${this.id}] Using WA Web version: ${version.join('.')}`);
 
     this.sock = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
-      keepAliveIntervalMs: 10_000, // 10s keepalives — prevents socket from appearing silent during idle periods
+      keepAliveIntervalMs: 30_000,    // 30s — less aggressive than 10s, fewer false-timeout risks
+      connectTimeoutMs: 60_000,       // explicit connection timeout; prevents indefinite hang
+      defaultQueryTimeoutMs: 60_000,  // explicit query timeout
+      retryRequestDelayMs: 2000,      // 2s between retried requests
+      maxMsgRetryCount: 5,            // retry outbound send up to 5 times on transient failure
       browser: ['digiman', 'Chrome', '1.0.0']
     });
 

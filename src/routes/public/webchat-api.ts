@@ -24,6 +24,11 @@ import type { WebchatIdleConfig } from '../../assistant/webchat-idle-timeout.js'
 import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
+import { getActiveMcpConnections } from '../admin/mcp-servers.js';
+import { fetchMcpTools } from '../../lib/mcp-client.js';
+import { buildExternalToolHandlers } from '../../lib/mcp-tool-proxy.js';
+import type { MCPTool, ToolHandler } from '../../types/mcp.js';
+import { configStore as globalConfigStore } from '../../assistant/config-store.js';
 
 const router = Router();
 
@@ -56,10 +61,10 @@ function ensureProfileIdColumn(): void {
   pool.query(`ALTER TABLE rainbow_conversations ADD COLUMN IF NOT EXISTS profile_id VARCHAR(50)`).catch(() => {});
 }
 
-// Public rate limit: 10 messages per minute per IP
+// Public rate limit: 30 messages per minute per IP
 const webchatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 30,
   message: { error: 'Too many messages. Please wait a moment before sending another.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -327,6 +332,45 @@ router.get('/:profileId/config', (req: Request, res: Response) => {
     businessHours: businessHours || null,
   });
 });
+
+// ─── External MCP Tool Loader ──────────────────────────────────────────
+/**
+ * Loads tools from all active MCP client connections configured for a profile.
+ * Tool lists are cached for 60s inside fetchMcpTools — safe to call per-request.
+ * Failures are silenced so a downed PMS2 never breaks the chat pipeline.
+ */
+async function loadExternalMcpTools(
+  profileConfigStore: { getSettings(): any }
+): Promise<{ tools: MCPTool[]; handlers: Map<string, ToolHandler> }> {
+  // Merge connections from profile-specific store + global store (deduped by id).
+  // Global singleton (admin UI default) is always current; profile store may lag until restart.
+  const profileConns = getActiveMcpConnections(profileConfigStore);
+  const globalConns = getActiveMcpConnections(globalConfigStore);
+  const seen = new Set(profileConns.map(c => c.id));
+  const extra = globalConns.filter(c => !seen.has(c.id));
+  const connections = [...profileConns, ...extra];
+  const allTools: MCPTool[] = [];
+  const allHandlers = new Map<string, ToolHandler>();
+
+  console.log(`[Webchat/MCP] Loading tools from ${connections.length} connection(s): ${connections.map(c => c.id).join(', ')}`);
+  for (const conn of connections) {
+    try {
+      const tools = await fetchMcpTools(conn);
+      // Deduplicate: skip tools whose name is already registered (first connection wins)
+      const newTools = tools.filter(t => !allHandlers.has(t.name));
+      console.log(`[Webchat/MCP] "${conn.name}": ${newTools.length}/${tools.length} new tools loaded`);
+      const handlers = buildExternalToolHandlers(conn, newTools);
+      allTools.push(...newTools);
+      for (const [name, handler] of handlers) {
+        allHandlers.set(name, handler);
+      }
+    } catch (err: any) {
+      console.warn(`[Webchat] MCP connection "${conn.name}" unavailable: ${err.message}`);
+    }
+  }
+
+  return { tools: allTools, handlers: allHandlers };
+}
 
 // ─── Makan-Moments Context Builder ─────────────────────────────────────
 // Extracted to reuse in both streaming and non-streaming paths.
@@ -635,19 +679,38 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         profile.configStore.getSettings().system_prompt, topicFiles, profile.configStore
       );
 
+      // Streaming path uses raw token output — strip the JSON classification instruction
+      // that processChat() uses. The LLM must respond in plain conversational text here.
+      systemPrompt = systemPrompt.replace(
+        'Return JSON: { "intent": "<one of the defined intents>", "action": "<routing action>", "response": "<your response or empty for static_reply>", "confidence": 0.0-1.0 }',
+        'Respond in plain conversational text ONLY. Be warm, concise, and helpful. Never output JSON, code blocks, or structured data.'
+      );
+
       let fullText: string;
 
       if (isMakanMoments) {
-        // Tool-calling path: stream with tools
+        // Tool-calling path: stream with tools (FNB + cart + external MCP)
         const ctx = buildMakanMomentsContext(sessionId);
         systemPrompt = `${systemPrompt}\n\n${ctx.systemPromptSuffix}`;
+        const extMcp = await loadExternalMcpTools(profile.configStore);
+        const mergedTools = [...ctx.allTools, ...extMcp.tools];
+        const mergedHandlers = new Map([...ctx.allHandlers, ...extMcp.handlers]);
         fullText = await streamChatWithTools(
           res, systemPrompt, conversationHistory, sanitizedMessage,
-          ctx.allTools, ctx.allHandlers
+          mergedTools, mergedHandlers
         );
       } else {
-        // Non-tool path: stream LLM response directly
-        fullText = await streamChatResponse(res, systemPrompt, conversationHistory, sanitizedMessage);
+        // Load external MCP tools; switch to tool-calling stream if any are configured
+        const extMcp = await loadExternalMcpTools(profile.configStore);
+        if (extMcp.tools.length > 0) {
+          fullText = await streamChatWithTools(
+            res, systemPrompt, conversationHistory, sanitizedMessage,
+            extMcp.tools, extMcp.handlers
+          );
+        } else {
+          // No tools — stream LLM response directly
+          fullText = await streamChatResponse(res, systemPrompt, conversationHistory, sanitizedMessage);
+        }
       }
 
       const responseTime = Date.now() - startTime;
@@ -693,6 +756,13 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       allTools = ctx.allTools;
       allHandlers = ctx.allHandlers;
       systemPromptSuffix = ctx.systemPromptSuffix;
+    }
+
+    // Inject tools from active external MCP connections (e.g. PMS2's 49 tools)
+    const extMcp = await loadExternalMcpTools(profile.configStore);
+    if (extMcp.tools.length > 0) {
+      allTools = [...allTools, ...extMcp.tools];
+      allHandlers = new Map([...allHandlers, ...extMcp.handlers]);
     }
 
     const result = await processChat({

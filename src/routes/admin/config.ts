@@ -389,6 +389,7 @@ router.post('/workflows', (req: Request, res: Response) => {
   const newWf: any = {
     id: id.trim().toLowerCase().replace(/\s+/g, '_'),
     name: name.trim(),
+    profileId: req.body.profileId || store.profileId,
     steps: Array.isArray(steps) ? steps : []
   };
   // Node-based workflow fields (optional)
@@ -396,7 +397,12 @@ router.post('/workflows', (req: Request, res: Response) => {
   if (req.body.nodes) newWf.nodes = req.body.nodes;
   if (req.body.startNodeId) newWf.startNodeId = req.body.startNodeId;
   data.workflows.push(newWf);
-  store.setWorkflows(data);
+  try {
+    store.setWorkflows(data);
+  } catch (err) {
+    badRequest(res, err instanceof Error ? err.message : 'Invalid workflow data');
+    return;
+  }
   auditConfigChange(getAdminUser(req), 'POST /api/rainbow/workflows', null, newWf);
   ok(res, { workflow: newWf });
 });

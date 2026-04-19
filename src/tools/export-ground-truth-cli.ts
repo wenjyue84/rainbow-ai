@@ -120,7 +120,7 @@ async function fetchLanguageMap(
 
   const map = new Map<string, string>();
   for (const row of rows) {
-    map.set(row.phone, row.language);
+    map.set(row.phone, row.language as string);
   }
   return map;
 }
