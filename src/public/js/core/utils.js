@@ -186,6 +186,9 @@ function css(s) {
  */
 function hasSystemContent(content) {
   if (!content || typeof content !== 'string') return false;
+  const trimmed = content.trim();
+  // Detect standalone JSON blob (starts and ends with braces) — should never appear as a chat reply
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return true;
   return content.indexOf('\n\n{"intent":') > 0 || content.indexOf('Please note: I may not have complete information') > 0;
 }
 
@@ -196,6 +199,16 @@ function hasSystemContent(content) {
  */
 function getUserMessage(content) {
   if (!content || typeof content !== 'string') return content;
+  const trimmed = content.trim();
+  // Guard: standalone JSON blob — try to extract a human-readable field
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const extracted = parsed.message || parsed.response || parsed.text || '';
+      if (extracted && typeof extracted === 'string') return extracted;
+    } catch (e) {}
+    return ''; // Cannot extract text; bubble will show nothing rather than raw JSON
+  }
   let s = content;
   const jsonStart = s.indexOf('\n\n{"intent":');
   if (jsonStart > 0) s = s.slice(0, jsonStart).trim();

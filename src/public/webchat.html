@@ -1670,6 +1670,22 @@
           }
 
           hideTyping();
+          // Guard: strip raw JSON or markdown-wrapped JSON from LLM response
+          if (fullText) {
+            // Unwrap ```json ... ``` markdown code blocks
+            var mdMatch = fullText.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/);
+            if (mdMatch) fullText = mdMatch[1];
+            // Extract .response from bare JSON object
+            if (/^\s*\{[\s\S]*\}\s*$/.test(fullText)) {
+              try {
+                var jsonParsed = JSON.parse(fullText.trim());
+                fullText = jsonParsed.response || jsonParsed.message || jsonParsed.text || 'I apologize, I had trouble with that. Please try again.';
+              } catch (e) {
+                fullText = 'I apologize, I had trouble with that. Please try again.';
+              }
+            }
+            if (bubble) bubble.innerHTML = linkify(fullText);
+          }
           if (fullText) {
             if (!bubble) appendMessage('bot', fullText);
             history.push({ role: 'assistant', content: fullText });

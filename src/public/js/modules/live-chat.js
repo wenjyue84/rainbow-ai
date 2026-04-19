@@ -62,6 +62,15 @@ import {
 // ─── Window exports for template onclick handlers ────────────────
 
 window.loadLiveChat = async function () {
+  // Wait for profile switcher to validate the stored profile ID before
+  // fetching conversations — prevents stale x-profile-id from filtering
+  // out all conversations on hard refresh (race condition fix).
+  if (window.profileSwitcher && window.profileSwitcher.ready) {
+    await Promise.race([
+      window.profileSwitcher.ready,
+      new Promise(function (resolve) { setTimeout(resolve, 5000); }) // 5s safety timeout
+    ]);
+  }
   await loadLiveChat();
   initPrismaPanel(); // US-010: wire drag-to-move after DOM is ready
 };

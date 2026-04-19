@@ -500,7 +500,8 @@ export function renderList(conversations) {
       }
     }
 
-    return '<div class="lc-chat-item' + isActive + '" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')" data-channel="' + (c.channel || 'whatsapp') + '">' +
+    var channelStripe = c.channel === 'webchat' ? 'border-left:3px solid #3b82f6;' : 'border-left:3px solid #25d366;';
+    return '<div class="lc-chat-item' + isActive + '" style="' + channelStripe + '" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')" data-channel="' + (c.channel || 'whatsapp') + '">' +
       '<div class="lc-avatar">' + avatarImg(c.phone, initials) + '</div>' +
       '<div class="lc-chat-info">' +
       '<div class="lc-chat-top">' +

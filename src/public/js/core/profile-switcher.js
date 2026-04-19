@@ -14,6 +14,12 @@
   var activeProfileId = localStorage.getItem(STORAGE_KEY) || '';
   var dropdownOpen = false;
 
+  // Promise that resolves after init() has validated the stored profile ID.
+  // Callers (e.g. loadLiveChat) await this before sending x-profile-id headers
+  // to prevent stale-localStorage race conditions on hard refresh.
+  var _readyResolve;
+  var ready = new Promise(function (resolve) { _readyResolve = resolve; });
+
   var switcher = {
     /** Get the active profile ID (empty string = default) */
     getActiveProfileId: function () {
@@ -179,6 +185,7 @@
             activeProfileId = '';
             localStorage.removeItem(STORAGE_KEY);
           }
+          _readyResolve();
           self.renderLabel();
           self.renderDropdown();
           // Always show switcher (has "Add Business Profile" action)
@@ -206,6 +213,8 @@
           console.error('[ProfileSwitcher] Failed to load profiles:', err.message, '| key set:', !!window.__ADMIN_KEY__);
           var label = document.getElementById('profile-switcher-label');
           if (label) label.textContent = 'Pelangi Capsule Hostel';
+          // Resolve ready after 3s on failure so callers (loadLiveChat) don't hang
+          setTimeout(function () { _readyResolve(); }, 3000);
           // Retry once after 2s (handles transient 503/429 after server restart)
           setTimeout(function () {
             fetch(API + '/profiles', { cache: 'no-store', headers: { 'x-admin-key': (window.__ADMIN_KEY__ || '') } })
@@ -220,6 +229,7 @@
                   activeProfileId = '';
                   localStorage.removeItem(STORAGE_KEY);
                 }
+                _readyResolve();
                 self.renderLabel();
                 self.renderDropdown();
                 var el = document.getElementById('profile-switcher');
@@ -405,6 +415,9 @@
       switcher.close();
     }
   });
+
+  // Expose ready promise so callers can await profile validation
+  switcher.ready = ready;
 
   // Expose globally
   window.profileSwitcher = switcher;
