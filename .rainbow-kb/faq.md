@@ -1,6 +1,6 @@
 # FAQ — Unique Questions Only
 
-> **Note:** For detailed info, see these focused files:
+> **[INTERNAL — Do not quote to guests]** For detailed info, see these focused files:
 > - **Location & Directions:** → `location.md`
 > - **Pricing & Payment:** → `pricing.md`, `payment-methods.md`, `refunds.md`
 > - **Check-in:** → `checkin-times.md`, `checkin-access.md`, `checkin-procedure.md`
@@ -54,7 +54,7 @@ A: 18+ (minors need parent/guardian).
 ## Special Requests
 
 **Q: Can I stay long-term (monthly)?**
-A: Yes. See `pricing.md` for monthly and long-term rates.
+A: Yes. Contact us for rates — WhatsApp: +60 12-708 8789 (Jay).
 
 **Q: Late night arrival?**
 A: Contact us in advance. WhatsApp: +60 12-708 8789 (Jay) or +60 16-762 0815 (Alston).

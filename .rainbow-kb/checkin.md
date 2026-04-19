@@ -2,7 +2,7 @@
 
 Hi! 👋 Thanks for choosing Pelangi Capsule Hostel. Everything you need for a smooth check-in:
 
-> **Detailed check-in info split into focused files for easy editing:**
+> **[INTERNAL — Do not quote to guests]** Detailed check-in info is in:
 > - **Check-in/out Times:** → `checkin-times.md`
 > - **Door Access & Entry:** → `checkin-access.md`
 > - **Self Check-in Procedure:** → `checkin-procedure.md`
@@ -18,6 +18,7 @@ Hi! 👋 Thanks for choosing Pelangi Capsule Hostel. Everything you need for a s
 | Door Password | **1270#** |
 | WiFi Network | pelangi capsule |
 | WiFi Password | ilovestaycapsule |
+| Capsule Tutorial Video | https://www.youtube.com/watch?v=6Ux11oBZaQQ |
 | Help | WhatsApp: +60 12-708 8789 (Jay) |
 
 ## Useful Links

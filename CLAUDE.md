@@ -10,11 +10,11 @@ WhatsApp AI assistant for Pelangi Capsule Hostel & Southern Homestay. Extracted 
 | Language | TypeScript 5.3 |
 | Build | esbuild (NOT tsc — tsc has pre-existing type errors) |
 | Server | Express 4 |
-| Database | PostgreSQL (Neon) — Drizzle ORM + raw pg |
+| Database | SQLite (better-sqlite3) — Drizzle ORM + PG-compat shim |
 | WhatsApp | Baileys (direct WebSocket — **unofficial, ToS risk**, see [architecture doc](docs/architecture/whatsapp-transport-layer.md)) |
 | AI | NVIDIA Kimi K2.5 / Ollama / OpenRouter (multi-provider fallback) |
 | Testing | Vitest (unit/integration/semantic) + Promptfoo (eval) |
-| Deploy | AWS Lightsail + PM2 |
+| Deploy | Hetzner VPS (5.223.54.57) + PM2 |
 
 ## Key Directories
 
@@ -42,53 +42,53 @@ npm run start        # Run production bundle (dist/index.js)
 npm run check        # TypeScript type-check only (tsc --noEmit)
 npm run test         # Vitest interactive
 npm run test:run     # Vitest single run
-npm run db:push      # Push Drizzle schema to Neon
+npm run db:push      # Push Drizzle schema (SQLite — auto-runs on startup)
 npm run build:css    # Rebuild Tailwind CSS
 ```
 
 ## Database
 
-**Provider:** Neon (PostgreSQL), connection via `DATABASE_URL` env var.
+**Provider:** SQLite via `better-sqlite3`. Path set via `SQLITE_PATH` env var (default: `./data/rainbow-ai.db`).
 
 **Drizzle-managed tables** (schema in `shared/schema-tables.ts`):
 - `app_settings`, `rainbow_messages`, `rainbow_conversations`
 - `intent_analytics`, `intent_configs`, `intent_keywords`
 - `conversation_feedback`, `escalation_events`
 
-**Raw pg tables** (excluded from Drizzle migrations via `drizzle.config.ts`):
+**Raw SQL tables** (via PG-compat shim in `src/lib/db.ts`):
 - `rainbow_configs` — runtime config storage
 - `rainbow_kb_files` — knowledge base file metadata
 - `rainbow_config_audit` — config change audit log
 
-Config uses dual-write: local JSON files + Postgres DB (DB is primary on startup).
+DB file persists across deploys at `/opt/rainbow-ai/data/rainbow-ai.db` on the server.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MCP_SERVER_PORT` | Yes | Server port (default: 3002) |
-| `DATABASE_URL` | Yes | Neon PostgreSQL connection string |
+| `MCP_SERVER_PORT` | Yes | Server port (default: 8080) |
+| `SQLITE_PATH` | No | SQLite DB file path (default: `./data/rainbow-ai.db`) |
 | `NODE_ENV` | Yes | `production` or `development` |
 | `DIGIMAN_API_URL` | No | Admin panel URL |
 | `DIGIMAN_API_TOKEN` | No | Admin panel auth token |
-| `RAINBOW_ROLE` | No | `primary` or `standby` (failover) |
-| `RAINBOW_PEER_URL` | No | Peer server URL for failover |
-| `RAINBOW_FAILOVER_SECRET` | No | Shared secret for failover auth |
 
 See `.env.example` for full list.
 
 ## Deployment
 
 ```bash
-bash deploy.sh           # Build, package, upload, deploy to Lightsail
-bash deploy.sh --skip-build  # Skip build step
+bash deploy.sh                        # Build + test + upload + restart PM2
+bash deploy.sh --skip-build           # Skip build step
+bash deploy.sh --skip-build --skip-tests  # Fastest: upload + restart only
 ```
 
-**Target:** `ubuntu@18.142.14.142:/var/www/rainbow-ai`
+**Target:** `deploy@5.223.54.57:/opt/rainbow-ai`
 **Process manager:** PM2 (config in `ecosystem.config.cjs`)
+- Port: 8080
 - Memory limit: 450MB (`--max-old-space-size=450`)
 - Auto-restart on crash (max 10 restarts)
-- Logs at `/var/www/rainbow-ai/logs/`
+- Logs at `/opt/rainbow-ai/logs/`
+- Live URL: `http://5.223.54.57:8080`
 
 ## Key Data Files
 

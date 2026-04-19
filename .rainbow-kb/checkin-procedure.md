@@ -23,7 +23,7 @@
    - Shows how to use capsule features, curtain, light, outlets
 
 6. **Connect to WiFi**
-   - See `checkin-wifi.md` for credentials
+   - Network: **pelangi capsule** | Password: **ilovestaycapsule**
 
 7. **If anything doesn't work**
    - Door won't open? Capsule issue? WiFi problem?

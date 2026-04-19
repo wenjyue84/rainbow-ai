@@ -1,6 +1,6 @@
 # Facilities — Quick Reference
 
-> **Detailed facilities info split into focused files for easy editing:**
+> **[INTERNAL — Do not quote to guests]** Detailed facilities info is in:
 > - **Capsule Pods & Sleep:** → `facilities-capsules.md`
 > - **Bathrooms & Showers:** → `facilities-bathrooms.md`
 > - **Kitchen & Dining:** → `facilities-kitchen.md`
@@ -31,7 +31,7 @@
 - Outdoor relaxation area
 
 ### Utilities
-- Free WiFi (see `checkin-wifi.md`)
+- Free WiFi — Network: **pelangi capsule**, Password: **ilovestaycapsule**
 - Power & USB charging in capsules
 - Lockers for valuables
 - Laundry (RM5/load, 24-hour)
