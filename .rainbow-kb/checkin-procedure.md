@@ -29,8 +29,17 @@
    - Door won't open? Capsule issue? WiFi problem?
    - Contact us immediately via WhatsApp: +60 12-708 8789 (Jay)
 
-## Visual Tour
-See our space: https://photos.app.goo.gl/NLJARWwjuLy5wdGn7
+## Visual Guide / Photo Tour
+
+When guests ask for a visual guide, photo tour, or video tutorial — share these links directly:
+
+- **Capsule usage video (how to use the capsule, curtain, light, outlets):**
+  https://www.youtube.com/watch?v=6Ux11oBZaQQ
+
+- **Photo tour of our space:**
+  https://photos.app.goo.gl/NLJARWwjuLy5wdGn7
+
+Always provide both links when a guest asks for a visual guide, photo tour, or tutorial.
 
 ## Need Help?
 We're here to help! Don't hesitate to reach out if you have any questions or issues during check-in.
