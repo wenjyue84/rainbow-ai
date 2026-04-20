@@ -2,6 +2,7 @@
  * ai-response-generator.ts — Response generation + parsing
  * (Single Responsibility: generate AI responses for classified intents)
  */
+import { createRequire } from 'module';
 import axios from 'axios';
 import type { ChatMessage } from './types.js';
 import type { MCPTool, MCPToolResult, ToolHandler } from '../types/mcp.js';
@@ -75,8 +76,8 @@ function loadFallbackResponses(): Record<string, Record<string, string>> {
   }
 
   try {
-    // Dynamically import the fallback-responses JSON
-    const responses = require('./data/fallback-responses.json');
+    const _require = createRequire(import.meta.url);
+    const responses = _require('./data/fallback-responses.json');
     cachedFallbackResponses = responses;
     return responses;
   } catch (error) {
@@ -129,7 +130,11 @@ export function getFallbackResponse(
 
   // Get the template for the selected context and language
   const contextTemplates = responses[selectedContext] || responses['repeated_fallback'];
-  const template = contextTemplates[language] || contextTemplates['en'] || DEFAULT_FALLBACK_MESSAGES[language] || DEFAULT_FALLBACK_MESSAGES.en;
+  type FallbackLang = keyof typeof DEFAULT_FALLBACK_MESSAGES;
+  const safeLang: FallbackLang = (language in DEFAULT_FALLBACK_MESSAGES)
+    ? language as FallbackLang
+    : 'en';
+  const template = contextTemplates[safeLang] || contextTemplates['en'] || DEFAULT_FALLBACK_MESSAGES[safeLang] || DEFAULT_FALLBACK_MESSAGES.en;
 
   return { template, escalation_flag: escalationFlag };
 }
@@ -254,8 +259,8 @@ export async function chatWithToolsLoop(
     // Append assistant message with tool_calls
     messages.push({ role: 'assistant', content: content || null, tool_calls: toolCalls });
 
-    // Execute each tool call and append results
-    for (const call of toolCalls) {
+    // Parse args for all calls upfront, then execute in parallel
+    const parsedCalls = toolCalls.map((call: any) => {
       const fnName = call.function?.name;
       const fnArgs = call.function?.arguments;
       let parsedArgs: any = {};
@@ -264,25 +269,32 @@ export async function chatWithToolsLoop(
       } catch {
         parsedArgs = {};
       }
+      return { call, fnName, parsedArgs };
+    });
 
-      const handler = toolHandlers.get(fnName);
-      let result: MCPToolResult;
-      if (handler) {
-        try {
-          result = await handler(parsedArgs);
-        } catch (err: any) {
-          result = { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+    const toolResults = await Promise.all(
+      parsedCalls.map(async ({ call, fnName, parsedArgs }: any) => {
+        const handler = toolHandlers.get(fnName);
+        let result: MCPToolResult;
+        if (handler) {
+          try {
+            result = await handler(parsedArgs);
+          } catch (err: any) {
+            result = { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+          }
+        } else {
+          result = { content: [{ type: 'text', text: `Unknown tool: ${fnName}` }], isError: true };
         }
-      } else {
-        result = { content: [{ type: 'text', text: `Unknown tool: ${fnName}` }], isError: true };
-      }
+        return { call, fnName, result };
+      })
+    );
 
+    for (const { call, fnName, result } of toolResults) {
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         content: JSON.stringify(result.content)
       });
-
       totalToolCalls++;
       if (result.isError) errorToolCalls++;
       console.log(`[AI] Tool call: ${fnName} → ${result.isError ? 'ERROR' : 'OK'} (loop ${loop + 1}/${MAX_LOOPS})`);

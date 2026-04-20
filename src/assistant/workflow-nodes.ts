@@ -219,7 +219,7 @@ export function resolveTemplateVars(
  * Returns RAW phone numbers (not wa.me links) for use as WhatsApp recipients.
  */
 export function resolveVariableRef(
-  ref: string,
+  ref: string | undefined | null,
   context: {
     collectedData: Record<string, string>;
     nodeOutputs: Record<string, any>;
@@ -228,6 +228,8 @@ export function resolveVariableRef(
     adminPhone?: string;
   }
 ): string {
+  // Guard against undefined/null ref (e.g. when receiver_type is used instead of receiver)
+  if (ref == null) return '';
   // Direct template variable — resolve WITHOUT wa.me link formatting
   if (ref === '{{guest.phone}}') {
     return context.phone || '';

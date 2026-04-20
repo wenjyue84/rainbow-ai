@@ -639,11 +639,13 @@ async function executeNodeWorkflowStep(
       }
 
       case 'whatsapp_send': {
-        const config = node.config as WhatsAppSendNodeConfig;
+        const config = node.config as WhatsAppSendNodeConfig & { receiver_type?: string };
 
         if (sendMessageFn && phone) {
-          // Resolve receiver (raw phone number, NOT wa.me link)
-          const receiver = resolveVariableRef(config.receiver, templateCtx);
+          // Resolve receiver: support receiver_type:'operator' as alias for admin phone
+          const rawReceiver = config.receiver
+            ?? (config.receiver_type === 'operator' ? '{{system.admin_phone}}' : undefined);
+          const receiver = resolveVariableRef(rawReceiver, templateCtx);
 
           // Resolve content
           let content: string;

@@ -134,6 +134,11 @@ interface WorkflowState {
   workflowId: string;
   currentStepIndex: number;
   lastAccess: number;
+  // Node-based workflow fields
+  isNodeBased?: boolean;
+  currentNodeId?: string;
+  nodeCollectedData?: Record<string, string>;
+  nodeOutputs?: Record<string, any>;
 }
 
 const workflowStates = new Map<string, WorkflowState>();
@@ -154,17 +159,29 @@ function getSessionKey(history: ChatMessage[]): string {
   return `${firstMsg.slice(0, 50)}::${history.length}`;
 }
 
-function getWorkflowState(key: string): { workflowId: string; currentStepIndex: number } | undefined {
+function getWorkflowState(key: string): WorkflowState | undefined {
   const state = workflowStates.get(key);
   if (state) {
     state.lastAccess = Date.now();
-    return { workflowId: state.workflowId, currentStepIndex: state.currentStepIndex };
+    return state;
   }
   return undefined;
 }
 
 function setWorkflowState(key: string, workflowId: string, stepIndex: number): void {
   workflowStates.set(key, { workflowId, currentStepIndex: stepIndex, lastAccess: Date.now() });
+}
+
+function setNodeWorkflowState(key: string, workflowId: string, currentNodeId: string, collectedData: Record<string, string>, nodeOutputs: Record<string, any>): void {
+  workflowStates.set(key, {
+    workflowId,
+    currentStepIndex: 0,
+    lastAccess: Date.now(),
+    isNodeBased: true,
+    currentNodeId,
+    nodeCollectedData: collectedData,
+    nodeOutputs,
+  });
 }
 
 function deleteWorkflowState(key: string): void {
@@ -336,6 +353,39 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     finalMessage = EMERGENCY_REASSURANCE;
   } else if (isDirectEmergency) {
     finalMessage = EMERGENCY_INITIAL_RESPONSE;
+  } else if (effectiveWorkflow?.isNodeBased) {
+    // ─── Node-based workflow continuation ────────────────────────────
+    const { executeWorkflowStep, createWorkflowState } = await import('./workflow-executor.js');
+    const language = intentResult.detectedLanguage || 'en';
+    const nodeState = {
+      workflowId: effectiveWorkflow.workflowId,
+      currentStepIndex: 0,
+      collectedData: effectiveWorkflow.nodeCollectedData || {},
+      startedAt: Date.now(),
+      lastUpdateAt: Date.now(),
+      isNodeBased: true,
+      currentNodeId: effectiveWorkflow.currentNodeId!,
+      nodeOutputs: effectiveWorkflow.nodeOutputs || {},
+    };
+    const nodeResult = await executeWorkflowStep(nodeState, message, {
+      language,
+      phone: sessionId || 'preview',
+      pushName: 'Guest',
+      instanceId: 'preview',
+    });
+    finalMessage = nodeResult.response || '';
+    if (nodeResult.newState && nodeResult.newState.currentNodeId) {
+      const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message, timestamp: Date.now() }]);
+      setNodeWorkflowState(
+        saveKey,
+        effectiveWorkflow.workflowId,
+        nodeResult.newState.currentNodeId,
+        nodeResult.newState.collectedData || {},
+        nodeResult.newState.nodeOutputs || {}
+      );
+    } else {
+      deleteWorkflowState(lookupKey);
+    }
   } else if (effectiveWorkflow) {
     const workflowsData = store.getWorkflows() || { workflows: [] };
     const workflow = (workflowsData.workflows || []).find(w => w.id === effectiveWorkflow.workflowId);
@@ -437,7 +487,30 @@ export async function processChat(options: ChatOptions): Promise<ChatResult> {
     if (workflowId) {
       const workflowsData = store.getWorkflows() || { workflows: [] };
       const workflow = (workflowsData.workflows || []).find(w => w.id === workflowId);
-      if (workflow && workflow.steps.length > 0) {
+      // ─── Node-based workflow: first trigger ──────────────────────
+      const isNodeWf = workflow && (workflow as any).format === 'nodes' && (workflow as any).startNodeId;
+      if (isNodeWf) {
+        const { executeWorkflowStep, createWorkflowState } = await import('./workflow-executor.js');
+        const language = intentResult.detectedLanguage || 'en';
+        const initState = createWorkflowState(workflowId);
+        const nodeResult = await executeWorkflowStep(initState, null, {
+          language,
+          phone: sessionId || 'preview',
+          pushName: 'Guest',
+          instanceId: 'preview',
+        });
+        finalMessage = nodeResult.response || '';
+        if (nodeResult.newState && nodeResult.newState.currentNodeId) {
+          const saveKey = sessionId || getSessionKey([...conversationHistory, { role: 'user', content: message, timestamp: Date.now() }]);
+          setNodeWorkflowState(
+            saveKey,
+            workflowId,
+            nodeResult.newState.currentNodeId,
+            nodeResult.newState.collectedData || {},
+            nodeResult.newState.nodeOutputs || {}
+          );
+        }
+      } else if (workflow && workflow.steps.length > 0) {
         const introMessages: string[] = [];
         let editStep = workflow.steps[0];
         let stopIndex = 0;
