@@ -171,10 +171,33 @@ class PgShim {
     });
     const rawValues = expandedValues.length > 0 || origValues.length === 0 ? expandedValues : origValues;
 
+    // Expand = ANY($n) where the bound param is an array.
+    // Baileys auth-state queries use `= ANY($3)` with an array of key IDs.
+    // Convert to `IN (?,?,?)` and splice the array items into the values list.
+    // The new `?` placeholders sit in the correct positional slot; remaining
+    // `$N` are left intact for translatePgToSqlite to convert to `?` normally.
+    let anySql = rawSql;
+    let anyValues = rawValues.slice() as any[];
+    const anyPattern = /=\s*ANY\s*\(\s*\$(\d+)\s*\)/gi;
+    const anyHits: Array<{ index: number; length: number; paramIdx: number }> = [];
+    let anyHit: RegExpExecArray | null;
+    while ((anyHit = anyPattern.exec(anySql)) !== null) {
+      anyHits.push({ index: anyHit.index, length: anyHit[0].length, paramIdx: Number(anyHit[1]) - 1 });
+    }
+    // Process right-to-left so earlier string offsets stay valid
+    for (let i = anyHits.length - 1; i >= 0; i--) {
+      const { index, length, paramIdx } = anyHits[i];
+      const arrVal = anyValues[paramIdx];
+      const arr: any[] = Array.isArray(arrVal) ? arrVal : (arrVal != null ? [arrVal] : []);
+      const placeholders = arr.length > 0 ? arr.map(() => '?').join(', ') : 'NULL';
+      anySql = anySql.slice(0, index) + `IN (${placeholders})` + anySql.slice(index + length);
+      anyValues.splice(paramIdx, 1, ...arr);
+    }
+
     // SQLite bindings accept only number/string/bigint/Buffer/null.
     // Postgres JSONB params come through as plain objects/arrays — stringify them.
     // Booleans → 0/1. Dates → ISO string. Undefined → null.
-    const values = rawValues.map((v: any) => {
+    const values = anyValues.map((v: any) => {
       if (v === undefined) return null;
       if (v === null) return null;
       if (typeof v === 'boolean') return v ? 1 : 0;
@@ -183,7 +206,7 @@ class PgShim {
       if (typeof v === 'object') return JSON.stringify(v);
       return v;
     });
-    const sql = translatePgToSqlite(rawSql);
+    const sql = translatePgToSqlite(anySql);
     const trimmed = sql.trim();
     const lower = trimmed.toLowerCase();
 

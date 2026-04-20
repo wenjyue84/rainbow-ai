@@ -82,10 +82,10 @@ router.get('/intent/accuracy', async (req: Request, res: Response) => {
     // Overall accuracy (only counting predictions that have been validated)
     const overallStats = await db
       .select({
-        total: sql<number>`count(*)::int`,
-        correct: sql<number>`count(*) filter (where was_correct = true)::int`,
-        incorrect: sql<number>`count(*) filter (where was_correct = false)::int`,
-        unvalidated: sql<number>`count(*) filter (where was_correct is null)::int`,
+        total: sql<number>`count(*)`,
+        correct: sql<number>`count(*) filter (where was_correct = true)`,
+        incorrect: sql<number>`count(*) filter (where was_correct = false)`,
+        unvalidated: sql<number>`count(*) filter (where was_correct is null)`,
         avgConfidence: sql<number>`avg(confidence)`,
       })
       .from(intentPredictions);
@@ -100,14 +100,14 @@ router.get('/intent/accuracy', async (req: Request, res: Response) => {
     const byIntent = await db
       .select({
         intent: intentPredictions.predictedIntent,
-        total: sql<number>`count(*)::int`,
-        correct: sql<number>`count(*) filter (where was_correct = true)::int`,
-        incorrect: sql<number>`count(*) filter (where was_correct = false)::int`,
+        total: sql<number>`count(*)`,
+        correct: sql<number>`count(*) filter (where was_correct = true)`,
+        incorrect: sql<number>`count(*) filter (where was_correct = false)`,
         accuracyRate: sql<number>`
           case
             when count(*) filter (where was_correct is not null) > 0
-            then (count(*) filter (where was_correct = true)::float /
-                  count(*) filter (where was_correct is not null)::float) * 100
+            then (CAST(count(*) filter (where was_correct = true) AS REAL) /
+                  CAST(count(*) filter (where was_correct is not null) AS REAL)) * 100
             else null
           end
         `,
@@ -121,14 +121,14 @@ router.get('/intent/accuracy', async (req: Request, res: Response) => {
     const byTier = await db
       .select({
         tier: intentPredictions.tier,
-        total: sql<number>`count(*)::int`,
-        correct: sql<number>`count(*) filter (where was_correct = true)::int`,
-        incorrect: sql<number>`count(*) filter (where was_correct = false)::int`,
+        total: sql<number>`count(*)`,
+        correct: sql<number>`count(*) filter (where was_correct = true)`,
+        incorrect: sql<number>`count(*) filter (where was_correct = false)`,
         accuracyRate: sql<number>`
           case
             when count(*) filter (where was_correct is not null) > 0
-            then (count(*) filter (where was_correct = true)::float /
-                  count(*) filter (where was_correct is not null)::float) * 100
+            then (CAST(count(*) filter (where was_correct = true) AS REAL) /
+                  CAST(count(*) filter (where was_correct is not null) AS REAL)) * 100
             else null
           end
         `,
@@ -142,14 +142,14 @@ router.get('/intent/accuracy', async (req: Request, res: Response) => {
     const byModel = await db
       .select({
         model: intentPredictions.model,
-        total: sql<number>`count(*)::int`,
-        correct: sql<number>`count(*) filter (where was_correct = true)::int`,
-        incorrect: sql<number>`count(*) filter (where was_correct = false)::int`,
+        total: sql<number>`count(*)`,
+        correct: sql<number>`count(*) filter (where was_correct = true)`,
+        incorrect: sql<number>`count(*) filter (where was_correct = false)`,
         accuracyRate: sql<number>`
           case
             when count(*) filter (where was_correct is not null) > 0
-            then (count(*) filter (where was_correct = true)::float /
-                  count(*) filter (where was_correct is not null)::float) * 100
+            then (CAST(count(*) filter (where was_correct = true) AS REAL) /
+                  CAST(count(*) filter (where was_correct is not null) AS REAL)) * 100
             else null
           end
         `,
@@ -254,7 +254,7 @@ router.get('/intent/predictions/pending', async (req: Request, res: Response) =>
 
     // Count total unvalidated
     const totalResult = await db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({ count: sql<number>`count(*)` })
       .from(intentPredictions)
       .where(isNull(intentPredictions.wasCorrect));
 
@@ -492,9 +492,9 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
     // Overall metrics (all classifications)
     const overallMetrics = await db
       .select({
-        total_count: sql<number>`count(*)::int`,
+        total_count: sql<number>`count(*)`,
         avg_confidence: sql<number>`avg(confidence)`,
-        success_count: sql<number>`count(*) filter (where was_correct = true)::int`,
+        success_count: sql<number>`count(*) filter (where was_correct = true)`,
       })
       .from(iaTable);
 
@@ -507,10 +507,10 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
     const byIntentMetrics = await db
       .select({
         intent_type: iaTable.intentType,
-        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        success_rate: sql<number>`CAST(count(*) filter (where was_correct = true) AS REAL) / nullif(count(*), 0)`,
         avg_confidence: sql<number>`avg(confidence)`,
-        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
-        total_count: sql<number>`count(*)::int`,
+        p95_latency: sql<number | null>`null`,
+        total_count: sql<number>`count(*)`,
       })
       .from(iaTable)
       .groupBy(iaTable.intentType)
@@ -520,10 +520,10 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
     const byProfileMetrics = await db
       .select({
         profile_id: iaTable.profileId,
-        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        success_rate: sql<number>`CAST(count(*) filter (where was_correct = true) AS REAL) / nullif(count(*), 0)`,
         avg_confidence: sql<number>`avg(confidence)`,
-        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
-        total_count: sql<number>`count(*)::int`,
+        p95_latency: sql<number | null>`null`,
+        total_count: sql<number>`count(*)`,
       })
       .from(iaTable)
       .groupBy(iaTable.profileId)
@@ -534,10 +534,10 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
       .select({
         profile_id: iaTable.profileId,
         intent_type: iaTable.intentType,
-        success_rate: sql<number>`count(*) filter (where was_correct = true)::float / nullif(count(*), 0)`,
+        success_rate: sql<number>`CAST(count(*) filter (where was_correct = true) AS REAL) / nullif(count(*), 0)`,
         avg_confidence: sql<number>`avg(confidence)`,
-        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
-        total_count: sql<number>`count(*)::int`,
+        p95_latency: sql<number | null>`null`,
+        total_count: sql<number>`count(*)`,
       })
       .from(iaTable)
       .groupBy(iaTable.profileId, iaTable.intentType)
@@ -546,7 +546,7 @@ router.get('/metrics/intent-classification', async (req: Request, res: Response)
     // Calculate overall p95_latency
     const p95Result = await db
       .select({
-        p95_latency: sql<number>`percentile_cont(0.95) within group (order by latency_ms)`,
+        p95_latency: sql<number | null>`null`,
       })
       .from(iaTable);
 
