@@ -19,9 +19,20 @@ export interface McpConnection {
 }
 
 const MCP_TIMEOUT_MS = 15_000;
-const TOOL_CACHE_TTL_MS = 60_000;
+const TOOL_CACHE_TTL_MS = 300_000; // 5 min — tool schemas don't change at runtime
 
 const _toolCache = new Map<string, { tools: MCPTool[]; cachedAt: number }>();
+
+// Result cache for read-only tool calls. Key: "connId:toolName:argsHash"
+const _resultCache = new Map<string, { data: unknown; expires: number }>();
+const RESULT_CACHE_TTL_MS = 30_000; // 30s default
+
+// Tools that mutate state — never cache their results
+const WRITE_TOOL_PATTERNS = /create|update|delete|check.?in|check.?out|mark|set_|add_|remove|cancel|upsert|patch|put_/i;
+
+function _isMutatingTool(name: string): boolean {
+  return WRITE_TOOL_PATTERNS.test(name);
+}
 
 function _getAuthHeaders(conn: McpConnection): Record<string, string> {
   if (conn.auth_type === 'bearer' && conn.api_key_env) {
@@ -72,16 +83,46 @@ export async function fetchMcpTools(conn: McpConnection): Promise<MCPTool[]> {
 
 /**
  * Execute a named tool on an external MCP server.
+ * Read-only tools are cached for 30s. Write/mutating tools always bypass the cache.
  */
 export async function callMcpTool(
   conn: McpConnection,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  ttlMs: number = RESULT_CACHE_TTL_MS
 ): Promise<unknown> {
-  return _post(conn, {
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/call',
+  // Skip cache for mutating tools
+  if (_isMutatingTool(name) || ttlMs === 0) {
+    return _post(conn, {
+      jsonrpc: '2.0', id: 2, method: 'tools/call',
+      params: { name, arguments: args },
+    });
+  }
+
+  const cacheKey = `${conn.id}:${name}:${JSON.stringify(args)}`;
+  const hit = _resultCache.get(cacheKey);
+  if (hit && hit.expires > Date.now()) {
+    return hit.data;
+  }
+
+  const result = await _post(conn, {
+    jsonrpc: '2.0', id: 2, method: 'tools/call',
     params: { name, arguments: args },
   });
+
+  _resultCache.set(cacheKey, { data: result, expires: Date.now() + ttlMs });
+  return result;
+}
+
+/**
+ * Invalidate all cached results for a connection (e.g. after a write operation).
+ */
+export function invalidateMcpResultCache(connId?: string): void {
+  if (connId) {
+    for (const key of _resultCache.keys()) {
+      if (key.startsWith(`${connId}:`)) _resultCache.delete(key);
+    }
+  } else {
+    _resultCache.clear();
+  }
 }

@@ -52,7 +52,7 @@ export async function aggregateDailyMetrics(): Promise<void> {
     const sentCounts = await db
       .select({
         profileId: rainbowMessages.profileId,
-        count: sql<number>`count(*)::int`,
+        count: sql<number>`count(*)`,
       })
       .from(rainbowMessages)
       .where(

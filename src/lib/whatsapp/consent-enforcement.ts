@@ -92,15 +92,20 @@ export async function recordWhatsAppOptIn(
     const cleanPhone = phone.replace(/[@a-z.]/g, '');
     const now = new Date();
 
+    // UPSERT: create a minimal conversation record if one doesn't exist yet
+    // (new guest messaging for the first time), then set opt-in. Without the
+    // INSERT branch, a plain UPDATE silently touches 0 rows and the outbound
+    // consent check blocks the reply.
     await pool.query(
-      `UPDATE rainbow_conversations
+      `INSERT INTO rainbow_conversations (phone, push_name, created_at, updated_at, whatsapp_opted_in, whatsapp_opted_in_at, opt_in_method, opt_in_at, opt_in_channel)
+       VALUES ($1, '', $2, $2, true, $2, 'inbound', $2, 'whatsapp')
+       ON CONFLICT (phone) DO UPDATE
        SET whatsapp_opted_in = true,
-           whatsapp_opted_in_at = $2,
-           opt_in_method = COALESCE(opt_in_method, 'inbound'),
-           opt_in_at = COALESCE(opt_in_at, $2),
-           opt_in_channel = COALESCE(opt_in_channel, 'whatsapp'),
-           updated_at = $2
-       WHERE phone = $1`,
+           whatsapp_opted_in_at = COALESCE(rainbow_conversations.whatsapp_opted_in_at, EXCLUDED.whatsapp_opted_in_at),
+           opt_in_method = COALESCE(rainbow_conversations.opt_in_method, 'inbound'),
+           opt_in_at = COALESCE(rainbow_conversations.opt_in_at, EXCLUDED.opt_in_at),
+           opt_in_channel = COALESCE(rainbow_conversations.opt_in_channel, 'whatsapp'),
+           updated_at = $2`,
       [cleanPhone, now]
     );
 
