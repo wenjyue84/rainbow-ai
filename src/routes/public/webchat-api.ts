@@ -815,11 +815,15 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
       }
     } catch (err: any) {
       console.error(`[Webchat Stream] Error for ${profileId}:`, err.message);
+      const errMsg = "I apologize, but I encountered an error. Please try again or contact staff.";
       if (!disconnected) {
-        sseEvent(res, { token: "I apologize, but I encountered an error. Please try again or contact staff." });
+        sseEvent(res, { token: errMsg });
         sseEvent(res, { done: true, responseTime: Date.now() - startTime, sessionId });
         res.end();
       }
+      // Persist error reply so admin panel shows what the guest received
+      const ip = (req.ip || req.socket.remoteAddress || 'unknown').replace('::ffff:', '');
+      persistWebchatExchange(phone, `Web Visitor (${ip})`, sanitizedMessage, errMsg, 0, profileId).catch(() => {});
     }
     return;
   }
@@ -907,11 +911,11 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error(`[Webchat] Error processing message for ${profileId}:`, err);
-    res.json({
-      message: "I apologize, but I encountered an error processing your message. Please try again or contact staff if you need immediate assistance.",
-      responseTime: 0,
-      sessionId,
-    });
+    const errMsg = "I apologize, but I encountered an error processing your message. Please try again or contact staff if you need immediate assistance.";
+    res.json({ message: errMsg, responseTime: 0, sessionId });
+    // Persist error reply so admin panel shows what the guest received
+    const ip = (req.ip || req.socket.remoteAddress || 'unknown').replace('::ffff:', '');
+    persistWebchatExchange(phone, `Web Visitor (${ip})`, sanitizedMessage, errMsg, 0, profileId).catch(() => {});
   }
 });
 
