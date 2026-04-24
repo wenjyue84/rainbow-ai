@@ -154,18 +154,21 @@ router.get('/conversations', async (req: Request, res: Response) => {
 // ─── Pin & Favourite ─────────────────────────────────────────────────
 
 router.patch('/conversations/:phone/pin', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   const pinned = await togglePin(phone);
   ok(res, { pinned });
 });
 
 router.patch('/conversations/:phone/favourite', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   const favourite = await toggleFavourite(phone);
   ok(res, { favourite });
 });
 
 router.patch('/conversations/:phone/read', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   await markConversationAsRead(phone);
   ok(res);
@@ -319,6 +322,7 @@ router.get('/conversations/:phone', async (req: Request, res: Response) => {
 });
 
 router.delete('/conversations/:phone', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   // US-908: Verify tenant ownership before deleting
   const tenantId = res.locals.tenantId as string | undefined;
@@ -334,6 +338,7 @@ router.delete('/conversations/:phone', async (req: Request, res: Response) => {
 });
 
 router.post('/conversations/:phone/clear', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   const { clearConversationMessages } = await import('../../assistant/conversation-logger.js');
   await clearConversationMessages(phone);
@@ -352,6 +357,7 @@ router.get('/conversations/:phone/message-metadata', async (req: Request, res: R
 
 // Toggle pin on a specific message
 router.post('/conversations/:phone/messages/:msgIdx/pin', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const msgIdx = req.params.msgIdx as string;
@@ -375,6 +381,7 @@ router.post('/conversations/:phone/messages/:msgIdx/pin', async (req: Request, r
 
 // Toggle star on a specific message
 router.post('/conversations/:phone/messages/:msgIdx/star', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const msgIdx = req.params.msgIdx as string;
@@ -398,6 +405,7 @@ router.post('/conversations/:phone/messages/:msgIdx/star', async (req: Request, 
 
 // Send a reaction to a message via WhatsApp
 router.post('/conversations/:phone/messages/:msgIdx/react', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const { emoji, instanceId } = req.body;
@@ -688,6 +696,7 @@ router.post('/conversations/:phone/approvals/:id/approve', async (req: Request, 
 
 // Reject a queued response
 router.post('/conversations/:phone/approvals/:id/reject', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const id = req.params.id as string;
   const { rejectApproval } = await import('../../assistant/approval-queue.js');
 
@@ -702,6 +711,7 @@ router.post('/conversations/:phone/approvals/:id/reject', async (req: Request, r
 
 // US-090: Generate AI notes summary from conversation
 router.post('/conversations/:phone/generate-notes', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const log = await getConversation(phone);
@@ -808,6 +818,7 @@ router.post('/conversations/:phone/suggest', async (req: Request, res: Response)
 
 // Set response mode for a conversation (US-410: also accepts PATCH)
 const handleSetMode = async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   const { mode, setAsGlobalDefault } = req.body;
 
