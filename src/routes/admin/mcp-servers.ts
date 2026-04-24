@@ -8,31 +8,13 @@ export type { McpConnection };
 
 const router = Router();
 
-interface McpServerConfig {
-  enabled: boolean;
-  port: number;
-  auth_type: 'none' | 'bearer';
-  api_key_env: string;
-  expose_tools: 'all' | string[];
-}
-
 interface McpSettings {
   connections: McpConnection[];
-  server: McpServerConfig;
 }
 
 function getMcpSettings(res: Response): McpSettings {
   const settings = getStore(res).getSettings();
-  return (settings as any).mcp_servers || {
-    connections: [],
-    server: {
-      enabled: false,
-      port: 3003,
-      auth_type: 'none',
-      api_key_env: 'RAINBOW_MCP_KEY',
-      expose_tools: 'all'
-    }
-  };
+  return (settings as any).mcp_servers || { connections: [] };
 }
 
 function saveMcpSettings(res: Response, mcpSettings: McpSettings): void {
@@ -46,41 +28,9 @@ function saveMcpSettings(res: Response, mcpSettings: McpSettings): void {
  * Used by the chat pipeline to inject external tools at message-processing time.
  */
 export function getActiveMcpConnections(configStore: { getSettings(): any }): McpConnection[] {
-  const mcpSettings: McpSettings = configStore.getSettings().mcp_servers || { connections: [], server: {} };
+  const mcpSettings: McpSettings = configStore.getSettings().mcp_servers || { connections: [] };
   return (mcpSettings.connections ?? []).filter((c: McpConnection) => c.enabled);
 }
-
-// ─── Server Config (static routes BEFORE parameterized /:id) ────────
-
-router.get('/mcp-servers/server-config', (_req: Request, res: Response) => {
-  const mcp = getMcpSettings(res);
-  res.json(mcp.server);
-});
-
-router.patch('/mcp-servers/server-config', (req: Request, res: Response) => {
-  const mcp = getMcpSettings(res);
-  if (req.body.enabled !== undefined) mcp.server.enabled = req.body.enabled;
-  if (req.body.port !== undefined) mcp.server.port = req.body.port;
-  if (req.body.auth_type !== undefined) mcp.server.auth_type = req.body.auth_type;
-  if (req.body.api_key_env !== undefined) mcp.server.api_key_env = req.body.api_key_env;
-  if (req.body.expose_tools !== undefined) mcp.server.expose_tools = req.body.expose_tools;
-  saveMcpSettings(res, mcp);
-  ok(res, { server: mcp.server });
-});
-
-router.get('/mcp-servers/server-tools', (_req: Request, res: Response) => {
-  const mcp = getMcpSettings(res);
-  const expose = mcp.server.expose_tools;
-  let tools = toolRegistry.listTools().map(t => ({
-    name: t.name,
-    description: t.description
-  }));
-  // Filter by expose_tools setting: 'all' shows everything, array filters by name
-  if (Array.isArray(expose)) {
-    tools = expose.length === 0 ? [] : tools.filter(t => expose.includes(t.name));
-  }
-  res.json({ tools, count: tools.length });
-});
 
 // ─── Client Connections ─────────────────────────────────────────────
 
@@ -88,7 +38,6 @@ router.get('/mcp-servers', (_req: Request, res: Response) => {
   const mcp = getMcpSettings(res);
   res.json({
     connections: mcp.connections,
-    server: mcp.server,
     toolCount: toolRegistry.getToolCount().total
   });
 });

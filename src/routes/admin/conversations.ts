@@ -11,6 +11,7 @@ import { sessionWindowActive, logSessionExpired } from '../../lib/session-window
 import { ok, badRequest, notFound, serverError } from './http-utils.js';
 import contactsRouter from './conversations-contacts.js';
 import sseRouter from './conversations-sse.js';
+import { shouldProxyToPeer, proxyToPeer } from '../../lib/peer-proxy.js';
 
 // ─── Message Metadata Store (pin/star per message) ────────────────────
 interface MessageMetadata {
@@ -53,7 +54,8 @@ router.use(sseRouter);
 // Express 5: async errors auto-propagate to error-handling middleware
 
 // ─── Response time aggregate (must be before /:phone to avoid matching "stats") ───
-router.get('/conversations/stats/response-time', async (_req: Request, res: Response) => {
+router.get('/conversations/stats/response-time', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const stats = await getResponseTimeStats();
   ok(res, { avgResponseTimeMs: stats.avgMs, count: stats.count });
 });
@@ -62,6 +64,7 @@ router.get('/conversations/stats/response-time', async (_req: Request, res: Resp
 
 // US-818: Full-text search across message content (must be before /:phone)
 router.get('/conversations/search', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const q = (req.query.q as string || '').trim();
   if (!q) {
     ok(res, []);
@@ -73,6 +76,8 @@ router.get('/conversations/search', async (req: Request, res: Response) => {
 });
 
 router.get('/conversations/unified', async (req: Request, res: Response) => {
+  console.log('[Unified] proxyToPeer=%s, profileId=%s', shouldProxyToPeer(), res.locals.profileId);
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const profileId = res.locals.profileId as string | undefined;
 
   // 1. WhatsApp conversations
@@ -85,22 +90,28 @@ router.get('/conversations/unified', async (req: Request, res: Response) => {
     const result = await pool.query(`
       WITH ranked_msgs AS (
         SELECT phone, content, role, timestamp,
-          ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+          CASE WHEN typeof(timestamp)='integer' THEN timestamp
+               ELSE unixepoch(timestamp)*1000 END AS ts_ms,
+          ROW_NUMBER() OVER (
+            PARTITION BY phone
+            ORDER BY CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                          ELSE unixepoch(timestamp)*1000 END DESC
+          ) AS rn
         FROM rainbow_messages
       )
       SELECT
         c.phone, c.push_name, c.pinned, c.last_read_at, c.created_at, c.status,
         lm.content AS last_msg_content,
         lm.role    AS last_msg_role,
-        lm.timestamp AS last_msg_at,
+        lm.ts_ms   AS last_msg_at,
         COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone), 0) AS message_count,
-        COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count
+        COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR (CASE WHEN typeof(timestamp)='integer' THEN timestamp ELSE unixepoch(timestamp)*1000 END) > c.last_read_at)), 0) AS unread_count
       FROM rainbow_conversations c
       JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
       WHERE c.phone LIKE 'webchat-%'
         AND lm.content IS NOT NULL
         ${profileFilter}
-      ORDER BY lm.timestamp DESC
+      ORDER BY lm.ts_ms DESC
     `);
 
     webchatConvos = result.rows.map((r: any) => ({
@@ -126,13 +137,15 @@ router.get('/conversations/unified', async (req: Request, res: Response) => {
   }
 
   // 3. Merge + sort by lastMessageAt DESC
-  const merged = [...waConvos, ...webchatConvos]
+  console.log('[Unified] waConvos=%d, webchatConvos=%d', waConvos.length, webchatConvos.length);
+  const merged = [...waConvos.map(c => ({ ...c, channel: 'whatsapp' as const })), ...webchatConvos]
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
 
   res.json(merged);
 });
 
 router.get('/conversations', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const profileId = res.locals.profileId as string | undefined;
   const conversations = await listConversations(profileId);
   res.json(conversations);
@@ -293,6 +306,7 @@ router.get('/conversations/:phone/export', async (req: Request, res: Response) =
 });
 
 router.get('/conversations/:phone', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   const phone = decodeURIComponent(req.params.phone as string);
   // US-908: Pass tenantId to enforce tenant isolation — prevents cross-property data leakage
   const tenantId = res.locals.tenantId as string | undefined;
@@ -405,9 +419,10 @@ router.post('/conversations/:phone/messages/:msgIdx/react', async (req: Request,
 
 // Send manual message to guest
 router.post('/conversations/:phone/send', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
-    const { message, instanceId, staffName } = req.body;
+    const { message, instanceId, staffName, force } = req.body;
 
     if (!message || typeof message !== 'string') {
       badRequest(res, 'message (string) required');
@@ -437,15 +452,20 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
     // US-815: Check 24-hour session window before sending
     // US-908: Pass tenantId to scope session window check to the correct property
     const tenantId = res.locals.tenantId as string | undefined;
-    const sessionActive = await sessionWindowActive(phone, tenantId);
-    if (!sessionActive) {
-      logSessionExpired(phone, 'admin-manual-send', message);
-      res.status(422).json({
-        error: 'session_expired',
-        message: 'Cannot send free-form message — no user message in the last 24 hours. Use a Message Template instead.',
-        sessionActive: false,
-      });
-      return;
+    if (!force) {
+      const sessionActive = await sessionWindowActive(phone, tenantId);
+      if (!sessionActive) {
+        logSessionExpired(phone, 'admin-manual-send', message);
+        res.status(422).json({
+          error: 'session_expired',
+          message: 'Cannot send free-form message — no user message in the last 24 hours. Use a Message Template instead.',
+          sessionActive: false,
+        });
+        return;
+      }
+    }
+    if (force) {
+      console.warn(`[Admin] Session window bypassed (force=true) for ${phone}`);
     }
 
     const { sendWhatsAppMessage } = await import('../../lib/baileys-client.js');
@@ -469,6 +489,7 @@ router.post('/conversations/:phone/send', async (req: Request, res: Response) =>
 
 // Send media (image/video/document) to guest
 router.post('/conversations/:phone/send-media', upload.single('file'), async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const file = req.file;
@@ -526,6 +547,7 @@ router.post('/conversations/:phone/send-media', upload.single('file'), async (re
 
 // Trigger a workflow for a specific contact (US-016: // command palette)
 router.post('/conversations/:phone/trigger-workflow', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const { workflowId, instanceId, staffName } = req.body;
@@ -621,6 +643,7 @@ router.get('/conversations/:phone/approvals', async (req: Request, res: Response
 
 // Approve and send a queued response
 router.post('/conversations/:phone/approvals/:id/approve', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const id = req.params.id as string;
@@ -724,6 +747,7 @@ router.post('/conversations/:phone/generate-notes', async (req: Request, res: Re
 
 // Generate AI suggestion without sending (Manual mode)
 router.post('/conversations/:phone/suggest', async (req: Request, res: Response) => {
+  if (shouldProxyToPeer()) { await proxyToPeer(req, res); return; }
   try {
     const phone = decodeURIComponent(req.params.phone as string);
     const { context } = req.body; // Optional: staff can provide context

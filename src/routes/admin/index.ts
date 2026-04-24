@@ -112,6 +112,7 @@ import violationsRoutes from './violations.js'; // US-310: Profile isolation vio
 import analyticsBookingConversionRoutes from './analytics-booking-conversion.js'; // US-292: Booking conversion rate analyzer
 import fallbackAnalysisRoutes from './fallback-analysis.js'; // US-300: Fallback response effectiveness tracker
 import escalationFeedbackRoutes from './escalation-feedback.js'; // US-295: Escalation quality feedback loop
+import replayRoutes from './replay.js'; // Live Simulation: replay-classification dry run
 
 const router = Router();
 
@@ -390,6 +391,7 @@ router.use(violationsRoutes);            // US-310: Profile isolation violation 
 router.use(analyticsBookingConversionRoutes); // US-292: Booking conversion rate analyzer
 router.use(fallbackAnalysisRoutes);           // US-300: Fallback response effectiveness tracker
 router.use(escalationFeedbackRoutes);        // US-295: Escalation quality feedback loop
+router.use(replayRoutes);                     // Live Simulation: POST /admin/replay-classification
 
 // Ensure unmatched /api/rainbow/* returns JSON 404 (never HTML)
 // US-504: Do not echo the requested path back to the client

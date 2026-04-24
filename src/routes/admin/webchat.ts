@@ -178,22 +178,22 @@ router.post('/webchat/conversations/:sessionId/reply', async (req: Request, res:
       return;
     }
 
-    const now = new Date();
+    const nowMs = Date.now();
 
-    // Insert staff reply as role='staff'
+    // Insert staff reply as role='staff' — pass integer ms for timestamp
     await pool.query(
       `INSERT INTO rainbow_messages (phone, role, content, timestamp, staff_name, source)
        VALUES ($1, 'staff', $2, $3, $4, 'webchat-admin')`,
-      [phone, message.trim(), now, staffName || 'Staff']
+      [phone, message.trim(), nowMs, staffName || 'Staff']
     );
 
     // Update conversation timestamp
     await pool.query(
       `UPDATE rainbow_conversations SET updated_at = $1 WHERE phone = $2`,
-      [now, phone]
+      [nowMs, phone]
     );
 
-    ok(res, { timestamp: now.getTime() });
+    ok(res, { timestamp: nowMs });
   } catch (err: any) {
     serverError(res, err);
   }

@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { profileRegistry } from '../../assistant/profile-registry.js';
 import { sanitizeInput, validateInputSafety, processChat } from '../../assistant/chat-engine.js';
+import { classifyMessage } from '../../assistant/intents.js';
 import { toolRegistry } from '../../tools/registry.js';
 import { pool } from '../../lib/db.js';
 import { cartTools, createCartHandlers } from '../../tools/cart.js';
@@ -25,6 +26,8 @@ import { getLastOrder } from '../../assistant/order-history-store.js';
 import { computeAvailability } from '../../assistant/business-hours.js';
 import type { BusinessHoursConfig } from '../../assistant/business-hours.js';
 import { getActiveMcpConnections } from '../admin/mcp-servers.js';
+import { trackMessageReceived, trackResponseSent } from '../../lib/activity-tracker.js';
+import { emitTrace, deriveTier } from '../../lib/trace-collector.js';
 import { fetchMcpTools } from '../../lib/mcp-client.js';
 import { buildExternalToolHandlers } from '../../lib/mcp-tool-proxy.js';
 import type { MCPTool, ToolHandler } from '../../types/mcp.js';
@@ -665,6 +668,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     let disconnected = false;
     req.on('close', () => { disconnected = true; });
 
+    const traceStart = performance.now();
     try {
       const isMakanMoments = profileId === 'makan-moments';
       const conversationHistory = (Array.isArray(history) ? history : []).map((m: any) => ({
@@ -686,13 +690,71 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         'Respond in plain conversational text ONLY. Be warm, concise, and helpful. Never output JSON, code blocks, or structured data.'
       );
 
+      // Load external MCP tools once (reused for both classification check and streaming)
+      const extMcp = await loadExternalMcpTools(profile.configStore);
+      const hasTools = isMakanMoments || extMcp.tools.length > 0;
+
+      // Pre-classify to capture metadata (skip for tool-calling profiles — consistent with processChat)
+      let streamMeta: WebchatMeta | undefined;
+      if (!hasTools) {
+        const intentResult = await classifyMessage(sanitizedMessage, conversationHistory);
+        const routingConfig = profile.configStore.getRouting() || {};
+        const route = routingConfig[intentResult.category];
+        const action = route?.action || 'llm_reply';
+
+        streamMeta = {
+          intent: intentResult.category,
+          confidence: intentResult.confidence,
+          source: intentResult.source,
+          action,
+          routedAction: action,
+          messageType: undefined,
+          model: 'none',
+        };
+
+        // Serve static replies directly — no LLM call needed
+        if (action === 'static_reply') {
+          const knowledge = profile.configStore.getKnowledge() || { static: [], dynamic: {} };
+          const staticEntry = ((knowledge as any).static || []).find((e: any) => e.intent === intentResult.category);
+          const langKey = (['ms', 'zh', 'ta'].includes(intentResult.detectedLanguage || ''))
+            ? intentResult.detectedLanguage as string : 'en';
+          const staticText = staticEntry?.response?.[langKey] || staticEntry?.response?.en || '';
+
+          if (staticText) {
+            const responseTime = Date.now() - startTime;
+            sendStaticSSE(res, staticText, responseTime, sessionId);
+
+            // Persist with full metadata
+            const ip = req.ip || req.socket.remoteAddress || 'unknown';
+            const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
+            persistWebchatExchange(phone, pushName, sanitizedMessage, staticText, responseTime, profileId, streamMeta).catch(err => {
+              console.error('[Webchat] DB persist error:', err.message);
+            });
+
+            // Emit trace
+            emitTrace({
+              jid: phone,
+              profileId,
+              devMetadataSource: intentResult.source,
+              intent: intentResult.category,
+              model: undefined,
+              promptTokens: undefined,
+              completionTokens: undefined,
+              responseTimeMs: responseTime,
+              traceStart,
+            }, { enabled: true, backend: 'db', debug_mode: false });
+            return;
+          }
+          // If no static text found, fall through to LLM streaming
+        }
+      }
+
       let fullText: string;
 
       if (isMakanMoments) {
         // Tool-calling path: stream with tools (FNB + cart + external MCP)
         const ctx = buildMakanMomentsContext(sessionId);
         systemPrompt = `${systemPrompt}\n\n${ctx.systemPromptSuffix}`;
-        const extMcp = await loadExternalMcpTools(profile.configStore);
         const mergedTools = [...ctx.allTools, ...extMcp.tools];
         const mergedHandlers = new Map([...ctx.allHandlers, ...extMcp.handlers]);
         fullText = await streamChatWithTools(
@@ -700,8 +762,6 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
           mergedTools, mergedHandlers
         );
       } else {
-        // Load external MCP tools; switch to tool-calling stream if any are configured
-        const extMcp = await loadExternalMcpTools(profile.configStore);
         if (extMcp.tools.length > 0) {
           fullText = await streamChatWithTools(
             res, systemPrompt, conversationHistory, sanitizedMessage,
@@ -715,6 +775,11 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
 
       const responseTime = Date.now() - startTime;
 
+      // For LLM-streamed messages, mark the model
+      if (streamMeta) {
+        streamMeta.model = 'llm';
+      }
+
       // US-921: Sync cart table info back to session data store
       if (isMakanMoments) {
         syncCartToSessionData(sessionId);
@@ -727,12 +792,27 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
         res.end();
       }
 
-      // Persist to DB (fire-and-forget)
+      // Persist to DB with metadata (fire-and-forget)
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
       const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
-      persistWebchatExchange(phone, pushName, sanitizedMessage, fullText, responseTime, profileId).catch(err => {
+      persistWebchatExchange(phone, pushName, sanitizedMessage, fullText, responseTime, profileId, streamMeta).catch(err => {
         console.error('[Webchat] DB persist error:', err.message);
       });
+
+      // Emit trace for LLM-streamed messages
+      if (streamMeta?.intent && streamMeta?.source) {
+        emitTrace({
+          jid: phone,
+          profileId,
+          devMetadataSource: streamMeta.source,
+          intent: streamMeta.intent,
+          model: streamMeta.model !== 'none' ? streamMeta.model : undefined,
+          promptTokens: undefined,
+          completionTokens: undefined,
+          responseTimeMs: responseTime,
+          traceStart,
+        }, { enabled: true, backend: 'db', debug_mode: false });
+      }
     } catch (err: any) {
       console.error(`[Webchat Stream] Error for ${profileId}:`, err.message);
       if (!disconnected) {
@@ -745,6 +825,7 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
   }
 
   // ─── Non-Streaming JSON Path (existing behavior) ─────────────────────
+  const traceStart = performance.now();
   try {
     const isMakanMoments = profileId === 'makan-moments';
     let allTools = isMakanMoments ? toolRegistry.getToolsForProfile('makan-moments') : [];
@@ -780,9 +861,36 @@ router.post('/:profileId/message', async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const pushName = 'Web Visitor (' + ip.replace('::ffff:', '') + ')';
 
-    persistWebchatExchange(phone, pushName, sanitizedMessage, result.message, result.responseTime, profileId).catch(err => {
+    const webchatMeta: WebchatMeta = {
+      intent: result.intent,
+      confidence: result.confidence,
+      action: result.action || result.routedAction,
+      source: result.source,
+      model: result.model,
+      kbFiles: result.kbFiles,
+      messageType: result.messageType,
+      routedAction: result.routedAction,
+      usage: result.usage,
+    };
+
+    persistWebchatExchange(phone, pushName, sanitizedMessage, result.message, result.responseTime, profileId, webchatMeta).catch(err => {
       console.error('[Webchat] DB persist error:', err.message);
     });
+
+    // Emit trace record for webchat (non-streaming only)
+    if (result.intent && result.source) {
+      emitTrace({
+        jid: phone,
+        profileId: profileId,
+        devMetadataSource: result.source,
+        intent: result.intent,
+        model: result.model !== 'none' ? result.model : undefined,
+        promptTokens: result.usage?.prompt_tokens,
+        completionTokens: result.usage?.completion_tokens,
+        responseTimeMs: result.responseTime,
+        traceStart,
+      }, { enabled: true, backend: 'db', debug_mode: false });
+    }
 
     // US-921: Sync cart table info back to session data store
     if (isMakanMoments) {
@@ -894,30 +1002,74 @@ router.post('/:profileId/consent-log', async (req: Request, res: Response) => {
 });
 
 /**
+ * Metadata from ChatResult to persist on assistant messages and emit traces.
+ */
+interface WebchatMeta {
+  intent?: string;
+  confidence?: number;
+  action?: string;
+  source?: string;
+  model?: string;
+  kbFiles?: string[];
+  messageType?: string;
+  routedAction?: string;
+  usage?: any;
+}
+
+/**
  * Persist user message + AI response to rainbow_messages/rainbow_conversations.
  */
 async function persistWebchatExchange(
   phone: string, pushName: string,
-  userMessage: string, aiResponse: string, responseTime?: number, profileId?: string
+  userMessage: string, aiResponse: string, responseTime?: number, profileId?: string,
+  meta?: WebchatMeta
 ): Promise<void> {
-  const now = new Date();
-  const nowPlus1 = new Date(now.getTime() + 1);
+  const nowMs = Date.now();
+  const pid = profileId || 'pelangi';
 
-  // Upsert conversation
+  // Upsert conversation — pass integer ms so SQLite stores INTEGER, not ISO text
   await pool.query(
     `INSERT INTO rainbow_conversations (phone, push_name, profile_id, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $4)
      ON CONFLICT (phone) DO UPDATE SET push_name = $2, profile_id = EXCLUDED.profile_id, updated_at = $4`,
-    [phone, pushName, profileId || null, now]
+    [phone, pushName, pid, nowMs]
   );
 
-  // Insert user message + AI response
+  // Insert user message — pass integer ms for timestamp
   await pool.query(
-    `INSERT INTO rainbow_messages (phone, role, content, timestamp, source, response_time_ms)
-     VALUES ($1, 'user', $2, $3, 'webchat', NULL),
-            ($1, 'assistant', $4, $5, 'webchat', $6)`,
-    [phone, userMessage, now, aiResponse, nowPlus1, responseTime ?? null]
+    `INSERT INTO rainbow_messages (phone, role, content, timestamp, source, profile_id)
+     VALUES ($1, 'user', $2, $3, 'webchat', $4)`,
+    [phone, userMessage, nowMs, pid]
   );
+
+  // Insert assistant message with metadata
+  const usageJson = meta?.usage ? JSON.stringify(meta.usage) : null;
+  const kbFilesJson = meta?.kbFiles?.length ? JSON.stringify(meta.kbFiles) : null;
+  const promptTokens = meta?.usage?.prompt_tokens ?? null;
+  const completionTokens = meta?.usage?.completion_tokens ?? null;
+  const totalTokens = (promptTokens != null && completionTokens != null) ? promptTokens + completionTokens : null;
+
+  await pool.query(
+    `INSERT INTO rainbow_messages (phone, role, content, timestamp, source, response_time_ms,
+      intent, confidence, action, model, kb_files_json, message_type, routed_action, usage_json,
+      prompt_tokens, completion_tokens, total_tokens, profile_id)
+     VALUES ($1, 'assistant', $2, $3, $4, $5,
+      $6, $7, $8, $9, $10, $11, $12, $13,
+      $14, $15, $16, $17)`,
+    [
+      phone, aiResponse, nowMs + 1,
+      meta?.source || 'webchat', responseTime ?? null,
+      meta?.intent ?? null, meta?.confidence ?? null,
+      meta?.action || meta?.routedAction || null,
+      meta?.model ?? null, kbFilesJson,
+      meta?.messageType ?? null, meta?.routedAction ?? null,
+      usageJson, promptTokens, completionTokens, totalTokens, pid
+    ]
+  );
+
+  // Emit activity events so SSE pushes live updates to admin UI
+  trackMessageReceived(phone, pushName, userMessage);
+  trackResponseSent(phone, pushName, 'webchat', responseTime);
 }
 
 export default router;

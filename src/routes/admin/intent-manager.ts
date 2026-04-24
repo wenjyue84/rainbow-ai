@@ -25,29 +25,31 @@ const router = Router();
 
 // ─── Intent Manager Proxy (forwards to backend API) ─────────────────
 
-router.get('/intent-manager/keywords', async (_req: Request, res: Response) => {
+router.get('/intent-manager/keywords', async (req: Request, res: Response) => {
   try {
     const response = await axios.get('http://localhost:5000/api/intent-manager/keywords');
     res.json(response.data);
   } catch (_e: any) {
     try {
-      const raw = await readFile(join(DATA_DIR, 'intent-keywords.json'), 'utf-8');
+      const raw = await readFile(join(getProfileDataDir(req), 'intent-keywords.json'), 'utf-8');
       res.json(JSON.parse(raw));
     } catch (err: any) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return res.json({ intents: [] });
       serverError(res, err?.message || 'Failed to read keywords');
     }
   }
 });
 
-router.get('/intent-manager/examples', async (_req: Request, res: Response) => {
+router.get('/intent-manager/examples', async (req: Request, res: Response) => {
   try {
     const response = await axios.get('http://localhost:5000/api/intent-manager/examples');
     res.json(response.data);
   } catch (_e: any) {
     try {
-      const raw = await readFile(join(DATA_DIR, 'intent-examples.json'), 'utf-8');
+      const raw = await readFile(join(getProfileDataDir(req), 'intent-examples.json'), 'utf-8');
       res.json(JSON.parse(raw));
     } catch (err: any) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return res.json({ intents: [] });
       serverError(res, err?.message || 'Failed to read examples');
     }
   }
@@ -88,9 +90,15 @@ router.get('/intent-manager/stats', async (req: Request, res: Response) => {
     // Fallback: compute stats from Rainbow's local data so dashboard works without backend (5000)
     try {
       const dataDir = getProfileDataDir(req);
+      const readOrEmpty = async (path: string) => {
+        try { return await readFile(path, 'utf-8'); } catch (e: any) {
+          if ((e as NodeJS.ErrnoException).code === 'ENOENT') return '{"intents":[]}';
+          throw e;
+        }
+      };
       const [kwRaw, exRaw] = await Promise.all([
-        readFile(join(dataDir, 'intent-keywords.json'), 'utf-8'),
-        readFile(join(dataDir, 'intent-examples.json'), 'utf-8')
+        readOrEmpty(join(dataDir, 'intent-keywords.json')),
+        readOrEmpty(join(dataDir, 'intent-examples.json'))
       ]);
       const keywordsData = JSON.parse(kwRaw) as { intents: Array<{ intent: string; keywords: Record<string, string[]> }> };
       const examplesData = JSON.parse(exRaw) as { intents: Array<{ intent: string; examples: Record<string, string[]> | string[] }> };
