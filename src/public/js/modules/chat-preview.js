@@ -277,9 +277,9 @@ export function renderChatMessages() {
     return;
   }
 
-  // Render messages in reverse order (newest at top)
+  // Render messages in chronological order (oldest at top, newest at bottom)
   const historyLen = session.history.length;
-  messagesEl.innerHTML = session.history.slice().reverse().map(function(msg, idx) {
+  messagesEl.innerHTML = session.history.slice().map(function(msg, idx) {
     // Determine dev badges collapsed/expanded state from sessionStorage
     var devExpanded = false;
     try { devExpanded = sessionStorage.getItem('cs-dev-expanded') === '1'; } catch(e) {}

@@ -13,7 +13,7 @@ import { switchSimulatorTab } from './chat-simulator-helpers.js';
  */
 export async function loadChatSimulator(subTab = null) {
   // Load specified sub-tab or default to Quick Test
-  const effectiveSubTab = subTab || 'quick-test';
+  const effectiveSubTab = subTab || 'live-simulation';
   // switchSimulatorTab already calls loadRealChat() for live-simulation,
   // so we don't call it again below to avoid duplicate concurrent calls
   // that can destroy DOM elements before the second call reads them.

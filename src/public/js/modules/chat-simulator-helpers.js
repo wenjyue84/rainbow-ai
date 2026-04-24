@@ -37,9 +37,9 @@ export function switchSimulatorTab(tabName, updateHash = true) {
     }
   });
 
-  // US-160: Clean up real-chat intervals when switching away from live-simulation
-  if (tabName !== 'live-simulation' && typeof window.cleanupRealChat === 'function') {
-    window.cleanupRealChat();
+  // Clean up Live Simulation SSE + intervals when switching away
+  if (tabName !== 'live-simulation' && typeof window.cleanupLiveSimulation === 'function') {
+    window.cleanupLiveSimulation();
   }
 
   // Show selected content
@@ -48,9 +48,9 @@ export function switchSimulatorTab(tabName, updateHash = true) {
     content.classList.remove('hidden');
   }
 
-  // Reload Real Chat if switching to that tab (restarts auto-refresh)
-  if (tabName === 'live-simulation' && typeof window.loadRealChat === 'function') {
-    window.loadRealChat();
+  // Boot Live Simulation when switching to its sub-tab
+  if (tabName === 'live-simulation' && typeof window.loadLiveSimulation === 'function') {
+    window.loadLiveSimulation();
   }
 
   // Highlight active button

@@ -116,8 +116,8 @@ export async function sendChatMessage(event) {
     const userMsgEl = document.createElement('div');
     userMsgEl.className = 'lc-bubble-wrap guest';
     userMsgEl.innerHTML = '<div class="lc-bubble guest"><div class="lc-bubble-text" style="white-space:pre-wrap;">' + esc(message) + '</div></div>';
-    messagesEl.prepend(userMsgEl);
-    messagesEl.scrollTop = 0;
+    messagesEl.appendChild(userMsgEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 
     // Update session title if it's the first message
     if (session.history.length === 1) {
@@ -140,8 +140,8 @@ export async function sendChatMessage(event) {
       + '<div style="width:8px;height:8px;background:#667781;border-radius:50%;animation:bounce 1.4s infinite ease-in-out;animation-delay:150ms;"></div>'
       + '<div style="width:8px;height:8px;background:#667781;border-radius:50%;animation:bounce 1.4s infinite ease-in-out;animation-delay:300ms;"></div>'
       + '</div></div>';
-    messagesEl.prepend(typingEl);
-    messagesEl.scrollTop = 0;
+    messagesEl.appendChild(typingEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 
     try {
         // Send to API (exclude last user message from history)
@@ -233,8 +233,8 @@ export async function sendChatMessage(event) {
         errorMsgEl.innerHTML = '<div class="lc-bubble bot" style="background:#fee2e2;border:1px solid #fecaca;">'
           + '<div class="lc-bubble-text" style="color:#991b1b;">Error: ' + esc(error.message || 'Failed to get response') + '</div>'
           + '</div>';
-        messagesEl.prepend(errorMsgEl);
-        messagesEl.scrollTop = 0;
+        messagesEl.appendChild(errorMsgEl);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
 
         toast(error.message || 'Failed to send message', 'error');
 

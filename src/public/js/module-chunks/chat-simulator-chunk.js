@@ -7,8 +7,15 @@
 import { switchSimulatorTab } from '/public/js/modules/chat-simulator-helpers.js';
 import { loadChatSimulator } from '/public/js/modules/chat-simulator.js';
 
-// real-chat.js self-registers window.loadRealChat etc. (used by live-simulation sub-tab)
+// real-chat.js self-registers window.loadRealChat etc. — kept available
+// for code paths that still reference window.loadRealChat / cleanupRealChat,
+// but the live-simulation sub-tab now uses live-simulation.js below.
 import '/public/js/modules/real-chat.js';
+
+// Live Simulation (developer audit view) — self-registers
+//   window.loadLiveSimulation, cleanupLiveSimulation,
+//   openTraceDrawer, openLiveSimReplay, runLiveSimReplay, etc.
+import '/public/js/modules/live-simulation.js';
 
 // US-015: Prisma AI panel available from live-simulation tab (no code duplication)
 import {

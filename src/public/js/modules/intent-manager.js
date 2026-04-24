@@ -21,7 +21,9 @@ let imIntentsData = null; // Store intents.json data for threshold management
 export async function loadIntentManagerData() {
   // Load and show stats first (Rainbow serves stats locally if backend is down)
   try {
-    const statsRes = await fetch('/api/rainbow/intent-manager/stats');
+    const statsRes = await fetch('/api/rainbow/intent-manager/stats', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     const stats = await statsRes.json();
     const elIntents = document.getElementById('im-stat-intents');
     const elKeywords = document.getElementById('im-stat-keywords');
@@ -41,11 +43,15 @@ export async function loadIntentManagerData() {
 
   try {
     // Load keywords
-    const kwRes = await fetch('/api/rainbow/intent-manager/keywords');
+    const kwRes = await fetch('/api/rainbow/intent-manager/keywords', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     imKeywordsData = await kwRes.json();
 
     // Load examples
-    const exRes = await fetch('/api/rainbow/intent-manager/examples');
+    const exRes = await fetch('/api/rainbow/intent-manager/examples', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     imExamplesData = await exRes.json();
 
     // Populate intent lists
@@ -117,7 +123,9 @@ export function toggleTier(tierId, updateHash = true) {
 
 export async function loadTierStates() {
   try {
-    const res = await fetch('/api/rainbow/intent-manager/tiers');
+    const res = await fetch('/api/rainbow/intent-manager/tiers', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     if (res.ok) {
       const tiers = await res.json();
       updateTierUI(tiers);
@@ -222,7 +230,7 @@ export async function saveTierState(tier, enabled) {
     try {
       const res = await fetch('/api/rainbow/intent-manager/tiers', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(window.profileSwitcher?.getHeaders() ?? {}) },
         body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error('Failed to save');
@@ -436,7 +444,7 @@ export async function saveKeywords() {
   try {
     const res = await fetch('/api/rainbow/intent-manager/keywords/' + imCurrentIntent, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(window.profileSwitcher?.getHeaders() ?? {}) },
       body: JSON.stringify({ keywords: intentData.keywords })
     });
     if (!res.ok) throw new Error('Failed to save');
@@ -457,7 +465,7 @@ export async function saveExamples() {
   try {
     const res = await fetch('/api/rainbow/intent-manager/examples/' + imCurrentExampleIntent, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(window.profileSwitcher?.getHeaders() ?? {}) },
       body: JSON.stringify({ examples: intentData.examples })
     });
     if (!res.ok) throw new Error('Failed to save');
@@ -668,7 +676,9 @@ export async function quickAddKeyword() {
   }
 
   try {
-    const res = await fetch('/api/rainbow/intent-manager/keywords');
+    const res = await fetch('/api/rainbow/intent-manager/keywords', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     const data = await res.json();
 
     const intentData = data.intents.find(function(i) { return i.intent === intent; });
@@ -691,7 +701,7 @@ export async function quickAddKeyword() {
 
     const saveRes = await fetch('/api/rainbow/intent-manager/keywords/' + encodeURIComponent(intent), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(window.profileSwitcher?.getHeaders() ?? {}) },
       body: JSON.stringify({ keywords: intentData.keywords })
     });
 
@@ -724,7 +734,9 @@ export async function quickAddExample() {
   }
 
   try {
-    const res = await fetch('/api/rainbow/intent-manager/examples');
+    const res = await fetch('/api/rainbow/intent-manager/examples', {
+      headers: window.profileSwitcher?.getHeaders() ?? {}
+    });
     const data = await res.json();
 
     const intentData = data.intents.find(function(i) { return i.intent === intent; });
@@ -758,7 +770,7 @@ export async function quickAddExample() {
 
     const saveRes = await fetch('/api/rainbow/intent-manager/examples/' + encodeURIComponent(intent), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(window.profileSwitcher?.getHeaders() ?? {}) },
       body: JSON.stringify({ examples: intentData.examples })
     });
 

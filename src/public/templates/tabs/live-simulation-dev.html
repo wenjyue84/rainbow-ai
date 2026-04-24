@@ -1,0 +1,238 @@
+<!--
+  Live Simulation — Developer Audit View
+  Injected into #ls-mount by live-simulation-core.js on first sub-tab open.
+  3-column layout: conversation list | thread + audit badges | stats sidebar.
+  Drawer (#ls-trace-drawer) and Replay modal (#ls-replay-modal) are
+  appended to <body> by their respective modules on demand.
+-->
+<style>
+  /* Layout */
+  #ls-root { display:flex; flex-direction:column; height:calc(100vh - 220px); min-height:560px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+  .ls-toolbar { display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #e5e7eb; background:#f9fafb; font-size:13px; }
+  .ls-toolbar h3 { margin:0; font-size:14px; font-weight:600; color:#111827; }
+  .ls-toolbar .ls-spacer { flex:1; }
+  .ls-toolbar .ls-pill { background:#dcfce7; color:#166534; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; }
+  .ls-grid { display:grid; grid-template-columns:280px 1fr 280px; flex:1; min-height:0; }
+  .ls-pane { border-right:1px solid #e5e7eb; display:flex; flex-direction:column; min-height:0; }
+  .ls-pane:last-child { border-right:0; border-left:1px solid #e5e7eb; flex-direction: row; }
+  .ls-sidebar-content { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+  /* Sidebar collapse toggle */
+  .ls-sidebar-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    flex-shrink: 0;
+    border-right: 1px solid #e5e7eb;
+    background: #f9fafb;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+  }
+  .ls-sidebar-handle:hover { background: #f3f4f6; }
+  .ls-sidebar-handle-btn {
+    font-size: 18px;
+    color: #374151;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    user-select: none;
+  }
+  .ls-grid.ls-sidebar-collapsed { grid-template-columns: 280px 1fr 20px; }
+  .ls-grid.ls-sidebar-collapsed .ls-sidebar-content { display: none; }
+
+  /* Conversation list */
+  .ls-list-head { padding:10px; border-bottom:1px solid #e5e7eb; }
+  .ls-list-head input { width:100%; padding:6px 10px; font-size:12px; border:1px solid #e5e7eb; border-radius:6px; }
+  #ls-conv-list { flex:1; overflow-y:auto; }
+  .ls-conv-item { display:flex; align-items:center; gap:8px; padding:10px; border-bottom:1px solid #f3f4f6; cursor:pointer; }
+  .ls-conv-item:hover { background:#f9fafb; }
+  .ls-conv-item.active { background:#ecfeff; }
+  .ls-conv-avatar { width:36px; height:36px; border-radius:50%; background:#dbeafe; color:#1e40af; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; }
+  .ls-conv-info { flex:1; min-width:0; }
+  .ls-conv-name { font-size:13px; font-weight:600; color:#111827; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ls-conv-preview { font-size:11px; color:#6b7280; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ls-conv-meta { text-align:right; }
+  .ls-conv-time { font-size:10px; color:#9ca3af; }
+  .ls-conv-count { font-size:10px; background:#e5e7eb; border-radius:8px; padding:1px 6px; color:#374151; margin-top:2px; display:inline-block; }
+
+  /* Thread */
+  .ls-thread-head { padding:10px 14px; border-bottom:1px solid #e5e7eb; font-size:12px; color:#374151; background:#f9fafb; font-weight:500; }
+  #ls-thread { flex:1; overflow-y:auto; padding:14px; background:#f3f4f6; }
+  .ls-bubble-wrap { display:flex; margin-bottom:8px; }
+  .ls-bubble-wrap.ls-bot { justify-content:flex-start; }
+  .ls-bubble-wrap.ls-guest { justify-content:flex-end; }
+  .ls-bubble { max-width:75%; padding:8px 10px; border-radius:8px; font-size:13px; line-height:1.4; }
+  .ls-bubble.ls-bot { background:#fff; border:1px solid #e5e7eb; }
+  .ls-bubble.ls-guest { background:#dcfce7; }
+  .ls-bubble-prefix { font-size:10px; color:#6b7280; font-weight:600; margin-bottom:2px; }
+  .ls-bubble-text { white-space:pre-wrap; word-break:break-word; }
+  .ls-bubble-foot { display:flex; align-items:center; gap:8px; margin-top:4px; font-size:10px; color:#9ca3af; }
+  .ls-trace-btn { font-size:10px; background:transparent; border:1px solid #e5e7eb; border-radius:4px; padding:1px 6px; cursor:pointer; color:#374151; }
+  .ls-trace-btn:hover { background:#f3f4f6; }
+
+  /* Inline badges */
+  .ls-badges { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .ls-badge { font-size:10px; padding:1px 6px; border-radius:8px; font-weight:500; line-height:1.4; white-space:nowrap; }
+
+  /* Audit sidebar */
+  #ls-audit-sidebar { flex:1; overflow-y:auto; padding:12px; background:#fafafa; }
+  .ls-audit-section { margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
+  .ls-audit-section:last-child { border-bottom:0; }
+  .ls-audit-section h4 { margin:0 0 8px 0; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; font-weight:600; }
+  .ls-chip-row { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+  .ls-chip { font-size:11px; padding:3px 8px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; color:#374151; }
+  .ls-chip.active { background:#1f2937; color:#fff; border-color:#1f2937; }
+  .ls-stat-row { display:flex; justify-content:space-between; padding:3px 0; font-size:12px; color:#374151; }
+  .ls-tier-row { display:grid; grid-template-columns:24px 1fr 36px; gap:6px; align-items:center; font-size:11px; padding:2px 0; color:#374151; }
+  .ls-tier-bar { font-family:ui-monospace,Menlo,monospace; color:#10b981; letter-spacing:-1px; }
+  .ls-stat-label { border-bottom: 1px dotted #9ca3af; cursor: help; }
+
+  /* CSS tooltip via data-tooltip attribute */
+  [data-tooltip] { position: relative; }
+  [data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    transform: none;
+    width: max-content;
+    max-width: 220px;
+    background: #1f2937;
+    color: #f9fafb;
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 5px 8px;
+    border-radius: 5px;
+    white-space: normal;
+    word-break: break-word;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  [data-tooltip]:hover::after { opacity: 1; }
+
+  .ls-empty { padding:24px; text-align:center; color:#9ca3af; font-size:12px; }
+
+  /* Reply bar */
+  .ls-reply-bar { display:flex; align-items:flex-end; gap:8px; padding:8px 10px; border-top:1px solid #e5e7eb; background:#fff; flex-shrink:0; }
+  .ls-reply-input { flex:1; padding:7px 10px; font-size:13px; border:1px solid #e5e7eb; border-radius:8px; resize:none; font-family:inherit; line-height:1.4; min-height:36px; max-height:120px; overflow-y:auto; outline:none; }
+  .ls-reply-input:focus { border-color:#6b7280; }
+  .ls-reply-send { width:34px; height:34px; border-radius:8px; background:#1f2937; color:#fff; border:0; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .ls-reply-send:hover { background:#111827; }
+  .ls-reply-send:disabled { background:#9ca3af; cursor:default; }
+
+  /* Trace drawer (appended to body by trace-drawer module) */
+  .ls-drawer { position:fixed; top:0; right:0; width:480px; max-width:100%; height:100vh; background:#fff; border-left:1px solid #e5e7eb; box-shadow:-4px 0 24px rgba(0,0,0,0.08); z-index:1500; overflow-y:auto; animation:ls-drawer-in 180ms ease-out; }
+  @keyframes ls-drawer-in { from { transform:translateX(100%); } to { transform:translateX(0); } }
+  .ls-drawer-inner { display:flex; flex-direction:column; height:100%; }
+  .ls-drawer-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #e5e7eb; background:#f9fafb; }
+  .ls-drawer-header h3 { margin:0; font-size:14px; font-weight:600; }
+  .ls-drawer-close { background:transparent; border:0; font-size:20px; cursor:pointer; color:#6b7280; line-height:1; }
+  .ls-drawer-body { flex:1; padding:14px 18px; overflow-y:auto; }
+  .ls-tr-section { margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #e5e7eb; }
+  .ls-tr-section h4 { margin:0 0 8px 0; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; font-weight:600; }
+  .ls-tr-row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:3px 0; font-size:12px; }
+  .ls-tr-label { color:#6b7280; min-width:120px; }
+  .ls-tr-val { color:#111827; text-align:right; word-break:break-word; }
+  .ls-tr-empty { color:#9ca3af; font-size:12px; font-style:italic; }
+  .ls-tr-table { width:100%; border-collapse:collapse; font-size:11px; margin-top:4px; }
+  .ls-tr-table th, .ls-tr-table td { padding:4px 6px; text-align:left; border-bottom:1px solid #f3f4f6; }
+  .ls-tr-table th { color:#6b7280; font-weight:600; background:#f9fafb; }
+  .ls-tr-kbwrap { display:flex; flex-wrap:wrap; gap:4px; }
+  .ls-tr-kb-chip { font-size:11px; background:#ecfeff; color:#155e75; padding:2px 6px; border-radius:6px; }
+  .ls-tr-rawtoggle { font-size:11px; padding:2px 8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; cursor:pointer; }
+  .ls-tr-rawpre { font-family:ui-monospace,Menlo,monospace; font-size:10px; background:#0f172a; color:#e2e8f0; padding:10px; border-radius:6px; overflow-x:auto; max-height:300px; margin-top:6px; }
+  .ls-tr-summary-bar { font-size:12px; line-height:1.6; color:#374151; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:8px 12px; margin-bottom:12px; word-break:break-word; }
+  .ls-tr-summary-bar b { color:#111827; }
+
+  /* Replay modal */
+  .ls-modal { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1600; display:flex; align-items:center; justify-content:center; }
+  .ls-modal-backdrop { position:absolute; inset:0; background:rgba(15,23,42,0.4); }
+  .ls-modal-card { position:relative; width:560px; max-width:92%; max-height:84vh; background:#fff; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; overflow:hidden; }
+  .ls-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #e5e7eb; background:#f9fafb; }
+  .ls-modal-header h3 { margin:0; font-size:14px; font-weight:600; }
+  .ls-modal-body { padding:14px 18px; overflow-y:auto; }
+  .ls-modal-label { font-size:11px; color:#6b7280; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; display:block; }
+  .ls-modal-body textarea, .ls-modal-body input[type="text"] { width:100%; border:1px solid #e5e7eb; border-radius:6px; padding:6px 10px; font-size:13px; box-sizing:border-box; font-family:inherit; }
+  .ls-modal-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+  .ls-modal-actions { display:flex; gap:8px; margin-top:12px; }
+  .ls-btn { padding:6px 12px; border-radius:6px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; font-size:12px; }
+  .ls-btn.primary { background:#1f2937; color:#fff; border-color:#1f2937; }
+  .ls-btn:hover { background:#f3f4f6; }
+  .ls-btn.primary:hover { background:#111827; }
+  .ls-replay-result { margin-top:14px; }
+  .ls-replay-loading { color:#6b7280; font-size:12px; padding:8px; }
+  .ls-replay-error { color:#991b1b; background:#fee2e2; padding:8px; border-radius:6px; font-size:12px; }
+  .ls-stage-row { display:grid; grid-template-columns:140px 1fr 60px; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid #f3f4f6; font-size:12px; }
+  .ls-stage-name { color:#374151; font-weight:500; }
+  .ls-stage-summary { color:#0f172a; word-break:break-word; }
+  .ls-stage-ms { color:#9ca3af; font-size:11px; text-align:right; }
+  .ls-replay-summary { margin-top:10px; padding:8px 10px; background:#f9fafb; border-radius:6px; font-size:12px; color:#111827; }
+</style>
+
+<div id="ls-root">
+  <div class="ls-toolbar">
+    <h3>Live Simulation — Dev Audit</h3>
+    <span class="ls-pill">DEV ✓</span>
+    <button class="ls-btn primary" onclick="window.openLiveSimReplay()">🎯 Replay</button>
+    <span class="ls-spacer"></span>
+    <button id="ls-sidebar-chevron" class="ls-sidebar-handle-btn" onclick="window.toggleLiveSimSidebar()" title="Toggle stats panel" style="margin-right:6px;font-size:18px;color:#374151;">»</button>
+    <span id="ls-refresh-label" style="font-size:11px;color:#6b7280;"></span>
+  </div>
+  <div class="ls-grid">
+    <div class="ls-pane">
+      <div class="ls-list-head">
+        <!-- Channel filter chips -->
+        <div class="ls-chip-row" id="ls-channel-chips">
+          <button class="ls-chip active" data-channel="all" onclick="window.lsSetChannelFilter('all')">All</button>
+          <button class="ls-chip" data-channel="whatsapp" onclick="window.lsSetChannelFilter('whatsapp')">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:2px;color:#25d366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>WhatsApp
+          </button>
+          <button class="ls-chip" data-channel="webchat" onclick="window.lsSetChannelFilter('webchat')">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:2px;"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>Web
+          </button>
+        </div>
+        <!-- Status filter chips -->
+        <div class="ls-chip-row" id="ls-filter-chips">
+          <button class="ls-chip active" data-filter="all" onclick="window.lsSetFilter('all')">All</button>
+          <button class="ls-chip" data-filter="unread" onclick="window.lsSetFilter('unread')">Unread</button>
+          <button class="ls-chip" data-filter="favourites" onclick="window.lsSetFilter('favourites')">Favourites</button>
+          <button class="ls-chip" data-filter="groups" onclick="window.lsSetFilter('groups')">Groups</button>
+        </div>
+        <input id="ls-conv-search" type="text" placeholder="Search conversations…"
+          oninput="window.filterLiveSimConvList()">
+      </div>
+      <div id="ls-conv-list"></div>
+    </div>
+    <div class="ls-pane" style="border-right:1px solid #e5e7eb;">
+      <div id="ls-thread-head" class="ls-thread-head">No conversation selected.</div>
+      <div id="ls-thread"></div>
+      <div class="ls-reply-bar" id="ls-reply-bar" style="display:none;">
+        <textarea
+          class="ls-reply-input"
+          id="ls-reply-input"
+          placeholder="Type a reply…"
+          rows="1"
+          oninput="window.lsAutoResizeInput(this)"
+          onkeydown="window.lsHandleReplyKeydown(event)"
+        ></textarea>
+        <button class="ls-reply-send" id="ls-reply-send-btn" onclick="window.sendLiveSimReply()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="ls-pane" id="ls-stats-pane">
+      <div class="ls-sidebar-handle" title="Stats panel"></div>
+      <div class="ls-sidebar-content">
+        <div id="ls-audit-sidebar"></div>
+      </div>
+    </div>
+  </div>
+</div>

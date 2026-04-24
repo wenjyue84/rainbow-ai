@@ -181,15 +181,19 @@ export async function loadLiveChat() {
   if (emptyState) emptyState.style.display = 'none';
 
   try {
-    var results = await Promise.all([
+    var results = await Promise.allSettled([
       api('/conversations/unified'),
       api('/status')
     ]);
-    $.conversations = results[0];
-    var statusData = results[1];
+    var convosResult = results[0];
+    var statusResult = results[1];
+
+    $.conversations = convosResult.status === 'fulfilled' ? convosResult.value : [];
 
     // Hide skeleton once data arrives (US-145)
     if (skeletonWrap) skeletonWrap.style.display = 'none';
+
+    var statusData = statusResult.status === 'fulfilled' ? statusResult.value : {};
 
     $.instances = {};
     if (statusData.whatsappInstances) {

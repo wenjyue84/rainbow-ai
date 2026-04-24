@@ -159,7 +159,7 @@ function cleanupCurrentTab(previousTab, nextTab) {
 
     case 'chat-simulator':
       // Chat Simulator contains Live Simulation sub-tab with: autoRefresh (3s), waStatusPoll (15s), timestampUpdater (1s)
-      if (typeof window.cleanupRealChat === 'function') window.cleanupRealChat();
+      if (typeof window.cleanupLiveSimulation === 'function') window.cleanupLiveSimulation();
       break;
 
     case 'performance':
@@ -186,6 +186,9 @@ async function loadTab(tabName, subTab = null) {
   // ── US-160: Clean up intervals/listeners from the previous tab ──
   cleanupCurrentTab(_currentTab, effectiveTabName);
   _currentTab = effectiveTabName;
+
+  // Save last-visited tab for restoration on next load
+  localStorage.setItem('rainbow_last_tab', window.location.hash || ('#' + effectiveTabName));
 
   // Hide Prisma Bot FAB when navigating away from responses tab
   if (typeof window.hidePrismaBotFab === 'function') {
@@ -351,6 +354,15 @@ async function initTabs() {
 
   // US-158: Wait for lazy-loader bootstrap before first loadTab
   await waitForLazyLoader();
+
+  // Restore last-visited tab if no hash is present in the URL
+  if (!window.location.hash || window.location.hash === '#') {
+    const lastTab = localStorage.getItem('rainbow_last_tab');
+    if (lastTab && lastTab !== '#' && lastTab !== '#dashboard') {
+      window.location.hash = lastTab.replace(/^#/, '');
+      // handleNavigation() below will pick up the new hash
+    }
+  }
 
   // US-809: Initial load with profile-scoped URL handling
   handleNavigation();
