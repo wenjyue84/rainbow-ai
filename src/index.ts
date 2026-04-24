@@ -17,7 +17,6 @@ import { readFileSync } from 'fs';
 import { createServer as createHttpServer } from 'http';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createMCPHandler } from './server.js';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
@@ -525,12 +524,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Rate limiters
-const mcpLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  message: { error: 'Too many MCP requests, please try again later' }
-});
-
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
@@ -965,9 +958,6 @@ app.get('/:tab', async (req, res, next) => {
     res.status(500).send('Dashboard file not found');
   }
 });
-
-// MCP protocol endpoint
-app.post('/mcp', mcpLimiter, createMCPHandler());
 
 // ── US-504: Custom 404 handler ─────────────────────────────────────
 // Return generic 404 without revealing the requested path to the client.
