@@ -35,7 +35,8 @@ function loadRoutingConfig(profile: string): RoutingConfig {
     makan: 'data-makan',
     southern: 'data-southern',
     pms_capsule: 'data-pms-capsule',
-    pms_southern: 'data-pms-southern'
+    pms_southern: 'data-pms-southern',
+    yoongmei: 'data-yoongmei'
   };
 
   const dirName = profileDirMap[profile] || profile;
@@ -121,7 +122,8 @@ export function fixProfileIntents(profile: string): { removed: string[]; message
       makan: 'data-makan',
       southern: 'data-southern',
       pms_capsule: 'data-pms-capsule',
-      pms_southern: 'data-pms-southern'
+      pms_southern: 'data-pms-southern',
+      yoongmei: 'data-yoongmei'
     };
 
     const dirName = profileDirMap[profile] || profile;

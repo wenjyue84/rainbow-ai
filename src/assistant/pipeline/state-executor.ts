@@ -210,7 +210,7 @@ export async function handleActiveStates(
 
           const cleanResponse = ensureResponseText(workflowResult.response, lang);
           addMessage(phone, 'assistant', cleanResponse, profileId);
-          logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId, ...(msg.bsuid ? { bsuid: msg.bsuid } : {}) }).catch(() => { });
+          logMessage(phone, msg.pushName, 'assistant', cleanResponse, { action: 'workflow', instanceId: msg.instanceId, profileId, ...(msg.bsuid ? { bsuid: msg.bsuid } : {}) }).catch(err => console.error('[Pipeline] logMessage failed:', err.message));
           await ctx.sendMessage(phone, cleanResponse, msg.instanceId);
           return { handled: true };
         }

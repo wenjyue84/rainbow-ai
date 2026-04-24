@@ -28,6 +28,7 @@ import { detectOffScope, OFF_SCOPE_REDIRECT } from './off-scope-guard.js';
 import { detectTopicDrift, getTopicRefocusPrompt } from './topic-drift-detector.js';
 import { redactPii } from '../pii-redactor.js';
 import { logPromptInjectionEvent } from '../../lib/prompt-injection-logger.js';
+import { recordWhatsAppOptIn } from '../../lib/whatsapp/consent-enforcement.js';
 import { transcribeVoiceNote } from './stages/audio-transcription.js';
 import { checkIdleSession } from '../idle-session.js';
 import { clearConversation } from '../conversation.js';
@@ -230,6 +231,12 @@ export async function validateAndPrepare(
   const profileConfig = profile.configStore;
   const profileKB = profile.kb;
   const profileId = profile.id;
+
+  // US-155: Record implicit WhatsApp opt-in on inbound message.
+  // Must run before ANY ctx.sendMessage (consent gate blocks all outbound).
+  await recordWhatsAppOptIn(phone, profileId).catch(err => {
+    console.error(`[US-155] Failed to record opt-in for ${phone}:`, err?.message);
+  });
 
   // US-449: Override outbound instanceId with profile's designated instance (if configured).
   // This ensures replies route through the profile's assigned WhatsApp instance,
@@ -634,7 +641,7 @@ export async function validateAndPrepare(
     ...(msg.transcribed ? { transcribed: true } : {}),
     ...(msg.bsuid ? { bsuid: msg.bsuid } : {}),
     ...(msg.referralData ? { referralData: msg.referralData } : {}), // US-910: CTWA referral attribution
-  }).catch(() => { });
+  }).catch(err => console.error('[Pipeline] logMessage failed:', err.message));
   const lang = convo.language;
 
   // Sentiment analysis (US-822: per-profile enable/disable)

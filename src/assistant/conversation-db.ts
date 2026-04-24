@@ -20,8 +20,33 @@ export async function ensureDb(): Promise<boolean> {
   try {
     const ready = await dbReady;
     dbAvailable = !!ready;
-    if (dbAvailable) ensureOptInColumns();
-  } catch {
+    if (dbAvailable) {
+      ensureOptInColumns();
+      // One-time startup diagnostic: driver, DB path, row counts, and actual
+      // timestamp storage type (schema declares INTEGER ms, but data may have
+      // been written as TEXT ISO strings via the db.execute monkey-patch in
+      // earlier versions — text values still parse via `new Date(...)` on read).
+      if (pool) {
+        const dbPath = process.env.SQLITE_PATH ?? './data/rainbow-ai.db';
+        console.log('[ConvoDB] Driver: better-sqlite3 (SQLite), path:', dbPath);
+        Promise.all([
+          pool.query(`SELECT typeof(timestamp) as ts_type, timestamp FROM rainbow_messages ORDER BY id DESC LIMIT 1`),
+          pool.query(`SELECT COUNT(*) as n FROM rainbow_messages`),
+          pool.query(`SELECT COUNT(*) as n FROM rainbow_conversations`),
+        ]).then(([ts, msgs, convos]: any[]) => {
+          const ts_row = ts.rows?.[0] ?? null;
+          const msg_count = msgs.rows?.[0]?.n ?? 0;
+          const convo_count = convos.rows?.[0]?.n ?? 0;
+          console.log(
+            `[ConvoDB] Row counts — messages=${msg_count}, conversations=${convo_count}; sample ts_type=${ts_row?.ts_type ?? 'n/a'}, ts=${ts_row?.timestamp ?? 'n/a'}`
+          );
+        }).catch((err: Error) => {
+          console.warn('[ConvoDB] Startup diagnostic query failed:', err.message);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[ConvoDB] ensureDb failed:', (err as Error).message);
     dbAvailable = false;
   }
   return dbAvailable;
@@ -36,10 +61,10 @@ export function ensureOptInColumns(): void {
   pool.query(`
     ALTER TABLE rainbow_conversations
     ADD COLUMN IF NOT EXISTS opt_in_method TEXT,
-    ADD COLUMN IF NOT EXISTS opt_in_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS opt_in_at TEXT,
     ADD COLUMN IF NOT EXISTS opt_in_channel TEXT
   `).catch((err: Error) => {
-    console.warn('[ConvoDB] US-979 migration warn:', err.message);
+    console.error('[ConvoDB] US-979 migration failed:', err.message);
   });
 }
 

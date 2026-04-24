@@ -501,7 +501,7 @@ export async function processAndSend(
   }
 
   // ─── Autopilot or auto-approved copilot — send immediately ────
-  logMessage(phone, msg.pushName, 'assistant', response, logMeta).catch(() => { });
+  logMessage(phone, msg.pushName, 'assistant', response, logMeta).catch(err => console.error('[Pipeline] logMessage failed:', err.message));
 
   // US-430: If interactive payload exists, send as interactive message
   if (state.interactivePayload) {

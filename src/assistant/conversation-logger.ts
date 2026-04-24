@@ -94,14 +94,17 @@ export async function logMessage(
     const now = new Date();
 
     // DB-level dedup: skip if identical message was logged in the last 10 seconds.
-    // Uses integer ms epoch to match SQLite integer timestamp column (not ISO string).
+    // timestamp column may be TEXT (ISO string) or INTEGER (epoch ms) depending on
+    // how the row was inserted. Use CASE/typeof to normalise both to epoch ms
+    // before comparing against the integer windowStartMs threshold.
     const windowStartMs = now.getTime() - 10_000;
     const dupeCheck = await db.execute(sql`
       SELECT 1 FROM rainbow_messages
       WHERE phone = ${key}
         AND role = ${role}
         AND content = ${content}
-        AND timestamp > ${windowStartMs}
+        AND (CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                  ELSE unixepoch(timestamp)*1000 END) > ${windowStartMs}
       LIMIT 1
     `);
     if ((dupeCheck as any).rows?.length > 0) {
@@ -195,14 +198,16 @@ export async function logNonTextExchange(
     const now = new Date();
     const nowPlus1 = new Date(now.getTime() + 1);
 
-    // DB-level dedup: skip if this non-text exchange was already logged recently
+    // DB-level dedup: skip if this non-text exchange was already logged recently.
+    // Normalise timestamp to epoch ms before comparing (see logMessage comment).
     const windowStartMs = now.getTime() - 10_000;
     const dupeCheck = await db.execute(sql`
       SELECT 1 FROM rainbow_messages
       WHERE phone = ${key}
         AND role = 'user'
         AND content = ${userPlaceholder}
-        AND timestamp > ${windowStartMs}
+        AND (CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                  ELSE unixepoch(timestamp)*1000 END) > ${windowStartMs}
       LIMIT 1
     `);
     if ((dupeCheck as any).rows?.length > 0) {
@@ -240,10 +245,20 @@ export async function listConversations(profileId?: string): Promise<Conversatio
         ? sql`AND c.profile_id = ${profileId}`
         : sql``;
 
+      // ts_ms(x): normalize timestamp to epoch-ms integer regardless of whether
+      // it is stored as INTEGER ms (Drizzle tx.insert path) or TEXT ISO string
+      // (legacy pool.query path). Mixing types causes ORDER BY and comparison
+      // failures in SQLite because INTEGER < TEXT in its type-affinity rules.
       const result = await db.execute(sql`
         WITH ranked_msgs AS (
           SELECT phone, content, role, timestamp,
-            ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+            CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                 ELSE unixepoch(timestamp)*1000 END AS ts_ms,
+            ROW_NUMBER() OVER (
+              PARTITION BY phone
+              ORDER BY CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                            ELSE unixepoch(timestamp)*1000 END DESC
+            ) AS rn
           FROM rainbow_messages
         )
         SELECT
@@ -258,17 +273,22 @@ export async function listConversations(profileId?: string): Promise<Conversatio
           c.last_read_at,
           lm.content   AS last_msg_content,
           lm.role      AS last_msg_role,
-          lm.timestamp AS last_msg_at,
+          lm.ts_ms     AS last_msg_at,
           COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone), 0) AS message_count,
-          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count,
-          -- US-815: session window — 1 if last user msg within 24h (SQLite: datetime instead of INTERVAL)
-          CASE WHEN (SELECT MAX(timestamp) FROM rainbow_messages WHERE phone = c.phone AND role = 'user') > datetime('now', '-24 hours') THEN 1 ELSE 0 END AS session_active
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND (c.last_read_at IS NULL OR (CASE WHEN typeof(timestamp)='integer' THEN timestamp ELSE unixepoch(timestamp)*1000 END) > c.last_read_at)), 0) AS unread_count,
+          -- US-815: session window — 1 if last user msg within 24h.
+          -- Normalize both sides to epoch-ms so INTEGER and TEXT timestamps compare correctly.
+          CASE WHEN (
+            SELECT CASE WHEN typeof(MAX(timestamp))='integer' THEN MAX(timestamp)
+                        ELSE unixepoch(MAX(timestamp))*1000 END
+            FROM rainbow_messages WHERE phone = c.phone AND role = 'user'
+          ) > (strftime('%s','now','-24 hours') * 1000) THEN 1 ELSE 0 END AS session_active
         FROM rainbow_conversations c
         JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
         WHERE lm.content IS NOT NULL
           AND c.phone NOT LIKE 'webchat-%'
           ${profileFilter}
-        ORDER BY lm.timestamp DESC
+        ORDER BY lm.ts_ms DESC
       `);
       const rows: any[] = result.rows;
 
@@ -321,12 +341,20 @@ export async function searchConversations(
       const result = await db.execute(sql`
         WITH ranked_msgs AS (
           SELECT phone, content, role, timestamp,
-            ROW_NUMBER() OVER (PARTITION BY phone ORDER BY timestamp DESC) AS rn
+            CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                 ELSE unixepoch(timestamp)*1000 END AS ts_ms,
+            ROW_NUMBER() OVER (
+              PARTITION BY phone
+              ORDER BY CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                            ELSE unixepoch(timestamp)*1000 END DESC
+            ) AS rn
           FROM rainbow_messages
           WHERE deleted_at IS NULL
         ),
         matching AS (
-          SELECT phone, MAX(timestamp) AS latest_match
+          SELECT phone,
+            MAX(CASE WHEN typeof(timestamp)='integer' THEN timestamp
+                     ELSE unixepoch(timestamp)*1000 END) AS latest_match_ms
           FROM rainbow_messages
           WHERE content LIKE ${searchTerm}
             AND deleted_at IS NULL
@@ -345,17 +373,21 @@ export async function searchConversations(
           c.last_read_at,
           lm.content   AS last_msg_content,
           lm.role      AS last_msg_role,
-          lm.timestamp AS last_msg_at,
+          lm.ts_ms     AS last_msg_at,
           COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND deleted_at IS NULL), 0) AS message_count,
-          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL AND (c.last_read_at IS NULL OR timestamp > c.last_read_at)), 0) AS unread_count,
-          CASE WHEN (SELECT MAX(timestamp) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL) > datetime('now', '-24 hours') THEN 1 ELSE 0 END AS session_active,
-          matching.latest_match
+          COALESCE((SELECT COUNT(*) FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL AND (c.last_read_at IS NULL OR (CASE WHEN typeof(timestamp)='integer' THEN timestamp ELSE unixepoch(timestamp)*1000 END) > c.last_read_at)), 0) AS unread_count,
+          CASE WHEN (
+            SELECT CASE WHEN typeof(MAX(timestamp))='integer' THEN MAX(timestamp)
+                        ELSE unixepoch(MAX(timestamp))*1000 END
+            FROM rainbow_messages WHERE phone = c.phone AND role = 'user' AND deleted_at IS NULL
+          ) > (strftime('%s','now','-24 hours') * 1000) THEN 1 ELSE 0 END AS session_active,
+          matching.latest_match_ms AS latest_match
         FROM rainbow_conversations c
         INNER JOIN matching ON matching.phone = c.phone
         LEFT JOIN ranked_msgs lm ON lm.phone = c.phone AND lm.rn = 1
         WHERE c.deleted_at IS NULL
           AND c.phone NOT LIKE 'webchat-%'
-        ORDER BY matching.latest_match DESC
+        ORDER BY matching.latest_match_ms DESC
         LIMIT ${limit}
       `);
 
@@ -428,7 +460,7 @@ export async function getConversation(phone: string, tenantId?: string): Promise
         .where(and(eq(rainbowMessages.phone, key), isNull(rainbowMessages.deletedAt)))
         .orderBy(rainbowMessages.timestamp);
 
-      const messages = msgRows.map(rowToMessage);
+      const messages = msgRows.map(rowToMessage).sort((a, b) => a.timestamp - b.timestamp);
 
       let contactDetails: ContactDetails | undefined;
       if (convo.contactDetailsJson) {

@@ -91,16 +91,16 @@ export async function checkWebchatIdle(
 
     // Idle but no re-engagement sent yet (or sent before last user message)
     if (!reengagementSentAt || reengagementSentAt < lastUserMsgAt) {
-      const now = new Date(nowMs);
+      // Pass integer ms (nowMs) — keeps timestamp column as INTEGER, not ISO text
       await pool.query(
         `INSERT INTO rainbow_messages (phone, role, content, timestamp, source)
          VALUES ($1, 'assistant', $2, $3, 'webchat-reengagement')`,
-        [phone, cfg.reengagement_message, now]
+        [phone, cfg.reengagement_message, nowMs]
       );
 
       await pool.query(
         `UPDATE rainbow_conversations SET status = 'reengagement_sent', updated_at = $1 WHERE phone = $2`,
-        [now, phone]
+        [nowMs, phone]
       );
 
       console.log(`[WebchatIdle] Re-engagement sent for ${phone} (idle ${Math.round(idleDuration / 60000)}m)`);
@@ -110,10 +110,9 @@ export async function checkWebchatIdle(
     // Re-engagement was sent — check if window has passed
     const timeSinceReengagement = nowMs - reengagementSentAt;
     if (timeSinceReengagement >= reengagementWindowMs) {
-      const now = new Date(nowMs);
       await pool.query(
         `UPDATE rainbow_conversations SET status = 'timed_out', updated_at = $1 WHERE phone = $2`,
-        [now, phone]
+        [nowMs, phone]
       );
 
       console.log(`[WebchatIdle] Session timed out for ${phone} (no response after re-engagement)`);
@@ -136,12 +135,11 @@ export async function resetWebchatSession(phone: string): Promise<void> {
   if (!phone.startsWith('webchat-')) return;
 
   try {
-    const now = new Date();
     await pool.query(
       `UPDATE rainbow_conversations
        SET status = 'active', updated_at = $1
        WHERE phone = $2 AND status IN ('timed_out', 'reengagement_sent')`,
-      [now, phone]
+      [Date.now(), phone]
     );
   } catch (err: any) {
     console.error(`[WebchatIdle] Reset failed for ${phone}:`, err.message);
