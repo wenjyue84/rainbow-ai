@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { desc } from 'drizzle-orm';
 import { db } from './db.js';
 import { conversationTraces } from '../../shared/schema-tables.js';
 
@@ -194,13 +195,13 @@ export async function queryTraces(opts: TraceQueryOptions): Promise<any[]> {
   const rows = await db
     .select()
     .from(conversationTraces)
-    .orderBy(conversationTraces.createdAt)
+    .orderBy(desc(conversationTraces.createdAt))
     .limit(safeLimit);
 
   // Filter by JID in JS (avoids importing `eq` from drizzle in this module)
   const filtered = jid ? rows.filter(r => r.jid === jid) : rows;
 
-  return filtered.reverse().map(r => ({
+  return filtered.map(r => ({
     id: r.id,
     trace_id: r.traceId,
     jid: r.jid,
