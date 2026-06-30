@@ -34,7 +34,7 @@ func newServer(t *testing.T, key string) (*httptest.Server, *store.Store) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	New(st, key).Register(mux)
+	New(st, key, "", "").Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() { srv.Close(); st.Close() })
 	return srv, st

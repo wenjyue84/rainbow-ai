@@ -8,6 +8,8 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -16,21 +18,98 @@ import (
 
 // Handler wires the admin endpoints onto a mux.
 type Handler struct {
-	st       *store.Store
-	adminKey string
+	st        *store.Store
+	adminKey  string
+	publicDir string // src/public (SPA + assets); empty = don't serve the UI
+	dataDir   string // src/assistant/data (config JSON for read endpoints)
 }
 
-func New(st *store.Store, adminKey string) *Handler {
-	return &Handler{st: st, adminKey: adminKey}
+func New(st *store.Store, adminKey, publicDir, dataDir string) *Handler {
+	return &Handler{st: st, adminKey: adminKey, publicDir: publicDir, dataDir: dataDir}
 }
 
-// Register mounts the admin routes under /api/rainbow on the given mux.
+// routing serves the profile's routing.json (read-only).
+func (h *Handler) routing(w http.ResponseWriter, r *http.Request) {
+	h.serveJSONFile(w, "routing.json")
+}
+
+// serveJSONFile streams a config JSON file from the data dir.
+func (h *Handler) serveJSONFile(w http.ResponseWriter, name string) {
+	if h.dataDir == "" {
+		writeJSON(w, 404, map[string]any{"error": "no data dir"})
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(h.dataDir, name))
+	if err != nil {
+		writeJSON(w, 404, map[string]any{"error": name + " not found"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(b)
+}
+
+// dashboardTabs mirror the SPA client-side routes the monolith served.
+var dashboardTabs = []string{
+	"dashboard", "understanding", "responses", "intents", "chat-simulator",
+	"testing", "performance", "settings", "help", "intent-manager",
+	"static-replies", "kb", "preview", "real-chat", "workflow",
+}
+
+// Register mounts the admin API + (optionally) the dashboard SPA on the mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	// ── API (read endpoints) ──
 	mux.HandleFunc("/api/rainbow/stats", h.auth(h.stats))
 	mux.HandleFunc("/api/rainbow/conversations", h.auth(h.conversations))
 	mux.HandleFunc("/api/rainbow/settings", h.auth(h.settings))
-	// /api/rainbow/conversations/{phone}/messages
+	mux.HandleFunc("/api/rainbow/routing", h.auth(h.routing))
 	mux.HandleFunc("/api/rainbow/conversations/", h.auth(h.conversationMessages))
+
+	// ── Dashboard SPA + static assets ──
+	if h.publicDir != "" {
+		fs := http.FileServer(http.Dir(h.publicDir))
+		mux.Handle("/public/", http.StripPrefix("/public/", fs))
+		mux.HandleFunc("/", h.spa)
+		for _, tab := range dashboardTabs {
+			mux.HandleFunc("/"+tab, h.spa)
+		}
+	}
+}
+
+// spa serves the admin SPA HTML with the admin key + a fetch interceptor injected
+// (mirrors the monolith), so the SPA's /api/rainbow/* calls are authenticated.
+func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && !contains(dashboardTabs, strings.TrimPrefix(r.URL.Path, "/")) {
+		http.NotFound(w, r)
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(h.publicDir, "rainbow-admin.html"))
+	if err != nil {
+		http.Error(w, "dashboard not found", 500)
+		return
+	}
+	html := string(raw)
+	html = strings.ReplaceAll(html, "__CSP_NONCE__", "")
+	inject := `<script>window.__ADMIN_KEY__=` + jsonString(h.adminKey) + `;
+(function(){var _f=window.fetch;window.fetch=function(u,o){o=o||{};if(typeof u==='string'&&u.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var hd=o.headers||{};var has=Object.keys(hd).some(function(k){return k.toLowerCase()==='x-admin-key';});if(!has){o=Object.assign({},o,{headers:Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},hd)});}}return _f.call(this,u,o);};})();
+</script>`
+	html = strings.Replace(html, "<head>", "<head>\n"+inject, 1)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write([]byte(html))
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // auth enforces X-Admin-Key when an admin key is configured.
