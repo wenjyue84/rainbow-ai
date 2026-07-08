@@ -69,3 +69,13 @@ func containsWord(text, word string) bool {
 func isWordChar(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
+
+// containsHan reports whether s contains any Han (Chinese) character.
+func containsHan(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
+}

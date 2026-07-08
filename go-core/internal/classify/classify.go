@@ -71,10 +71,19 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 	lang := DetectLanguage(text)
 
 	// ── T1: regex patterns ──────────────────────────────────────────────
+	// A social-only match (greeting/thanks/farewell) on a message that carries
+	// more than the nicety ("Hi, can I check in tonight?") is deferred: the
+	// deeper tiers get a chance to find the substantive intent, and the social
+	// result is only used when they all miss.
+	var deferred *Result
 	if c.prof.Tiers.Tier1Enabled {
 		if r := c.matchRegex(text); r != nil {
 			r.Lang = lang
-			return *r
+			if socialIntents[r.Category] && len(strings.Fields(text)) > 3 {
+				deferred = r
+			} else {
+				return *r
+			}
 		}
 	}
 
@@ -86,7 +95,14 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 				gate = c.prof.Tiers.Tier2Thresh
 			}
 			if fr.Score >= gate {
-				return Result{Category: fr.Intent, Confidence: fr.Score, Source: SrcFuzzy, MatchedKeyword: fr.MatchedKeyword, Lang: lang}
+				r := Result{Category: fr.Intent, Confidence: fr.Score, Source: SrcFuzzy, MatchedKeyword: fr.MatchedKeyword, Lang: lang}
+				if socialIntents[r.Category] && len(strings.Fields(text)) > 3 {
+					if deferred == nil {
+						deferred = &r
+					}
+				} else {
+					return r
+				}
 			}
 		}
 	}
@@ -95,7 +111,14 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 	if c.prof.Tiers.Tier3Enabled && c.embed != nil {
 		if intent, score, ex, err := c.embed.Match(ctx, text); err == nil && intent != "" && c.prof.IntentAllowed(intent) {
 			if score >= c.prof.Tiers.Tier3Thresh {
-				return Result{Category: intent, Confidence: score, Source: SrcSemantic, MatchedKeyword: ex, Lang: lang}
+				r := Result{Category: intent, Confidence: score, Source: SrcSemantic, MatchedKeyword: ex, Lang: lang}
+				if socialIntents[r.Category] && len(strings.Fields(text)) > 3 {
+					if deferred == nil {
+						deferred = &r
+					}
+				} else {
+					return r
+				}
 			}
 		}
 	}
@@ -104,14 +127,45 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 	if c.prof.Tiers.Tier4Enabled && c.llm != nil {
 		if r, err := c.llm.Classify(ctx, text, c.prof.SystemPrompt, history); err == nil && r.Category != "" {
 			r.Source = SrcLLM
-			if r.Lang == "" {
+			// Script detection (Han/Tamil) is deterministic — never let the
+			// LLM's language guess override it (it labelled 中文 as "en").
+			if r.Lang == "" || lang == "zh" || lang == "ta" {
 				r.Lang = lang
 			}
-			return r
+			// Don't let a generic LLM "unknown" beat a deferred social match.
+			if r.Category != "unknown" || deferred == nil {
+				return r
+			}
 		}
 	}
 
+	if deferred != nil {
+		return *deferred
+	}
 	return Result{Category: "unknown", Confidence: 0, Source: SrcLLM, Lang: lang}
+}
+
+// SubstantiveMatch returns a T1+T2 match for a substantive (non-social, non-workflow)
+// intent, or nil. Used by the router to detect an off-flow question typed while a
+// workflow is awaiting a slot value.
+func (c *Classifier) SubstantiveMatch(text string, lang string) *Result {
+	// T1 first.
+	if r := c.matchRegex(text); r != nil && !socialIntents[r.Category] {
+		return r
+	}
+	// T2 fuzzy — catches "what time is check out?" via checkin_info keywords.
+	if c.prof.Tiers.Tier2Enabled {
+		if fr := c.fuzzy.Match(text, lang); fr != nil {
+			gate := c.prof.Thresholds.Fuzzy
+			if gate == 0 {
+				gate = c.prof.Tiers.Tier2Thresh
+			}
+			if fr.Score >= gate && !socialIntents[fr.Intent] {
+				return &Result{Category: fr.Intent, Confidence: fr.Score, Source: SrcFuzzy, MatchedKeyword: fr.MatchedKeyword, Lang: lang}
+			}
+		}
+	}
+	return nil
 }
 
 // socialIntents are conversational niceties whose patterns often match a mere

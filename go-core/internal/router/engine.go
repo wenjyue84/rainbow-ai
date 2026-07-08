@@ -210,13 +210,26 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 				_ = e.conv.AddMessageMeta(phone, "assistant", reply, profileID, &conversation.MsgMeta{Intent: "workflow_cancelled", RoutedAction: "static_reply"})
 				return Result{Intent: "workflow_cancelled", Action: "static_reply", Reply: reply, Language: state.Language}, nil
 			}
-			out, err := e.wf.Resume(ctx, &wfState, text, e.runCtx(state, state.Language, msg.InstanceID))
-			if err == nil {
-				e.persistWorkflow(state, &wfState, out)
-				_ = e.conv.Save(state)
-				return Result{Intent: "workflow_active", Action: "workflow", Escalated: out.Escalated, Language: state.Language}, nil
+			// Off-flow question: the guest asked something substantive instead
+			// of answering the slot prompt ("wait, what time is check-out?").
+			// Exit the workflow and let the normal pipeline answer rather than
+			// swallowing it as a slot value and escalating garbage to staff.
+			// Guard: workflow-continuation intents (booking, check_in_arrival)
+			// should NOT exit — they are direct commands to advance the flow.
+			if looksLikeQuestion(text) {
+				if sub := e.clf.SubstantiveMatch(text, state.Language); sub != nil && !workflowContinuationIntent(sub.Category) {
+					state.WorkflowStateJSON = "" // abandon flow, classify below
+				}
 			}
-			state.WorkflowStateJSON = "" // clear a stuck workflow, fall through
+			if state.WorkflowStateJSON != "" { // still active after escape check
+				out, err := e.wf.Resume(ctx, &wfState, text, e.runCtx(state, state.Language, msg.InstanceID))
+				if err == nil {
+					e.persistWorkflow(state, &wfState, out)
+					_ = e.conv.Save(state)
+					return Result{Intent: "workflow_active", Action: "workflow", Escalated: out.Escalated, Language: state.Language}, nil
+				}
+				state.WorkflowStateJSON = "" // clear a stuck workflow, fall through
+			}
 		}
 	}
 
@@ -315,6 +328,24 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 			return err
 		},
 	}
+}
+
+// workflowContinuationIntent returns true for intents that explicitly advance
+// or restart a multi-turn workflow — these should NOT trigger the off-flow escape.
+func workflowContinuationIntent(intent string) bool {
+	switch intent {
+	case "booking", "check_in_arrival", "conversation_reset":
+		return true
+	}
+	return false
+}
+
+// looksLikeQuestion is a cheap guard so slot answers ("2 pax", "15 Feb") never
+// count as off-flow questions — only interrogatives / "?" do.
+var questionRe = regexp.MustCompile(`(?i)[?？]|^(what|when|where|how|why|who|is|are|do|does|can|could|got|ada|bila|berapa|macam ?mana|boleh|apakah|几点|多少|吗|怎么|哪里)\b|(吗|呢)\s*$`)
+
+func looksLikeQuestion(text string) bool {
+	return questionRe.MatchString(strings.TrimSpace(text))
 }
 
 var cancelPhraseRe = regexp.MustCompile(`(?i)\b(cancel|stop|quit|exit|nevermind|never mind|forget it|batal|tak jadi|x jadi)\b|取消|不要了|算了|(?i:\b(don'?t|do not|no longer)\s+want\b)`)

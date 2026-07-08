@@ -123,8 +123,12 @@ func scoreKeyword(textLower string, textTokens []string, keyword string) (float6
 			return 0.95, true
 		}
 	}
-	if strings.Contains(textLower, kw) && len([]rune(kw)) >= 3 {
-		return 0.88, true
+	if strings.Contains(textLower, kw) {
+		// CJK has no word spaces, so the whole sentence is one "token" and a
+		// 2-char keyword (入住, 毛巾…) can only ever match as a substring.
+		if len([]rune(kw)) >= 3 || (len([]rune(kw)) >= 2 && containsHan(kw)) {
+			return 0.88, true
+		}
 	}
 	// Levenshtein against closest token (handles typos/abbreviations).
 	best := 0.0

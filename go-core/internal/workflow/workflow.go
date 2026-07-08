@@ -204,6 +204,11 @@ func (r *Registry) run(ctx context.Context, wf *Workflow, st *State, startID str
 			params := r.interpParams(node.Config["params"], st, rc)
 			outputs, ok, err := rc.PMS.Do(ctx, action, params)
 			succ, errNext := decodeSuccessError(node.Next)
+			if succ == "" && errNext == "" {
+				// Bare-string `next` (e.g. sr_log_request → sr_confirm_msg): an
+				// implemented action whose node uses a plain string still advances.
+				succ = decodeStringNext(node.Next)
+			}
 			if err != nil {
 				if errNext != "" {
 					cur = errNext
@@ -294,11 +299,16 @@ func (r *Registry) evalCondition(node *Node, st *State, rc RunContext) (bool, bo
 		}
 		return fa > fb, false
 	case "pastDateCheck":
-		// true if the parsed date is in the past (matches Node semantics).
-		if t, ok := parseLooseDate(field); ok {
-			return t.Before(time.Now().Truncate(24 * time.Hour)), false
+		// Branch semantics from workflows.json: trueNext = dates OK (continue
+		// booking), falseNext = reject as past. Same-day check-in is valid —
+		// most guests message "tonight". The field is the guest's raw reply
+		// ("Check-in: 8 Jul, Check-out: 9 Jul"), so extract the first date
+		// (check-in) rather than parsing the whole string.
+		if t, ok := firstDateIn(field); ok {
+			today := time.Now().Truncate(24 * time.Hour)
+			return !t.Before(today), false
 		}
-		return false, false
+		return true, false // unparseable → continue; PMS/staff steps catch bad dates
 	case "dateConflict", "dbAvailabilityCheck":
 		return false, true // needs PMS → escalate
 	default:
@@ -415,14 +425,47 @@ func normalizePhone(p string) string {
 	return p // engine's sender adds the @s.whatsapp.net suffix
 }
 
+// dateTokenRe finds date-like tokens inside free text: "8 Jul", "15 Feb 2026",
+// "15/2/2026", "15/2", "2026-07-08".
+var dateTokenRe = regexp.MustCompile(`(?i)\b(\d{1,2}\s?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:\s?\d{4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s?\d{1,2}|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b`)
+
+// monthWordRe truncates long month words ("february" → "feb") so the loose
+// layouts can parse them.
+var monthWordRe = regexp.MustCompile(`(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+`)
+
+// firstDateIn extracts the first date-like token from free text ("Check-in:
+// 8 Jul, Check-out: 9 Jul" → 8 Jul of the current year) and parses it.
+func firstDateIn(s string) (time.Time, bool) {
+	tok := dateTokenRe.FindString(s)
+	if tok == "" {
+		return time.Time{}, false
+	}
+	tok = monthWordRe.ReplaceAllStringFunc(tok, func(m string) string { return m[:3] })
+	return parseLooseDate(tok)
+}
+
+// looseMonthRe title-cases a 3-letter month so Go's "Jan" layout matches.
+var looseMonthRe = regexp.MustCompile(`\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b`)
+
 // parseLooseDate parses common "15 Feb" / "15/2/2026" forms; ok=false if unknown.
 func parseLooseDate(s string) (time.Time, bool) {
 	s = strings.TrimSpace(strings.ToLower(s))
-	layouts := []string{"2 jan", "2 jan 2006", "02/01/2006", "2/1/2006", "02-01-2006", "2006-01-02", "jan 2"}
+	// Go layouts use the reference month "Jan" — title-case the month token.
+	s = looseMonthRe.ReplaceAllStringFunc(s, func(m string) string {
+		return strings.ToUpper(m[:1]) + m[1:]
+	})
+	layouts := []string{"2 Jan", "2 Jan 2006", "2Jan", "02/01/2006", "2/1/2006", "2/1", "02-01-2006", "2006-01-02", "Jan 2"}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, s); err == nil {
 			if t.Year() == 0 {
 				t = t.AddDate(time.Now().Year(), 0, 0)
+				// No explicit year and the date passed more than a week ago →
+				// the guest means the next occurrence ("15 Feb" said in July).
+				// A date within the last few days stays past (likely a typo,
+				// let the workflow re-prompt).
+				if t.Before(time.Now().AddDate(0, 0, -7)) {
+					t = t.AddDate(1, 0, 0)
+				}
 			}
 			return t, true
 		}
