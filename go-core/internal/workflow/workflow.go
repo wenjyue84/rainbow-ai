@@ -245,7 +245,7 @@ func (r *Registry) escalate(ctx context.Context, st *State, rc RunContext) Outco
 	}
 	var b strings.Builder
 	b.WriteString("🔔 *Booking/Workflow needs staff*\n")
-	b.WriteString("Guest: " + name + " (" + rc.GuestPhone + ")\n")
+	b.WriteString("Guest: " + guestContactLine(rc.GuestPhone, name) + "\n")
 	b.WriteString("Workflow: " + st.WorkflowID + "\n")
 	if len(st.Data) > 0 {
 		b.WriteString("Collected:\n")
@@ -415,6 +415,18 @@ func (r *Registry) interpParams(raw json.RawMessage, st *State, rc RunContext) m
 // decodeBranch reads trueNext/falseNext from a condition node's config.
 func decodeBranch(cfg map[string]json.RawMessage) (trueNext, falseNext string) {
 	return decodeString(cfg["trueNext"]), decodeString(cfg["falseNext"])
+}
+
+// guestContactLine converts a Baileys JID to a human-readable staff notification line.
+func guestContactLine(jid, name string) string {
+	if at := strings.Index(jid, "@"); at > 0 {
+		host := jid[at+1:]
+		num := jid[:at]
+		if host == "s.whatsapp.net" && len(num) >= 8 {
+			return name + " — +" + num
+		}
+	}
+	return name + " (reply in this WhatsApp chat)"
 }
 
 func normalizePhone(p string) string {

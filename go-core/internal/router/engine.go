@@ -534,8 +534,9 @@ func (e *Engine) notifyStaff(ctx context.Context, guestPhone, pushName, message,
 	if name == "" {
 		name = "Guest"
 	}
+	contactLine := guestContactLine(guestPhone, name)
 	alert := "🔔 *Staff attention needed*\n" +
-		"Guest: " + name + " (" + guestPhone + ")\n" +
+		"Guest: " + contactLine + "\n" +
 		"Intent: " + intent + "\n" +
 		"Message: " + message + "\n\n" +
 		"Please reply to the guest directly."
@@ -543,6 +544,23 @@ func (e *Engine) notifyStaff(ctx context.Context, guestPhone, pushName, message,
 		// best-effort; don't fail the guest reply over a staff-notify error
 		_ = err
 	}
+}
+
+// guestContactLine converts a Baileys JID into a human-readable contact
+// string for staff notifications.
+// - "601XXXXXXXX@s.whatsapp.net" → "+601XXXXXXXX (Name)"
+// - "123456789@lid"              → "Name (reply in WhatsApp thread)"
+// - anything else                → "Name (phone)"
+func guestContactLine(jid, name string) string {
+	if at := strings.Index(jid, "@"); at > 0 {
+		host := jid[at+1:]
+		num := jid[:at]
+		if host == "s.whatsapp.net" && len(num) >= 8 {
+			return name + " — +" + num
+		}
+	}
+	// LID or unknown: can't extract a dialable number; staff replies in-thread.
+	return name + " (reply in this WhatsApp chat)"
 }
 
 func isEscalationIntent(intent string) bool {
