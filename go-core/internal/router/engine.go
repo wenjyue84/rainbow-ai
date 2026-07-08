@@ -7,6 +7,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -198,6 +199,17 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 	if e.wf != nil && state.WorkflowStateJSON != "" {
 		var wfState workflow.State
 		if json.Unmarshal([]byte(state.WorkflowStateJSON), &wfState) == nil && wfState.Awaiting {
+			// Escape hatch: let the guest abandon a multi-turn workflow instead of
+			// having their "cancel" swallowed as the next slot value.
+			if isCancelCommand(text) {
+				state.WorkflowStateJSON = ""
+				state.LastIntent = "workflow_cancelled"
+				_ = e.conv.Save(state)
+				reply := cancelMsg(state.Language)
+				_, _ = e.send.SendText(ctx, phone, reply, msg.InstanceID)
+				_ = e.conv.AddMessageMeta(phone, "assistant", reply, profileID, &conversation.MsgMeta{Intent: "workflow_cancelled", RoutedAction: "static_reply"})
+				return Result{Intent: "workflow_cancelled", Action: "static_reply", Reply: reply, Language: state.Language}, nil
+			}
 			out, err := e.wf.Resume(ctx, &wfState, text, e.runCtx(state, state.Language, msg.InstanceID))
 			if err == nil {
 				e.persistWorkflow(state, &wfState, out)
@@ -295,9 +307,37 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 		PMS:        e.pms,
 		Send: func(ctx context.Context, phone, text, inst string) error {
 			_, err := e.send.SendText(ctx, phone, text, inst)
+			// Persist guest-facing workflow messages so the transcript in
+			// rainbow_messages is complete (staff notifies are not logged here).
+			if err == nil && phone == state.Phone {
+				_ = e.conv.AddMessageMeta(phone, "assistant", text, e.prof.ID, &conversation.MsgMeta{Intent: state.LastIntent, RoutedAction: "workflow"})
+			}
 			return err
 		},
 	}
+}
+
+var cancelPhraseRe = regexp.MustCompile(`(?i)\b(cancel|stop|quit|exit|nevermind|never mind|forget it|batal|tak jadi|x jadi)\b|取消|不要了|算了|(?i:\b(don'?t|do not|no longer)\s+want\b)`)
+
+// isCancelCommand reports whether a mid-workflow reply is the guest bailing out
+// (checked only while a workflow is awaiting a slot value, so a bare "cancel"
+// can't collide with the cancellation-intent routing of a fresh message).
+func isCancelCommand(text string) bool {
+	return cancelPhraseRe.MatchString(strings.TrimSpace(text))
+}
+
+var cancelMsgs = map[string]string{
+	"en": "No problem, I've cancelled that. How else can I help you? 😊",
+	"ms": "Baik, saya sudah batalkan. Ada lagi yang boleh saya bantu? 😊",
+	"zh": "好的，已为您取消。还有什么可以帮您？😊",
+	"ta": "பரவாயில்லை, ரத்து செய்துவிட்டேன். வேறு எப்படி உதவலாம்? 😊",
+}
+
+func cancelMsg(lang string) string {
+	if m, ok := cancelMsgs[lang]; ok {
+		return m
+	}
+	return cancelMsgs["en"]
 }
 
 // persistWorkflow writes the workflow state back to the conversation: keep it

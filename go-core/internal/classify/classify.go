@@ -114,9 +114,17 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 	return Result{Category: "unknown", Confidence: 0, Source: SrcLLM, Lang: lang}
 }
 
-// matchRegex returns the first enabled intent whose pattern matches.
+// socialIntents are conversational niceties whose patterns often match a mere
+// prefix of a longer message ("Hi, got capsule tonight?"). When any substantive
+// intent also matches, the substantive one wins; a social match is only
+// returned when nothing else matched.
+var socialIntents = map[string]bool{"greeting": true, "thanks": true, "farewell": true}
+
+// matchRegex returns the first enabled substantive intent whose pattern
+// matches, falling back to the first social match (greeting/thanks/farewell).
 func (c *Classifier) matchRegex(text string) *Result {
 	t := strings.TrimSpace(text)
+	var social *Result
 	for i := range c.prof.Patterns {
 		ip := &c.prof.Patterns[i]
 		if !ip.Enabled || !c.prof.IntentAllowed(ip.Category) {
@@ -128,9 +136,16 @@ func (c *Classifier) matchRegex(text string) *Result {
 				if conf == 0 {
 					conf = 0.95
 				}
-				return &Result{Category: ip.Category, Confidence: conf, Source: SrcRegex, MatchedKeyword: re.String()}
+				r := &Result{Category: ip.Category, Confidence: conf, Source: SrcRegex, MatchedKeyword: re.String()}
+				if socialIntents[ip.Category] {
+					if social == nil {
+						social = r
+					}
+					break // keep scanning for a substantive intent
+				}
+				return r
 			}
 		}
 	}
-	return nil
+	return social
 }
