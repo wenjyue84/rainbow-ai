@@ -29,12 +29,12 @@
 ## Pricing Reference
 | Duration | Rate |
 |----------|------|
-| Daily | RM45/night |
-| 7 nights | RM267 (~RM38/night) |
-| 14 nights | RM423 (~RM30/night) |
-| 21 nights | RM520 (~RM25/night) |
-| Monthly (30 days) | RM650/month |
-| Long-term (3+ months) | RM520/month |
+| Weekday (Sun–Thu) | RM30/night |
+| Weekend (Fri–Sat) | RM35/night |
+| Monthly (30 days) | from RM594/month |
+| Weekly / Long-term (3+ months) | ask staff for current quote |
+
+**Tourism Tax:** RM10/room/night — foreign tourists only (Malaysians & PR exempt).
 
 **Deposits:**
 - Key card: RM10 (stays >7 nights, refundable)

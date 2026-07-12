@@ -1,15 +1,17 @@
 # Pricing & Rates
 
-## Capsule Rates (Per Night)
+## Capsule Rates
 
-| Duration | Price | Per Night |
-|----------|-------|-----------|
-| Daily | **RM45/night** | RM45 |
-| 7 Nights | **RM267** | ~RM38 |
-| 14 Nights | **RM423** | ~RM30 |
-| 21 Nights | **RM520** | ~RM25 |
-| Monthly (30 days) | **RM650** | ~RM22 |
-| Long-term (3+ months) | **RM520/month** | ~RM17 |
+| Duration | Price |
+|----------|-------|
+| Weekday (Sun–Thu) | **RM30/night** |
+| Weekend (Fri–Sat) | **RM35/night** |
+| Monthly (30 days) | **from RM594/month** |
+
+> Weekly and long-term (3+ month) rates available — please ask staff for the current quote.
+
+## Tourism Tax
+- **RM10 per room per night** — foreign tourists only. Malaysians and permanent residents are **exempt**.
 
 ## What's Included
 - WiFi
