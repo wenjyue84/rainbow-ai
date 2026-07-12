@@ -154,7 +154,9 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Admin API (read endpoints) + dashboard SPA under /api/rainbow/* and /.
-	admin.New(st, env("RAINBOW_ADMIN_KEY", ""), env("RAINBOW_PUBLIC_DIR", ""), dataDir).Register(mux)
+	adm := admin.New(st, env("RAINBOW_ADMIN_KEY", ""), env("RAINBOW_PUBLIC_DIR", ""), dataDir)
+	adm.SetProfiles(hub.Profiles(), profileID)
+	adm.Register(mux)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
