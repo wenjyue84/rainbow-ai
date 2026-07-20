@@ -27,6 +27,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "escalate_msg",
       "nodes": [
         {
           "id": "escalate_msg",
@@ -68,8 +69,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "escalate_msg"
+      ]
     },
     {
       "id": "booking_payment_handler",
@@ -77,12 +77,12 @@
       "profileId": "pelangi",
       "steps": [],
       "format": "nodes",
+      "startNodeId": "wait_guest_name",
       "nodes": [
         {
           "id": "wait_guest_name",
           "type": "wait_reply",
           "label": "Ask guest name",
-          "timeout": 5000,
           "config": {
             "storeAs": "guest_name",
             "prompt": {
@@ -91,13 +91,38 @@
               "zh": "很高兴帮您预订！首先，请问您的全名是什么？"
             }
           },
+          "next": "validate_guest_name"
+        },
+        {
+          "id": "validate_guest_name",
+          "type": "condition",
+          "label": "Reject date/number answers stored as the guest name",
+          "config": {
+            "field": "{{workflow.data.guest_name}}",
+            "operator": "regex",
+            "value": "^\\s*(today|tonight|tmr|tmrw|tomorrow|tomorow|tomoro|lusa|esok|hari\\s?ini|malam\\s?ini|后天|明天|今天|今晚|\\d+|\\d{1,2}\\s?[\\-\\/\\.]\\s?\\d{1,2}(?:\\s?[\\-\\/\\.]\\s?\\d{2,4})?)\\s*$",
+            "trueNext": "name_junk_reprompt",
+            "falseNext": "wait_guest_count"
+          }
+        },
+        {
+          "id": "name_junk_reprompt",
+          "type": "wait_reply",
+          "label": "Re-prompt when the name looks like a date or number",
+          "config": {
+            "storeAs": "guest_name",
+            "prompt": {
+              "en": "That looks like a date/number — what name should I put the booking under?",
+              "ms": "Itu nampak macam tarikh/nombor — nama siapa patut saya letak untuk tempahan ni?",
+              "zh": "那看起来像是日期或数字——请问预订要用哪位的姓名？"
+            }
+          },
           "next": "wait_guest_count"
         },
         {
           "id": "wait_guest_count",
           "type": "wait_reply",
           "label": "Ask guest count",
-          "timeout": 5000,
           "config": {
             "storeAs": "guest_count",
             "prompt": {
@@ -112,7 +137,6 @@
           "id": "wait_booking_dates",
           "type": "wait_reply",
           "label": "Ask check-in/out dates",
-          "timeout": 5000,
           "config": {
             "storeAs": "booking_dates",
             "prompt": {
@@ -127,7 +151,6 @@
           "id": "validate_dates",
           "type": "condition",
           "label": "Validate date format",
-          "timeout": 5000,
           "config": {
             "field": "{{workflow.data.booking_dates}}",
             "operator": "regex",
@@ -140,7 +163,6 @@
           "id": "validate_past_dates",
           "type": "condition",
           "label": "Check for past check-in dates",
-          "timeout": 5000,
           "config": {
             "field": "{{workflow.data.booking_dates}}",
             "operator": "pastDateCheck",
@@ -153,7 +175,6 @@
           "id": "past_dates_msg",
           "type": "message",
           "label": "Suggest alternative dates for past check-in",
-          "timeout": 5000,
           "config": {
             "message": {
               "en": "Sorry, check-in date cannot be today or earlier. The earliest available check-in is tomorrow. Would you like to proceed with tomorrow as your check-in date instead?",
@@ -167,7 +188,6 @@
           "id": "check_booking_conflict",
           "type": "condition",
           "label": "Check for date range conflicts",
-          "timeout": 5000,
           "config": {
             "field": "{{workflow.data.booking_dates_normalized}}",
             "operator": "dateConflict",
@@ -180,7 +200,6 @@
           "id": "booking_conflict_msg",
           "type": "message",
           "label": "Notify guest of date conflict",
-          "timeout": 5000,
           "config": {
             "message": {
               "en": "Sorry, those dates are not available. Please try different dates for your booking.",
@@ -194,20 +213,32 @@
           "id": "check_room_availability",
           "type": "condition",
           "label": "Check real-time room availability against reservations DB",
-          "timeout": 5000,
           "config": {
             "field": "{{workflow.data.booking_dates_normalized}}",
             "operator": "dbAvailabilityCheck",
             "value": null,
-            "trueNext": "confirm_booking_msg",
+            "trueNext": "wait_guest_phone",
             "falseNext": "room_unavailable_msg"
           }
+        },
+        {
+          "id": "wait_guest_phone",
+          "type": "wait_reply",
+          "label": "Ask contact phone (webchat guests have no implicit number)",
+          "config": {
+            "storeAs": "guest_phone",
+            "prompt": {
+              "en": "Almost done! What is the best phone number (with country code) to reach you for confirmation?",
+              "ms": "Hampir siap! Apakah nombor telefon terbaik (dengan kod negara) untuk kami hubungi anda bagi pengesahan?",
+              "zh": "快完成了！请问用哪个电话号码（含国家代码）联系您确认预订最方便？"
+            }
+          },
+          "next": "confirm_booking_msg"
         },
         {
           "id": "room_unavailable_msg",
           "type": "message",
           "label": "Notify guest all rooms are fully booked with alternative suggestions",
-          "timeout": 5000,
           "config": {
             "message": {
               "en": "Sorry, we are fully booked for those dates. Here are some nearby available periods you may consider:\n- Try shifting your check-in by 1-2 days\n- Consider a shorter stay\n\nWould you like to try different dates?",
@@ -221,7 +252,6 @@
           "id": "date_error_reprompt",
           "type": "wait_reply",
           "label": "Re-prompt after invalid date input",
-          "timeout": 5000,
           "config": {
             "storeAs": "booking_dates",
             "prompt": {
@@ -236,27 +266,44 @@
           "id": "confirm_booking_msg",
           "type": "message",
           "label": "Confirm booking details with guest",
-          "timeout": 5000,
           "config": {
             "message": {
-              "en": "Got it! Here are your booking details:\n\nName: {{workflow.data.guest_name}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\n\nIf you have already made payment, please share your payment receipt now. Otherwise, I will forward your details to our admin for assistance.",
-              "ms": "Baik! Ini butiran tempahan anda:\n\nNama: {{workflow.data.guest_name}}\nTetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\n\nKalau dah bayar, boleh share resit sekarang. Kalau belum, saya akan forward ke admin kami untuk bantuan lanjut.",
-              "zh": "好的！您的预订详情：\n\n姓名：{{workflow.data.guest_name}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n\n如果您已付款，请现在分享付款收据。否则，我将把您的详情转发给我们的管理员。"
+              "en": "Got it! Here are your booking details:\n\nName: {{workflow.data.guest_name}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\nPhone: {{workflow.data.guest_phone}}\n\nIf you have already made payment, please share your payment receipt now. Otherwise, I will forward your details to our admin for assistance.",
+              "ms": "Baik! Ini butiran tempahan anda:\n\nNama: {{workflow.data.guest_name}}\nTetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\nTelefon: {{workflow.data.guest_phone}}\n\nKalau dah bayar, boleh share resit sekarang. Kalau belum, saya akan forward ke admin kami untuk bantuan lanjut.",
+              "zh": "好的！您的预订详情：\n\n姓名：{{workflow.data.guest_name}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n电话：{{workflow.data.guest_phone}}\n\n如果您已付款，请现在分享付款收据。否则，我将把您的详情转发给我们的管理员。"
             }
           },
-          "next": "booking_notify_admin"
+          "next": "booking_create_reservation"
+        },
+        {
+          "id": "booking_create_reservation",
+          "type": "pelangi_api",
+          "label": "Create PENDING reservation in PMS2 (no unit auto-assign; human admin confirms)",
+          "config": {
+            "action": "create_reservation",
+            "params": {
+              "guestName": "{{workflow.data.guest_name}}",
+              "guestPhone": "{{workflow.data.guest_phone}}",
+              "guestCount": "{{workflow.data.guest_count}}",
+              "bookingDates": "{{workflow.data.booking_dates}}"
+            }
+          },
+          "next": {
+            "success": "booking_notify_admin",
+            "error": "booking_notify_admin"
+          },
+          "max_duration_ms": 15000
         },
         {
           "id": "booking_notify_admin",
           "type": "whatsapp_send",
           "label": "Notify admin about booking",
-          "timeout": 5000,
           "config": {
             "receiver": "{{system.admin_phone}}",
             "content": {
-              "en": "New Booking Request\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\nPlease review and confirm.",
-              "ms": "Tempahan Baru\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{guest.phone}}\nBilangan tetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\nSila semak dan sahkan.",
-              "zh": "新预订请求\n客人：{{workflow.data.guest_name}}\n电话：{{guest.phone}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\n请审核并确认。"
+              "en": "New Booking Request\nGuest: {{workflow.data.guest_name}}\nPhone: {{workflow.data.guest_phone}}\nGuests: {{workflow.data.guest_count}}\nDates: {{workflow.data.booking_dates}}\nPMS ref: {{workflow.data.confirmation_number}}\nPlease review and confirm.",
+              "ms": "Tempahan Baru\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{workflow.data.guest_phone}}\nBilangan tetamu: {{workflow.data.guest_count}}\nTarikh: {{workflow.data.booking_dates}}\nRujukan PMS: {{workflow.data.confirmation_number}}\nSila semak dan sahkan.",
+              "zh": "新预订请求\n客人：{{workflow.data.guest_name}}\n电话：{{workflow.data.guest_phone}}\n人数：{{workflow.data.guest_count}}\n日期：{{workflow.data.booking_dates}}\nPMS 编号：{{workflow.data.confirmation_number}}\n请审核并确认。"
             },
             "urgency": "normal"
           },
@@ -266,24 +313,23 @@
           "id": "booking_confirm_msg",
           "type": "message",
           "label": "Booking confirmation to guest",
-          "timeout": 5000,
           "config": {
             "message": {
-              "en": "Your booking request has been sent to our admin! They will contact you shortly to confirm your reservation. Thank you for choosing Pelangi Capsule Hostel!",
-              "ms": "Permintaan tempahan anda dah dihantar ke admin kami! Mereka akan hubungi anda tidak lama lagi untuk sahkan tempahan. Terima kasih kerana memilih Pelangi Capsule Hostel!",
-              "zh": "您的预订请求已发送给我们的管理员！他们将尽快联系您确认预订。感谢您选择 Pelangi Capsule Hostel！"
+              "en": "Your booking request has been sent to our admin! They will contact you shortly to confirm your reservation.\n\nCheck-in is from 2:00 PM and check-out is by 12:00 PM. If you arrive earlier, you are welcome to store your luggage with us.\n\nThank you for choosing Pelangi Capsule Hostel!",
+              "ms": "Permintaan tempahan anda dah dihantar ke admin kami! Mereka akan hubungi anda tidak lama lagi untuk sahkan tempahan.\n\nCheck-in bermula 2:00 PM dan check-out sebelum 12:00 PM. Kalau sampai awal, boleh simpan bagasi dengan kami.\n\nTerima kasih kerana memilih Pelangi Capsule Hostel!",
+              "zh": "您的预订请求已发送给我们的管理员！他们将尽快联系您确认预订。\n\n入住时间为下午2:00起，退房时间为中午12:00前。提前到达可以先寄存行李。\n\n感谢您选择 Pelangi Capsule Hostel！"
             }
           }
         }
-      ],
-      "startNodeId": "wait_guest_name"
+      ]
     },
     {
       "id": "checkin_full",
-      "name": "Complete Check-in Process",
+      "name": "Arrival & Assisted Check-in",
       "profileId": "pelangi",
       "steps": [],
       "format": "nodes",
+      "startNodeId": "welcome_msg",
       "nodes": [
         {
           "id": "welcome_msg",
@@ -315,7 +361,7 @@
         {
           "id": "pms_lookup",
           "type": "pelangi_api",
-          "label": "Look up reservation in PMS",
+          "label": "Look up reservation in PMS2 (MCP lookup by name/phone)",
           "config": {
             "action": "find_reservation",
             "params": {
@@ -323,30 +369,61 @@
               "phoneNumber": "{{guest.phone}}"
             }
           },
-          "max_duration_ms": 15000,
-          "outputs": {
-            "reservationId": "reservationId",
-            "pmsCheckInDate": "pmsCheckInDate",
-            "pmsCheckOutDate": "pmsCheckOutDate",
-            "reservationFound": "reservationFound",
-            "guestCount": "guestCount"
-          },
           "next": {
             "success": "pms_found_check",
             "error": "pms_error_msg"
-          }
+          },
+          "max_duration_ms": 15000
         },
         {
           "id": "pms_found_check",
           "type": "condition",
           "label": "Reservation found in PMS?",
           "config": {
-            "field": "{{pelangi.reservationFound}}",
+            "field": "{{workflow.data.reservationFound}}",
             "operator": "eq",
-            "value": true,
-            "trueNext": "confirm_dates_msg",
+            "value": "true",
+            "trueNext": "unit_assigned_check",
             "falseNext": "no_reservation_msg"
           }
+        },
+        {
+          "id": "unit_assigned_check",
+          "type": "condition",
+          "label": "Capsule already assigned?",
+          "config": {
+            "field": "{{workflow.data.unitNumber}}",
+            "operator": "exists",
+            "value": "",
+            "trueNext": "capsule_ready_msg",
+            "falseNext": "capsule_pending_msg"
+          }
+        },
+        {
+          "id": "capsule_ready_msg",
+          "type": "message",
+          "label": "Tell guest their capsule number",
+          "config": {
+            "message": {
+              "en": "Found your reservation ({{workflow.data.confirmationNumber}})!\n\nYour capsule is *{{workflow.data.unitNumber}}*.\nCheck-in: {{workflow.data.pmsCheckInDate}}\nCheck-out: {{workflow.data.pmsCheckOutDate}}",
+              "ms": "Tempahan anda dijumpai ({{workflow.data.confirmationNumber}})!\n\nKapsul anda ialah *{{workflow.data.unitNumber}}*.\nCheck-in: {{workflow.data.pmsCheckInDate}}\nCheck-out: {{workflow.data.pmsCheckOutDate}}",
+              "zh": "找到您的预订（{{workflow.data.confirmationNumber}}）！\n\n您的胶囊房是 *{{workflow.data.unitNumber}}*。\n入住：{{workflow.data.pmsCheckInDate}}\n退房：{{workflow.data.pmsCheckOutDate}}"
+            }
+          },
+          "next": "arrival_payment_msg"
+        },
+        {
+          "id": "capsule_pending_msg",
+          "type": "message",
+          "label": "Reservation found but capsule not yet assigned",
+          "config": {
+            "message": {
+              "en": "Found your reservation ({{workflow.data.confirmationNumber}})!\nCheck-in: {{workflow.data.pmsCheckInDate}}\nCheck-out: {{workflow.data.pmsCheckOutDate}}\n\nYour capsule number will be assigned at check-in — our on-site staff will sort it out for you right away.",
+              "ms": "Tempahan anda dijumpai ({{workflow.data.confirmationNumber}})!\nCheck-in: {{workflow.data.pmsCheckInDate}}\nCheck-out: {{workflow.data.pmsCheckOutDate}}\n\nNombor kapsul anda akan ditetapkan semasa check-in — staf kami akan uruskan segera.",
+              "zh": "找到您的预订（{{workflow.data.confirmationNumber}}）！\n入住：{{workflow.data.pmsCheckInDate}}\n退房：{{workflow.data.pmsCheckOutDate}}\n\n您的胶囊号将在办理入住时分配——我们的驻店员工会马上为您安排。"
+            }
+          },
+          "next": "arrival_payment_msg"
         },
         {
           "id": "no_reservation_msg",
@@ -354,171 +431,52 @@
           "label": "No reservation found",
           "config": {
             "message": {
-              "en": "I couldn't find a reservation under your name.\n\nPossible reasons:\n- Name spelling differs from booking\n- Booking made under a different phone number\n- Walk-in (no prior booking)\n\nLet me connect you with our staff to assist you directly.",
-              "ms": "Saya tidak jumpa tempahan atas nama anda.\n\nSebab yang mungkin:\n- Ejaan nama berbeza dari tempahan\n- Tempahan dibuat dengan nombor telefon lain\n- Walk-in (tiada tempahan)\n\nBiar saya hubungkan dengan staf kami.",
-              "zh": "我找不到您名下的预订。\n\n可能原因：\n- 姓名拼写与预订不同\n- 预订时使用了不同电话号码\n- 临时入住（无预订）\n\n让我为您联系工作人员。"
+              "en": "I couldn't find a reservation under your name.\n\nPossible reasons:\n- Name spelling differs from booking\n- Booking made under a different phone number\n- Walk-in (no prior booking)\n\nNo worries — our on-site staff can still check you in.",
+              "ms": "Saya tidak jumpa tempahan atas nama anda.\n\nSebab yang mungkin:\n- Ejaan nama berbeza dari tempahan\n- Tempahan dibuat dengan nombor telefon lain\n- Walk-in (tiada tempahan)\n\nJangan risau — staf kami tetap boleh bantu anda check-in.",
+              "zh": "我找不到您名下的预订。\n\n可能原因：\n- 姓名拼写与预订不同\n- 预订时使用了不同电话号码\n- 临时入住（无预订）\n\n别担心——我们的驻店员工仍可为您办理入住。"
             }
           },
-          "next": "notify_operator_walkin"
-        },
-        {
-          "id": "notify_operator_walkin",
-          "type": "whatsapp_send",
-          "label": "Notify operator for walk-in",
-          "config": {
-            "receiver_type": "operator",
-            "content": {
-              "en": "Walk-in / Unmatched Booking\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nCould not find PMS reservation. Please assist at front desk.",
-              "ms": "Walk-in / Tempahan Tidak Dijumpai\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{guest.phone}}\nTempahan PMS tidak dijumpai. Sila bantu di kaunter depan.",
-              "zh": "临时入住 / 预订未找到\n客人：{{workflow.data.guest_name}}\n电话：{{guest.phone}}\n无法找到PMS预订，请在前台协助。"
-            },
-            "urgency": "normal"
-          }
+          "next": "arrival_payment_msg"
         },
         {
           "id": "pms_error_msg",
           "type": "message",
-          "label": "PMS API error fallback",
+          "label": "PMS lookup error fallback",
           "config": {
             "message": {
-              "en": "I'm having trouble connecting to our booking system right now. Don't worry - let me still help you check in! Please confirm your check-in and check-out dates:",
-              "ms": "Saya ada masalah sambung ke sistem tempahan kami sekarang. Jangan risau - biar saya teruskan bantu anda check-in! Sila sahkan tarikh check-in dan check-out anda:",
-              "zh": "我目前无法连接预订系统。别担心——让我继续帮您办理入住！请确认您的入住和退房日期："
+              "en": "I'm having trouble reaching our booking system right now, but don't worry — our on-site staff can complete your check-in.",
+              "ms": "Saya ada masalah sambung ke sistem tempahan sekarang, tapi jangan risau — staf kami boleh selesaikan check-in anda.",
+              "zh": "我目前无法连接预订系统，但别担心——我们的驻店员工可以为您完成入住。"
             }
           },
-          "next": "wait_dates_manual"
+          "next": "arrival_payment_msg"
         },
         {
-          "id": "confirm_dates_msg",
+          "id": "arrival_payment_msg",
           "type": "message",
-          "label": "Show PMS booking details to confirm",
+          "label": "Payment (DuitNow QR) + on-site assistance (Maya)",
           "config": {
             "message": {
-              "en": "Found your reservation!\n\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nGuests: {{pelangi.guestCount}}\n\nIs this correct? Reply *yes* to confirm or *no* to correct.",
-              "ms": "Tempahan anda dijumpai!\n\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nTetamu: {{pelangi.guestCount}}\n\nAdakah ini betul? Balas *ya* untuk sahkan atau *tidak* untuk betulkan.",
-              "zh": "找到您的预订！\n\n入住：{{pelangi.pmsCheckInDate}}\n退房：{{pelangi.pmsCheckOutDate}}\n客人数：{{pelangi.guestCount}}\n\n这正确吗？回复 *是* 确认或 *不* 更正。"
+              "en": "Here's how to complete payment and check-in:\n\n1️⃣ Pay via DuitNow QR: https://pelangicapsulehostel.com/images/duitnow-qr.png\nScan or open it with Touch 'n Go eWallet, Boost, ShopeePay, Grab or any DuitNow app (account name: Pelangi Capsule Hostel), then send your receipt screenshot here in this chat.\n\n2️⃣ Need a hand on site? Contact our staff *Maya* on WhatsApp +60 17-670 1102 (https://wa.me/60176701102) — she assists check-in in person (speaks Bahasa Malaysia/Indonesia).\n\nCheck-in is from 2:00 PM and check-out is by 12:00 PM.",
+              "ms": "Cara selesaikan pembayaran dan check-in:\n\n1️⃣ Bayar melalui DuitNow QR: https://pelangicapsulehostel.com/images/duitnow-qr.png\nImbas atau buka dengan Touch 'n Go eWallet, Boost, ShopeePay, Grab atau mana-mana app DuitNow (nama akaun: Pelangi Capsule Hostel), kemudian hantar screenshot resit dalam chat ini.\n\n2️⃣ Perlukan bantuan di lokasi? Hubungi staf kami *Maya* di WhatsApp +60 17-670 1102 (https://wa.me/60176701102) — beliau boleh bantu check-in anda (berbahasa Melayu/Indonesia).\n\nCheck-in bermula 2:00 PM dan check-out sebelum 12:00 PM.",
+              "zh": "完成付款和入住的方式：\n\n1️⃣ 通过 DuitNow QR 付款：https://pelangicapsulehostel.com/images/duitnow-qr.png\n用 Touch 'n Go eWallet、Boost、ShopeePay、Grab 或任何 DuitNow 应用扫描/打开（账户名：Pelangi Capsule Hostel），然后在此聊天发送收据截图。\n\n2️⃣ 需要现场协助？请联系我们的驻店员工 *Maya*，WhatsApp +60 17-670 1102 (https://wa.me/60176701102) —— 她会现场协助您办理入住（会说马来语/印尼语）。\n\n入住时间为下午2:00起，退房时间为中午12:00前。"
             }
           },
-          "next": "wait_date_confirm"
+          "next": "notify_operator_arrival"
         },
         {
-          "id": "wait_date_confirm",
-          "type": "wait_reply",
-          "label": "Wait for date confirmation",
-          "config": {
-            "storeAs": "date_confirmed",
-            "prompt": {
-              "en": "Reply *yes* to confirm the dates or *no* to correct them.",
-              "ms": "Balas *ya* untuk sahkan tarikh atau *tidak* untuk betulkan.",
-              "zh": "回复 *是* 确认日期或 *不* 更正。"
-            }
-          },
-          "next": "date_confirm_check"
-        },
-        {
-          "id": "date_confirm_check",
-          "type": "condition",
-          "label": "Dates confirmed?",
-          "config": {
-            "field": "{{workflow.data.date_confirmed}}",
-            "operator": "eq",
-            "value": "yes",
-            "trueNext": "assign_capsule",
-            "falseNext": "wait_dates_manual"
-          }
-        },
-        {
-          "id": "wait_dates_manual",
-          "type": "wait_reply",
-          "label": "Ask dates manually",
-          "config": {
-            "storeAs": "stay_dates",
-            "prompt": {
-              "en": "Please provide your check-in and check-out dates:\n(e.g., Check-in: 20 Apr, Check-out: 22 Apr)",
-              "ms": "Sila berikan tarikh check-in dan check-out anda:\n(contoh: Check-in: 20 Apr, Check-out: 22 Apr)",
-              "zh": "请提供您的入住和退房日期：\n（例如：入住：4月20日，退房：4月22日）"
-            }
-          },
-          "next": "assign_capsule"
-        },
-        {
-          "id": "assign_capsule",
-          "type": "pelangi_api",
-          "label": "Assign lower deck capsule (even number preferred)",
-          "config": {
-            "action": "assign_capsule",
-            "params": {
-              "reservationId": "{{pelangi.reservationId}}",
-              "guestName": "{{workflow.data.guest_name}}",
-              "preference": "lower_deck",
-              "preferEvenNumbers": true
-            }
-          },
-          "max_duration_ms": 15000,
-          "outputs": {
-            "assignedCapsule": "assignedCapsule",
-            "capsuleDeck": "capsuleDeck"
-          },
-          "next": {
-            "success": "capsule_assigned_msg",
-            "error": "capsule_assign_error"
-          }
-        },
-        {
-          "id": "capsule_assign_error",
-          "type": "message",
-          "label": "Capsule assignment error",
-          "config": {
-            "message": {
-              "en": "I wasn't able to automatically assign a capsule right now. Our operator will assign one for you shortly! Please wait a moment.",
-              "ms": "Saya tak dapat assign capsule secara automatik sekarang. Operator kami akan assign satu untuk anda tidak lama lagi! Sila tunggu sebentar.",
-              "zh": "我现在无法自动分配胶囊房。我们的操作员将很快为您分配！请稍等片刻。"
-            }
-          },
-          "next": "notify_operator_checkin"
-        },
-        {
-          "id": "capsule_assigned_msg",
-          "type": "message",
-          "label": "Confirm capsule assignment to guest",
-          "config": {
-            "message": {
-              "en": "Capsule Assigned!\n\nYou have been assigned *Capsule {{pelangi.assignedCapsule}}* ({{pelangi.capsuleDeck}} deck - we prefer lower deck for your comfort).\n\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\n\nOur operator has been notified and will assist you!",
-              "ms": "Capsule Ditetapkan!\n\nAnda telah ditetapkan *Capsule {{pelangi.assignedCapsule}}* (dek {{pelangi.capsuleDeck}} - kami utamakan dek bawah untuk keselesaan anda).\n\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\n\nOperator kami telah diberitahu dan akan bantu anda!",
-              "zh": "胶囊房已分配！\n\n您已被分配 *胶囊 {{pelangi.assignedCapsule}}*（{{pelangi.capsuleDeck}}层铺 - 我们优先安排下铺以保证舒适度）。\n\n入住：{{pelangi.pmsCheckInDate}}\n退房：{{pelangi.pmsCheckOutDate}}\n\n我们的操作员已收到通知，将为您提供帮助！"
-            }
-          },
-          "next": "notify_operator_checkin"
-        },
-        {
-          "id": "notify_operator_checkin",
+          "id": "notify_operator_arrival",
           "type": "whatsapp_send",
-          "label": "Notify capsule operator of check-in",
+          "label": "Notify staff that the guest has arrived",
           "config": {
-            "receiver_type": "operator",
+            "receiver": "{{system.admin_phone}}",
             "content": {
-              "en": "*New Check-in*\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nCapsule: {{pelangi.assignedCapsule}} ({{pelangi.capsuleDeck}} deck)\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nReservation: {{pelangi.reservationId}}\n\nPlease assist guest with capsule orientation.",
-              "ms": "*Check-in Baru*\nTetamu: {{workflow.data.guest_name}}\nTelefon: {{guest.phone}}\nCapsule: {{pelangi.assignedCapsule}} (dek {{pelangi.capsuleDeck}})\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nTempahan: {{pelangi.reservationId}}\n\nSila bantu tetamu dengan orientasi capsule.",
-              "zh": "*新入住*\n客人：{{workflow.data.guest_name}}\n电话：{{guest.phone}}\n胶囊房：{{pelangi.assignedCapsule}}（{{pelangi.capsuleDeck}}层铺）\n入住：{{pelangi.pmsCheckInDate}}\n退房：{{pelangi.pmsCheckOutDate}}\n预订号：{{pelangi.reservationId}}\n\n请协助客人了解胶囊房设施。"
+              "en": "*Guest Arrived (webchat/WhatsApp)*\nGuest: {{workflow.data.guest_name}}\nPhone: {{guest.phone}}\nFound in PMS: {{workflow.data.reservationFound}}\nReservation: {{workflow.data.confirmationNumber}}\nCapsule: {{workflow.data.unitNumber}}\n\nGuest was given the DuitNow QR and Maya's contact. Please follow up."
             },
             "urgency": "normal"
-          },
-          "next": "hostel_info_msg"
-        },
-        {
-          "id": "hostel_info_msg",
-          "type": "message",
-          "label": "Hostel info card",
-          "config": {
-            "message": {
-              "en": "Here is some useful info:\n\n- Check-in time: 2:00 PM\n- Check-out time: 12:00 PM\n- Door password: 1270#\n- WiFi: PelangiHostel\n- Address: Jalan Dato Haji Hassan, JB\n\nFirst time? Watch our guide: https://youtu.be/bYj1M37xJiE\n\nEnjoy your stay! Need anything, just ask!",
-              "ms": "Maklumat berguna:\n\n- Masa check-in: 2:00 PM\n- Masa check-out: 12:00 PM\n- Password pintu: 1270#\n- WiFi: PelangiHostel\n- Alamat: Jalan Dato Haji Hassan, JB\n\nPertama kali? Tonton panduan kami: https://youtu.be/bYj1M37xJiE\n\nNikmati penginapan anda! Perlukan apa-apa, tanya sahaja!",
-              "zh": "实用信息：\n\n- 入住时间：下午2:00\n- 退房时间：中午12:00\n- 门密码：1270#\n- WiFi：PelangiHostel\n- 地址：Jalan Dato Haji Hassan, JB\n\n第一次来？观看指南：https://youtu.be/bYj1M37xJiE\n\n祝您入住愉快！需要帮助随时问我！"
-            }
           }
         }
-      ],
-      "startNodeId": "welcome_msg"
+      ]
     },
     {
       "id": "lower_deck_preference",
@@ -548,6 +506,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "lower_deck_info_msg",
       "nodes": [
         {
           "id": "lower_deck_info_msg",
@@ -622,8 +581,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "lower_deck_info_msg"
+      ]
     },
     {
       "id": "tourist_guide",
@@ -650,6 +608,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "tourist_attractions_msg",
       "nodes": [
         {
           "id": "tourist_attractions_msg",
@@ -747,8 +706,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "tourist_attractions_msg"
+      ]
     },
     {
       "id": "complaint_handling",
@@ -808,6 +766,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "complaint_apologize_msg",
       "nodes": [
         {
           "id": "complaint_apologize_msg",
@@ -890,8 +849,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "complaint_apologize_msg"
+      ]
     },
     {
       "id": "theft_emergency",
@@ -963,6 +921,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "theft_reassure_msg",
       "nodes": [
         {
           "id": "theft_reassure_msg",
@@ -1059,8 +1018,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "theft_reassure_msg"
+      ]
     },
     {
       "id": "card_locked_troubleshoot",
@@ -1102,6 +1060,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "locked_instructions_msg",
       "nodes": [
         {
           "id": "locked_instructions_msg",
@@ -1170,8 +1129,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "locked_instructions_msg"
+      ]
     },
     {
       "id": "forward_payment",
@@ -1189,6 +1147,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "payment_forward_msg",
       "nodes": [
         {
           "id": "payment_forward_msg",
@@ -1217,8 +1176,7 @@
             "urgency": "normal"
           }
         }
-      ],
-      "startNodeId": "payment_forward_msg"
+      ]
     },
     {
       "id": "checkout_full",
@@ -1226,6 +1184,7 @@
       "profileId": "pelangi",
       "steps": [],
       "format": "nodes",
+      "startNodeId": "checkout_welcome_msg",
       "nodes": [
         {
           "id": "checkout_welcome_msg",
@@ -1265,7 +1224,10 @@
               "phoneNumber": "{{guest.phone}}"
             }
           },
-          "max_duration_ms": 15000,
+          "next": {
+            "success": "checkout_pms_found_check",
+            "error": "checkout_pms_error"
+          },
           "outputs": {
             "reservationId": "reservationId",
             "pmsCheckInDate": "pmsCheckInDate",
@@ -1273,10 +1235,7 @@
             "assignedCapsule": "assignedCapsule",
             "reservationFound": "reservationFound"
           },
-          "next": {
-            "success": "checkout_pms_found_check",
-            "error": "checkout_pms_error"
-          }
+          "max_duration_ms": 15000
         },
         {
           "id": "checkout_pms_found_check",
@@ -1321,9 +1280,9 @@
           "label": "Confirm stay details before checkout",
           "config": {
             "message": {
-              "en": "Found your stay!\n\nCapsule: {{pelangi.assignedCapsule}}\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nBooking: {{pelangi.reservationId}}\n\nBefore you leave, please ensure:\n- Collect all belongings from your capsule\n- Check under pillow and mattress\n- Return key card at the front desk\n- Check bathroom and lounge for any items\n\nReply *done* when ready to complete checkout.",
-              "ms": "Rekod penginapan dijumpai!\n\nCapsule: {{pelangi.assignedCapsule}}\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nTempahan: {{pelangi.reservationId}}\n\nSebelum pergi, sila pastikan:\n- Ambil semua barang dari capsule anda\n- Check bawah bantal dan tilam\n- Pulangkan kad kunci di kaunter depan\n- Check bilik air dan lounge\n\nBalas *done* bila dah siap.",
-              "zh": "找到您的入住记录！\n\n胶囊房：{{pelangi.assignedCapsule}}\n入住：{{pelangi.pmsCheckInDate}}\n退房：{{pelangi.pmsCheckOutDate}}\n预订号：{{pelangi.reservationId}}\n\n离开前请确认：\n- 取走胶囊房内所有物品\n- 检查枕头和床垫下面\n- 在前台归还钥匙卡\n- 检查浴室和休息区\n\n准备好后回复 *done*。"
+              "en": "Found your stay!\n\nCapsule: {{pelangi.assignedCapsule}}\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nBooking: {{pelangi.confirmationNumber}}\n\nBefore you leave, please ensure:\n- Collect all belongings from your capsule\n- Check under pillow and mattress\n- Return key card at the front desk\n- Check bathroom and lounge for any items\n\nReply *done* when ready to complete checkout.",
+              "ms": "Rekod penginapan dijumpai!\n\nCapsule: {{pelangi.assignedCapsule}}\nCheck-in: {{pelangi.pmsCheckInDate}}\nCheck-out: {{pelangi.pmsCheckOutDate}}\nTempahan: {{pelangi.confirmationNumber}}\n\nSebelum pergi, sila pastikan:\n- Ambil semua barang dari capsule anda\n- Check bawah bantal dan tilam\n- Pulangkan kad kunci di kaunter depan\n- Check bilik air dan lounge\n\nBalas *done* bila dah siap.",
+              "zh": "找到您的入住记录！\n\n胶囊房：{{pelangi.assignedCapsule}}\n入住：{{pelangi.pmsCheckInDate}}\n退房：{{pelangi.pmsCheckOutDate}}\n预订号：{{pelangi.confirmationNumber}}\n\n离开前请确认：\n- 取走胶囊房内所有物品\n- 检查枕头和床垫下面\n- 在前台归还钥匙卡\n- 检查浴室和休息区\n\n准备好后回复 *done*。"
             }
           },
           "next": "checkout_wait_done"
@@ -1381,11 +1340,11 @@
               "guestName": "{{workflow.data.guest_name}}"
             }
           },
-          "max_duration_ms": 15000,
           "next": {
             "success": "checkout_notify_operator",
             "error": "checkout_notify_operator"
-          }
+          },
+          "max_duration_ms": 15000
         },
         {
           "id": "checkout_notify_operator",
@@ -1414,8 +1373,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "checkout_welcome_msg"
+      ]
     },
     {
       "id": "amenity_request_handler",
@@ -1466,6 +1424,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "amenity_intro_msg",
       "nodes": [
         {
           "id": "amenity_intro_msg",
@@ -1534,8 +1493,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "amenity_intro_msg"
+      ]
     },
     {
       "id": "capsule_conflict_handling",
@@ -1559,11 +1517,10 @@
             "zh": "谢谢。我立即通知我们的工作人员关于胶囊冲突的情况。🔔 请您留在附近，我们的团队将在几分钟内协助您。他们将核实分配情况并找到解决方案——要么让另一位移离，要么为您安排另一个胶囊。"
           },
           "waitForReply": false,
-          "max_duration_ms": 10000,
           "action": {
-            "type": "notify_staff",
-            "message": "🚨 CAPSULE CONFLICT: Guest reports someone already in their assigned capsule. Please check and resolve immediately."
-          }
+            "type": "notify_staff"
+          },
+          "max_duration_ms": 10000
         },
         {
           "id": "s3",
@@ -1634,6 +1591,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "sr_intro_msg",
       "nodes": [
         {
           "id": "sr_intro_msg",
@@ -1669,7 +1627,10 @@
           "config": {
             "action": "log_service_request",
             "params": {
-              "urgency": "normal"
+              "urgency": "normal",
+              "description": "{{workflow.data.request_details}}",
+              "reportedBy": "{{guest.name}}",
+              "phone": "{{guest.phone}}"
             }
           },
           "next": "sr_confirm_msg"
@@ -1686,8 +1647,7 @@
             }
           }
         }
-      ],
-      "startNodeId": "sr_intro_msg"
+      ]
     },
     {
       "id": "emergency_escalate",
@@ -1723,6 +1683,7 @@
         }
       ],
       "format": "nodes",
+      "startNodeId": "sos_immediate_ack",
       "nodes": [
         {
           "id": "sos_immediate_ack",
@@ -1794,8 +1755,350 @@
             }
           }
         }
-      ],
-      "startNodeId": "sos_immediate_ack"
+      ]
+    },
+    {
+      "id": "availability_check",
+      "name": "Room Availability Check (live PMS)",
+      "profileId": "pelangi",
+      "format": "nodes",
+      "startNodeId": "av_query",
+      "nodes": [
+        {
+          "id": "av_query",
+          "type": "pelangi_api",
+          "label": "Query live availability from PMS",
+          "config": {
+            "action": "check_availability",
+            "params": {}
+          },
+          "next": {
+            "success": "av_branch",
+            "error": "av_reply_none"
+          }
+        },
+        {
+          "id": "av_branch",
+          "type": "condition",
+          "label": "Any units available?",
+          "config": {
+            "field": "{{workflow.data.available_count}}",
+            "operator": "gt",
+            "value": "0",
+            "trueNext": "av_reply_yes",
+            "falseNext": "av_reply_none"
+          }
+        },
+        {
+          "id": "av_reply_yes",
+          "type": "message",
+          "label": "Availability confirmed",
+          "config": {
+            "message": {
+              "en": "✅ Yes — we currently have {{workflow.data.available_count}} unit(s) available right now. Would you like to book one? 😊",
+              "ms": "✅ Ya — kami ada {{workflow.data.available_count}} unit kosong sekarang. Nak tempah satu? 😊",
+              "zh": "✅ 有的 — 我们现在有 {{workflow.data.available_count}} 间空房。您想预订吗？😊"
+            }
+          }
+        },
+        {
+          "id": "av_reply_none",
+          "type": "message",
+          "label": "No availability / fully booked",
+          "config": {
+            "message": {
+              "en": "Sorry, we appear to be fully booked right now — let me check with staff and get back to you. 🙏",
+              "ms": "Maaf, nampaknya kami penuh ditempah sekarang — saya akan semak dengan staf dan hubungi anda semula. 🙏",
+              "zh": "抱歉，我们现在似乎已满房 — 让我跟工作人员确认后再回复您。🙏"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "process_booking_cancellation",
+      "name": "Booking Cancellation Workflow",
+      "format": "nodes",
+      "startNodeId": "confirm_cancellation",
+      "nodes": [
+        {
+          "id": "confirm_cancellation",
+          "type": "wait_reply",
+          "label": "Confirm cancellation intent",
+          "config": {
+            "storeAs": "cancellation_confirmed",
+            "prompt": {
+              "en": "I understand you'd like to cancel your booking. Can you confirm? Reply YES or NO.",
+              "ms": "Saya faham anda ingin membatalkan tempahan. Boleh sahkan? Balas YA atau TIDAK.",
+              "zh": "我理解您想取消预订。请确认吗？回复是或否。"
+            }
+          },
+          "next": "check_cancellation_intent"
+        },
+        {
+          "id": "check_cancellation_intent",
+          "type": "condition",
+          "label": "Check if guest confirmed",
+          "config": {
+            "field": "{{workflow.data.cancellation_confirmed}}",
+            "operator": "regex",
+            "value": "^(yes|ya|yep|confirm|ok|y)$",
+            "trueNext": "ask_checkin_date",
+            "falseNext": "cancellation_declined"
+          }
+        },
+        {
+          "id": "cancellation_declined",
+          "type": "message",
+          "label": "Guest declined cancellation",
+          "config": {
+            "message": {
+              "en": "Got it! Your booking remains active.",
+              "ms": "Baik! Tempahan anda tetap aktif.",
+              "zh": "明白了！您的预订保持有效。"
+            }
+          }
+        },
+        {
+          "id": "ask_checkin_date",
+          "type": "wait_reply",
+          "label": "Ask for check-in date",
+          "config": {
+            "storeAs": "booking_checkin_date",
+            "prompt": {
+              "en": "Thank you. Please provide your check-in date (YYYY-MM-DD format)",
+              "ms": "Terima kasih. Berikan tarikh check-in anda (format YYYY-MM-DD)",
+              "zh": "感谢。请提供您的入住日期（YYYY-MM-DD格式）"
+            }
+          },
+          "next": "validate_checkin_date"
+        },
+        {
+          "id": "validate_checkin_date",
+          "type": "condition",
+          "label": "Validate date format",
+          "config": {
+            "field": "{{workflow.data.booking_checkin_date}}",
+            "operator": "regex",
+            "value": "^\\d{4}-\\d{2}-\\d{2}$",
+            "trueNext": "calculate_credit",
+            "falseNext": "invalid_date_error"
+          }
+        },
+        {
+          "id": "invalid_date_error",
+          "type": "message",
+          "label": "Invalid date format",
+          "config": {
+            "message": {
+              "en": "Please use YYYY-MM-DD format (e.g., 2026-02-15)",
+              "ms": "Sila gunakan format YYYY-MM-DD (cth., 2026-02-15)",
+              "zh": "请使用YYYY-MM-DD格式（例如2026-02-15）"
+            }
+          },
+          "next": "ask_checkin_date"
+        },
+        {
+          "id": "calculate_credit",
+          "type": "function",
+          "label": "Calculate credit",
+          "config": {
+            "function": "calculateCancellationCredit",
+            "inputs": {
+              "checkInDate": "{{workflow.data.booking_checkin_date}}"
+            },
+            "outputAs": "credit_result"
+          },
+          "next": "display_credit_message"
+        },
+        {
+          "id": "display_credit_message",
+          "type": "message",
+          "label": "Display credit result",
+          "config": {
+            "message": {
+              "en": "Cancellation processed! {{workflow.data.credit_result}}",
+              "ms": "Pembatalan diproses! {{workflow.data.credit_result}}",
+              "zh": "取消已处理！{{workflow.data.credit_result}}"
+            }
+          },
+          "next": "notify_admin_cancellation"
+        },
+        {
+          "id": "notify_admin_cancellation",
+          "type": "whatsapp_send",
+          "label": "Notify admin",
+          "config": {
+            "receiver": "{{system.admin_phone}}",
+            "content": {
+              "en": "Booking Cancellation: {{guest.phone}} - Check-in: {{workflow.data.booking_checkin_date}} - Credit: {{workflow.data.credit_result}}"
+            },
+            "urgency": "normal"
+          },
+          "next": "cancellation_complete"
+        },
+        {
+          "id": "cancellation_complete",
+          "type": "message",
+          "label": "Final confirmation",
+          "config": {
+            "message": {
+              "en": "Your cancellation request has been sent to our admin team. Thank you!",
+              "ms": "Permintaan pembatalan anda telah dihantar. Terima kasih!",
+              "zh": "您的取消请求已发送给管理员。谢谢！"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "booking_modification",
+      "name": "Booking Modification",
+      "description": "US-064: Guest-initiated booking modification — change dates, room type, or add amenities.",
+      "format": "nodes",
+      "startNodeId": "list_existing_bookings",
+      "nodes": [
+        {
+          "id": "list_existing_bookings",
+          "type": "message",
+          "label": "List existing bookings",
+          "config": {
+            "message": {
+              "en": "I can help you modify your booking. Please provide your booking reference number or the name used when booking.",
+              "ms": "Saya boleh bantu ubah tempahan anda. Sila berikan nombor rujukan tempahan atau nama yang digunakan semasa menempah.",
+              "zh": "我可以帮您修改预订。请提供您的预订参考编号或预订时使用的姓名。"
+            }
+          },
+          "next": "select_booking_id"
+        },
+        {
+          "id": "select_booking_id",
+          "type": "wait_reply",
+          "label": "Guest provides booking ID or name",
+          "config": {
+            "storeAs": "booking_ref",
+            "prompt": {
+              "en": "Please enter your booking reference or full name:",
+              "ms": "Sila masukkan rujukan tempahan atau nama penuh anda:",
+              "zh": "请输入您的预订参考编号或全名："
+            }
+          },
+          "next": "choose_change_type"
+        },
+        {
+          "id": "choose_change_type",
+          "type": "wait_reply",
+          "label": "Ask what to modify",
+          "config": {
+            "storeAs": "change_type",
+            "prompt": {
+              "en": "What would you like to modify?\n1. Check-in / Check-out dates\n2. Room type\n3. Add amenities\n\nReply with 1, 2, or 3.",
+              "ms": "Apakah yang anda ingin ubah?\n1. Tarikh check-in / check-out\n2. Jenis bilik\n3. Tambah kemudahan\n\nBalas dengan 1, 2, atau 3.",
+              "zh": "您想修改什么？\n1. 入住/退房日期\n2. 房型\n3. 添加设施\n\n请回复 1、2 或 3。"
+            }
+          },
+          "next": "validate_availability"
+        },
+        {
+          "id": "validate_availability",
+          "type": "wait_reply",
+          "label": "Get new dates or room type",
+          "config": {
+            "storeAs": "new_booking_details",
+            "prompt": {
+              "en": "Please provide the new details for your modification (e.g., new dates: 20 Mar - 22 Mar, or room type: capsule/private):",
+              "ms": "Sila berikan butiran baru untuk pengubahsuaian anda (contoh: tarikh baru: 20 Mar - 22 Mar, atau jenis bilik: kapsul/persendirian):",
+              "zh": "请提供您的修改新详情（例如，新日期：3月20日至3月22日，或房型：胶囊/私人）："
+            }
+          },
+          "next": "confirm_and_update"
+        },
+        {
+          "id": "confirm_and_update",
+          "type": "message",
+          "label": "Confirm modification request",
+          "config": {
+            "message": {
+              "en": "Thank you. Your modification request has been received.\n\nBooking ref: {{workflow.data.booking_ref}}\nChange type: {{workflow.data.change_type}}\nNew details: {{workflow.data.new_booking_details}}\n\nOur staff will confirm availability and update your booking within 30 minutes. You will receive a confirmation message shortly.",
+              "ms": "Terima kasih. Permintaan pengubahsuaian anda telah diterima.\n\nRujukan tempahan: {{workflow.data.booking_ref}}\nJenis perubahan: {{workflow.data.change_type}}\nButiran baru: {{workflow.data.new_booking_details}}\n\nStaf kami akan mengesahkan ketersediaan dan mengemas kini tempahan anda dalam masa 30 minit. Anda akan menerima mesej pengesahan tidak lama lagi.",
+              "zh": "谢谢。您的修改请求已收到。\n\n预订参考：{{workflow.data.booking_ref}}\n修改类型：{{workflow.data.change_type}}\n新详情：{{workflow.data.new_booking_details}}\n\n我们的工作人员将在30分钟内确认可用性并更新您的预订。您将很快收到确认消息。"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "extension_request",
+      "name": "Stay Extension Request",
+      "description": "US-021: Guest wants to extend their current booking by additional nights. Collects new check-out date and forwards to admin for availability confirmation.",
+      "format": "nodes",
+      "startNodeId": "ext_ask_date",
+      "nodes": [
+        {
+          "id": "ext_ask_date",
+          "type": "message",
+          "label": "Ask for new check-out date",
+          "config": {
+            "message": {
+              "en": "Sure! I can help with extending your stay 😊\n\nWhat would be your new check-out date? (e.g. 20 March 2026)",
+              "ms": "Boleh! Saya boleh bantu untuk lanjutkan penginapan anda 😊\n\nApakah tarikh daftar keluar baru anda? (cth. 20 Mac 2026)",
+              "zh": "没问题！我可以帮您延长住宿 😊\n\n您新的退房日期是哪天？（例如：2026年3月20日）"
+            },
+            "waitForReply": true
+          },
+          "next": "ext_collect_date"
+        },
+        {
+          "id": "ext_collect_date",
+          "type": "collect_input",
+          "label": "Collect new check-out date",
+          "config": {
+            "variable": "new_checkout_date",
+            "validation": "date_like"
+          },
+          "next": "ext_notify_admin"
+        },
+        {
+          "id": "ext_notify_admin",
+          "type": "whatsapp_send",
+          "label": "Forward extension request to admin",
+          "config": {
+            "receiver": "{{system.admin_phone}}",
+            "content": {
+              "en": "🏨 *Stay Extension Request*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nRequested new check-out: {{workflow.data.new_checkout_date}}\n\nPlease check availability and confirm with the guest.",
+              "ms": "🏨 *Permintaan Lanjut Penginapan*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nTarikh daftar keluar baru: {{workflow.data.new_checkout_date}}\n\nSila semak ketersediaan dan sahkan dengan tetamu.",
+              "zh": "🏨 *延长住宿请求*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n新退房日期：{{workflow.data.new_checkout_date}}\n\n请核对空房情况并与客人确认。"
+            },
+            "urgency": "normal"
+          },
+          "next": "ext_confirm_guest"
+        },
+        {
+          "id": "ext_confirm_guest",
+          "type": "message",
+          "label": "Confirm request forwarded to guest",
+          "config": {
+            "message": {
+              "en": "✅ Your extension request has been forwarded to our team. We'll confirm availability within 30 minutes. Thank you for your patience!",
+              "ms": "✅ Permintaan lanjutan anda telah dihantar ke pasukan kami. Kami akan sahkan ketersediaan dalam masa 30 minit. Terima kasih atas kesabaran anda!",
+              "zh": "✅ 您的延长住宿请求已转交给我们的团队。我们将在30分钟内确认空房情况。感谢您的耐心等待！"
+            },
+            "waitForReply": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "post_stay_review",
+      "name": "Post-Stay Review Request",
+      "trigger": "post_workflow:checkout_full",
+      "description": "US-018: Scheduled 2h after checkout_full completes. Sends a personalised review request with Google Maps link. Not a standard interactive workflow — handled by post-stay-review.ts scheduler.",
+      "format": "scheduled",
+      "message": {
+        "en": "Hi {{guest_name}}, thank you for your recent stay at Pelangi Capsule Hostel.\n\nIf you have a moment, a short review would be helpful for future travellers:\n{{review_url}}\n\nThank you.",
+        "ms": "Hi {{guest_name}}, terima kasih kerana menginap di Pelangi Capsule Hostel baru-baru ini.\n\nJika ada masa, ulasan pendek anda sangat membantu pelancong lain:\n{{review_url}}\n\nTerima kasih.",
+        "zh": "您好，{{guest_name}}，感谢您近期在Pelangi胶囊旅舍的入住。\n\n如果您有时间，您的小简评价对其他旅行者很有帮助：\n{{review_url}}\n\n谢谢。"
+      }
     }
   ]
 }
