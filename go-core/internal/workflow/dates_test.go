@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -17,9 +18,16 @@ func TestFirstDateIn(t *testing.T) {
 		{"Check-in: 8 Jul, Check-out: 9 Jul", true, 8, time.July},
 		{"check in 15 feb check out 17 feb", true, 15, time.February},
 		{"15/2/2026 to 17/2/2026", true, 15, time.February},
-		{"tonight please", false, 0, 0},
 		{"8 July to 10 July", true, 8, time.July},
 		{"2026-07-08", true, 8, time.July},
+		// Relative day words now resolve to concrete dates (was previously
+		// rejected — guests routinely say "today"/"tonight"/"tmr").
+		{"tonight please", true, time.Now().Day(), time.Now().Month()},
+		{"today", true, time.Now().Day(), time.Now().Month()},
+		{"tmr", true, time.Now().AddDate(0, 0, 1).Day(), time.Now().AddDate(0, 0, 1).Month()},
+		{"esok", true, time.Now().AddDate(0, 0, 1).Day(), time.Now().AddDate(0, 0, 1).Month()},
+		{"the day after tomorrow", true, time.Now().AddDate(0, 0, 2).Day(), time.Now().AddDate(0, 0, 2).Month()},
+		{"no date at all", false, 0, 0},
 	}
 	for _, c := range cases {
 		got, ok := firstDateIn(c.in)
@@ -55,13 +63,13 @@ func TestPastDateCheckSemantics(t *testing.T) {
 
 	// today and tomorrow are valid check-in dates → true (continue booking)
 	for _, d := range []string{"Check-in: " + today, "Check-in: " + tomorrow, "no date at all"} {
-		res, esc := r.evalCondition(mk(d), st, rc)
+		res, esc := r.evalCondition(context.Background(), mk(d), st, rc)
 		if !res || esc {
 			t.Fatalf("%q: expected valid (true,false), got (%v,%v)", d, res, esc)
 		}
 	}
 	// yesterday is past → false (reject)
-	res, esc := r.evalCondition(mk("Check-in: "+yesterday), st, rc)
+	res, esc := r.evalCondition(context.Background(), mk("Check-in: "+yesterday), st, rc)
 	if res || esc {
 		t.Fatalf("yesterday: expected (false,false), got (%v,%v)", res, esc)
 	}

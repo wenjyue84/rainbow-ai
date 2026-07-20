@@ -140,7 +140,7 @@ func (r *Registry) Resume(ctx context.Context, st *State, reply string, rc RunCo
 		st.Data = map[string]string{}
 	}
 	if storeAs := decodeString(cur.Config["storeAs"]); storeAs != "" {
-		st.Data[storeAs] = strings.TrimSpace(reply)
+		st.Data[storeAs] = normalizeSlot(storeAs, strings.TrimSpace(reply))
 	}
 	st.Awaiting = false
 	next := decodeStringNext(cur.Next)
@@ -185,7 +185,7 @@ func (r *Registry) run(ctx context.Context, wf *Workflow, st *State, startID str
 			return Outcome{Paused: true}, nil
 
 		case "condition":
-			res, escalate := r.evalCondition(node, st, rc)
+			res, escalate := r.evalCondition(ctx, node, st, rc)
 			if escalate {
 				return r.escalate(ctx, st, rc), nil
 			}
@@ -271,8 +271,9 @@ func (r *Registry) escalate(ctx context.Context, st *State, rc RunContext) Outco
 	return Outcome{Escalated: true, Done: true}
 }
 
-// evalCondition returns (result, escalate). PMS-backed operators escalate.
-func (r *Registry) evalCondition(node *Node, st *State, rc RunContext) (bool, bool) {
+// evalCondition returns (result, escalate). PMS-backed operators query the PMS
+// dispatcher when available and only escalate when it is missing or errors.
+func (r *Registry) evalCondition(ctx context.Context, node *Node, st *State, rc RunContext) (bool, bool) {
 	field := r.interp(decodeString(node.Config["field"]), st, rc)
 	op := decodeString(node.Config["operator"])
 	value := decodeString(node.Config["value"])
@@ -305,12 +306,31 @@ func (r *Registry) evalCondition(node *Node, st *State, rc RunContext) (bool, bo
 		// ("Check-in: 8 Jul, Check-out: 9 Jul"), so extract the first date
 		// (check-in) rather than parsing the whole string.
 		if t, ok := firstDateIn(field); ok {
-			today := time.Now().Truncate(24 * time.Hour)
+			// Compare calendar days in local time — Truncate(24h) works on the
+			// UTC timeline and marks "yesterday" as today between 00:00 and
+			// 08:00 MYT.
+			now := time.Now()
+			today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 			return !t.Before(today), false
 		}
 		return true, false // unparseable → continue; PMS/staff steps catch bad dates
 	case "dateConflict", "dbAvailabilityCheck":
-		return false, true // needs PMS → escalate
+		// Branch semantics (workflows.json): trueNext = dates OK / units
+		// available (continue booking), falseNext = conflict / fully booked.
+		// A capsule hostel has interchangeable units, so "any unit free" is
+		// the availability signal for both operators.
+		if rc.PMS == nil {
+			return false, true // no PMS wired → escalate (old behavior)
+		}
+		outputs, ok, err := rc.PMS.Do(ctx, "check_availability", nil)
+		if err != nil || !ok {
+			return false, true // PMS unreachable/unimplemented → escalate
+		}
+		n, convErr := strconv.Atoi(strings.TrimSpace(outputs["available_count"]))
+		if convErr != nil {
+			return outputs["available"] == "true", false
+		}
+		return n > 0, false
 	default:
 		return false, false
 	}
@@ -329,6 +349,11 @@ func (r *Registry) interp(s string, st *State, rc RunContext) string {
 		switch {
 		case strings.HasPrefix(key, "workflow.data."):
 			return st.Data[strings.TrimPrefix(key, "workflow.data.")]
+		case strings.HasPrefix(key, "pelangi."):
+			// pelangi_api node outputs (find_reservation etc.) are stored in
+			// st.Data by their raw output key (workflow.go:223-224). Templates
+			// reference them as {{pelangi.<key>}} — resolve from the same map.
+			return st.Data[strings.TrimPrefix(key, "pelangi.")]
 		case key == "guest.name":
 			return rc.GuestName
 		case key == "guest.phone":
@@ -429,6 +454,55 @@ func guestContactLine(jid, name string) string {
 	return name + " (reply in this WhatsApp chat)"
 }
 
+var (
+	slotPhoneRe = regexp.MustCompile(`\+?\d[\d \-]{5,}\d`)
+	slotIntRe   = regexp.MustCompile(`\d+`)
+)
+
+// normalizeSlot cleans slot values guests wrap in sentences before storing
+// ("My phone number is 60127088789" → "60127088789"; "1 adult only." → "1").
+// Unrecognized values are stored as-is.
+func normalizeSlot(storeAs, reply string) string {
+	switch {
+	case strings.Contains(storeAs, "phone"):
+		best := ""
+		for _, m := range slotPhoneRe.FindAllString(reply, -1) {
+			clean := strings.NewReplacer(" ", "", "-", "").Replace(m)
+			if len(clean) > len(best) {
+				best = clean
+			}
+		}
+		if len(strings.TrimPrefix(best, "+")) >= 7 {
+			return best
+		}
+	case strings.Contains(storeAs, "count"):
+		if m := slotIntRe.FindString(reply); m != "" {
+			return m
+		}
+		words := map[string]string{
+			"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+			"six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+			"satu": "1", "dua": "2", "tiga": "3", "empat": "4", "lima": "5",
+		}
+		low := strings.ToLower(reply)
+		for w, n := range words {
+			if strings.Contains(low, w) {
+				return n
+			}
+		}
+	case strings.Contains(strings.ToLower(storeAs), "date"):
+		// Expand relative words ("today", "tmr", "esok", "the day after
+		// tomorrow", 今天/明天/后天) and loose formats into a concrete
+		// "2 Jan 2006 to 3 Jan 2006" range, so the workflow's date-format
+		// regex, pastDateCheck, and the confirmation message all see real
+		// calendar dates instead of re-prompting the guest.
+		if in, out, ok := ParseDateRange(reply); ok {
+			return in.Format("2 Jan 2006") + " to " + out.Format("2 Jan 2006")
+		}
+	}
+	return reply
+}
+
 func normalizePhone(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" || strings.Contains(p, "@") {
@@ -445,11 +519,84 @@ var dateTokenRe = regexp.MustCompile(`(?i)\b(\d{1,2}\s?(?:jan|feb|mar|apr|may|ju
 // layouts can parse them.
 var monthWordRe = regexp.MustCompile(`(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+`)
 
+// relativeDateRe matches relative day phrases guests use instead of calendar
+// dates ("today", "tmr", "the day after tomorrow", Malay "esok"/"lusa",
+// Chinese 今天/明天/后天). Longest phrases come first so "day after tomorrow"
+// wins over the trailing "tomorrow".
+var relativeDateRe = regexp.MustCompile(`(?i)the day after tomorrow|day after tomorrow|day after tmr|esok lusa|hari ini|harini|today|tonight|tonite|tomorrow|tomorow|tmrw|tmr|esok|lusa|今天|今日|明天|明日|后天|後天`)
+
+// relativeOffsetDays maps a relative day word to a day offset from today.
+func relativeOffsetDays(word string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(word)) {
+	case "today", "tonight", "tonite", "hari ini", "harini", "今天", "今日":
+		return 0, true
+	case "tomorrow", "tomorow", "tmr", "tmrw", "esok", "明天", "明日":
+		return 1, true
+	case "the day after tomorrow", "day after tomorrow", "day after tmr", "esok lusa", "lusa", "后天", "後天":
+		return 2, true
+	}
+	return 0, false
+}
+
+// relativeDatesIn resolves relative day words in a guest reply to concrete
+// local-midnight dates, in order of appearance (up to two). Callers use this
+// only when no absolute calendar date is present, so "tonight 25/12" still
+// keys off 25/12 rather than tonight.
+func relativeDatesIn(s string) []time.Time {
+	now := time.Now()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	var out []time.Time
+	for _, loc := range relativeDateRe.FindAllStringIndex(s, -1) {
+		if off, ok := relativeOffsetDays(s[loc[0]:loc[1]]); ok {
+			out = append(out, base.AddDate(0, 0, off))
+			if len(out) == 2 {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// ParseDateRange extracts the first two date-like tokens from free text
+// ("Check-in: 25 Jul, Check-out: 26 Jul") as local-midnight times. When only
+// one date parses, checkOut defaults to checkIn+1 night. ok=false when no
+// date-like token parses at all.
+func ParseDateRange(s string) (checkIn, checkOut time.Time, ok bool) {
+	var dates []time.Time
+	for _, tok := range dateTokenRe.FindAllString(s, -1) {
+		tok = monthWordRe.ReplaceAllStringFunc(tok, func(m string) string { return m[:3] })
+		if t, okTok := parseLooseDate(tok); okTok {
+			dates = append(dates, t)
+			if len(dates) == 2 {
+				break
+			}
+		}
+	}
+	if len(dates) == 0 {
+		// No absolute calendar date → fall back to relative words
+		// ("today", "tmr", "esok", "the day after tomorrow", 今天/明天/后天).
+		dates = relativeDatesIn(s)
+	}
+	if len(dates) == 0 {
+		return time.Time{}, time.Time{}, false
+	}
+	checkIn = dates[0]
+	if len(dates) > 1 && dates[1].After(dates[0]) {
+		checkOut = dates[1]
+	} else {
+		checkOut = checkIn.AddDate(0, 0, 1)
+	}
+	return checkIn, checkOut, true
+}
+
 // firstDateIn extracts the first date-like token from free text ("Check-in:
 // 8 Jul, Check-out: 9 Jul" → 8 Jul of the current year) and parses it.
 func firstDateIn(s string) (time.Time, bool) {
 	tok := dateTokenRe.FindString(s)
 	if tok == "" {
+		if ds := relativeDatesIn(s); len(ds) > 0 {
+			return ds[0], true
+		}
 		return time.Time{}, false
 	}
 	tok = monthWordRe.ReplaceAllStringFunc(tok, func(m string) string { return m[:3] })
@@ -469,15 +616,21 @@ func parseLooseDate(s string) (time.Time, bool) {
 	layouts := []string{"2 Jan", "2 Jan 2006", "2Jan", "02/01/2006", "2/1/2006", "2/1", "02-01-2006", "2006-01-02", "Jan 2"}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, s); err == nil {
-			if t.Year() == 0 {
-				t = t.AddDate(time.Now().Year(), 0, 0)
-				// No explicit year and the date passed more than a week ago →
-				// the guest means the next occurrence ("15 Feb" said in July).
-				// A date within the last few days stays past (likely a typo,
-				// let the workflow re-prompt).
-				if t.Before(time.Now().AddDate(0, 0, -7)) {
-					t = t.AddDate(1, 0, 0)
-				}
+			hadYear := t.Year() != 0
+			year := t.Year()
+			if !hadYear {
+				year = time.Now().Year()
+			}
+			// Normalize to local midnight — time.Parse yields UTC, and mixing
+			// UTC dates with local "today" shifts the calendar day near
+			// midnight MYT.
+			t = time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+			// No explicit year and the date passed more than a week ago →
+			// the guest means the next occurrence ("15 Feb" said in July).
+			// A date within the last few days stays past (likely a typo,
+			// let the workflow re-prompt).
+			if !hadYear && t.Before(time.Now().AddDate(0, 0, -7)) {
+				t = t.AddDate(1, 0, 0)
 			}
 			return t, true
 		}
