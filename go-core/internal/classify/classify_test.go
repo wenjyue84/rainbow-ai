@@ -130,3 +130,37 @@ func TestUnknownFallback(t *testing.T) {
 		t.Logf("note: gibberish classified as %s (src=%s conf=%.2f)", r.Category, r.Source, r.Confidence)
 	}
 }
+
+// TestPaymentVsArrivalRouting guards the conservative fix for the "到了可以付现金吗"
+// misroute: a future-tense "when I arrive can I pay cash?" contains the bare
+// arrival token 到了 but is really a payment question. Because payment_info is
+// evaluated before check_in_arrival in intents.json, adding cash keywords to
+// payment_info makes payment-dominant messages classify as payment_info WITHOUT
+// touching the arrival trigger — so pure arrival messages still enter check-in.
+func TestPaymentVsArrivalRouting(t *testing.T) {
+	p := loadPelangi(t)
+	c := New(p, nil)
+	cases := []struct {
+		text string
+		want string
+	}{
+		// The bug: future "can I pay cash on arrival?" → payment, not check-in.
+		{"到了可以付现金吗", "payment_info"},
+		{"can I pay cash when I arrive", "payment_info"},
+		{"boleh bayar tunai bila sampai", "payment_info"},
+		// Regression guard: pure arrival announcements MUST still route to
+		// the check-in workflow (no payment keyword present).
+		{"我到了", "check_in_arrival"},
+		{"我要入住", "check_in_arrival"},
+		{"i have arrived", "check_in_arrival"},
+		{"i'm here", "check_in_arrival"},
+		{"saya dah sampai", "check_in_arrival"},
+	}
+	for _, tc := range cases {
+		r := c.Classify(context.Background(), tc.text, nil)
+		if r.Category != tc.want {
+			t.Errorf("Classify(%q) = %q (src=%s conf=%.2f kw=%q), want %q",
+				tc.text, r.Category, r.Source, r.Confidence, r.MatchedKeyword, tc.want)
+		}
+	}
+}
