@@ -187,6 +187,123 @@ func TestPelangiApiNoPMSEscalates(t *testing.T) {
 	}
 }
 
+// TestServiceRequestHandlerReachesConfirmation guards the bare-string `next`
+// decode fix + the maintenance happy path: a logged service request must reach
+// the confirmation message (not escalate).
+func TestServiceRequestHandlerReachesConfirmation(t *testing.T) {
+	reg := loadReg(t)
+	cap := &capture{}
+	rcx := rc(cap)
+	rcx.PMS = fakePMS{ok: true, outputs: map[string]string{"id": "P-100", "logged": "true"}}
+
+	// Start → acknowledges, then pauses asking for details.
+	st, out, err := reg.Start(context.Background(), "service_request_handler", rcx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !out.Paused {
+		t.Fatalf("expected pause at sr_ask_details, got %+v", out)
+	}
+
+	// Reply with the issue → logs to PMS, advances to confirmation.
+	out, err = reg.Resume(context.Background(), st, "the aircond is not working", rcx)
+	if err != nil {
+		t.Fatalf("Resume(details): %v", err)
+	}
+	if out.Escalated {
+		t.Errorf("service request should NOT escalate on PMS success, got %+v", out)
+	}
+	if !strings.Contains(cap.last(), "✅") && !strings.Contains(strings.ToLower(cap.last()), "logged") {
+		t.Errorf("expected confirmation message after logging, got %q", cap.last())
+	}
+}
+
+// TestACFaultEscalateWorkflow guards FIX 5: an AC/maintenance fault must
+// escalate to on-site staff, ask ONLY for the capsule number, notify staff
+// with that capsule, and offer relocation — not run the generic complaint
+// triage menu.
+func TestACFaultEscalateWorkflow(t *testing.T) {
+	reg := loadReg(t)
+	if reg.Get("ac_fault_escalate") == nil {
+		t.Fatal("ac_fault_escalate workflow not loaded")
+	}
+	cap := &capture{}
+	rcx := rc(cap)
+
+	st, out, err := reg.Start(context.Background(), "ac_fault_escalate", rcx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !out.Paused {
+		t.Fatalf("expected pause asking for capsule number, got %+v", out)
+	}
+	guest := allGuestText(cap, "60123")
+	// First message confirms staff alerted; the prompt asks for the capsule.
+	if !strings.Contains(strings.ToLower(guest), "capsule") {
+		t.Errorf("should ask for capsule number, got:\n%s", guest)
+	}
+	// Must NOT present the generic noise/cleanliness/facility triage menu.
+	if strings.Contains(strings.ToLower(guest), "noise, cleanliness") {
+		t.Errorf("AC flow must not show the generic complaint triage menu:\n%s", guest)
+	}
+
+	out, err = reg.Resume(context.Background(), st, "C12", rcx)
+	if err != nil {
+		t.Fatalf("Resume(capsule): %v", err)
+	}
+	if out.Escalated {
+		t.Fatalf("AC flow should complete via staff-notify, not core escalate: %+v", out)
+	}
+	admin := adminText(cap, "60199")
+	if !strings.Contains(admin, "C12") {
+		t.Errorf("staff notify should include the capsule number:\n%s", admin)
+	}
+	guest = allGuestText(cap, "60123")
+	if !strings.Contains(strings.ToLower(guest), "move you to another capsule") &&
+		!strings.Contains(strings.ToLower(guest), "another capsule") {
+		t.Errorf("should offer relocation:\n%s", guest)
+	}
+}
+
+// TestAvailabilityCheckWorkflow exercises the new availability_check workflow
+// against a fake PMS for both the available and fully-booked branches.
+func TestAvailabilityCheckWorkflow(t *testing.T) {
+	reg := loadReg(t)
+
+	t.Run("available", func(t *testing.T) {
+		cap := &capture{}
+		rcx := rc(cap)
+		rcx.PMS = fakePMS{ok: true, outputs: map[string]string{"available_count": "3", "unit_number": "C12"}}
+		_, out, err := reg.Start(context.Background(), "availability_check", rcx)
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		if out.Escalated {
+			t.Errorf("availability should not escalate on PMS success, got %+v", out)
+		}
+		if !strings.Contains(cap.last(), "3") {
+			t.Errorf("expected availability reply mentioning the count, got %q", cap.last())
+		}
+	})
+
+	t.Run("fully_booked", func(t *testing.T) {
+		cap := &capture{}
+		rcx := rc(cap)
+		rcx.PMS = fakePMS{ok: true, outputs: map[string]string{"available_count": "0"}}
+		_, out, err := reg.Start(context.Background(), "availability_check", rcx)
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		if out.Escalated {
+			t.Errorf("fully-booked branch should not escalate, got %+v", out)
+		}
+		low := strings.ToLower(cap.last())
+		if !strings.Contains(low, "fully booked") && !strings.Contains(low, "staff") {
+			t.Errorf("expected fully-booked reply, got %q", cap.last())
+		}
+	})
+}
+
 func TestUnknownWorkflow(t *testing.T) {
 	reg := loadReg(t)
 	_, _, err := reg.Start(context.Background(), "does_not_exist", rc(&capture{}))
