@@ -166,7 +166,10 @@ func (m *FuzzyMatcher) Match(text, langFilter string) *FuzzyResult {
 		if !ok {
 			continue
 		}
-		if best == nil || score > best.Score {
+		// On equal score the longer keyword wins: a specific phrase hit
+		// ("i want to check out") must beat a generic fragment ("check out").
+		if best == nil || score > best.Score ||
+			(score == best.Score && len([]rune(e.Keyword)) > len([]rune(best.MatchedKeyword))) {
 			best = &FuzzyResult{Intent: e.Intent, Score: score, MatchedKeyword: e.Keyword}
 		}
 	}

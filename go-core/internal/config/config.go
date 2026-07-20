@@ -97,6 +97,9 @@ type Profile struct {
 	Staff        Staff
 	RoutingMode  RoutingMode
 	SystemPrompt string
+	// ClassifyPrompt is the custom T4 intent-classification system prompt from
+	// llm-settings.json (systemPrompt). Empty = the classifier's built-in prompt.
+	ClassifyPrompt string
 	// Allowed is the profile's intent whitelist (intent-whitelists.json). When
 	// non-empty, the classifier rejects fast-tier matches for intents not in it —
 	// this filters cross-profile contamination (e.g. cafe MENU_* intents that
@@ -191,6 +194,7 @@ type rawLLMSettings struct {
 		Priority int    `json:"priority"`
 	} `json:"selectedProviders"`
 	DefaultProviderID string `json:"defaultProviderId"`
+	SystemPrompt      string `json:"systemPrompt"`
 }
 
 type rawSettings struct {
@@ -294,11 +298,15 @@ func Load(dataDir, profile string) (*Profile, error) {
 	}
 	for _, ent := range rk.Intents {
 		for lang, raw := range ent.Keywords {
-			startLang := "en"
-			if knownLangs[lang] {
-				startLang = lang
+			// Only known language keys are keyword lists (Node parity: the
+			// fuzzy matcher reads keywords.en/ms/zh/ta). Nested sub-group keys
+			// (booking_sub, regional_variants…) would otherwise be flattened
+			// into the PARENT intent — that once turned "cancel" into a
+			// booking keyword and hijacked every cancellation message.
+			if !knownLangs[lang] {
+				continue
 			}
-			flattenKeywords(raw, ent.Intent, startLang, &p.Keywords)
+			flattenKeywords(raw, ent.Intent, lang, &p.Keywords)
 		}
 	}
 
@@ -323,6 +331,7 @@ func Load(dataDir, profile string) (*Profile, error) {
 	var rl rawLLMSettings
 	if err := readJSON(pick(dataDir, "llm-settings.json"), &rl); err == nil {
 		p.Thresholds = rl.Thresholds
+		p.ClassifyPrompt = strings.TrimSpace(rl.SystemPrompt)
 		sort.Slice(rl.Selected, func(i, j int) bool { return rl.Selected[i].Priority < rl.Selected[j].Priority })
 		for _, s := range rl.Selected {
 			p.Selected = append(p.Selected, s.ID)
