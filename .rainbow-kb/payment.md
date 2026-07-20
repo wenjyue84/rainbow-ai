@@ -9,7 +9,7 @@
 
 | Item | Details |
 |------|---------|
-| Daily Rate | RM30/night (weekday) · RM35/night (weekend) |
+| Daily Rate | RM35/night (flat rate, all days) |
 | Monthly (30 days) | from RM594/month |
 | Weekly / Long-term | ask staff for current quote |
 | Tourism Tax | RM10/room/night (foreign tourists only; Malaysians & PR exempt) |

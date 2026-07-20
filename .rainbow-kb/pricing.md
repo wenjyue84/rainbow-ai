@@ -4,8 +4,7 @@
 
 | Duration | Price |
 |----------|-------|
-| Weekday (Sun–Thu) | **RM30/night** |
-| Weekend (Fri–Sat) | **RM35/night** |
+| Nightly (all days, flat rate) | **RM35/night** |
 | Monthly (30 days) | **from RM594/month** |
 
 > Weekly and long-term (3+ month) rates available — please ask staff for the current quote.
