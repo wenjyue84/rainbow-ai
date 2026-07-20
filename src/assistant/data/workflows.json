@@ -2099,6 +2099,65 @@
         "ms": "Hi {{guest_name}}, terima kasih kerana menginap di Pelangi Capsule Hostel baru-baru ini.\n\nJika ada masa, ulasan pendek anda sangat membantu pelancong lain:\n{{review_url}}\n\nTerima kasih.",
         "zh": "您好，{{guest_name}}，感谢您近期在Pelangi胶囊旅舍的入住。\n\n如果您有时间，您的小简评价对其他旅行者很有帮助：\n{{review_url}}\n\n谢谢。"
       }
+    },
+    {
+      "id": "ac_fault_escalate",
+      "name": "AC / Maintenance Fault — Escalate to On-site Staff",
+      "profileId": "pelangi",
+      "startNodeId": "ac_ack_msg",
+      "nodes": [
+        {
+          "id": "ac_ack_msg",
+          "type": "message",
+          "config": {
+            "message": {
+              "en": "So sorry! I've alerted our on-site staff to check your aircond now.",
+              "ms": "Minta maaf sangat! Saya dah maklumkan staf di lokasi untuk periksa aircond anda sekarang.",
+              "zh": "非常抱歉！我已经通知现场工作人员马上检查您的空调。"
+            }
+          },
+          "next": "ac_wait_capsule"
+        },
+        {
+          "id": "ac_wait_capsule",
+          "type": "wait_reply",
+          "config": {
+            "storeAs": "capsule_number",
+            "prompt": {
+              "en": "What's your capsule number? If it can't be fixed quickly we'll move you to another capsule.",
+              "ms": "Apa nombor kapsul anda? Kalau tak dapat dibaiki dengan cepat, kami akan pindahkan anda ke kapsul lain.",
+              "zh": "请问您的胶囊号码是多少？如果无法快速修好，我们会为您安排换到另一个胶囊。"
+            }
+          },
+          "next": "ac_notify_staff"
+        },
+        {
+          "id": "ac_notify_staff",
+          "type": "whatsapp_send",
+          "config": {
+            "receiver": "{{system.admin_phone}}",
+            "content": {
+              "en": "🛠️ *AC / Maintenance Fault*\nGuest: {{guest.name}}\nPhone: {{guest.phone}}\nCapsule: {{workflow.data.capsule_number}}\nAircond reported not working. Please check on-site now and relocate the guest if it cannot be fixed quickly.",
+              "ms": "🛠️ *Kerosakan AC / Penyelenggaraan*\nTetamu: {{guest.name}}\nTelefon: {{guest.phone}}\nKapsul: {{workflow.data.capsule_number}}\nAircond dilaporkan tidak berfungsi. Sila periksa di lokasi sekarang dan pindahkan tetamu jika tidak dapat dibaiki dengan cepat.",
+              "zh": "🛠️ *空调/维修故障*\n客人：{{guest.name}}\n电话：{{guest.phone}}\n胶囊：{{workflow.data.capsule_number}}\n空调报告故障。请立即现场检查，若无法快速修复请为客人换房。"
+            },
+            "urgency": "high"
+          },
+          "next": "ac_confirm_msg"
+        },
+        {
+          "id": "ac_confirm_msg",
+          "type": "message",
+          "config": {
+            "message": {
+              "en": "✅ Our on-site staff have been notified about capsule {{workflow.data.capsule_number}} and are on their way. If it can't be fixed quickly, we'll move you to another capsule. Thank you for your patience! — Rainbow 🌈",
+              "ms": "✅ Staf di lokasi telah dimaklumkan tentang kapsul {{workflow.data.capsule_number}} dan sedang dalam perjalanan. Kalau tak dapat dibaiki cepat, kami akan pindahkan anda ke kapsul lain. Terima kasih atas kesabaran anda! — Rainbow 🌈",
+              "zh": "✅ 现场工作人员已收到关于胶囊 {{workflow.data.capsule_number}} 的通知，正在赶来。如果无法快速修好，我们会为您换到另一个胶囊。感谢您的耐心！— Rainbow 🌈"
+            }
+          },
+          "next": null
+        }
+      ]
     }
   ]
 }

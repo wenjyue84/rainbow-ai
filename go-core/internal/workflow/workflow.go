@@ -139,12 +139,78 @@ func (r *Registry) Resume(ctx context.Context, st *State, reply string, rc RunCo
 	if st.Data == nil {
 		st.Data = map[string]string{}
 	}
-	if storeAs := decodeString(cur.Config["storeAs"]); storeAs != "" {
-		st.Data[storeAs] = normalizeSlot(storeAs, strings.TrimSpace(reply))
-	}
+	reply = strings.TrimSpace(reply)
+	storeAs := decodeString(cur.Config["storeAs"])
 	st.Awaiting = false
+
+	// Typed slot classifier (booking flow, FIX 1): route the guest's reply to the
+	// slot it matches by PATTERN, not by turn order, then prompt for whatever is
+	// still missing. Scoped to the booking flow so single-slot flows (checkin_full
+	// → guest_name, service_request_handler → request_details) keep turn-order.
+	if isBookingSlotFlow(st.WorkflowID) {
+		return r.resumeBooking(ctx, wf, st, cur, reply, storeAs, rc)
+	}
+
+	if storeAs != "" {
+		st.Data[storeAs] = normalizeSlot(storeAs, reply)
+	}
 	next := decodeStringNext(cur.Next)
 	return r.run(ctx, wf, st, next, rc)
+}
+
+// resumeBooking drives the booking flow's slot collection by pattern, not turn
+// order. It captures the reply into the correct slot (phone/count/date/name),
+// then either re-prompts for the next missing slot or, once name+dates+count are
+// captured, re-enters the JSON graph at date validation so the existing
+// pastDate / availability / PMS / admin-confirm tail runs unchanged.
+func (r *Registry) resumeBooking(ctx context.Context, wf *Workflow, st *State, cur *Node, reply, storeAs string, rc RunContext) (Outcome, error) {
+	capturedSlot := "" // which slot this reply filled (for the acknowledgement)
+	if slot, val, ok := classifyBookingSlot(reply); ok {
+		// A typed phone/count/date always routes to its own slot, even if the
+		// current prompt was asking for something else (out-of-order answer).
+		st.Data[slot] = val
+		capturedSlot = slot
+	} else if storeAs == "guest_name" || (storeAs != "" && nextEmptyBookingSlot(st.Data) == "guest_name") {
+		// Free-text reply at the name step (or the name is the next thing we
+		// need) → store as the name. The classifier already guarantees this
+		// isn't a date/phone/number, so the name-junk case can't reach here.
+		st.Data["guest_name"] = strings.TrimSpace(reply)
+		capturedSlot = "guest_name"
+	} else if storeAs != "" {
+		// Free-text reply while we were expecting a structured slot (e.g. junk
+		// typed at the dates step). Fall back to the node's own slot via the
+		// normal normalizer, which will leave dates empty if unparseable and let
+		// validation re-prompt.
+		st.Data[storeAs] = normalizeSlot(storeAs, reply)
+	}
+
+	// Acknowledge an out-of-order capture: if the slot we just filled is NOT the
+	// one this prompt asked for, send a brief "Got it — <slot>." so the guest
+	// sees their answer landed before we ask for the next missing field.
+	if capturedSlot != "" && capturedSlot != storeAs {
+		if ack := bookingSlotAck(capturedSlot, st.Data[capturedSlot], rc.Lang); ack != "" {
+			_ = rc.Send(ctx, rc.GuestPhone, ack, rc.InstanceID)
+		}
+	}
+
+	// If name + dates + guests are all captured, hand off to the JSON graph at
+	// date validation so past-date / availability / PMS steps still run. The
+	// phone is collected inside that tail (wait_guest_phone), and the skip-filled
+	// logic passes it through when already captured.
+	if strings.TrimSpace(st.Data["guest_name"]) != "" &&
+		strings.TrimSpace(st.Data["booking_dates"]) != "" &&
+		strings.TrimSpace(st.Data["guest_count"]) != "" {
+		return r.run(ctx, wf, st, "validate_dates", rc)
+	}
+
+	// Otherwise re-prompt for the next still-missing slot.
+	if slot := nextEmptyBookingSlot(st.Data); slot != "" {
+		if nodeID := bookingSlotWaitNode[slot]; nodeID != "" {
+			return r.run(ctx, wf, st, nodeID, rc)
+		}
+	}
+	// All slots somehow filled but the guard above didn't fire — proceed.
+	return r.run(ctx, wf, st, "validate_dates", rc)
 }
 
 // run executes nodes starting at startID until a wait_reply (pause), terminal
@@ -176,6 +242,15 @@ func (r *Registry) run(ctx context.Context, wf *Workflow, st *State, startID str
 			cur = decodeStringNext(node.Next)
 
 		case "wait_reply":
+			// Booking flow: if the slot this node fills was already captured by an
+			// out-of-order answer, don't re-prompt — skip to the next node so the
+			// guest is only asked for what's still missing.
+			if isBookingSlotFlow(st.WorkflowID) {
+				if slot := decodeString(node.Config["storeAs"]); slot != "" && strings.TrimSpace(st.Data[slot]) != "" {
+					cur = decodeStringNext(node.Next)
+					continue
+				}
+			}
 			prompt := r.interp(decodeLangMap(node.Config["prompt"], rc.Lang), st, rc)
 			if prompt != "" {
 				_ = rc.Send(ctx, rc.GuestPhone, prompt, rc.InstanceID)
