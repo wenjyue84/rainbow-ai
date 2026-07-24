@@ -6,7 +6,9 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,7 +28,26 @@ type Handler struct {
 
 	profileIDs     []string // profiles served by the hub (for the profile switcher)
 	defaultProfile string
+	bridgeURL      string // rainbow-bridge base URL; "" = no bridge (WA state unknown)
+
+	ai           AIChatter        // LLM manager for generate-draft (nil = 502)
+	activeModels ActiveModelsFunc // classify + reply active-model summary (nil = omit)
+	classify     ClassifyFunc     // in-process classifier for the semantic check suite
+	sender       TextSender       // bridge client for staff WhatsApp sends (nil = 501)
+	staffNameCol int              // rainbow_messages staff_name column: 0 unknown, 1 yes, -1 no
 }
+
+// SetBridge supplies the bridge base URL so /status can report the live
+// WhatsApp connection state instead of a hardcoded "unknown".
+func (h *Handler) SetBridge(url string) { h.bridgeURL = strings.TrimRight(url, "/") }
+
+// ActiveModelsFunc returns the active-model summary for the T4 classify manager
+// and the guest-reply manager (each: {id,name,model,available}). Wired from main
+// so the dashboard can show which model serves classify vs reply.
+type ActiveModelsFunc func() (classify, reply map[string]any)
+
+// SetActiveModels supplies the classify/reply active-model summary for /status.
+func (h *Handler) SetActiveModels(f ActiveModelsFunc) { h.activeModels = f }
 
 func New(st *store.Store, adminKey, publicDir, dataDir string) *Handler {
 	return &Handler{st: st, adminKey: adminKey, publicDir: publicDir, dataDir: dataDir}
@@ -74,7 +95,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/conversations", h.auth(h.conversations))
 	mux.HandleFunc("/api/rainbow/settings", h.auth(h.settings))
 	mux.HandleFunc("/api/rainbow/routing", h.auth(h.routing))
+	mux.HandleFunc("/api/rainbow/conversations/unified", h.auth(h.unifiedConversations))
 	mux.HandleFunc("/api/rainbow/conversations/", h.auth(h.conversationMessages))
+
+	// Live-chat webchat sub-tab (js/modules/webchat-admin.js).
+	mux.HandleFunc("/api/rainbow/webchat/conversations", h.auth(h.webchatConversations))
+	mux.HandleFunc("/api/rainbow/webchat/conversations/", h.auth(h.webchatConversation))
+	mux.HandleFunc("/api/rainbow/webchat/sessions-merged", h.auth(h.webchatSessionsMerged))
 
 	// ── Config read endpoints (raw passthrough of the profile config JSON, so
 	//    every dashboard tab's fatal load call returns 200 with the shape the SPA
@@ -86,6 +113,20 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/workflow", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "workflow.json") }))
 	mux.HandleFunc("/api/rainbow/intent-manager/keywords", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "intent-keywords.json") }))
 	mux.HandleFunc("/api/rainbow/intent-manager/examples", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "intent-examples.json") }))
+
+	// Understanding tab (t2 stats, t3 tiers, t4 LLM settings/system prompt).
+	mux.HandleFunc("/api/rainbow/intent-manager/stats", h.auth(h.imStats))
+	mux.HandleFunc("/api/rainbow/intent-manager/tiers", h.auth(h.imTiers))
+	mux.HandleFunc("/api/rainbow/intent-manager/llm-settings", h.auth(h.imLLMSettings))
+	mux.HandleFunc("/api/rainbow/intent-manager/llm-settings/available-providers", h.auth(h.imAvailableProviders))
+	mux.HandleFunc("/api/rainbow/intent-manager/system-prompt", h.auth(h.imSystemPrompt))
+
+	// Responses tab: quick-reply draft generation (LLM-backed).
+	mux.HandleFunc("/api/rainbow/knowledge/generate-draft", h.auth(h.generateDraft))
+
+	// Testing tab: Go-native check suites in the vitest JSON shape.
+	mux.HandleFunc("/api/rainbow/tests/run", h.auth(h.testsRun))
+	mux.HandleFunc("/api/rainbow/testing/run-all", h.auth(h.testingRunAll))
 	mux.HandleFunc("/api/rainbow/admin-notifications", h.auth(h.adminNotifications))
 
 	// Profile switcher (called on every tab) + per-tab HTML template loader — both
@@ -102,10 +143,20 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/feedback/stats", h.auth(h.feedbackStats))
 	mux.HandleFunc("/api/rainbow/intent/accuracy", h.auth(h.intentAccuracy))
 
+	// Activity stream: SSE endpoint the dashboard's Recent Activity panel subscribes
+	// to. go-core emits an empty init event and then heartbeats — no events yet, but
+	// the connection stays open so the SPA shows "connected" instead of "Reconnecting".
+	mux.HandleFunc("/api/rainbow/activity/stream", h.auth(h.activityStream))
+
 	// ── Dashboard SPA + static assets ──
 	if h.publicDir != "" {
 		fs := http.FileServer(http.Dir(h.publicDir))
-		mux.Handle("/public/", http.StripPrefix("/public/", fs))
+		// no-cache (revalidate, not no-store): SPA module chunks otherwise stay
+		// heuristically cached in browsers/CDN and mask fresh deploys.
+		mux.Handle("/public/", http.StripPrefix("/public/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache")
+			fs.ServeHTTP(w, r)
+		})))
 		mux.HandleFunc("/", h.spa)
 		for _, tab := range dashboardTabs {
 			mux.HandleFunc("/"+tab, h.spa)
@@ -244,6 +295,53 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		propertyName = os.Getenv("BUSINESS_NAME")
 	}
 
+	// Live WhatsApp state from the bridge (the Baileys session owner). The
+	// bridge /health reports connState ("open" = paired and connected); the
+	// bot number is not exposed there, so it comes from RAINBOW_WA_NUMBER.
+	waStatus := map[string]any{"state": "unknown", "user": nil}
+	waInstances := []any{}
+	if h.bridgeURL != "" {
+		bctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if req, err := http.NewRequestWithContext(bctx, http.MethodGet, h.bridgeURL+"/health", nil); err == nil {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				var hb struct {
+					Whatsapp   string `json:"whatsapp"`
+					InstanceID string `json:"instanceId"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&hb) == nil && hb.Whatsapp != "" {
+					// The SPA reads user.phone / user.name (renderInstanceCard),
+					// so user must be an object, not a bare string.
+					// Display name comes only from BUSINESS_DISPLAY_NAME
+					// (BUSINESS_NAME on the VPS is a stale Node-era value
+					// for a different business).
+					displayName := os.Getenv("BUSINESS_DISPLAY_NAME")
+					var user any
+					if n := os.Getenv("RAINBOW_WA_NUMBER"); n != "" {
+						user = map[string]any{"phone": n, "name": displayName}
+					}
+					label := hb.InstanceID
+					if displayName != "" {
+						label = displayName
+					}
+					waStatus = map[string]any{"state": hb.Whatsapp, "user": user}
+					waInstances = []any{map[string]any{
+						"id": hb.InstanceID, "label": label, "state": hb.Whatsapp,
+						"user": user, "unlinkedFromWhatsApp": false,
+					}}
+				}
+				resp.Body.Close()
+			}
+		}
+	}
+
+	aiBlock := map[string]any{"available": anyAvailable, "providers": providers}
+	if h.activeModels != nil {
+		classifyModel, replyModel := h.activeModels()
+		aiBlock["classifyModel"] = classifyModel
+		aiBlock["replyModel"] = replyModel
+	}
+
 	writeJSON(w, 200, map[string]any{
 		"servers": map[string]any{
 			"mcp": map[string]any{
@@ -255,9 +353,9 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 				"lastCheckedAt": lastChecked,
 			},
 		},
-		"whatsapp":          map[string]any{"state": "unknown", "user": nil},
-		"whatsappInstances": []any{},
-		"ai":                map[string]any{"available": anyAvailable, "providers": providers},
+		"whatsapp":          waStatus,
+		"whatsappInstances": waInstances,
+		"ai":                aiBlock,
 		"config_files":      []string{"knowledge", "intents", "templates", "settings", "workflow", "workflows", "routing"},
 		"response_modes":    respModes,
 		"isCloud":           os.Getenv("RAINBOW_ROLE") == "primary",
@@ -274,86 +372,6 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"conversations": convos, "messages": msgs, "messagesToday": today,
 	})
-}
-
-type convRow struct {
-	Phone       string `json:"phone"`
-	PushName    string `json:"pushName"`
-	ProfileID   string `json:"profileId"`
-	Status      string `json:"status"`
-	UpdatedAt   string `json:"updatedAt"`
-	LastMessage string `json:"lastMessage"`
-}
-
-func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
-	limit := queryInt(r, "limit", 50)
-	rows, err := h.st.DB.Query(`
-		SELECT c.phone, COALESCE(c.push_name,''), COALESCE(c.profile_id,'pelangi'), COALESCE(c.status,'active'),
-		       COALESCE(CAST(c.updated_at AS TEXT),''),
-		       COALESCE((SELECT m.content FROM rainbow_messages m WHERE m.phone=c.phone ORDER BY CAST(m.timestamp AS TEXT) DESC LIMIT 1),'')
-		FROM rainbow_conversations c
-		WHERE c.deleted_at IS NULL OR c.deleted_at=''
-		ORDER BY CAST(c.updated_at AS TEXT) DESC LIMIT ?`, limit)
-	if err != nil {
-		writeJSON(w, 500, map[string]any{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-	out := []convRow{}
-	for rows.Next() {
-		var c convRow
-		if err := rows.Scan(&c.Phone, &c.PushName, &c.ProfileID, &c.Status, &c.UpdatedAt, &c.LastMessage); err != nil {
-			continue
-		}
-		if len(c.LastMessage) > 120 {
-			c.LastMessage = c.LastMessage[:120]
-		}
-		out = append(out, c)
-	}
-	writeJSON(w, 200, map[string]any{"conversations": out, "count": len(out)})
-}
-
-type msgRow struct {
-	Role       string  `json:"role"`
-	Content    string  `json:"content"`
-	Timestamp  string  `json:"timestamp"`
-	Intent     string  `json:"intent,omitempty"`
-	Confidence float64 `json:"confidence,omitempty"`
-	Source     string  `json:"source,omitempty"`
-}
-
-func (h *Handler) conversationMessages(w http.ResponseWriter, r *http.Request) {
-	// path: /api/rainbow/conversations/{phone}/messages
-	rest := strings.TrimPrefix(r.URL.Path, "/api/rainbow/conversations/")
-	parts := strings.Split(rest, "/")
-	if len(parts) < 2 || parts[1] != "messages" || parts[0] == "" {
-		writeJSON(w, 404, map[string]any{"error": "not found"})
-		return
-	}
-	phone := parts[0]
-	limit := queryInt(r, "limit", 100)
-	rows, err := h.st.DB.Query(`
-		SELECT role, content, COALESCE(CAST(timestamp AS TEXT),''), COALESCE(intent,''), COALESCE(confidence,0), COALESCE(source,'')
-		FROM rainbow_messages WHERE phone=? AND (deleted_at IS NULL OR deleted_at='')
-		ORDER BY CAST(timestamp AS TEXT) DESC LIMIT ?`, phone, limit)
-	if err != nil {
-		writeJSON(w, 500, map[string]any{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-	out := []msgRow{}
-	for rows.Next() {
-		var m msgRow
-		if err := rows.Scan(&m.Role, &m.Content, &m.Timestamp, &m.Intent, &m.Confidence, &m.Source); err != nil {
-			continue
-		}
-		out = append(out, m)
-	}
-	// reverse to chronological
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	writeJSON(w, 200, map[string]any{"phone": phone, "messages": out, "count": len(out)})
 }
 
 func titleProfile(id string) string {
@@ -509,6 +527,40 @@ func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
 		"operators":              operators,
 		"defaultFallbackMinutes": intOf("rainbow_default_fallback_minutes", 5),
 	})
+}
+
+// activityStream serves GET /api/rainbow/activity/stream as a Server-Sent
+// Events endpoint. go-core does not yet push live activity events, so it sends
+// an empty init payload and then heartbeat comments every 25 s to keep the
+// connection alive. The SPA's EventSource shows "connected" (green dot) once
+// the init event arrives, and stops showing "Reconnecting...".
+func (h *Handler) activityStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, 500, map[string]any{"error": "streaming not supported"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx/Caddy proxy buffering
+	w.WriteHeader(http.StatusOK)
+
+	// Send initial batch (empty) so the SPA's 'init' listener fires immediately.
+	fmt.Fprintf(w, "event: init\ndata: {\"activities\":[]}\n\n")
+	flusher.Flush()
+
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func queryInt(r *http.Request, key string, def int) int {

@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,7 +15,9 @@ import (
 	"time"
 
 	"rainbow-core/internal/admin"
+	"rainbow-core/internal/ai"
 	"rainbow-core/internal/bridge"
+	"rainbow-core/internal/classify"
 	"rainbow-core/internal/config"
 	"rainbow-core/internal/contract"
 	"rainbow-core/internal/conversation"
@@ -88,7 +91,12 @@ func main() {
 	br := bridge.New(bridgeURL)
 
 	// Shared options across profiles.
-	baseOpts := router.Options{TypingIndicator: typing}
+	baseOpts := router.Options{
+		TypingIndicator: typing,
+		// Payment-receipt replay-protection ledger lives next to the config data
+		// (persists across restarts; pruned to 30 days on load).
+		ReceiptLedgerPath: filepath.Join(dataDir, "receipt-ledger.json"),
+	}
 	if sidecarURL != "" {
 		baseOpts.Semantic = semantic.New(sidecarURL)
 		log.Printf("[core] T3 semantic enabled via sidecar %s", sidecarURL)
@@ -107,6 +115,16 @@ func main() {
 		baseOpts.PMS = pmsClient
 		log.Printf("[core] digiman PMS client enabled (%s)", digimanURL)
 	}
+	// PMS2 MCP endpoint (reservation lookup + pending-reservation create from
+	// the booking workflow). Works with or without the REST base URL.
+	if mcpURL := env("PMS_MCP_URL", ""); mcpURL != "" {
+		if pmsClient == nil {
+			pmsClient = digiman.New("", "")
+			baseOpts.PMS = pmsClient
+		}
+		pmsClient.SetMCP(mcpURL, env("PMS_MCP_KEY", ""))
+		log.Printf("[core] PMS MCP enabled (%s)", mcpURL)
+	}
 	// Voice-note transcription via Groq Whisper (matches the Node app).
 	if groqKey := env("GROQ_API_KEY", ""); groqKey != "" {
 		baseOpts.Transcriber = transcribe.New(groqKey, env("WHISPER_MODEL", "whisper-large-v3"))
@@ -122,6 +140,7 @@ func main() {
 
 	kbRoot := env("RAINBOW_KB_ROOT", ".")
 	staffPhone := ""
+	var defaultProf *config.Profile
 	engines := map[string]*router.Engine{}
 	for pid := range needed {
 		prof, err := config.Load(dataDir, pid)
@@ -129,6 +148,7 @@ func main() {
 			log.Fatalf("[core] load profile %q from %q: %v", pid, dataDir, err)
 		}
 		if pid == profileID {
+			defaultProf = prof
 			staffPhone = prof.Staff.JayPhone
 			if staffPhone == "" && len(prof.Staff.Phones) > 0 {
 				staffPhone = prof.Staff.Phones[0]
@@ -156,6 +176,19 @@ func main() {
 	// Admin API (read endpoints) + dashboard SPA under /api/rainbow/* and /.
 	adm := admin.New(st, env("RAINBOW_ADMIN_KEY", ""), env("RAINBOW_PUBLIC_DIR", ""), dataDir)
 	adm.SetProfiles(hub.Profiles(), profileID)
+	adm.SetBridge(bridgeURL)
+	if defaultProf != nil {
+		classifyMgr := ai.New(defaultProf)          // T4 classify order (8B first)
+		replyMgr := ai.NewReplyManager(defaultProf) // guest reply order (gemini first)
+		adm.SetAI(classifyMgr)                      // generate-draft (provider fallback)
+		adm.SetActiveModels(func() (map[string]any, map[string]any) {
+			return activeModelInfo(classifyMgr), activeModelInfo(replyMgr)
+		})
+	}
+	adm.SetSender(br) // staff WhatsApp sends from the live-chat tab
+	adm.SetClassify(func(ctx context.Context, text string) classify.Result {
+		return hub.Engine(profileID).ClassifyText(ctx, text)
+	})
 	adm.Register(mux)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -240,10 +273,24 @@ func main() {
 			Message   string `json:"message"`
 			SessionID string `json:"sessionId"`
 			Profile   string `json:"profile"`
+			// Image is an optional data URL ("data:image/jpeg;base64,...") for
+			// payment-receipt OCR. jpeg/png only, ≤5MB decoded.
+			Image string `json:"image"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Message == "" {
+		// 8 MB body cap: 5MB image → ~6.7MB base64 + JSON overhead.
+		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil || (in.Message == "" && in.Image == "") {
 			writeJSON(w, 400, map[string]any{"ok": false, "error": "message required"})
 			return
+		}
+		if in.Image != "" {
+			if !strings.HasPrefix(in.Image, "data:image/jpeg;base64,") && !strings.HasPrefix(in.Image, "data:image/png;base64,") {
+				writeJSON(w, 400, map[string]any{"ok": false, "error": "image must be a jpeg/png base64 data URL"})
+				return
+			}
+			if len(in.Image) > (5<<20)*4/3+64 {
+				writeJSON(w, 400, map[string]any{"ok": false, "error": "image too large (max 5MB)"})
+				return
+			}
 		}
 		from := in.SessionID
 		if from == "" {
@@ -255,6 +302,10 @@ func main() {
 			From: "web:" + from, Text: in.Message, PushName: "Web Guest",
 			// Empty MessageID → no dedup (synchronous channel; repeats are allowed).
 			MessageType: contract.MsgText, InstanceID: "webchat",
+		}
+		if in.Image != "" {
+			msg.MessageType = contract.MsgImage
+			msg.MediaURL = in.Image
 		}
 		replies, res, err := hub.ProcessCapture(ctx, in.Profile, msg)
 		if err != nil {
@@ -293,6 +344,15 @@ func main() {
 		log.Fatalf("[core] server: %v", err)
 	}
 	log.Printf("[core] stopped")
+}
+
+// activeModelInfo summarizes the provider a Manager would actually use (first
+// with an API key / local), for the dashboard's classify-vs-reply model display.
+func activeModelInfo(m *ai.Manager) map[string]any {
+	p, available := m.Active()
+	return map[string]any{
+		"id": p.ID, "name": p.Name, "model": p.Model, "available": available,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

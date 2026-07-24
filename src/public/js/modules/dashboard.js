@@ -190,10 +190,28 @@ export async function loadDashboard() {
 
     const aiStatusEl = document.getElementById('dashboard-ai-status');
 
+    // Active-model pills: which model actually serves T4 classify vs guest reply
+    // (go-core splits these — classify = Llama 8B, reply = gemini-2.5-flash).
+    const renderModelPill = (label, m) => {
+      if (!m || !(m.model || m.name)) return '';
+      const dot = m.available ? 'bg-success-400' : 'bg-neutral-300';
+      return '<span class="inline-flex items-center gap-1.5 text-[11px] bg-neutral-100 border border-neutral-200 rounded px-2 py-1">'
+        + '<span class="w-1.5 h-1.5 rounded-full ' + dot + '"></span>'
+        + '<span class="text-neutral-500 font-medium">' + esc(label) + ':</span>'
+        + '<span class="text-neutral-800 font-mono">' + esc(m.model || m.name) + '</span>'
+        + '</span>';
+    };
+    const modelPills = (statusData.ai?.classifyModel || statusData.ai?.replyModel)
+      ? '<div class="flex flex-wrap gap-2 mb-3 pb-3 border-b border-neutral-100">'
+        + renderModelPill('T4 Classify', statusData.ai?.classifyModel)
+        + renderModelPill('Guest Reply', statusData.ai?.replyModel)
+        + '</div>'
+      : '';
+
     if (aiProviders.length === 0) {
-      aiStatusEl.innerHTML = '<p class="text-sm text-neutral-400 py-2">No AI models configured</p>';
+      aiStatusEl.innerHTML = modelPills + '<p class="text-sm text-neutral-400 py-2">No AI models configured</p>';
     } else {
-      aiStatusEl.innerHTML = `
+      aiStatusEl.innerHTML = modelPills + `
         <div class="space-y-2">
           ${aiProviders.slice(0, 4).map(provider => {
         const isDefault = provider.priority === 0;

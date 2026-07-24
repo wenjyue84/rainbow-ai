@@ -65,6 +65,47 @@ func New(prof *config.Profile) *Manager {
 	return m
 }
 
+// NewReplyManager builds a Manager for GUEST REPLIES. Unlike New (classify),
+// reply order is settings.json providers first (priority-sorted → gemini-2.5-flash
+// at priority 0 leads), then llm-settings selectedProviders as fallback. This
+// keeps guest prose on the stronger model while T4 classification stays on the
+// cheap/fast 8B via New.
+func NewReplyManager(prof *config.Profile) *Manager {
+	m := &Manager{prof: prof, client: &http.Client{}}
+	seen := map[string]bool{}
+	for _, p := range prof.Providers { // enabled, priority-sorted
+		if !seen[p.ID] {
+			m.order = append(m.order, p)
+			seen[p.ID] = true
+		}
+	}
+	for _, id := range prof.Selected {
+		if p, ok := prof.ProviderByID[id]; ok && !seen[id] {
+			m.order = append(m.order, p)
+			seen[id] = true
+		}
+	}
+	return m
+}
+
+// Order returns the resolved provider priority order (read-only view).
+func (m *Manager) Order() []config.Provider { return m.order }
+
+// Active returns the first provider that would actually serve a request (has an
+// API key or is a keyless local provider), plus true. If none are usable it
+// returns the first in order with false (so the dashboard can still name it).
+func (m *Manager) Active() (config.Provider, bool) {
+	for _, p := range m.order {
+		if m.apiKey(p) != "" || isLocal(p) {
+			return p, true
+		}
+	}
+	if len(m.order) > 0 {
+		return m.order[0], false
+	}
+	return config.Provider{}, false
+}
+
 // Available reports whether at least one provider has its API key set (or is a
 // keyless local provider like Ollama).
 func (m *Manager) Available() bool {

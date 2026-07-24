@@ -7,7 +7,7 @@ package router
 import (
 	"context"
 	"encoding/json"
-	"regexp"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +41,8 @@ type Retriever interface {
 type Engine struct {
 	prof        *config.Profile
 	clf         *classify.Classifier
-	aiMgr       *ai.Manager
+	aiMgr       *ai.Manager // T4 classify (cheap/fast — Llama 8B first)
+	replyMgr    *ai.Manager // guest reply (stronger — gemini-2.5-flash first)
 	conv        *conversation.Manager
 	send        Sender
 	dedup       *dedup
@@ -50,6 +51,7 @@ type Engine struct {
 	pms         workflow.PMS
 	transcriber Transcriber
 	retriever   Retriever
+	ledger      *receiptLedger // replay protection for payment receipts
 }
 
 // Options configures the engine.
@@ -60,11 +62,15 @@ type Options struct {
 	PMS             workflow.PMS       // optional digiman/PMS client (nil = pelangi_api steps escalate)
 	Transcriber     Transcriber        // optional voice-note transcriber (nil = audio → media ack)
 	Retriever       Retriever          // optional RAG retriever (nil = static-reply KB only)
+	// ReceiptLedgerPath persists the used-receipt replay-protection ledger
+	// (e.g. <dataDir>/receipt-ledger.json). Empty = in-memory only.
+	ReceiptLedgerPath string
 }
 
 // NewEngine wires the pipeline for a single profile.
 func NewEngine(prof *config.Profile, conv *conversation.Manager, send Sender, opts Options) *Engine {
 	aiMgr := ai.New(prof)
+	replyMgr := ai.NewReplyManager(prof)
 	clf := classify.New(prof, ai.NewClassifier(prof, aiMgr))
 	if opts.Semantic != nil {
 		clf = clf.WithSemantic(opts.Semantic)
@@ -73,6 +79,7 @@ func NewEngine(prof *config.Profile, conv *conversation.Manager, send Sender, op
 		prof:        prof,
 		clf:         clf,
 		aiMgr:       aiMgr,
+		replyMgr:    replyMgr,
 		conv:        conv,
 		send:        send,
 		dedup:       newDedup(5 * time.Minute),
@@ -81,6 +88,7 @@ func NewEngine(prof *config.Profile, conv *conversation.Manager, send Sender, op
 		pms:         opts.PMS,
 		transcriber: opts.Transcriber,
 		retriever:   opts.Retriever,
+		ledger:      newReceiptLedger(opts.ReceiptLedgerPath),
 	}
 }
 
@@ -114,6 +122,12 @@ func (c *capturingSender) SendText(_ context.Context, phone, text, _ string) (*c
 }
 func (c *capturingSender) Typing(context.Context, string, string) {}
 func (c *capturingSender) Paused(context.Context, string, string) {}
+
+// ClassifyText exposes the engine's tiered classifier (T1→T4) for the admin
+// semantic check suite — the SAME pipeline that classifies guest messages.
+func (e *Engine) ClassifyText(ctx context.Context, text string) classify.Result {
+	return e.clf.Classify(ctx, text, nil)
+}
 
 // ProcessCapture runs the full pipeline but captures the guest-facing replies
 // instead of sending them via the bridge — used by the webchat HTTP channel.
@@ -156,6 +170,15 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 	state, err := e.conv.GetOrCreate(phone, msg.PushName, profileID)
 	if err != nil {
 		return Result{}, err
+	}
+
+	// Payment-receipt OCR gate: an inbound image may be a payment receipt.
+	// Verified receipts release the guest's capsule; anything else falls
+	// through to the normal pipeline (media ack / caption text).
+	if msg.MessageType == contract.MsgImage && msg.MediaURL != "" {
+		if res, handled := e.tryPaymentReceipt(ctx, state, msg); handled {
+			return res, nil
+		}
 	}
 
 	// Media with no caption (and audio that couldn't be transcribed): don't silently
@@ -237,11 +260,33 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 	history := e.conv.HistoryStrings(phone, 8)
 	cls := e.clf.Classify(ctx, text, history)
 
+	// Guard (2026-07-19): a bare confirmation ("Yes, confirm please.") in a
+	// session with no checkout context must NOT start the checkout workflow.
+	// The T4 LLM tier guesses checkout_now from the word "confirm" alone; real
+	// checkout requests carry checkout wording (not bare), and in-workflow
+	// confirmations resume above before classification — both unaffected.
+	if shouldDowngradeBareConfirmation(cls.Category, text, state) {
+		log.Printf("[router] %s: downgrading checkout_now → general for bare confirmation %q (source=%s, no checkout context)", phone, text, cls.Source)
+		cls.Category = "general"
+	}
+
 	res := Result{
 		Intent:     cls.Category,
 		Confidence: cls.Confidence,
 		Source:     string(cls.Source),
 		Language:   cls.Lang,
+	}
+
+	// Post-check-in maintenance grounding: answer in-stay problem reports from
+	// the unit's REAL PMS maintenance records (anti-fabrication). Falls through
+	// to the normal complaint workflow when the guest's unit is unknown.
+	if isMaintenanceIntent(cls.Category) {
+		state.Language = cls.Lang
+		if mres, handled := e.tryMaintenanceReply(ctx, state, msg, cls.Category, cls.Lang, text); handled {
+			mres.Confidence = cls.Confidence
+			mres.Source = string(cls.Source)
+			return mres, nil
+		}
 	}
 
 	// Route + dispatch.
@@ -317,6 +362,7 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 		Lang:       lang,
 		InstanceID: instanceID,
 		AdminPhone: admin,
+		MayaPhone:  e.prof.Staff.MayaPhone,
 		PMS:        e.pms,
 		Send: func(ctx context.Context, phone, text, inst string) error {
 			_, err := e.send.SendText(ctx, phone, text, inst)
@@ -330,49 +376,11 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 	}
 }
 
-// workflowContinuationIntent returns true for intents that explicitly advance
-// or restart a multi-turn workflow — these should NOT trigger the off-flow escape.
-func workflowContinuationIntent(intent string) bool {
-	switch intent {
-	case "booking", "check_in_arrival", "conversation_reset":
-		return true
-	}
-	return false
-}
-
-// looksLikeQuestion is a cheap guard so slot answers ("2 pax", "15 Feb") never
-// count as off-flow questions — only interrogatives / "?" do.
-var questionRe = regexp.MustCompile(`(?i)[?？]|^(what|when|where|how|why|who|is|are|do|does|can|could|got|ada|bila|berapa|macam ?mana|boleh|apakah|几点|多少|吗|怎么|哪里)\b|(吗|呢)\s*$`)
-
-func looksLikeQuestion(text string) bool {
-	return questionRe.MatchString(strings.TrimSpace(text))
-}
-
-var cancelPhraseRe = regexp.MustCompile(`(?i)\b(cancel|stop|quit|exit|nevermind|never mind|forget it|batal|tak jadi|x jadi)\b|取消|不要了|算了|(?i:\b(don'?t|do not|no longer)\s+want\b)`)
-
-// isCancelCommand reports whether a mid-workflow reply is the guest bailing out
-// (checked only while a workflow is awaiting a slot value, so a bare "cancel"
-// can't collide with the cancellation-intent routing of a fresh message).
-func isCancelCommand(text string) bool {
-	return cancelPhraseRe.MatchString(strings.TrimSpace(text))
-}
-
-var cancelMsgs = map[string]string{
-	"en": "No problem, I've cancelled that. How else can I help you? 😊",
-	"ms": "Baik, saya sudah batalkan. Ada lagi yang boleh saya bantu? 😊",
-	"zh": "好的，已为您取消。还有什么可以帮您？😊",
-	"ta": "பரவாயில்லை, ரத்து செய்துவிட்டேன். வேறு எப்படி உதவலாம்? 😊",
-}
-
-func cancelMsg(lang string) string {
-	if m, ok := cancelMsgs[lang]; ok {
-		return m
-	}
-	return cancelMsgs["en"]
-}
-
 // persistWorkflow writes the workflow state back to the conversation: keep it
 // when paused (awaiting the guest's reply), clear it when done/escalated.
+// On completion, booking context (guest name/phone, confirmation, unit) is
+// copied into the conversation Slots so later turns — payment-receipt OCR and
+// maintenance lookups — can find the guest's reservation.
 func (e *Engine) persistWorkflow(state *conversation.State, wfState *workflow.State, out workflow.Outcome) {
 	if out.Paused {
 		if b, err := json.Marshal(wfState); err == nil {
@@ -380,51 +388,17 @@ func (e *Engine) persistWorkflow(state *conversation.State, wfState *workflow.St
 		}
 	} else {
 		state.WorkflowStateJSON = ""
-	}
-}
-
-var resetKeywords = []string{
-	"restart", "reset", "start over", "start again", "clear chat",
-	"mula semula", "set semula", "重新开始", "重新", "/reset", "/restart",
-}
-
-func isResetCommand(text string) bool {
-	t := strings.ToLower(strings.TrimSpace(text))
-	for _, k := range resetKeywords {
-		if t == k {
-			return true
+		if wfState != nil && len(wfState.Data) > 0 {
+			if state.Slots == nil {
+				state.Slots = map[string]any{}
+			}
+			for _, k := range []string{"guest_name", "guest_phone", "confirmation_number", "confirmationNumber", "reservation_id", "reservationId", "unitNumber"} {
+				if v := strings.TrimSpace(wfState.Data[k]); v != "" {
+					state.Slots[k] = v
+				}
+			}
 		}
 	}
-	return false
-}
-
-var resetMsgs = map[string]string{
-	"en": "✅ Conversation reset. How can I help you?",
-	"ms": "✅ Perbualan ditetapkan semula. Bagaimana saya boleh bantu?",
-	"zh": "✅ 对话已重置。请问有什么可以帮您？",
-	"ta": "✅ உரையாடல் மீட்டமைக்கப்பட்டது. நான் எப்படி உதவ முடியும்?",
-}
-
-func resetMsg(lang string) string {
-	if m, ok := resetMsgs[lang]; ok {
-		return m
-	}
-	return resetMsgs["en"]
-}
-
-func isMediaType(mt contract.MessageType) bool {
-	switch mt {
-	case contract.MsgImage, contract.MsgAudio, contract.MsgVideo, contract.MsgDocument, contract.MsgSticker:
-		return true
-	}
-	return false
-}
-
-var mediaAckMsg = map[string]string{
-	"en": "Thanks for that! Our staff will take a look and get back to you shortly. 🙏",
-	"ms": "Terima kasih! Staf kami akan semak dan hubungi anda sebentar lagi. 🙏",
-	"zh": "收到，谢谢！我们的工作人员会查看并尽快回复您。🙏",
-	"ta": "நன்றி! எங்கள் ஊழியர் பார்த்து விரைவில் பதிலளிப்பார். 🙏",
 }
 
 // handleMediaAck acknowledges a caption-less media message and notifies staff
@@ -469,11 +443,15 @@ func (e *Engine) dispatch(ctx context.Context, cls classify.Result, route config
 }
 
 // llmReply generates an LLM reply grounded in the intent's static KB (if any).
+// RAG chunks are LLM grounding context ONLY — when the LLM tier is down they
+// must never reach the guest verbatim (they can contain internal notes), so
+// every failure path falls back to the curated static template or a handoff.
 func (e *Engine) llmReply(ctx context.Context, cls classify.Result, text string, history []string) string {
-	kb := ""
+	static := ""
 	if reply, ok := e.prof.StaticReply(cls.Category, cls.Lang); ok {
-		kb = reply
+		static = reply
 	}
+	kb := static
 	// RAG: ground the reply with the most relevant KB chunks (BM25).
 	if e.retriever != nil {
 		if chunks := e.retriever.Retrieve(text, 5); chunks != "" {
@@ -484,17 +462,29 @@ func (e *Engine) llmReply(ctx context.Context, cls classify.Result, text string,
 			}
 		}
 	}
-	if !e.aiMgr.Available() {
+	if !e.replyMgr.Available() {
 		// No AI configured → safe static fallback or handoff.
-		if kb != "" {
-			return kb
+		if static != "" {
+			return static
 		}
 		return e.handoff(cls.Lang)
 	}
-	res, err := e.aiMgr.GenerateReply(ctx, e.prof.SystemPrompt, kb, history, text, cls.Lang, 500, 0.4)
+	// Per-turn system prompt: introduce the AI on FIRST contact only, or gently
+	// re-note it (plus the human staff number) when the guest sounds upset. On a
+	// normal follow-up we say nothing about being an AI (settings.json no longer
+	// forces the "I'm a bot" opener on every reply). history already includes the
+	// current user turn (added before classification), so len==1 = first message.
+	sysPrompt := e.prof.SystemPrompt
+	switch {
+	case ai.IsNegative(text):
+		sysPrompt += "\n\nThe guest seems upset — gently note you are Rainbow (an AI assistant) and that our human staff (+60 12-708 8789) can take over, then help."
+	case len(history) <= 1 && cls.Category != "greeting":
+		sysPrompt += "\n\nThis is the guest's first message — briefly introduce yourself as Rainbow, an AI assistant, then answer."
+	}
+	res, err := e.replyMgr.GenerateReply(ctx, sysPrompt, kb, history, text, cls.Lang, 500, 0.4)
 	if err != nil || res == nil || strings.TrimSpace(res.Content) == "" {
-		if kb != "" {
-			return kb
+		if static != "" {
+			return static
 		}
 		return e.handoff(cls.Lang)
 	}
@@ -543,6 +533,37 @@ func (e *Engine) notifyStaff(ctx context.Context, guestPhone, pushName, message,
 	if _, err := e.send.SendText(ctx, staff, alert, instanceID); err != nil {
 		// best-effort; don't fail the guest reply over a staff-notify error
 		_ = err
+	}
+}
+
+// notifyAllPaymentStaff sends a payment event alert to all three configured
+// payment contacts (Jay, Alston, Maya) so every stakeholder sees receipt
+// verifications and payment failures. Best-effort — never blocks the guest reply.
+func (e *Engine) notifyAllPaymentStaff(ctx context.Context, guestPhone, pushName, message, intent, instanceID string) {
+	name := pushName
+	if name == "" {
+		name = "Guest"
+	}
+	contactLine := guestContactLine(guestPhone, name)
+	alert := "💳 *Payment notification*\n" +
+		"Guest: " + contactLine + "\n" +
+		"Intent: " + intent + "\n" +
+		message
+	phones := []string{
+		e.prof.Staff.JayPhone,
+		e.prof.Staff.AlstonPhone,
+		e.prof.Staff.MayaPhone,
+	}
+	if e.prof.Staff.JayPhone == "" && len(e.prof.Staff.Phones) > 0 {
+		phones = e.prof.Staff.Phones
+	}
+	for _, ph := range phones {
+		if ph == "" {
+			continue
+		}
+		if _, err := e.send.SendText(ctx, ph, alert, instanceID); err != nil {
+			_ = err
+		}
 	}
 }
 
