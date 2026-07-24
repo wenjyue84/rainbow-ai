@@ -139,6 +139,12 @@ If arriving by long-distance bus from other Malaysian cities:
 - Local eateries, cafes, night markets
 - 7-Eleven, pharmacies, ATMs
 
+**Banks / ATM (nearby, in Taman Pelangi — short walk):**
+- **CIMB Bank & ATM** — 75, Jalan Kuning 2, Taman Pelangi (close to the hostel)
+- **Maybank branch & ATM** — No. 10 & 12, Jalan Pingai, Taman Pelangi
+- **Plaza Pelangi** and **Pelangi Leisure Mall** (2–5 min walk) also have ATMs from several banks and 7-Eleven cash withdrawal
+- Tip: for the exact nearest ATM, open Grab/Google Maps and search "ATM" — plenty are within a 5-minute walk in Taman Pelangi.
+
 **Nearby Shopping Malls (Short Grab Ride):**
 - KSL City Mall (~10 mins)
 - Paradigm Mall (~15 mins)
@@ -166,6 +172,7 @@ Taman Pelangi is JB's nightlife hub! Speakeasy bars, karaoke, trendy eateries al
 - **Cost:** RM0.60 per hour (~US$0.15/hour)
 - Street parking available (check signage)
 - Note: On-site parking limited - please contact us if you need guaranteed parking!
+- Oversized/tall vehicles (vans, lorries): we do not publish a height clearance for the off-site public parking, so please contact us in advance and we'll help arrange suitable parking.
 
 ---
 
