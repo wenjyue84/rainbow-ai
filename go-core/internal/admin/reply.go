@@ -36,16 +36,24 @@ func (h *Handler) hasStaffNameCol() bool {
 }
 
 // insertStaffMessage stores a staff-authored message row and returns its
-// timestamp in epoch millis.
-func (h *Handler) insertStaffMessage(phone, content, source, staffName string) (int64, error) {
+// timestamp in epoch millis. profile is the business the conversation belongs
+// to ("" = default) — without it the row lands in the default profile's view
+// and vanishes from the business the staff member was actually replying in.
+func (h *Handler) insertStaffMessage(phone, content, source, staffName, profile string) (int64, error) {
 	ts := store.NowISO()
+	if profile == "" {
+		profile = h.defaultProfile
+		if profile == "" {
+			profile = "pelangi"
+		}
+	}
 	var err error
 	if h.hasStaffNameCol() {
-		_, err = h.st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, source, staff_name)
-			VALUES (?, 'staff', ?, ?, ?, ?)`, phone, content, ts, source, staffName)
+		_, err = h.st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, source, staff_name, profile_id)
+			VALUES (?, 'staff', ?, ?, ?, ?, ?)`, phone, content, ts, source, staffName, profile)
 	} else {
-		_, err = h.st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, source)
-			VALUES (?, 'staff', ?, ?, ?)`, phone, content, ts, source)
+		_, err = h.st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, source, profile_id)
+			VALUES (?, 'staff', ?, ?, ?, ?)`, phone, content, ts, source, profile)
 	}
 	if err != nil {
 		return 0, err
@@ -78,7 +86,12 @@ func (h *Handler) webchatReply(w http.ResponseWriter, r *http.Request, sid strin
 			break
 		}
 	}
-	ms, err := h.insertStaffMessage(phone, in.Message, "webchat-admin", in.StaffName)
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	ms, err := h.insertStaffMessage(phone, in.Message, "webchat-admin", in.StaffName, profileID)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
@@ -104,8 +117,13 @@ func (h *Handler) conversationSend(w http.ResponseWriter, r *http.Request, phone
 	// Webchat conversations live in the same unified list; a "send" to a
 	// web:<sid> phone is a staff webchat reply (persist, no bridge — the guest
 	// widget has no live delivery channel yet).
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
 	if _, isWebchat := webchatSession(phone); isWebchat {
-		ms, err := h.insertStaffMessage(phone, in.Message, "webchat-admin", in.StaffName)
+		ms, err := h.insertStaffMessage(phone, in.Message, "webchat-admin", in.StaffName, profileID)
 		if err != nil {
 			writeJSON(w, 500, map[string]any{"error": err.Error()})
 			return
@@ -123,7 +141,7 @@ func (h *Handler) conversationSend(w http.ResponseWriter, r *http.Request, phone
 		writeJSON(w, 502, map[string]any{"error": "bridge send failed: " + err.Error()})
 		return
 	}
-	ms, err := h.insertStaffMessage(phone, in.Message, "staff-manual", in.StaffName)
+	ms, err := h.insertStaffMessage(phone, in.Message, "staff-manual", in.StaffName, profileID)
 	if err != nil {
 		// Delivered but not persisted — report success with a warning so the
 		// SPA doesn't retry-send a duplicate.
