@@ -30,6 +30,7 @@ const tabNameMapping = {
   'dashboard': 'dashboard',
   'real-chat': 'live-chat',
   'live-chat': 'live-chat',
+  'widget-chats': 'live-chat', // operator notify deep-links (?session=) land on live-chat
   'chat-simulator': 'chat-simulator',
   'history': 'history',
   'settings': 'settings',
@@ -73,6 +74,7 @@ function getTabInfoFromUrl() {
 
   // Handle query params if any (e.g. ?audience=developer)
   const cleanHash = hash.split('?')[0];
+  // (deep-link params like ?session= are read separately via getHashParams)
 
   const parts = cleanHash.split('/');
   const rawMain = parts[0];
@@ -96,6 +98,31 @@ function getTabInfoFromUrl() {
     profileId: null,
     sub: parts.length > 1 ? parts[1] : null
   };
+}
+
+/**
+ * Parse query params embedded in the hash (e.g. #widget-chats?session=x&profile=y).
+ * Operator WhatsApp notifies deep-link here; the path→hash conversion in
+ * initTabs() also folds a real ?query into the hash so both URL forms work.
+ */
+function getHashParams() {
+  const q = (window.location.hash.split('?')[1] || '');
+  return new URLSearchParams(q);
+}
+
+/**
+ * Open a webchat session from a deep link once the live-chat modules have
+ * lazy-loaded (retries for up to 6s, then gives up silently).
+ */
+function openWebchatDeepLink(sessionId, attempt = 0) {
+  if (typeof window.switchLiveChatTab === 'function' && typeof window.wcOpenConversation === 'function') {
+    window.switchLiveChatTab('webchat');
+    window.wcOpenConversation(sessionId);
+    return;
+  }
+  if (attempt < 12) {
+    setTimeout(() => openWebchatDeepLink(sessionId, attempt + 1), 500);
+  }
 }
 
 /**
@@ -336,6 +363,12 @@ function handleNavigation() {
   }
 
   loadTab(main, sub);
+
+  // Deep link: open a specific webchat session (operator notify links).
+  const params = getHashParams();
+  if (main === 'live-chat' && params.get('session')) {
+    openWebchatDeepLink(params.get('session'));
+  }
 }
 
 /**
@@ -347,8 +380,9 @@ async function initTabs() {
   if (path !== '/') {
     const pathTab = path.slice(1); // Remove leading /
     const existingHash = window.location.hash || '';
-    // Use the path as the tab name if no hash exists
-    const hash = existingHash || '#' + pathTab;
+    // Use the path as the tab name if no hash exists. Fold a real ?query into
+    // the hash so deep-link params (?session=, ?profile=) survive conversion.
+    const hash = existingHash || '#' + pathTab + (window.location.search || '');
     window.history.replaceState(null, '', window.location.origin + '/' + hash);
   }
 
@@ -369,6 +403,14 @@ async function initTabs() {
   // x-profile-id header (ready resolves within 3s even if /profiles fails).
   if (window.profileSwitcher && window.profileSwitcher.ready) {
     await window.profileSwitcher.ready;
+  }
+
+  // Deep link: honor ?profile= (operator notify links carry the business the
+  // chat belongs to — without this, a senai chat is invisible under pelangi).
+  const dlProfile = getHashParams().get('profile');
+  if (dlProfile && window.profileSwitcher
+      && window.profileSwitcher.getActiveProfileId() !== dlProfile) {
+    window.profileSwitcher.switchTo(dlProfile);
   }
 
   // US-809: Initial load with profile-scoped URL handling

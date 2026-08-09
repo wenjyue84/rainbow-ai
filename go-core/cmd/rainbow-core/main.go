@@ -367,8 +367,15 @@ func main() {
 			if len(preview) > 200 {
 				preview = preview[:200] + "…"
 			}
-			adminLink := widgetAdminURL + "/widget-chats?session=" + from
-			alert := "🔔 *Pelangi Website Chat*\n" +
+			// Deep link carries session + profile in the hash: the SPA maps
+			// widget-chats → live-chat, switches to the chat's business profile
+			// (isolation hides it under any other profile) and opens the session.
+			profLabel := in.Profile
+			if profLabel == "" {
+				profLabel = "pelangi"
+			}
+			adminLink := widgetAdminURL + "/#widget-chats?session=" + from + "&profile=" + profLabel
+			alert := "🔔 *Website Chat (" + profLabel + ")*\n" +
 				"Guest: " + preview + "\n" +
 				"Session: " + from + "\n\n" +
 				"Reply here: " + adminLink
