@@ -44,7 +44,14 @@ func Open(path string) (*Store, error) {
 func (s *Store) Close() error { return s.DB.Close() }
 
 // TableColumns returns column name→type for a table (for schema inspection/tests).
+// table must be a bare identifier (letters, digits, underscore) — validated to
+// prevent SQL injection via PRAGMA concatenation.
 func (s *Store) TableColumns(table string) (map[string]string, error) {
+	for _, c := range table {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return nil, fmt.Errorf("store: invalid table name %q", table)
+		}
+	}
 	rows, err := s.DB.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
 		return nil, err

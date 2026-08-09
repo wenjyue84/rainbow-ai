@@ -248,6 +248,9 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 				out, err := e.wf.Resume(ctx, &wfState, text, e.runCtx(state, state.Language, msg.InstanceID))
 				if err == nil {
 					e.persistWorkflow(state, &wfState, out)
+					if out.Done && wfState.WorkflowID == "checkin_full" {
+						go e.checkOccupancyAlert(msg.InstanceID)
+					}
 					_ = e.conv.Save(state)
 					return Result{Intent: "workflow_active", Action: "workflow", Escalated: out.Escalated, Language: state.Language}, nil
 				}
@@ -361,14 +364,15 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 		GuestName:  state.PushName,
 		Lang:       lang,
 		InstanceID: instanceID,
-		AdminPhone: admin,
-		MayaPhone:  e.prof.Staff.MayaPhone,
+		AdminPhone:  admin,
+		MayaPhone:   e.prof.Staff.MayaPhone,
+		AlstonPhone: e.prof.Staff.AlstonPhone,
 		PMS:        e.pms,
 		Send: func(ctx context.Context, phone, text, inst string) error {
 			_, err := e.send.SendText(ctx, phone, text, inst)
 			// Persist guest-facing workflow messages so the transcript in
 			// rainbow_messages is complete (staff notifies are not logged here).
-			if err == nil && phone == state.Phone {
+			if err == nil {
 				_ = e.conv.AddMessageMeta(phone, "assistant", text, e.prof.ID, &conversation.MsgMeta{Intent: state.LastIntent, RoutedAction: "workflow"})
 			}
 			return err
@@ -475,13 +479,14 @@ func (e *Engine) llmReply(ctx context.Context, cls classify.Result, text string,
 	// forces the "I'm a bot" opener on every reply). history already includes the
 	// current user turn (added before classification), so len==1 = first message.
 	sysPrompt := e.prof.SystemPrompt
+	botName := e.prof.BotName
 	switch {
 	case ai.IsNegative(text):
-		sysPrompt += "\n\nThe guest seems upset — gently note you are Rainbow (an AI assistant) and that our human staff (+60 12-708 8789) can take over, then help."
+		sysPrompt += "\n\nThe guest seems upset — gently note you are " + botName + " (an AI assistant) and that our human staff (+60 12-708 8789) can take over, then help."
 	case len(history) <= 1 && cls.Category != "greeting":
-		sysPrompt += "\n\nThis is the guest's first message — briefly introduce yourself as Rainbow, an AI assistant, then answer."
+		sysPrompt += "\n\nThis is the guest's first message — briefly introduce yourself as " + botName + ", an AI assistant, then answer."
 	}
-	res, err := e.replyMgr.GenerateReply(ctx, sysPrompt, kb, history, text, cls.Lang, 500, 0.4)
+	res, err := e.replyMgr.GenerateReply(ctx, sysPrompt, kb, history, text, cls.Lang, 800, 0.4)
 	if err != nil || res == nil || strings.TrimSpace(res.Content) == "" {
 		if static != "" {
 			return static

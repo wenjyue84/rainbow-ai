@@ -22,6 +22,8 @@ func mockPMS(t *testing.T) *httptest.Server {
 			w.Write([]byte(`{"assigned":true,"unitNumber":"C12"}`))
 		case "/api/guest-tokens/internal":
 			w.Write([]byte(`{"token":"abc123","url":"https://x/checkin/abc123"}`))
+		case "/api/problems":
+			w.Write([]byte(`{"id":"P-100","status":"open"}`))
 		default:
 			http.Error(w, "not found", 404)
 		}
@@ -63,6 +65,21 @@ func TestCreateCheckinLink(t *testing.T) {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
 	if out["token"] != "abc123" {
+		t.Errorf("outputs = %v", out)
+	}
+}
+
+func TestLogServiceRequest(t *testing.T) {
+	srv := mockPMS(t)
+	defer srv.Close()
+	c := New(srv.URL, "tok")
+	out, ok, err := c.Do(context.Background(), "log_service_request", map[string]string{
+		"details": "aircond not working", "unitNumber": "C12",
+	})
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if out["id"] != "P-100" || out["logged"] != "true" {
 		t.Errorf("outputs = %v", out)
 	}
 }

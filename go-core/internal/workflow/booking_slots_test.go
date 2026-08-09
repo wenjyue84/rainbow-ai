@@ -28,7 +28,7 @@ func TestClassifyBookingSlot(t *testing.T) {
 		{"25/12", "booking_dates"},
 		{"15 Feb to 17 Feb", "booking_dates"},
 		{"today to the day after tomorrow", "booking_dates"},
-		{"John Tan", ""},     // name → no structured slot
+		{"John Tan", ""},      // name → no structured slot
 		{"Ali bin Ahmad", ""}, // name → no structured slot
 	}
 	for _, c := range cases {
@@ -196,5 +196,46 @@ func TestBookingGuestsFirst(t *testing.T) {
 	// Next missing slot in priority order after count is captured is the name.
 	if !strings.Contains(strings.ToLower(cap.last()), "name") {
 		t.Errorf("after count, should prompt for name, got %q", cap.last())
+	}
+}
+
+// 2026-07-21 eval BOOK-1: compound replies + name-intro stripping.
+func TestParseCompoundBookingReply(t *testing.T) {
+	got := parseCompoundBookingReply("My name is John Tan, 1 pax, arriving around 8pm")
+	if got == nil {
+		t.Fatal("compound reply not recognized")
+	}
+	if got["guest_name"] != "John Tan" {
+		t.Errorf("guest_name = %q, want John Tan", got["guest_name"])
+	}
+	if got["guest_count"] != "1" {
+		t.Errorf("guest_count = %q, want 1", got["guest_count"])
+	}
+	if _, ok := got["booking_dates"]; ok {
+		t.Errorf("booking_dates should not be captured from %q", got["booking_dates"])
+	}
+
+	got = parseCompoundBookingReply("John Tan, 2 pax")
+	if got["guest_name"] != "John Tan" || got["guest_count"] != "2" {
+		t.Errorf("plain-name compound = %v", got)
+	}
+
+	if parseCompoundBookingReply("John Tan") != nil {
+		t.Error("single-part reply must return nil (existing path)")
+	}
+}
+
+func TestStripNameIntro(t *testing.T) {
+	cases := map[string]string{
+		"My name is John Tan": "John Tan",
+		"I am Siti":           "Siti",
+		"我是李明":                "李明",
+		"John Tan":            "John Tan",
+		"nama saya Ali":       "Ali",
+	}
+	for in, want := range cases {
+		if got := stripNameIntro(in); got != want {
+			t.Errorf("stripNameIntro(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

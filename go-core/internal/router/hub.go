@@ -53,6 +53,14 @@ func (h *Hub) ProcessCapture(ctx context.Context, profileID string, msg contract
 	return eng.ProcessCapture(ctx, msg)
 }
 
+// Engine returns the engine for a profile id (default engine when unmapped).
+func (h *Hub) Engine(profileID string) *Engine {
+	if e, ok := h.engines[profileID]; ok {
+		return e
+	}
+	return h.engines[h.defaultProfile]
+}
+
 // Profiles returns the profile ids the hub serves.
 func (h *Hub) Profiles() []string {
 	out := make([]string, 0, len(h.engines))

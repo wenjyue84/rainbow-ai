@@ -56,10 +56,15 @@ func (s *Scheduler) DailyAt(name string, hour, minute int, job Job) {
 		defer s.wg.Done()
 		for {
 			d := untilNext(time.Now(), hour, minute)
+			timer := time.NewTimer(d)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-time.After(d):
+			case <-timer.C:
+				if ctx.Err() != nil {
+					return
+				}
 				s.run(ctx, name, job)
 			}
 		}

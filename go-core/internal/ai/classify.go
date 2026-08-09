@@ -31,7 +31,7 @@ func NewClassifier(prof *config.Profile, mgr *Manager) *Classifier {
 		valid[i] = true
 	}
 	c := &Classifier{mgr: mgr, prof: prof, valid: valid, maxTokens: 150, temp: 0.1}
-	c.sysPrompt = buildClassifyPrompt(intents)
+	c.sysPrompt = buildClassifyPrompt(intents, prof.ClassifyPrompt)
 	return c
 }
 
@@ -50,9 +50,16 @@ func definedIntents(prof *config.Profile) []string {
 	return out
 }
 
-func buildClassifyPrompt(intents []string) string {
-	return "You are an intent classifier for a hostel WhatsApp bot.\n" +
-		"Given the user message, classify it into exactly ONE category and extract entities.\n\n" +
+func buildClassifyPrompt(intents []string, custom string) string {
+	// A custom prompt (llm-settings.json systemPrompt, editable in the admin t4
+	// tab) replaces the role/rules header; the category list + JSON output
+	// contract are always appended so classification stays valid.
+	head := "You are an intent classifier for a hostel WhatsApp bot.\n" +
+		"Given the user message, classify it into exactly ONE category and extract entities."
+	if custom != "" {
+		head = custom
+	}
+	return head + "\n\n" +
 		"Categories: " + strings.Join(intents, ", ") + "\n\n" +
 		"Extract entities when present: dates (check_in, check_out), guest_count, language.\n\n" +
 		"Respond with ONLY valid JSON (no markdown):\n" +

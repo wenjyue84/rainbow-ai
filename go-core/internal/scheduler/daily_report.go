@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,7 +44,9 @@ func BuildDailyReport(ctx context.Context, pms Getter, now time.Time) (string, e
 	}
 
 	var units []unitData
-	json.Unmarshal(unitsRaw, &units)
+	if err := json.Unmarshal(unitsRaw, &units); err != nil {
+		log.Printf("[daily-report] parse units: %v", err)
+	}
 
 	var guests []guestData
 	if json.Unmarshal(guestsRaw, &guests) != nil || len(guests) == 0 {

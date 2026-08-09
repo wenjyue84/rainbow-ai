@@ -73,6 +73,7 @@ type Staff struct {
 	Phones      []string `json:"phones"`
 	JayPhone    string   `json:"jay_phone"`
 	AlstonPhone string   `json:"alston_phone"`
+	MayaPhone   string   `json:"maya_phone"`
 }
 
 // RoutingMode mirrors settings.json routing_mode.
@@ -97,6 +98,9 @@ type Profile struct {
 	Staff        Staff
 	RoutingMode  RoutingMode
 	SystemPrompt string
+	// BotName is the display name the LLM uses when introducing itself.
+	// Read from settings.json "bot_name"; defaults to "Rainbow" when absent.
+	BotName string
 	// ClassifyPrompt is the custom T4 intent-classification system prompt from
 	// llm-settings.json (systemPrompt). Empty = the classifier's built-in prompt.
 	ClassifyPrompt string
@@ -113,6 +117,7 @@ var profileWhitelistKey = map[string]string{
 	"pms_capsule": "pms_capsule",
 	"southern":    "southern",
 	"makan":       "makan",
+	"senai-app":   "senai_app",
 }
 
 // alwaysAllowed intents bypass the whitelist filter (universal + control intents).
@@ -204,6 +209,7 @@ type rawSettings struct {
 	RoutingMode  RoutingMode `json:"routing_mode"`
 	Staff        Staff       `json:"staff"`
 	SystemPrompt string      `json:"system_prompt"`
+	BotName      string      `json:"bot_name"`
 }
 
 type rawTiers struct {
@@ -327,9 +333,9 @@ func Load(dataDir, profile string) (*Profile, error) {
 		return nil, fmt.Errorf("load routing: %w", err)
 	}
 
-	// llm-settings.json — thresholds + selected providers
+	// llm-settings.json — thresholds + selected providers (profile-specific first)
 	var rl rawLLMSettings
-	if err := readJSON(pick(dataDir, "llm-settings.json"), &rl); err == nil {
+	if err := readJSON(pick(dataDir, "llm-settings-"+profile+".json", "llm-settings.json"), &rl); err == nil {
 		p.Thresholds = rl.Thresholds
 		p.ClassifyPrompt = strings.TrimSpace(rl.SystemPrompt)
 		sort.Slice(rl.Selected, func(i, j int) bool { return rl.Selected[i].Priority < rl.Selected[j].Priority })
@@ -354,6 +360,12 @@ func Load(dataDir, profile string) (*Profile, error) {
 		p.RoutingMode = rs.RoutingMode
 		p.Staff = rs.Staff
 		p.SystemPrompt = rs.SystemPrompt
+		if rs.BotName != "" {
+			p.BotName = rs.BotName
+		}
+	}
+	if p.BotName == "" {
+		p.BotName = "Rainbow"
 	}
 
 	// intent-whitelists.json — per-profile allowed intents (contamination filter)

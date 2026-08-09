@@ -12,6 +12,7 @@ package workflow
 // not by turn order, and the engine then prompts for whatever is still missing.
 
 import (
+	"context"
 	"regexp"
 	"strings"
 )
@@ -83,6 +84,85 @@ func looksLikeBookingNameJunk(reply string) bool {
 	return ok
 }
 
+// nameIntroRe strips a "my name is …" style prefix so only the actual name is
+// stored ("My name is John Tan" → "John Tan"). Without this, the whole sentence
+// became the guest_name (2026-07-21 eval, BOOK-1).
+var nameIntroRe = regexp.MustCompile(`(?i)^(?:hi|hello|hey)?[\s,!.]*(?:my\s+name\s+is|i\s+am|i'm|im|this\s+is|name\s*[:\-]|nama\s+saya|saya)\s+(.+)$`)
+var zhNameIntroRe = regexp.MustCompile(`^(?:我叫|我是)\s*(.+)$`)
+
+// stripNameIntro returns the bare name from an intro-prefixed reply, or the
+// trimmed reply unchanged when no intro is present.
+func stripNameIntro(s string) string {
+	s = strings.TrimSpace(s)
+	if m := nameIntroRe.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	if m := zhNameIntroRe.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return s
+}
+
+// plainNameRe matches a short letters-only phrase (with spaces/dots/dashes)
+// that can safely be taken as a person's name inside a compound reply.
+var plainNameRe = regexp.MustCompile(`^[\p{L}][\p{L} .'-]{1,40}$`)
+
+// inlineCountRe catches a guest count embedded in a longer segment ("for 2
+// people", "we are 5 friends") that bareCountRe (whole-string) would miss.
+var inlineCountRe = regexp.MustCompile(`(?i)\b([1-8])\s*(?:pax|ppl|people|persons?|guests?|friends?|orang|adults?|人|位|个)\b`)
+
+var compoundSplitRe = regexp.MustCompile(`[,;\n]|\s+and\s+`)
+
+// nonNameWords are tokens that disqualify a compound segment from being taken
+// as the guest name (arrival notes, counts, filler).
+var nonNameWords = regexp.MustCompile(`(?i)\b(arriv\w*|around|about|tonight|today|tomorrow|night|pax|people|person|guest|check|book|capsule|pod|please|thanks?)\b|\d`)
+
+// parseCompoundBookingReply splits a multi-part reply ("My name is John Tan, 1
+// pax, arriving around 8pm") and routes each segment to its slot. Returns nil
+// when the reply has no separators or nothing was recognized, so single-part
+// replies keep the existing path.
+func parseCompoundBookingReply(reply string) map[string]string {
+	parts := compoundSplitRe.Split(reply, -1)
+	if len(parts) < 2 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if slot, val, ok := classifyBookingSlot(p); ok {
+			if out[slot] == "" {
+				out[slot] = val
+			}
+			continue
+		}
+		if out["guest_count"] == "" {
+			if m := inlineCountRe.FindStringSubmatch(p); m != nil {
+				out["guest_count"] = m[1]
+				continue
+			}
+		}
+		if out["guest_name"] == "" {
+			stripped := stripNameIntro(p)
+			if stripped != p && stripped != "" && !looksLikeBookingNameJunk(stripped) {
+				out["guest_name"] = stripped
+				continue
+			}
+			if plainNameRe.MatchString(p) && !nonNameWords.MatchString(p) && len(strings.Fields(p)) <= 4 {
+				out["guest_name"] = p
+				continue
+			}
+		}
+		// Unrecognized tail ("arriving around 8pm") — ignore.
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // bookingSlotAck returns a short acknowledgement for an out-of-order slot
 // capture ("Got it — check-in 21 Jul 2026.") in the guest's language, so the
 // booking flow confirms the answer landed before prompting for the next field.
@@ -133,4 +213,70 @@ var bookingSlotWaitNode = map[string]string{
 	"guest_count":   "wait_guest_count",
 	"booking_dates": "wait_booking_dates",
 	"guest_phone":   "wait_guest_phone",
+}
+
+// resumeBooking drives the booking flow's slot collection by pattern, not turn
+// order. It captures the reply into the correct slot (phone/count/date/name),
+// then either re-prompts for the next missing slot or, once name+dates+count are
+// captured, re-enters the JSON graph at date validation so the existing
+// pastDate / availability / PMS / admin-confirm tail runs unchanged.
+func (r *Registry) resumeBooking(ctx context.Context, wf *Workflow, st *State, cur *Node, reply, storeAs string, rc RunContext) (Outcome, error) {
+	capturedSlot := "" // which slot this reply filled (for the acknowledgement)
+	if compound := parseCompoundBookingReply(reply); compound != nil {
+		// Multi-part reply ("My name is John Tan, 1 pax, arriving 8pm") — fill
+		// every slot it carries; never overwrite a slot already captured.
+		for slot, val := range compound {
+			if strings.TrimSpace(st.Data[slot]) == "" {
+				st.Data[slot] = val
+				if capturedSlot == "" || slot == storeAs {
+					capturedSlot = slot
+				}
+			}
+		}
+	} else if slot, val, ok := classifyBookingSlot(reply); ok {
+		// A typed phone/count/date always routes to its own slot, even if the
+		// current prompt was asking for something else (out-of-order answer).
+		st.Data[slot] = val
+		capturedSlot = slot
+	} else if storeAs == "guest_name" || (storeAs != "" && nextEmptyBookingSlot(st.Data) == "guest_name") {
+		// Free-text reply at the name step (or the name is the next thing we
+		// need) → store as the name, minus any "my name is" intro. The
+		// classifier already guarantees this isn't a date/phone/number.
+		st.Data["guest_name"] = stripNameIntro(reply)
+		capturedSlot = "guest_name"
+	} else if storeAs != "" {
+		// Free-text reply while we were expecting a structured slot (e.g. junk
+		// typed at the dates step). Fall back to the node's own slot via the
+		// normal normalizer, which will leave dates empty if unparseable and let
+		// validation re-prompt.
+		st.Data[storeAs] = normalizeSlot(storeAs, reply)
+	}
+
+	// Acknowledge an out-of-order capture: if the slot we just filled is NOT the
+	// one this prompt asked for, send a brief "Got it — <slot>." so the guest
+	// sees their answer landed before we ask for the next missing field.
+	if capturedSlot != "" && capturedSlot != storeAs {
+		if ack := bookingSlotAck(capturedSlot, st.Data[capturedSlot], rc.Lang); ack != "" {
+			_ = rc.Send(ctx, rc.GuestPhone, ack, rc.InstanceID)
+		}
+	}
+
+	// If name + dates + guests are all captured, hand off to the JSON graph at
+	// date validation so past-date / availability / PMS steps still run. The
+	// phone is collected inside that tail (wait_guest_phone), and the skip-filled
+	// logic passes it through when already captured.
+	if strings.TrimSpace(st.Data["guest_name"]) != "" &&
+		strings.TrimSpace(st.Data["booking_dates"]) != "" &&
+		strings.TrimSpace(st.Data["guest_count"]) != "" {
+		return r.run(ctx, wf, st, "validate_dates", rc)
+	}
+
+	// Otherwise re-prompt for the next still-missing slot.
+	if slot := nextEmptyBookingSlot(st.Data); slot != "" {
+		if nodeID := bookingSlotWaitNode[slot]; nodeID != "" {
+			return r.run(ctx, wf, st, nodeID, rc)
+		}
+	}
+	// All slots somehow filled but the guard above didn't fire — proceed.
+	return r.run(ctx, wf, st, "validate_dates", rc)
 }

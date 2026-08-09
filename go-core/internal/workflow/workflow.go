@@ -99,7 +99,9 @@ type RunContext struct {
 	GuestName  string
 	Lang       string
 	InstanceID string
-	AdminPhone string
+	AdminPhone  string
+	MayaPhone   string
+	AlstonPhone string
 	// Send delivers a message to a phone (guest or staff).
 	Send func(ctx context.Context, phone, text, instanceID string) error
 	// PMS backs pelangi_api nodes (nil = always escalate PMS steps).
@@ -158,64 +160,12 @@ func (r *Registry) Resume(ctx context.Context, st *State, reply string, rc RunCo
 	return r.run(ctx, wf, st, next, rc)
 }
 
-// resumeBooking drives the booking flow's slot collection by pattern, not turn
-// order. It captures the reply into the correct slot (phone/count/date/name),
-// then either re-prompts for the next missing slot or, once name+dates+count are
-// captured, re-enters the JSON graph at date validation so the existing
-// pastDate / availability / PMS / admin-confirm tail runs unchanged.
-func (r *Registry) resumeBooking(ctx context.Context, wf *Workflow, st *State, cur *Node, reply, storeAs string, rc RunContext) (Outcome, error) {
-	capturedSlot := "" // which slot this reply filled (for the acknowledgement)
-	if slot, val, ok := classifyBookingSlot(reply); ok {
-		// A typed phone/count/date always routes to its own slot, even if the
-		// current prompt was asking for something else (out-of-order answer).
-		st.Data[slot] = val
-		capturedSlot = slot
-	} else if storeAs == "guest_name" || (storeAs != "" && nextEmptyBookingSlot(st.Data) == "guest_name") {
-		// Free-text reply at the name step (or the name is the next thing we
-		// need) → store as the name. The classifier already guarantees this
-		// isn't a date/phone/number, so the name-junk case can't reach here.
-		st.Data["guest_name"] = strings.TrimSpace(reply)
-		capturedSlot = "guest_name"
-	} else if storeAs != "" {
-		// Free-text reply while we were expecting a structured slot (e.g. junk
-		// typed at the dates step). Fall back to the node's own slot via the
-		// normal normalizer, which will leave dates empty if unparseable and let
-		// validation re-prompt.
-		st.Data[storeAs] = normalizeSlot(storeAs, reply)
-	}
-
-	// Acknowledge an out-of-order capture: if the slot we just filled is NOT the
-	// one this prompt asked for, send a brief "Got it — <slot>." so the guest
-	// sees their answer landed before we ask for the next missing field.
-	if capturedSlot != "" && capturedSlot != storeAs {
-		if ack := bookingSlotAck(capturedSlot, st.Data[capturedSlot], rc.Lang); ack != "" {
-			_ = rc.Send(ctx, rc.GuestPhone, ack, rc.InstanceID)
-		}
-	}
-
-	// If name + dates + guests are all captured, hand off to the JSON graph at
-	// date validation so past-date / availability / PMS steps still run. The
-	// phone is collected inside that tail (wait_guest_phone), and the skip-filled
-	// logic passes it through when already captured.
-	if strings.TrimSpace(st.Data["guest_name"]) != "" &&
-		strings.TrimSpace(st.Data["booking_dates"]) != "" &&
-		strings.TrimSpace(st.Data["guest_count"]) != "" {
-		return r.run(ctx, wf, st, "validate_dates", rc)
-	}
-
-	// Otherwise re-prompt for the next still-missing slot.
-	if slot := nextEmptyBookingSlot(st.Data); slot != "" {
-		if nodeID := bookingSlotWaitNode[slot]; nodeID != "" {
-			return r.run(ctx, wf, st, nodeID, rc)
-		}
-	}
-	// All slots somehow filled but the guard above didn't fire — proceed.
-	return r.run(ctx, wf, st, "validate_dates", rc)
-}
-
 // run executes nodes starting at startID until a wait_reply (pause), terminal
 // (done), or an escalation.
 func (r *Registry) run(ctx context.Context, wf *Workflow, st *State, startID string, rc RunContext) (Outcome, error) {
+	if rc.Send == nil {
+		rc.Send = func(_ context.Context, _, _, _ string) error { return nil }
+	}
 	cur := startID
 	for steps := 0; steps < maxSteps; steps++ {
 		if cur == "" {
@@ -433,67 +383,35 @@ func (r *Registry) interp(s string, st *State, rc RunContext) string {
 			return rc.GuestName
 		case key == "guest.phone":
 			return rc.GuestPhone
+		case key == "guest.phone_number":
+			p := rc.GuestPhone
+			if at := strings.Index(p, "@"); at > 0 {
+				return p[:at]
+			}
+			return p
+		case key == "guest.phone_display":
+			// Returns a human-readable contact string.
+			// WhatsApp privacy LIDs end in "@lid" — they are not dialable numbers.
+			// In that case emit a fixed advisory so admin notifications never show
+			// raw "@lid" values or unrendered ternary template syntax.
+			p := rc.GuestPhone
+			if strings.HasSuffix(p, "@lid") {
+				return "(WhatsApp privacy ID — reply via admin panel)"
+			}
+			if at := strings.Index(p, "@"); at > 0 {
+				return p[:at]
+			}
+			return p
 		case key == "system.admin_phone":
 			return rc.AdminPhone
+		case key == "system.maya_phone":
+			return rc.MayaPhone
+		case key == "system.alston_phone":
+			return rc.AlstonPhone
 		default:
 			return ""
 		}
 	})
-}
-
-// ─── decode helpers ──────────────────────────────────────────────────────────
-
-func decodeString(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	return ""
-}
-
-func decodeLangMap(raw json.RawMessage, lang string) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	// May be a bare string or a {en,ms,zh,ta} map.
-	if s := decodeString(raw); s != "" {
-		return s
-	}
-	var m map[string]string
-	if json.Unmarshal(raw, &m) != nil {
-		return ""
-	}
-	if v, ok := m[lang]; ok && v != "" {
-		return v
-	}
-	if v, ok := m["en"]; ok {
-		return v
-	}
-	for _, v := range m {
-		return v
-	}
-	return ""
-}
-
-// decodeStringNext decodes a node's `next` when it's a plain string.
-func decodeStringNext(raw json.RawMessage) string { return decodeString(raw) }
-
-// decodeSuccessError reads {success,error} from a pelangi_api node's `next`.
-func decodeSuccessError(raw json.RawMessage) (success, errNext string) {
-	if len(raw) == 0 {
-		return "", ""
-	}
-	var m struct {
-		Success string `json:"success"`
-		Error   string `json:"error"`
-	}
-	if json.Unmarshal(raw, &m) == nil {
-		return m.Success, m.Error
-	}
-	return "", ""
 }
 
 // interpParams interpolates a pelangi_api node's params map.
@@ -512,11 +430,6 @@ func (r *Registry) interpParams(raw json.RawMessage, st *State, rc RunContext) m
 	return out
 }
 
-// decodeBranch reads trueNext/falseNext from a condition node's config.
-func decodeBranch(cfg map[string]json.RawMessage) (trueNext, falseNext string) {
-	return decodeString(cfg["trueNext"]), decodeString(cfg["falseNext"])
-}
-
 // guestContactLine converts a Baileys JID to a human-readable staff notification line.
 func guestContactLine(jid, name string) string {
 	if at := strings.Index(jid, "@"); at > 0 {
@@ -527,188 +440,4 @@ func guestContactLine(jid, name string) string {
 		}
 	}
 	return name + " (reply in this WhatsApp chat)"
-}
-
-var (
-	slotPhoneRe = regexp.MustCompile(`\+?\d[\d \-]{5,}\d`)
-	slotIntRe   = regexp.MustCompile(`\d+`)
-)
-
-// normalizeSlot cleans slot values guests wrap in sentences before storing
-// ("My phone number is 60127088789" → "60127088789"; "1 adult only." → "1").
-// Unrecognized values are stored as-is.
-func normalizeSlot(storeAs, reply string) string {
-	switch {
-	case strings.Contains(storeAs, "phone"):
-		best := ""
-		for _, m := range slotPhoneRe.FindAllString(reply, -1) {
-			clean := strings.NewReplacer(" ", "", "-", "").Replace(m)
-			if len(clean) > len(best) {
-				best = clean
-			}
-		}
-		if len(strings.TrimPrefix(best, "+")) >= 7 {
-			return best
-		}
-	case strings.Contains(storeAs, "count"):
-		if m := slotIntRe.FindString(reply); m != "" {
-			return m
-		}
-		words := map[string]string{
-			"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-			"six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
-			"satu": "1", "dua": "2", "tiga": "3", "empat": "4", "lima": "5",
-		}
-		low := strings.ToLower(reply)
-		for w, n := range words {
-			if strings.Contains(low, w) {
-				return n
-			}
-		}
-	case strings.Contains(strings.ToLower(storeAs), "date"):
-		// Expand relative words ("today", "tmr", "esok", "the day after
-		// tomorrow", 今天/明天/后天) and loose formats into a concrete
-		// "2 Jan 2006 to 3 Jan 2006" range, so the workflow's date-format
-		// regex, pastDateCheck, and the confirmation message all see real
-		// calendar dates instead of re-prompting the guest.
-		if in, out, ok := ParseDateRange(reply); ok {
-			return in.Format("2 Jan 2006") + " to " + out.Format("2 Jan 2006")
-		}
-	}
-	return reply
-}
-
-func normalizePhone(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" || strings.Contains(p, "@") {
-		return p
-	}
-	return p // engine's sender adds the @s.whatsapp.net suffix
-}
-
-// dateTokenRe finds date-like tokens inside free text: "8 Jul", "15 Feb 2026",
-// "15/2/2026", "15/2", "2026-07-08".
-var dateTokenRe = regexp.MustCompile(`(?i)\b(\d{1,2}\s?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:\s?\d{4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s?\d{1,2}|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b`)
-
-// monthWordRe truncates long month words ("february" → "feb") so the loose
-// layouts can parse them.
-var monthWordRe = regexp.MustCompile(`(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]+`)
-
-// relativeDateRe matches relative day phrases guests use instead of calendar
-// dates ("today", "tmr", "the day after tomorrow", Malay "esok"/"lusa",
-// Chinese 今天/明天/后天). Longest phrases come first so "day after tomorrow"
-// wins over the trailing "tomorrow".
-var relativeDateRe = regexp.MustCompile(`(?i)the day after tomorrow|day after tomorrow|day after tmr|esok lusa|hari ini|harini|today|tonight|tonite|tomorrow|tomorow|tmrw|tmr|esok|lusa|今天|今日|明天|明日|后天|後天`)
-
-// relativeOffsetDays maps a relative day word to a day offset from today.
-func relativeOffsetDays(word string) (int, bool) {
-	switch strings.ToLower(strings.TrimSpace(word)) {
-	case "today", "tonight", "tonite", "hari ini", "harini", "今天", "今日":
-		return 0, true
-	case "tomorrow", "tomorow", "tmr", "tmrw", "esok", "明天", "明日":
-		return 1, true
-	case "the day after tomorrow", "day after tomorrow", "day after tmr", "esok lusa", "lusa", "后天", "後天":
-		return 2, true
-	}
-	return 0, false
-}
-
-// relativeDatesIn resolves relative day words in a guest reply to concrete
-// local-midnight dates, in order of appearance (up to two). Callers use this
-// only when no absolute calendar date is present, so "tonight 25/12" still
-// keys off 25/12 rather than tonight.
-func relativeDatesIn(s string) []time.Time {
-	now := time.Now()
-	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	var out []time.Time
-	for _, loc := range relativeDateRe.FindAllStringIndex(s, -1) {
-		if off, ok := relativeOffsetDays(s[loc[0]:loc[1]]); ok {
-			out = append(out, base.AddDate(0, 0, off))
-			if len(out) == 2 {
-				break
-			}
-		}
-	}
-	return out
-}
-
-// ParseDateRange extracts the first two date-like tokens from free text
-// ("Check-in: 25 Jul, Check-out: 26 Jul") as local-midnight times. When only
-// one date parses, checkOut defaults to checkIn+1 night. ok=false when no
-// date-like token parses at all.
-func ParseDateRange(s string) (checkIn, checkOut time.Time, ok bool) {
-	var dates []time.Time
-	for _, tok := range dateTokenRe.FindAllString(s, -1) {
-		tok = monthWordRe.ReplaceAllStringFunc(tok, func(m string) string { return m[:3] })
-		if t, okTok := parseLooseDate(tok); okTok {
-			dates = append(dates, t)
-			if len(dates) == 2 {
-				break
-			}
-		}
-	}
-	if len(dates) == 0 {
-		// No absolute calendar date → fall back to relative words
-		// ("today", "tmr", "esok", "the day after tomorrow", 今天/明天/后天).
-		dates = relativeDatesIn(s)
-	}
-	if len(dates) == 0 {
-		return time.Time{}, time.Time{}, false
-	}
-	checkIn = dates[0]
-	if len(dates) > 1 && dates[1].After(dates[0]) {
-		checkOut = dates[1]
-	} else {
-		checkOut = checkIn.AddDate(0, 0, 1)
-	}
-	return checkIn, checkOut, true
-}
-
-// firstDateIn extracts the first date-like token from free text ("Check-in:
-// 8 Jul, Check-out: 9 Jul" → 8 Jul of the current year) and parses it.
-func firstDateIn(s string) (time.Time, bool) {
-	tok := dateTokenRe.FindString(s)
-	if tok == "" {
-		if ds := relativeDatesIn(s); len(ds) > 0 {
-			return ds[0], true
-		}
-		return time.Time{}, false
-	}
-	tok = monthWordRe.ReplaceAllStringFunc(tok, func(m string) string { return m[:3] })
-	return parseLooseDate(tok)
-}
-
-// looseMonthRe title-cases a 3-letter month so Go's "Jan" layout matches.
-var looseMonthRe = regexp.MustCompile(`\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b`)
-
-// parseLooseDate parses common "15 Feb" / "15/2/2026" forms; ok=false if unknown.
-func parseLooseDate(s string) (time.Time, bool) {
-	s = strings.TrimSpace(strings.ToLower(s))
-	// Go layouts use the reference month "Jan" — title-case the month token.
-	s = looseMonthRe.ReplaceAllStringFunc(s, func(m string) string {
-		return strings.ToUpper(m[:1]) + m[1:]
-	})
-	layouts := []string{"2 Jan", "2 Jan 2006", "2Jan", "02/01/2006", "2/1/2006", "2/1", "02-01-2006", "2006-01-02", "Jan 2"}
-	for _, l := range layouts {
-		if t, err := time.Parse(l, s); err == nil {
-			hadYear := t.Year() != 0
-			year := t.Year()
-			if !hadYear {
-				year = time.Now().Year()
-			}
-			// Normalize to local midnight — time.Parse yields UTC, and mixing
-			// UTC dates with local "today" shifts the calendar day near
-			// midnight MYT.
-			t = time.Date(year, t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-			// No explicit year and the date passed more than a week ago →
-			// the guest means the next occurrence ("15 Feb" said in July).
-			// A date within the last few days stays past (likely a typo,
-			// let the workflow re-prompt).
-			if !hadYear && t.Before(time.Now().AddDate(0, 0, -7)) {
-				t = t.AddDate(1, 0, 0)
-			}
-			return t, true
-		}
-	}
-	return time.Time{}, false
 }

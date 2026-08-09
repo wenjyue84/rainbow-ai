@@ -90,9 +90,11 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 	// ── T2: fuzzy keyword ───────────────────────────────────────────────
 	if c.prof.Tiers.Tier2Enabled {
 		if fr := c.fuzzy.Match(text, lang); fr != nil {
-			gate := c.prof.Thresholds.Fuzzy
+			// Tier2Thresh (from intent-tiers.json, admin-configurable) wins;
+			// Thresholds.Fuzzy is the hardcoded default fallback.
+			gate := c.prof.Tiers.Tier2Thresh
 			if gate == 0 {
-				gate = c.prof.Tiers.Tier2Thresh
+				gate = c.prof.Thresholds.Fuzzy
 			}
 			if fr.Score >= gate {
 				r := Result{Category: fr.Intent, Confidence: fr.Score, Source: SrcFuzzy, MatchedKeyword: fr.MatchedKeyword, Lang: lang}
@@ -133,6 +135,13 @@ func (c *Classifier) Classify(ctx context.Context, text string, history []string
 				r.Lang = lang
 			}
 			// Don't let a generic LLM "unknown" beat a deferred social match.
+			// Likewise, when the LLM ALSO lands on a social nicety, the T1
+			// pattern match is the more precise one — the LLM labelled
+			// "thank you so much, you've been really helpful" as greeting
+			// (2026-07-21 human-support eval, H12).
+			if socialIntents[r.Category] && deferred != nil {
+				return *deferred
+			}
 			if r.Category != "unknown" || deferred == nil {
 				return r
 			}
@@ -166,6 +175,83 @@ func (c *Classifier) SubstantiveMatch(text string, lang string) *Result {
 		}
 	}
 	return nil
+}
+
+// MatchT1 runs only the T1 regex tier. Returns nil on miss or when T1 is disabled.
+func (c *Classifier) MatchT1(text string) *Result {
+	if !c.prof.Tiers.Tier1Enabled {
+		return nil
+	}
+	r := c.matchRegex(text)
+	if r != nil && r.Lang == "" {
+		r.Lang = DetectLanguage(text)
+	}
+	return r
+}
+
+// MatchT2 runs only the T2 fuzzy tier. Returns nil on miss, below threshold, or when disabled.
+func (c *Classifier) MatchT2(text, lang string) *Result {
+	if !c.prof.Tiers.Tier2Enabled {
+		return nil
+	}
+	fr := c.fuzzy.Match(text, lang)
+	if fr == nil {
+		return nil
+	}
+	gate := c.prof.Thresholds.Fuzzy
+	if gate == 0 {
+		gate = c.prof.Tiers.Tier2Thresh
+	}
+	if fr.Score < gate {
+		return nil
+	}
+	return &Result{
+		Category:       fr.Intent,
+		Confidence:     fr.Score,
+		Source:         SrcFuzzy,
+		MatchedKeyword: fr.MatchedKeyword,
+		Lang:           lang,
+	}
+}
+
+// HasSemantic reports whether the T3 semantic sidecar is attached.
+func (c *Classifier) HasSemantic() bool { return c.embed != nil }
+
+// MatchT3 runs the T3 semantic tier. Returns nil on miss, error, or when absent/disabled.
+func (c *Classifier) MatchT3(ctx context.Context, text, lang string) *Result {
+	if !c.prof.Tiers.Tier3Enabled || c.embed == nil {
+		return nil
+	}
+	intent, score, ex, err := c.embed.Match(ctx, text)
+	if err != nil || intent == "" || !c.prof.IntentAllowed(intent) {
+		return nil
+	}
+	if score < c.prof.Tiers.Tier3Thresh {
+		return nil
+	}
+	return &Result{
+		Category:       intent,
+		Confidence:     score,
+		Source:         SrcSemantic,
+		MatchedKeyword: ex,
+		Lang:           lang,
+	}
+}
+
+// MatchT4 runs the T4 LLM tier. Returns (zero Result, error) on failure or when disabled.
+func (c *Classifier) MatchT4(ctx context.Context, text, lang string, history []string) (Result, error) {
+	if !c.prof.Tiers.Tier4Enabled || c.llm == nil {
+		return Result{}, nil
+	}
+	r, err := c.llm.Classify(ctx, text, c.prof.SystemPrompt, history)
+	if err != nil {
+		return Result{}, err
+	}
+	r.Source = SrcLLM
+	if r.Lang == "" || lang == "zh" || lang == "ta" {
+		r.Lang = lang
+	}
+	return r, nil
 }
 
 // socialIntents are conversational niceties whose patterns often match a mere

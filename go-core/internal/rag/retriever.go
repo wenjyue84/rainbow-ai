@@ -46,15 +46,32 @@ type Retriever struct {
 	idx *Index
 }
 
+// internalKBDirs/internalKBFiles are operator-facing KB content (staff notes,
+// guest PII, agent instructions) that must never enter the guest-facing RAG
+// index: chunks can surface verbatim in replies when the LLM tier is down.
+var internalKBDirs = map[string]bool{"memory": true, "guests": true, "contacts": true}
+var internalKBFiles = map[string]bool{
+	"memory.md": true, "users.md": true, "soul.md": true,
+	"agents.md": true, "readme.md": true, "claude.md": true,
+}
+
 // LoadDir loads all .md files under dir (recursively), chunks them, and builds
-// the index. Returns a Retriever with an empty index if the dir is missing.
+// the index. Internal/operator files are excluded. Returns a Retriever with an
+// empty index if the dir is missing.
 func LoadDir(dir string) (*Retriever, error) {
 	var chunks []Chunk
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil
 		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+		if d.IsDir() {
+			if path != dir && (internalKBDirs[strings.ToLower(d.Name())] || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := strings.ToLower(d.Name())
+		if !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, ".") || internalKBFiles[name] {
 			return nil
 		}
 		b, rerr := os.ReadFile(path)
