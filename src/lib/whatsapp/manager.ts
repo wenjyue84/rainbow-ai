@@ -402,6 +402,15 @@ export class WhatsAppManager extends EventEmitter {
     });
   }
 
+  /** Return a WhatsAppInstance by ID, or the first connected one if no ID given. */
+  getInstance(id?: string): WhatsAppInstance | null {
+    if (id) return this.instances.get(id) ?? null;
+    for (const inst of this.instances.values()) {
+      if (inst.state === 'open') return inst;
+    }
+    return null;
+  }
+
   async fetchProfilePictureUrl(phone: string): Promise<string | null> {
     const jid = phone.includes('@')
       ? phone

@@ -1,5 +1,9 @@
-import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion, type AnyMessageContent } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, isLidUser, jidNormalizedUser, fetchLatestWaWebVersion, downloadMediaMessage, type AnyMessageContent } from '@whiskeysockets/baileys';
 import fs from 'fs';
+import { createHash } from 'crypto';
+import { join } from 'path';
+import * as parityDb from '../parity-db.js';
+import { emitParityEvent } from '../webhook-worker.js';
 import type { IncomingMessage, MessageType, MediaMetadata } from '../../assistant/types.js';
 import { trackWhatsAppConnected, trackWhatsAppDisconnected, trackWhatsAppUnlinked } from '../activity-tracker.js';
 import { notifyAdminDisconnection, notifyAdminReconnect } from '../admin-notifier.js';
@@ -250,6 +254,10 @@ export class WhatsAppInstance {
           const lidJid = jidNormalizedUser(contact.lid);
           this.lidMapper.add(lidJid, phoneJid);
         }
+        try {
+          const phone = contact.id?.replace(/@s\.whatsapp\.net$/, '') ?? null;
+          parityDb.upsertContact(contact.id, contact.name || null, contact.notify || null, phone);
+        } catch { /* non-fatal */ }
       }
     });
 
@@ -306,6 +314,9 @@ export class WhatsAppInstance {
         });
       }
     });
+
+    // ─── Parity Persistence ─────────────────────────────────────────
+    this.attachParityHandlers();
   }
 
   private handleDisconnect(lastDisconnect: any, notifyUnlinkedFn: (id: string, label: string) => Promise<void>): void {
@@ -723,6 +734,200 @@ export class WhatsAppInstance {
     } catch (err: any) {
       console.error(`[Baileys:${this.id}] SEND MEDIA FAILED to ${resolvedJid}: ${err.message}`);
       throw err;
+    }
+  }
+
+  // ── Parity persistence helpers ──────────────────────────────────────────
+
+  private attachParityHandlers(): void {
+    if (!this.sock) return;
+    const sock = this.sock;
+
+    sock.ev.on('messages.upsert', async (upsert: any) => {
+      for (const msg of upsert.messages) {
+        try { await this.persistParityMessage(msg); } catch (e: any) {
+          console.error(`[Parity:${this.id}] persistMessage:`, e.message);
+        }
+      }
+    });
+
+    sock.ev.on('messages.update', (updates: any[]) => {
+      for (const u of updates) {
+        try { this.handleParityMessageUpdate(u); } catch (e: any) {
+          console.error(`[Parity:${this.id}] messages.update:`, e.message);
+        }
+      }
+    });
+
+    sock.ev.on('message-receipt.update', (receipts: any[]) => {
+      for (const r of receipts) {
+        try {
+          const msgId = r.key?.id;
+          const recipient = r.key?.participant || r.key?.remoteJid;
+          if (!msgId || !recipient) continue;
+          if (r.receipt?.readTimestamp) {
+            parityDb.upsertReceipt(msgId, recipient, 'read', r.receipt.readTimestamp);
+          } else if (r.receipt?.receiptTimestamp) {
+            parityDb.upsertReceipt(msgId, recipient, 'delivered', r.receipt.receiptTimestamp);
+          }
+        } catch (e: any) {
+          console.error(`[Parity:${this.id}] receipt.update:`, e.message);
+        }
+      }
+    });
+
+    sock.ev.on('chats.upsert', (chats: any[]) => {
+      for (const c of chats) {
+        try {
+          const ts = c.conversationTimestamp ? Number(c.conversationTimestamp) : Math.floor(Date.now() / 1000);
+          parityDb.upsertChat(c.id, c.name || null, c.id?.endsWith('@g.us') ?? false, ts);
+        } catch (e: any) {
+          console.error(`[Parity:${this.id}] chats.upsert:`, e.message);
+        }
+      }
+    });
+
+    sock.ev.on('chats.update', (updates: any[]) => {
+      for (const u of updates) {
+        try {
+          if (!u.id) continue;
+          const ts = u.conversationTimestamp ? Number(u.conversationTimestamp) : Math.floor(Date.now() / 1000);
+          parityDb.upsertChat(u.id, u.name || null, u.id?.endsWith('@g.us') ?? false, ts);
+        } catch (e: any) {
+          console.error(`[Parity:${this.id}] chats.update:`, e.message);
+        }
+      }
+    });
+
+    sock.ev.on('group-participants.update', (update: any) => {
+      try {
+        const { id: groupJid, participants, action } = update;
+        if (!groupJid || !Array.isArray(participants)) return;
+        for (const p of participants) {
+          if (action === 'remove') {
+            parityDb.removeGroupParticipant(groupJid, p);
+          } else {
+            const role = action === 'promote' ? 'admin' : 'member';
+            parityDb.upsertGroupParticipant(groupJid, p, role);
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Parity:${this.id}] group-participants.update:`, e.message);
+      }
+    });
+
+    // Emit org.phone.connected on open state
+    sock.ev.on('connection.update', (update: any) => {
+      if (update.connection === 'open') {
+        const phone = (sock as any).user?.id?.split(':')[0];
+        emitParityEvent('org.phone.connected', { instance: this.id, phone });
+      } else if (update.connection === 'close') {
+        emitParityEvent('org.phone.disconnected', { instance: this.id });
+      }
+    });
+  }
+
+  private async persistParityMessage(msg: any): Promise<void> {
+    const msgId = msg.key?.id;
+    if (!msgId) return;
+    if (msg.key?.remoteJid === 'status@broadcast') return;
+
+    const jid = msg.key?.remoteJid || '';
+    const fromMe = msg.key?.fromMe ?? false;
+    const ts = msg.messageTimestamp ? Number(msg.messageTimestamp) : Math.floor(Date.now() / 1000);
+    const myJid = (this.sock as any)?.user?.id?.replace(/:\d+@/, '@') ?? '';
+    const sender = fromMe ? myJid : (msg.key?.participant || jid);
+    const m = msg.message;
+
+    if (!m) return;
+
+    // Reaction
+    if (m.reactionMessage) {
+      const reactorJid = fromMe ? myJid : sender;
+      parityDb.applyReaction(m.reactionMessage.key?.id || '', reactorJid, m.reactionMessage.text || '');
+      return;
+    }
+
+    // Revoke (protocol message type 0)
+    if (m.protocolMessage) {
+      if (m.protocolMessage.type === 0) {
+        const revokedId = m.protocolMessage.key?.id;
+        if (revokedId) { parityDb.markMessageDeleted(revokedId); emitParityEvent('message.deleted', { id: revokedId }); }
+      } else if (m.protocolMessage.type === 14) {
+        const editedId = m.protocolMessage.key?.id;
+        const newText = m.protocolMessage.editedMessage?.conversation || m.protocolMessage.editedMessage?.extendedTextMessage?.text || '';
+        if (editedId && newText) { parityDb.updateMessageEdited(editedId, newText); emitParityEvent('message.updated', { id: editedId, body: newText }); }
+      }
+      return;
+    }
+
+    // Determine type + body
+    let type = 'unknown';
+    let body: string | null = null;
+    if (m.conversation) { type = 'text'; body = m.conversation; }
+    else if (m.extendedTextMessage) { type = 'text'; body = m.extendedTextMessage.text; }
+    else if (m.imageMessage) { type = 'image'; body = m.imageMessage.caption || null; }
+    else if (m.videoMessage) { type = 'video'; body = m.videoMessage.caption || null; }
+    else if (m.audioMessage) { type = 'audio'; }
+    else if (m.documentMessage) { type = 'document'; body = m.documentMessage.caption || m.documentMessage.fileName || null; }
+    else if (m.stickerMessage) { type = 'sticker'; }
+
+    const quotedId = m.extendedTextMessage?.contextInfo?.stanzaId || null;
+
+    // Ensure chat exists
+    parityDb.upsertChat(jid, null, jid.endsWith('@g.us'), ts);
+
+    parityDb.persistMessage({ id: msgId, jid, fromMe, sender, ts, type, body, quotedId, rawJson: JSON.stringify(msg), isForwarded: false, expiresAt: null });
+
+    // Download media async (fire-and-forget)
+    const mediaKey = ['imageMessage','videoMessage','audioMessage','documentMessage'].find(k => m[k]);
+    if (mediaKey) this.downloadAndPersistMedia(msg, msgId, m[mediaKey]).catch(() => {});
+
+    emitParityEvent('message.created', { id: msgId, jid, fromMe, sender, ts, type, body, instance: this.id });
+  }
+
+  private handleParityMessageUpdate(update: any): void {
+    const key = update.key;
+    const upd = update.update;
+    if (!key?.id) return;
+
+    if (upd?.status != null) {
+      parityDb.updateMessageStatus(key.id, upd.status);
+      emitParityEvent('message.ack.updated', { id: key.id, status: upd.status });
+    }
+
+    if (upd?.message?.reactionMessage) {
+      const r = upd.message.reactionMessage;
+      const reactorJid = key.participant || key.remoteJid || '';
+      parityDb.applyReaction(r.key?.id || key.id, reactorJid, r.text || '');
+      emitParityEvent('reaction.created', { messageId: r.key?.id || key.id, reactorJid, emoji: r.text });
+    }
+
+    const pm = upd?.message?.protocolMessage;
+    if (pm?.type === 0) {
+      const revokedId = pm.key?.id || key.id;
+      parityDb.markMessageDeleted(revokedId);
+      emitParityEvent('message.deleted', { id: revokedId });
+    } else if (pm?.type === 14) {
+      const editedId = pm.key?.id || key.id;
+      const newText = pm.editedMessage?.conversation || pm.editedMessage?.extendedTextMessage?.text || '';
+      if (newText) { parityDb.updateMessageEdited(editedId, newText); emitParityEvent('message.updated', { id: editedId, body: newText }); }
+    }
+  }
+
+  private async downloadAndPersistMedia(msg: any, msgId: string, mediaMsg: any): Promise<void> {
+    try {
+      const MEDIA_DIR = './data/media';
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+      const mime = mediaMsg.mimetype || 'application/octet-stream';
+      const ext = mime.split('/')[1]?.split(';')[0]?.split('+')[0] || 'bin';
+      const filePath = join(MEDIA_DIR, `${msgId}.${ext}`);
+      const buf = await downloadMediaMessage(msg, 'buffer', {}) as Buffer;
+      const sha256 = createHash('sha256').update(buf).digest('hex');
+      fs.writeFileSync(filePath, buf);
+      parityDb.updateMessageMedia(msgId, filePath, mime, buf.length, sha256);
+    } catch (e: any) {
+      console.warn(`[Parity:${this.id}] Media download failed for ${msgId}:`, e.message);
     }
   }
 

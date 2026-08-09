@@ -446,6 +446,12 @@ export async function deleteExpiredConversations(retentionDays: number = 2555) {
 // ─── Live-binding exports (preserves original db.ts API surface) ────────
 export { _db as db, _pool as pool, _dbReady as dbReady };
 
+/** Returns the raw better-sqlite3 Database instance for modules that need sync prepared statements. */
+export function getSqlite(): Database.Database {
+  if (!sqlite) throw new Error('[db] getSqlite() called before initDb()');
+  return sqlite;
+}
+
 // Backward-compat: auto-init if not waiting on AWS Secrets Manager.
 // If USE_SECRETS_MANAGER=true, initDb() must be called explicitly from index.ts
 // after DATABASE_URL is injected.

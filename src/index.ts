@@ -20,7 +20,11 @@ import { fileURLToPath } from 'url';
 import { apiClient, getApiBaseUrl } from './lib/http-client.js';
 import { getWhatsAppStatus, whatsappManager } from './lib/baileys-client.js';
 import { startBaileysWithSupervision } from './lib/baileys-supervisor.js';
-import { pool, getPoolMetrics, initDb } from './lib/db.js';
+import { pool, getPoolMetrics, initDb, getSqlite } from './lib/db.js';
+import { initParitySchema } from './lib/parity-schema.js';
+import { initParityDb } from './lib/parity-db.js';
+import { initWebhookWorker } from './lib/webhook-worker.js';
+import parityRoutes from './routes/parity/index.js';
 import { initSecrets, checkSecretsHealth } from './lib/secrets.js';
 import { validateEnvironment } from './lib/env-validator.js';
 import adminRoutes from './routes/admin/index.js';
@@ -177,6 +181,15 @@ try {
 // In non-SM mode, initDb() was already called at db.ts import time (backward compat).
 // This is idempotent — safe to call again.
 initDb();
+
+// Parity persistence layer (SQLite-backed, same DB connection)
+try {
+  initParitySchema(getSqlite());
+  initParityDb(getSqlite());
+  initWebhookWorker();
+} catch (e: any) {
+  console.error('[Parity] Init failed:', e.message);
+}
 
 // Startup env validation — warn about missing keys that will cause silent failures
 {
@@ -921,6 +934,9 @@ app.get('/chat/:profileId', (req, res) => {
   }
 });
 
+// Parity REST API (bridge routes — must be before webhookRoutes to avoid /api/webhooks conflict)
+app.use('/api', parityRoutes);
+
 // Inbound webhooks (Evolution API, DIGIMAN callbacks) — signature-validated, no admin auth
 app.use(webhookRoutes);
 
@@ -1051,6 +1067,14 @@ server.listen(PORT, '0.0.0.0', () => {
     // Initialize WhatsApp (Baileys) with crash isolation supervisor
     if (process.env.DISABLE_WHATSAPP === '1' || process.env.DISABLE_WHATSAPP === 'true') {
       console.warn('[Startup] DISABLE_WHATSAPP set — skipping Baileys init (webapp only mode)');
+      // Webchat classification (classifyMessage) needs the fuzzy matcher, which
+      // is otherwise only initialized via initAssistant() on the Baileys path.
+      try {
+        const { initIntents } = await import('./assistant/intents.js');
+        await initIntents();
+      } catch (err: any) {
+        console.warn(`[Startup] initIntents failed in webapp-only mode: ${err.message}`);
+      }
     } else {
       await startBaileysWithSupervision();
     }

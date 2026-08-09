@@ -127,19 +127,38 @@ export const PROFILE_CONFIGS: Record<
 };
 
 /**
- * Extract all route names from routing.json
+ * Load the full routing map (route name -> {action, workflow_id?}).
  */
-function extractRoutes(routingFile: string): Set<string> {
+function loadRouting(
+  routingFile: string
+): Record<string, { action?: string; workflow_id?: string }> {
   if (!existsSync(routingFile)) {
-    return new Set();
+    return {};
   }
 
   try {
     const content = readFileSync(routingFile, 'utf-8');
-    const data = JSON.parse(content);
-    return new Set(Object.keys(data));
+    return JSON.parse(content);
   } catch (error) {
     throw new Error(`Failed to parse routing.json: ${routingFile}`);
+  }
+}
+
+/**
+ * Load the set of workflow ids defined in workflows.json (empty set if absent).
+ */
+function loadWorkflowIds(workflowsFile: string): Set<string> {
+  if (!existsSync(workflowsFile)) {
+    return new Set();
+  }
+
+  try {
+    const content = readFileSync(workflowsFile, 'utf-8');
+    const data = JSON.parse(content);
+    const list = Array.isArray(data?.workflows) ? data.workflows : [];
+    return new Set(list.map((w: { id?: string }) => w.id).filter(Boolean));
+  } catch (error) {
+    throw new Error(`Failed to parse workflows.json: ${workflowsFile}`);
   }
 }
 
@@ -160,16 +179,32 @@ export function validateProfile(
   const dataDir = join(rootDir, config.dataDir);
   const routingFile = join(dataDir, 'routing.json');
 
-  const routes = extractRoutes(routingFile);
+  const routing = loadRouting(routingFile);
+  const workflowIds = loadWorkflowIds(join(dataDir, 'workflows.json'));
   const mismatches: RouteIntentMismatch[] = [];
 
   // Check each route to ensure it's not from a forbidden (other profile's) intent
-  for (const route of routes) {
+  for (const [route, entry] of Object.entries(routing)) {
     if (config.forbiddenIntents.has(route)) {
       mismatches.push({
         profileId,
         route,
         reason: `Route "${route}" belongs to a different business profile and should not be in ${config.label} routing.json`,
+      });
+    }
+    // Broken workflow reference: a routed workflow that doesn't exist silently
+    // degrades to a generic LLM reply at runtime (this shipped once — the
+    // booking_cancellation workflow was deleted while its route remained).
+    if (
+      entry?.action === 'workflow' &&
+      entry.workflow_id &&
+      !workflowIds.has(entry.workflow_id)
+    ) {
+      mismatches.push({
+        profileId,
+        route,
+        referencedIntent: entry.workflow_id,
+        reason: `Route "${route}" points to workflow_id "${entry.workflow_id}" which does not exist in workflows.json`,
       });
     }
   }

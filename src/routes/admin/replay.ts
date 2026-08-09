@@ -32,7 +32,7 @@ import type { ConversationEvent } from '../../assistant/memory-writer.js';
 
 const router = Router();
 
-router.post('/replay-classification', async (req: Request, res: Response) => {
+router.post('/admin/replay-classification', async (req: Request, res: Response) => {
   const started = performance.now();
   const text: string = typeof req.body?.text === 'string' ? req.body.text : '';
   const profileId: string =

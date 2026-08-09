@@ -75,7 +75,7 @@ async function getOpenEscalations(slaDurationMinutes: number): Promise<OpenEscal
        e.profile_id,
        e.created_at,
        e.metadata,
-       EXTRACT(EPOCH FROM (NOW() - e.created_at)) / 60 AS minutes_waiting,
+       (julianday('now') - julianday(e.created_at)) * 1440.0 AS minutes_waiting,
        (
          SELECT content
          FROM rainbow_messages
@@ -88,7 +88,7 @@ async function getOpenEscalations(slaDurationMinutes: number): Promise<OpenEscal
      FROM escalation_events e
      WHERE e.sla_breached_at IS NULL
        AND e.human_responded_at IS NULL
-       AND e.created_at <= NOW() - ($1 * INTERVAL '1 minute')
+       AND e.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || $1 || ' minutes')
        AND NOT EXISTS (
          SELECT 1 FROM rainbow_messages m
          WHERE m.phone = e.jid
@@ -103,7 +103,8 @@ async function getOpenEscalations(slaDurationMinutes: number): Promise<OpenEscal
     id: row.id,
     jid: row.jid,
     profileId: row.profile_id,
-    createdAt: row.created_at,
+    // SQLite (via the pg shim) returns TEXT timestamps — coerce to Date.
+    createdAt: new Date(row.created_at),
     metadata: row.metadata,
     slaDurationMinutes,
     minutesWaiting: Math.round(row.minutes_waiting),
@@ -244,7 +245,7 @@ export async function getOpenHandoffs(slaDurationMinutes?: number): Promise<Open
        e.jid,
        e.profile_id,
        e.created_at,
-       EXTRACT(EPOCH FROM (NOW() - e.created_at)) / 60 AS minutes_waiting,
+       (julianday('now') - julianday(e.created_at)) * 1440.0 AS minutes_waiting,
        (
          SELECT content
          FROM rainbow_messages
@@ -258,7 +259,7 @@ export async function getOpenHandoffs(slaDurationMinutes?: number): Promise<Open
        e.human_responded_at
      FROM escalation_events e
      WHERE e.human_responded_at IS NULL
-       AND e.created_at >= NOW() - INTERVAL '24 hours'
+       AND e.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours')
      ORDER BY e.created_at DESC`,
     []
   );
@@ -278,13 +279,14 @@ export async function getOpenHandoffs(slaDurationMinutes?: number): Promise<Open
       id: row.id,
       jid: row.jid,
       profileId: row.profile_id,
-      escalatedAt: row.created_at.toISOString(),
+      // SQLite (via the pg shim) returns TEXT timestamps — coerce to Date.
+      escalatedAt: new Date(row.created_at).toISOString(),
       minutesWaiting: minutes,
       slaDurationMinutes: slaMin,
       slaStatus,
       lastUserMessage: row.last_user_message,
-      slaBreachedAt: row.sla_breached_at?.toISOString() ?? null,
-      humanRespondedAt: row.human_responded_at?.toISOString() ?? null,
+      slaBreachedAt: row.sla_breached_at ? new Date(row.sla_breached_at).toISOString() : null,
+      humanRespondedAt: row.human_responded_at ? new Date(row.human_responded_at).toISOString() : null,
     };
   });
 }
