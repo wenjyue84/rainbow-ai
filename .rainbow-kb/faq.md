@@ -65,8 +65,8 @@ A: Yes, if they have your ID (photo/copy) and booking details.
 **Q: Power adapter needed?**
 A: Malaysia uses Type G (UK-style 3-pin), 240V / 50Hz.
 
-**Q: Can I store luggage after check-out?**
-A: Ask staff — availability and fees depend on space.
+**Q: Can I store luggage before check-in or after check-out?**
+A: Yes! You can leave bags with our staff whether you arrive before 2 PM check-in or need to keep luggage after 12 PM check-out. Subject to space availability — let staff know on arrival or WhatsApp +60 12-708 8789 to arrange.
 
 ---
 

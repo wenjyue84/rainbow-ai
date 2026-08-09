@@ -10,9 +10,9 @@
 2. **Arrive at the entrance**
    - Use the map link: https://maps.app.goo.gl/maLXetUqYS5MtSLD9?g_st=iwb
 
-3. **Enter the door password**
-   - Password: **1270#**
-   - Enter at door keypad, then push/pull to enter
+3. **Enter the building**
+   - Scan the **QR code board** posted at the hostel entrance for entry instructions.
+   - Your self check-in link (sent via WhatsApp after booking) also guides you through the door.
 
 4. **Go to your assigned capsule area**
    - Refer to your booking confirmation or check-in instructions

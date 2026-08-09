@@ -5,7 +5,7 @@
 - **Location:** 26A Jalan Perang, Taman Pelangi, 80400 Johor Bahru
 - **Capacity:** Multiple capsule units (upper & lower decks)
 - **Check-in:** 2:00 PM | **Check-out:** 12:00 PM (noon)
-- **Door code:** 1270#
+- **Door access:** QR board at entrance (physical lock relocated to JB Capsule — no shared door code)
 - **WiFi:** pelangi capsule / ilovestaycapsule
 
 ## Daily Operations
@@ -74,6 +74,25 @@
 ## Laundry
 - Self-service: RM5/load
 - Machines in common area
+
+## PMS2 Staff Tools
+
+### Cash Drawer (`/cash`)
+Record daily cash transactions for audit purposes.
+1. Navigate to `/cash` in PMS2 staff dashboard
+2. Select type: **Cash In** or **Cash Out**
+3. Enter amount (RM) and reason (e.g. "Guest payment", "Change fund", "Expense")
+4. Submit — entry is timestamped and tied to your staff login
+5. Day-end: tally against physical cash drawer before handover
+
+### Aircond Maintenance (`/aircond`)
+Log and track air-conditioning issues per capsule unit.
+1. Navigate to `/aircond` in PMS2 staff dashboard
+2. Select affected unit number
+3. Log issue type: Not cooling / Dripping / Noisy / Not turning on / Other
+4. Set status: **Pending** / **In Progress** / **Resolved**
+5. Add notes (contractor name, scheduled date, parts ordered)
+6. Notify Jay via WhatsApp for issues unresolved after 24 hours
 
 ## Emergency Procedures
 - Fire: evacuate via stairs, call 999

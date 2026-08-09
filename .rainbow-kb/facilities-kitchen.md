@@ -14,6 +14,9 @@
 - Hot & cold filtered water dispenser / drinking water station
 - Coffee machine (free to use)
 
+## What You Can Cook
+Guests are welcome to do basic self-catering — instant noodles (Maggie Mee), sandwiches, simple snacks and light meals. Full meal prep is possible with the available cookware.
+
 ## Kitchen Rules
 - Clean up after yourself (see `rules-shared-spaces.md`)
 - Label your food in the fridge

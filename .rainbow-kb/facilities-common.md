@@ -15,8 +15,8 @@
 - Fresh air and outdoor seating
 
 ## Storage
-- Lockers for valuables (bring your own padlock)
-- Luggage storage space (subject to availability)
+- **Luggage storage:** Available for guests before check-in or after check-out (subject to availability). Leave bags with staff — no padlock needed. Contact staff on arrival or WhatsApp +60 12-708 8789.
+- **Lockers for valuables:** Available in common area. Bring your own padlock.
 
 ## Laundry
 - Laundry access available

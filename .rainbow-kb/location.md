@@ -1,5 +1,10 @@
 # Pelangi Capsule Hostel - Location & Directions
 
+> **[INSTRUCTION FOR AI ASSISTANT]** Whenever you answer any question about buses, public transport, or bus routes using information from this file, you MUST append the following line to your reply — no exceptions:
+> *"⚠️ Bus routes are AI-provided and may have changed. Please confirm with the driver or JB Sentral staff before boarding."*
+
+# Pelangi Capsule Hostel - Location & Directions
+
 ## 📍 Our Address
 
 **Pelangi Capsule Hostel**
@@ -57,9 +62,13 @@ Many of our guests arrive from Singapore! Here are the best ways:
 4. **Duration:** ~30 mins to Woodlands Checkpoint + immigration
 5. Night service: 11pm-4:15am (45-min intervals)
 
-**After clearing JB Immigration:**
-- Take Grab from JB CIQ (~RM10-15, 10 mins)
-- OR take bus CT1/J11/J15/J20/J22 toward Taman Pelangi (see "From JB Sentral" below)
+**After clearing JB Immigration — By Bus (see full guide below):**
+- **Best (closest stop): CT1** → alight "Opp Pelangi Leisure Mall" → 2-min walk to hostel. Runs every 80 min; no service 12:20–15:50.
+- **Most frequent: J15** → alight "Opp Plaza Pelangi" on Jalan Tebrau → 15–20 min walk (or RM5–8 Grab from there). Runs every 20 min.
+- **See "From JB CIQ" section below for full step-by-step.**
+
+**After clearing JB Immigration — By Grab (RM10–15, fastest):**
+- Open Grab at CIQ exit → "Pelangi Capsule Hostel, 26A Taman Pelangi" → ~10 minutes direct
 
 ### Option 2: KTM Shuttle Tebrau Train (Fastest Transit - ~S$5)
 1. Take MRT to **Woodlands Checkpoint**
@@ -83,32 +92,63 @@ The **Johor Bahru-Singapore Rapid Transit System** is launching end-2026:
 
 ---
 
+## 🏛️ From JB CIQ (Already at the Border Checkpoint)
+
+If you have just cleared Malaysian immigration at JB CIQ (Johor Bahru Customs, Immigration & Quarantine):
+
+### Option A: By CT1 Bus — CLOSEST stop to hostel (RM2, ~35 min total)
+1. Follow indoor walkway from CIQ → **JB Sentral bus terminal** (~5 min walk, air-conditioned corridor)
+2. At JB Sentral ground floor terminal, board **Causeway Link CT1** (towards Bayu Puteri)
+3. Alight at **"Opp Pelangi Leisure Mall"** stop on Jalan Serampang — inside Taman Pelangi residential area
+4. Walk ~2 minutes (160m) to our hostel at 26A Jalan Perang
+- **Fare:** ~RM2 | **CT1 frequency:** every 80 minutes
+- **CT1 departures from JB Sentral:** 07:00, 08:20, 09:40, 11:00, 12:20, 15:50, 17:10, 18:30, 19:50
+- ⚠️ **No CT1 service 12:20–15:50** (3.5-hour mid-day gap) — use J15 + Grab at that time
+
+### Option B: By J15 Bus + short Grab (RM1.20 + RM5–8, ~30 min total)
+1. Same walk to JB Sentral bus terminal
+2. Board **BAS.MY J15** (every 20 min, 05:00–midnight) — very frequent!
+3. Alight at **"Opp Plaza Pelangi"** stop on Jalan Tebrau (highway-side stop)
+4. From there, book a **short Grab** to hostel (~RM5–8, 5 min) — recommended, as walk is 15–20 min
+5. OR walk ~15–20 minutes through Taman Pelangi residential streets to hostel
+- **Fare:** RM1.20 bus | **J15 is best when CT1 is not running**
+
+### Option C: By Grab direct (RM10–15, ~10 min)
+- Open Grab at CIQ exit → "Pelangi Capsule Hostel, 26A Taman Pelangi" → ~10 minutes direct
+
+> ⚠️ Note: CW1 and CW2 are cross-border Singapore ↔ JB buses — do NOT take these for local JB travel.
+
+> 🤖 **AI Disclaimer:** Bus routes and schedules above are provided by AI and may have changed. Please **confirm with the bus driver or JB Sentral staff** before boarding.
+
+---
+
 ## 🚉 From JB Sentral (Main Train/Bus Terminal)
 
 **Distance:** 5-7 minutes drive / 4.5 km
 
 ### Option 1: Public Bus (RM1.40 - Budget Friendly!)
 
-**Available Buses to Taman Pelangi:**
-- **BAS.MY J11** (every 30 mins)
-- **BAS.MY J15** (every 20 mins) ⭐ Most frequent!
-- **BAS.MY J20** (every 30 mins)
-- **BAS.MY J22** (every 30 mins)
-- **BAS.MY J21** (to east side of Pelangi)
+**Option A — CT1 (BEST: closest stop to hostel, every 80 min)**
 - **Causeway Link CT1** (JB Sentral → Bayu Puteri via Taman Pelangi)
+- Alight: **"Opp Pelangi Leisure Mall"** stop on Jalan Serampang (inside the residential area)
+- Walk: ~2 minutes (160m) to hostel at 26A Jalan Perang ✅ CLOSEST
+- Fare: ~RM2 | Frequency: every 80 min
+- Departures from JB Sentral: 07:00, 08:20, 09:40, 11:00, 12:20, 15:50, 17:10, 18:30, 19:50
+- ⚠️ No service 12:20–15:50
 
-**How to Board:**
+**Option B — J15 (most frequent, every 20 min) + short walk or Grab**
+- **BAS.MY J15** (every 20 min, 05:00–midnight) — also J11/J20/J22 work
+- Alight: **"Opp Plaza Pelangi"** stop on Jalan Tebrau (highway-side stop)
+- Cross overhead bridge, then **walk ~15–20 minutes** through Taman Pelangi to hostel
+- OR book a **short Grab (~RM5–8)** from Plaza Pelangi stop — 5 min to hostel
+- Fare: ~RM1.20 | Best choice when CT1 is not running
+
+**How to Board (both options):**
 1. Go to **ground floor bus terminal** at JB Sentral
-2. Look for buses with "Pelangi" or "Taman Pelangi" on route sign
-3. Tell driver: "Plaza Pelangi" or "Taman Pelangi"
-4. **Fare:** ~RM1.40 per person
-5. **Duration:** 15-20 minutes
+2. CT1: look for "Bayu Puteri" / "Taman Pelangi" sign | J15: Bus Bay 5
+3. **Duration from JB Sentral:** ~15 minutes to Taman Pelangi area
 
-**Where to Alight:**
-- Look for **Plaza Pelangi** mall (large shopping center at road junction)
-- Get off at bus stop **opposite Plaza Pelangi**
-- Cross using overhead bridge
-- Hostel is nearby! (5-minute walk)
+> 🤖 **AI Disclaimer:** Bus routes and schedules are provided by AI and may have changed. Please **confirm with the driver or JB Sentral staff** before boarding.
 
 ### Option 2: Grab/Taxi (RM10-15 - Fast & Direct!)
 1. Open Grab app or find taxi at JB Sentral taxi stand
@@ -130,7 +170,7 @@ If arriving by long-distance bus from other Malaysian cities:
 ## 🏢 Nearby Landmarks (For Reference)
 
 **Next to Hostel:**
-- **Plaza Pelangi** - 0.6 miles / 1 km (5-min walk)
+- **Plaza Pelangi** - 1 km (12–15 min walk or 5-min Grab)
 - **Pelangi Leisure Mall** - 0.1 miles / 160 meters (2-min walk) - Has bowling, gym, Giant supermarket, Mr. DIY
 - **SMK Taman Pelangi** bus stop - 5-min walk
 
