@@ -390,8 +390,9 @@ function renderOperatorsTab(container) {
 
       <div class="grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-100 rounded-t-xl text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
         <div class="col-span-1">Pos</div>
-        <div class="col-span-4">Label / Name</div>
-        <div class="col-span-4">WhatsApp Phone</div>
+        <div class="col-span-3">Label</div>
+        <div class="col-span-2">Name</div>
+        <div class="col-span-3">WhatsApp Phone</div>
         <div class="col-span-2">Fallback (min)</div>
         <div class="col-span-1 text-right">Action</div>
       </div>
@@ -487,16 +488,25 @@ export function renderOperatorsList() {
       <div class="w-1/12">
         <span class="text-xs font-bold text-neutral-400">#${index + 1}</span>
       </div>
-      <div class="w-4/12">
+      <div class="w-3/12">
         <input
           type="text"
           value="${esc(op.label)}"
-          placeholder="e.g. Reception A"
+          placeholder="Operator 1 (Primary)"
           onchange="updateOperatorField(${index}, 'label', this.value)"
           class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition"
         />
       </div>
-      <div class="w-4/12">
+      <div class="w-2/12">
+        <input
+          type="text"
+          value="${esc(op.name || '')}"
+          placeholder="e.g. Jay"
+          onchange="updateOperatorField(${index}, 'name', this.value)"
+          class="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition font-medium"
+        />
+      </div>
+      <div class="w-3/12">
         <input
           type="tel"
           value="${esc(op.phone)}"
@@ -536,6 +546,7 @@ export function addOperator() {
   const newOperator = {
     phone: '',
     label: 'Operator ' + (window.currentOperators.length + 1),
+    name: '',
     fallbackMinutes: 5
   };
 

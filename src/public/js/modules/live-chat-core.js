@@ -743,8 +743,13 @@ export function renderChat(log) {
 
     var manualTag = '';
     if (!isGuest && msg.manual) {
-      var staffLabel = (msg.staffName ? escapeHtml(msg.staffName) : null) || $.staffName || 'Staff';
-      manualTag = '<span class="lc-manual-tag">' + staffLabel + '</span>';
+      var rawStaff = msg.staffName || $.staffName || 'Staff';
+      // Resolve phone → operator name if stored as a phone number
+      if (window.currentOperators && /^\d{8,15}$/.test(rawStaff)) {
+        var matchOp = window.currentOperators.find(function(o) { return o.phone === rawStaff; });
+        if (matchOp && matchOp.name) rawStaff = matchOp.name;
+      }
+      manualTag = '<span class="lc-manual-tag">' + escapeHtml(rawStaff) + '</span>';
     }
 
     var isCurrentMatch = $.searchCurrent >= 0 && $.searchMatches[$.searchCurrent] === i;

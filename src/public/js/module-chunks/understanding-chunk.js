@@ -6,6 +6,14 @@
 import { loadUnderstanding } from '/public/js/modules/understanding.js';
 
 import {
+  loadRegexPatterns,
+  renderRegexPatterns,
+  addRegexPattern,
+  removeRegexPattern,
+  saveRegexPatterns,
+} from '/public/js/modules/regex-patterns.js';
+
+import {
   loadIntentManagerData,
   toggleTier,
   loadTierStates,
@@ -39,7 +47,36 @@ import {
   quickAddExample
 } from '/public/js/modules/intent-manager.js';
 
+// T4 (AI Fallback) settings live in llm-settings.js. Historically only
+// settings-chunk registered them, so the Understanding t4 section stayed empty
+// unless the Settings tab was visited first — register them here too.
+import {
+  loadLLMSettings,
+  renderT4ProvidersList,
+  toggleT4InactiveProviders,
+  toggleT4Provider,
+  moveT4Provider,
+  autoSaveT4Providers,
+  testT4Provider,
+  saveLLMSettings
+} from '/public/js/modules/llm-settings.js';
+
 // ─── Window globals ──────────────────────────────────────────────
+
+window.loadLLMSettings = loadLLMSettings;
+window.renderT4ProvidersList = renderT4ProvidersList;
+window.toggleT4InactiveProviders = toggleT4InactiveProviders;
+window.toggleT4Provider = toggleT4Provider;
+window.moveT4Provider = moveT4Provider;
+window.autoSaveT4Providers = autoSaveT4Providers;
+window.testT4Provider = testT4Provider;
+window.saveLLMSettings = saveLLMSettings;
+
+window.loadRegexPatterns = loadRegexPatterns;
+window.renderRegexPatterns = renderRegexPatterns;
+window.addRegexPattern = addRegexPattern;
+window.removeRegexPattern = removeRegexPattern;
+window.saveRegexPatterns = saveRegexPatterns;
 
 window.loadUnderstanding = loadUnderstanding;
 window.loadIntentManagerData = loadIntentManagerData;
