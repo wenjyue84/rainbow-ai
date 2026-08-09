@@ -200,6 +200,21 @@ The WhatsApp AI assistant handles guest inquiries automatically:
 
 ## Testing
 
+### ACI — agent test harness
+
+Single CLI entry point for LLM agents (and humans) to regression-test the app
+without a browser or live WhatsApp. Run `describe` first — it is the discovery catalog.
+
+```bash
+node scripts/aci/rainbow-aci.mjs describe        # capability catalog — START HERE
+node scripts/aci/rainbow-aci.mjs status          # env + data health, no server
+node scripts/aci/rainbow-aci.mjs test --suite=all  # config, data, health, chat, go (ephemeral server on :3199)
+node scripts/aci/rainbow-aci.mjs chat --profile=pelangi --message="hello"
+node scripts/aci/rainbow-aci.mjs gates           # slow authoritative path: test:regression + go test
+```
+
+JSON verdict on stdout, progress on stderr; exit 0/1/2 = pass/fail/usage.
+
 ```bash
 # Health check
 curl http://localhost:3002/health

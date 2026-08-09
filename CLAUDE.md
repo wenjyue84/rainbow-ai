@@ -46,6 +46,14 @@ npm run db:push      # Push Drizzle schema (SQLite — auto-runs on startup)
 npm run build:css    # Rebuild Tailwind CSS
 ```
 
+## ACI — agent test harness (fast path for agents)
+
+Agents: start with `node scripts/aci/rainbow-aci.mjs describe` — machine-readable catalog.
+Suites: `test --suite=config|data|health|chat|go|all` (spawns ephemeral server on :3199 with
+`DISABLE_WHATSAPP=true` + `SQLITE_PATH=:memory:` — never touches live WhatsApp or the real DB).
+`gates` wraps the deploy gate (`npm run test:regression`) + `go test ./...`. Agents:
+`.claude/agents/rainbow-aci-deterministic.md` (regression) and `rainbow-aci-evaluator.md` (UX/flow).
+
 ## Database
 
 **Provider:** SQLite via `better-sqlite3`. Path set via `SQLITE_PATH` env var (default: `./data/rainbow-ai.db`).
@@ -106,6 +114,28 @@ bash deploy.sh --skip-build --skip-tests  # Fastest: upload + restart only
 - **Zod schemas** in `src/assistant/schemas.ts` are source of truth for config types
 - **Import paths** use `.js` extensions (NodeNext module resolution)
 - Build copies `src/assistant/data/` and `src/public/` to `dist/` (static assets)
+
+## Senai Room Rental Integration (rental-ad / Ramli)
+
+rainbow-ai runs the **Ramli** bot for the Senai worker housing business, acting as MCP client to the senai room rental app.
+
+| Component | Details |
+|-----------|---------|
+| Profile ID | `senai-app` (also called "rental-ad") |
+| Bot persona | Ramli — tenant communication, payment chasing |
+| WhatsApp bridge | port 8790 (instanceId: `senai`), number +60103341058 |
+| MCP server | `POST https://senai.wenjyue.com/api/mcp` (JSON-RPC 2.0) |
+| MCP auth | `x-api-key: <MCP_API_KEY>` |
+| Senai app repo | `C:\Users\Jyue\Documents\1-projects\Software Projects\senai-room-management-system` |
+| Senai app live | https://senai.wenjyue.com |
+
+**MCP Tools available (senai rental app exposes):**
+`senai_ping`, `senai_get_daily_briefing`, `senai_list_tenants`, `senai_get_tenant`,
+`senai_list_rooms`, `senai_list_houses`, `senai_list_maintenance`, `senai_list_recent_payments`
+
+**Sidebar link:** The senai rental app has a "Ramli AI Bot" link in its left nav pointing to https://rainbow.wenjyue.com.
+
+**Ramli agent:** `~/.claude/agents/ramli.md` — Juno-side agent that orchestrates WA sends via the bridge.
 
 ## Architecture Documentation
 

@@ -56,7 +56,11 @@ tar -czf "$TARBALL" \
   profiles.json \
   .rainbow-kb/ \
   .rainbow-kb-southern/ \
-  .rainbow-kb-makan/
+  .rainbow-kb-makan/ \
+  .rainbow-kb-pms-capsule/ \
+  .rainbow-kb-pms-southern/ \
+  .rainbow-kb-yoongmei/ \
+  .rainbow-kb-senai/
 
 echo "    $(du -h "$TARBALL" | cut -f1) compressed"
 
