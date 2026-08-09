@@ -336,6 +336,21 @@ func main() {
 			msg.MessageType = contract.MsgImage
 			msg.MediaURL = in.Image
 		}
+		// Profile isolation: an unknown profile id must error, not silently run
+		// against the default business's engine (leaks its persona + KB).
+		if in.Profile != "" {
+			known := false
+			for _, id := range hub.Profiles() {
+				if id == in.Profile {
+					known = true
+					break
+				}
+			}
+			if !known {
+				writeJSON(w, 404, map[string]any{"ok": false, "error": "unknown profile " + in.Profile})
+				return
+			}
+		}
 		replies, res, err := hub.ProcessCapture(ctx, in.Profile, msg)
 		if err != nil {
 			writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})

@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"rainbow-core/internal/store"
@@ -34,7 +36,8 @@ type Handler struct {
 	activeModels ActiveModelsFunc // classify + reply active-model summary (nil = omit)
 	classify     ClassifyFunc     // in-process classifier for the semantic check suite
 	sender       TextSender       // bridge client for staff WhatsApp sends (nil = 501)
-	staffNameCol int              // rainbow_messages staff_name column: 0 unknown, 1 yes, -1 no
+	staffNameCol     int       // rainbow_messages staff_name column: 0 unknown, 1 yes, -1 no
+	staffNameColOnce sync.Once // guards one-time init of staffNameCol
 }
 
 // SetBridge supplies the bridge base URL so /status can report the live
@@ -62,16 +65,96 @@ func (h *Handler) SetProfiles(ids []string, def string) {
 
 // routing serves the profile's routing.json (read-only).
 func (h *Handler) routing(w http.ResponseWriter, r *http.Request) {
-	h.serveJSONFile(w, "routing.json")
+	h.serveJSONFile(w, r, "routing.json")
 }
 
-// serveJSONFile streams a config JSON file from the data dir.
-func (h *Handler) serveJSONFile(w http.ResponseWriter, name string) {
+// ── Profile isolation ───────────────────────────────────────────────────────
+// Every config read/write resolves through reqProfile + profileVariant. The old
+// profileFilePath fell back to the GLOBAL file whenever a profile variant was
+// missing on disk, which showed — and on write paths, overwrote — the default
+// business's data under every other profile. Isolation rule: a non-default
+// profile NEVER touches the global (default-profile) file; a missing variant
+// reads as an empty document and is created on first write.
+
+var profileIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+// reqProfile returns the profile id from x-profile-id, mapped to "" for the
+// default profile (which owns the unsuffixed global files). Malformed or
+// unknown ids return an error — a typo must fail loudly, not leak another
+// business's data.
+func (h *Handler) reqProfile(r *http.Request) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(r.Header.Get("x-profile-id")))
+	if p == "" {
+		return "", nil
+	}
+	if !profileIDRe.MatchString(p) {
+		return "", fmt.Errorf("invalid x-profile-id %q", p)
+	}
+	def := h.defaultProfile
+	if def == "" {
+		def = "pelangi"
+	}
+	if p == def {
+		return "", nil
+	}
+	if len(h.profileIDs) > 0 {
+		for _, id := range h.profileIDs {
+			if id == p {
+				return p, nil
+			}
+		}
+		return "", fmt.Errorf("unknown profile %q", p)
+	}
+	return p, nil
+}
+
+// profileVariant maps name.ext to name-<profile>.ext.
+func profileVariant(name, profile string) string {
+	ext := filepath.Ext(name)
+	return strings.TrimSuffix(name, ext) + "-" + profile + ext
+}
+
+// emptyDocLike returns "[]" when the reference file holds a JSON array, "{}"
+// otherwise — so a profile with no data yet gets a type-correct empty doc and
+// the SPA renders its empty state instead of erroring.
+func emptyDocLike(refPath string) []byte {
+	if b, err := os.ReadFile(refPath); err == nil {
+		for _, c := range b {
+			if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+				continue
+			}
+			if c == '[' {
+				return []byte("[]")
+			}
+			break
+		}
+	}
+	return []byte("{}")
+}
+
+// serveJSONFile streams a config JSON file from the data dir. Non-default
+// profiles are served ONLY their own -<profile> variant; if it doesn't exist
+// yet the response is an empty doc, never the default profile's file.
+func (h *Handler) serveJSONFile(w http.ResponseWriter, r *http.Request, name string) {
 	if h.dataDir == "" {
 		writeJSON(w, 404, map[string]any{"error": "no data dir"})
 		return
 	}
-	b, err := os.ReadFile(filepath.Join(h.dataDir, name))
+	p, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	path := filepath.Join(h.dataDir, name)
+	if p != "" {
+		path = filepath.Join(h.dataDir, profileVariant(name, p))
+		if _, statErr := os.Stat(path); statErr != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(emptyDocLike(filepath.Join(h.dataDir, name)))
+			return
+		}
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
 		writeJSON(w, 404, map[string]any{"error": name + " not found"})
 		return
@@ -85,6 +168,7 @@ var dashboardTabs = []string{
 	"dashboard", "understanding", "responses", "intents", "chat-simulator",
 	"testing", "performance", "settings", "help", "intent-manager",
 	"static-replies", "kb", "preview", "real-chat", "workflow",
+	"widget-chats", // operator view for website widget chat sessions
 }
 
 // Register mounts the admin API + (optionally) the dashboard SPA on the mux.
@@ -106,13 +190,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// ── Config read endpoints (raw passthrough of the profile config JSON, so
 	//    every dashboard tab's fatal load call returns 200 with the shape the SPA
 	//    expects — matching the Node getStore().getX() output). ──
-	mux.HandleFunc("/api/rainbow/intents", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "intents.json") }))
-	mux.HandleFunc("/api/rainbow/knowledge", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "knowledge.json") }))
-	mux.HandleFunc("/api/rainbow/templates", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "templates.json") }))
-	mux.HandleFunc("/api/rainbow/workflows", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "workflows.json") }))
-	mux.HandleFunc("/api/rainbow/workflow", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "workflow.json") }))
-	mux.HandleFunc("/api/rainbow/intent-manager/keywords", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "intent-keywords.json") }))
-	mux.HandleFunc("/api/rainbow/intent-manager/examples", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, "intent-examples.json") }))
+	mux.HandleFunc("/api/rainbow/intents", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "intents.json") }))
+	mux.HandleFunc("/api/rainbow/knowledge", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "knowledge.json") }))
+	mux.HandleFunc("/api/rainbow/templates", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "templates.json") }))
+	mux.HandleFunc("/api/rainbow/workflows", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "workflows.json") }))
+	mux.HandleFunc("/api/rainbow/workflow", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "workflow.json") }))
+	mux.HandleFunc("/api/rainbow/intent-manager/keywords", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "intent-keywords.json") }))
+	mux.HandleFunc("/api/rainbow/intent-manager/examples", h.auth(func(w http.ResponseWriter, r *http.Request) { h.serveJSONFile(w, r, "intent-examples.json") }))
 
 	// Understanding tab (t2 stats, t3 tiers, t4 LLM settings/system prompt).
 	mux.HandleFunc("/api/rainbow/intent-manager/stats", h.auth(h.imStats))
@@ -120,6 +204,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/intent-manager/llm-settings", h.auth(h.imLLMSettings))
 	mux.HandleFunc("/api/rainbow/intent-manager/llm-settings/available-providers", h.auth(h.imAvailableProviders))
 	mux.HandleFunc("/api/rainbow/intent-manager/system-prompt", h.auth(h.imSystemPrompt))
+	mux.HandleFunc("/api/rainbow/intent-manager/regex", h.auth(h.imRegex))
 
 	// Responses tab: quick-reply draft generation (LLM-backed).
 	mux.HandleFunc("/api/rainbow/knowledge/generate-draft", h.auth(h.generateDraft))
@@ -128,13 +213,22 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/tests/run", h.auth(h.testsRun))
 	mux.HandleFunc("/api/rainbow/testing/run-all", h.auth(h.testingRunAll))
 	mux.HandleFunc("/api/rainbow/admin-notifications", h.auth(h.adminNotifications))
+	mux.HandleFunc("/api/rainbow/admin-notifications/operators", h.auth(h.adminNotificationsOperators))
+	mux.HandleFunc("/api/rainbow/admin-notifications/preferences", h.auth(h.adminNotificationsPreferences))
+	mux.HandleFunc("/api/rainbow/admin-notifications/system-admin-phone", h.auth(h.adminNotificationsSystemPhone))
+
+	// Booking notification from PMS2 public website bookings. NOT wrapped in
+	// h.auth because PMS2's rainbowNotify sends no X-Admin-Key header. Instead,
+	// an optional NOTIFY_SHARED_SECRET env var / X-Notify-Secret header pair
+	// is checked inside the handler itself.
+	mux.HandleFunc("/api/rainbow/notify-booking", h.notifyBooking)
 
 	// Profile switcher (called on every tab) + per-tab HTML template loader — both
 	// are fatal for the SPA: the switcher runs globally, and each tab's body HTML
 	// is fetched from /templates/{name}.
 	mux.HandleFunc("/api/rainbow/profiles", h.auth(h.profiles))
 	mux.HandleFunc("/api/rainbow/profiles/active", h.auth(h.profilesActive))
-	mux.HandleFunc("/api/rainbow/templates/", h.auth(h.templateHTML))
+	mux.HandleFunc("/api/rainbow/templates/", h.auth(h.templatesItem))
 
 	// Analytics endpoints backed by Postgres in the Node monolith. go-core has no
 	// such data, so these return an empty-but-valid shape (totals = 0) — the SPA's
@@ -290,7 +384,22 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	if v, err := strconv.Atoi(os.Getenv("CORE_PORT")); err == nil && v > 0 {
 		port = v
 	}
-	propertyName := os.Getenv("BUSINESS_DISPLAY_NAME")
+	// Per-profile override: x-profile-id header → RAINBOW_WA_NUMBER_<PROFILE>
+	// and BUSINESS_DISPLAY_NAME_<PROFILE> take precedence over global vars.
+	profileHeader := r.Header.Get("x-profile-id")
+	waNumberEnvKey := "RAINBOW_WA_NUMBER"
+	displayNameEnvKey := "BUSINESS_DISPLAY_NAME"
+	if profileHeader != "" {
+		suffix := strings.ToUpper(strings.ReplaceAll(profileHeader, "-", "_"))
+		if v := os.Getenv("RAINBOW_WA_NUMBER_" + suffix); v != "" {
+			waNumberEnvKey = "RAINBOW_WA_NUMBER_" + suffix
+		}
+		if v := os.Getenv("BUSINESS_DISPLAY_NAME_" + suffix); v != "" {
+			displayNameEnvKey = "BUSINESS_DISPLAY_NAME_" + suffix
+		}
+	}
+
+	propertyName := os.Getenv(displayNameEnvKey)
 	if propertyName == "" {
 		propertyName = os.Getenv("BUSINESS_NAME")
 	}
@@ -298,6 +407,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// Live WhatsApp state from the bridge (the Baileys session owner). The
 	// bridge /health reports connState ("open" = paired and connected); the
 	// bot number is not exposed there, so it comes from RAINBOW_WA_NUMBER.
+
 	waStatus := map[string]any{"state": "unknown", "user": nil}
 	waInstances := []any{}
 	if h.bridgeURL != "" {
@@ -305,6 +415,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		if req, err := http.NewRequestWithContext(bctx, http.MethodGet, h.bridgeURL+"/health", nil); err == nil {
 			if resp, err := http.DefaultClient.Do(req); err == nil {
+				defer resp.Body.Close()
 				var hb struct {
 					Whatsapp   string `json:"whatsapp"`
 					InstanceID string `json:"instanceId"`
@@ -315,9 +426,9 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 					// Display name comes only from BUSINESS_DISPLAY_NAME
 					// (BUSINESS_NAME on the VPS is a stale Node-era value
 					// for a different business).
-					displayName := os.Getenv("BUSINESS_DISPLAY_NAME")
+					displayName := os.Getenv(displayNameEnvKey)
 					var user any
-					if n := os.Getenv("RAINBOW_WA_NUMBER"); n != "" {
+					if n := os.Getenv(waNumberEnvKey); n != "" {
 						user = map[string]any{"phone": n, "name": displayName}
 					}
 					label := hb.InstanceID
@@ -330,7 +441,6 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 						"user": user, "unlinkedFromWhatsApp": false,
 					}}
 				}
-				resp.Body.Close()
 			}
 		}
 	}
@@ -410,6 +520,46 @@ func (h *Handler) profilesActive(w http.ResponseWriter, r *http.Request) {
 
 // templateHTML ports GET /api/rainbow/templates/{name} — each dashboard tab's
 // body HTML is loaded from src/public/templates/tabs/{name}.html.
+// templatesItem multiplexes /api/rainbow/templates/<name>: GET serves the SPA
+// tab HTML (legacy behavior), PUT/DELETE edit the requesting profile's system
+// message templates file (templates.json or its -<profile> variant).
+func (h *Handler) templatesItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		h.templateHTML(w, r)
+		return
+	}
+	key := strings.TrimPrefix(r.URL.Path, "/api/rainbow/templates/")
+	if key == "" || strings.ContainsAny(key, `/\`) || strings.Contains(key, "..") {
+		writeJSON(w, 400, map[string]any{"error": "bad template key"})
+		return
+	}
+	if _, err := h.reqProfile(r); err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+	doc := map[string]any{}
+	h.readDataJSONReq(r, "templates.json", &doc)
+	switch r.Method {
+	case http.MethodPut:
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, 400, map[string]any{"error": "bad json"})
+			return
+		}
+		doc[key] = body
+	case http.MethodDelete:
+		delete(doc, key)
+	default:
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	if err := h.writeDataJSONReq(r, "templates.json", doc); err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 func (h *Handler) templateHTML(w http.ResponseWriter, r *http.Request) {
 	if h.publicDir == "" {
 		http.NotFound(w, r)
@@ -466,7 +616,7 @@ func (h *Handler) intentAccuracy(w http.ResponseWriter, r *http.Request) {
 // the top level (ai, staff, response_modes, …). Serving the file — not the flat
 // app_settings KV — is what the SPA expects.
 func (h *Handler) settings(w http.ResponseWriter, r *http.Request) {
-	h.serveJSONFile(w, "settings.json")
+	h.serveJSONFile(w, r, "settings.json")
 }
 
 // adminNotifications ports GET /api/rainbow/admin-notifications
@@ -481,6 +631,10 @@ func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
 			if rows.Scan(&k, &v) == nil {
 				kv[k] = v
 			}
+		}
+		if err := rows.Err(); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
 		}
 	}
 	boolOf := func(key string, def bool) bool {
@@ -506,6 +660,7 @@ func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
 	type operator struct {
 		Phone           string `json:"phone"`
 		Label           string `json:"label"`
+		Name            string `json:"name"`
 		FallbackMinutes int    `json:"fallbackMinutes"`
 	}
 	operators := []operator{}
@@ -514,8 +669,9 @@ func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(operators) == 0 {
 		operators = []operator{
-			{Phone: "60167620815", Label: "Operator 1 (Primary)", FallbackMinutes: 5},
-			{Phone: "60127088789", Label: "Operator 2 (Fallback)", FallbackMinutes: 10},
+			{Phone: "60167620815", Label: "Operator 1 (Primary)", Name: "Alston", FallbackMinutes: 5},
+			{Phone: "60127088789", Label: "Operator 2 (Fallback)", Name: "Jay", FallbackMinutes: 10},
+			{Phone: "60176701102", Label: "Operator 3 (On-site)", Name: "Maya", FallbackMinutes: 15},
 		}
 	}
 	writeJSON(w, 200, map[string]any{
@@ -527,6 +683,87 @@ func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
 		"operators":              operators,
 		"defaultFallbackMinutes": intOf("rainbow_default_fallback_minutes", 5),
 	})
+}
+
+// adminNotificationsOperators handles PUT /api/rainbow/admin-notifications/operators.
+func (h *Handler) adminNotificationsOperators(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Operators json.RawMessage `json:"operators"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid JSON"})
+		return
+	}
+	upsert := `INSERT INTO app_settings(id,key,value,updated_at)
+	           VALUES(lower(hex(randomblob(16))),?,?,unixepoch())
+	           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+	if _, err := h.st.DB.Exec(upsert, "rainbow_operators", string(body.Operators)); err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// adminNotificationsPreferences handles PUT /api/rainbow/admin-notifications/preferences.
+func (h *Handler) adminNotificationsPreferences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Enabled          *bool `json:"enabled"`
+		NotifyDisconnect *bool `json:"notifyDisconnect"`
+		NotifyUnlink     *bool `json:"notifyUnlink"`
+		NotifyReconnect  *bool `json:"notifyReconnect"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid JSON"})
+		return
+	}
+	upsert := `INSERT INTO app_settings(id,key,value,updated_at)
+	           VALUES(lower(hex(randomblob(16))),?,?,unixepoch())
+	           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+	set := func(key string, val *bool) {
+		if val != nil {
+			v := "false"
+			if *val {
+				v = "true"
+			}
+			h.st.DB.Exec(upsert, key, v)
+		}
+	}
+	set("rainbow_admin_notifications_enabled", body.Enabled)
+	set("rainbow_admin_notify_disconnect", body.NotifyDisconnect)
+	set("rainbow_admin_notify_unlink", body.NotifyUnlink)
+	set("rainbow_admin_notify_reconnect", body.NotifyReconnect)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// adminNotificationsSystemPhone handles PUT /api/rainbow/admin-notifications/system-admin-phone.
+func (h *Handler) adminNotificationsSystemPhone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Phone == "" {
+		writeJSON(w, 400, map[string]any{"error": "phone required"})
+		return
+	}
+	upsert := `INSERT INTO app_settings(id,key,value,updated_at)
+	           VALUES(lower(hex(randomblob(16))),?,?,unixepoch())
+	           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+	if _, err := h.st.DB.Exec(upsert, "rainbow_system_admin_phone", body.Phone); err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 // activityStream serves GET /api/rainbow/activity/stream as a Server-Sent

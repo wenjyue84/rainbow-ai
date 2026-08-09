@@ -364,6 +364,13 @@ async function initTabs() {
     }
   }
 
+  // Profile isolation: wait for the profile switcher to validate the stored
+  // profile before the first navigation so the first API calls carry the right
+  // x-profile-id header (ready resolves within 3s even if /profiles fails).
+  if (window.profileSwitcher && window.profileSwitcher.ready) {
+    await window.profileSwitcher.ready;
+  }
+
   // US-809: Initial load with profile-scoped URL handling
   handleNavigation();
 

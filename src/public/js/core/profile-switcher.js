@@ -419,6 +419,30 @@
   // Expose ready promise so callers can await profile validation
   switcher.ready = ready;
 
+  // ── Global profile-header guard ──────────────────────────────────────────
+  // Several modules call raw fetch() instead of the api() helper and used to
+  // hit /api/rainbow without x-profile-id — the server then served (and wrote!)
+  // the DEFAULT profile's data while another business was selected. Patching
+  // fetch once here covers every current and future call site.
+  var _origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    try {
+      var url = typeof input === 'string' ? input : ((input && input.url) || '');
+      var isAdminAPI = url.indexOf('/api/rainbow') === 0
+        || url.indexOf(location.origin + '/api/rainbow') === 0;
+      if (isAdminAPI) {
+        init = init || {};
+        var h = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
+        var ph = switcher.getHeaders();
+        Object.keys(ph).forEach(function (k) {
+          if (!h.has(k)) h.set(k, ph[k]);
+        });
+        init.headers = h;
+      }
+    } catch (e) { /* header injection must never break a request */ }
+    return _origFetch.call(this, input, init);
+  };
+
   // Expose globally
   window.profileSwitcher = switcher;
 
