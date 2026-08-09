@@ -215,12 +215,23 @@ func main() {
 		// Process with a bounded timeout; return the result for observability.
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
+		started := time.Now()
 		res, err := hub.Process(ctx, msg)
 		if err != nil {
-			log.Printf("[core] process %s: %v", msg.From, err)
+			log.Printf("[inbound] from=%s type=%s len=%d ERROR after %s: %v",
+				maskPhone(msg.From), msg.MessageType, len(msg.Text), time.Since(started).Round(time.Millisecond), err)
 			writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
+		// Every inbound message leaves exactly one line, including the ones we
+		// deliberately skip. Without this, a guest reporting "the bot never
+		// replied" is undiagnosable — there is no record the message existed.
+		// Message bodies are never logged (PDPA); only length and the decision.
+		log.Printf("[inbound] from=%s type=%s len=%d skipped=%v reason=%q intent=%s conf=%.2f src=%s action=%s lang=%s replied=%v escalated=%v took=%s",
+			maskPhone(msg.From), msg.MessageType, len(msg.Text),
+			res.Skipped, res.SkipReason, res.Intent, res.Confidence, res.Source,
+			res.Action, res.Language, res.Reply != "", res.Escalated,
+			time.Since(started).Round(time.Millisecond))
 		writeJSON(w, 200, map[string]any{
 			"ok":         true,
 			"skipped":    res.Skipped,
@@ -261,6 +272,10 @@ func main() {
 		log.Printf("[core] schedulers started (data-retention @ 03:00)")
 	}
 
+	// widgetAdminURL is the base URL of the rainbow admin dashboard, used to build
+	// the "Reply here" deep-link in new-widget-session WhatsApp notifications.
+	widgetAdminURL := env("RAINBOW_ADMIN_URL", "https://rainbow.wenjyue.com")
+
 	// Public webchat channel: synchronous request/response over HTTP, reusing the
 	// full pipeline (classification, RAG, workflows) but returning the reply
 	// instead of sending via the bridge.
@@ -276,10 +291,14 @@ func main() {
 			// Image is an optional data URL ("data:image/jpeg;base64,...") for
 			// payment-receipt OCR. jpeg/png only, ≤5MB decoded.
 			Image string `json:"image"`
+			// Test marks synthetic traffic (E2E harness, drills). When true, the
+			// operator WhatsApp notify is suppressed so test loops don't flood
+			// staff and blow the bridge anti-ban cold cap. Real guests never set it.
+			Test bool `json:"test"`
 		}
 		// 8 MB body cap: 5MB image → ~6.7MB base64 + JSON overhead.
 		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil || (in.Message == "" && in.Image == "") {
-			writeJSON(w, 400, map[string]any{"ok": false, "error": "message required"})
+			writeJSON(w, 400, map[string]any{"ok": false, "error": "message or image required"})
 			return
 		}
 		if in.Image != "" {
@@ -298,8 +317,18 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
+
+		// Detect new widget sessions: count existing messages for this phone
+		// BEFORE processing so we can notify the operator on the very first message.
+		// Uses both phone spellings (Go era "web:<sid>" and Node era "webchat-<sid>").
+		phone := "web:" + from
+		var existingMsgCount int
+		st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages WHERE phone IN (?, ?)`,
+			"web:"+from, "webchat-"+from).Scan(&existingMsgCount)
+		isNewSession := existingMsgCount == 0
+
 		msg := contract.IncomingMessage{
-			From: "web:" + from, Text: in.Message, PushName: "Web Guest",
+			From: phone, Text: in.Message, PushName: "Web Guest",
 			// Empty MessageID → no dedup (synchronous channel; repeats are allowed).
 			MessageType: contract.MsgText, InstanceID: "webchat",
 		}
@@ -312,12 +341,36 @@ func main() {
 			writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
+
+		// Notify the operator on the first message of a new widget session.
+		// Best-effort: never block or fail the guest reply over a notify error.
+		// Suppressed for synthetic traffic (test flag or E2E/shadow session ids):
+		// otherwise a test loop firing N sessions = N real WhatsApp pings to staff,
+		// which also blows the bridge cold-send anti-ban cap.
+		if isNewSession && staffPhone != "" && in.Message != "" && !in.Test && !isSyntheticSession(from) {
+			preview := in.Message
+			if len(preview) > 200 {
+				preview = preview[:200] + "…"
+			}
+			adminLink := widgetAdminURL + "/widget-chats?session=" + from
+			alert := "🔔 *Pelangi Website Chat*\n" +
+				"Guest: " + preview + "\n" +
+				"Session: " + from + "\n\n" +
+				"Reply here: " + adminLink
+			notifyCtx, notifyCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer notifyCancel()
+			if _, nerr := br.SendText(notifyCtx, staffPhone, alert, ""); nerr != nil {
+				log.Printf("[chat] widget-notify to %s failed: %v", staffPhone, nerr)
+			}
+		}
+
 		reply := ""
 		if len(replies) > 0 {
 			reply = strings.Join(replies, "\n\n")
 		}
 		writeJSON(w, 200, map[string]any{
 			"ok": true, "reply": reply, "intent": res.Intent, "action": res.Action, "language": res.Language,
+			"source": res.Source, "confidence": res.Confidence,
 		})
 	})
 
@@ -325,6 +378,9 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM.
@@ -355,8 +411,48 @@ func activeModelInfo(m *ai.Manager) map[string]any {
 	}
 }
 
+// maskPhone renders a phone/JID for logs as country code + last 4 digits
+// (6588329020@s.whatsapp.net -> 65***9020). Enough to correlate a guest
+// complaint with a log line without writing full numbers to disk.
+func maskPhone(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	var digits []rune
+	for _, r := range s {
+		if r == '@' {
+			break
+		}
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) < 6 {
+		if len(digits) == 0 {
+			return "unknown"
+		}
+		return string(digits)
+	}
+	return string(digits[:2]) + "***" + string(digits[len(digits)-4:])
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// isSyntheticSession reports whether a webchat sessionId belongs to automated
+// test traffic (E2E harness, resilience probes, shadow runs) rather than a real
+// guest. Used to suppress operator notifications for synthetic sessions even
+// when the caller forgets to set the `test` flag. Real widget ids look like
+// "web_<rand>_<ts>" (underscore) and are NOT matched here.
+func isSyntheticSession(from string) bool {
+	s := strings.ToLower(from)
+	for _, p := range []string{"e2e-", "test-", "shadow", "webchat-test", "e2e_", "journey-"} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
