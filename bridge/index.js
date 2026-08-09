@@ -13,6 +13,17 @@
  * ── Anti-ban hardening (2026-08-08 R0 → R1) ─────────────────────────────────
  * R0 (initial hardening): 401 clear-and-QR, circuit breaker, getMessage store,
  *   paced send queue, pairing warm-up.
+ * R5 (2026-08-09, post-ban hardening):
+ *   1. scheduleReconnect QR-mode path now has its own budget: max 12 QR
+ *      reconnects/hour with 30-min cooldown. Previously the !hasCreds() branch
+ *      completely bypassed the circuit breaker, so 408 loops after a 401/clearAuth
+ *      ran unbounded (logged: 2689 × 408 in the ban session). A fresh QR page
+ *      needs reconnects to rotate the QR, but not hundreds of them.
+ *   2. 408 connectionTimedOut / 503 unavailable are now logged with a WA-side
+ *      pressure note so operators see the signal without log-diving.
+ *   3. deploy/run-bridge-senai.sh template added with BRIDGE_EXEMPT_JIDS so
+ *      self-pings and staff numbers are set at deploy time.
+ *
  * R1 (2026-08-08, baseline 53/100 → target ≤20/100):
  *   1. shouldIgnoreJid → block Status/broadcast at socket layer (Issue #2309:
  *      processing status uploads on production servers confirmed permanent ban vector).
@@ -388,13 +399,21 @@ const silentLogger = {
 // ── Reconnect circuit breaker ───────────────────────────────────────────────
 // Hundreds of rapid reconnects is exactly what got this number restricted.
 // Authenticated reconnects are budgeted per rolling hour; exceeding the budget
-// opens a 30-minute cooldown. QR-wait reconnects (no creds on disk) are how
-// the pairing page works, so they bypass the budget at a gentle fixed cadence.
+// opens a 30-minute cooldown.
+//
+// R5: QR-mode reconnects (no creds on disk) are also budgeted separately.
+// Previously they bypassed the circuit breaker entirely, allowing a 401 →
+// clearAuth → infinite 408-in-QR-mode loop. The 408 storm (2689 events in the
+// ban session) happened exactly because !hasCreds() bypassed all guards.
+// QR-mode gets a higher budget (12/h) since each QR rotation needs a new
+// connection, but still has a 30-min cooldown to stop infinite 408 loops.
 let reconnectCount = 0;          // backoff exponent, reset on 'open'
 let reconnectTimes = [];         // authenticated reconnect timestamps (1h window)
+let qrReconnectTimes = [];       // R5: QR-mode reconnect timestamps (1h window)
 let cooldownUntil = 0;
 let connectionReplacedCount = 0; // R1: track 440 repeats; 2 in a row = clear auth
 const HOURLY_RECONNECT_BUDGET = 8;
+const HOURLY_QR_RECONNECT_BUDGET = 12; // R5: higher than auth budget; QR rotates every ~20s
 const COOLDOWN_MS = 30 * 60_000;
 const MAX_BACKOFF_MS = 5 * 60_000;
 let cachedWAVersion = null;
@@ -417,7 +436,26 @@ function clearAuth(why) {
 function scheduleReconnect(baseDelayMs) {
   const now = Date.now();
   if (!hasCreds()) {
-    // QR pairing mode — these connections just display/refresh the QR.
+    // R5: QR pairing mode — connections refresh the QR, but they must also be
+    // budgeted. Without a budget, a 401 → clearAuth cycle caused 2689 × 408
+    // reconnects (the proximate trigger for the account ban). QR gets a higher
+    // hourly budget than authenticated mode (QR rotates ~every 20s) but still
+    // has a 30-min cooldown to stop infinite loop storms.
+    qrReconnectTimes = qrReconnectTimes.filter((t) => now - t < 3_600_000);
+    if (now < cooldownUntil) {
+      const leftMs = cooldownUntil - now;
+      console.warn(`[bridge] QR-mode in cooldown — reconnecting in ${Math.ceil(leftMs / 60_000)}m`);
+      setTimeout(() => connect(), leftMs + 5_000);
+      return;
+    }
+    if (qrReconnectTimes.length >= HOURLY_QR_RECONNECT_BUDGET) {
+      cooldownUntil = now + COOLDOWN_MS;
+      connState = 'cooldown';
+      console.warn(`[bridge] QR-mode reconnect budget exhausted (${HOURLY_QR_RECONNECT_BUDGET}/h) — 30m cooldown. Scan QR at the /qr/ page; don't restart PM2.`);
+      setTimeout(() => connect(), COOLDOWN_MS + 5_000);
+      return;
+    }
+    qrReconnectTimes.push(now);
     setTimeout(() => connect(), Math.max(baseDelayMs, 5_000));
     return;
   }
@@ -492,6 +530,7 @@ async function connect() {
       latestQR = null;
       reconnectCount = 0;
       reconnectTimes = [];
+      qrReconnectTimes = []; // R5: reset QR budget on successful auth
       cooldownUntil = 0;
       connectionReplacedCount = 0; // R1: reset on clean connect
       if (freshPairing) {
@@ -550,7 +589,13 @@ async function connect() {
       } else {
         reconnectCount = Math.min(reconnectCount + 1, 6);
         const delay = Math.min(5_000 * 2 ** (reconnectCount - 1), MAX_BACKOFF_MS);
-        console.warn(`[bridge] connection closed (code=${code}), reconnecting in ${Math.round(delay / 1000)}s`);
+        // R5: 408 (connection timeout) and 503 (server unavailable) are WA-side
+        // pressure signals — they often precede a restriction. Log them distinctly
+        // so operators can spot a building storm before it becomes a ban.
+        const pressureNote = (code === 408 || code === 503)
+          ? ` ⚠️ WA-side pressure code (${code} storm = ban risk — check /health)`
+          : '';
+        console.warn(`[bridge] connection closed (code=${code}), reconnecting in ${Math.round(delay / 1000)}s${pressureNote}`);
         scheduleReconnect(delay);
       }
     }
@@ -691,6 +736,13 @@ const server = http.createServer((req, res) => {
         hourlyCap: PACING.hourlyCap,
         warmupActive: !!(pacingState.pairedAt && Date.now() - pacingState.pairedAt < PACING.pairingWarmupMs),
         cooldownUntil: cooldownUntil || null,
+      },
+      // R5: reconnect circuit-breaker state — watch these during a 408 storm
+      reconnect: {
+        authedThisHour: reconnectTimes.filter((t) => Date.now() - t < 3_600_000).length,
+        authedBudget: HOURLY_RECONNECT_BUDGET,
+        qrThisHour: qrReconnectTimes.filter((t) => Date.now() - t < 3_600_000).length,
+        qrBudget: HOURLY_QR_RECONNECT_BUDGET,
       },
     }));
     return;
