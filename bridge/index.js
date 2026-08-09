@@ -40,6 +40,12 @@
  *   8. 500 badSession / 411 multideviceMismatch → clear auth, QR mode (same as 401).
  *   9. Proportional typing duration — random 1.5–3.5 s regardless of message length
  *      was detectable; now scales with character count, capped at 5 s.
+ * R6 (2026-08-09, loop-engineering round 2):
+ *   1. QUIET_HOURS guard — cold sends blocked 22:00–08:00 local (BRIDGE_QUIET_START_H /
+ *      BRIDGE_QUIET_END_H / BRIDGE_TZ_OFFSET_H). Outreach at 3am local is a strong
+ *      automation signal; replies stay allowed at any hour.
+ *   2. Audit harness: bridge/audit-ban-risk.sh scores prod ban risk 0-100
+ *      (baseline 2026-08-09: 36 → post-R6 target ≤10).
  */
 import makeWASocket, {
   DisconnectReason,
@@ -132,7 +138,20 @@ const PACING = {
   // R1: hourly cap — daily-only allowed blasting 300 messages in minutes.
   hourlyCap: parseInt(process.env.BRIDGE_HOURLY_CAP || '20', 10),
   pairingWarmupMs: parseInt(process.env.BRIDGE_PAIRING_WARMUP_MIN || '10', 10) * 60_000,
+  // R6: QUIET_HOURS — cold sends only inside human waking hours. A business
+  // account initiating outreach at 3am local time is a strong automation signal.
+  // Replies are exempt: answering a guest at any hour is normal behavior.
+  quietStartHour: parseInt(process.env.BRIDGE_QUIET_START_H || '22', 10),
+  quietEndHour: parseInt(process.env.BRIDGE_QUIET_END_H || '8', 10),
+  tzOffsetH: parseInt(process.env.BRIDGE_TZ_OFFSET_H || '8', 10), // MYT = UTC+8
 };
+// R6: QUIET_HOURS check — true when the local hour falls in the quiet window.
+function inQuietHours() {
+  const h = (new Date().getUTCHours() + PACING.tzOffsetH) % 24;
+  return PACING.quietStartHour > PACING.quietEndHour
+    ? (h >= PACING.quietStartHour || h < PACING.quietEndHour)   // window wraps midnight
+    : (h >= PACING.quietStartHour && h < PACING.quietEndHour);
+}
 // R4: staff/self numbers exempt from cold-send classification. Operator notifies
 // and brief self-pings go to our own staff number, which never "replies" to the
 // bot — so they'd classify as cold and (now that the cold cap is race-free)
@@ -273,6 +292,10 @@ function checkSendAllowed(kind, jid) {
     }
   }
   if (kind === 'cold') {
+    // R6: no cold outreach during local quiet hours (replies unaffected).
+    if (inQuietHours()) {
+      return { ok: false, error: `quiet hours (${PACING.quietStartHour}:00-${PACING.quietEndHour}:00 local): cold sends blocked, replies still allowed`, reason: 'quiet_hours' };
+    }
     const sincePair = Date.now() - (pacingState.pairedAt || 0);
     if (pacingState.pairedAt && sincePair < PACING.pairingWarmupMs) {
       const retryAfterMs = PACING.pairingWarmupMs - sincePair;
@@ -736,6 +759,7 @@ const server = http.createServer((req, res) => {
         hourlyCap: PACING.hourlyCap,
         warmupActive: !!(pacingState.pairedAt && Date.now() - pacingState.pairedAt < PACING.pairingWarmupMs),
         cooldownUntil: cooldownUntil || null,
+        quietHours: inQuietHours(), // R6: true => cold sends currently blocked
       },
       // R5: reconnect circuit-breaker state — watch these during a 408 storm
       reconnect: {
