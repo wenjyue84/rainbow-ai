@@ -141,10 +141,10 @@ func (h *Handler) notifyBooking(w http.ResponseWriter, r *http.Request) {
 	// ── Shared-secret guard ──────────────────────────────────────────────────
 	secret := os.Getenv("NOTIFY_SHARED_SECRET")
 	if secret == "" {
-		notifySecretWarnOnce.Do(func() {
-			log.Println("[booking-notify] WARNING: NOTIFY_SHARED_SECRET is not set; accepting all requests")
-		})
-	} else if r.Header.Get("X-Notify-Secret") != secret {
+		http.Error(w, "server misconfiguration: NOTIFY_SHARED_SECRET not set", http.StatusInternalServerError)
+		return
+	}
+	if r.Header.Get("X-Notify-Secret") != secret {
 		writeJSON(w, 401, map[string]any{"error": "unauthorized"})
 		return
 	}

@@ -7,18 +7,18 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	occThreshold   = 90.0
-	occCooldown    = 6 * time.Hour
-	occGroupJID    = "120363424593650200@g.us"
-	occPMSBase     = "http://127.0.0.1:5002"
-	occPMSEmail    = "claude-code@pelangicapsulehostel.com"
-	occPMSPassword = "REDACTED_PMS_SERVICE_PASSWORD"
+	occThreshold = 90.0
+	occCooldown  = 6 * time.Hour
+	occGroupJID  = "120363424593650200@g.us"
+	occPMSBase   = "http://127.0.0.1:5002"
+	occPMSEmail  = "claude-code@pelangicapsulehostel.com"
 )
 
 var (
@@ -48,7 +48,7 @@ func fetchOccupancy() (*occData, error) {
 	}
 
 	// Login
-	loginPayload := strings.NewReader(`{"email":"` + occPMSEmail + `","password":"` + occPMSPassword + `"}`)
+	loginPayload := strings.NewReader(`{"email":"` + occPMSEmail + `","password":"` + os.Getenv("PMS_SERVICE_PASSWORD") + `"}`)
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, occPMSBase+"/api/auth/login", loginPayload)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", csrfBody.CsrfToken)

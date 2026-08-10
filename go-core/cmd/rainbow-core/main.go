@@ -207,6 +207,10 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
+		if inboundKey := os.Getenv("INBOUND_API_KEY"); inboundKey != "" && r.Header.Get("X-Inbound-Key") != inboundKey {
+			writeJSON(w, 401, map[string]any{"error": "unauthorized"})
+			return
+		}
 		var msg contract.IncomingMessage
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 			writeJSON(w, 400, map[string]any{"ok": false, "error": "bad json: " + err.Error()})
