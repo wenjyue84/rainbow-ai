@@ -23,7 +23,7 @@ import * as schema from '../../shared/schema.js';
 import { pool as appPool } from './db.js';
 
 /** Valid tenant identifiers — maps to existing profileId values. */
-export const VALID_TENANTS = ['pelangi', 'southern', 'makan-moments'] as const;
+export const VALID_TENANTS = ['pelangi', 'southern', 'makan-moments', 'dental-world'] as const;
 export type TenantId = typeof VALID_TENANTS[number];
 
 /**

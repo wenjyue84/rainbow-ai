@@ -124,6 +124,31 @@ export const PROFILE_CONFIGS: Record<
     dataDir: 'src/assistant/data-makan',
     forbiddenIntents: HOSTEL_INTENTS, // Makan is cafe-only
   },
+  'pms-capsule': {
+    label: 'Pelangi Capsule — Staff Assistant',
+    dataDir: 'src/assistant/data-pms-capsule',
+    forbiddenIntents: CAFE_INTENTS,
+  },
+  'pms-southern': {
+    label: 'Southern Homestay — Staff Assistant',
+    dataDir: 'src/assistant/data-pms-southern',
+    forbiddenIntents: CAFE_INTENTS,
+  },
+  yoongmei: {
+    label: 'Yoong Mei Trading And Transport',
+    dataDir: 'src/assistant/data-yoongmei',
+    forbiddenIntents: new Set([...HOSTEL_INTENTS, ...CAFE_INTENTS]),
+  },
+  'senai-app': {
+    label: 'Senai Room Rental',
+    dataDir: 'src/assistant/data-senai',
+    forbiddenIntents: CAFE_INTENTS,
+  },
+  'dental-world': {
+    label: 'Dental World Group',
+    dataDir: 'src/assistant/data-dental-world',
+    forbiddenIntents: new Set([...HOSTEL_INTENTS, ...CAFE_INTENTS]),
+  },
 };
 
 /**
