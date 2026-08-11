@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -348,6 +350,32 @@ func TestIsoStatsScoped(t *testing.T) {
 	// senai-app owns exactly 1 message / 1 conversation in the seed.
 	if out.Messages != 1 {
 		t.Errorf("LEAK: stats.messages=%v for senai-app, want 1 (global counts leak business volume)", out.Messages)
+	}
+}
+
+// ── SPA fetch interceptor must not destroy other wrappers' headers ──────────
+// Regression: the injected X-Admin-Key interceptor used Object.assign on a
+// Headers INSTANCE (set by profile-switcher.js), which dropped x-profile-id +
+// Content-Type — profile switching then served the default business's chats.
+func TestSpaInterceptorMergesViaHeadersAPI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rainbow-admin.html"), []byte("<html><head></head></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{adminKey: isoKey, publicDir: dir}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Cookie", sessionCookie+"="+isoKey)
+	rec := httptest.NewRecorder()
+	h.spa(rec, req)
+	body := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, "window.__ADMIN_KEY__") {
+		t.Fatalf("spa gate did not serve dashboard: code=%d", rec.Code)
+	}
+	if !strings.Contains(body, "new Headers(") {
+		t.Error("interceptor must merge via the Headers API")
+	}
+	if strings.Contains(body, "Object.assign({'X-Admin-Key'") {
+		t.Error("interceptor rebuilds headers with Object.assign — drops Headers-instance entries (x-profile-id)")
 	}
 }
 

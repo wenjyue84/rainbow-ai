@@ -333,8 +333,12 @@ func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
 		// Raw admin key — unrestricted, no tenant list.
 		sessionJSON = `{"username":"","role":"admin","tenants":null}`
 	}
+	// NOTE: the interceptor must merge via the Headers API, never Object.assign.
+	// Other wrappers (profile-switcher.js) pass a Headers INSTANCE, whose entries
+	// are not own-enumerable — Object.assign silently dropped x-profile-id and
+	// Content-Type, so profile switching served the default business's chats.
 	inject := `<script>window.__ADMIN_KEY__=` + jsonString(injectVal) + `;window.__SESSION__=` + sessionJSON + `;
-(function(){var _f=window.fetch;window.fetch=function(u,o){o=o||{};if(typeof u==='string'&&u.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var hd=o.headers||{};var has=Object.keys(hd).some(function(k){return k.toLowerCase()==='x-admin-key';});if(!has){o=Object.assign({},o,{headers:Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},hd)});}}return _f.call(this,u,o);};})();
+(function(){var _f=window.fetch;window.fetch=function(u,o){try{var url=typeof u==='string'?u:((u&&u.url)||'');if(url.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){o=o||{};var h=new Headers(o.headers||(typeof u!=='string'&&u.headers)||{});if(!h.has('x-admin-key')){h.set('X-Admin-Key',window.__ADMIN_KEY__);}o.headers=h;}}catch(e){}return _f.call(this,u,o);};})();
 </script>`
 	html = strings.Replace(html, "<head>", "<head>\n"+inject, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
