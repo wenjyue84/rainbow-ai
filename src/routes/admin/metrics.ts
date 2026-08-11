@@ -29,6 +29,10 @@ router.get('/status', async (_req: Request, res: Response) => {
 
   const lastCheckedAt = new Date().toISOString();
   const settings = getStore(res).getSettings();
+  const profileInstanceId = (settings as any).whatsappInstanceId as string | undefined;
+  const profileInstances = profileInstanceId
+    ? instances.filter(i => i.id === profileInstanceId)
+    : [];
   const configuredProviders = settings.ai.providers || [];
   const aiProviders = configuredProviders.map(p => {
     const hasKey = p.type === 'ollama' || !!(p.api_key || (p.api_key_env && process.env[p.api_key_env]));
@@ -61,7 +65,7 @@ router.get('/status', async (_req: Request, res: Response) => {
       state: wa.state,
       user: wa.user
     },
-    whatsappInstances: instances.map(i => ({
+    whatsappInstances: profileInstances.map(i => ({
       id: i.id,
       label: i.label,
       state: i.state,
