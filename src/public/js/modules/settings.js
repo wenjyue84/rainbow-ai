@@ -15,6 +15,9 @@ import {
   initMcpState,
   renderMcpServersTab
 } from './settings-mcp.js';
+import {
+  renderUsersTab
+} from './settings-users.js';
 
 /**
  * Shared state — backed by centralized cacheManager.
@@ -110,6 +113,7 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'appearance') renderAppearanceTab(container);
   else if (tabId === 'mcp-servers') renderMcpServersTab(container);
   else if (tabId === 'profile') renderProfileTab(container);
+  else if (tabId === 'users') renderUsersTab(container);
   else if (tabId === 'messaging-limits') {
     import('/public/js/modules/messaging-limits.js').then(m => m.renderMessagingLimitsTab(container));
   }

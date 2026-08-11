@@ -42,6 +42,15 @@ import {
 } from '/public/js/modules/settings-mcp.js';
 
 import {
+  renderUsersTab,
+  openUserModal,
+  closeUserModal,
+  toggleAccessType,
+  saveUser,
+  deleteUser
+} from '/public/js/modules/settings-users.js';
+
+import {
   updateT4ProviderStatus,
   scrollToElement,
   scrollToProviders,
@@ -95,5 +104,11 @@ window.testMcpConnection = testMcpConnection;
 window.toggleMcpConnection = toggleMcpConnection;
 window.saveMcpServerConfig = saveMcpServerConfig;
 window.toggleMcpServer = toggleMcpServer;
+window.renderUsersTab = renderUsersTab;
+window.openUserModal = openUserModal;
+window.closeUserModal = closeUserModal;
+window.toggleAccessType = toggleAccessType;
+window.saveUser = saveUser;
+window.deleteUser = deleteUser;
 
 console.log('[LazyChunk] Settings modules registered');
