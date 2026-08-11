@@ -139,6 +139,10 @@ export function updateDateFilterFromInputs() {
 // ─── Main Load ───────────────────────────────────────────────────
 
 export async function loadLiveChat() {
+  // Reset per-profile state so switching profiles shows a clean slate.
+  $.conversationCache.clear();
+  $.activePhone = null;
+
   // Fetch bot avatar + staff name settings (US-087, US-011)
   try {
     var settingsData = await api('/settings');
@@ -228,14 +232,26 @@ export async function loadLiveChat() {
     }
 
     clearInterval($.autoRefresh);
+    // Profile guard: a poll started under one business must never render into
+    // another business's view (isolation) — capture the profile this load
+    // belongs to and drop any tick/response that outlives a profile switch.
+    var loadProfileId = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId)
+      ? window.profileSwitcher.getActiveProfileId() : '';
+    function profileChanged() {
+      var now = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId)
+        ? window.profileSwitcher.getActiveProfileId() : '';
+      return now !== loadProfileId;
+    }
     $.autoRefresh = setInterval(async function () {
       var section = document.getElementById('tab-live-chat');
       if (section && section.classList.contains('hidden')) {
         clearInterval($.autoRefresh);
         return;
       }
+      if (profileChanged()) return;
       try {
         var fresh = await api('/conversations/unified');
+        if (profileChanged()) return; // response raced a profile switch — drop it
         $.conversations = fresh;
         buildInstanceFilter();
         if ($.tagFilter && $.tagFilter.length > 0) loadContactTagsMap(); // US-009: Refresh tags map when filter active

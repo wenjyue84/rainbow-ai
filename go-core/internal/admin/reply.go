@@ -77,6 +77,15 @@ func (h *Handler) webchatReply(w http.ResponseWriter, r *http.Request, sid strin
 	if in.StaffName == "" {
 		in.StaffName = "Staff"
 	}
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	if !h.ownsConversation(webchatPhones(sid), profileID) {
+		writeJSON(w, 404, map[string]any{"error": "session not found"})
+		return
+	}
 	phone := "web:" + sid
 	for _, p := range webchatPhones(sid) {
 		var n int
@@ -85,11 +94,6 @@ func (h *Handler) webchatReply(w http.ResponseWriter, r *http.Request, sid strin
 			phone = p
 			break
 		}
-	}
-	profileID, perr := h.reqProfile(r)
-	if perr != nil {
-		writeJSON(w, 400, map[string]any{"error": perr.Error()})
-		return
 	}
 	ms, err := h.insertStaffMessage(phone, in.Message, "webchat-admin", in.StaffName, profileID)
 	if err != nil {
@@ -120,6 +124,12 @@ func (h *Handler) conversationSend(w http.ResponseWriter, r *http.Request, phone
 	profileID, perr := h.reqProfile(r)
 	if perr != nil {
 		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	// Ownership gate: staff can only reach conversations that exist in their
+	// profile — no cross-profile delivery, persistence, or existence probing.
+	if !h.ownsConversation([]string{phone}, profileID) {
+		writeJSON(w, 404, map[string]any{"error": "conversation not found"})
 		return
 	}
 	if _, isWebchat := webchatSession(phone); isWebchat {

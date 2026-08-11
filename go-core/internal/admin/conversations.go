@@ -130,6 +130,30 @@ func (h *Handler) profCond(alias, p string) (string, string) {
 	return alias + ".profile_id=?", p
 }
 
+// ownsConversation reports whether the profile has at least one live message
+// row for any of the given phones. This is the gate for every per-conversation
+// read AND write: a conversation that has no rows in the requesting profile
+// does not exist for that profile — no transcript, no pushName, no send, no
+// mode change (absolute cross-profile separation).
+func (h *Handler) ownsConversation(phones []string, profileID string) bool {
+	if len(phones) == 0 {
+		return false
+	}
+	cond, carg := h.profCond("m", profileID)
+	ph := make([]string, len(phones))
+	args := make([]any, 0, len(phones)+1)
+	for i, p := range phones {
+		ph[i] = "?"
+		args = append(args, p)
+	}
+	args = append(args, carg)
+	var n int
+	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages m
+		WHERE m.phone IN (`+strings.Join(ph, ",")+`) AND (m.deleted_at IS NULL OR m.deleted_at='')
+		AND `+cond, args...).Scan(&n)
+	return n > 0
+}
+
 // webchatSession returns the sessionId and true when phone is a webchat row.
 func webchatSession(phone string) (string, bool) {
 	if s, ok := strings.CutPrefix(phone, "web:"); ok {
@@ -379,6 +403,10 @@ func (h *Handler) conversationLog(w http.ResponseWriter, r *http.Request, phone 
 		writeJSON(w, 400, map[string]any{"error": perr.Error()})
 		return
 	}
+	if !h.ownsConversation([]string{phone}, profileID) {
+		writeJSON(w, 404, map[string]any{"error": "conversation not found"})
+		return
+	}
 	msgs, err := h.fetchLog([]string{phone}, queryInt(r, "limit", 500), profileID)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
@@ -419,7 +447,9 @@ func (h *Handler) webchatConversations(w http.ResponseWriter, r *http.Request) {
 
 // conversationMode handles POST /api/rainbow/conversations/{phone}/mode.
 // Persists per-conversation response mode (autopilot/copilot/manual) in
-// app_settings; optionally sets the global default.
+// app_settings; optionally sets the profile's default. Both keys are scoped
+// per profile: the same guest phone can talk to two businesses, and one
+// business's staff must never flip the other's bot mode.
 func (h *Handler) conversationMode(w http.ResponseWriter, r *http.Request, phone string) {
 	// Validate phone so it cannot inject arbitrary keys into app_settings.
 	for _, c := range phone {
@@ -427,6 +457,15 @@ func (h *Handler) conversationMode(w http.ResponseWriter, r *http.Request, phone
 			writeJSON(w, 400, map[string]any{"error": "invalid phone"})
 			return
 		}
+	}
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	if !h.ownsConversation([]string{phone}, profileID) {
+		writeJSON(w, 404, map[string]any{"error": "conversation not found"})
+		return
 	}
 	var body struct {
 		Mode               string `json:"mode"`
@@ -441,16 +480,23 @@ func (h *Handler) conversationMode(w http.ResponseWriter, r *http.Request, phone
 		writeJSON(w, 400, map[string]any{"error": "invalid mode: must be autopilot, copilot or manual"})
 		return
 	}
+	// Key scoping: the default profile keeps the legacy unprefixed keys
+	// (existing prod rows), non-default profiles get their own namespace.
+	modeKey, defaultKey := "conv_mode_"+phone, "default_response_mode"
+	if profileID != "" {
+		modeKey = "conv_mode_" + profileID + "_" + phone
+		defaultKey = "default_response_mode_" + profileID
+	}
 	// app_settings has a non-autoincrement TEXT id — use a random hex blob.
 	upsert := `INSERT INTO app_settings(id,key,value,updated_at)
 	           VALUES(lower(hex(randomblob(16))),?,?,unixepoch())
 	           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
-	if _, err := h.st.DB.Exec(upsert, "conv_mode_"+phone, body.Mode); err != nil {
+	if _, err := h.st.DB.Exec(upsert, modeKey, body.Mode); err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
 	}
 	if body.SetAsGlobalDefault {
-		_, _ = h.st.DB.Exec(upsert, "default_response_mode", body.Mode)
+		_, _ = h.st.DB.Exec(upsert, defaultKey, body.Mode)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "mode": body.Mode, "phone": phone})
 }
@@ -483,6 +529,10 @@ func (h *Handler) webchatConversation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"error": perr.Error()})
 		return
 	}
+	if !h.ownsConversation(webchatPhones(sid), profileID) {
+		writeJSON(w, 404, map[string]any{"error": "session not found"})
+		return
+	}
 	msgs, err := h.fetchLog(webchatPhones(sid), queryInt(r, "limit", 500), profileID)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
@@ -511,19 +561,25 @@ func (h *Handler) webchatSessionsMerged(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, 400, map[string]any{"error": "sessions query param required"})
 		return
 	}
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	// Only sessions the profile owns take part in the merge — a foreign sid in
+	// the query string must contribute neither transcript nor pushName.
 	phones := []string{}
 	sids := []string{}
 	for _, sid := range strings.Split(raw, ",") {
 		sid = strings.TrimSpace(sid)
-		if sid == "" {
+		if sid == "" || !h.ownsConversation(webchatPhones(sid), profileID) {
 			continue
 		}
 		sids = append(sids, sid)
 		phones = append(phones, webchatPhones(sid)...)
 	}
-	profileID, perr := h.reqProfile(r)
-	if perr != nil {
-		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+	if len(sids) == 0 {
+		writeJSON(w, 404, map[string]any{"error": "no sessions found"})
 		return
 	}
 	msgs, err := h.fetchLog(phones, queryInt(r, "limit", 1000), profileID)

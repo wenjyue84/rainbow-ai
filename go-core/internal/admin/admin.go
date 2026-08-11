@@ -223,6 +223,21 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// is checked inside the handler itself.
 	mux.HandleFunc("/api/rainbow/notify-booking", h.notifyBooking)
 
+	// Admin user management (CRUD for admin_users table).
+	// Scoped sessions can only see/edit users within their own tenants.
+	mux.HandleFunc("/api/rainbow/admin-users", h.auth(h.adminUsersRouter))
+	mux.HandleFunc("/api/rainbow/admin-users/", h.auth(h.adminUsersRouter))
+
+	// Username/password login (public, rate-limited) — mints scoped session
+	// tokens for client users (e.g. dental-world) without exposing the admin key.
+	mux.HandleFunc("/api/rainbow/auth/login", h.login)
+	mux.HandleFunc("/api/rainbow/auth/logout", h.logout)
+
+	// Guest webchat page + staff-reply poll, one per profile:
+	//   GET /chat/{profileId}       — self-contained chat UI (POST /chat backend)
+	//   GET /chat/{profileId}/poll  — staff replies after a timestamp
+	mux.HandleFunc("/chat/", h.chatPage)
+
 	// Profile switcher (called on every tab) + per-tab HTML template loader — both
 	// are fatal for the SPA: the switcher runs globally, and each tab's body HTML
 	// is fetched from /templates/{name}.
@@ -258,12 +273,45 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	}
 }
 
-// spa serves the admin SPA HTML with the admin key + a fetch interceptor injected
-// (mirrors the monolith), so the SPA's /api/rainbow/* calls are authenticated.
+// spa serves the admin SPA HTML behind a login gate. The credential injected as
+// window.__ADMIN_KEY__ depends on who is asking:
+//   - session cookie holding the raw admin key (set via ?adminKey=…) → raw key
+//   - session cookie holding a signed token → that token (scoped users never
+//     see the raw key, so they cannot escape their allowed_tenants)
+//   - no valid credential → the login page
+//
+// The previous behaviour (inject the raw admin key to every anonymous visitor)
+// leaked full admin access to anyone who found the URL.
 func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" && !contains(dashboardTabs, strings.TrimPrefix(r.URL.Path, "/")) {
 		http.NotFound(w, r)
 		return
+	}
+	injectVal := ""
+	if h.adminKey == "" {
+		injectVal = "" // no auth configured (dev) — serve open with empty key
+	} else {
+		// ?adminKey=<raw key> — bookmark-friendly bypass for Jay/staff: set the
+		// cookie and redirect to the clean URL.
+		if q := r.URL.Query().Get("adminKey"); q != "" {
+			if q == h.adminKey {
+				setSessionCookie(w, h.adminKey, int(sessionTTL.Seconds()))
+				http.Redirect(w, r, r.URL.Path, http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, r.URL.Path, http.StatusFound)
+			return
+		}
+		cred := h.credential(r)
+		switch {
+		case cred == h.adminKey:
+			injectVal = h.adminKey
+		case verifySession(h.adminKey, cred) != nil:
+			injectVal = cred // scoped/unrestricted session token
+		default:
+			h.loginPage(w)
+			return
+		}
 	}
 	raw, err := os.ReadFile(filepath.Join(h.publicDir, "rainbow-admin.html"))
 	if err != nil {
@@ -272,13 +320,58 @@ func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
 	}
 	html := string(raw)
 	html = strings.ReplaceAll(html, "__CSP_NONCE__", "")
-	inject := `<script>window.__ADMIN_KEY__=` + jsonString(h.adminKey) + `;
+	// Build __SESSION__ so the SPA knows if the caller is scoped.
+	var sessionJSON string
+	if sess := verifySession(h.adminKey, injectVal); sess != nil {
+		b, _ := json.Marshal(map[string]any{
+			"username": sess.Username,
+			"role":     sess.Role,
+			"tenants":  sess.Tenants, // nil = unrestricted
+		})
+		sessionJSON = string(b)
+	} else {
+		// Raw admin key — unrestricted, no tenant list.
+		sessionJSON = `{"username":"","role":"admin","tenants":null}`
+	}
+	inject := `<script>window.__ADMIN_KEY__=` + jsonString(injectVal) + `;window.__SESSION__=` + sessionJSON + `;
 (function(){var _f=window.fetch;window.fetch=function(u,o){o=o||{};if(typeof u==='string'&&u.indexOf('/api/rainbow/')>=0&&window.__ADMIN_KEY__){var hd=o.headers||{};var has=Object.keys(hd).some(function(k){return k.toLowerCase()==='x-admin-key';});if(!has){o=Object.assign({},o,{headers:Object.assign({'X-Admin-Key':window.__ADMIN_KEY__},hd)});}}return _f.call(this,u,o);};})();
 </script>`
 	html = strings.Replace(html, "<head>", "<head>\n"+inject, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write([]byte(html))
+}
+
+// loginPage serves a minimal self-contained login form. On success the server
+// sets the session cookie; the page then reloads into the SPA.
+func (h *Handler) loginPage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rainbow AI — Login</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#1e293b;padding:32px;border-radius:14px;width:320px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+h1{font-size:20px;margin:0 0 4px}p{color:#94a3b8;font-size:13px;margin:0 0 20px}
+input{width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px}
+button{width:100%;padding:10px;border:0;border-radius:8px;background:#6366f1;color:#fff;font-size:15px;cursor:pointer}
+button:hover{background:#4f46e5}.err{color:#f87171;font-size:13px;min-height:18px;margin-bottom:8px}
+</style></head><body>
+<div class="card"><h1>🌈 Rainbow AI</h1><p>Admin dashboard login</p>
+<div class="err" id="err"></div>
+<form id="f"><input id="u" placeholder="Username" autocomplete="username" required>
+<input id="p" type="password" placeholder="Password" autocomplete="current-password" required>
+<button type="submit">Sign in</button></form></div>
+<script>
+document.getElementById('f').addEventListener('submit',async function(e){
+e.preventDefault();var err=document.getElementById('err');err.textContent='';
+try{var res=await fetch('/api/rainbow/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({username:document.getElementById('u').value.trim(),password:document.getElementById('p').value})});
+var j=await res.json();if(res.ok&&j.authenticated){location.reload();}else{err.textContent=j.error||'Login failed';}}
+catch(ex){err.textContent='Network error';}});
+</script></body></html>`))
 }
 
 func contains(s []string, v string) bool {
@@ -295,14 +388,82 @@ func jsonString(s string) string {
 	return string(b)
 }
 
-// auth enforces X-Admin-Key when an admin key is configured.
+// ctxSessionKey carries the authenticated *Session (nil for raw-key auth).
+type ctxKey int
+
+const ctxSessionKey ctxKey = 0
+
+// sessionFrom returns the scoped session on the request, or nil (raw admin key
+// or unrestricted session).
+func sessionFrom(r *http.Request) *Session {
+	s, _ := r.Context().Value(ctxSessionKey).(*Session)
+	return s
+}
+
+// scopedBlocked lists endpoints a tenant-scoped session must NOT mutate or
+// read: global operator phone books and cross-profile test harnesses.
+func scopedBlocked(path, method string) bool {
+	if strings.HasPrefix(path, "/api/rainbow/admin-notifications") {
+		return method != http.MethodGet
+	}
+	switch path {
+	case "/api/rainbow/tests/run", "/api/rainbow/testing/run-all":
+		return true
+	}
+	return false
+}
+
+// credential extracts the caller's credential: X-Admin-Key header first, then
+// the session cookie (browser page loads carry only the cookie).
+func (h *Handler) credential(r *http.Request) string {
+	if v := r.Header.Get("X-Admin-Key"); v != "" {
+		return v
+	}
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+// auth enforces the admin credential when an admin key is configured. Accepted:
+//   - the raw RAINBOW_ADMIN_KEY (full access, legacy behaviour), or
+//   - a signed session token from /api/rainbow/auth/login.
+//
+// Tenant-scoped sessions (allowed_tenants set on the admin_users row) are
+// confined server-side: a missing x-profile-id is rewritten to the first
+// allowed tenant, a disallowed one is rejected with 403, and global staff
+// endpoints are blocked. This is what keeps a client login (e.g. dental-world)
+// out of the other businesses' data.
 func (h *Handler) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.adminKey != "" && r.Header.Get("X-Admin-Key") != h.adminKey {
+		if h.adminKey == "" {
+			next(w, r)
+			return
+		}
+		cred := h.credential(r)
+		if cred == h.adminKey {
+			next(w, r)
+			return
+		}
+		sess := verifySession(h.adminKey, cred)
+		if sess == nil {
 			writeJSON(w, 401, map[string]any{"error": "unauthorized"})
 			return
 		}
-		next(w, r)
+		if sess.Scoped() {
+			if scopedBlocked(r.URL.Path, r.Method) {
+				writeJSON(w, 403, map[string]any{"error": "forbidden: not authorized for this endpoint"})
+				return
+			}
+			p := strings.ToLower(strings.TrimSpace(r.Header.Get("x-profile-id")))
+			if p == "" {
+				r.Header.Set("x-profile-id", sess.Tenants[0])
+			} else if !sess.Allows(p) {
+				writeJSON(w, 403, map[string]any{"error": "forbidden: not authorized for this tenant", "tenantId": p})
+				return
+			}
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ctxSessionKey, sess)))
 	}
 }
 
@@ -473,12 +634,24 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// stats is profile-scoped: each business sees only its own volume. Counts
+// derive from rainbow_messages (the same source as the conversation list) so
+// the numbers always match what the live-chat tab shows.
 func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	profileID, perr := h.reqProfile(r)
+	if perr != nil {
+		writeJSON(w, 400, map[string]any{"error": perr.Error()})
+		return
+	}
+	cond, carg := h.profCond("m", profileID)
 	var convos, msgs, today int
-	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_conversations WHERE deleted_at IS NULL OR deleted_at=''`).Scan(&convos)
-	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages WHERE deleted_at IS NULL OR deleted_at=''`).Scan(&msgs)
-	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages WHERE CAST(timestamp AS TEXT) >= ?`,
-		store.NowISO()[:10]).Scan(&today)
+	h.st.DB.QueryRow(`SELECT COUNT(DISTINCT m.phone) FROM rainbow_messages m
+		WHERE (m.deleted_at IS NULL OR m.deleted_at='') AND `+cond, carg).Scan(&convos)
+	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages m
+		WHERE (m.deleted_at IS NULL OR m.deleted_at='') AND `+cond, carg).Scan(&msgs)
+	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages m
+		WHERE CAST(m.timestamp AS TEXT) >= ? AND `+cond,
+		store.NowISO()[:10], carg).Scan(&today)
 	writeJSON(w, 200, map[string]any{
 		"conversations": convos, "messages": msgs, "messagesToday": today,
 	})
@@ -494,20 +667,39 @@ func titleProfile(id string) string {
 // profiles ports GET /api/rainbow/profiles (src/routes/admin/profiles.ts) — the
 // profile switcher fetches this on every tab. Built from the hub's served ids.
 func (h *Handler) profiles(w http.ResponseWriter, r *http.Request) {
-	list := make([]map[string]any, 0, len(h.profileIDs))
-	for _, id := range h.profileIDs {
+	sess := sessionFrom(r)
+	ids := h.profileIDs
+	def := h.defaultProfile
+	if sess.Scoped() {
+		// Scoped users see only their tenants; their first tenant acts as the
+		// default so the SPA lands on it instead of the global default profile.
+		ids = nil
+		for _, id := range h.profileIDs {
+			if sess.Allows(id) {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			def = ids[0]
+		}
+	}
+	list := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
 		list = append(list, map[string]any{
 			"id": id, "name": titleProfile(id), "enabled": true,
 			"instanceIds": []string{}, "kbDir": "", "dataDir": "",
 			"whatsappInstanceId": "", "siteUrl": "",
 		})
 	}
-	writeJSON(w, 200, map[string]any{"profiles": list, "defaultProfileId": h.defaultProfile})
+	writeJSON(w, 200, map[string]any{"profiles": list, "defaultProfileId": def})
 }
 
 // profilesActive ports GET /api/rainbow/profiles/active.
 func (h *Handler) profilesActive(w http.ResponseWriter, r *http.Request) {
 	id := h.defaultProfile
+	if sess := sessionFrom(r); sess.Scoped() {
+		id = sess.Tenants[0]
+	}
 	if id == "" && len(h.profileIDs) > 0 {
 		id = h.profileIDs[0]
 	}
@@ -623,6 +815,16 @@ func (h *Handler) settings(w http.ResponseWriter, r *http.Request) {
 // (src/lib/admin-notification-settings.ts loadAdminNotificationSettings), built
 // from the app_settings rainbow_* keys with the same defaults as the Node app.
 func (h *Handler) adminNotifications(w http.ResponseWriter, r *http.Request) {
+	// Tenant-scoped sessions get an empty shape: the operator phone book is
+	// global staff data, not theirs to read.
+	if sessionFrom(r).Scoped() {
+		writeJSON(w, 200, map[string]any{
+			"enabled": false, "systemAdminPhone": "", "notifyOnDisconnect": false,
+			"notifyOnUnlink": false, "notifyOnReconnect": false,
+			"operators": []any{}, "defaultFallbackMinutes": 5,
+		})
+		return
+	}
 	kv := map[string]string{}
 	if rows, err := h.st.DB.Query(`SELECT key, value FROM app_settings WHERE key LIKE 'rainbow_%'`); err == nil {
 		defer rows.Close()

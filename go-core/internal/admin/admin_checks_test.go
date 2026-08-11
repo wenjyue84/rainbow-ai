@@ -199,10 +199,19 @@ func TestWebchatReplyInserts(t *testing.T) {
 }
 
 func TestConversationSendNoBridge(t *testing.T) {
-	srv, _, _ := newServerWithData(t, seedDataDir(t))
+	srv, _, st := newServerWithData(t, seedDataDir(t))
+	// The ownership gate 404s unknown conversations before the bridge check, so
+	// the conversation must exist in the default profile first.
+	st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, profile_id) VALUES ('60123','user','hello',?,?)`,
+		store.NowISO(), "pelangi")
 	code, body := postJSON(t, srv.URL+"/api/rainbow/conversations/60123/send", map[string]any{"message": "hi"})
 	if code != 501 {
 		t.Errorf("expected 501 without bridge, got %d %v", code, body)
+	}
+	// Unknown conversation → 404, never a bridge attempt.
+	code, _ = postJSON(t, srv.URL+"/api/rainbow/conversations/60999999999/send", map[string]any{"message": "hi"})
+	if code != 404 {
+		t.Errorf("expected 404 for unowned conversation, got %d", code)
 	}
 }
 
