@@ -273,6 +273,27 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 		cls.Category = "general"
 	}
 
+	// Guard (2026-08-11): a bare confirmation right after the booking workflow
+	// completed must NOT restart booking_payment_handler ("what is your full
+	// name?"). Acknowledge that the request is already with the admin instead.
+	if shouldAckCompletedBooking(cls.Category, text, state) {
+		log.Printf("[router] %s: bare confirmation after completed booking %q — acking instead of restarting booking flow (source=%s)", phone, text, cls.Source)
+		lang := cls.Lang
+		if lang == "" {
+			lang = state.Language
+		}
+		reply := bookingAckMsg(lang)
+		state.LastIntentTimestampMs = time.Now().UnixMilli()
+		_ = e.conv.Save(state)
+		if _, err := e.send.SendText(ctx, phone, reply, msg.InstanceID); err != nil {
+			return Result{Intent: "booking_confirm_ack", Action: "static_reply", Language: lang}, err
+		}
+		_ = e.conv.AddMessageMeta(phone, "assistant", reply, profileID, &conversation.MsgMeta{
+			Intent: "booking_confirm_ack", Confidence: cls.Confidence, Source: string(cls.Source), RoutedAction: "static_reply",
+		})
+		return Result{Intent: "booking_confirm_ack", Action: "static_reply", Reply: reply, Confidence: cls.Confidence, Source: string(cls.Source), Language: lang}, nil
+	}
+
 	res := Result{
 		Intent:     cls.Category,
 		Confidence: cls.Confidence,

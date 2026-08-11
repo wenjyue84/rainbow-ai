@@ -178,6 +178,40 @@ func TestConfirmGuardKeepsRealCheckout(t *testing.T) {
 	}
 }
 
+// ─── 2026-08-11: bare confirmation after completed booking workflow ──────────
+
+func TestBookingAckGuardAfterCompletedBooking(t *testing.T) {
+	done := &conversation.State{Phone: "web:x", LastIntent: "booking"}
+	if !shouldAckCompletedBooking("booking", "Yes, confirm please.", done) {
+		t.Fatal("bare confirmation after completed booking must be acked, not restart the flow")
+	}
+	// Real booking wording must still start the workflow.
+	if shouldAckCompletedBooking("booking", "I want to book a capsule", done) {
+		t.Fatal("real booking request must not be acked away")
+	}
+	// Fresh session (no prior booking) → classifier said booking, let it route.
+	fresh := &conversation.State{Phone: "web:y"}
+	if shouldAckCompletedBooking("booking", "yes", fresh) {
+		t.Fatal("bare confirmation with no booking context must not be acked")
+	}
+	// Awaiting workflow resumes before classification, but the guard must still
+	// be inert if it ever sees an active snapshot.
+	mid := &conversation.State{Phone: "web:z", LastIntent: "booking", WorkflowStateJSON: `{"workflowId":"booking_payment_handler"}`}
+	if shouldAckCompletedBooking("booking", "yes", mid) {
+		t.Fatal("guard must not fire while a workflow snapshot is active")
+	}
+	// Other categories untouched.
+	if shouldAckCompletedBooking("general", "yes", done) {
+		t.Fatal("guard must only apply to booking")
+	}
+}
+
+func TestBookingAckMsgFallback(t *testing.T) {
+	if bookingAckMsg("en") == "" || bookingAckMsg("xx") != bookingAckMsg("en") {
+		t.Fatal("bookingAckMsg must fall back to en")
+	}
+}
+
 func TestConfirmGuardRespectsCheckoutContext(t *testing.T) {
 	// Prior checkout-flavoured intent → the confirmation legitimately advances it.
 	st := &conversation.State{Phone: "60123", LastIntent: "checkout_info"}

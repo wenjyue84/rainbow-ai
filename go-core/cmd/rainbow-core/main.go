@@ -44,9 +44,10 @@ func env(key, def string) string {
 // kbDirFor maps a profile id to its knowledge-base directory under kbRoot.
 func kbDirFor(kbRoot, profile string) string {
 	sub := map[string]string{
-		"pelangi":  ".rainbow-kb",
-		"southern": ".rainbow-kb-southern",
-		"makan":    ".rainbow-kb-makan",
+		"pelangi":      ".rainbow-kb",
+		"southern":     ".rainbow-kb-southern",
+		"makan":        ".rainbow-kb-makan",
+		"dental-world": ".rainbow-kb-dental-world",
 	}[profile]
 	if sub == "" {
 		return ""

@@ -109,6 +109,32 @@ func shouldDowngradeBareConfirmation(category, text string, state *conversation.
 	return category == "checkout_now" && isBareConfirmation(text) && !hasCheckoutContext(state)
 }
 
+// shouldAckCompletedBooking reports whether a bare confirmation ("Yes, confirm
+// please.") arrived right after the booking workflow completed. Classifiers
+// map it back to "booking", which would restart booking_payment_handler from
+// "what is your full name?" — a misroute. The correct reply is a static
+// acknowledgement that the request is already with the admin. Mid-flow
+// confirmations resume the awaiting workflow before classification, so only
+// post-completion turns reach this guard (2026-08-11 e2e-checkin fix).
+func shouldAckCompletedBooking(category, text string, state *conversation.State) bool {
+	return category == "booking" && isBareConfirmation(text) &&
+		state != nil && state.WorkflowStateJSON == "" && state.LastIntent == "booking"
+}
+
+var bookingAckMsgs = map[string]string{
+	"en": "✅ All set! Your booking request is already with our admin — they will contact you shortly to confirm your reservation. See you soon! 😊",
+	"ms": "✅ Selesai! Permintaan tempahan anda sudah ada dengan admin kami — mereka akan hubungi anda tidak lama lagi untuk pengesahan. Jumpa nanti! 😊",
+	"zh": "✅ 好的！您的预订请求已交给我们的管理员，他们会尽快联系您确认预订。到时见！😊",
+	"ta": "✅ முடிந்தது! உங்கள் முன்பதிவு கோரிக்கை எங்கள் நிர்வாகியிடம் உள்ளது — விரைவில் உங்களை தொடர்பு கொண்டு உறுதிப்படுத்துவார்கள். சீக்கிரம் சந்திப்போம்! 😊",
+}
+
+func bookingAckMsg(lang string) string {
+	if m, ok := bookingAckMsgs[lang]; ok {
+		return m
+	}
+	return bookingAckMsgs["en"]
+}
+
 // hasCheckoutContext reports whether the session gives a bare confirmation a
 // legitimate checkout meaning: an active (non-awaiting) workflow snapshot, or a
 // last intent that was already checkout-flavoured.

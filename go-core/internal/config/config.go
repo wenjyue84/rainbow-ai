@@ -117,7 +117,8 @@ var profileWhitelistKey = map[string]string{
 	"pms_capsule": "pms_capsule",
 	"southern":    "southern",
 	"makan":       "makan",
-	"senai-app":   "senai_app",
+	"senai-app":    "senai_app",
+	"dental-world": "dental_world",
 }
 
 // alwaysAllowed intents bypass the whitelist filter (universal + control intents).
