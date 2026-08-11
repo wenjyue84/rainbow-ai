@@ -38,6 +38,7 @@ const DATA_DIRS = {
   default: path.join(ROOT, 'src', 'assistant', 'data'),
   southern: path.join(ROOT, 'src', 'assistant', 'data-southern'),
   makan: path.join(ROOT, 'src', 'assistant', 'data-makan'),
+  'dental-world': path.join(ROOT, 'src', 'assistant', 'data-dental-world'),
 };
 
 // ─── describe ────────────────────────────────────────────────────────────────
