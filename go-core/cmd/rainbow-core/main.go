@@ -48,6 +48,7 @@ func kbDirFor(kbRoot, profile string) string {
 		"southern":     ".rainbow-kb-southern",
 		"makan":        ".rainbow-kb-makan",
 		"dental-world": ".rainbow-kb-dental-world",
+		"yoongmei":     ".rainbow-kb-yoongmei",
 	}[profile]
 	if sub == "" {
 		return ""

@@ -1,0 +1,105 @@
+<div class="mb-6">
+  <h2 class="text-xl font-bold text-neutral-800">Export / Import Intelligence</h2>
+  <p class="text-sm text-neutral-500 mt-1">Backup and restore the full intelligence configuration for this profile — knowledge, routing, intents, keywords, templates, and workflows.</p>
+</div>
+
+<!-- Export Card -->
+<div class="bg-white border border-neutral-200 rounded-2xl p-6 mb-4">
+  <div class="flex items-start gap-4">
+    <div class="flex-shrink-0 w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-xl">📦</div>
+    <div class="flex-1">
+      <h3 class="font-semibold text-neutral-800 mb-1">Export Bundle</h3>
+      <p class="text-sm text-neutral-500 mb-4">Download all 7 intelligence files as a single JSON bundle: <code class="text-xs bg-neutral-100 px-1 rounded">knowledge · settings · routing · intent-keywords · intents · templates · workflows</code></p>
+      <button onclick="intelligenceExport()" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Download Bundle
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Card -->
+<div class="bg-white border border-neutral-200 rounded-2xl p-6 mb-4">
+  <div class="flex items-start gap-4">
+    <div class="flex-shrink-0 w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-xl">📥</div>
+    <div class="flex-1">
+      <h3 class="font-semibold text-neutral-800 mb-1">Import Bundle</h3>
+      <p class="text-sm text-neutral-500 mb-4">Upload a previously exported bundle to restore or copy intelligence config. Missing sections are silently skipped — supports partial imports.</p>
+      <label class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl transition-colors cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4 4l4-4m0 0l4-4m-4 4V4"/>
+        </svg>
+        Choose Bundle File
+        <input type="file" accept=".json" class="hidden" onchange="intelligenceImport(this)">
+      </label>
+      <p id="ie-status" class="mt-3 text-sm text-neutral-500 hidden"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Info Card -->
+<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
+  <strong>⚠️ Import overwrites existing config.</strong> Export first as a backup before importing from another profile. Each section is validated against its schema — invalid sections are rejected with an error.
+</div>
+
+<script>
+(function () {
+  async function intelligenceExport() {
+    try {
+      const headers = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getHeaders)
+        ? profileSwitcher.getHeaders()
+        : {};
+      const res = await fetch('/api/rainbow/intelligence/export', { headers });
+      if (!res.ok) { showToast('Export failed: ' + res.status, 'error'); return; }
+      const blob = await res.blob();
+      const profileId = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getCurrentProfile)
+        ? profileSwitcher.getCurrentProfile()
+        : 'profile';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'intelligence-' + profileId + '-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+      showToast('Bundle downloaded', 'success');
+    } catch (err) {
+      showToast('Export error: ' + err.message, 'error');
+    }
+  }
+
+  async function intelligenceImport(input) {
+    const file = input.files[0]; if (!file) return;
+    const statusEl = document.getElementById('ie-status');
+    statusEl.textContent = 'Uploading...';
+    statusEl.className = 'mt-3 text-sm text-neutral-500';
+    statusEl.classList.remove('hidden');
+    try {
+      const form = new FormData(); form.append('file', file);
+      const headers = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getHeaders)
+        ? profileSwitcher.getHeaders()
+        : {};
+      const res = await fetch('/api/rainbow/intelligence/import', { method: 'POST', headers, body: form });
+      const data = await res.json();
+      if (res.ok) {
+        statusEl.textContent = '✅ Imported: ' + data.imported.join(', ') +
+          (data.skipped.length ? ' · Skipped: ' + data.skipped.join(', ') : '');
+        statusEl.className = 'mt-3 text-sm text-emerald-700';
+        showToast('Import successful', 'success');
+      } else {
+        statusEl.textContent = '❌ ' + (data.error || 'Import failed');
+        statusEl.className = 'mt-3 text-sm text-red-600';
+        showToast('Import failed', 'error');
+      }
+    } catch (err) {
+      statusEl.textContent = '❌ Network error: ' + err.message;
+      statusEl.className = 'mt-3 text-sm text-red-600';
+    }
+    input.value = '';
+  }
+
+  window.intelligenceExport = intelligenceExport;
+  window.intelligenceImport = intelligenceImport;
+})();
+</script>

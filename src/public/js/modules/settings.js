@@ -120,6 +120,7 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'template-linter') {
     import('/public/js/modules/template-linter-settings.js').then(m => m.renderTemplateLinterTab(container));
   }
+  else if (tabId === 'intelligence-export') renderIntelligenceExportTab(container);
 }
 window.switchSettingsTab = switchSettingsTab;
 
@@ -1116,3 +1117,88 @@ export function resetAppearancePrefs() {
   toast('Appearance reset to defaults');
 }
 window.resetAppearancePrefs = resetAppearancePrefs;
+
+// ─── Intelligence Export / Import Tab ────────────────────────────
+
+function renderIntelligenceExportTab(container) {
+  container.innerHTML =
+    '<div class="bg-white border rounded-2xl p-6">' +
+    '<h3 class="font-semibold text-lg mb-1">Export / Import Intelligence</h3>' +
+    '<p class="text-sm text-neutral-500 mb-6">Download a full intelligence bundle (knowledge, routing, intents, keywords, templates, workflows, settings) or restore one from a previous export.</p>' +
+
+    '<div class="flex flex-wrap gap-3 mb-6">' +
+
+    '<button onclick="intelligenceExport()" ' +
+    'class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium text-sm rounded-xl border border-indigo-200 transition">' +
+    '⬇️ Download Bundle' +
+    '</button>' +
+
+    '<label class="inline-flex items-center gap-2 px-4 py-2 bg-neutral-50 hover:bg-neutral-100 text-neutral-700 font-medium text-sm rounded-xl border border-neutral-200 transition cursor-pointer">' +
+    '⬆️ Import Bundle' +
+    '<input type="file" accept=".json" class="hidden" onchange="intelligenceImport(this)">' +
+    '</label>' +
+
+    '</div>' +
+
+    '<p id="intelligence-import-status" class="text-sm text-neutral-400 min-h-[1.25rem]"></p>' +
+    '</div>';
+}
+
+async function intelligenceExport() {
+  try {
+    const profileId = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'default';
+    const adminKey = (window.__ADMIN_KEY__) ? window.__ADMIN_KEY__ : '';
+    const profileHeaders = window.profileSwitcher ? window.profileSwitcher.getHeaders() : {};
+    const res = await fetch('/api/rainbow/intelligence/export', {
+      cache: 'no-store',
+      headers: { ...(adminKey ? { 'x-admin-key': adminKey } : {}), ...profileHeaders }
+    });
+    if (!res.ok) { toast('Export failed: ' + res.statusText, 'error'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = 'intelligence-' + profileId + '-' + date + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    toast('Intelligence bundle downloaded', 'success');
+  } catch (err) {
+    toast('Export error: ' + (err.message || 'Unknown error'), 'error');
+  }
+}
+window.intelligenceExport = intelligenceExport;
+
+async function intelligenceImport(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('intelligence-import-status');
+  if (statusEl) statusEl.textContent = 'Uploading…';
+  try {
+    var form = new FormData();
+    form.append('file', file);
+    var res = await fetch('/api/rainbow/intelligence/import', {
+      method: 'POST',
+      headers: (window.profileSwitcher ? window.profileSwitcher.getHeaders() : {}),
+      body: form
+    });
+    var data = await res.json();
+    if (res.ok) {
+      var msg = 'Imported: ' + (data.imported || []).join(', ');
+      if (statusEl) statusEl.textContent = msg;
+      toast(msg, 'success');
+    } else {
+      var errMsg = 'Import failed: ' + (data.error || res.statusText);
+      if (statusEl) statusEl.textContent = errMsg;
+      toast(errMsg, 'error');
+    }
+  } catch (err) {
+    var errMsg = 'Import error: ' + (err.message || 'Unknown error');
+    if (statusEl) statusEl.textContent = errMsg;
+    toast(errMsg, 'error');
+  }
+  // Reset file input so same file can be re-imported
+  input.value = '';
+}
+window.intelligenceImport = intelligenceImport;
