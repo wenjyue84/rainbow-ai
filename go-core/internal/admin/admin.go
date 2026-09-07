@@ -252,6 +252,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/feedback/stats", h.auth(h.feedbackStats))
 	mux.HandleFunc("/api/rainbow/intent/accuracy", h.auth(h.intentAccuracy))
 
+	// Intelligence export bundle (GET /api/rainbow/intelligence/export).
+	mux.HandleFunc("/api/rainbow/intelligence/export", h.auth(h.intelligenceExport))
+
 	// Activity stream: SSE endpoint the dashboard's Recent Activity panel subscribes
 	// to. go-core emits an empty init event and then heartbeats — no events yet, but
 	// the connection stays open so the SPA shows "connected" instead of "Reconnecting".
@@ -573,12 +576,26 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// bridge /health reports connState ("open" = paired and connected); the
 	// bot number is not exposed there, so it comes from RAINBOW_WA_NUMBER.
 
+	// Per-profile bridge: BRIDGE_URL_<PROFILE> (e.g. BRIDGE_URL_SENAI_APP=
+	// http://127.0.0.1:8790) overrides the global BRIDGE_URL so each
+	// profile's dashboard reports ITS OWN Baileys session, not the default
+	// (Pelangi) one. WA_LABEL_<PROFILE> names the instance card.
+	bridgeURL := h.bridgeURL
+	instanceLabel := ""
+	if profileHeader != "" {
+		suffix := strings.ToUpper(strings.ReplaceAll(profileHeader, "-", "_"))
+		if v := os.Getenv("BRIDGE_URL_" + suffix); v != "" {
+			bridgeURL = strings.TrimRight(v, "/")
+		}
+		instanceLabel = os.Getenv("WA_LABEL_" + suffix)
+	}
+
 	waStatus := map[string]any{"state": "unknown", "user": nil}
 	waInstances := []any{}
-	if h.bridgeURL != "" {
+	if bridgeURL != "" {
 		bctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if req, err := http.NewRequestWithContext(bctx, http.MethodGet, h.bridgeURL+"/health", nil); err == nil {
+		if req, err := http.NewRequestWithContext(bctx, http.MethodGet, bridgeURL+"/health", nil); err == nil {
 			if resp, err := http.DefaultClient.Do(req); err == nil {
 				defer resp.Body.Close()
 				var hb struct {
@@ -599,6 +616,9 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 					label := hb.InstanceID
 					if displayName != "" {
 						label = displayName
+					}
+					if instanceLabel != "" {
+						label = instanceLabel
 					}
 					waStatus = map[string]any{"state": hb.Whatsapp, "user": user}
 					waInstances = []any{map[string]any{
