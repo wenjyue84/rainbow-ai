@@ -609,3 +609,38 @@ func TestFromMeBeatsIgnoredByName(t *testing.T) {
 		t.Errorf("fromMe must not be answered")
 	}
 }
+
+// Regression (2026-09-08 14:51 UTC incident): a "silent" profile must never run
+// the payment-receipt OCR or the media acknowledgement — senai-app answered a
+// tenant's receipt photo with the Pelangi capsule template and pinged Jay.
+func TestSilentModeGatesImagesAndMedia(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	eng.SetReplyMode("silent", "")
+	res, err := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550003", PushName: "Tenant", MessageID: "img1", MessageType: contract.MsgImage,
+		MediaURL: "http://127.0.0.1:1/media/receipt.jpg",
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if !res.Skipped || res.SkipReason != "silent: manual reply only" {
+		t.Fatalf("image under silent: %+v", res)
+	}
+	if len(send.texts) != 0 {
+		t.Fatalf("silent profile must not send on an image (sends=%v)", send.texts)
+	}
+	hist, _ := eng.conv.History("60155550003", eng.prof.ID, 5)
+	if len(hist) != 1 || hist[0].Role != "user" || hist[0].Content != "[image]" {
+		t.Fatalf("image must still be logged for Live Chat, got %+v", hist)
+	}
+	// intro-once: an image as first contact gets the intro only, no receipt flow.
+	eng.SetReplyMode("intro-once", "Hi, I am the AI assistant of Test.")
+	res, _ = eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550004", PushName: "New", MessageID: "img2", MessageType: contract.MsgImage,
+		MediaURL: "http://127.0.0.1:1/media/x.jpg",
+	})
+	if res.Action != "intro-once" || len(send.texts) != 1 || send.last() != "Hi, I am the AI assistant of Test." {
+		t.Fatalf("image under intro-once: res=%+v sends=%v", res, send.texts)
+	}
+}

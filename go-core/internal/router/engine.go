@@ -329,10 +329,19 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 		return Result{}, err
 	}
 
+	// Reply mode is read ONCE here and gates every outbound path below,
+	// including the payment-receipt OCR and the media acknowledgement.
+	// Incident 2026-09-08 14:51 UTC: senai-app (reply_mode "silent") received a
+	// receipt image from a tenant and the receipt gate — which ran before the
+	// reply-mode check — sent the Pelangi capsule template to her and to Jay.
+	replyMode, introMsg := e.ReplyMode()
+	normalMode := replyMode == ""
+
 	// Payment-receipt OCR gate: an inbound image may be a payment receipt.
 	// Verified receipts release the guest's capsule; anything else falls
-	// through to the normal pipeline (media ack / caption text).
-	if msg.MessageType == contract.MsgImage && msg.MediaURL != "" {
+	// through to the normal pipeline (media ack / caption text). Only in the
+	// normal pipeline — silent / intro-once profiles never auto-reply here.
+	if normalMode && msg.MessageType == contract.MsgImage && msg.MediaURL != "" {
 		if res, handled := e.tryPaymentReceipt(ctx, state, msg); handled {
 			return res, nil
 		}
@@ -340,11 +349,17 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 
 	// Media with no caption (and audio that couldn't be transcribed): don't silently
 	// drop — acknowledge so the guest always gets a response, and notify staff.
+	// Silent / intro-once profiles log the media as a placeholder instead so Live
+	// Chat shows it, then fall into the reply-mode block below (no outbound).
 	if text == "" {
 		if isMediaType(msg.MessageType) {
-			return e.handleMediaAck(ctx, state, msg)
+			if normalMode {
+				return e.handleMediaAck(ctx, state, msg)
+			}
+			text = "[" + string(msg.MessageType) + "]"
+		} else {
+			return Result{Skipped: true, SkipReason: "empty"}, nil
 		}
-		return Result{Skipped: true, SkipReason: "empty"}, nil
 	}
 
 	// Log inbound (media captions keep their bridge media URL for the live-chat thumbnail).
@@ -362,7 +377,6 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 	//                  Ramli / Rachel / Jayson run in this mode; Rainbow does not.
 	//   "intro-once" — greet a new contact exactly once, then stay silent.
 	//   ""           — normal pipeline.
-	replyMode, introMsg := e.ReplyMode()
 	if replyMode == "silent" {
 		_ = e.conv.Save(state)
 		return Result{Skipped: true, SkipReason: "silent: manual reply only"}, nil
