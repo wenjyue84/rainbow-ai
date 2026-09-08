@@ -52,6 +52,120 @@ type Engine struct {
 	transcriber Transcriber
 	retriever   Retriever
 	ledger      *receiptLedger // replay protection for payment receipts
+
+	// rag is the hot-swappable KB retriever (admin KB API rewrites a file and
+	// reloads). Pointer so ProcessCapture's shallow copy shares it.
+	rag *retrieverBox
+	// mode is the hot-swappable reply mode / intro message (settings UI).
+	mode *replyModeBox
+
+	// ign is the hot-swappable AI exception list (settings.json
+	// ignoredNumbers). A pointer so ProcessCapture's shallow engine copy shares
+	// it (and doesn't copy the mutex).
+	ign *ignoredList
+}
+
+// ignoredList guards the exception list: the admin PUT replaces it while
+// inbound goroutines read it.
+type ignoredList struct {
+	mu   sync.RWMutex
+	list []config.IgnoredNumber
+}
+
+type retrieverBox struct {
+	mu sync.RWMutex
+	r  Retriever
+}
+
+// replyModeBox guards reply_mode / intro_message: the admin PUT replaces them
+// while inbound goroutines read them.
+type replyModeBox struct {
+	mu    sync.RWMutex
+	mode  string
+	intro string
+}
+
+// SetRetriever swaps the RAG retriever without a restart (nil = no RAG).
+func (e *Engine) SetRetriever(r Retriever) {
+	e.rag.mu.Lock()
+	e.rag.r = r
+	e.rag.mu.Unlock()
+}
+
+func (e *Engine) currentRetriever() Retriever {
+	e.rag.mu.RLock()
+	defer e.rag.mu.RUnlock()
+	return e.rag.r
+}
+
+// SetReplyMode hot-applies reply_mode ("" | "intro-once" | "silent") and the
+// intro message without a restart.
+func (e *Engine) SetReplyMode(mode, intro string) {
+	e.mode.mu.Lock()
+	e.mode.mode = strings.TrimSpace(mode)
+	e.mode.intro = strings.TrimSpace(intro)
+	e.mode.mu.Unlock()
+}
+
+// ReplyMode returns the current reply mode and intro message.
+func (e *Engine) ReplyMode() (mode, intro string) {
+	e.mode.mu.RLock()
+	defer e.mode.mu.RUnlock()
+	return e.mode.mode, e.mode.intro
+}
+
+// SetIgnoredNumbers replaces the AI exception list without a restart. Phones
+// are normalised (digits only) so callers may pass raw user input.
+func (e *Engine) SetIgnoredNumbers(list []config.IgnoredNumber) {
+	norm := config.NormalizeIgnored(list)
+	e.ign.mu.Lock()
+	e.ign.list = norm
+	e.ign.mu.Unlock()
+}
+
+// IgnoredNumbers returns a copy of the current exception list.
+func (e *Engine) IgnoredNumbers() []config.IgnoredNumber {
+	e.ign.mu.RLock()
+	defer e.ign.mu.RUnlock()
+	out := make([]config.IgnoredNumber, len(e.ign.list))
+	copy(out, e.ign.list)
+	return out
+}
+
+// ProbeProvider runs a one-token completion against one named provider of
+// this profile (admin "Test Speed"). Uses the reply manager's provider table.
+func (e *Engine) ProbeProvider(ctx context.Context, providerID string) (time.Duration, *ai.ChatResult, error) {
+	return e.replyMgr.Probe(ctx, providerID)
+}
+
+// ignoredReason reports whether msg comes from an excepted number and the
+// skip reason to log. Matching is by digits of From (JID or bare phone). A
+// sender on the WhatsApp LID addressing scheme ("…@lid") carries no phone at
+// all, so for those — and ONLY those — we fall back to a case-insensitive
+// PushName == Label match and log it as ignored_number_by_name.
+func (e *Engine) ignoredReason(msg contract.IncomingMessage) (string, bool) {
+	e.ign.mu.RLock()
+	list := e.ign.list
+	e.ign.mu.RUnlock()
+	if len(list) == 0 {
+		return "", false
+	}
+	from := msg.From
+	isLID := strings.HasSuffix(strings.ToLower(from), "@lid")
+	digits := ""
+	if !isLID {
+		digits = config.NormalizePhone(from)
+	}
+	name := strings.ToLower(strings.TrimSpace(msg.PushName))
+	for _, n := range list {
+		if digits != "" && n.Phone == digits {
+			return "ignored_number", true
+		}
+		if isLID && name != "" && n.Label != "" && strings.EqualFold(n.Label, name) {
+			return "ignored_number_by_name", true
+		}
+	}
+	return "", false
 }
 
 // Options configures the engine.
@@ -76,6 +190,7 @@ func NewEngine(prof *config.Profile, conv *conversation.Manager, send Sender, op
 		clf = clf.WithSemantic(opts.Semantic)
 	}
 	return &Engine{
+		ign:         &ignoredList{list: config.NormalizeIgnored(prof.IgnoredNumbers)},
 		prof:        prof,
 		clf:         clf,
 		aiMgr:       aiMgr,
@@ -89,6 +204,8 @@ func NewEngine(prof *config.Profile, conv *conversation.Manager, send Sender, op
 		transcriber: opts.Transcriber,
 		retriever:   opts.Retriever,
 		ledger:      newReceiptLedger(opts.ReceiptLedgerPath),
+		rag:         &retrieverBox{r: opts.Retriever},
+		mode:        &replyModeBox{mode: prof.ReplyMode, intro: prof.IntroMessage},
 	}
 }
 
@@ -144,6 +261,46 @@ func (e *Engine) ProcessCapture(ctx context.Context, msg contract.IncomingMessag
 
 // Process runs the full inbound pipeline for one message.
 func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Result, error) {
+	// Remember the peer's real number for privacy-ID (@lid) contacts so the
+	// dashboard can show it (bridge resolves it from remoteJidAlt / LID map).
+	if msg.PhoneNumber != "" && !msg.IsGroup {
+		e.conv.SetContactPhone(msg.From, msg.PhoneNumber)
+	}
+	// Typed on the bot's own phone / WhatsApp Web (bridge fromMe relay): record
+	// as a staff turn so Live Chat shows it, no AI, no send. Checked before the
+	// exception list — the pushName on an own message is OUR name, which would
+	// otherwise match a staff label (ignored_number_by_name) and vanish.
+	if msg.FromMe {
+		if msg.IsGroup {
+			return Result{Skipped: true, SkipReason: "from-me-group"}, nil
+		}
+		if msg.MessageID != "" && !e.dedup.firstSeen(msg.MessageID) {
+			return Result{Skipped: true, SkipReason: "duplicate"}, nil
+		}
+		text := strings.TrimSpace(msg.Text)
+		if text == "" && msg.MediaURL == "" {
+			return Result{Skipped: true, SkipReason: "from-me-empty"}, nil
+		}
+		if _, err := e.conv.GetOrCreate(msg.From, "", e.prof.ID); err != nil {
+			return Result{}, err
+		}
+		_ = e.conv.AddMessageMeta(msg.From, "staff", text, e.prof.ID, &conversation.MsgMeta{
+			Source: "phone-manual", MessageType: string(msg.MessageType), MediaURL: msg.MediaURL,
+		})
+		return Result{Skipped: true, SkipReason: "from-me"}, nil
+	}
+	// AI exception list (staff on personal numbers): checked before anything
+	// else so no classifier / LLM / RAG spend happens. The text is still stored
+	// so the conversation stays visible in Live Chat; media-only messages are
+	// not stored (no URL persistence, nothing useful to show).
+	if reason, ok := e.ignoredReason(msg); ok {
+		if text := strings.TrimSpace(msg.Text); text != "" && !msg.IsGroup {
+			if _, err := e.conv.GetOrCreate(msg.From, msg.PushName, e.prof.ID); err == nil {
+				_ = e.conv.AddMessage(msg.From, "user", text, e.prof.ID)
+			}
+		}
+		return Result{Skipped: true, SkipReason: reason}, nil
+	}
 	// Group messages are ignored (parity with input-validator).
 	if msg.IsGroup {
 		return Result{Skipped: true, SkipReason: "group"}, nil
@@ -190,9 +347,38 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 		return Result{Skipped: true, SkipReason: "empty"}, nil
 	}
 
-	// Log inbound.
-	_ = e.conv.AddMessage(phone, "user", text, profileID)
+	// Log inbound (media captions keep their bridge media URL for the live-chat thumbnail).
+	if msg.MediaURL != "" {
+		_ = e.conv.AddMessageMeta(phone, "user", text, profileID, &conversation.MsgMeta{MessageType: string(msg.MessageType), MediaURL: msg.MediaURL})
+	} else {
+		_ = e.conv.AddMessage(phone, "user", text, profileID)
+	}
 	state.LastUserMessageAtMs = time.Now().UnixMilli()
+
+	// Reply mode (settings "reply_mode", hot-swappable from the Settings UI):
+	//   "silent"     — 2026-09-08: no AI, no LLM call, no outbound. The inbound
+	//                  is already logged above so Live Chat still shows it; a
+	//                  human (or a Claude session via the bridge) replies by hand.
+	//                  Ramli / Rachel / Jayson run in this mode; Rainbow does not.
+	//   "intro-once" — greet a new contact exactly once, then stay silent.
+	//   ""           — normal pipeline.
+	replyMode, introMsg := e.ReplyMode()
+	if replyMode == "silent" {
+		_ = e.conv.Save(state)
+		return Result{Skipped: true, SkipReason: "silent: manual reply only"}, nil
+	}
+	// History already includes the turn just logged, so len<=1 = first contact.
+	if replyMode == "intro-once" {
+		history, _ := e.conv.History(phone, profileID, 0)
+		if len(history) <= 1 && introMsg != "" {
+			_, _ = e.send.SendText(ctx, phone, introMsg, msg.InstanceID)
+			_ = e.conv.AddMessageMeta(phone, "assistant", introMsg, profileID, &conversation.MsgMeta{Intent: "intro", Source: "intro-once", RoutedAction: "intro-once"})
+			state.LastIntent = "intro"
+			_ = e.conv.Save(state)
+			return Result{Intent: "intro", Action: "intro-once", Reply: introMsg}, nil
+		}
+		return Result{Skipped: true, SkipReason: "intro-once: awaiting manual reply"}, nil
+	}
 
 	// Typing indicator (best-effort).
 	if e.typing {
@@ -260,7 +446,7 @@ func (e *Engine) Process(ctx context.Context, msg contract.IncomingMessage) (Res
 	}
 
 	// Classify (T1 → T2 → T3 → T4).
-	history := e.conv.HistoryStrings(phone, 8)
+	history := e.conv.HistoryStrings(phone, profileID, 8)
 	cls := e.clf.Classify(ctx, text, history)
 
 	// Guard (2026-07-19): a bare confirmation ("Yes, confirm please.") in a
@@ -381,14 +567,14 @@ func (e *Engine) runCtx(state *conversation.State, lang, instanceID string) work
 		admin = e.prof.Staff.Phones[0]
 	}
 	return workflow.RunContext{
-		GuestPhone: state.Phone,
-		GuestName:  state.PushName,
-		Lang:       lang,
-		InstanceID: instanceID,
+		GuestPhone:  state.Phone,
+		GuestName:   state.PushName,
+		Lang:        lang,
+		InstanceID:  instanceID,
 		AdminPhone:  admin,
 		MayaPhone:   e.prof.Staff.MayaPhone,
 		AlstonPhone: e.prof.Staff.AlstonPhone,
-		PMS:        e.pms,
+		PMS:         e.pms,
 		Send: func(ctx context.Context, phone, text, inst string) error {
 			_, err := e.send.SendText(ctx, phone, text, inst)
 			// Persist guest-facing workflow messages so the transcript in
@@ -438,7 +624,7 @@ func (e *Engine) handleMediaAck(ctx context.Context, state *conversation.State, 
 		ack = mediaAckMsg["en"]
 	}
 	label := string(msg.MessageType)
-	_ = e.conv.AddMessageMeta(state.Phone, "user", "["+label+"]", e.prof.ID, &conversation.MsgMeta{MessageType: label})
+	_ = e.conv.AddMessageMeta(state.Phone, "user", "["+label+"]", e.prof.ID, &conversation.MsgMeta{MessageType: label, MediaURL: msg.MediaURL})
 	if _, err := e.send.SendText(ctx, state.Phone, ack, msg.InstanceID); err != nil {
 		return Result{}, err
 	}
@@ -478,8 +664,8 @@ func (e *Engine) llmReply(ctx context.Context, cls classify.Result, text string,
 	}
 	kb := static
 	// RAG: ground the reply with the most relevant KB chunks (BM25).
-	if e.retriever != nil {
-		if chunks := e.retriever.Retrieve(text, 5); chunks != "" {
+	if retr := e.currentRetriever(); retr != nil {
+		if chunks := retr.Retrieve(text, 5); chunks != "" {
 			if kb != "" {
 				kb = kb + "\n\n" + chunks
 			} else {

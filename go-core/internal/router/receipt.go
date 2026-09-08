@@ -294,7 +294,7 @@ func (e *Engine) tryPaymentReceipt(ctx context.Context, state *conversation.Stat
 	log.Printf("[receipt-ocr] session=%s guest=%q amountRead=%.2f recipient=%q ref=%q date=%s expectedCandidates=%v matchedAmount=%.2f reservation=%s matched=%v reasons=%v lookupErr=%v",
 		state.Phone, guestName, ocr.Amount, ocr.Recipient, ocr.Reference, ocr.Date, candidates, matchedAmt, confNo, ok, reasons, lerr)
 
-	_ = e.conv.AddMessageMeta(state.Phone, "user", "[image: payment receipt]", e.prof.ID, &conversation.MsgMeta{Intent: "payment_receipt", MessageType: "image"})
+	_ = e.conv.AddMessageMeta(state.Phone, "user", "[image: payment receipt]", e.prof.ID, &conversation.MsgMeta{Intent: "payment_receipt", MessageType: "image", MediaURL: msg.MediaURL})
 
 	var reply string
 	result := Result{Intent: "payment_receipt", Language: lang}

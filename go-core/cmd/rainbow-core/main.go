@@ -6,11 +6,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"rainbow-core/internal/contract"
 	"rainbow-core/internal/conversation"
 	"rainbow-core/internal/digiman"
+	"rainbow-core/internal/kb"
 	"rainbow-core/internal/rag"
 	"rainbow-core/internal/router"
 	"rainbow-core/internal/scheduler"
@@ -42,18 +45,11 @@ func env(key, def string) string {
 }
 
 // kbDirFor maps a profile id to its knowledge-base directory under kbRoot.
-func kbDirFor(kbRoot, profile string) string {
-	sub := map[string]string{
-		"pelangi":      ".rainbow-kb",
-		"southern":     ".rainbow-kb-southern",
-		"makan":        ".rainbow-kb-makan",
-		"dental-world": ".rainbow-kb-dental-world",
-		"yoongmei":     ".rainbow-kb-yoongmei",
-	}[profile]
-	if sub == "" {
-		return ""
-	}
-	return filepath.Join(kbRoot, sub)
+func kbDirFor(kbRoot, profile string) string { return kb.DirFor(kbRoot, profile) }
+
+// envSuffix turns a profile id into its env-var suffix ("senai-app" → "SENAI_APP").
+func envSuffix(profile string) string {
+	return strings.ToUpper(strings.ReplaceAll(profile, "-", "_"))
 }
 
 // parseInstanceMap parses "instanceId=profile,instanceId2=profile2" into a map.
@@ -91,6 +87,20 @@ func main() {
 
 	conv := conversation.NewManager(st)
 	br := bridge.New(bridgeURL)
+	br.SetSendToken(env("BRIDGE_SEND_TOKEN", ""))
+	// Per-instance send routing: each WhatsApp number is its own bridge
+	// process, so replies must go back out through the bridge that owns the
+	// instance the message came in on. Derived from BRIDGE_URL_<PROFILE> via
+	// PROFILE_INSTANCES; BRIDGE_INSTANCE_URLS ("instanceId=url,...") wins and
+	// covers two instances on one profile.
+	for inst, prof := range parseInstanceMap(instMapEnv) {
+		if u := os.Getenv("BRIDGE_URL_" + envSuffix(prof)); u != "" {
+			br.SetInstanceURL(inst, u)
+		}
+	}
+	for inst, u := range parseInstanceMap(env("BRIDGE_INSTANCE_URLS", "")) {
+		br.SetInstanceURL(inst, u)
+	}
 
 	// Shared options across profiles.
 	baseOpts := router.Options{
@@ -139,6 +149,10 @@ func main() {
 	for _, p := range instanceProfile {
 		needed[p] = true
 	}
+	// Profiles created from the SPA wizard (<dataDir>/profiles.json).
+	for _, p := range admin.ExtraProfileIDs(dataDir) {
+		needed[p] = true
+	}
 
 	kbRoot := env("RAINBOW_KB_ROOT", ".")
 	staffPhone := ""
@@ -165,10 +179,31 @@ func main() {
 			}
 		}
 		engines[pid] = router.NewEngine(prof, conv, br, opts)
-		log.Printf("[core] profile=%s patterns=%d keywords=%d routes=%d static=%d whitelist=%d providers=%d",
-			prof.ID, len(prof.Patterns), len(prof.Keywords), len(prof.Routing), len(prof.Static), len(prof.Allowed), len(prof.Providers))
+		inh := ""
+		if len(prof.Inherited) > 0 {
+			var keys []string
+			for k := range prof.Inherited {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			inh = " inherited=" + strings.Join(keys, ",")
+		}
+		log.Printf("[core] profile=%s patterns=%d keywords=%d routes=%d static=%d whitelist=%d providers=%d reply_mode=%q%s",
+			prof.ID, len(prof.Patterns), len(prof.Keywords), len(prof.Routing), len(prof.Static), len(prof.Allowed), len(prof.Providers), prof.ReplyMode, inh)
 	}
 	hub := router.NewHub(engines, instanceProfile, profileID)
+	// Our own numbers (every RAINBOW_WA_NUMBER* env): inbound from one of them
+	// is another assistant, stored but never auto-answered (no bot ping-pong).
+	var botNums []string
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "RAINBOW_WA_NUMBER") && strings.TrimSpace(v) != "" {
+			botNums = append(botNums, v)
+		}
+	}
+	hub.SetBotNumbers(botNums)
+	if len(botNums) > 0 {
+		log.Printf("[core] bot-peer guard: %d own numbers", len(botNums))
+	}
 	if len(instanceProfile) > 0 {
 		log.Printf("[core] instance routing: %v (default=%s)", instanceProfile, profileID)
 	}
@@ -179,6 +214,36 @@ func main() {
 	adm := admin.New(st, env("RAINBOW_ADMIN_KEY", ""), env("RAINBOW_PUBLIC_DIR", ""), dataDir)
 	adm.SetProfiles(hub.Profiles(), profileID)
 	adm.SetBridge(bridgeURL)
+	// WhatsApp instance registry for the dashboard's Logout / QR buttons
+	// (admin/wa_instances.go): every instance in BRIDGE_INSTANCE_URLS plus
+	// every PROFILE_INSTANCES entry with a BRIDGE_URL_<PROFILE>; an instance
+	// absent from PROFILE_INSTANCES routes to the default profile. Token =
+	// BRIDGE_QR_TOKEN_<INSTANCE>, else the global BRIDGE_QR_TOKEN.
+	instBridges := map[string]admin.InstanceBridge{}
+	for inst, prof := range instanceProfile {
+		if u := os.Getenv("BRIDGE_URL_" + envSuffix(prof)); u != "" {
+			instBridges[inst] = admin.InstanceBridge{URL: u, Profile: prof}
+		}
+	}
+	for inst, u := range parseInstanceMap(env("BRIDGE_INSTANCE_URLS", "")) {
+		prof := instanceProfile[inst]
+		if prof == "" {
+			prof = profileID
+		}
+		instBridges[inst] = admin.InstanceBridge{URL: u, Profile: prof}
+	}
+	for inst, ib := range instBridges {
+		ib.Token = env("BRIDGE_QR_TOKEN_"+envSuffix(inst), env("BRIDGE_QR_TOKEN", ""))
+		instBridges[inst] = ib
+	}
+	adm.SetInstanceBridges(instBridges)
+	if len(instBridges) > 0 {
+		ids := make([]string, 0, len(instBridges))
+		for inst, ib := range instBridges {
+			ids = append(ids, inst+"→"+ib.Profile+"@"+ib.URL)
+		}
+		log.Printf("[core] whatsapp instances: %v", ids)
+	}
 	if defaultProf != nil {
 		classifyMgr := ai.New(defaultProf)          // T4 classify order (8B first)
 		replyMgr := ai.NewReplyManager(defaultProf) // guest reply order (gemini first)
@@ -188,6 +253,31 @@ func main() {
 		})
 	}
 	adm.SetSender(br) // staff WhatsApp sends from the live-chat tab
+	// AI exception list: PUT persists to the profile's settings file and
+	// hot-applies to the running engine via the hub.
+	adm.SetIgnoredApplier(hub.SetIgnoredNumbers)
+	// Reply mode (silent / intro-once / normal): PUT persists + hot-applies.
+	adm.SetReplyModeApplier(hub.SetReplyMode)
+	// KB API (/api/kb/* with KB_API_TOKEN, /api/rainbow/kb-files/* for the SPA):
+	// a write re-indexes that profile's KB and swaps the engine's retriever.
+	adm.SetKB(kbRoot, env("KB_API_TOKEN", ""), func(pid string) (int, error) {
+		r, err := rag.LoadDir(kbDirFor(kbRoot, pid))
+		if err != nil {
+			return 0, err
+		}
+		if !hub.SetRetriever(pid, r) {
+			return r.Chunks(), fmt.Errorf("no engine for profile %q (file saved; loads on restart)", pid)
+		}
+		return r.Chunks(), nil
+	})
+	// Courtesy notice to newly excepted numbers, paced through the bridge's
+	// quiet-hours gate (admin/ignored_notify.go).
+	adm.StartIgnoredNotifier(context.Background())
+	// Settings → AI Models → Test Speed: probe one provider of the
+	// requesting profile (falls back to the default engine when unmapped).
+	adm.SetProviderProber(func(ctx context.Context, pid, providerID string) (time.Duration, *ai.ChatResult, error) {
+		return hub.Engine(pid).ProbeProvider(ctx, providerID)
+	})
 	adm.SetClassify(func(ctx context.Context, text string) classify.Result {
 		return hub.Engine(profileID).ClassifyText(ctx, text)
 	})

@@ -32,7 +32,7 @@ CREATE TABLE rainbow_messages (
 	timestamp TEXT,
 	intent TEXT, confidence REAL, source TEXT,
 	routed_action TEXT, model TEXT, response_time_ms INTEGER,
-	message_type TEXT, staff_name TEXT,
+	message_type TEXT, staff_name TEXT, media_url TEXT,
 	profile_id TEXT, deleted_at TEXT
 );
 CREATE TABLE rainbow_conversations (
@@ -52,6 +52,10 @@ CREATE TABLE admin_users (
 `
 
 const isoKey = "iso-admin-key"
+
+// isoLastHandler is the handler behind the most recent newIsoServer (for
+// tests that need to tweak registries after construction).
+var isoLastHandler *Handler
 
 // fakeSender records bridge sends so tests can prove (non-)delivery.
 type fakeSender struct{ calls []string }
@@ -92,8 +96,10 @@ func newIsoServer(t *testing.T) (*httptest.Server, *store.Store, *fakeSender) {
 	seed("60900000009", "pelangi", "hi pelangi", "Shared Guest")
 	seed("60900000009", "dental-world", "hi dental", "Shared Guest")
 
-	h := New(st, isoKey, "", "")
-	h.SetProfiles([]string{"pelangi", "dental-world", "senai-app"}, "pelangi")
+	dataDir := t.TempDir()
+	h := New(st, isoKey, "", dataDir)
+	h.SetProfiles([]string{"pelangi", "dental-world", "senai-app", "jayson-pa"}, "pelangi")
+	isoLastHandler = h
 	fs := &fakeSender{}
 	h.SetSender(fs)
 	mux := http.NewServeMux()
@@ -101,6 +107,29 @@ func newIsoServer(t *testing.T) (*httptest.Server, *store.Store, *fakeSender) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() { srv.Close(); st.Close() })
 	return srv, st, fs
+}
+
+// isoDataDir returns the temp data dir behind the most recent newIsoServer
+// (for writing visibility.json into it).
+func isoDataDir(t *testing.T) string {
+	t.Helper()
+	if isoLastHandler == nil || isoLastHandler.dataDir == "" {
+		t.Fatal("isoDataDir: no data dir on isoLastHandler — call newIsoServer first")
+	}
+	return isoLastHandler.dataDir
+}
+
+// writeIsoVisibility writes visibility.json into the current test server's
+// data dir. observers maps a profile id to the list of profiles it may READ.
+func writeIsoVisibility(t *testing.T, observers map[string][]string) {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"observers": observers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(isoDataDir(t), visibilityFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // isoReq performs a request with the raw admin key + optional profile header.
@@ -420,5 +449,205 @@ func TestIsoScopedSessionEndToEnd(t *testing.T) {
 	code, body = do("GET", "/api/rainbow/conversations/60100000001", "dental-world")
 	if code == 200 && bytes.Contains(body, []byte("hostel booking question")) {
 		t.Error("LEAK: scoped session reads foreign transcript")
+	}
+}
+
+// A staff reply leaves from the profile's OWN number. Regression for
+// 2026-09-08: senai-app reply went out from the pelangi bridge because the
+// SPA sent no instanceId and the client fell back to its default URL.
+func TestStaffSendUsesProfileInstance(t *testing.T) {
+	srv, _, fs := newIsoServer(t)
+	h := isoLastHandler
+	h.SetInstanceBridges(map[string]InstanceBridge{
+		"pelangi": {URL: "http://127.0.0.1:8789", Profile: "pelangi"},
+		"senai":   {URL: "http://127.0.0.1:8790", Profile: "senai-app"},
+	})
+	// no instanceId from the SPA → profile's instance
+	code, body := isoReq(t, "POST", srv.URL+"/api/rainbow/conversations/60300000001/send", "senai-app",
+		map[string]any{"message": "hello 1"})
+	if code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	if got := fs.calls[len(fs.calls)-1]; got != "60300000001|senai" {
+		t.Errorf("sent via %q, want senai instance", got)
+	}
+	// wrong instanceId from the SPA (another business's number) → overridden
+	code, _ = isoReq(t, "POST", srv.URL+"/api/rainbow/conversations/60300000001/send", "senai-app",
+		map[string]any{"message": "hello 2", "instanceId": "pelangi"})
+	if code != 200 || fs.calls[len(fs.calls)-1] != "60300000001|senai" {
+		t.Errorf("cross-profile instance not overridden: %d %v", code, fs.calls)
+	}
+	// profile with no linked number → refused, nothing sent
+	before := len(fs.calls)
+	code, body = isoReq(t, "POST", srv.URL+"/api/rainbow/conversations/60200000001/send", "dental-world",
+		map[string]any{"message": "hello 3"})
+	if code != 409 || len(fs.calls) != before {
+		t.Errorf("unlinked profile: code=%d body=%s calls=%v", code, body, fs.calls)
+	}
+	// unified list + log advertise the profile's instance
+	_, lb := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/unified", "senai-app", nil)
+	if !bytes.Contains(lb, []byte(`"instanceId":"senai"`)) {
+		t.Errorf("unified missing senai instance: %s", lb)
+	}
+	_, gb := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/60300000001", "senai-app", nil)
+	if !bytes.Contains(gb, []byte(`"instanceId":"senai"`)) {
+		t.Errorf("log missing senai instance: %s", gb)
+	}
+}
+
+// ── Observer visibility matrix (2026-09-08) ──────────────────────────────
+
+// TestObserverJaysonSeesPelangi: jayson-pa granted observer over
+// pelangi+senai-app must see both profiles' conversations in the unified
+// list, each tagged with profileId, without those rows leaking into
+// dental-world (a profile with no observer grant).
+func TestObserverJaysonSeesPelangi(t *testing.T) {
+	srv, _, _ := newIsoServer(t)
+	writeIsoVisibility(t, map[string][]string{"jayson-pa": {"pelangi", "senai-app"}})
+
+	code, body := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/unified?limit=100", "jayson-pa", nil)
+	if code != 200 {
+		t.Fatalf("unified: %d %s", code, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatal(err)
+	}
+	byPhone := map[string]map[string]any{}
+	for _, r := range rows {
+		byPhone[fmt.Sprint(r["phone"])] = r
+	}
+	if r, ok := byPhone["60100000001"]; !ok || r["profileId"] != "pelangi" {
+		t.Errorf("jayson-pa missing/mistagged pelangi row: %+v", r)
+	}
+	if r, ok := byPhone["60300000001"]; !ok || r["profileId"] != "senai-app" {
+		t.Errorf("jayson-pa missing/mistagged senai-app row: %+v", r)
+	}
+	if _, ok := byPhone["60200000001"]; ok {
+		t.Error("jayson-pa LEAK: sees dental-world (not granted)")
+	}
+
+	// dental-world (no observer grant) must still see only its own.
+	code, body = isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/unified?limit=100", "dental-world", nil)
+	if code != 200 {
+		t.Fatalf("dental-world unified: %d %s", code, body)
+	}
+	var dRows []map[string]any
+	json.Unmarshal(body, &dRows)
+	for _, r := range dRows {
+		if fmt.Sprint(r["phone"]) == "60100000001" || fmt.Sprint(r["phone"]) == "60300000001" {
+			t.Errorf("dental-world LEAK: sees observer-only row %v", r)
+		}
+	}
+}
+
+// TestPelangiCannotSeeSenai re-asserts plain (non-observer) isolation still
+// holds with visibility.json present but not granting pelangi anything.
+func TestPelangiCannotSeeSenai(t *testing.T) {
+	srv, _, _ := newIsoServer(t)
+	writeIsoVisibility(t, map[string][]string{"jayson-pa": {"pelangi", "senai-app"}})
+
+	code, body := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/unified?limit=100", "pelangi", nil)
+	if code != 200 {
+		t.Fatalf("code=%d", code)
+	}
+	if bytes.Contains(body, []byte("60300000001")) {
+		t.Errorf("pelangi LEAK: sees senai-app conversation: %s", body)
+	}
+	_, gb := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/60300000001", "pelangi", nil)
+	if !bytes.Contains(gb, []byte(`"error"`)) {
+		t.Errorf("pelangi read foreign phone directly: %s", gb)
+	}
+}
+
+// TestObserverCannotSendAsObserved: an observer can read but never write —
+// send and mode changes on an observed conversation must 404 exactly like
+// today's cross-profile isolation, and nothing reaches the bridge.
+func TestObserverCannotSendAsObserved(t *testing.T) {
+	srv, _, fs := newIsoServer(t)
+	writeIsoVisibility(t, map[string][]string{"jayson-pa": {"pelangi", "senai-app"}})
+
+	before := len(fs.calls)
+	code, body := isoReq(t, "POST", srv.URL+"/api/rainbow/conversations/60300000001/send", "jayson-pa",
+		map[string]any{"message": "hi from jayson"})
+	if code != 404 {
+		t.Errorf("observer send: want 404, got %d %s", code, body)
+	}
+	if len(fs.calls) != before {
+		t.Errorf("observer send reached the bridge: %v", fs.calls)
+	}
+
+	code, body = isoReq(t, "POST", srv.URL+"/api/rainbow/conversations/60300000001/mode", "jayson-pa",
+		map[string]any{"mode": "manual"})
+	if code != 404 {
+		t.Errorf("observer mode: want 404, got %d %s", code, body)
+	}
+
+	// But the observer CAN still read the transcript.
+	code, gb := isoReq(t, "GET", srv.URL+"/api/rainbow/conversations/60300000001", "jayson-pa", nil)
+	if code != 200 {
+		t.Errorf("observer read own-observed transcript: %d %s", code, gb)
+	}
+}
+
+// TestObserveEndpoint exercises GET /api/rainbow/observe: since filtering,
+// ascending order, own-profile exclusion, and 403 for a non-observer.
+func TestObserveEndpoint(t *testing.T) {
+	srv, st, _ := newIsoServer(t)
+	writeIsoVisibility(t, map[string][]string{"jayson-pa": {"pelangi", "senai-app"}})
+
+	// Non-observer → 403.
+	code, body := isoReq(t, "GET", srv.URL+"/api/rainbow/observe", "dental-world", nil)
+	if code != 403 {
+		t.Fatalf("non-observer: want 403, got %d %s", code, body)
+	}
+
+	// Seed a couple more timestamped rows so we can test since filtering.
+	old := "2020-01-01T00:00:00.000Z"
+	st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, profile_id) VALUES (?,?,?,?,?)`,
+		"60100000099", "user", "old pelangi msg", old, "pelangi")
+	newer := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, profile_id) VALUES (?,?,?,?,?)`,
+		"60300000099", "user", "new senai msg", newer, "senai-app")
+
+	sinceMs := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	code, body = isoReq(t, "GET", fmt.Sprintf("%s/api/rainbow/observe?since=%d", srv.URL, sinceMs), "jayson-pa", nil)
+	if code != 200 {
+		t.Fatalf("observe: %d %s", code, body)
+	}
+	var resp struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Messages) == 0 {
+		t.Fatalf("observe returned no messages: %s", body)
+	}
+	// Old row (before `since`) must be excluded; own profile (jayson-pa,
+	// which has no rows here) never appears; dental-world never appears
+	// (not observed); ascending order by ts.
+	var lastTs float64
+	for i, m := range resp.Messages {
+		if fmt.Sprint(m["phone"]) == "60100000099" {
+			t.Errorf("observe leaked a row older than `since`: %+v", m)
+		}
+		if m["profile"] == "dental-world" {
+			t.Errorf("observe leaked non-observed profile: %+v", m)
+		}
+		ts, _ := m["ts"].(float64)
+		if i > 0 && ts < lastTs {
+			t.Errorf("observe not ascending by ts at index %d", i)
+		}
+		lastTs = ts
+	}
+	found := false
+	for _, m := range resp.Messages {
+		if fmt.Sprint(m["phone"]) == "60300000099" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("observe missing the new senai-app row: %s", body)
 	}
 }

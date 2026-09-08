@@ -8,8 +8,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
+	"rainbow-core/internal/events"
 	"rainbow-core/internal/store"
 )
 
@@ -41,13 +43,23 @@ type State struct {
 	ActiveFlowJSON    string
 
 	isNew bool
+	// crossProfile is set when the stored row belonged to another profile and
+	// was reset for this one (see GetOrCreate). Exposed for tests/diagnostics.
+	crossProfile bool
 }
+
+// CrossProfileReset reports whether this state was rebuilt because the stored
+// row belonged to a different business profile.
+func (s *State) CrossProfileReset() bool { return s.crossProfile }
 
 // Manager provides conversation state + history operations.
 type Manager struct {
 	st          *store.Store
 	idleTimeout time.Duration
 	maxHistory  int
+
+	mediaColOnce sync.Once
+	mediaCol     bool
 }
 
 func NewManager(st *store.Store) *Manager {
@@ -56,6 +68,46 @@ func NewManager(st *store.Store) *Manager {
 
 func (m *Manager) SetIdleTimeout(d time.Duration) { m.idleTimeout = d }
 func (m *Manager) SetMaxHistory(n int)            { m.maxHistory = n }
+
+// Store exposes the underlying store (tests / admin queries).
+func (m *Manager) Store() *store.Store { return m.st }
+
+// ── Contact info (privacy-ID peers) ─────────────────────────────────────────
+// rainbow_contact_info maps a conversation key (often an opaque @lid JID) to
+// the peer's dialable number once the bridge has resolved it.
+var contactTableOnce sync.Map // *store.Store -> bool
+
+func (m *Manager) ensureContactTable() {
+	if _, ok := contactTableOnce.Load(m.st); ok {
+		return
+	}
+	_, _ = m.st.DB.Exec(`CREATE TABLE IF NOT EXISTS rainbow_contact_info (
+		phone         TEXT PRIMARY KEY,
+		contact_phone TEXT,
+		updated_at    TEXT
+	)`)
+	contactTableOnce.Store(m.st, true)
+}
+
+// SetContactPhone records the real number for a conversation key (idempotent).
+func (m *Manager) SetContactPhone(phone, contactPhone string) {
+	phone, contactPhone = strings.TrimSpace(phone), strings.TrimSpace(contactPhone)
+	if phone == "" || contactPhone == "" {
+		return
+	}
+	m.ensureContactTable()
+	_, _ = m.st.DB.Exec(`INSERT INTO rainbow_contact_info (phone, contact_phone, updated_at) VALUES (?,?,?)
+		ON CONFLICT(phone) DO UPDATE SET contact_phone = excluded.contact_phone, updated_at = excluded.updated_at`,
+		phone, contactPhone, store.NowISO())
+}
+
+// ContactPhone returns the stored real number for a conversation key ("" = unknown).
+func (m *Manager) ContactPhone(phone string) string {
+	m.ensureContactTable()
+	var v sql.NullString
+	_ = m.st.DB.QueryRow(`SELECT contact_phone FROM rainbow_contact_info WHERE phone = ?`, phone).Scan(&v)
+	return v.String
+}
 
 // ─── time helpers (ISO text ⇄ unix ms) ──────────────────────────────────────
 
@@ -142,6 +194,26 @@ func (m *Manager) GetOrCreate(phone, pushName, profileID string) (*State, error)
 		_ = json.Unmarshal([]byte(slotsJSON.String), &s.Slots)
 	}
 
+	// Cross-profile guard (2026-09-08): the state row is keyed by phone only.
+	// When the same contact talks to ANOTHER business, its row still carries the
+	// other business's workflow/booking — resuming that here made Rachel
+	// (southern-homestay) send a Pelangi reservation. A row owned by a
+	// different profile is treated as a fresh conversation for this profile:
+	// keep the push name, drop every transient / flow field.
+	if s.ProfileID != profileID {
+		s.ProfileID = profileID
+		s.UnknownCount = 0
+		s.RepeatCount = 0
+		s.LastIntent = ""
+		s.LastIntentConfidence = 0
+		s.LastIntentTimestampMs = 0
+		s.BookingStateJSON = ""
+		s.WorkflowStateJSON = ""
+		s.ActiveFlowJSON = ""
+		s.Slots = map[string]any{}
+		s.crossProfile = true
+	}
+
 	// Idle reset (US-444): clear transient context if idle past timeout.
 	if s.LastActiveAtMs > 0 && nowMs()-s.LastActiveAtMs > m.idleTimeout.Milliseconds() {
 		s.UnknownCount = 0
@@ -224,6 +296,25 @@ type MsgMeta struct {
 	Model        string
 	ResponseMs   int
 	MessageType  string
+	MediaURL     string // bridge media URL for inbound media (stored in media_url)
+}
+
+// hasMediaURLCol reports whether rainbow_messages has the media_url column
+// (present on the live DB from the Node era; absent in minimal test schemas).
+func (m *Manager) hasMediaURLCol() bool {
+	m.mediaColOnce.Do(func() {
+		if cols, err := m.st.TableColumns("rainbow_messages"); err == nil {
+			_, m.mediaCol = cols["media_url"]
+		}
+	})
+	return m.mediaCol
+}
+
+// publish notifies live-chat SSE subscribers that a row was written.
+func publish(profileID, phone, role, content, ts string) {
+	t, _ := time.Parse(store.ISO, ts)
+	preview := events.Preview(content, 80)
+	events.Publish(events.Event{Type: "new_message", ProfileID: profileID, Phone: phone, Role: role, Timestamp: t.UnixMilli(), Preview: preview})
 }
 
 // AddMessageMeta appends a message with optional metadata.
@@ -235,6 +326,9 @@ func (m *Manager) AddMessageMeta(phone, role, content, profileID string, meta *M
 	if meta == nil {
 		_, err := m.st.DB.Exec(`INSERT INTO rainbow_messages (phone, role, content, timestamp, profile_id, message_type)
 			VALUES (?,?,?,?,?,?)`, phone, role, content, ts, profileID, "text")
+		if err == nil {
+			publish(profileID, phone, role, content, ts)
+		}
 		return err
 	}
 	var intent, source, routed, model, mtype any
@@ -262,20 +356,36 @@ func (m *Manager) AddMessageMeta(phone, role, content, profileID string, meta *M
 	if meta.ResponseMs > 0 {
 		rt = meta.ResponseMs
 	}
-	_, err := m.st.DB.Exec(`INSERT INTO rainbow_messages
-		(phone, role, content, timestamp, profile_id, intent, confidence, source, routed_action, model, response_time_ms, message_type)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		phone, role, content, ts, profileID, intent, conf, source, routed, model, rt, mtype)
+	var err error
+	if meta.MediaURL != "" && m.hasMediaURLCol() {
+		_, err = m.st.DB.Exec(`INSERT INTO rainbow_messages
+			(phone, role, content, timestamp, profile_id, intent, confidence, source, routed_action, model, response_time_ms, message_type, media_url)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			phone, role, content, ts, profileID, intent, conf, source, routed, model, rt, mtype, meta.MediaURL)
+	} else {
+		_, err = m.st.DB.Exec(`INSERT INTO rainbow_messages
+			(phone, role, content, timestamp, profile_id, intent, confidence, source, routed_action, model, response_time_ms, message_type)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			phone, role, content, ts, profileID, intent, conf, source, routed, model, rt, mtype)
+	}
+	if err == nil {
+		publish(profileID, phone, role, content, ts)
+	}
 	return err
 }
 
-// History returns the last N messages for a phone in chronological order.
-func (m *Manager) History(phone string, limit int) ([]Message, error) {
+// History returns the last N messages for a phone in chronological order,
+// scoped to profileID so a phone talking to two bots at once doesn't leak
+// one bot's history into the other's context. profileID "" matches legacy
+// rows written before profile_id existed (NULL/'').
+func (m *Manager) History(phone, profileID string, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = m.maxHistory
 	}
 	rows, err := m.st.DB.Query(`SELECT role, content, timestamp FROM rainbow_messages
-		WHERE phone = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY CAST(timestamp AS TEXT) DESC LIMIT ?`, phone, limit)
+		WHERE phone = ? AND (deleted_at IS NULL OR deleted_at = '')
+		AND (profile_id=? OR (?='' AND (profile_id IS NULL OR profile_id='')))
+		ORDER BY CAST(timestamp AS TEXT) DESC LIMIT ?`, phone, profileID, profileID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -296,8 +406,8 @@ func (m *Manager) History(phone string, limit int) ([]Message, error) {
 }
 
 // HistoryStrings returns history formatted as "role: content" lines for prompts.
-func (m *Manager) HistoryStrings(phone string, limit int) []string {
-	msgs, err := m.History(phone, limit)
+func (m *Manager) HistoryStrings(phone, profileID string, limit int) []string {
+	msgs, err := m.History(phone, profileID, limit)
 	if err != nil {
 		return nil
 	}

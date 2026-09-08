@@ -148,6 +148,65 @@ func TestEngineSkipsGroup(t *testing.T) {
 	}
 }
 
+func TestEngineSkipsIgnoredNumber(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	eng.SetIgnoredNumbers([]config.IgnoredNumber{
+		{Phone: "+60 17-670 1102", Label: "Maya"}, // raw input → normalised
+		{Phone: "60167620815", Label: "Alston"},
+	})
+	if got := eng.IgnoredNumbers(); len(got) != 2 || got[0].Phone != "60176701102" {
+		t.Fatalf("normalised list = %+v", got)
+	}
+
+	cases := []struct {
+		name, from, push, wantReason string
+		skip                         bool
+	}{
+		{"jid", "60176701102@s.whatsapp.net", "whoever", "ignored_number", true},
+		{"bare", "60176701102", "", "ignored_number", true},
+		{"formatted", "+60 17-670 1102", "", "ignored_number", true},
+		{"alston", "60167620815", "Alston", "ignored_number", true},
+		{"lid by name", "123456789012345@lid", "maya", "ignored_number_by_name", true},
+		{"lid unknown name", "123456789012345@lid", "Guest", "", false},
+		{"unrelated", "60199990000", "Maya", "", false}, // name match only counts for @lid
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := len(send.texts)
+			res, err := eng.Process(context.Background(), contract.IncomingMessage{
+				From: c.from, Text: "hello there", PushName: c.push, MessageID: "ign" + string(rune('a'+i)), MessageType: contract.MsgText,
+			})
+			if err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			if c.skip {
+				if !res.Skipped || res.SkipReason != c.wantReason {
+					t.Errorf("want skip %q, got %+v", c.wantReason, res)
+				}
+				if len(send.texts) != before {
+					t.Error("ignored number received a reply")
+				}
+				// Stored for Live Chat visibility.
+				if hist, _ := eng.conv.History(c.from, eng.prof.ID, 5); len(hist) == 0 {
+					t.Error("ignored message not stored in conversation")
+				}
+			} else if res.Skipped && (res.SkipReason == "ignored_number" || res.SkipReason == "ignored_number_by_name") {
+				t.Errorf("unrelated sender was ignored: %+v", res)
+			}
+		})
+	}
+
+	// Hot-swap to empty → no longer skipped.
+	eng.SetIgnoredNumbers(nil)
+	res, _ := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60176701102", Text: "hi", MessageID: "ign-z", MessageType: contract.MsgText,
+	})
+	if res.Skipped && res.SkipReason == "ignored_number" {
+		t.Errorf("still ignored after clearing list: %+v", res)
+	}
+}
+
 func TestEngineEscalationNotifiesStaff(t *testing.T) {
 	send := &mockSender{}
 	eng := newTestEngine(t, send)
@@ -414,8 +473,139 @@ func TestEngineStatePersisted(t *testing.T) {
 		t.Errorf("persisted lastIntent = %q, want greeting", st.LastIntent)
 	}
 	// history should contain user + assistant turns
-	hist, _ := eng.conv.History(phone, 10)
+	hist, _ := eng.conv.History(phone, eng.prof.ID, 10)
 	if len(hist) < 2 {
 		t.Errorf("expected >=2 history msgs, got %d", len(hist))
+	}
+}
+
+// A message typed on the bot's own phone / WhatsApp Web (bridge fromMe relay)
+// is stored as a staff turn (source phone-manual) and never answered.
+func TestFromMeLoggedAsStaffNoReply(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	res, err := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550001", Text: "Vg", PushName: "Jayson", MessageID: "fm1", MessageType: contract.MsgText, FromMe: true,
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if !res.Skipped || res.SkipReason != "from-me" {
+		t.Fatalf("want skip from-me, got %+v", res)
+	}
+	if len(send.texts) != 0 || send.typing != 0 {
+		t.Errorf("fromMe must not send/type (texts=%d typing=%d)", len(send.texts), send.typing)
+	}
+	hist, _ := eng.conv.History("60155550001", eng.prof.ID, 5)
+	if len(hist) != 1 || hist[0].Role != "staff" || hist[0].Content != "Vg" {
+		t.Fatalf("history = %+v, want one staff row", hist)
+	}
+	var source string
+	if err := eng.conv.Store().DB.QueryRow(`SELECT source FROM rainbow_messages WHERE phone = ? AND role = 'staff'`, "60155550001").Scan(&source); err != nil {
+		t.Fatalf("source query: %v", err)
+	}
+	if source != "phone-manual" {
+		t.Errorf("source = %q, want phone-manual", source)
+	}
+	// Empty fromMe (e.g. reaction / protocol message) is dropped silently.
+	res, _ = eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550001", MessageID: "fm2", MessageType: contract.MsgText, FromMe: true,
+	})
+	if res.SkipReason != "from-me-empty" {
+		t.Errorf("empty fromMe skip = %+v", res)
+	}
+}
+
+// intro-once: first message from a contact gets the intro, every later one is
+// left for a human (no send, skip reason set).
+func TestIntroOnceMode(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	eng.SetReplyMode("intro-once", "Hi, I'm Jayson, Jay's AI PA.")
+	eng.prof.IntroMessage = "Hi, I'm Jayson, Jay's AI PA."
+	res, err := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550002", Text: "hello?", PushName: "New", MessageID: "io1", MessageType: contract.MsgText,
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if res.Intent != "intro" || res.Action != "intro-once" || len(send.texts) != 1 || send.last() != eng.prof.IntroMessage {
+		t.Fatalf("first message: res=%+v sends=%v", res, send.texts)
+	}
+	res, _ = eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550002", Text: "are you there", MessageID: "io2", MessageType: contract.MsgText,
+	})
+	if !res.Skipped || res.SkipReason != "intro-once: awaiting manual reply" {
+		t.Errorf("second message: %+v", res)
+	}
+	if len(send.texts) != 1 {
+		t.Errorf("second message must not be answered (sends=%d)", len(send.texts))
+	}
+	hist, _ := eng.conv.History("60155550002", eng.prof.ID, 10)
+	if len(hist) != 3 { // user, assistant(intro), user
+		t.Errorf("history rows = %d, want 3: %+v", len(hist), hist)
+	}
+}
+
+// 2026-09-08: "silent" reply mode — inbound is logged, nothing is sent, no
+// LLM/classify path runs. Hot-swappable back to normal without a restart.
+func TestSilentMode(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	eng.SetReplyMode("silent", "")
+	for i, text := range []string{"hello?", "anyone there", "bilik kosong ada?"} {
+		res, err := eng.Process(context.Background(), contract.IncomingMessage{
+			From: "60155550003", Text: text, PushName: "Tenant", MessageID: "sil" + string(rune('a'+i)), MessageType: contract.MsgText,
+		})
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if !res.Skipped || res.SkipReason != "silent: manual reply only" {
+			t.Fatalf("msg %d: %+v", i, res)
+		}
+	}
+	if len(send.texts) != 0 {
+		t.Fatalf("silent mode must never send (sends=%v)", send.texts)
+	}
+	hist, _ := eng.conv.History("60155550003", eng.prof.ID, 10)
+	if len(hist) != 3 {
+		t.Errorf("inbound must still be logged: rows=%d want 3", len(hist))
+	}
+	// flip back to normal: the pipeline answers again
+	eng.SetReplyMode("", "")
+	res, _ := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "60155550003", Text: "hello", MessageID: "sild", MessageType: contract.MsgText,
+	})
+	if res.Skipped {
+		t.Fatalf("after reset, expected a reply, got %+v", res)
+	}
+}
+
+// Regression: the pushName on an own-device message is OUR name. With a staff
+// label of the same name on the exception list, the fromMe branch must still
+// win (before ignoredReason) and the turn must be stored as staff.
+func TestFromMeBeatsIgnoredByName(t *testing.T) {
+	send := &mockSender{}
+	eng := newTestEngine(t, send)
+	eng.SetIgnoredNumbers([]config.IgnoredNumber{{Phone: "60100000001", Label: "Jay"}})
+	res, err := eng.Process(context.Background(), contract.IncomingMessage{
+		From: "156697788182764@lid", Text: "Vg", PushName: "Jay", MessageID: "fmlid1", MessageType: contract.MsgText,
+		FromMe: true, PhoneNumber: "60123456789",
+	})
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if res.SkipReason != "from-me" {
+		t.Fatalf("skip = %+v, want from-me", res)
+	}
+	hist, _ := eng.conv.History("156697788182764@lid", eng.prof.ID, 5)
+	if len(hist) != 1 || hist[0].Role != "staff" {
+		t.Fatalf("history = %+v, want one staff row", hist)
+	}
+	if got := eng.conv.ContactPhone("156697788182764@lid"); got != "60123456789" {
+		t.Errorf("contact phone = %q, want 60123456789", got)
+	}
+	if len(send.texts) != 0 {
+		t.Errorf("fromMe must not be answered")
 	}
 }

@@ -3,11 +3,13 @@
 package bridge
 
 import (
+	"log"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"rainbow-core/internal/contract"
@@ -15,26 +17,60 @@ import (
 
 // Client posts send-ops to the bridge's POST /send endpoint.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	instances map[string]string // instanceId -> bridge base URL (overrides baseURL)
+	http      *http.Client
+	sendToken string // x-bridge-token for POST /send (BRIDGE_SEND_TOKEN); "" = none
 }
 
+// SetSendToken sets the shared secret the bridge requires on POST /send
+// (bridge index.js BRIDGE_SEND_TOKEN, 2026-09-08 — closes the unauthenticated
+// nginx-exposed /senai/send). Sent to every bridge; bridges without the env
+// ignore it.
+func (c *Client) SetSendToken(t string) { c.sendToken = strings.TrimSpace(t) }
+
 func New(baseURL string) *Client {
-	return &Client{baseURL: baseURL, http: &http.Client{Timeout: 30 * time.Second}}
+	return &Client{baseURL: baseURL, instances: map[string]string{}, http: &http.Client{Timeout: 30 * time.Second}}
+}
+
+// SetInstanceURL routes send-ops for a WhatsApp instance id to its own bridge
+// (each Baileys session is a separate bridge process on its own port). Sends
+// for unmapped instances go to the default baseURL.
+func (c *Client) SetInstanceURL(instanceID, baseURL string) {
+	if instanceID == "" || baseURL == "" {
+		return
+	}
+	c.instances[instanceID] = strings.TrimRight(baseURL, "/")
+}
+
+// URLFor returns the bridge base URL that serves instanceID.
+func (c *Client) URLFor(instanceID string) string {
+	if u, ok := c.instances[instanceID]; ok {
+		return u
+	}
+	return c.baseURL
 }
 
 func (c *Client) send(ctx context.Context, req contract.SendRequest) (*contract.SendResult, error) {
 	b, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/send", bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URLFor(req.InstanceID)+"/send", bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// x-caller labels this consumer in the baileys-engine proxy log
+	// (engine-admin /i/<inst>/send, 2026-09-08).
+	httpReq.Header.Set("x-caller", "rainbow-core")
+	if c.sendToken != "" {
+		httpReq.Header.Set("x-bridge-token", c.sendToken)
+	}
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
+		log.Printf("[bridge] send op=%s inst=%s via %s failed: %v", req.Op, req.InstanceID, c.URLFor(req.InstanceID), err)
 		return nil, err
 	}
 	defer resp.Body.Close()
+	log.Printf("[bridge] send op=%s inst=%s via %s http=%d", req.Op, req.InstanceID, c.URLFor(req.InstanceID), resp.StatusCode)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("bridge /send http %d", resp.StatusCode)
 	}

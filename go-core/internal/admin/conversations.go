@@ -5,7 +5,9 @@ package admin
 // family. Extracted from admin.go 2026-07-21 (cohesion split).
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -38,6 +40,7 @@ type msgRow struct {
 	Intent     string  `json:"intent,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 	Source     string  `json:"source,omitempty"`
+	ProfileID  string  `json:"profileId,omitempty"` // set on an observed row (visibility.go); empty = own profile
 }
 
 func (h *Handler) conversationMessages(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +68,15 @@ func (h *Handler) conversationMessages(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
+	// Live-chat message metadata (pin/star/react) — see live_events.go.
+	if len(parts) == 2 && parts[1] == "message-metadata" {
+		h.messageMetadata(w, r, parts[0])
+		return
+	}
+	if len(parts) == 4 && parts[1] == "messages" && r.Method == http.MethodPost {
+		h.messageAction(w, r, parts[0], parts[2], parts[3])
+		return
+	}
 	if len(parts) < 2 || parts[1] != "messages" || parts[0] == "" {
 		writeJSON(w, 404, map[string]any{"error": "not found"})
 		return
@@ -76,22 +88,43 @@ func (h *Handler) conversationMessages(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"error": perr.Error()})
 		return
 	}
-	cond, carg := h.profCond("m", profileID)
+	cond, cargs := h.profCondRead("m", profileID)
+	args := append([]any{phone}, cargs...)
+	args = append(args, limit)
 	rows, err := h.st.DB.Query(`
-		SELECT role, content, COALESCE(CAST(timestamp AS TEXT),''), COALESCE(intent,''), COALESCE(confidence,0), COALESCE(source,'')
+		SELECT role, content, COALESCE(CAST(timestamp AS TEXT),''), COALESCE(intent,''), COALESCE(confidence,0), COALESCE(source,''), COALESCE(profile_id,'')
 		FROM rainbow_messages m WHERE m.phone=? AND (m.deleted_at IS NULL OR m.deleted_at='')
 		AND `+cond+`
-		ORDER BY CAST(m.timestamp AS TEXT) DESC LIMIT ?`, phone, carg, limit)
+		ORDER BY CAST(m.timestamp AS TEXT) DESC LIMIT ?`, args...)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
 	}
 	defer rows.Close()
+	own := profileID
+	if own == "" {
+		own = h.defaultProfile
+		if own == "" {
+			own = "pelangi"
+		}
+	}
 	out := []msgRow{}
 	for rows.Next() {
 		var m msgRow
-		if err := rows.Scan(&m.Role, &m.Content, &m.Timestamp, &m.Intent, &m.Confidence, &m.Source); err != nil {
+		var rowProfile string
+		if err := rows.Scan(&m.Role, &m.Content, &m.Timestamp, &m.Intent, &m.Confidence, &m.Source, &rowProfile); err != nil {
 			continue
+		}
+		actual := rowProfile
+		if actual == "" {
+			def := h.defaultProfile
+			if def == "" {
+				def = "pelangi"
+			}
+			actual = def
+		}
+		if actual != own {
+			m.ProfileID = actual
 		}
 		out = append(out, m)
 	}
@@ -130,6 +163,27 @@ func (h *Handler) profCond(alias, p string) (string, string) {
 	return alias + ".profile_id=?", p
 }
 
+// profCondRead is profCond's read-only counterpart: when p is an observer
+// (visibility.go) it widens the predicate to (self OR each observed profile),
+// so a query using it returns rows from every profile the caller may READ.
+// Non-observers get exactly profCond's behaviour — this must never be used on
+// a write path (send / mode), which stays self-only via profCond.
+func (h *Handler) profCondRead(alias, p string) (string, []any) {
+	observed := h.ObservedBy(p)
+	if len(observed) == 0 {
+		cond, arg := h.profCond(alias, p)
+		return cond, []any{arg}
+	}
+	selfCond, selfArg := h.profCond(alias, p)
+	parts := []string{selfCond}
+	args := []any{selfArg}
+	for _, op := range observed {
+		parts = append(parts, alias+".profile_id=?")
+		args = append(args, op)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
 // ownsConversation reports whether the profile has at least one live message
 // row for any of the given phones. This is the gate for every per-conversation
 // read AND write: a conversation that has no rows in the requesting profile
@@ -147,6 +201,29 @@ func (h *Handler) ownsConversation(phones []string, profileID string) bool {
 		args = append(args, p)
 	}
 	args = append(args, carg)
+	var n int
+	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages m
+		WHERE m.phone IN (`+strings.Join(ph, ",")+`) AND (m.deleted_at IS NULL OR m.deleted_at='')
+		AND `+cond, args...).Scan(&n)
+	return n > 0
+}
+
+// ownsConversationRead is ownsConversation's read-only counterpart: true when
+// the profile owns the conversation itself OR may observe the profile that
+// does (visibility.go). Used only to gate GET /conversations/{phone} (the
+// transcript view) — send and mode changes stay on ownsConversation.
+func (h *Handler) ownsConversationRead(phones []string, profileID string) bool {
+	if len(phones) == 0 {
+		return false
+	}
+	cond, cargs := h.profCondRead("m", profileID)
+	ph := make([]string, len(phones))
+	args := make([]any, 0, len(phones)+len(cargs))
+	for i, p := range phones {
+		ph[i] = "?"
+		args = append(args, p)
+	}
+	args = append(args, cargs...)
 	var n int
 	h.st.DB.QueryRow(`SELECT COUNT(*) FROM rainbow_messages m
 		WHERE m.phone IN (`+strings.Join(ph, ",")+`) AND (m.deleted_at IS NULL OR m.deleted_at='')
@@ -216,6 +293,7 @@ type unifiedRow struct {
 	SessionID       string `json:"sessionId,omitempty"`
 	InstanceID      string `json:"instanceId,omitempty"`
 	PushName        string `json:"pushName"`
+	ContactPhone    string `json:"contactPhone,omitempty"` // real number for @lid peers (rainbow_contact_info)
 	LastMessage     string `json:"lastMessage"`
 	LastMessageAt   int64  `json:"lastMessageAt"`
 	LastMessageRole string `json:"lastMessageRole"`
@@ -223,6 +301,7 @@ type unifiedRow struct {
 	MessageCount    int    `json:"messageCount"`
 	Favourite       bool   `json:"favourite"`
 	Pinned          bool   `json:"pinned"`
+	ProfileID       string `json:"profileId,omitempty"` // set on an observed row (visibility.go); empty = own profile
 }
 
 // queryUnified derives the conversation list from rainbow_messages (same
@@ -230,54 +309,79 @@ type unifiedRow struct {
 // profileID filters to a specific business profile (x-profile-id header value);
 // an empty string returns all profiles (admin/unscoped access).
 func (h *Handler) queryUnified(limit int, profileID string) ([]unifiedRow, error) {
-	// One query, profile-scoped per alias. "" = default profile (owns legacy
-	// NULL/'' rows); non-default profiles match strictly — the old else-branch
-	// served EVERY profile's conversations to the default view.
-	c1, a1 := h.profCond("m2", profileID)
-	c2, a2 := h.profCond("m3", profileID)
-	c3, a3 := h.profCond("m4", profileID)
-	c4, a4 := h.profCond("m", profileID)
+	// Read-scoped: profCondRead widens to (self OR every profile this caller
+	// observes — visibility.go). Non-observers get exactly profCond's rows,
+	// unchanged from before. Grouping key is (phone, profile_id) rather than
+	// just phone, so the same phone talking to two profiles yields two rows,
+	// each correctly tagged — this also fixes the plain (non-observer) case
+	// where a shared phone across profiles used to collapse into one group.
+	cond, cargs := h.profCondRead("m", profileID)
+	args := make([]any, 0, len(cargs)*3+1)
+	args = append(args, cargs...) // m2 content subquery
+	args = append(args, cargs...) // m3 role subquery
+	args = append(args, cargs...) // m4 count subquery
+	args = append(args, cargs...) // outer WHERE
+	args = append(args, limit)
+	sameGroup := "COALESCE(%s.profile_id,'')=COALESCE(m.profile_id,'')"
 	rows, err := h.st.DB.Query(`
-		SELECT m.phone,
+		SELECT m.phone, COALESCE(m.profile_id,''),
 		       COALESCE(s.push_name, c.push_name, ''),
 		       COALESCE(MAX(CAST(m.timestamp AS TEXT)), ''),
 		       COALESCE((SELECT m2.content FROM rainbow_messages m2
 		                 WHERE m2.phone = m.phone AND (m2.deleted_at IS NULL OR m2.deleted_at='')
-		                 AND `+c1+`
+		                 AND `+fmt.Sprintf(sameGroup, "m2")+` AND `+strings.ReplaceAll(cond, "m.", "m2.")+`
 		                 ORDER BY CAST(m2.timestamp AS TEXT) DESC LIMIT 1), ''),
 		       COALESCE((SELECT m3.role FROM rainbow_messages m3
 		                 WHERE m3.phone = m.phone AND (m3.deleted_at IS NULL OR m3.deleted_at='')
-		                 AND `+c2+`
+		                 AND `+fmt.Sprintf(sameGroup, "m3")+` AND `+strings.ReplaceAll(cond, "m.", "m3.")+`
 		                 ORDER BY CAST(m3.timestamp AS TEXT) DESC LIMIT 1), ''),
 		       (SELECT COUNT(*) FROM rainbow_messages m4
 		        WHERE m4.phone = m.phone AND (m4.deleted_at IS NULL OR m4.deleted_at='')
-		        AND `+c3+`)
+		        AND `+fmt.Sprintf(sameGroup, "m4")+` AND `+strings.ReplaceAll(cond, "m.", "m4.")+`)
 		FROM rainbow_messages m
 		LEFT JOIN rainbow_conversation_state s ON s.phone = m.phone
 		LEFT JOIN rainbow_conversations c ON c.phone = m.phone
 		WHERE (m.deleted_at IS NULL OR m.deleted_at='')
-		AND `+c4+`
-		GROUP BY m.phone
+		AND `+cond+`
+		GROUP BY m.phone, COALESCE(m.profile_id,'')
 		ORDER BY MAX(CAST(m.timestamp AS TEXT)) DESC LIMIT ?`,
-		a1, a2, a3, a4, limit)
+		args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	own := profileID
+	if own == "" {
+		own = h.defaultProfile
+		if own == "" {
+			own = "pelangi"
+		}
+	}
 	out := []unifiedRow{}
 	for rows.Next() {
-		var phone, pushName, lastTs, lastMsg, lastRole string
+		var phone, rowProfile, pushName, lastTs, lastMsg, lastRole string
 		var msgCount int
-		if err := rows.Scan(&phone, &pushName, &lastTs, &lastMsg, &lastRole, &msgCount); err != nil {
+		if err := rows.Scan(&phone, &rowProfile, &pushName, &lastTs, &lastMsg, &lastRole, &msgCount); err != nil {
 			continue
 		}
 		if len(lastMsg) > 120 {
 			lastMsg = lastMsg[:120]
 		}
+		actual := rowProfile
+		if actual == "" {
+			def := h.defaultProfile
+			if def == "" {
+				def = "pelangi"
+			}
+			actual = def
+		}
 		u := unifiedRow{
 			Phone: phone, Channel: "whatsapp", PushName: pushName,
 			LastMessage: lastMsg, LastMessageAt: tsToMillis(lastTs), LastMessageRole: lastRole,
 			MessageCount: msgCount,
+		}
+		if actual != own {
+			u.ProfileID = actual
 		}
 		if sid, ok := webchatSession(phone); ok {
 			u.Channel = "webchat"
@@ -290,8 +394,35 @@ func (h *Handler) queryUnified(limit int, profileID string) ([]unifiedRow, error
 		}
 		out = append(out, u)
 	}
+	// The WhatsApp number a row's conversation belongs to: the row's own
+	// profile for an observed row, the requesting profile otherwise (the SPA
+	// echoes it back on send; the server re-validates it against the profile).
+	profInstance := h.instanceForProfile(profileID)
+	for i := range out {
+		if out[i].Channel != "whatsapp" {
+			continue
+		}
+		if out[i].ProfileID != "" {
+			if id := h.instanceForProfile(out[i].ProfileID); id != "" {
+				out[i].InstanceID = id
+			}
+			continue
+		}
+		if profInstance != "" {
+			out[i].InstanceID = profInstance
+		}
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	rows.Close()
+	// Resolved numbers for privacy-ID peers. Done AFTER the cursor is closed:
+	// the store runs with a single SQLite connection, so a nested query while
+	// iterating rows would deadlock.
+	for i := range out {
+		if out[i].Channel == "whatsapp" {
+			out[i].ContactPhone = h.contactPhoneFor(out[i].Phone)
+		}
 	}
 	return out, nil
 }
@@ -325,10 +456,18 @@ type logMsg struct {
 	Model        string  `json:"model,omitempty"`
 	ResponseTime int64   `json:"responseTime,omitempty"`
 	MessageType  string  `json:"messageType,omitempty"`
+	ID           int64   `json:"id,omitempty"`       // rainbow_messages.id (stable key for pin/star/react)
+	MediaURL     string  `json:"mediaUrl,omitempty"` // dashboard-relative media URL (/api/rainbow/media/<file>)
+	Manual       bool    `json:"manual,omitempty"`   // staff-authored
+	StaffName    string  `json:"staffName,omitempty"`
+	ProfileID    string  `json:"profileId,omitempty"` // set on an observed row (visibility.go); empty = own profile
 }
 
 // fetchLog returns the chronological message log for a set of phones, tagging
 // each message with the sessionId derived from its phone (webchat rows).
+// Read-scoped via profCondRead: when profileID is an observer, rows from its
+// observed profiles are included too (tagged via ProfileID) — callers gate
+// which phones may be queried at all (ownsConversation / ownsConversationRead).
 func (h *Handler) fetchLog(phones []string, limit int, profileID string) ([]logMsg, error) {
 	if len(phones) == 0 {
 		return []logMsg{}, nil
@@ -339,13 +478,22 @@ func (h *Handler) fetchLog(phones []string, limit int, profileID string) ([]logM
 		ph[i] = "?"
 		args = append(args, p)
 	}
-	cond, carg := h.profCond("m", profileID)
-	args = append(args, carg, limit)
+	cond, cargs := h.profCondRead("m", profileID)
+	args = append(args, cargs...)
+	args = append(args, limit)
+	mediaSel, staffSel := "''", "''"
+	if h.hasMsgCol("media_url") {
+		mediaSel = "COALESCE(m.media_url,'')"
+	}
+	if h.hasMsgCol("staff_name") {
+		staffSel = "COALESCE(m.staff_name,'')"
+	}
 	rows, err := h.st.DB.Query(`
-		SELECT m.phone, m.role, m.content, COALESCE(CAST(m.timestamp AS TEXT),''),
+		SELECT m.id, m.phone, m.role, m.content, COALESCE(CAST(m.timestamp AS TEXT),''),
 		       COALESCE(m.intent,''), COALESCE(m.confidence,0), COALESCE(m.source,''),
 		       COALESCE(m.routed_action,''), COALESCE(m.model,''),
-		       COALESCE(m.response_time_ms,0), COALESCE(m.message_type,'')
+		       COALESCE(m.response_time_ms,0), COALESCE(m.message_type,''),
+		       `+mediaSel+`, `+staffSel+`, COALESCE(m.profile_id,'')
 		FROM rainbow_messages m
 		WHERE m.phone IN (`+strings.Join(ph, ",")+`) AND (m.deleted_at IS NULL OR m.deleted_at='')
 		AND `+cond+`
@@ -354,20 +502,39 @@ func (h *Handler) fetchLog(phones []string, limit int, profileID string) ([]logM
 		return nil, err
 	}
 	defer rows.Close()
+	own := profileID
+	if own == "" {
+		own = h.defaultProfile
+		if own == "" {
+			own = "pelangi"
+		}
+	}
 	out := []logMsg{}
 	for rows.Next() {
-		var phone, role, content, ts, intent, source, routedAction, model, messageType string
+		var phone, role, content, ts, intent, source, routedAction, model, messageType, mediaURL, staffName, rowProfile string
 		var confidence float64
-		var responseTime int64
-		if err := rows.Scan(&phone, &role, &content, &ts,
-			&intent, &confidence, &source, &routedAction, &model, &responseTime, &messageType); err != nil {
+		var responseTime, id int64
+		if err := rows.Scan(&id, &phone, &role, &content, &ts,
+			&intent, &confidence, &source, &routedAction, &model, &responseTime, &messageType, &mediaURL, &staffName, &rowProfile); err != nil {
 			continue
 		}
 		m := logMsg{
 			Role: role, Content: content, Timestamp: tsToMillis(ts),
 			Intent: intent, Confidence: confidence, Source: source,
 			RoutedAction: routedAction, Model: model, ResponseTime: responseTime,
-			MessageType: messageType,
+			MessageType: messageType, ID: id, MediaURL: publicMediaURL(mediaURL),
+			Manual: role == "staff", StaffName: staffName,
+		}
+		actual := rowProfile
+		if actual == "" {
+			def := h.defaultProfile
+			if def == "" {
+				def = "pelangi"
+			}
+			actual = def
+		}
+		if actual != own {
+			m.ProfileID = actual
 		}
 		if sid, ok := webchatSession(phone); ok {
 			m.SessionID = sid
@@ -382,6 +549,16 @@ func (h *Handler) fetchLog(phones []string, limit int, profileID string) ([]logM
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, nil
+}
+
+// contactPhoneFor returns the resolved real number for a conversation key
+// (privacy-ID peers), "" when unknown or the table does not exist yet.
+func (h *Handler) contactPhoneFor(phone string) string {
+	var v sql.NullString
+	if err := h.st.DB.QueryRow(`SELECT contact_phone FROM rainbow_contact_info WHERE phone = ?`, phone).Scan(&v); err != nil {
+		return ""
+	}
+	return v.String
 }
 
 // pushNameFor looks up the stored push name for a phone (state table first,
@@ -403,7 +580,7 @@ func (h *Handler) conversationLog(w http.ResponseWriter, r *http.Request, phone 
 		writeJSON(w, 400, map[string]any{"error": perr.Error()})
 		return
 	}
-	if !h.ownsConversation([]string{phone}, profileID) {
+	if !h.ownsConversationRead([]string{phone}, profileID) {
 		writeJSON(w, 404, map[string]any{"error": "conversation not found"})
 		return
 	}
@@ -413,7 +590,8 @@ func (h *Handler) conversationLog(w http.ResponseWriter, r *http.Request, phone 
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"phone": phone, "pushName": h.pushNameFor(phone),
+		"phone": phone, "pushName": h.pushNameFor(phone), "contactPhone": h.contactPhoneFor(phone),
+		"instanceId": h.instanceForProfile(profileID),
 		"messages": msgs, "responseMode": h.defaultResponseMode(),
 	})
 }

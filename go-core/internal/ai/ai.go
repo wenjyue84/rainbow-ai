@@ -164,6 +164,44 @@ func (m *Manager) Chat(ctx context.Context, messages []ChatMessage, maxTokens in
 	return nil, lastErr
 }
 
+// Probe sends a minimal one-token completion to ONE named provider (no
+// fallback) and returns the round-trip duration. Used by the admin "Test
+// Speed" button. Disabled providers may be probed; providers without a key
+// return an error immediately.
+func (m *Manager) Probe(ctx context.Context, providerID string) (time.Duration, *ChatResult, error) {
+	p, ok := m.prof.ProviderByID[providerID]
+	if !ok {
+		return 0, nil, fmt.Errorf("unknown provider %q", providerID)
+	}
+	key := m.apiKey(p)
+	if key == "" && !isLocal(p) {
+		return 0, nil, fmt.Errorf("provider %q has no API key (%s not set)", providerID, p.APIKeyEnv)
+	}
+	timeout := time.Duration(p.TimeoutMs) * time.Millisecond
+	if timeout <= 0 || timeout > 20*time.Second {
+		timeout = 20 * time.Second
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	msgs := []ChatMessage{{Role: "user", Content: "Reply with the single word OK."}}
+	start := time.Now()
+	var res *ChatResult
+	var err error
+	if strings.Contains(strings.ToLower(p.Type), "gemini") {
+		res, err = m.chatGemini(cctx, p, key, msgs, 5, 0)
+	} else {
+		res, err = m.chatOpenAI(cctx, p, key, msgs, 5, 0, false)
+	}
+	took := time.Since(start)
+	if err != nil {
+		return took, nil, err
+	}
+	if res != nil && res.Model == "" {
+		res.Model = p.Model
+	}
+	return took, res, nil
+}
+
 // ─── OpenAI-compatible (Groq / OpenRouter / Ollama / openai-compat) ──────────
 
 type openAIReq struct {

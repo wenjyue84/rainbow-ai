@@ -53,6 +53,13 @@ type IncomingMessage struct {
 	MediaMetadata *MediaMetadata `json:"mediaMetadata,omitempty"`
 	ReferralData  *ReferralData  `json:"referralData,omitempty"`
 	MediaURL      string         `json:"mediaUrl,omitempty"` // bridge-downloaded media (replaces rawMessage)
+	// FromMe marks a message the bot's own linked account sent from the phone /
+	// WhatsApp Web (not via /send). From is then the peer. The core logs it as a
+	// staff turn and never replies to it.
+	FromMe bool `json:"fromMe,omitempty"`
+	// PhoneNumber is the peer's dialable number (digits) when From is a
+	// privacy-ID (@lid) JID and the bridge could resolve it. Empty otherwise.
+	PhoneNumber string `json:"phoneNumber,omitempty"`
 }
 
 // SendOp is the core → bridge outbound operation.

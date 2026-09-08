@@ -6,12 +6,36 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"rainbow-core/internal/contract"
+	"rainbow-core/internal/events"
 	"rainbow-core/internal/store"
 )
+
+// maskPhone keeps logs correlatable without writing full numbers to disk
+// (60123456789@s.whatsapp.net → 60***6789; short/opaque ids pass through).
+func maskPhone(p string) string {
+	d := p
+	if i := indexByte(d, '@'); i >= 0 {
+		d = d[:i]
+	}
+	if len(d) < 6 {
+		return d
+	}
+	return d[:2] + "***" + d[len(d)-4:]
+}
+
+func indexByte(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
 
 // TextSender delivers WhatsApp text (implemented by bridge.Client).
 type TextSender interface {
@@ -59,6 +83,8 @@ func (h *Handler) insertStaffMessage(phone, content, source, staffName, profile 
 		return 0, err
 	}
 	t, _ := time.Parse(store.ISO, ts)
+	preview := events.Preview(content, 80)
+	events.Publish(events.Event{Type: "new_message", ProfileID: profile, Phone: phone, Role: "staff", Timestamp: t.UnixMilli(), Preview: preview})
 	return t.UnixMilli(), nil
 }
 
@@ -145,12 +171,30 @@ func (h *Handler) conversationSend(w http.ResponseWriter, r *http.Request, phone
 		writeJSON(w, 501, map[string]any{"error": "sending unavailable: no bridge configured"})
 		return
 	}
+	// The number a staff reply goes out from is decided by the PROFILE, never
+	// by what the SPA happened to send: on 2026-09-08 a reply typed under
+	// senai-app left from the pelangi number because the SPA sent no
+	// instanceId and the bridge client fell back to its default URL.
+	instanceID, ok := h.resolveSendInstance(in.InstanceID, profileID)
+	if !ok {
+		writeJSON(w, 409, map[string]any{"error": "no WhatsApp number is linked to this business profile — pair one on the Dashboard first"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	if _, err := h.sender.SendText(ctx, phone, in.Message, in.InstanceID); err != nil {
+	// One line per staff send: which business, which number, to whom. This is
+	// the only place the outbound path is observable end to end.
+	res, err := h.sender.SendText(ctx, phone, in.Message, instanceID)
+	if err != nil {
+		log.Printf("[send] profile=%s instance=%s to=%s requested=%q FAILED: %v", profileID, instanceID, maskPhone(phone), in.InstanceID, err)
 		writeJSON(w, 502, map[string]any{"error": "bridge send failed: " + err.Error()})
 		return
 	}
+	sent, reason := true, ""
+	if res != nil {
+		sent, reason = res.OK && (res.Sent || res.Reason == ""), res.Reason
+	}
+	log.Printf("[send] profile=%s instance=%s to=%s requested=%q len=%d sent=%v reason=%q", profileID, instanceID, maskPhone(phone), in.InstanceID, len(in.Message), sent, reason)
 	ms, err := h.insertStaffMessage(phone, in.Message, "staff-manual", in.StaffName, profileID)
 	if err != nil {
 		// Delivered but not persisted — report success with a warning so the

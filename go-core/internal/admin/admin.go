@@ -38,6 +38,19 @@ type Handler struct {
 	sender       TextSender       // bridge client for staff WhatsApp sends (nil = 501)
 	staffNameCol     int       // rainbow_messages staff_name column: 0 unknown, 1 yes, -1 no
 	staffNameColOnce sync.Once // guards one-time init of staffNameCol
+
+	ignoredApplier IgnoredApplier // hot-apply for /settings/ignored-numbers (nil = file only)
+	replyModeApplier ReplyModeApplier // hot-apply for /settings/reply-mode (nil = file only)
+	kbRoot           string           // RAINBOW_KB_ROOT for /api/kb + /api/rainbow/kb-files
+	kbToken          string           // KB_API_TOKEN (Bearer) for /api/kb/*; "" = route disabled
+	kbReloader       KBReloader       // re-index a profile's KB after a write (nil = restart needed)
+	prober         ProviderProber // per-profile provider probe for /test/llm-latency (nil = 501)
+
+	ignoredNotifier *ignoredNotifier // courtesy notice queue for newly excepted numbers (ignored_notify.go)
+
+	instances map[string]InstanceBridge // WhatsApp instance id → bridge (wa_instances.go)
+
+	visibility visibilityState // observer matrix cache (visibility.go)
 }
 
 // SetBridge supplies the bridge base URL so /status can report the live
@@ -169,18 +182,46 @@ var dashboardTabs = []string{
 	"testing", "performance", "settings", "help", "intent-manager",
 	"static-replies", "kb", "preview", "real-chat", "workflow",
 	"widget-chats", // operator view for website widget chat sessions
+	"master",       // ⚙ Master · All businesses (numbers, assistants, defaults, users)
 }
 
 // Register mounts the admin API + (optionally) the dashboard SPA on the mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	// ── API (read endpoints) ──
 	mux.HandleFunc("/api/rainbow/status", h.auth(h.status))
+	mux.HandleFunc("/api/rainbow/bots", h.auth(h.bots)) // assistant team intro (bots.go)
+	// WhatsApp numbers: list / logout / QR re-pair (wa_instances.go).
+	mux.HandleFunc("/api/rainbow/whatsapp/instances", h.auth(h.waInstances))
+	mux.HandleFunc("/api/rainbow/whatsapp/instances/", h.auth(h.waInstanceAction))
 	mux.HandleFunc("/api/rainbow/stats", h.auth(h.stats))
 	mux.HandleFunc("/api/rainbow/conversations", h.auth(h.conversations))
 	mux.HandleFunc("/api/rainbow/settings", h.auth(h.settings))
+	// AI exception list (staff personal numbers the bot must never answer).
+	mux.HandleFunc("/api/rainbow/settings/ignored-numbers", h.auth(h.ignoredNumbers))
+	mux.HandleFunc("/api/rainbow/settings/reply-mode", h.auth(h.replyMode))
+	// Master layer (master.go): profile settings merged with the cross-business
+	// defaults, and the Master pages' own API (unrestricted admins only).
+	mux.HandleFunc("/api/rainbow/settings/effective", h.auth(h.settingsEffective))
+	mux.HandleFunc("/api/rainbow/master/settings", h.auth(h.masterOnly(h.masterSettings)))
+	mux.HandleFunc("/api/rainbow/master/settings/apply-all", h.auth(h.masterOnly(h.masterApplyAll)))
+	mux.HandleFunc("/api/rainbow/master/overview", h.auth(h.masterOnly(h.masterOverview)))
+	mux.HandleFunc("/api/rainbow/master/check-numbers", h.auth(h.masterOnly(h.masterCheckNumbers)))
+	// Knowledge base (kb_api.go): SPA editor via session auth, token API for scripts.
+	mux.HandleFunc("/api/rainbow/kb-files", h.auth(h.kbFilesUI))
+	mux.HandleFunc("/api/rainbow/kb-files/", h.auth(h.kbFilesUI))
+	mux.HandleFunc("/api/rainbow/kb-stale", h.auth(h.kbStaleUI))
+	mux.HandleFunc("/api/rainbow/memory", h.auth(h.kbMemoryUI))
+	mux.HandleFunc("/api/rainbow/memory/", h.auth(h.kbMemoryUI))
+	mux.HandleFunc("/api/kb/", h.kbTokenAuth(h.kbAPI))
+	// Provider speed test (Settings → AI Models → Test Speed).
+	mux.HandleFunc("/api/rainbow/test/llm-latency", h.auth(h.llmLatency))
 	mux.HandleFunc("/api/rainbow/routing", h.auth(h.routing))
 	mux.HandleFunc("/api/rainbow/conversations/unified", h.auth(h.unifiedConversations))
 	mux.HandleFunc("/api/rainbow/conversations/", h.auth(h.conversationMessages))
+	// Observer feed (visibility.go): a profile with an observer grant (e.g.
+	// jayson-pa) can pull other profiles' messages here without them showing
+	// up mixed into its own live-chat list.
+	mux.HandleFunc("/api/rainbow/observe", h.auth(h.observe))
 
 	// Live-chat webchat sub-tab (js/modules/webchat-admin.js).
 	mux.HandleFunc("/api/rainbow/webchat/conversations", h.auth(h.webchatConversations))
@@ -243,6 +284,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// is fetched from /templates/{name}.
 	mux.HandleFunc("/api/rainbow/profiles", h.auth(h.profiles))
 	mux.HandleFunc("/api/rainbow/profiles/active", h.auth(h.profilesActive))
+	// Profile creation (wizard): POST /profiles/blank, POST /profiles/{id}/clone
+	// (profiles_create.go). Registered as a subtree; /profiles/active above is
+	// more specific and still wins.
+	mux.HandleFunc("/api/rainbow/profiles/", h.auth(h.profilesCreate))
 	mux.HandleFunc("/api/rainbow/templates/", h.auth(h.templatesItem))
 
 	// Analytics endpoints backed by Postgres in the Node monolith. go-core has no
@@ -259,6 +304,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// to. go-core emits an empty init event and then heartbeats — no events yet, but
 	// the connection stays open so the SPA shows "connected" instead of "Reconnecting".
 	mux.HandleFunc("/api/rainbow/activity/stream", h.auth(h.activityStream))
+
+	// Live-chat extras: SSE new-message push, media proxy (live_events.go).
+	h.registerLiveChatExtras(mux)
 
 	// ── Dashboard SPA + static assets ──
 	if h.publicDir != "" {
@@ -555,13 +603,9 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// Per-profile override: x-profile-id header → RAINBOW_WA_NUMBER_<PROFILE>
 	// and BUSINESS_DISPLAY_NAME_<PROFILE> take precedence over global vars.
 	profileHeader := r.Header.Get("x-profile-id")
-	waNumberEnvKey := "RAINBOW_WA_NUMBER"
 	displayNameEnvKey := "BUSINESS_DISPLAY_NAME"
 	if profileHeader != "" {
 		suffix := strings.ToUpper(strings.ReplaceAll(profileHeader, "-", "_"))
-		if v := os.Getenv("RAINBOW_WA_NUMBER_" + suffix); v != "" {
-			waNumberEnvKey = "RAINBOW_WA_NUMBER_" + suffix
-		}
 		if v := os.Getenv("BUSINESS_DISPLAY_NAME_" + suffix); v != "" {
 			displayNameEnvKey = "BUSINESS_DISPLAY_NAME_" + suffix
 		}
@@ -572,62 +616,37 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		propertyName = os.Getenv("BUSINESS_NAME")
 	}
 
-	// Live WhatsApp state from the bridge (the Baileys session owner). The
-	// bridge /health reports connState ("open" = paired and connected); the
-	// bot number is not exposed there, so it comes from RAINBOW_WA_NUMBER.
-
-	// Per-profile bridge: BRIDGE_URL_<PROFILE> (e.g. BRIDGE_URL_SENAI_APP=
-	// http://127.0.0.1:8790) overrides the global BRIDGE_URL so each
-	// profile's dashboard reports ITS OWN Baileys session, not the default
-	// (Pelangi) one. WA_LABEL_<PROFILE> names the instance card.
-	bridgeURL := h.bridgeURL
-	instanceLabel := ""
-	if profileHeader != "" {
-		suffix := strings.ToUpper(strings.ReplaceAll(profileHeader, "-", "_"))
-		if v := os.Getenv("BRIDGE_URL_" + suffix); v != "" {
-			bridgeURL = strings.TrimRight(v, "/")
-		}
-		instanceLabel = os.Getenv("WA_LABEL_" + suffix)
+	// Live WhatsApp state. Instances come from the registry (wa_instances.go):
+	// every number routed to this profile, each with its own bridge, so the
+	// Logout / QR buttons target the right bridge. Falls back to one card from
+	// bridgeForProfile when the registry has no entry for the profile.
+	profileForWA := profileHeader
+	if profileForWA == "" {
+		profileForWA = h.defaultProfile
 	}
-
 	waStatus := map[string]any{"state": "unknown", "user": nil}
 	waInstances := []any{}
-	if bridgeURL != "" {
-		bctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if req, err := http.NewRequestWithContext(bctx, http.MethodGet, bridgeURL+"/health", nil); err == nil {
-			if resp, err := http.DefaultClient.Do(req); err == nil {
-				defer resp.Body.Close()
-				var hb struct {
-					Whatsapp   string `json:"whatsapp"`
-					InstanceID string `json:"instanceId"`
-				}
-				if json.NewDecoder(resp.Body).Decode(&hb) == nil && hb.Whatsapp != "" {
-					// The SPA reads user.phone / user.name (renderInstanceCard),
-					// so user must be an object, not a bare string.
-					// Display name comes only from BUSINESS_DISPLAY_NAME
-					// (BUSINESS_NAME on the VPS is a stale Node-era value
-					// for a different business).
-					displayName := os.Getenv(displayNameEnvKey)
-					var user any
-					if n := os.Getenv(waNumberEnvKey); n != "" {
-						user = map[string]any{"phone": n, "name": displayName}
-					}
-					label := hb.InstanceID
-					if displayName != "" {
-						label = displayName
-					}
-					if instanceLabel != "" {
-						label = instanceLabel
-					}
-					waStatus = map[string]any{"state": hb.Whatsapp, "user": user}
-					waInstances = []any{map[string]any{
-						"id": hb.InstanceID, "label": label, "state": hb.Whatsapp,
-						"user": user, "unlinkedFromWhatsApp": false,
-					}}
-				}
+	for _, it := range h.listInstances(r.Context(), nil, profileForWA) {
+		waInstances = append(waInstances, it)
+	}
+	if len(waInstances) == 0 {
+		if bridgeURL := h.bridgeForProfile(profileHeader); bridgeURL != "" {
+			bctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if state, instID, _ := bridgeHealthFull(bctx, bridgeURL); state != "offline" {
+				it := waInstance{ID: instID, Profile: profileForWA, BridgeURL: bridgeURL, State: state}
+				h.fillInstance(bctx, &it)
+				waInstances = append(waInstances, it)
 			}
 		}
+	}
+	if len(waInstances) > 0 {
+		first := waInstances[0].(waInstance)
+		var user any
+		if first.User != nil {
+			user = first.User
+		}
+		waStatus = map[string]any{"state": first.State, "user": user}
 	}
 
 	aiBlock := map[string]any{"available": anyAvailable, "providers": providers}
@@ -708,9 +727,10 @@ func (h *Handler) profiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	list := make([]map[string]any, 0, len(ids))
+	reg := h.readProfileRegistry()
 	for _, id := range ids {
 		list = append(list, map[string]any{
-			"id": id, "name": titleProfile(id), "enabled": true,
+			"id": id, "name": reg.nameOr(id, titleProfile(id)), "enabled": true,
 			"instanceIds": []string{}, "kbDir": "", "dataDir": "",
 			"whatsappInstanceId": "", "siteUrl": "",
 		})
@@ -993,38 +1013,8 @@ func (h *Handler) adminNotificationsSystemPhone(w http.ResponseWriter, r *http.R
 }
 
 // activityStream serves GET /api/rainbow/activity/stream as a Server-Sent
-// Events endpoint. go-core does not yet push live activity events, so it sends
-// an empty init payload and then heartbeat comments every 25 s to keep the
-// connection alive. The SPA's EventSource shows "connected" (green dot) once
-// the init event arrives, and stops showing "Reconnecting...".
-func (h *Handler) activityStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeJSON(w, 500, map[string]any{"error": "streaming not supported"})
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // disable nginx/Caddy proxy buffering
-	w.WriteHeader(http.StatusOK)
-
-	// Send initial batch (empty) so the SPA's 'init' listener fires immediately.
-	fmt.Fprintf(w, "event: init\ndata: {\"activities\":[]}\n\n")
-	flusher.Flush()
-
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-ticker.C:
-			fmt.Fprintf(w, ": heartbeat\n\n")
-			flusher.Flush()
-		}
-	}
-}
+// activityStream: see activity.go (Recent Activity SSE seeded from
+// rainbow_messages and fed live from the events bus).
 
 func queryInt(r *http.Request, key string, def int) int {
 	if v := r.URL.Query().Get(key); v != "" {
