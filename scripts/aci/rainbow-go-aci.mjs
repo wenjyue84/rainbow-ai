@@ -20,6 +20,16 @@
  *
  * JSON goes to stdout (agents parse it); progress goes to stderr (humans watch).
  * Exit codes: 0 = pass, 1 = fail, 2 = usage error.
+ *
+ * ACI v2 note (2026-09-03): `snapshot` was added to the SIBLING script,
+ * rainbow-aci.mjs, not here. This repo's CLAUDE.md documents only ONE deployed
+ * rainbow-ai process — PM2 `/opt/rainbow-ai` on :8080, the Node/TS Express app
+ * that rainbow-aci.mjs drives. go-core (this file's target) has no matching
+ * deploy/PM2 entry anywhere in the repo docs, despite the :3003 reference above
+ * — it reads as an admin-tooling binary, not the live public-facing service.
+ * If go-core turns out to be deployed too, give it its own `snapshot` using the
+ * same ACI_BASE/ACI_ALLOW_PROD contract (Step 2b) rather than assuming this note
+ * still holds — re-check CLAUDE.md's Deployment section first.
  */
 
 import { parseArgs } from 'node:util';

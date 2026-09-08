@@ -137,6 +137,17 @@ rainbow-ai runs the **Ramli** bot for the Senai worker housing business, acting 
 
 **Ramli agent:** `~/.claude/agents/ramli.md` — Juno-side agent that orchestrates WA sends via the bridge.
 
+## WhatsApp transport = baileys-engine (since 2026-09-08)
+
+The Baileys bridges are **not part of this repo any more**. They are the product **baileys-engine**
+(repo `wenjyue84/baileys-engine`, local `Software Projects/baileys-engine/`, project area
+`Documents/1-projects/baileys-engine/` — read its `index.md`). One bridge process per number
+(pelangi :8789, senai :8790, jayson :8791, rachel :8792) + engine-admin at
+https://baileys.wenjyue.com (:8800), the source of truth for every number (telco, SIM, consumers,
+events, health). rainbow-core reaches a bridge through the engine proxy
+`http://127.0.0.1:8800/i/<instance>` (`BRIDGE_INSTANCE_URLS`, `BRIDGE_URL_<PROFILE>`) and reads
+Master → Numbers from `BAILEYS_ENGINE_URL` (+ `BAILEYS_ENGINE_KEY`). Never touch an `auth/<inst>` dir.
+
 ## Architecture Documentation
 
 | Doc | Purpose |

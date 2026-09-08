@@ -24,7 +24,7 @@
 
 import { parseArgs } from 'node:util';
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -33,6 +33,36 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const ACI_PORT = Number(process.env.ACI_PORT || 3199);
 const BASE_URL = process.env.BASE_URL || null; // if set, reuse running server
 const IS_WIN = process.platform === 'win32';
+
+// ─── ACI v2: ACI_BASE alias + prod guard (setup-aci SKILL.md Step 2b) ────────
+// This IS the deployed service (PM2, /opt/rainbow-ai, port 8080 — see
+// CLAUDE.md "Deployment"). Its sibling rainbow-go-aci.mjs drives go-core, which
+// has no documented PM2/deploy entry in this repo's CLAUDE.md — that binary
+// looks admin-tooling-only, not the live public-facing service, so this file
+// (not rainbow-go-aci.mjs) is the one extended with `snapshot` for the ACI v2
+// rollout.
+const ACI_BASE = process.env.ACI_BASE || BASE_URL || null; // null = no live target; snapshot falls back to file-only reads
+const AUTH_NOTE = 'auth: remote /api/rainbow/* admin endpoints need X-Admin-Key = RAINBOW_ADMIN_KEY (a single ' +
+  'full-access key, bypassed only from 127.0.0.1) — there is no scoped read-only key type. The public /api/chat/* ' +
+  'and /health endpoints this snapshot uses need no auth. No aci-token-rainbow-ai.txt exists because there is no ' +
+  'read-only credential to put in it; add a viewer-scoped admin key before pointing snapshot\'s admin-data fields ' +
+  '(if any are added later) at a deployed host.';
+function isLocalHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+function assertProdGuard(cmd, { readOnly } = {}) {
+  let hostname = '';
+  if (ACI_BASE) { try { hostname = new URL(ACI_BASE).hostname; } catch { /* leave blank; treated as local */ } }
+  if (!ACI_BASE || isLocalHost(hostname) || process.env.ACI_ALLOW_PROD === '1') return;
+  const allowedProd = new Set(['describe', 'status', 'snapshot']);
+  if (allowedProd.has(cmd) || (cmd === 'test' && readOnly)) return;
+  console.error(`refusing "${cmd}" against non-localhost ${ACI_BASE} — set ACI_ALLOW_PROD=1 to override (read-only commands don't need it)`);
+  process.exit(3);
+}
+// health/data/config never mutate; chat suite POSTs messages that get stored as
+// conversations, and go runs go-core's own test binary (no HTTP writes but not
+// "read this app's state" either) — only health/data/config count as read-only.
+const READ_ONLY_SUITES = new Set(['health', 'data', 'config']);
 
 const DATA_DIRS = {
   default: path.join(ROOT, 'src', 'assistant', 'data'),
@@ -56,9 +86,13 @@ const DESCRIBE = {
     profiles: 'list assistant profiles from profiles.json',
     'chat --profile=<id> --message=<text> [--session=<id>]':
       'one-shot webchat message; returns the assistant reply JSON. Uses BASE_URL if set, else ephemeral server.',
+    'snapshot --json --out <path>':
+      'ACI v2: {app, as_of, counts:{profiles,data_files}, flags:[{level,msg}]} — file-only read (profiles.json + data dirs); ' +
+      'adds a live.health block when ACI_BASE/BASE_URL or the dev server on :3002 answers. Read-only, safe against a deployed host.',
     'test --suite=<name>|all': 'deterministic PASS/FAIL suites (see suites)',
     gates: "wraps the repo's deploy test gate (npm run test:regression) + go-core unit tests — the slow, authoritative path",
   },
+  auth: AUTH_NOTE,
   suites: {
     config: 'wraps scripts/validate-routing|workflows|keywords (the app\'s own config contract). No server. ~20s',
     data: 'JSON integrity of all profile data dirs + profiles.json invariants. No server. <2s',
@@ -408,6 +442,64 @@ function cmdProfiles() {
   emit({ defaultProfileId: p.defaultProfileId, profiles: p.profiles.map(x => ({ id: x.id, name: x.name })) });
 }
 
+// SNAPSHOT — ACI v2. File-only reads (profiles.json + per-profile data dirs) so
+// it never needs to boot the ephemeral server; adds a live.health block when a
+// server (ACI_BASE, or the default dev server on :3002) actually answers.
+async function cmdSnapshot(outArg) {
+  const flags = [];
+  let profiles = [];
+  let dataFiles = 0;
+  let parseErrors = 0;
+
+  try {
+    const p = readJson(path.join(ROOT, 'profiles.json'));
+    profiles = p.profiles || [];
+    const ids = profiles.map(x => x.id);
+    if (new Set(ids).size !== ids.length) flags.push({ level: 'error', msg: `profiles.json has duplicate ids: ${ids.join(',')}` });
+    if (!ids.includes(p.defaultProfileId)) flags.push({ level: 'error', msg: `defaultProfileId "${p.defaultProfileId}" is not in profiles[]` });
+  } catch (e) {
+    flags.push({ level: 'error', msg: `profiles.json unreadable: ${e.message}` });
+  }
+
+  for (const [tag, dir] of Object.entries(DATA_DIRS)) {
+    if (!existsSync(dir)) { if (tag === 'default') flags.push({ level: 'error', msg: `default data dir missing: ${dir}` }); continue; }
+    const files = readdirSync(dir).filter(f => f.endsWith('.json'));
+    dataFiles += files.length;
+    for (const f of files) {
+      try { readJson(path.join(dir, f)); }
+      catch (e) { parseErrors++; flags.push({ level: 'error', msg: `${tag}/${f} does not parse: ${e.message}` }); }
+    }
+  }
+
+  // Opportunistic live check — never spawns a server, just asks one that may
+  // already be up (ACI_BASE if set, else the default dev port).
+  const liveBase = ACI_BASE || 'http://127.0.0.1:3002';
+  let live = { base: liveBase, reachable: false };
+  try {
+    const h = await fetchJson(`${liveBase}/health`, {}, 3_000);
+    live.reachable = h.status === 200;
+    live.status = h.data?.status;
+  } catch { /* no server up — that's a fine, honest answer */ }
+  if (!live.reachable) flags.push({ level: 'info', msg: `no live server answered ${liveBase} — snapshot is file-only` });
+
+  const snap = {
+    app: 'rainbow-ai',
+    as_of: new Date().toISOString(),
+    ok: flags.every(f => f.level !== 'error'),
+    counts: { profiles: profiles.length, data_files: dataFiles },
+    flags,
+    live_health: live,
+  };
+  const text = JSON.stringify(snap, null, 2);
+  if (outArg) {
+    mkdirSync(path.dirname(outArg), { recursive: true });
+    writeFileSync(outArg, text);
+    process.stderr.write(`wrote ${outArg}\n`);
+  }
+  process.stdout.write(text + '\n');
+  process.exit(snap.ok ? 0 : 1);
+}
+
 async function cmdChat(flags) {
   const profile = flags.profile || 'pelangi';
   const message = flags.message;
@@ -469,6 +561,8 @@ const { values: flags, positionals } = parseArgs({
     profile: { type: 'string' },
     message: { type: 'string' },
     session: { type: 'string' },
+    json: { type: 'boolean' },
+    out: { type: 'string' },
   },
   allowPositionals: true,
   strict: false,
@@ -478,6 +572,8 @@ const command = positionals[0];
 
 process.on('exit', killServer);
 process.on('SIGINT', () => { killServer(); process.exit(1); });
+
+assertProdGuard(command, { readOnly: command === 'test' && !!flags.suite && flags.suite !== 'all' && READ_ONLY_SUITES.has(flags.suite) });
 
 switch (command) {
   case 'describe':
@@ -491,6 +587,9 @@ switch (command) {
     break;
   case 'chat':
     await cmdChat(flags);
+    break;
+  case 'snapshot':
+    await cmdSnapshot(flags.out);
     break;
   case 'gates':
     cmdGates();
@@ -512,5 +611,5 @@ switch (command) {
     break;
   }
   default:
-    usageError(`unknown command "${command ?? ''}". Commands: describe, status, profiles, chat, test, gates`);
+    usageError(`unknown command "${command ?? ''}". Commands: describe, status, profiles, chat, snapshot, test, gates`);
 }

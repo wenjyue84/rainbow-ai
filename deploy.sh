@@ -59,8 +59,9 @@ tar -czf "$TARBALL" \
   .rainbow-kb-makan/ \
   .rainbow-kb-pms-capsule/ \
   .rainbow-kb-pms-southern/ \
-  .rainbow-kb-yoongmei/ \
-  .rainbow-kb-senai/
+  .rainbow-kb-yoongmei/
+# 2026-09-08: .rainbow-kb-senai/ is NOT shipped — the server copy under
+# RAINBOW_KB_ROOT is the only one (edited live via /api/kb + the dashboard).
 
 echo "    $(du -h "$TARBALL" | cut -f1) compressed"
 
