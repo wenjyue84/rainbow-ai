@@ -42,10 +42,12 @@ function showInstanceQR(id, label) {
         clearInterval(qrRefreshInterval);
         if (typeof window.refreshWhatsAppList === 'function') window.refreshWhatsAppList();
         else if (typeof loadStatus === 'function') loadStatus();
-      } else if (d.qrDataUrl) {
-        el.innerHTML = `<img src="${d.qrDataUrl}" class="w-64 h-64 mx-auto" />`;
+      } else if (d.qr || d.qrDataUrl) {
+        // go-core proxies the bridge's /qr.json → { state, qr: <data URL> } (qrDataUrl = legacy alias)
+        el.innerHTML = `<img src="${d.qr || d.qrDataUrl}" class="w-64 h-64 mx-auto" alt="WhatsApp QR" />
+          <p class="text-xs text-neutral-500 mt-2">WhatsApp → Linked Devices → Link a Device → scan. The QR rotates every ~20s.</p>`;
       } else {
-        el.innerHTML = '<p class="text-neutral-500 text-sm py-4">Waiting for QR code...</p>';
+        el.innerHTML = `<p class="text-neutral-500 text-sm py-4">Waiting for QR code… (bridge state: ${d.state || 'unknown'})</p>`;
       }
     } catch (e) {
       document.getElementById('qr-modal-content').innerHTML = `<p class="text-danger-500 text-sm">Error: ${e.message}</p>`;
@@ -53,7 +55,7 @@ function showInstanceQR(id, label) {
     }
   }
   fetchQR();
-  qrRefreshInterval = setInterval(fetchQR, 5000);
+  qrRefreshInterval = setInterval(fetchQR, 3000);
 }
 
 /**

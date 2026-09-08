@@ -111,8 +111,10 @@ async function kbApi(path, opts = {}) {
   // PERMANENT FIX: Cache-busting to always get fresh content
   const cacheBuster = '_=' + Date.now();
   const separator = path.includes('?') ? '&' : '?';
+  const adminKey = window.__ADMIN_KEY__ || '';
+  const profileHeaders = window.profileSwitcher ? window.profileSwitcher.getHeaders() : {};
   const res = await fetch(KB_API + path + separator + cacheBuster, {
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache', ...(adminKey ? { 'x-admin-key': adminKey } : {}), ...profileHeaders },
     cache: 'no-store',
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined
@@ -196,8 +198,38 @@ async function kbFilterCategory(cat) {
       list.innerHTML = '<div class="text-xs text-red-400 text-center py-3">Failed to load memory files</div>';
     }
   } else {
-    const files = KB_FILE_DEFS.filter(function (f) { return f.cat === cat; });
+    // 2026-09-08: the Go core lists the profile's actual KB directory
+    // (GET /api/rainbow/kb-files). KB_FILE_DEFS only decorates known Pelangi
+    // files; any other profile (senai-app, jayson-pa, ...) shows what is on disk.
+    let files = KB_FILE_DEFS.filter(function (f) { return f.cat === cat; });
+    try {
+      const data = await kbApi('/kb-files');
+      const onDisk = (data.files || []).filter(function (f) { return !f.name.startsWith('memory/'); });
+      const known = {};
+      KB_FILE_DEFS.forEach(function (f) { known[f.id] = f; });
+      const hasKnown = onDisk.some(function (f) { return known[f.name]; });
+      if (!hasKnown) {
+        // Profile without the Pelangi layout: one flat "Knowledge" list, regardless of category.
+        files = onDisk.map(function (f) {
+          return { id: f.name, icon: '\uD83D\uDCC4', desc: (f.size + ' bytes · ' + (f.modified || '').slice(0, 10)), cat: cat, priority: 'ondemand' };
+        });
+        if (data.strict) {
+          files.unshift({ id: '__strict__', icon: '\uD83D\uDEE1\uFE0F', desc: 'Strict KB: every entry needs as_of + source; money / deposit / paid-unpaid content is refused — that lives in senai.wenjyue.com', cat: cat, priority: 'internal' });
+        }
+        if (files.length === 0) {
+          list.innerHTML = '<div class="text-xs text-neutral-400 text-center py-3">No .md files yet for this profile</div>';
+          return;
+        }
+      } else if (cat === 'knowledge') {
+        onDisk.forEach(function (f) {
+          if (!known[f.name]) files.push({ id: f.name, icon: '\uD83D\uDCC4', desc: f.size + ' bytes', cat: cat, priority: 'ondemand' });
+        });
+      }
+    } catch (e) { /* offline / old server: fall back to the static list */ }
     list.innerHTML = files.map(function (f) {
+      if (f.id === '__strict__') {
+        return '<div class="p-3 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-800">' + f.icon + ' ' + esc(f.desc) + '</div>';
+      }
       const sel = kbCurrentFile === f.id;
       const badge = f.priority === 'always' ? '<span class="badge-info">always</span>'
         : f.priority === 'internal' ? '<span class="badge-warn">internal</span>' : '';
@@ -326,7 +358,7 @@ async function kbSaveFile() {
       d = await kbApi('/kb-files/' + encodeURIComponent(kbCurrentFile), { method: 'PUT', body: { content: content } });
       kbOriginalContent = content;
       kbCheckModified();
-      toast(kbCurrentFile + ' saved. Backup: ' + d.backup);
+      toast(kbCurrentFile + ' saved' + (d.backup ? ' (backup: ' + d.backup + ')' : '') + (d.applied ? ' · bot reloaded' : ''));
     }
   } catch (e) {
     toast('Failed to save: ' + e.message, 'error');
@@ -454,7 +486,7 @@ async function openKbEditModal(filename) {
 
   // Fetch file content
   try {
-    const response = await fetch(KB_API + '/kb-files/' + encodeURIComponent(filename) + '?_=' + Date.now(), { cache: 'no-store' });
+    const response = await fetch(KB_API + '/kb-files/' + encodeURIComponent(filename) + '?_=' + Date.now(), { cache: 'no-store', headers: (window.profileSwitcher ? window.profileSwitcher.getHeaders() : {}) });
     const data = await response.json();
 
     if (!response.ok) {

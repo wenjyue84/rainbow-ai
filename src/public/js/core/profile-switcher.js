@@ -9,6 +9,12 @@
  */
 (function () {
   var STORAGE_KEY = 'rainbow_active_profile';
+  // ⚙ Master (2026-09-08): a fixed, non-business entry in the switcher for
+  // things that affect every profile (numbers, assistants, global defaults,
+  // users). Not a profile id the server knows — API calls carry NO
+  // x-profile-id while it is selected, and only the Master tab is shown.
+  var MASTER_ID = '__master__';
+  var LAST_REAL_KEY = 'rainbow_last_business_profile';
   var profiles = [];
   var defaultProfileId = 'pelangi';
   var activeProfileId = localStorage.getItem(STORAGE_KEY) || '';
@@ -20,16 +26,37 @@
   var _readyResolve;
   var ready = new Promise(function (resolve) { _readyResolve = resolve; });
 
+  function canMaster() {
+    var s = window.__SESSION__;
+    return !(s && Array.isArray(s.tenants) && s.tenants.length > 0);
+  }
+
   var switcher = {
-    /** Get the active profile ID (empty string = default) */
+    MASTER_ID: MASTER_ID,
+
+    /** True while "⚙ Master · All businesses" is selected. */
+    isMaster: function () { return activeProfileId === MASTER_ID; },
+
+    /** Whether this session may open Master (unscoped admins only). */
+    canMaster: canMaster,
+
+    /** Get the active profile ID (empty string = default; '__master__' for Master) */
     getActiveProfileId: function () {
       return activeProfileId || defaultProfileId;
+    },
+
+    /** The business profile to return to when leaving Master (never Master). */
+    getBusinessProfileId: function () {
+      if (activeProfileId && activeProfileId !== MASTER_ID) return activeProfileId;
+      var last = localStorage.getItem(LAST_REAL_KEY) || '';
+      if (last && profiles.find(function (p) { return p.id === last; })) return last;
+      return defaultProfileId;
     },
 
     /** Get headers to inject into fetch calls */
     getHeaders: function () {
       var id = activeProfileId || defaultProfileId;
-      if (!id || id === defaultProfileId) return {};
+      if (!id || id === defaultProfileId || id === MASTER_ID) return {};
       return { 'x-profile-id': id };
     },
 
@@ -53,8 +80,11 @@
 
     /** Switch to a profile by ID — updates URL for profile-specific tabs (US-809) */
     switchTo: function (profileId) {
+      if (profileId === MASTER_ID && !canMaster()) return;
+      var wasMaster = activeProfileId === MASTER_ID;
       activeProfileId = profileId;
       localStorage.setItem(STORAGE_KEY, profileId);
+      if (profileId !== MASTER_ID) localStorage.setItem(LAST_REAL_KEY, profileId);
       this.close();
       this.renderLabel();
       this.renderDropdown();
@@ -76,6 +106,19 @@
         ? window.getTabInfoFromUrl()
         : { main: 'dashboard', profileId: null, sub: null };
 
+      // 3b. Master in / out: Master has exactly one tab; a business has none of it.
+      if (profileId === MASTER_ID) {
+        var msub = tabInfo.main === 'master' && tabInfo.sub ? tabInfo.sub : 'numbers';
+        history.replaceState(null, '', '#master/' + msub);
+        if (typeof window.loadTab === 'function') window.loadTab('master', msub);
+        return;
+      }
+      if (wasMaster || tabInfo.main === 'master') {
+        history.replaceState(null, '', '#dashboard/' + profileId);
+        if (typeof window.loadTab === 'function') window.loadTab('dashboard', null);
+        return;
+      }
+
       // 4. US-809: Update URL hash for profile-specific tabs
       //    Use replaceState to avoid triggering hashchange loop
       var profileTabs = window.PROFILE_SPECIFIC_TABS || [];
@@ -95,6 +138,7 @@
     renderLabel: function () {
       var label = document.getElementById('profile-switcher-label');
       if (!label) return;
+      if (activeProfileId === MASTER_ID) { label.textContent = '⚙ Master'; return; }
       var current = profiles.find(function (p) { return p.id === (activeProfileId || defaultProfileId); });
       label.textContent = current ? current.name : 'Select Property';
     },
@@ -105,6 +149,19 @@
       if (!dd) return;
       var currentId = activeProfileId || defaultProfileId;
       var html = '';
+      // Fixed first item: ⚙ Master · All businesses (unscoped admins only).
+      if (canMaster()) {
+        var mActive = currentId === MASTER_ID;
+        html += '<button onclick="window.profileSwitcher.switchTo(\'' + MASTER_ID + '\')" '
+          + 'class="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition '
+          + (mActive ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-neutral-700 hover:bg-neutral-50')
+          + '" title="WhatsApp numbers, assistants, global defaults and users — for every business">'
+          + '<span class="w-2 h-2 rounded-full flex-shrink-0 ' + (mActive ? 'bg-primary-500' : 'bg-neutral-300') + '"></span>'
+          + '<span>⚙ Master <span class="text-neutral-400 font-normal">· All businesses</span></span>'
+          + (mActive ? '<svg class="w-4 h-4 ml-auto text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : '')
+          + '</button>'
+          + '<div class="border-t border-neutral-100 my-1"></div>';
+      }
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
         var isActive = p.id === currentId;
@@ -180,8 +237,10 @@
         .then(function (data) {
           profiles = (data.profiles || []).filter(function (p) { return p.enabled; });
           defaultProfileId = data.defaultProfileId || 'pelangi';
-          // Validate stored profile still exists
-          if (activeProfileId && !profiles.find(function (p) { return p.id === activeProfileId; })) {
+          // Validate stored profile still exists (Master survives only for unscoped admins)
+          if (activeProfileId === MASTER_ID) {
+            if (!canMaster()) { activeProfileId = ''; localStorage.removeItem(STORAGE_KEY); }
+          } else if (activeProfileId && !profiles.find(function (p) { return p.id === activeProfileId; })) {
             activeProfileId = '';
             localStorage.removeItem(STORAGE_KEY);
           }
@@ -225,7 +284,9 @@
               .then(function (data) {
                 profiles = (data.profiles || []).filter(function (p) { return p.enabled; });
                 defaultProfileId = data.defaultProfileId || 'pelangi';
-                if (activeProfileId && !profiles.find(function (p) { return p.id === activeProfileId; })) {
+                if (activeProfileId === MASTER_ID) {
+                  if (!canMaster()) { activeProfileId = ''; localStorage.removeItem(STORAGE_KEY); }
+                } else if (activeProfileId && !profiles.find(function (p) { return p.id === activeProfileId; })) {
                   activeProfileId = '';
                   localStorage.removeItem(STORAGE_KEY);
                 }
@@ -287,10 +348,27 @@
     }
   }
 
+  var BLANK_TEMPLATE_ID = '__blank__';
+
   function renderWizardTemplates() {
     var container = document.getElementById('wizard-templates');
     if (!container) return;
     var html = '';
+
+    // No-template option — creates an empty profile instead of cloning one
+    var isBlankSelected = wizardState.sourceId === BLANK_TEMPLATE_ID;
+    html += '<label class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition '
+      + (isBlankSelected ? 'border-primary-400 bg-primary-50' : 'border-neutral-200 hover:border-neutral-300 bg-white')
+      + '">'
+      + '<input type="radio" name="wizard-source" value="' + BLANK_TEMPLATE_ID + '" '
+      + (isBlankSelected ? 'checked' : '')
+      + ' onchange="window.profileSwitcher._wizardSelectSource(\'' + BLANK_TEMPLATE_ID + '\')" class="text-primary-500">'
+      + '<div class="min-w-0">'
+      + '<div class="text-sm font-medium text-neutral-800">No template (blank)</div>'
+      + '<div class="text-xs text-neutral-500">Start empty — no config copied from another profile</div>'
+      + '</div>'
+      + '</label>';
+
     for (var i = 0; i < profiles.length; i++) {
       var p = profiles[i];
       var isSelected = wizardState.sourceId === p.id;
@@ -312,7 +390,7 @@
   function renderWizardReview() {
     var el = document.getElementById('wizard-review');
     if (!el) return;
-    var sourceName = '';
+    var sourceName = wizardState.sourceId === BLANK_TEMPLATE_ID ? 'None (blank)' : '';
     var found = profiles.find(function (p) { return p.id === wizardState.sourceId; });
     if (found) sourceName = found.name;
     el.innerHTML = '<dl class="space-y-3 text-sm">'
@@ -355,7 +433,10 @@
     var btn = document.getElementById('wizard-create-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
 
-    fetch(API + '/profiles/' + encodeURIComponent(wizardState.sourceId) + '/clone', {
+    var isBlank = wizardState.sourceId === BLANK_TEMPLATE_ID;
+    var url = isBlank ? (API + '/profiles/blank') : (API + '/profiles/' + encodeURIComponent(wizardState.sourceId) + '/clone');
+
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-key': (window.__ADMIN_KEY__ || '') },
       body: JSON.stringify({ newProfileId: wizardState.profileId, displayName: wizardState.name })

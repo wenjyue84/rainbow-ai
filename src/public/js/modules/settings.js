@@ -16,8 +16,8 @@ import {
   renderMcpServersTab
 } from './settings-mcp.js';
 import {
-  renderUsersTab
-} from './settings-users.js';
+  renderExceptionsTab
+} from './settings-exceptions.js';
 
 /**
  * Shared state — backed by centralized cacheManager.
@@ -63,7 +63,25 @@ export async function loadSettings(subTab) {
 
     switchSettingsTab(activeTab, shouldUpdateHash);
   } catch (e) {
-    toast(window.apiHelpers.formatApiError(e), 'error');
+    // Inline error + retry instead of a toast-only failure that leaves the
+    // "Loading settings..." spinner on screen forever.
+    renderSettingsError(e, subTab);
+  }
+}
+
+function renderSettingsError(e, subTab) {
+  const msg = (window.apiHelpers && window.apiHelpers.formatApiError) ? window.apiHelpers.formatApiError(e) : (e && e.message) || String(e);
+  const container = document.getElementById('settings-tab-content');
+  if (container) {
+    container.innerHTML =
+      '<div class="p-8 text-center">' +
+      '<div class="text-danger-600 font-semibold mb-1">Failed to load settings</div>' +
+      '<div class="text-sm text-neutral-500 mb-4">' + esc(msg) + '</div>' +
+      '<button onclick="window.cacheManager && window.cacheManager.invalidate && window.cacheManager.invalidate(\'settings.config\'); window.loadSettings(' + (subTab ? '\'' + esc(subTab) + '\'' : 'null') + ')" ' +
+      'class="px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 text-sm font-medium">Retry</button>' +
+      '</div>';
+  } else {
+    toast(msg, 'error');
   }
 }
 window.loadSettings = loadSettings;
@@ -99,21 +117,36 @@ export function switchSettingsTab(tabId, updateHash = true) {
   const container = document.getElementById('settings-tab-content');
   if (!container) return;
 
-  // Ensure data is loaded
-  if (!window.cacheManager.get(SETTINGS_CACHE_KEYS.config) || !window.cacheManager.get(SETTINGS_CACHE_KEYS.adminNotifs)) return;
+  // Ensure data is loaded. A silent return here used to leave the loading
+  // spinner up forever when the caches were missing (cold deep link before
+  // loadSettings resolved). Show state + kick a load instead.
+  if (!window.cacheManager.get(SETTINGS_CACHE_KEYS.config) || !window.cacheManager.get(SETTINGS_CACHE_KEYS.adminNotifs)) {
+    if (!container.querySelector('#settings-loading')) {
+      container.innerHTML = '<div id="settings-loading" class="p-8 text-center"><div class="spinner mx-auto"></div><p class="text-sm text-neutral-500 mt-2">Loading settings...</p></div>';
+    }
+    if (!window._settingsLoadInFlight) {
+      window._settingsLoadInFlight = loadSettings(tabId).finally(() => { window._settingsLoadInFlight = null; });
+    }
+    return;
+  }
 
   // Clear previous content before rendering new
   container.innerHTML = '';
 
-  if (tabId === 'ai-models') renderAiModelsTab(container);
+  if (tabId === 'ai-models') { renderAiModelsTab(container); markInherited(container, 'ai.providers'); }
+  else if (tabId === 'ai-exceptions') renderExceptionsTab(container);
+  else if (tabId === 'reply-mode') import('/public/js/modules/settings-reply-mode.js').then(m => m.renderReplyModeTab(container));
   else if (tabId === 'notifications') renderNotificationsTab(container);
   else if (tabId === 'operators') renderOperatorsTab(container);
-  else if (tabId === 'bot-avatar') renderBotAvatarTab(container);
+  else if (tabId === 'bot-avatar') { renderBotAvatarTab(container); markInherited(container, 'botAvatar'); }
   else if (tabId === 'failover') renderFailoverTab(container);
   else if (tabId === 'appearance') renderAppearanceTab(container);
   else if (tabId === 'mcp-servers') renderMcpServersTab(container);
   else if (tabId === 'profile') renderProfileTab(container);
-  else if (tabId === 'users') renderUsersTab(container);
+  else if (tabId === 'users') {
+    // Users moved to ⚙ Master → Users (2026-09-08).
+    container.innerHTML = '<div class="p-8 text-center text-sm text-neutral-500">Dashboard users are managed under <a href="#master/users" class="text-primary-600 hover:underline">⚙ Master → Users</a>.</div>';
+  }
   else if (tabId === 'messaging-limits') {
     import('/public/js/modules/messaging-limits.js').then(m => m.renderMessagingLimitsTab(container));
   }
@@ -123,6 +156,45 @@ export function switchSettingsTab(tabId, updateHash = true) {
   else if (tabId === 'intelligence-export') renderIntelligenceExportTab(container);
 }
 window.switchSettingsTab = switchSettingsTab;
+
+/**
+ * ⚙ Master inheritance badge (2026-09-08): when this profile has no value of
+ * its own for `key`, GET /settings/effective lists it in `_inherited` and the
+ * tab gets a banner with the Master value + an "Override" action that copies
+ * the Master value into this profile's own settings file.
+ */
+async function markInherited(container, key) {
+  let eff;
+  try { eff = await api('/settings/effective'); } catch (_) { return; }
+  const inherited = (eff && eff._inherited) || [];
+  if (!inherited.includes(key) || !container.isConnected) return;
+  const pid = eff._profile || (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || '';
+  let value = '';
+  if (key === 'ai.providers') {
+    const list = ((eff.ai && eff.ai.providers) || []).filter(p => p.enabled).sort((a, b) => (a.priority || 0) - (b.priority || 0));
+    value = list.map(p => p.name || p.id).join(' → ') || 'none';
+  } else {
+    value = String(eff[key] || '');
+  }
+  const banner = document.createElement('div');
+  banner.className = 'mb-3 px-4 py-3 rounded-2xl border border-indigo-200 bg-indigo-50 text-xs text-indigo-900 flex items-center justify-between gap-3';
+  banner.innerHTML =
+    '<div><span class="font-bold">🧩 Inherited from ⚙ Master</span> — this profile has no value of its own. ' +
+    'Currently using: <span class="font-mono bg-white/70 px-1 rounded">' + esc(value) + '</span></div>' +
+    '<div class="flex gap-2 flex-shrink-0">' +
+    '<button type="button" class="px-3 py-1.5 rounded-lg border border-indigo-300 hover:bg-white text-indigo-700 font-medium" data-inherit-override>Override</button>' +
+    '<a href="#master/defaults" class="px-3 py-1.5 rounded-lg hover:bg-white text-indigo-600">Edit in Master →</a></div>';
+  banner.querySelector('[data-inherit-override]').addEventListener('click', async () => {
+    if (!confirm('Copy the Master ' + key + ' into this profile (' + pid + ')? It will then have its own value and no longer follow Master.')) return;
+    try {
+      await api('/master/settings/apply-all', { method: 'POST', body: { keys: [key], profiles: [pid] } });
+      toast('Copied Master ' + key + ' into ' + pid);
+      window.cacheManager.invalidate(SETTINGS_CACHE_KEYS.config);
+      loadSettings(window.activeSettingsTab);
+    } catch (e) { toast('Override failed: ' + e.message, 'error'); }
+  });
+  container.prepend(banner);
+}
 
 // ─── Bot Avatar Tab (US-087) ──────────────────────────────────────
 

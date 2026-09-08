@@ -89,7 +89,8 @@ export function onPhoneInput(el) {
  * Calls loadDashboard or loadStatus depending on which page is active
  */
 export function refreshWhatsAppList() {
-  if (document.getElementById('dashboard-wa-status')) loadDashboard();
+  if (document.getElementById('master-tab-content') && typeof window.loadMasterNumbers === 'function') window.loadMasterNumbers();
+  else if (document.getElementById('dashboard-wa-status')) loadDashboard();
   else if (document.getElementById('wa-instances')) loadStatus();
 }
 
@@ -125,8 +126,9 @@ export async function logoutInstance(id) {
 
   try {
     await api('/whatsapp/instances/' + encodeURIComponent(id) + '/logout', { method: 'POST' });
-    toast('Instance logged out');
+    toast('Logged out — the number is unlinked from WhatsApp. Use QR / Re-pair to link it again.');
     refreshWhatsAppList();
+    if (typeof window.loadBotTeam === 'function') window.loadBotTeam();
   } catch (e) {
     toast(e.message, 'error');
   }

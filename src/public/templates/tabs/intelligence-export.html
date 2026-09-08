@@ -46,55 +46,72 @@
 
 <script>
 (function () {
+  function getAuthHeaders() {
+    var profileHeaders = (window.profileSwitcher && window.profileSwitcher.getHeaders)
+      ? window.profileSwitcher.getHeaders()
+      : {};
+    var adminKey = window.__ADMIN_KEY__ || '';
+    return Object.assign(adminKey ? { 'x-admin-key': adminKey } : {}, profileHeaders);
+  }
+
   async function intelligenceExport() {
     try {
-      const headers = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getHeaders)
-        ? profileSwitcher.getHeaders()
-        : {};
-      const res = await fetch('/api/rainbow/intelligence/export', { headers });
-      if (!res.ok) { showToast('Export failed: ' + res.status, 'error'); return; }
+      const res = await fetch('/api/rainbow/intelligence/export', {
+        cache: 'no-store',
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) { window.toast('Export failed: ' + res.status, 'error'); return; }
       const blob = await res.blob();
-      const profileId = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getCurrentProfile)
-        ? profileSwitcher.getCurrentProfile()
+      const profileId = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId)
+        ? window.profileSwitcher.getActiveProfileId()
         : 'profile';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'intelligence-' + profileId + '-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
-      showToast('Bundle downloaded', 'success');
+      setTimeout(function () { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+      window.toast('Bundle downloaded', 'success');
     } catch (err) {
-      showToast('Export error: ' + err.message, 'error');
+      window.toast('Export error: ' + (err.message || 'Unknown error'), 'error');
     }
   }
 
   async function intelligenceImport(input) {
     const file = input.files[0]; if (!file) return;
     const statusEl = document.getElementById('ie-status');
-    statusEl.textContent = 'Uploading...';
-    statusEl.className = 'mt-3 text-sm text-neutral-500';
-    statusEl.classList.remove('hidden');
+    if (statusEl) {
+      statusEl.textContent = 'Uploading...';
+      statusEl.className = 'mt-3 text-sm text-neutral-500';
+      statusEl.classList.remove('hidden');
+    }
     try {
       const form = new FormData(); form.append('file', file);
-      const headers = (typeof profileSwitcher !== 'undefined' && profileSwitcher.getHeaders)
-        ? profileSwitcher.getHeaders()
-        : {};
-      const res = await fetch('/api/rainbow/intelligence/import', { method: 'POST', headers, body: form });
+      const res = await fetch('/api/rainbow/intelligence/import', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: form
+      });
       const data = await res.json();
       if (res.ok) {
-        statusEl.textContent = '✅ Imported: ' + data.imported.join(', ') +
-          (data.skipped.length ? ' · Skipped: ' + data.skipped.join(', ') : '');
-        statusEl.className = 'mt-3 text-sm text-emerald-700';
-        showToast('Import successful', 'success');
+        if (statusEl) {
+          statusEl.textContent = '✅ Imported: ' + (data.imported || []).join(', ') +
+            (data.skipped && data.skipped.length ? ' · Skipped: ' + data.skipped.join(', ') : '');
+          statusEl.className = 'mt-3 text-sm text-emerald-700';
+        }
+        window.toast('Import successful', 'success');
       } else {
-        statusEl.textContent = '❌ ' + (data.error || 'Import failed');
-        statusEl.className = 'mt-3 text-sm text-red-600';
-        showToast('Import failed', 'error');
+        if (statusEl) {
+          statusEl.textContent = '❌ ' + (data.error || 'Import failed');
+          statusEl.className = 'mt-3 text-sm text-red-600';
+        }
+        window.toast('Import failed', 'error');
       }
     } catch (err) {
-      statusEl.textContent = '❌ Network error: ' + err.message;
-      statusEl.className = 'mt-3 text-sm text-red-600';
+      if (statusEl) {
+        statusEl.textContent = '❌ Network error: ' + (err.message || 'Unknown');
+        statusEl.className = 'mt-3 text-sm text-red-600';
+      }
     }
     input.value = '';
   }

@@ -58,6 +58,12 @@ export function renderAiModelsTab(container) {
           <h3 class="font-semibold text-lg">AI Models</h3>
           <p class="text-sm text-neutral-500 font-medium">Rainbow uses these models to generate responses when no pre-written reply is found. Enable multiple to create a robust fallback chain.</p>
         </div>
+        <button onclick="testAllModelLatency()"
+          class="text-sm bg-white hover:bg-neutral-50 text-neutral-700 border border-neutral-200 px-3 py-1.5 rounded-lg transition font-medium flex items-center gap-2 flex-shrink-0 mr-2"
+          title="Send a one-token request to every configured provider and show the round-trip time">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          Test all speeds
+        </button>
         <button onclick="reloadConfig()"
           class="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg transition font-medium flex items-center gap-2 flex-shrink-0"
           title="Hot-reload all config files from disk without restarting the server">
@@ -86,7 +92,7 @@ export function renderAiModelsTab(container) {
             <div class="flex items-start justify-between gap-4">
               <div class="flex items-start gap-4 flex-1">
                 <div class="w-12 h-12 rounded-2xl bg-white border shadow-soft flex items-center justify-center font-bold text-lg text-primary-500 flex-shrink-0 mt-1">
-                  ${p.name.charAt(0)}
+                  ${esc(String(p.name || p.id || '?').charAt(0))}
                 </div>
                 <div>
                   <div class="flex items-center gap-2">
@@ -169,19 +175,31 @@ export function renderAiModelsTab(container) {
     container.insertAdjacentHTML('beforeend', renderContextWindowsCard(null));
   });
 
-  // Append Prisma Bot settings card
-  renderPrismaBotSettingsCard(container, providers);
+  // Prisma Bot (workflow-JSON generator) lived in the retired Node engine; its
+  // /prisma-bot/settings endpoint no longer exists. Kept behind a feature flag
+  // so it can be revived without re-writing the card.
+  if (window.__FEATURES__ && window.__FEATURES__.prismaBot) {
+    renderPrismaBotSettingsCard(container, providers);
+  }
 
   // Append OCR model settings card (US-011)
   renderOcrSettingsCard(container, settingsData, providers);
 
-  // Stagger auto speed tests (one every 600ms) so providers aren't hit concurrently.
-  const available = providers.filter(p => p.available);
-  testSession = { active: true, total: available.length, completed: 0, errors: [] };
-  available.forEach((p, i) => {
-    setTimeout(() => testModelLatency(p.id, true), i * 600);
-  });
+  // Speed tests are MANUAL only ("Test Speed" / "Test all" buttons). The old
+  // auto-run on render fired one LLM call per provider on every Settings open,
+  // and when the endpoint was missing produced 16+ red badges and a toast storm.
+  testSession = { active: false, total: 0, completed: 0, errors: [] };
 }
+
+/** Run the speed test for every available provider, staggered 600ms apart. */
+export function testAllModelLatency() {
+  const settingsData = _getSettingsData();
+  const available = (settingsData?.ai?.providers || []).filter(p => p.available);
+  if (available.length === 0) { toast('No provider has an API key configured', 'warning'); return; }
+  testSession = { active: true, total: available.length, completed: 0, errors: [] };
+  available.forEach((p, i) => setTimeout(() => testModelLatency(p.id, true), i * 600));
+}
+window.testAllModelLatency = testAllModelLatency;
 
 // ─── Troubleshoot ──────────────────────────────────────────────────
 
@@ -396,12 +414,18 @@ export async function testModelLatency(providerId, isAutoTest = false) {
 
   const startTime = performance.now();
   try {
-    await api('/test/llm-latency', {
+    // Go core: POST /api/rainbow/test/llm-latency {providerId} → {ok, ms, model}
+    // ok:false carries the provider's own error (still HTTP 200).
+    const r = await api('/test/llm-latency', {
       method: 'POST',
-      body: { providerId }
+      body: { providerId },
+      timeout: 30000
     });
+    if (r && r.ok === false) {
+      throw new Error(r.error || 'provider error');
+    }
 
-    const duration = Math.round(performance.now() - startTime);
+    const duration = (r && typeof r.ms === 'number') ? r.ms : Math.round(performance.now() - startTime);
     latencyBadge.classList.remove('animate-pulse', 'text-neutral-400');
 
     if (duration < 800) latencyBadge.classList.add('text-success-600');
@@ -409,15 +433,27 @@ export async function testModelLatency(providerId, isAutoTest = false) {
     else latencyBadge.classList.add('text-danger-500');
 
     latencyBadge.textContent = `${duration}ms`;
+    if (r && r.model) latencyBadge.title = r.model;
   } catch (e) {
     latencyBadge.classList.remove('animate-pulse', 'text-neutral-400');
+    const msg = e.message || String(e);
+    // Endpoint missing/unsupported on this server → informational "n/a", never
+    // a red error or a toast (that was the 16×404 storm on the Node-era SPA).
+    const unsupported = /HTTP (404|501)/.test(msg) || /not available/i.test(msg);
+    if (unsupported) {
+      latencyBadge.classList.add('text-neutral-400');
+      latencyBadge.textContent = 'n/a';
+      latencyBadge.title = 'Speed test not available on this server';
+      return;
+    }
     latencyBadge.classList.add('text-danger-500');
     latencyBadge.textContent = 'Error';
+    latencyBadge.title = msg;
 
     if (isAutoTest) {
-      testSession.errors.push({ id: providerId, error: e.message });
+      testSession.errors.push({ id: providerId, error: msg });
     } else {
-      toast(`Test failed: ${e.message}`, 'error');
+      toast(`Test failed: ${msg}`, 'error');
     }
 
     // US-001: Show Ollama troubleshooting guide on error (non-auto tests only)
@@ -527,8 +563,8 @@ function _applyCloudOllamaWarnings(providers) {
 function showTestSummaryToast() {
   const count = testSession.errors.length;
   const errorDetails = testSession.errors.map(e => `  - ${e.id}: ${e.error}`).join('\n');
-  console.warn(`[AI Models] ${count} model${count > 1 ? 's' : ''} responded slowly:\n${errorDetails}`);
-  toast(`${count} model${count > 1 ? 's' : ''} had errors — check console for details`, 'warning', false, 5000);
+  console.warn(`[AI Models] ${count} model${count > 1 ? 's' : ''} failed the speed test:\n${errorDetails}`);
+  toast(`${count} model${count > 1 ? 's' : ''} failed the speed test — hover the red badge for details`, 'warning', false, 5000);
 }
 window.showTestSummaryToast = showTestSummaryToast;
 

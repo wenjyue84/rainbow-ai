@@ -75,6 +75,19 @@ const CLONE_CONFIG_FILES = [
 // Fields to strip from cloned settings (WhatsApp-specific)
 const SETTINGS_STRIP_FIELDS = ['whatsappInstanceId', 'whatsappPhoneNumber'];
 
+// ─── Minimal scaffold for a blank (no-template) profile ───────────────
+// Empty-but-valid shells for each config file so the profile boots without
+// inheriting another business's knowledge/intents/routing.
+const BLANK_CONFIG_SCAFFOLD: Record<string, unknown> = {
+  'knowledge.json': { entries: [] },
+  'intents.json': { intents: [] },
+  'templates.json': { templates: [] },
+  'settings.json': {},
+  'workflow.json': { workflows: [] },
+  'workflows.json': { workflows: [] },
+  'routing.json': { routes: [] },
+};
+
 /**
  * POST /api/rainbow/profiles/:sourceId/clone
  * US-827: Clone a profile's configuration as a template for a new profile.
@@ -244,6 +257,122 @@ router.post('/profiles/:sourceId/clone', async (req: Request, res: Response) => 
   } catch (err: any) {
     console.error('[Profiles] Clone failed:', err.message);
     res.status(500).json({ error: 'Clone operation failed' });
+  }
+});
+
+/**
+ * POST /api/rainbow/profiles/blank
+ * Create a new profile with no config cloned from another profile — a truly
+ * empty starting point ("no template" option in the profile-creation wizard).
+ *
+ * Body: { newProfileId: string, displayName: string }
+ * Returns: { profileId, displayName, kbDir, dataDir, message }
+ */
+router.post('/profiles/blank', async (req: Request, res: Response) => {
+  try {
+    const { newProfileId, displayName } = req.body || {};
+
+    // ── Validate inputs ───────────────────────────────────────────
+    if (!newProfileId || typeof newProfileId !== 'string') {
+      res.status(400).json({ error: 'newProfileId is required (string)' });
+      return;
+    }
+    if (!displayName || typeof displayName !== 'string') {
+      res.status(400).json({ error: 'displayName is required (string)' });
+      return;
+    }
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(newProfileId) && !/^[a-z0-9]$/.test(newProfileId)) {
+      res.status(400).json({ error: 'newProfileId must be lowercase alphanumeric with hyphens (e.g., "my-new-profile")' });
+      return;
+    }
+
+    // ── Check newProfileId doesn't already exist ──────────────────
+    const profilesPath = join(process.cwd(), 'profiles.json');
+    let profilesFile: ProfilesFile;
+    try {
+      profilesFile = JSON.parse(readFileSync(profilesPath, 'utf-8'));
+    } catch {
+      res.status(500).json({ error: 'Failed to read profiles.json' });
+      return;
+    }
+
+    if (profilesFile.profiles.some(p => p.id === newProfileId)) {
+      res.status(409).json({ error: `Profile "${newProfileId}" already exists` });
+      return;
+    }
+
+    // ── Derive new profile paths ──────────────────────────────────
+    const newDbConfigPrefix = newProfileId;
+    const newDataDir = `src/assistant/data-${newProfileId}`;
+    const newKbDir = `.rainbow-kb-${newProfileId}`;
+
+    // ── Write blank scaffold config files (no source to copy from) ─
+    const absDataDir = join(process.cwd(), newDataDir);
+    if (!existsSync(absDataDir)) {
+      mkdirSync(absDataDir, { recursive: true });
+    }
+
+    const created: string[] = [];
+    for (const configFile of CLONE_CONFIG_FILES) {
+      writeFileSync(
+        join(absDataDir, configFile),
+        JSON.stringify(BLANK_CONFIG_SCAFFOLD[configFile] ?? {}, null, 2) + '\n',
+        'utf-8'
+      );
+      created.push(configFile);
+    }
+
+    // ── Seed rainbow_configs rows in DB (blank, not cloned) ────────
+    if (process.env.DATABASE_URL) {
+      await pool.query('BEGIN');
+      try {
+        for (const configFile of CLONE_CONFIG_FILES) {
+          const newKey = `${newDbConfigPrefix}:${configFile}`;
+          await pool.query(
+            `INSERT INTO rainbow_configs (key, data, version, updated_at, updated_by)
+             VALUES ($1, $2, 1, NOW(), $3)
+             ON CONFLICT (key) DO NOTHING`,
+            [newKey, JSON.stringify(BLANK_CONFIG_SCAFFOLD[configFile] ?? {}), 'blank']
+          );
+        }
+        await pool.query('COMMIT');
+      } catch (dbErr) {
+        await pool.query('ROLLBACK').catch(() => {});
+        throw dbErr;
+      }
+    }
+
+    // ── Create empty KB directory ─────────────────────────────────
+    const absKbDir = join(process.cwd(), newKbDir);
+    if (!existsSync(absKbDir)) {
+      mkdirSync(absKbDir, { recursive: true });
+    }
+
+    // ── Update profiles.json ──────────────────────────────────────
+    profilesFile.profiles.push({
+      id: newProfileId,
+      name: displayName,
+      instanceIds: [],
+      kbDir: newKbDir,
+      dataDir: newDataDir,
+      dbConfigPrefix: newDbConfigPrefix,
+      enabled: true,
+    });
+    writeFileSync(profilesPath, JSON.stringify(profilesFile, null, 2) + '\n', 'utf-8');
+
+    console.log(`[Profiles] Created blank profile "${newProfileId}" (no template)`);
+
+    res.status(201).json({
+      profileId: newProfileId,
+      displayName,
+      copied: created,
+      kbDir: newKbDir,
+      dataDir: newDataDir,
+      message: `Profile created with no template. Restart server to activate the new profile.`,
+    });
+  } catch (err: any) {
+    console.error('[Profiles] Blank create failed:', err.message);
+    res.status(500).json({ error: 'Blank profile creation failed' });
   }
 });
 

@@ -17,10 +17,25 @@ const PROFILE_SPECIFIC_TABS = [
 ];
 window.PROFILE_SPECIFIC_TABS = PROFILE_SPECIFIC_TABS;
 
-// Default known profile IDs (updated by profile-switcher.js after API load)
+// Known profile IDs — filled by profile-switcher.js from /api/rainbow/profiles.
+// Deliberately EMPTY until then: the old hardcoded list lacked senai-app,
+// kb-aircond and dental-world, so a cold deep link like #settings/senai-app
+// parsed "senai-app" as a sub-tab and the Settings tab rendered broken.
+// Until the list arrives, any second segment of a profile-specific tab is
+// treated as a candidate profile id (see getTabInfoFromUrl).
 if (!window.KNOWN_PROFILE_IDS) {
-  window.KNOWN_PROFILE_IDS = ['pelangi', 'southern', 'makan-moments', 'pms-capsule', 'pms-southern', 'yoongmei'];
+  window.KNOWN_PROFILE_IDS = [];
 }
+
+// Sub-tab ids that can legitimately follow a profile-specific tab, used to
+// disambiguate #settings/<x> when the profile list hasn't loaded yet.
+const KNOWN_SUB_TABS = [
+  'numbers', 'assistants', 'defaults', // ⚙ Master sub-tabs
+  'ai-models', 'bot-avatar', 'notifications', 'operators', 'users', 'ai-exceptions',
+  'profile', 'failover', 'mcp-servers', 'messaging-limits', 'template-linter',
+  'appearance', 'intelligence-export', 'whatsapp', 'webchat', 'live', 'simulator',
+  'knowledge', 'static-replies', 'workflow', 'templates', 't1', 't2', 't3', 't4'
+];
 
 /**
  * Map old tab names to new ones for backward compatibility
@@ -34,6 +49,7 @@ const tabNameMapping = {
   'chat-simulator': 'chat-simulator',
   'history': 'history',
   'settings': 'settings',
+  'master': 'master', // ⚙ Master · All businesses (numbers|assistants|defaults|users)
   'status': 'system-status', // Redirect to status
   'system-status': 'system-status',
   'monitor': 'performance',
@@ -83,7 +99,12 @@ function getTabInfoFromUrl() {
   // For profile-specific tabs, parts[1] may be a profileId
   if (PROFILE_SPECIFIC_TABS.includes(main) && parts.length >= 2) {
     const knownIds = window.KNOWN_PROFILE_IDS || [];
-    if (knownIds.includes(parts[1])) {
+    // Confirmed profile id, OR (profile list not loaded yet) any segment that
+    // is not a known sub-tab — the switcher validates it once /profiles lands.
+    const looksLikeProfile = knownIds.length > 0
+      ? knownIds.includes(parts[1])
+      : (parts.length > 2 || !KNOWN_SUB_TABS.includes(parts[1]));
+    if (looksLikeProfile) {
       return {
         main: main,
         profileId: parts[1],
@@ -206,9 +227,26 @@ function cleanupCurrentTab(previousTab, nextTab) {
  * @param {string} tabName - Tab name (e.g., 'status', 'intents')
  * @param {string|null} subTab - Optional sub-tab ID
  */
+/**
+ * ⚙ Master mode: while the Master "profile" is selected only the Master nav
+ * item (+ Help) is shown; a business profile never shows the Master item.
+ */
+function applyMasterNav(isMaster) {
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
+    const tab = btn.dataset.tab;
+    if (tab === 'master') btn.classList.toggle('hidden', !isMaster);
+    else if (tab !== 'help') btn.classList.toggle('hidden', isMaster);
+  });
+  document.querySelectorAll('.sidebar-nav .sidebar-group-label').forEach(el => {
+    el.classList.toggle('hidden', isMaster && el.textContent.trim() !== 'System');
+  });
+}
+
 async function loadTab(tabName, subTab = null) {
   // Normalize tab name
   const effectiveTabName = tabNameMapping[tabName] || tabName;
+
+  applyMasterNav(effectiveTabName === 'master');
 
   // ── US-160: Clean up intervals/listeners from the previous tab ──
   cleanupCurrentTab(_currentTab, effectiveTabName);
@@ -288,6 +326,8 @@ async function loadTab(tabName, subTab = null) {
     setTimeout(() => {
       if (effectiveTabName === 'settings' && typeof window.switchSettingsTab === 'function') {
         window.switchSettingsTab(subTab, false);
+      } else if (effectiveTabName === 'master' && typeof window.switchMasterTab === 'function') {
+        if (window.activeMasterTab !== subTab) window.switchMasterTab(subTab, false);
       } else if (effectiveTabName === 'responses' && typeof window.switchResponseTab === 'function') {
         window.switchResponseTab(subTab, false);
       } else if (effectiveTabName === 'chat-simulator' && typeof window.switchSimulatorTab === 'function') {
@@ -344,6 +384,21 @@ function waitForLazyLoader() {
  */
 function handleNavigation() {
   const { main, profileId, sub } = getTabInfoFromUrl();
+  const sw = window.profileSwitcher;
+
+  // ⚙ Master: #master/<sub> selects the Master "profile"; any other tab while
+  // Master is selected drops back to the last business profile first.
+  if (main === 'master') {
+    if (sw && !sw.canMaster()) { window.location.hash = 'dashboard'; return; }
+    if (sw && !sw.isMaster()) { sw.switchTo(sw.MASTER_ID); return; } // switchTo loads the tab
+    loadTab('master', sub);
+    return;
+  }
+  if (sw && sw.isMaster()) {
+    sw.switchTo(sw.getBusinessProfileId()); // lands on #dashboard/<profile>
+    if (main !== 'dashboard') window.location.hash = main + (sub ? '/' + sub : '');
+    return;
+  }
 
   // Auto-append profileId for profile-specific tabs if missing
   if (PROFILE_SPECIFIC_TABS.includes(main) && !profileId) {
@@ -416,6 +471,13 @@ async function initTabs() {
   // US-809: Initial load with profile-scoped URL handling
   handleNavigation();
 
+  // Header WhatsApp pill: render the real bridge state on EVERY entry point,
+  // not just the dashboard tab (deep links used to sit on "Connecting...").
+  if (typeof window.refreshWaBadge === 'function') {
+    window.refreshWaBadge();
+    setInterval(window.refreshWaBadge, 60000);
+  }
+
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
@@ -426,7 +488,9 @@ async function initTabs() {
       const tabName = tabNameMapping[btn.dataset.tab] || btn.dataset.tab;
 
       // US-809: Include profileId for profile-specific tabs
-      if (PROFILE_SPECIFIC_TABS.includes(tabName)) {
+      if (tabName === 'master') {
+        window.location.hash = 'master/' + (window.activeMasterTab || 'numbers');
+      } else if (PROFILE_SPECIFIC_TABS.includes(tabName)) {
         const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
         window.location.hash = tabName + '/' + activeProfile;
       } else {

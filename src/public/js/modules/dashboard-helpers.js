@@ -302,14 +302,23 @@ function addActivityEvent(event) {
 /**
  * Initialize the SSE stream for real-time activity
  */
+let _activityProfile = null;
+
 export function initActivityStream() {
   // Ensure the relative-timestamp updater is running (US-160)
   startActivityTimestampUpdater();
 
-  // Don't reconnect if already connected
-  if (_activityEventSource && _activityEventSource.readyState !== EventSource.CLOSED) {
+  // EventSource cannot send x-profile-id, so the business profile rides on
+  // the query string (same as the live-chat stream). Reconnect when the
+  // active profile changes; otherwise keep the existing connection.
+  const prof = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId)
+    ? (window.profileSwitcher.getActiveProfileId() || '') : '';
+  if (_activityEventSource && _activityEventSource.readyState !== EventSource.CLOSED && _activityProfile === prof) {
     return;
   }
+  disconnectActivityStream();
+  _activityProfile = prof;
+  _activityEvents = [];
 
   const liveDot = document.getElementById('activity-live-dot');
   const offlineDot = document.getElementById('activity-offline-dot');
@@ -319,7 +328,7 @@ export function initActivityStream() {
   if (liveDot) liveDot.classList.add('hidden');
 
   const baseUrl = window.location.origin;
-  _activityEventSource = new EventSource(`${baseUrl}/api/rainbow/activity/stream`);
+  _activityEventSource = new EventSource(`${baseUrl}/api/rainbow/activity/stream${prof ? '?profile=' + encodeURIComponent(prof) : ''}`);
 
   _activityEventSource.addEventListener('init', (e) => {
     try {

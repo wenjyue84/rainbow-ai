@@ -134,22 +134,8 @@ export async function loadDashboard() {
     const connectedCount = waInstances.filter(i => i.state === 'open').length;
     const totalCount = waInstances.length;
 
-    // Update header badge
-    const badge = document.getElementById('wa-badge');
-    if (badge) {
-      if (totalCount === 0 && isInInitWindow()) {
-        badge.textContent = 'initializing\u2026';
-        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-primary-100 text-primary-600 animate-pulse';
-      } else if (totalCount === 0) {
-        badge.textContent = 'no instances';
-        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-600';
-      } else {
-        badge.textContent = `${connectedCount}/${totalCount} connected`;
-        badge.className = 'text-xs px-2 py-0.5 rounded-full ' +
-          (connectedCount === totalCount ? 'bg-success-100 text-success-700' :
-            connectedCount > 0 ? 'bg-warning-100 text-warning-700' : 'bg-danger-100 text-danger-700');
-      }
-    }
+    // Update header badge (shared renderer in core/wa-badge.js)
+    if (typeof window.updateWaBadge === 'function') window.updateWaBadge(statusData);
 
     // Update property name badge (from BUSINESS_NAME env via welcoming wizard)
     const propBadge = document.getElementById('property-name-badge');
@@ -167,21 +153,7 @@ export async function loadDashboard() {
         : Object.entries(servers).map(([serverKey, server]) => renderServerCard(serverKey, server)).join('');
     }
 
-    const waStatusEl = document.getElementById('dashboard-wa-status');
-    if (totalCount === 0 && isInInitWindow()) {
-      waStatusEl.innerHTML = getInitProgressHtml();
-      startInitProgressTimer();
-    } else if (totalCount === 0) {
-      stopInitProgressTimer();
-      waStatusEl.innerHTML = `
-        <div class="text-center py-4">
-          <p class="text-sm text-neutral-400 mb-2">No WhatsApp instances connected</p>
-          <a href="/admin/whatsapp-qr" class="text-xs bg-primary-500 hover:bg-primary-600 text-white px-3 py-1.5 rounded-lg transition inline-block">Pair WhatsApp (QR)</a>
-        </div>`;
-    } else {
-      stopInitProgressTimer();
-      waStatusEl.innerHTML = waInstances.map(inst => renderInstanceCard(inst, totalCount)).join('');
-    }
+    // WhatsApp instance cards moved to ⚙ Master → Numbers (2026-09-08).
 
     // Update AI Model Status (providers are under statusData.ai.providers)
     const aiProviders = (statusData.ai?.providers || [])
@@ -315,9 +287,13 @@ export async function loadDashboard() {
     // Start auto-polling for WhatsApp + server status (every 15s + on tab focus)
     startStatusPolling();
 
-    // Load setup checklist items (respect persisted dismiss)
+    // Quick setup checklist: first visit only. It is shown once per browser
+    // and marked seen on that first render, so a returning user never sees
+    // it again (Jay 2026-09-08) — explicit dismiss still respected.
     const setupEl = document.getElementById('setup-items');
-    const setupDismissed = localStorage.getItem('rainbow-setup-dismissed') === 'true';
+    const SETUP_SEEN_KEY = 'rainbow-setup-seen';
+    const setupDismissed = localStorage.getItem('rainbow-setup-dismissed') === 'true'
+      || localStorage.getItem(SETUP_SEEN_KEY) === 'true';
     if (setupDismissed) {
       document.getElementById('setup-checklist')?.classList.add('hidden');
     }
@@ -332,6 +308,7 @@ export async function loadDashboard() {
     if (allDone) {
       document.getElementById('setup-checklist')?.classList.add('hidden');
     } else if (!setupDismissed) {
+      try { localStorage.setItem(SETUP_SEEN_KEY, 'true'); } catch (_) { /* private mode */ }
       setupEl.innerHTML = setupChecklist.map(item => `
         <div class="flex items-center gap-2 text-sm">
           <span class="${item.done ? 'text-success-600' : 'text-neutral-400'}">${item.done ? '✓' : '○'}</span>
@@ -349,10 +326,8 @@ export async function loadDashboard() {
       <div class="text-center py-4 text-neutral-500">
         <p class="text-sm mb-2">Failed to load — <button onclick="loadDashboard()" class="text-primary-500 hover:underline">retry</button></p>
       </div>`;
-    const waEl = document.getElementById('dashboard-wa-status');
     const aiEl = document.getElementById('dashboard-ai-status');
     const actEl = document.getElementById('dashboard-recent-activity');
-    if (waEl && waEl.querySelector('.animate-spin')) waEl.innerHTML = errorHtml;
     if (aiEl && aiEl.querySelector('.animate-spin')) aiEl.innerHTML = errorHtml;
     if (actEl && actEl.querySelector('.animate-spin')) actEl.innerHTML = errorHtml;
   }
@@ -426,41 +401,10 @@ async function refreshStatusCards() {
     const connectedCount = waInstances.filter(i => i.state === 'open').length;
     const totalCount = waInstances.length;
 
-    // Update header badge
-    const badge = document.getElementById('wa-badge');
-    if (badge) {
-      if (totalCount === 0 && isInInitWindow()) {
-        badge.textContent = 'initializing\u2026';
-        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-primary-100 text-primary-600 animate-pulse';
-      } else if (totalCount === 0) {
-        badge.textContent = 'no instances';
-        badge.className = 'text-xs px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-600';
-      } else {
-        badge.textContent = `${connectedCount}/${totalCount} connected`;
-        badge.className = 'text-xs px-2 py-0.5 rounded-full ' +
-          (connectedCount === totalCount ? 'bg-success-100 text-success-700' :
-            connectedCount > 0 ? 'bg-warning-100 text-warning-700' : 'bg-danger-100 text-danger-700');
-      }
-    }
+    // Update header badge (shared renderer in core/wa-badge.js)
+    if (typeof window.updateWaBadge === 'function') window.updateWaBadge(statusData);
 
-    // Update WhatsApp instance cards
-    const waStatusEl = document.getElementById('dashboard-wa-status');
-    if (waStatusEl) {
-      if (totalCount === 0 && isInInitWindow()) {
-        waStatusEl.innerHTML = getInitProgressHtml();
-        startInitProgressTimer();
-      } else if (totalCount === 0) {
-        stopInitProgressTimer();
-        waStatusEl.innerHTML = `
-          <div class="text-center py-4">
-            <p class="text-sm text-neutral-400 mb-2">No WhatsApp instances connected</p>
-            <a href="/admin/whatsapp-qr" class="text-xs bg-primary-500 hover:bg-primary-600 text-white px-3 py-1.5 rounded-lg transition inline-block">Pair WhatsApp (QR)</a>
-          </div>`;
-      } else {
-        stopInitProgressTimer();
-        waStatusEl.innerHTML = waInstances.map(inst => renderInstanceCard(inst, totalCount)).join('');
-      }
-    }
+    // (WhatsApp instance cards live under ⚙ Master → Numbers now.)
 
     // ── Server status ──
     const serverStatusEl = document.getElementById('server-status');
@@ -476,66 +420,7 @@ async function refreshStatusCards() {
   }
 }
 
-/**
- * Render a single WhatsApp instance card (extracted for reuse)
- */
-function renderInstanceCard(inst, totalCount) {
-  const phone = inst.user?.phone || inst.id || '';
-  const formattedPhone = phone ? '+' + phone.replace(/(\d{2})(\d{2})(\d{3,4})(\d{4})/, '$1 $2-$3 $4') : 'Not linked';
-
-  let lastConnectedText = '';
-  if (inst.lastConnectedAt) {
-    const lastConnected = new Date(inst.lastConnectedAt);
-    const now = new Date();
-    const diffMs = now.getTime() - lastConnected.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (inst.state === 'open') {
-      lastConnectedText = '<span class="text-success-600 font-medium">Online now</span>';
-    } else if (diffMins < 1) {
-      lastConnectedText = 'Just now';
-    } else if (diffMins < 60) {
-      lastConnectedText = `${diffMins}m ago`;
-    } else if (diffHours < 24) {
-      lastConnectedText = `${diffHours}h ago`;
-    } else {
-      lastConnectedText = `${diffDays}d ago`;
-    }
-  } else {
-    lastConnectedText = inst.state === 'open' ? '<span class="text-success-600 font-medium">Online now</span>' : 'Never connected';
-  }
-
-  const statusDot = inst.state === 'open' ? 'bg-success-400' : inst.unlinkedFromWhatsApp ? 'bg-orange-500' : 'bg-neutral-300';
-  const statusText = inst.state === 'open' ? 'Connected' : inst.unlinkedFromWhatsApp ? 'Unlinked' : 'Disconnected';
-  const statusColor = inst.state === 'open' ? 'text-success-600' : inst.unlinkedFromWhatsApp ? 'text-orange-600' : 'text-neutral-500';
-  const firstConnectedStr = inst.firstConnectedAt
-    ? new Date(inst.firstConnectedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-    : '—';
-
-  return `
-    <div class="flex items-center justify-between py-2.5 border-b last:border-0">
-      <div class="flex items-center gap-3">
-        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot}"></span>
-        <div>
-          <div class="flex items-center gap-2">
-            <span class="font-medium text-neutral-800 text-sm cursor-pointer hover:underline decoration-dashed decoration-neutral-400" 
-              onclick="startEditingLabel('${esc(inst.id)}', this)" 
-              title="Click to rename">${esc(inst.label || inst.id)}</span>
-            <span class="text-xs ${statusColor}">${statusText}</span>
-          </div>
-          <div class="text-xs text-neutral-500">${esc(formattedPhone)}${inst.user?.name ? ' — ' + esc(inst.user.name) : ''}</div>
-          <div class="text-xs text-neutral-400">Last: ${lastConnectedText}</div>
-          <div class="text-xs text-neutral-400">First connected: ${firstConnectedStr}</div>
-        </div>
-      </div>
-      <div class="flex gap-1 flex-shrink-0">
-        ${inst.state !== 'open' ? `<button type="button" onclick="showInstanceQR('${esc(inst.id)}', '${esc(inst.label || inst.id)}')" class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded transition">QR</button>` : ''}
-        ${inst.state === 'open' ? `<button onclick="logoutInstance('${esc(inst.id)}')" class="text-xs bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded transition">Logout</button>` : ''}
-        <button type="button" onclick="removeInstance('${esc(inst.id)}', ${totalCount})" class="text-xs bg-danger-500 hover:bg-danger-600 text-white px-2 py-1 rounded transition">Remove</button>
-      </div>
-    </div>`;
-}
+// loadBotTeam / renderBotCard / renderInstanceCard moved to modules/master.js (⚙ Master, 2026-09-08).
 
 /**
  * Render a single server status card (extracted for reuse)
