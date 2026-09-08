@@ -12,7 +12,7 @@ var api = window.api;
 
 export function setFilter(filter) {
   $.activeFilter = filter;
-  var chips = document.querySelectorAll('#lc-filter-chips .lc-chip');
+  var chips = document.querySelectorAll('#lc-filter-chips .lc-chip[data-filter]');
   chips.forEach(function (chip) {
     if (chip.getAttribute('data-filter') === filter) {
       chip.classList.add('active');

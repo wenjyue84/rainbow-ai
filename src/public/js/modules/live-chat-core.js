@@ -242,20 +242,29 @@ export async function loadLiveChat() {
         ? window.profileSwitcher.getActiveProfileId() : '';
       return now !== loadProfileId;
     }
+    // WA-parity real-time feel: the open chat polls every 4s (cheap single-row
+    // read), the full list every ~12s. Skipped while the tab is hidden.
+    var tick = 0;
     $.autoRefresh = setInterval(async function () {
       var section = document.getElementById('tab-live-chat');
       if (section && section.classList.contains('hidden')) {
         clearInterval($.autoRefresh);
         return;
       }
+      if (document.hidden) return;
       if (profileChanged()) return;
+      tick++;
+      // With server push connected, polling is only a safety net (every ~24s).
+      if ($._sseLive && tick % 6 !== 0) return;
       try {
-        var fresh = await api('/conversations/unified');
-        if (profileChanged()) return; // response raced a profile switch — drop it
-        $.conversations = fresh;
-        buildInstanceFilter();
-        if ($.tagFilter && $.tagFilter.length > 0) loadContactTagsMap(); // US-009: Refresh tags map when filter active
-        renderList($.conversations);
+        if (tick % 3 === 0) {
+          var fresh = await api('/conversations/unified');
+          if (profileChanged()) return; // response raced a profile switch — drop it
+          $.conversations = fresh;
+          buildInstanceFilter();
+          if ($.tagFilter && $.tagFilter.length > 0) loadContactTagsMap(); // US-009: Refresh tags map when filter active
+          renderList($.conversations);
+        }
         if ($.activePhone) {
           await refreshChat();
           if ($.currentMode === 'copilot') {
@@ -263,7 +272,7 @@ export async function loadLiveChat() {
           }
         }
       } catch (e) { }
-    }, 10000);
+    }, 4000);
 
     clearInterval($.waStatusPoll);
     $.waStatusPoll = setInterval(pollConnectionStatus, 15000);
@@ -297,10 +306,63 @@ export function cleanupLiveChat() {
   console.log('[LiveChat] Cleanup: cleared all intervals');
 }
 
+// Dialable number for a conversation: the bridge-resolved contactPhone for
+// privacy-ID (@lid) peers, else the digits of the JID itself. '' = unknown.
+export function contactNumber(conv) {
+  if (!conv) return '';
+  if (conv.contactPhone) return String(conv.contactPhone).replace(/[^0-9]/g, '');
+  var raw = String(conv.phone || '');
+  if (/@(lid|g\.us)$/i.test(raw) || raw.indexOf('webchat-') === 0 || raw.indexOf('web:') === 0) return '';
+  return raw.replace(/[^0-9]/g, '');
+}
+
 /** Strip @s.whatsapp.net / @g.us from phone for display only. */
 export function formatPhoneForDisplay(phone) {
   if (!phone || typeof phone !== 'string') return phone || '';
-  return phone.replace(/@s\.whatsapp\.net$/i, '').replace(/@g\.us$/i, '');
+  return phone.replace(/@s\.whatsapp\.net$/i, '').replace(/@g\.us$/i, '').replace(/@lid$/i, '').replace(/@c\.us$/i, '');
+}
+
+// ─── WhatsApp Web time formatting ────────────────────────────────
+
+function _startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function _pad2(n) { return n < 10 ? '0' + n : String(n); }
+function _timeHM(d) {
+  // WhatsApp Web: "2:34 pm" (no leading zero, lowercase meridiem)
+  var h = d.getHours(), m = d.getMinutes();
+  var ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12; if (h === 0) h = 12;
+  return h + ':' + _pad2(m) + ' ' + ampm;
+}
+function _dateDMY(d) {
+  return _pad2(d.getDate()) + '/' + _pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+/**
+ * Chat-list timestamp exactly like WhatsApp Web:
+ * today → "11:33 am", yesterday → "Yesterday", <7 days → weekday, else dd/mm/yyyy.
+ */
+export function formatChatListTime(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var dayDiff = Math.round((_startOfDay(new Date()) - _startOfDay(d)) / 86400000);
+  if (dayDiff <= 0) return _timeHM(d);
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff < 7) return WEEKDAYS[d.getDay()];
+  return _dateDMY(d);
+}
+
+/** Date separator pill text: TODAY / YESTERDAY / weekday / dd/mm/yyyy (WhatsApp Web). */
+export function formatDateSeparator(ts) {
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var dayDiff = Math.round((_startOfDay(new Date()) - _startOfDay(d)) / 86400000);
+  if (dayDiff <= 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff < 7) return WEEKDAYS[d.getDay()];
+  return _dateDMY(d);
 }
 
 // ─── Instance Filter ─────────────────────────────────────────────
@@ -493,13 +555,19 @@ export function renderList(conversations) {
 
   list.innerHTML = filtered.map(function (c) {
     var initials = (c.pushName || '?').slice(0, 2).toUpperCase();
-    var time = formatRelativeTime(c.lastMessageAt);
-    var preview = c.lastMessage || '';
-    if (c.lastMessageRole === 'assistant') preview = '\uD83E\uDD16 ' + preview;
-    if (preview.length > 45) preview = preview.substring(0, 42) + '...';
+    var time = formatChatListTime(c.lastMessageAt);
+    var preview = (c.lastMessage || '').replace(/\s+/g, ' ');
+    // WA-parity: outgoing preview is prefixed by the delivery ticks; the bot
+    // avatar emoji (rainbow feature) stays as the "sender" marker.
+    var previewPrefix = '';
+    if (c.lastMessageRole === 'assistant') {
+      previewPrefix = '<span class="lc-preview-ticks lc-ticks lc-ticks-delivered"><svg viewBox="0 0 16 11" width="16" height="11"><path d="M11.07.86l-1.43.77L5.64 7.65 2.7 5.32l-1.08 1.3L5.88 9.9l5.19-9.04z" fill="currentColor"/><path d="M15.07.86l-1.43.77L9.64 7.65 8.8 7.01l-.86 1.5 2.04 1.39 5.09-9.04z" fill="currentColor"/></svg></span>' +
+        '<span class="lc-preview-bot">' + (window._botAvatar || '\uD83E\uDD16') + ' </span>';
+    }
     var isActive = c.phone === $.activePhone ? ' active' : '';
     var unreadCount = typeof c.unreadCount === 'number' ? c.unreadCount : 0;
     var unread = unreadCount > 0 ? '<div class="lc-unread">' + Math.min(unreadCount, 99) + '</div>' : '';
+    var unreadClass = unreadCount > 0 ? ' lc-has-unread' : '';
 
     var chevronSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
     var hoverActions = '<div class="lc-hover-actions">' +
@@ -520,18 +588,20 @@ export function renderList(conversations) {
       }
     }
 
-    var channelStripe = c.channel === 'webchat' ? 'border-left:3px solid #3b82f6;' : 'border-left:3px solid #25d366;';
-    return '<div class="lc-chat-item' + isActive + '" style="' + channelStripe + '" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')" data-channel="' + (c.channel || 'whatsapp') + '">' +
+    // WA-parity: no coloured left stripe — channel is shown by the small badge only
+    return '<div class="lc-chat-item' + isActive + unreadClass + '" onclick="lcOpenConversation(\'' + escapeAttr(c.phone) + '\')" data-channel="' + (c.channel || 'whatsapp') + '" data-phone="' + escapeAttr(c.phone) + '">' +
       '<div class="lc-avatar">' + avatarImg(c.phone, initials) + '</div>' +
       '<div class="lc-chat-info">' +
       '<div class="lc-chat-top">' +
       '<span class="lc-chat-name">' + escapeHtml(getDisplayName(c.phone, c.pushName || formatPhoneForDisplay(c.phone))) + '</span>' +
+      (contactNumber(c) && c.pushName ? '<span class="lc-chat-phone">+' + escapeHtml(contactNumber(c)) + '</span>' : '') +
+      (c.profileId ? '<span class="lc-src" title="Observed from ' + escapeAttr(c.profileId) + '">' + escapeHtml(c.profileId) + '</span>' : '') +
       channelBadge +
-      '<span class="lc-chat-time">' + time + '</span>' +
+      '<span class="lc-chat-time' + (unreadCount > 0 ? ' lc-chat-time-unread' : '') + '">' + time + '</span>' +
       hoverActions +
       '</div>' +
       '<div class="lc-chat-bottom">' +
-      '<span class="lc-chat-preview">' + escapeHtml(preview) + '</span>' +
+      '<span class="lc-chat-preview">' + previewPrefix + '<span class="lc-chat-preview-text">' + escapeHtml(preview) + '</span></span>' +
       '<span class="lc-bottom-icons">' + bottomIcons + unread + '</span>' +
       '</div>' +
       '</div>' +
@@ -721,29 +791,54 @@ export function renderChat(log) {
 
   var initials = (log.pushName || '?').slice(0, 2).toUpperCase();
   document.getElementById('lc-header-avatar').innerHTML = avatarImg(log.phone, initials);
-  document.getElementById('lc-header-name').textContent = log.pushName || 'Unknown';
-  document.getElementById('lc-header-phone').textContent = '+' + formatPhoneForDisplay(log.phone);
+  document.getElementById('lc-header-name').textContent = log.pushName || formatPhoneForDisplay(log.phone) || 'Unknown';
+  var phoneEl = document.getElementById('lc-header-phone');
+  var rawPhone = String(log.phone || '');
+  var isGroup = /@g\.us$/i.test(rawPhone);
+  var isWebchat = rawPhone.indexOf('webchat-') === 0;
+  var cleanPhone = formatPhoneForDisplay(rawPhone);
+  // WA-parity subtitle: phone for contacts, "Group" for groups, channel for webchat.
+  // LID-only ids (not a dialable number) show the contact-info hint like WhatsApp Web.
+  var conv = $.conversations.find(function (c) { return c.phone === log.phone; });
+  var instLabel = conv && conv.instanceId && $.instances[conv.instanceId] ? $.instances[conv.instanceId] : '';
+  // Resolved real number (bridge LID map) beats the raw JID digits.
+  var knownNumber = contactNumber({ phone: rawPhone, contactPhone: log.contactPhone || (conv && conv.contactPhone) || '' });
+  if (knownNumber) cleanPhone = knownNumber;
+  // WhatsApp Web wording: contacts/groups show the "click here for … info" hint
+  // (the header opens the contact panel); webchat shows its channel + instance.
+  if (isWebchat) phoneEl.textContent = 'Web chat' + (instLabel ? ' · ' + instLabel : '');
+  else if (isGroup) phoneEl.textContent = 'click here for group info';
+  else if (!knownNumber && (/@lid$/i.test(rawPhone) || !cleanPhone)) phoneEl.textContent = 'click here for contact info';
+  else phoneEl.textContent = '+' + cleanPhone + ' · click here for contact info';
 
   $.lastMessages = log.messages || [];
 
   var container = document.getElementById('lc-messages');
   var html = '';
   var lastDate = '';
+  var lastSide = '';
   var query = $.searchOpen ? $.searchQuery.toLowerCase() : '';
 
   for (var i = 0; i < $.lastMessages.length; i++) {
     var msg = $.lastMessages[i];
-    var msgDate = new Date(msg.timestamp).toLocaleDateString('en-MY', { year: 'numeric', month: 'long', day: 'numeric' });
+    var msgDate = new Date(msg.timestamp).toDateString();
     if (msgDate !== lastDate) {
-      html += '<div class="lc-date-sep"><span>' + msgDate + '</span></div>';
+      html += '<div class="lc-date-sep"><span>' + escapeHtml(formatDateSeparator(msg.timestamp)) + '</span></div>';
       lastDate = msgDate;
+      lastSide = '';
     }
 
     var isGuest = msg.role === 'user';
     var side = isGuest ? 'guest' : 'bot';
-    var time = new Date(msg.timestamp).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true });
+    var time = _timeHM(new Date(msg.timestamp));
     var content = msg.content || '';
     var isSystemMsg = !isGuest && hasSystemContent(content);
+    // WA-parity: consecutive bubbles from the same side are grouped — only the
+    // first one carries the tail and the larger gap (CSS .continuation).
+    // System notices never join a group.
+    var groupKey = isSystemMsg ? 'system' : side;
+    var continuation = (!isSystemMsg && groupKey === lastSide) ? ' continuation' : '';
+    lastSide = groupKey;
     var displayContent = isGuest ? content : (isSystemMsg ? content : getUserMessage(content));
 
     var checkmark = '';
@@ -782,7 +877,30 @@ export function renderChat(log) {
       botAvatarPrefix = '<span class="lc-bot-avatar">' + avatarEmoji + ' </span>';
     }
 
-    if (isSystemMsg) {
+    // Inline media (WA parity): the Go core exposes bridge-downloaded media via
+    // /api/rainbow/media/<file>; render a real thumbnail / player instead of a
+    // placeholder whenever a URL is present.
+    var mediaHtml = '';
+    if (msg.mediaUrl && /^\/api\/rainbow\/media\/[A-Za-z0-9._-]+$/.test(msg.mediaUrl)) {
+      var mt = String(msg.messageType || '').toLowerCase();
+      var mUrl = escapeAttr(msg.mediaUrl);
+      if (mt === 'image' || mt === 'sticker') {
+        mediaHtml = '<a class="lc-media-img-wrap" href="' + mUrl + '" target="_blank" rel="noopener"><img class="lc-media-img" src="' + mUrl + '" alt="Image" loading="lazy"></a>';
+      } else if (mt === 'video') {
+        mediaHtml = '<video class="lc-media-video" src="' + mUrl + '" controls preload="metadata"></video>';
+      } else if (mt === 'audio') {
+        mediaHtml = '<audio class="lc-media-audio" src="' + mUrl + '" controls preload="metadata"></audio>';
+      } else {
+        mediaHtml = '<a class="lc-media-doc" href="' + mUrl + '" target="_blank" rel="noopener" download>' +
+          '<svg width="24" height="24" viewBox="0 0 24 24" fill="#54656f"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>' +
+          '<span>' + escapeHtml((nonTextPlaceholder && nonTextPlaceholder.label) || 'Document') + '</span></a>';
+      }
+    }
+
+    if (mediaHtml) {
+      var captionText = (nonTextPlaceholder || /^\[[a-z]+(:.*)?\]$/i.test(displayContent.trim())) ? '' : displayContent;
+      bubbleContent = mediaHtml + (captionText ? '<div class="lc-bubble-text">' + highlightText(captionText, query, isCurrentMatch) + '</div>' : '');
+    } else if (isSystemMsg) {
       bubbleContent = '<div class="lc-bubble-text">' + botAvatarPrefix + formatSystemContent(displayContent) + '</div>';
     } else if (nonTextPlaceholder) {
       bubbleContent = '<div class="lc-media-placeholder">' + nonTextPlaceholder.icon + '<span class="lc-media-filename">' + escapeHtml(nonTextPlaceholder.label) + '</span></div>';
@@ -798,14 +916,23 @@ export function renderChat(log) {
         bubbleContent += '<div class="lc-bubble-text">' + highlightText(caption, query, isCurrentMatch) + '</div>';
       }
     } else {
-      bubbleContent = '<div class="lc-bubble-text">' + botAvatarPrefix + highlightText(displayContent, query, isCurrentMatch) + '</div>';
+      // WA parity: a reply sent as "> quoted\n\nreply" renders as a quote block
+      var quoteMatch = displayContent.match(/^((?:> ?.*(?:\n|$))+)\n*([\s\S]*)$/);
+      if (quoteMatch && quoteMatch[2].trim()) {
+        var quoted = quoteMatch[1].split('\n').map(function (l) { return l.replace(/^> ?/, ''); }).join('\n').trim();
+        bubbleContent = '<div class="lc-quote"><span class="lc-quote-author">' + escapeHtml(log.pushName || 'Guest') + '</span>' +
+          '<span class="lc-quote-text">' + escapeHtml(quoted) + '</span></div>' +
+          '<div class="lc-bubble-text">' + botAvatarPrefix + highlightText(quoteMatch[2].trim(), query, isCurrentMatch) + '</div>';
+      } else {
+        bubbleContent = '<div class="lc-bubble-text">' + botAvatarPrefix + highlightText(displayContent, query, isCurrentMatch) + '</div>';
+      }
     }
 
     var matchClass = isCurrentMatch ? ' lc-search-focus' : (isAnyMatch ? ' lc-search-match' : '');
     var systemClass = isSystemMsg ? ' lc-system-msg' : '';
     var chevronSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
 
-    html += '<div class="lc-bubble-wrap ' + side + '" data-msg-idx="' + i + '">' +
+    html += '<div class="lc-bubble-wrap ' + side + continuation + '" data-msg-idx="' + i + '" data-msg-key="' + escapeAttr(String(msg.id || msg.timestamp || i)) + '">' +
       '<div class="lc-bubble ' + side + matchClass + systemClass + '">' +
       bubbleContent +
       '<div class="lc-bubble-meta">' +
@@ -818,19 +945,72 @@ export function renderChat(log) {
       '</div>';
   }
 
+  // WA-parity: keep the reader's scroll position on background refreshes; only
+  // jump to the bottom when they were already there or switched conversation.
+  var switchedChat = !container._lcPhone || !log.phone || container._lcPhone !== log.phone;
+  var wasAtBottom = _isNearBottom(container);
+  var prevCount = switchedChat ? 0 : (container._lcMsgCount || 0);
+  var prevScrollTop = container.scrollTop;
+  // Keep optimistic (pending) bubbles alive across background re-renders until
+  // the server log actually contains the new message (count grew).
+  var pendingNodes = (switchedChat || log.phone !== $.activePhone) ? [] : Array.prototype.slice.call(container.querySelectorAll('.lc-bubble-wrap.lc-pending'));
+
   container.innerHTML = html;
+  if (pendingNodes.length && $.lastMessages.length <= prevCount) {
+    pendingNodes.forEach(function (n) { container.appendChild(n); });
+  }
+  container._lcPhone = log.phone;
+  container._lcMsgCount = $.lastMessages.length;
 
   if (container && !container._lcContextMenuBound) {
     container._lcContextMenuBound = true;
     container.addEventListener('click', handleMessageChevronClick);
     bindContextMenuActions();
   }
+  if (!container._lcScrollBound) {
+    container._lcScrollBound = true;
+    container.addEventListener('scroll', function () { updateScrollFab(); });
+  }
 
   if ($.searchCurrent >= 0 && $.searchMatches.length > 0) {
     scrollToMatch($.searchMatches[$.searchCurrent]);
-  } else {
+  } else if (switchedChat || wasAtBottom) {
     container.scrollTop = container.scrollHeight;
+    container._lcFabUnread = 0;
+  } else {
+    container.scrollTop = prevScrollTop;
+    var added = $.lastMessages.length - prevCount;
+    if (added > 0) container._lcFabUnread = (container._lcFabUnread || 0) + added;
   }
+  updateScrollFab();
+}
+
+function _isNearBottom(el) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+}
+
+/** WA-parity: floating "scroll to bottom" button with new-message badge. */
+export function updateScrollFab() {
+  var container = document.getElementById('lc-messages');
+  var fab = document.getElementById('lc-scroll-fab');
+  if (!container || !fab) return;
+  var near = _isNearBottom(container);
+  if (near) container._lcFabUnread = 0;
+  fab.style.display = near ? 'none' : 'flex';
+  var badge = document.getElementById('lc-scroll-fab-count');
+  if (badge) {
+    var n = container._lcFabUnread || 0;
+    badge.textContent = n > 0 ? String(n) : '';
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+}
+
+export function scrollToBottom() {
+  var container = document.getElementById('lc-messages');
+  if (!container) return;
+  container._lcFabUnread = 0;
+  container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+  updateScrollFab();
 }
 
 function scrollToMatch(msgIdx) {
@@ -884,8 +1064,29 @@ function initMessageStatusSSE() {
 
   try {
     var baseUrl = (window.API || '').replace(/\/api\/rainbow$/, '');
-    var sseUrl = baseUrl + '/api/rainbow/conversations/events';
+    var prof = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId) ? (window.profileSwitcher.getActiveProfileId() || '') : '';
+    var sseUrl = baseUrl + '/api/rainbow/conversations/events' + (prof ? '?profile=' + encodeURIComponent(prof) : '');
     $._statusSSE = new EventSource(sseUrl);
+    $._sseLive = false;
+
+    // Go core: server push for new rows (guest / bot / staff). Refresh the open
+    // chat immediately and the sidebar shortly after — WhatsApp-Web latency.
+    $._statusSSE.addEventListener('init', function () { $._sseLive = true; });
+    $._statusSSE.addEventListener('new_message', function (e) {
+      try {
+        var ev = JSON.parse(e.data);
+        if (!ev.phone) return;
+        if ($.activePhone && ev.phone === $.activePhone) refreshChat();
+        clearTimeout($._sseListTimer);
+        $._sseListTimer = setTimeout(async function () {
+          try {
+            var fresh = await api('/conversations/unified');
+            $.conversations = fresh;
+            renderList($.conversations);
+          } catch (err) { /* poll fallback */ }
+        }, 400);
+      } catch (err) { /* ignore */ }
+    });
 
     $._statusSSE.addEventListener('message_status', function (e) {
       try {
@@ -902,7 +1103,8 @@ function initMessageStatusSSE() {
     });
 
     $._statusSSE.onerror = function () {
-      // EventSource will auto-reconnect
+      // EventSource will auto-reconnect; fall back to polling meanwhile
+      $._sseLive = false;
     };
   } catch (err) {
     console.warn('[LiveChat] Failed to init message status SSE:', err);

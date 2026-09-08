@@ -41,12 +41,19 @@ export function avatarImg(phone, fallbackInitials) {
   }
 
   var clean = raw.replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9]/g, '');
-  var src = '/api/rainbow/whatsapp/avatar/' + encodeURIComponent(clean);
-  var bgColor = avatarColorFromPhone(clean);
-  // onerror: retry once after 3s (avatar may be fetching in background), then show colored initials
-  return '<img src="' + src +
-    '" onerror="var i=this;if(!i.dataset.retried){i.dataset.retried=1;setTimeout(function(){i.src=\'' + src + '?\'+Date.now()},3000)}else{i.style.display=\'none\';i.nextElementSibling.style.display=\'\'}" loading="lazy">' +
-    '<span class="avatar-initials" style="display:none;background:' + bgColor + '">' + escapeHtml(initials) + '</span>';
+  // Privacy-ID (@lid) contacts must keep the full JID — digits alone are not a
+  // number WhatsApp can look up. Bare numbers get @s.whatsapp.net server-side.
+  var key = /@(lid|g\.us)$/i.test(raw) ? raw : clean;
+  var src = '/api/rainbow/whatsapp/avatar/' + encodeURIComponent(key);
+  var bgColor = avatarColorFromPhone(clean || raw);
+  // WA-parity: placeholder shown immediately (Live Chat CSS styles it as the
+  // WhatsApp grey silhouette; Real Chat keeps coloured initials), the real photo
+  // is swapped in only once it has loaded. On 404 the <img> stays hidden.
+  // Second attempt after 3s covers avatars still being fetched by the bridge.
+  return '<span class="avatar-initials" style="background:' + bgColor + '">' + escapeHtml(initials) + '</span>' +
+    '<img src="' + src + '" alt="" style="display:none" loading="lazy"' +
+    ' onload="this.style.display=\'\';this.previousElementSibling.style.display=\'none\'"' +
+    ' onerror="var i=this;if(!i.dataset.retried){i.dataset.retried=1;setTimeout(function(){i.src=\'' + src + '?\'+Date.now()},3000)}">';
 }
 
 export var $ = {

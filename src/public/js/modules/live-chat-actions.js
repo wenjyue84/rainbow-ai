@@ -21,7 +21,7 @@ export async function deleteChat() {
     document.getElementById('lc-empty-state').style.display = '';
     loadLiveChat();
   } catch (err) {
-    alert('Failed to delete: ' + err.message);
+    (window.toast ? window.toast('Failed to delete: ' + err.message, 'error') : alert('Failed to delete: ' + err.message));
   }
 }
 
@@ -53,7 +53,12 @@ export async function sendReply() {
   var btn = document.getElementById('lc-send-btn');
   btn.disabled = true;
 
+  var pending = null;
   try {
+    // WA parity: optimistic bubble with clock tick; replaced by the real one on refresh
+    pending = appendPendingBubble(message);
+    input.value = ''; onComposerInput(input);
+    input.style.height = '42px';
     var log = $.conversations.find(function (c) { return c.phone === $.activePhone; });
     var instanceId = log ? log.instanceId : undefined;
 
@@ -62,15 +67,16 @@ export async function sendReply() {
       body: { message: message, instanceId: instanceId, staffName: $.staffName || 'Staff' }
     });
 
-    input.value = '';
-    input.style.height = '42px';
     await refreshChat();
   } catch (err) {
+    // WA parity: keep the bubble, mark it failed, tap to retry
+    if (pending) markPendingFailed(pending, message);
+    else { input.value = message; onComposerInput(input); }
     var msg = err.message || 'Unknown error';
     if (isWhatsAppDisconnectError(msg)) {
       showReconnectionModal();
     } else {
-      alert('Failed to send message: ' + msg);
+      (window.toast ? window.toast('Failed to send message: ' + msg, 'error') : alert('Failed to send message: ' + msg));
     }
   } finally {
     btn.disabled = false;
@@ -200,13 +206,14 @@ export function fileSelected(inputEl, type) {
   var file = inputEl.files[0];
 
   if (file.size > 16 * 1024 * 1024) {
-    alert('File too large. Maximum size is 16 MB.');
+    (window.toast ? window.toast('File too large. Maximum size is 16 MB.', 'error') : alert('File too large. Maximum size is 16 MB.'));
     inputEl.value = '';
     return;
   }
 
   $.selectedFile = { file: file, type: type };
   showFilePreview(file);
+  onComposerInput();
 }
 
 export function showFilePreview(file) {
@@ -244,6 +251,7 @@ export function clearFile() {
   if (photoInput) photoInput.value = '';
   var docInput = document.getElementById('lc-file-doc');
   if (docInput) docInput.value = '';
+  onComposerInput();
 }
 
 export async function sendMedia() {
@@ -277,7 +285,7 @@ export async function sendMedia() {
     if (isWhatsAppDisconnectError(msg)) {
       showReconnectionModal();
     } else {
-      alert('Failed to send message: ' + msg);
+      (window.toast ? window.toast('Failed to send message: ' + msg, 'error') : alert('Failed to send message: ' + msg));
     }
   } finally {
     btn.disabled = false;
@@ -384,6 +392,7 @@ export function cancelReply() {
   $.replyingToContent = '';
   var preview = document.getElementById('lc-reply-preview');
   if (preview) preview.style.display = 'none';
+  onComposerInput();
 }
 
 export function doMessageCopy() {
@@ -462,7 +471,7 @@ export async function forwardMessageTo(phone, text) {
     if (isWhatsAppDisconnectError(msg)) {
       showReconnectionModal();
     } else {
-      alert('Failed to forward: ' + msg);
+      (window.toast ? window.toast('Failed to forward: ' + msg, 'error') : alert('Failed to forward: ' + msg));
     }
   }
 }
@@ -478,16 +487,10 @@ export async function doMessagePin() {
   closeMessageContextMenu();
   try {
     var result = await api('/conversations/' + encodeURIComponent($.activePhone) + '/messages/' + msgIdx + '/pin', {
-      method: 'POST'
+      method: 'POST', body: { messageId: _msgId(msgIdx) }
     });
-    // Update local metadata cache
-    if (!$.messageMetadata) $.messageMetadata = { pinned: [], starred: [] };
-    var idxStr = String(msgIdx);
-    if (result.pinned) {
-      if ($.messageMetadata.pinned.indexOf(idxStr) < 0) $.messageMetadata.pinned.push(idxStr);
-    } else {
-      $.messageMetadata.pinned = $.messageMetadata.pinned.filter(function (x) { return x !== idxStr; });
-    }
+    // Server is the source of truth (id-keyed); refetch instead of mutating idx arrays
+    await loadMessageMetadata();
     updateMessageIndicators();
     if (window.toast) window.toast(result.pinned ? 'Message pinned' : 'Message unpinned', 'success');
   } catch (err) {
@@ -501,16 +504,9 @@ export async function doMessageStar() {
   closeMessageContextMenu();
   try {
     var result = await api('/conversations/' + encodeURIComponent($.activePhone) + '/messages/' + msgIdx + '/star', {
-      method: 'POST'
+      method: 'POST', body: { messageId: _msgId(msgIdx) }
     });
-    // Update local metadata cache
-    if (!$.messageMetadata) $.messageMetadata = { pinned: [], starred: [] };
-    var idxStr = String(msgIdx);
-    if (result.starred) {
-      if ($.messageMetadata.starred.indexOf(idxStr) < 0) $.messageMetadata.starred.push(idxStr);
-    } else {
-      $.messageMetadata.starred = $.messageMetadata.starred.filter(function (x) { return x !== idxStr; });
-    }
+    await loadMessageMetadata();
     updateMessageIndicators();
     if (window.toast) window.toast(result.starred ? 'Message starred' : 'Message unstarred', 'success');
   } catch (err) {
@@ -527,8 +523,11 @@ export async function doMessageReaction(emoji) {
     var instanceId = log ? log.instanceId : undefined;
     await api('/conversations/' + encodeURIComponent($.activePhone) + '/messages/' + msgIdx + '/react', {
       method: 'POST',
-      body: { emoji: emoji, instanceId: instanceId }
+      body: { emoji: emoji, instanceId: instanceId, messageId: _msgId(msgIdx) }
     });
+    rememberReaction($.activePhone, _msgKey(msgIdx), emoji);
+    await loadMessageMetadata();
+    updateMessageIndicators();
     if (window.toast) window.toast('Reaction sent: ' + emoji, 'success');
   } catch (err) {
     if (window.toast) window.toast('Reaction failed: ' + (err.message || 'error'), 'error');
@@ -565,12 +564,33 @@ export function updateMessageIndicators() {
     if (existingPin) existingPin.remove();
     var existingStar = bubble.querySelector('.lc-msg-star-icon');
     if (existingStar) existingStar.remove();
+    // WA parity: reaction chip anchored to the bubble's bottom corner
+    var existingReact = wrap.querySelector('.lc-msg-reaction');
+    if (existingReact) existingReact.remove();
+    // Server-stored reaction first (Go core rainbow_message_meta), localStorage fallback
+    // Prefer the id-keyed map (stable across inserts), then idx map, then localStorage
+    var byId = ($.messageMetadata && $.messageMetadata.byId) || {};
+    var idEntry = byId[wrap.getAttribute('data-msg-key') || ''] || {};
+    var serverReactions = ($.messageMetadata && $.messageMetadata.reactions) || {};
+    var reaction = idEntry.reaction || serverReactions[String(idx)] || getReaction($.activePhone, wrap.getAttribute('data-msg-key') || idx);
+    if (reaction) {
+      var chip = document.createElement('span');
+      chip.className = 'lc-msg-reaction';
+      chip.textContent = reaction;
+      chip.title = 'Your reaction';
+      wrap.appendChild(chip);
+      wrap.classList.add('lc-has-reaction');
+    } else {
+      wrap.classList.remove('lc-has-reaction');
+    }
 
     var metaEl = bubble.querySelector('.lc-bubble-meta');
     if (!metaEl) continue;
 
-    var isPinned = $.messageMetadata.pinned && $.messageMetadata.pinned.indexOf(idx) >= 0;
-    var isStarred = $.messageMetadata.starred && $.messageMetadata.starred.indexOf(idx) >= 0;
+    // id-keyed (stable across inserts) with idx-array fallback for older payloads
+    var metaById = ($.messageMetadata.byId || {})[wrap.getAttribute('data-msg-key') || ''] || {};
+    var isPinned = !!metaById.pinned || ($.messageMetadata.pinned && $.messageMetadata.pinned.indexOf(idx) >= 0);
+    var isStarred = !!metaById.starred || ($.messageMetadata.starred && $.messageMetadata.starred.indexOf(idx) >= 0);
 
     if (isPinned) {
       var pinIcon = document.createElement('span');
@@ -839,6 +859,8 @@ export function handleKeydown(event) {
 
   if (event.key !== 'Enter') return;
   if (event.shiftKey) return;
+  // IME (Chinese/Japanese/Korean) candidate confirmation must not send (WA parity)
+  if (event.isComposing || event.keyCode === 229) return;
 
   if ($.translatePreview) {
     event.preventDefault();
@@ -1002,7 +1024,7 @@ export function cmdAddTemplate() {
   hideCmdPalette();
   var input = document.getElementById('lc-input-box');
   if (input) {
-    input.value = '';
+    input.value = ''; onComposerInput(input);
     autoResize(input);
   }
 
@@ -1471,7 +1493,7 @@ function triggerWorkflow(workflow) {
   // Clear input and hide palette
   var input = document.getElementById('lc-input-box');
   if (input) {
-    input.value = '';
+    input.value = ''; onComposerInput(input);
     autoResize(input);
   }
   hideWorkflowPalette();
@@ -1672,7 +1694,7 @@ export async function addNewWhatsApp() {
     await loadReconnectInstances();
     reconnectInstance(id.trim());
   } catch (err) {
-    alert('Failed to add: ' + (err.message || 'error'));
+    (window.toast ? window.toast('Failed to add: ' + (err.message || 'error'), 'error') : alert('Failed to add: ' + (err.message || 'error')));
   }
 }
 
@@ -1681,4 +1703,215 @@ export function closeReconnectionModal() {
   _reconnectPollTimer = null;
   var modal = document.getElementById('lc-reconnect-modal');
   if (modal) modal.remove();
+}
+
+// ─── WhatsApp Web composer parity: emoji picker + mic/send toggle ────
+
+var LC_EMOJI_SET = [
+  '😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😍','🥰','😘',
+  '😋','😎','🤗','🤔','😐','😴','😷','🤒','😢','😭','😤','😡','🤯','😱','🥳','🤝',
+  '👍','👎','👏','🙏','💪','👋','✌️','🤞','👌','☝️','❤️','🧡','💛','💚','💙','💜',
+  '🔥','✨','⭐','🎉','🎊','✅','❌','⚠️','📌','📞','📍','🏠','🛏️','🔑','🚿','🧳',
+  '🍽️','☕','🍜','🍚','🚗','🚕','🚌','✈️','🕐','📅','💰','💳','🧾','📷','🎁','🌈'
+];
+
+export function toggleEmojiPicker() {
+  var picker = document.getElementById('lc-emoji-picker');
+  var btn = document.getElementById('lc-emoji-btn');
+  if (!picker) return;
+  var open = picker.style.display !== 'none';
+  if (open) {
+    picker.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+    return;
+  }
+  if (!picker._built) {
+    picker._built = true;
+    picker.addEventListener('click', function (ev) {
+      var cell = ev.target.closest('.lc-emoji-cell');
+      if (cell) insertEmoji(cell.getAttribute('data-emoji'));
+    });
+  }
+  buildEmojiPicker(picker);
+  picker.style.display = 'block';
+  if (btn) btn.classList.add('active');
+}
+
+export function hideEmojiPicker() {
+  var picker = document.getElementById('lc-emoji-picker');
+  var btn = document.getElementById('lc-emoji-btn');
+  if (picker) picker.style.display = 'none';
+  if (btn) btn.classList.remove('active');
+}
+
+export function insertEmoji(emoji) {
+  var input = document.getElementById('lc-input-box');
+  if (!input || !emoji) return;
+  var start = input.selectionStart != null ? input.selectionStart : input.value.length;
+  var end = input.selectionEnd != null ? input.selectionEnd : start;
+  input.value = input.value.slice(0, start) + emoji + input.value.slice(end);
+  var pos = start + emoji.length;
+  rememberEmoji(emoji);
+  input.focus();
+  input.setSelectionRange(pos, pos);
+  autoResize(input);
+  onComposerInput(input);
+}
+
+/**
+ * WhatsApp Web shows the mic while the box is empty and swaps it for the
+ * send arrow as soon as there is text (or an attachment / quoted reply).
+ */
+export function onComposerInput(input) {
+  var box = input || document.getElementById('lc-input-box');
+  var area = document.querySelector('.lc-input-area');
+  if (!box || !area) return;
+  var hasContent = !!(box.value.trim() || $.selectedFile || $.replyingToContent);
+  area.classList.toggle('lc-has-text', hasContent);
+}
+
+/**
+ * Append a temporary outgoing bubble (clock tick) so the message shows up the
+ * instant the operator presses Enter, like WhatsApp Web. Returns the element.
+ */
+export function appendPendingBubble(text) {
+  var container = document.getElementById('lc-messages');
+  if (!container || !text) return null;
+  var time = new Date();
+  var h = time.getHours(), m = time.getMinutes();
+  var t = (h % 12 || 12) + ':' + (m < 10 ? '0' : '') + m + ' ' + (h >= 12 ? 'pm' : 'am');
+  var wrap = document.createElement('div');
+  wrap.className = 'lc-bubble-wrap bot lc-pending';
+  wrap.innerHTML = '<div class="lc-bubble bot">' +
+    '<div class="lc-bubble-text">' + escapeHtml(text).replace(/\n/g, '<br>') + '</div>' +
+    '<div class="lc-bubble-meta"><span class="lc-bubble-time">' + t + '</span>' +
+    '<span class="lc-ticks lc-ticks-pending" title="Sending"><svg viewBox="0 0 16 15" width="16" height="15"><path fill="currentColor" d="M9.75 7.7l-1.4-1.1V4.2c0-.4-.3-.7-.7-.7s-.7.3-.7.7v2.8c0 .2.1.4.3.6l1.7 1.3c.3.2.7.2.9-.1.2-.3.2-.7-.1-1zM7.9 1.4C4.5 1.4 1.8 4.2 1.8 7.5s2.7 6.1 6.1 6.1 6.1-2.7 6.1-6.1-2.8-6.1-6.1-6.1zm0 10.9c-2.6 0-4.8-2.2-4.8-4.8s2.2-4.8 4.8-4.8 4.8 2.2 4.8 4.8-2.2 4.8-4.8 4.8z"/></svg></span></div></div>';
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  return wrap;
+}
+
+/** WA parity: paste an image from the clipboard straight into the composer as an attachment. */
+export function handleComposerPaste(event) {
+  var items = event.clipboardData && event.clipboardData.items;
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].kind === 'file') {
+      var file = items[i].getAsFile();
+      if (!file) continue;
+      event.preventDefault();
+      if (file.size > 16 * 1024 * 1024) { (window.toast ? window.toast('File too large. Maximum size is 16 MB.', 'error') : alert('File too large. Maximum size is 16 MB.')); return; }
+      var type = file.type.startsWith('image/') || file.type.startsWith('video/') ? 'photo' : 'document';
+      $.selectedFile = { file: file, type: type };
+      showFilePreview(file);
+      onComposerInput();
+      return;
+    }
+  }
+}
+
+// ─── Reactions (client-side memory; backend only relays to WhatsApp) ─────
+function _reactionKey(phone) { return 'lc-reactions:' + (phone || ''); }
+/** Stable per-message key (id, else timestamp) so chips survive history pruning. */
+function _msgKey(idx) {
+  var m = $.lastMessages[idx];
+  return m ? String(m.id || m.timestamp || idx) : String(idx);
+}
+/** Server row id for a rendered index (0 when unknown → server falls back to idx). */
+function _msgId(idx) {
+  var m = $.lastMessages[idx];
+  return m && m.id ? m.id : 0;
+}
+function rememberReaction(phone, idx, emoji) {
+  try {
+    var map = JSON.parse(localStorage.getItem(_reactionKey(phone)) || '{}');
+    map[String(idx)] = emoji;
+    localStorage.setItem(_reactionKey(phone), JSON.stringify(map));
+  } catch (e) { /* storage unavailable */ }
+}
+function getReaction(phone, idx) {
+  try {
+    var map = JSON.parse(localStorage.getItem(_reactionKey(phone)) || '{}');
+    return map[String(idx)] || '';
+  } catch (e) { return ''; }
+}
+
+// ─── Emoji picker: recents row (WA parity) ──────────────────────────
+var LC_EMOJI_RECENT_KEY = 'lc-emoji-recent';
+function _emojiCells(list) {
+  return list.map(function (e) {
+    return '<button type="button" class="lc-emoji-cell" data-emoji="' + e + '" title="' + e + '">' + e + '</button>';
+  }).join('');
+}
+var LC_EMOJI_CATS = [
+  { id: 'smileys', label: 'Smileys', icon: '😀', list: LC_EMOJI_SET.slice(0, 32) },
+  { id: 'gestures', label: 'Gestures & hearts', icon: '👍', list: LC_EMOJI_SET.slice(32, 48) },
+  { id: 'objects', label: 'Objects & symbols', icon: '🔥', list: LC_EMOJI_SET.slice(48, 64) },
+  { id: 'travel', label: 'Food & travel', icon: '✈️', list: LC_EMOJI_SET.slice(64) }
+];
+var LC_EMOJI_WORDS = { '😀': 'grin smile happy', '😂': 'laugh joy tears', '🤣': 'rofl laugh', '😊': 'blush smile', '😍': 'love heart eyes', '🥰': 'love', '😘': 'kiss', '😎': 'cool sunglasses', '🤔': 'think hmm', '😴': 'sleep', '😢': 'cry sad', '😭': 'cry sob', '😡': 'angry', '😱': 'scream shock', '🥳': 'party', '🤝': 'handshake deal', '👍': 'thumbs up ok yes', '👎': 'thumbs down no', '👏': 'clap', '🙏': 'thanks pray please', '💪': 'strong', '👋': 'wave hi bye', '👌': 'ok', '❤️': 'heart love', '🔥': 'fire hot', '✨': 'sparkle', '🎉': 'party celebrate', '✅': 'check done yes', '❌': 'cross no', '⚠️': 'warning', '📌': 'pin', '📞': 'phone call', '📍': 'location map', '🏠': 'home house', '🛏️': 'bed room', '🔑': 'key', '🚿': 'shower', '🧳': 'luggage bag', '🍽️': 'food eat', '☕': 'coffee', '🚗': 'car', '🚕': 'taxi grab', '✈️': 'flight plane', '🕐': 'time clock', '📅': 'date calendar', '💰': 'money', '💳': 'card pay', '🧾': 'receipt invoice', '🌈': 'rainbow' };
+function buildEmojiPicker(picker) {
+  var recent = [];
+  try { recent = JSON.parse(localStorage.getItem(LC_EMOJI_RECENT_KEY) || '[]'); } catch (e) { recent = []; }
+  var tabs = '<div class="lc-emoji-tabs" role="tablist">' +
+    (recent.length ? '<button type="button" class="lc-emoji-tab" data-cat="recent" title="Recent" role="tab">🕒</button>' : '') +
+    LC_EMOJI_CATS.map(function (c) { return '<button type="button" class="lc-emoji-tab" data-cat="' + c.id + '" title="' + c.label + '" role="tab">' + c.icon + '</button>'; }).join('') +
+    '</div>';
+  var search = '<div class="lc-emoji-search-wrap"><input type="search" class="lc-emoji-search" placeholder="Search emoji" aria-label="Search emoji"></div>';
+  var body = '';
+  if (recent.length) body += '<div class="lc-emoji-section" data-cat="recent">Recent</div><div class="lc-emoji-grid lc-emoji-recent">' + _emojiCells(recent.slice(0, 16)) + '</div>';
+  LC_EMOJI_CATS.forEach(function (c) {
+    body += '<div class="lc-emoji-section" data-cat="' + c.id + '">' + c.label + '</div><div class="lc-emoji-grid">' + _emojiCells(c.list) + '</div>';
+  });
+  picker.innerHTML = tabs + search + '<div class="lc-emoji-body">' + body + '</div>';
+  var bodyEl = picker.querySelector('.lc-emoji-body');
+  picker.querySelectorAll('.lc-emoji-tab').forEach(function (tab) {
+    tab.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var sec = bodyEl.querySelector('.lc-emoji-section[data-cat="' + tab.getAttribute('data-cat') + '"]');
+      if (sec) bodyEl.scrollTop = sec.offsetTop - bodyEl.offsetTop;
+      picker.querySelectorAll('.lc-emoji-tab').forEach(function (t) { t.classList.toggle('active', t === tab); });
+    });
+  });
+  var searchEl = picker.querySelector('.lc-emoji-search');
+  searchEl.addEventListener('input', function () {
+    var q = searchEl.value.trim().toLowerCase();
+    picker.querySelectorAll('.lc-emoji-cell').forEach(function (cell) {
+      var e = cell.getAttribute('data-emoji');
+      var words = (LC_EMOJI_WORDS[e] || '');
+      cell.style.display = (!q || words.indexOf(q) !== -1) ? '' : 'none';
+    });
+    picker.querySelectorAll('.lc-emoji-section').forEach(function (s) { s.style.display = q ? 'none' : ''; });
+  });
+  setTimeout(function () { searchEl.focus(); }, 0);
+}
+function rememberEmoji(emoji) {
+  try {
+    var recent = JSON.parse(localStorage.getItem(LC_EMOJI_RECENT_KEY) || '[]');
+    recent = [emoji].concat(recent.filter(function (e) { return e !== emoji; })).slice(0, 16);
+    localStorage.setItem(LC_EMOJI_RECENT_KEY, JSON.stringify(recent));
+  } catch (e) { /* ignore */ }
+}
+
+/** Turn a pending bubble into a failed one with a tap-to-retry affordance (WA parity). */
+export function markPendingFailed(wrap, text) {
+  if (!wrap) return;
+  wrap.classList.add('lc-failed');
+  var meta = wrap.querySelector('.lc-bubble-meta');
+  if (meta) {
+    var tick = meta.querySelector('.lc-ticks');
+    if (tick) tick.remove();
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'lc-retry-btn';
+    retry.title = 'Not sent. Tap to retry';
+    retry.textContent = '⚠ Tap to retry';
+    retry.addEventListener('click', function () {
+      wrap.remove();
+      var input = document.getElementById('lc-input-box');
+      if (input) { input.value = text; onComposerInput(input); }
+      sendReply();
+    });
+    meta.appendChild(retry);
+  }
 }

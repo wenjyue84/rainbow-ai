@@ -31,8 +31,10 @@ import {
   toggleSchedulePopover, hideSchedulePopover, confirmSchedule, toggleRepeatEndDate, updateSchedulePreview,
   showScheduledPanel, closeScheduledPanel, cancelScheduled, editScheduled, updateScheduledBadge,
   toggleDateJump, jumpToDate,
-  showReconnectionModal, reconnectInstance, addNewWhatsApp, closeReconnectionModal
+  showReconnectionModal, reconnectInstance, addNewWhatsApp, closeReconnectionModal,
+  toggleEmojiPicker, hideEmojiPicker, onComposerInput, handleComposerPaste, closeMessageContextMenu
 } from './live-chat-actions.js';
+import { scrollToBottom } from './live-chat-core.js';
 import {
   toggleTranslate, handleLangChange, closeTranslateModal, confirmTranslation,
   onInputTranslate, toggleSearch, msgSearchInput, msgSearchNav, msgSearchKeydown,
@@ -95,6 +97,10 @@ window.lcCloseTranslateModal = closeTranslateModal;
 window.lcConfirmTranslation = confirmTranslation;
 window.lcAutoResize = autoResize;
 window.lcHandleKeydown = handleKeydown;
+// WhatsApp Web composer parity
+window.lcToggleEmojiPicker = toggleEmojiPicker;
+window.lcOnComposerInput = onComposerInput;
+window.lcScrollToBottom = scrollToBottom;
 window.lcToggleAttachMenu = toggleAttachMenu;
 window.lcPickFile = pickFile;
 window.lcFileSelected = fileSelected;
@@ -260,6 +266,9 @@ document.addEventListener('click', function (e) {
   if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
     menu.style.display = 'none';
   }
+  // Close emoji picker when clicking outside (WA parity)
+  var emojiWrap = document.querySelector('.lc-emoji-wrap');
+  if (emojiWrap && !emojiWrap.contains(e.target)) hideEmojiPicker();
   // Close header dropdown when clicking outside
   var wrap = document.querySelector('.lc-header-menu-wrap');
   var dropdown = document.getElementById('lc-header-dropdown');
@@ -322,6 +331,30 @@ document.addEventListener('click', function (e) {
   var schedBtn = document.getElementById('lc-schedule-btn');
   if (schedPop && schedPop.style.display !== 'none' && schedBtn && !schedPop.contains(e.target) && !schedBtn.contains(e.target)) {
     hideSchedulePopover();
+  }
+});
+
+
+// WA parity: paste image/file from clipboard into the composer; Esc closes emoji picker
+document.addEventListener('paste', function (e) {
+  if (e.target && e.target.id === 'lc-input-box') handleComposerPaste(e);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  var picker = document.getElementById('lc-emoji-picker');
+  if (picker && picker.style.display !== 'none') { hideEmojiPicker(); document.getElementById('lc-input-box')?.focus(); return; }
+  // WA parity: Esc closes the message context menu and any open modal, then
+  // returns focus to the composer so keyboard users never get stranded.
+  var ctx = document.getElementById('lc-msg-context-menu');
+  if (ctx && ctx.style.display !== 'none') { closeMessageContextMenu(); document.getElementById('lc-input-box')?.focus(); return; }
+  var modals = ['lc-forward-modal', 'lc-context-modal', 'lc-scheduled-panel', 'lc-translate-modal', 'lc-date-jump-popover', 'lc-attach-menu', 'lc-schedule-popover'];
+  for (var i = 0; i < modals.length; i++) {
+    var m = document.getElementById(modals[i]);
+    if (m && m.style.display !== 'none') {
+      m.style.display = 'none';
+      document.getElementById('lc-input-box')?.focus();
+      return;
+    }
   }
 });
 

@@ -3,7 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { $ } from './live-chat-state.js';
-import { refreshChat, hasSystemContent, getUserMessage, formatSystemContent, getNonTextPlaceholder, highlightText } from './live-chat-core.js';
+import { refreshChat, renderChat, hasSystemContent, getUserMessage, formatSystemContent, getNonTextPlaceholder, highlightText } from './live-chat-core.js';
+import { updateMessageIndicators } from './live-chat-actions.js';
 import { toggleContactPanel } from './live-chat-panels.js';
 
 var api = window.api;
@@ -157,7 +158,7 @@ export async function sendTranslated() {
     hideTranslatePreview();
     await refreshChat();
   } catch (err) {
-    alert('Failed to send message: ' + (err.message || 'Unknown error'));
+    (window.toast ? window.toast('Failed to send message: ' + (err.message || 'Unknown error'), 'error') : alert('Failed to send message: ' + (err.message || 'Unknown error')));
   } finally {
     btn.disabled = false;
     if (input) input.focus();
@@ -180,7 +181,7 @@ export async function sendOriginal() {
     hideTranslatePreview();
     await refreshChat();
   } catch (err) {
-    alert('Failed to send message: ' + (err.message || 'Unknown error'));
+    (window.toast ? window.toast('Failed to send message: ' + (err.message || 'Unknown error'), 'error') : alert('Failed to send message: ' + (err.message || 'Unknown error')));
   } finally {
     btn.disabled = false;
     if (input) input.focus();
@@ -226,7 +227,7 @@ export async function confirmTranslation() {
     closeTranslateModal();
     await refreshChat();
   } catch (err) {
-    alert('Failed to send message: ' + (err.message || 'Unknown error'));
+    (window.toast ? window.toast('Failed to send message: ' + (err.message || 'Unknown error'), 'error') : alert('Failed to send message: ' + (err.message || 'Unknown error')));
     confirmBtn.disabled = false;
     confirmBtn.textContent = 'Send Translation';
   }
@@ -410,83 +411,12 @@ export function scrollToMatch(msgIdx) {
 }
 
 export function rerenderMessages() {
+  // Delegate to the single renderer so search highlighting, quote blocks,
+  // bot-avatar prefix and grouping never drift between search and normal view.
   if (!$.lastMessages.length) return;
-  var container = document.getElementById('lc-messages');
-  var html = '';
-  var lastDate = '';
-  var query = $.searchOpen ? $.searchQuery.toLowerCase() : '';
-
-  for (var i = 0; i < $.lastMessages.length; i++) {
-    var msg = $.lastMessages[i];
-    var msgDate = new Date(msg.timestamp).toLocaleDateString('en-MY', { year: 'numeric', month: 'long', day: 'numeric' });
-    if (msgDate !== lastDate) {
-      html += '<div class="lc-date-sep"><span>' + msgDate + '</span></div>';
-      lastDate = msgDate;
-    }
-
-    var isGuest = msg.role === 'user';
-    var side = isGuest ? 'guest' : 'bot';
-    var time = new Date(msg.timestamp).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true });
-    var content = msg.content || '';
-    var isSystemMsg = !isGuest && hasSystemContent(content);
-    var displayContent = isGuest ? content : (isSystemMsg ? content : getUserMessage(content));
-
-    var checkmark = '';
-    if (!isGuest) {
-      checkmark = '<svg class="lc-checkmark" viewBox="0 0 16 11" fill="currentColor"><path d="M11.07.65l-6.53 6.53L1.97 4.6l-.72.72 3.29 3.29 7.25-7.25-.72-.71z"/><path d="M5.54 7.18L4.82 6.46l-.72.72 1.44 1.44.72-.72-.72-.72z"/></svg>';
-    }
-
-    var manualTag = '';
-    if (!isGuest && msg.manual) {
-      manualTag = '<span class="lc-manual-tag">Staff</span>';
-    }
-
-    var isCurrentMatch = $.searchCurrent >= 0 && $.searchMatches[$.searchCurrent] === i;
-    var isAnyMatch = query && displayContent.toLowerCase().includes(query);
-
-    var bubbleContent = '';
-    var nonTextPlaceholder = getNonTextPlaceholder(displayContent);
-    var mediaMatch = displayContent.match(/^\[(photo|video|document):\s*(.+?)\](.*)$/s);
-
-    if (isSystemMsg) {
-      bubbleContent = '<div class="lc-bubble-text">' + formatSystemContent(displayContent) + '</div>';
-    } else if (nonTextPlaceholder) {
-      bubbleContent = '<div class="lc-media-placeholder">' + nonTextPlaceholder.icon + '<span class="lc-media-filename">' + escapeHtml(nonTextPlaceholder.label) + '</span></div>';
-    } else if (mediaMatch) {
-      var mediaType = mediaMatch[1];
-      var fileName = mediaMatch[2];
-      var caption = mediaMatch[3].trim();
-      var icon = mediaType === 'photo' ? '<svg width="32" height="32" viewBox="0 0 24 24" fill="#00a884" opacity="0.6"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>'
-        : mediaType === 'video' ? '<svg width="32" height="32" viewBox="0 0 24 24" fill="#00a884" opacity="0.6"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>'
-          : '<svg width="32" height="32" viewBox="0 0 24 24" fill="#00a884" opacity="0.6"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>';
-      bubbleContent = '<div class="lc-media-placeholder">' + icon + '<span class="lc-media-filename">' + escapeHtml(fileName) + '</span></div>';
-      if (caption) {
-        bubbleContent += '<div class="lc-bubble-text">' + highlightText(caption, query, isCurrentMatch) + '</div>';
-      }
-    } else {
-      bubbleContent = '<div class="lc-bubble-text">' + highlightText(displayContent, query, isCurrentMatch) + '</div>';
-    }
-
-    var matchClass = isCurrentMatch ? ' lc-search-focus' : (isAnyMatch ? ' lc-search-match' : '');
-    var systemClass = isSystemMsg ? ' lc-system-msg' : '';
-    var chevronSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
-
-    html += '<div class="lc-bubble-wrap ' + side + '" data-msg-idx="' + i + '">' +
-      '<div class="lc-bubble ' + side + matchClass + systemClass + '">' +
-      bubbleContent +
-      '<div class="lc-bubble-meta">' +
-      manualTag +
-      '<span class="lc-bubble-time">' + time + '</span>' +
-      checkmark +
-      '<button type="button" class="lc-bubble-chevron" data-msg-idx="' + i + '" title="Message options" aria-label="Message options">' + chevronSvg + '</button>' +
-      '</div>' +
-      '</div>' +
-      '</div>';
-  }
-
-  container.innerHTML = html;
-
-  if ($.searchCurrent >= 0 && $.searchMatches.length > 0) {
-    scrollToMatch($.searchMatches[$.searchCurrent]);
-  }
+  var cached = $.activePhone ? $.conversationCache.get($.activePhone) : null;
+  var nameEl = document.getElementById('lc-header-name');
+  var log = cached ? cached.log : { phone: $.activePhone, pushName: nameEl ? nameEl.textContent : '', messages: $.lastMessages };
+  renderChat(log);
+  updateMessageIndicators();
 }
