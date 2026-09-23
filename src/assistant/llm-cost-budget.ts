@@ -157,8 +157,20 @@ export function recordLLMUsage(
     }
   }
 
-  // Fire-and-forget DB upsert
-  flushToDb(providerId, profileId, acc, budget).catch(err => {
+  // Fire-and-forget DB upsert — pass THIS CALL's delta, not the day's
+  // cumulative accumulator. `acc` keeps growing for the whole day (needed
+  // for the budget-ratio checks above); the DB upsert below already does
+  // `column = column + excluded.column`, so handing it the cumulative
+  // total instead of the delta re-adds everything flushed so far on every
+  // single call, inflating request_count/tokens/cost quadratically over
+  // the day (bug found 2026-09-23 — a historical llm_cost_daily row for
+  // google-gemini-flash had request_count ≈ 4.2e90 from this).
+  flushToDb(providerId, profileId, acc.date, {
+    promptTokens,
+    completionTokens,
+    estimatedCostUsd: cost,
+    requestCount: 1,
+  }, budget, acc.budgetBreached).catch(err => {
     console.error(`[CostBudget] DB flush failed for ${providerId}:`, err.message);
   });
 }
@@ -186,22 +198,32 @@ export function getProviderDailyCost(providerId: string, profileId: string = 'pe
 
 // ─── DB Persistence ─────────────────────────────────────────────────
 
+/** This-call-only increment — never the day's running total (see call site). */
+interface UsageDelta {
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUsd: number;
+  requestCount: number;
+}
+
 async function flushToDb(
   providerId: string,
   profileId: string,
-  acc: DailyAccumulator,
-  budgetCap: number | null
+  date: string,
+  delta: UsageDelta,
+  budgetCap: number | null,
+  budgetBreached: boolean
 ): Promise<void> {
   await db.insert(llmCostDaily).values({
-    date: acc.date,
+    date,
     provider: providerId,
     profileId,
-    promptTokens: acc.promptTokens,
-    completionTokens: acc.completionTokens,
-    estimatedCostUsd: acc.estimatedCostUsd,
-    requestCount: acc.requestCount,
+    promptTokens: delta.promptTokens,
+    completionTokens: delta.completionTokens,
+    estimatedCostUsd: delta.estimatedCostUsd,
+    requestCount: delta.requestCount,
     budgetCapUsd: budgetCap,
-    budgetBreached: acc.budgetBreached,
+    budgetBreached,
     updatedAt: new Date(),
   }).onConflictDoUpdate({
     target: [llmCostDaily.date, llmCostDaily.provider, llmCostDaily.profileId],
@@ -212,7 +234,7 @@ async function flushToDb(
       requestCount: sql`${llmCostDaily.requestCount} + excluded.request_count`,
       budgetCapUsd: budgetCap !== null ? sql`${budgetCap}` : sql`NULL`,
       // SQLite driver rejects boolean bind params — coerce to 0/1 for raw sql template.
-      budgetBreached: sql`${acc.budgetBreached ? 1 : 0}`,
+      budgetBreached: sql`${budgetBreached ? 1 : 0}`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     },
   });
