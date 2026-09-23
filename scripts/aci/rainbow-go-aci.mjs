@@ -60,7 +60,8 @@ const TEMP_DB = path.join(tmpdir(), `rainbow-go-aci-${Date.now()}.db`);
 const IMPLEMENTED = [
   { path: '/api/rainbow/status',                              keyField: 'servers'        },
   { path: '/api/rainbow/stats',                               keyField: 'messages'       },
-  { path: '/api/rainbow/conversations',                       keyField: 'conversations'  },
+  { path: '/api/rainbow/conversations',                       keyField: null             }, // raw array by design (conversations.go: "SPA expects a raw array")
+  { path: '/api/rainbow/setup/status',                        keyField: 'profile'        }, // setup wizard checklist (2026-09-23)
   { path: '/api/rainbow/settings',                            keyField: 'ai'             }, // structured settings.json (not the old KV wrapper)
   { path: '/api/rainbow/routing',                             keyField: null             }, // JSON file pass-through, no fixed key
   { path: '/api/rainbow/conversations/any-phone/messages',    keyField: 'messages'       },

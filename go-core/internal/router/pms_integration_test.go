@@ -135,14 +135,21 @@ func TestGuestAvailabilityHitsPMS(t *testing.T) {
 	}
 }
 
-// TestGuestMaintenanceHitsPMS proves a maintenance issue starts the service
-// request workflow, collects details on the second turn, POSTs to PMS
-// /api/problems, and confirms back to the guest via the bridge.
+// TestGuestMaintenanceHitsPMS proves a maintenance report flows
+// inbound→classify→workflow: since FIX 5 (2026-07-21) every "broken / faulty /
+// not working" report is the facility_malfunction T1 override → the
+// ac_fault_escalate workflow, which acknowledges, asks ONLY for the capsule
+// number, then pages on-site staff over WhatsApp carrying that detail. (The
+// older service_request_handler → PMS /api/problems ticket path is no longer
+// reachable from natural guest text on the Pelangi profile — the RSI data
+// sync of 2026-09-20 made the override cover all fault wording — so this test
+// asserts the staff page, not a PMS ticket; the mock PMS stays wired for
+// TestGuestAvailabilityHitsPMS.)
 func TestGuestMaintenanceHitsPMS(t *testing.T) {
 	h := newPMSHarness(t)
 	const guest = "60123456789"
 
-	// Turn 1: report the issue → workflow starts, asks for details, pauses.
+	// Turn 1: report the issue → workflow starts, asks for the capsule, pauses.
 	res, err := h.eng.Process(context.Background(), contract.IncomingMessage{
 		From: guest, Text: "the power socket is faulty and needs repair",
 		PushName: "Bob", MessageID: "mt1", MessageType: contract.MsgText, InstanceID: "default",
@@ -153,10 +160,13 @@ func TestGuestMaintenanceHitsPMS(t *testing.T) {
 	if res.Action != "workflow" {
 		t.Fatalf("turn 1 action = %q, want workflow (intent=%q)", res.Action, res.Intent)
 	}
+	if res.Intent != "facility_malfunction" {
+		t.Fatalf("turn 1 intent = %q, want facility_malfunction", res.Intent)
+	}
 
-	// Turn 2: supply the details → logs to PMS and confirms.
+	// Turn 2: supply the capsule → staff are paged with it, guest is reassured.
 	_, err = h.eng.Process(context.Background(), contract.IncomingMessage{
-		From: guest, Text: "The power socket in unit C12 is completely dead, please fix.",
+		From: guest, Text: "C12",
 		PushName: "Bob", MessageID: "mt2", MessageType: contract.MsgText, InstanceID: "default",
 	})
 	if err != nil {
@@ -164,18 +174,21 @@ func TestGuestMaintenanceHitsPMS(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	probs := append([]map[string]any(nil), h.problems...)
+	sends := append([]contract.SendRequest(nil), h.sends...)
 	h.mu.Unlock()
-	if len(probs) == 0 {
-		t.Fatal("mock PMS recorded no POST /api/problems")
+	staffPaged := false
+	for _, s := range sends {
+		if s.Op == contract.OpText && s.Phone != guest && strings.Contains(s.Text, "C12") {
+			staffPaged = true
+			break
+		}
 	}
-	desc, _ := probs[0]["description"].(string)
-	if !strings.Contains(desc, "C12") {
-		t.Errorf("problem description did not carry the guest detail, got %q", desc)
+	if !staffPaged {
+		t.Fatalf("no staff WhatsApp page carrying the capsule number; sends=%+v", sends)
 	}
 
-	reply := h.guestText(guest)
-	if !strings.Contains(reply, "✅") && !strings.Contains(strings.ToLower(reply), "logged") {
-		t.Errorf("guest never received a confirmation via bridge, got %q", reply)
+	reply := strings.ToLower(h.guestText(guest))
+	if !strings.Contains(reply, "staff") && !strings.Contains(reply, "capsule") {
+		t.Errorf("guest never received the acknowledgement via bridge, got %q", reply)
 	}
 }
