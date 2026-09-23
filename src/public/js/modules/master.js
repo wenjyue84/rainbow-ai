@@ -74,6 +74,7 @@ async function renderNumbers(container) {
   try {
     const ov = await fetchOverview();
     const instances = ov.instances || [];
+    const stats = ov.messageStats || {};
     container.innerHTML = `
       <div class="space-y-4">
         <div class="bg-white rounded-2xl border p-5">
@@ -83,16 +84,48 @@ async function renderNumbers(container) {
             <button type="button" onclick="loadMasterNumbers()" class="text-xs text-primary-500 hover:text-primary-600 font-medium">Refresh</button>
           </div>
           <div id="master-wa-list" class="space-y-1">
-            ${instances.length ? instances.map(inst => renderInstanceCard(inst, instances.length)).join('')
+            ${instances.length ? instances.map(inst => renderInstanceCard(inst, instances.length, stats[inst.profile])).join('')
               : '<div class="text-center py-4 text-sm text-neutral-400">No WhatsApp numbers registered</div>'}
           </div>
           <p class="text-xs text-neutral-400 mt-3">A number is its own bridge process — add one on the server with <code>new-bridge.sh</code>, then restart the core.</p>
         </div>
+        ${renderMessageVolume(stats)}
         ${renderLastCheck(ov.lastCheck, ov.checkScript, ov.source, ov.engine)}
       </div>`;
   } catch (e) {
     container.innerHTML = `<div class="p-8 text-center text-sm text-danger-600">Failed to load numbers: ${esc(e.message)}</div>`;
   }
+}
+
+/** Message-volume-per-number card (rainbow_messages counts, all-time). */
+function renderMessageVolume(stats) {
+  const profiles = Object.keys(stats).sort((a, b) => (stats[b].total || 0) - (stats[a].total || 0));
+  const grandTotal = profiles.reduce((sum, p) => sum + (stats[p].total || 0), 0);
+  return `
+    <div class="bg-white rounded-2xl border p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2"><span class="text-xl">📊</span><h3 class="font-semibold text-neutral-700">Message volume</h3>
+          <span class="text-xs text-neutral-400">${grandTotal.toLocaleString()} messages all-time</span></div>
+      </div>
+      ${profiles.length ? `
+        <table class="text-xs w-full">
+          <thead><tr class="text-neutral-500 text-left"><th class="px-2 py-1">Profile</th><th class="px-2 py-1 text-right">Guest (in)</th><th class="px-2 py-1 text-right">Assistant (out)</th><th class="px-2 py-1 text-right">Staff</th><th class="px-2 py-1 text-right">Total</th></tr></thead>
+          <tbody>
+            ${profiles.map(p => {
+              const s = stats[p];
+              return `<tr class="border-t">
+                <td class="px-2 py-1.5 font-mono">${esc(p)}</td>
+                <td class="px-2 py-1.5 text-right">${(s.user || 0).toLocaleString()}</td>
+                <td class="px-2 py-1.5 text-right">${(s.assistant || 0).toLocaleString()}</td>
+                <td class="px-2 py-1.5 text-right">${(s.staff || 0).toLocaleString()}</td>
+                <td class="px-2 py-1.5 text-right font-semibold">${(s.total || 0).toLocaleString()}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        <p class="text-xs text-neutral-400 mt-3">All-time counts from <code>rainbow_messages</code>, grouped by profile (= the WhatsApp number that profile answers on).</p>`
+        : '<div class="text-center py-4 text-sm text-neutral-400">No message history yet</div>'}
+    </div>`;
 }
 
 function renderLastCheck(lc, script, source, engine) {
@@ -162,13 +195,16 @@ export function loadMasterNumbers() {
 }
 
 /** Render one WhatsApp number row (moved from dashboard.js). */
-export function renderInstanceCard(inst, totalCount) {
+export function renderInstanceCard(inst, totalCount, msgStats) {
   const phone = (inst.user && inst.user.phone) || inst.id || '';
   const formattedPhone = phone ? '+' + phone.replace(/(\d{2})(\d{2})(\d{3,4})(\d{4})/, '$1 $2-$3 $4') : 'Not linked';
   const online = inst.state === 'open';
   const statusDot = online ? 'bg-success-400' : inst.unlinkedFromWhatsApp ? 'bg-orange-500' : 'bg-neutral-300';
   const statusText = online ? 'Connected' : inst.unlinkedFromWhatsApp ? 'Unlinked' : (inst.state === 'offline' ? 'Bridge offline' : 'Disconnected');
   const statusColor = online ? 'text-success-600' : inst.unlinkedFromWhatsApp ? 'text-orange-600' : 'text-neutral-500';
+  const msgBadge = msgStats && msgStats.total
+    ? `<span class="text-xs text-neutral-400" title="Messages exchanged via Rainbow (all-time)">💬 ${msgStats.total.toLocaleString()}</span>`
+    : '';
   return `
     <div class="flex items-center justify-between py-2.5 border-b last:border-0">
       <div class="flex items-center gap-3">
@@ -182,9 +218,12 @@ export function renderInstanceCard(inst, totalCount) {
           <div class="text-xs text-neutral-400">instance <span class="font-mono">${esc(inst.id)}</span> · profile <span class="font-mono">${esc(inst.profile || '')}</span></div>
         </div>
       </div>
-      <div class="flex gap-1 flex-shrink-0">
-        ${!online ? `<button type="button" onclick="showInstanceQR('${esc(inst.id)}', '${esc(inst.label || inst.id)}')" class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded transition">QR</button>` : ''}
-        ${online ? `<button type="button" onclick="logoutInstance('${esc(inst.id)}')" class="text-xs bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded transition">Logout</button>` : ''}
+      <div class="flex items-center gap-2 flex-shrink-0">
+        ${msgBadge}
+        <div class="flex gap-1">
+          ${!online ? `<button type="button" onclick="showInstanceQR('${esc(inst.id)}', '${esc(inst.label || inst.id)}')" class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded transition">QR</button>` : ''}
+          ${online ? `<button type="button" onclick="logoutInstance('${esc(inst.id)}')" class="text-xs bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded transition">Logout</button>` : ''}
+        </div>
       </div>
     </div>`;
 }
@@ -375,6 +414,43 @@ async function renderDefaults(container) {
           ${providers.length ? '' : '<div class="text-center py-4 text-sm text-neutral-400" id="master-providers-empty">No default providers yet — click + Add.</div>'}
         </div>
       </div>
+
+      ${renderModelUsage(_overview && _overview.modelUsage)}
+    </div>`;
+}
+
+/** How often each configured model has actually been used (llm_cost_daily). */
+function renderModelUsage(usage) {
+  const list = (usage && usage.providers) || [];
+  const total = list.reduce((sum, p) => sum + (p.requestCount || 0), 0);
+  return `
+    <div class="bg-white rounded-2xl border p-5">
+      <div class="flex items-start justify-between mb-3">
+        <div><h3 class="font-semibold text-neutral-700">📈 Model usage frequency</h3>
+          <div class="text-xs text-neutral-400 mt-0.5">Requests per provider, all-time (llm_cost_daily). Not live-updating — reflects the last overview load.</div></div>
+      </div>
+      ${list.length ? `
+        <table class="text-xs w-full">
+          <thead><tr class="text-neutral-500 text-left"><th class="px-2 py-1">Provider</th><th class="px-2 py-1 text-right">Requests</th><th class="px-2 py-1 text-right">Share</th><th class="px-2 py-1 text-right">Est. cost (USD)</th></tr></thead>
+          <tbody>
+            ${list.map(p => {
+              const pct = total ? Math.round((p.requestCount / total) * 100) : 0;
+              return `<tr class="border-t">
+                <td class="px-2 py-1.5 font-mono">${esc(p.provider)}</td>
+                <td class="px-2 py-1.5 text-right">${(p.requestCount || 0).toLocaleString()}</td>
+                <td class="px-2 py-1.5 text-right">
+                  <div class="flex items-center gap-2 justify-end">
+                    <div class="w-16 h-1.5 bg-neutral-100 rounded-full overflow-hidden"><div class="h-full bg-indigo-400" style="width:${pct}%"></div></div>
+                    <span class="text-neutral-500 w-8 text-right">${pct}%</span>
+                  </div>
+                </td>
+                <td class="px-2 py-1.5 text-right">$${(p.costUsd || 0).toFixed(4)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${usage.note ? `<p class="text-xs text-orange-600 mt-3">⚠️ ${esc(usage.note)}</p>` : ''}`
+        : '<div class="text-center py-4 text-sm text-neutral-400">No usage recorded yet</div>'}
     </div>`;
 }
 

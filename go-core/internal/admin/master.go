@@ -530,7 +530,9 @@ func (h *Handler) masterOverview(w http.ResponseWriter, r *http.Request) {
 			"available": fileExists(checkScriptPath()),
 			"path":      checkScriptPath(),
 		},
-		"source": "check-numbers.sh",
+		"source":       "check-numbers.sh",
+		"modelUsage":   h.modelUsageStats(ctx),
+		"messageStats": h.numberMessageStats(ctx),
 	}
 	if base := engineURL(); base != "" {
 		eng := map[string]any{"url": base}
@@ -550,6 +552,93 @@ func (h *Handler) masterOverview(w http.ResponseWriter, r *http.Request) {
 		out["engine"] = eng
 	}
 	writeJSON(w, 200, out)
+}
+
+// modelUsageStats aggregates llm_cost_daily.request_count by provider, for
+// the "how often is each model used" panel on Master → Defaults.
+//
+// Guard: flushToDb() in src/assistant/llm-cost-budget.ts had a bug (fixed
+// 2026-09-23) where every LLM call re-wrote the FULL day-so-far cumulative
+// counters instead of just that call's delta, so a heavily-used provider's
+// row could carry a wildly inflated request_count (observed: one row at
+// ~4.2e90). That bad historical row is still sitting in the DB. Rather than
+// guess a replacement number for it, this query excludes any row whose
+// request_count is outside a sane bound and reports how many rows were
+// dropped so the number stays honest instead of fabricated.
+func (h *Handler) modelUsageStats(ctx context.Context) map[string]any {
+	const sane = 1_000_000 // no real single day should exceed this
+	rows, err := h.st.DB.QueryContext(ctx, `
+		SELECT provider,
+		       SUM(CASE WHEN request_count >= 0 AND request_count < ? THEN request_count ELSE 0 END) AS reqs,
+		       ROUND(SUM(CASE WHEN estimated_cost_usd >= 0 AND estimated_cost_usd < ? THEN estimated_cost_usd ELSE 0 END), 4) AS cost_usd,
+		       SUM(CASE WHEN request_count >= ? THEN 1 ELSE 0 END) AS excluded_rows
+		FROM llm_cost_daily
+		GROUP BY provider
+		ORDER BY reqs DESC`, sane, sane, sane)
+	if err != nil {
+		log.Printf("[admin] model usage query failed: %v", err)
+		return map[string]any{"providers": []any{}, "error": err.Error()}
+	}
+	defer rows.Close()
+	list := []map[string]any{}
+	excludedTotal := 0
+	for rows.Next() {
+		var provider string
+		var reqs, excluded int64
+		var cost float64
+		if err := rows.Scan(&provider, &reqs, &cost, &excluded); err != nil {
+			continue
+		}
+		list = append(list, map[string]any{
+			"provider":     provider,
+			"requestCount": reqs,
+			"costUsd":      cost,
+			"excludedRows": excluded,
+		})
+		excludedTotal += int(excluded)
+	}
+	out := map[string]any{"providers": list}
+	if excludedTotal > 0 {
+		out["note"] = fmt.Sprintf("%d corrupted row(s) excluded from these totals (bad historical data, not zero usage)", excludedTotal)
+	}
+	return out
+}
+
+// numberMessageStats counts rainbow_messages by profile_id + role, for the
+// "how much traffic has each number handled" panel on Master → WhatsApp
+// Numbers. Keyed by profile id so the frontend can join it onto each
+// instance card.
+func (h *Handler) numberMessageStats(ctx context.Context) map[string]any {
+	rows, err := h.st.DB.QueryContext(ctx, `
+		SELECT COALESCE(NULLIF(profile_id,''), 'pelangi') AS pid, role, COUNT(*)
+		FROM rainbow_messages
+		WHERE deleted_at IS NULL
+		GROUP BY pid, role`)
+	if err != nil {
+		log.Printf("[admin] number message stats query failed: %v", err)
+		return map[string]any{}
+	}
+	defer rows.Close()
+	byProfile := map[string]map[string]int64{}
+	for rows.Next() {
+		var pid, role string
+		var cnt int64
+		if err := rows.Scan(&pid, &role, &cnt); err != nil {
+			continue
+		}
+		m, ok := byProfile[pid]
+		if !ok {
+			m = map[string]int64{}
+			byProfile[pid] = m
+		}
+		m[role] = cnt
+		m["total"] += cnt
+	}
+	out := map[string]any{}
+	for pid, m := range byProfile {
+		out[pid] = m
+	}
+	return out
 }
 
 // masterCheckNumbers serves POST /api/rainbow/master/check-numbers: runs the
