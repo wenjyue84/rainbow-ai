@@ -55,8 +55,14 @@ export async function loadSettings(subTab) {
     const adminNotifsData = window.cacheManager.get(SETTINGS_CACHE_KEYS.adminNotifs);
     window.currentOperators = adminNotifsData.operators || [];
 
-    // Prioritize passed subTab, then stored state, then default
-    const activeTab = subTab || window.activeSettingsTab || 'ai-models';
+    // Simple mode (2026-09-23): only Reply Mode / AI Exceptions / WhatsApp
+    // Number are listed; a deep link to a hidden sub-tab still renders.
+    applySettingsSimpleMode();
+
+    // Prioritize passed subTab, then stored state, then default. In Simple
+    // mode a stored advanced-only sub-tab falls back to the profile page.
+    let activeTab = subTab || window.activeSettingsTab || 'ai-models';
+    if (!subTab && isSimpleUi() && !isSimpleSettingsTab(activeTab)) activeTab = 'profile';
 
     // Update hash only if we are applying a default (and not already on a sub-route)
     const shouldUpdateHash = !subTab;
@@ -85,6 +91,37 @@ function renderSettingsError(e, subTab) {
   }
 }
 window.loadSettings = loadSettings;
+
+// ── Simple mode helpers (2026-09-23) ─────────────────────────────────────
+function isSimpleUi() {
+  return typeof window.getUiMode === 'function' && window.getUiMode() === 'simple';
+}
+
+function isSimpleSettingsTab(tabId) {
+  const btn = document.querySelector('.settings-tab-btn[data-settings-tab="' + tabId + '"]');
+  return !!(btn && btn.dataset.simple === 'true');
+}
+
+/**
+ * Hide advanced-only Settings sub-tabs (and groups left empty) in Simple
+ * mode; swap in the Simple label where one is given. Advanced restores all.
+ * Hidden tabs still render when deep-linked (e.g. Master → Users cross-link).
+ */
+function applySettingsSimpleMode() {
+  const simple = isSimpleUi();
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    const inSimple = btn.dataset.simple === 'true';
+    if (!btn.dataset.advancedLabel) btn.dataset.advancedLabel = btn.textContent.trim();
+    btn.classList.toggle('hidden', simple && !inSimple);
+    if (simple && inSimple && btn.dataset.simpleLabel) btn.textContent = btn.dataset.simpleLabel;
+    else if (!simple) btn.textContent = btn.dataset.advancedLabel;
+  });
+  document.querySelectorAll('.settings-nav-group').forEach(group => {
+    const anyVisible = Array.from(group.querySelectorAll('.settings-tab-btn')).some(b => !b.classList.contains('hidden'));
+    group.classList.toggle('simple-empty', simple && !anyVisible);
+  });
+}
+window.applySettingsSimpleMode = applySettingsSimpleMode;
 
 /**
  * Switch settings sub-tab

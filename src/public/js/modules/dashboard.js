@@ -281,6 +281,16 @@ export async function loadDashboard() {
     });
     sessionStorage.setItem(STATS_CACHE_KEY, JSON.stringify(freshStats));
 
+    // "+ New business" quick action: unscoped admins only (a tenant login
+    // cannot create profiles — the server refuses with 403 anyway).
+    const nb = document.getElementById('quick-action-new-business');
+    if (nb) {
+      const sess = window.__SESSION__;
+      const unscoped = !(sess && Array.isArray(sess.tenants) && sess.tenants.length > 0);
+      nb.classList.toggle('hidden', !unscoped);
+      nb.classList.toggle('flex', unscoped);
+    }
+
     // Initialize real-time activity feed via SSE
     initActivityStream();
 
@@ -378,6 +388,13 @@ export function quickActionTrainIntent() {
  */
 export function quickActionTestChat() {
   if (window.loadTab) window.loadTab('chat-simulator');
+}
+
+/**
+ * Quick action: open the New-business setup wizard (unscoped admins only).
+ */
+export function quickActionNewBusiness() {
+  window.location.hash = 'setup';
 }
 
 /**

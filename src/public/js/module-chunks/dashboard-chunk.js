@@ -22,6 +22,7 @@ import {
   quickActionAddWhatsApp,
   quickActionTrainIntent,
   quickActionTestChat,
+  quickActionNewBusiness,
   refreshDashboard,
   startStatusPolling,
   stopStatusPolling,
@@ -69,6 +70,7 @@ window.dismissChecklist = dismissChecklist;
 window.quickActionAddWhatsApp = quickActionAddWhatsApp;
 window.quickActionTrainIntent = quickActionTrainIntent;
 window.quickActionTestChat = quickActionTestChat;
+window.quickActionNewBusiness = quickActionNewBusiness;
 window.refreshDashboard = refreshDashboard;
 window.startStatusPolling = startStatusPolling;
 window.stopStatusPolling = stopStatusPolling;

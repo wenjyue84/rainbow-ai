@@ -37,6 +37,7 @@ const TAB_MODULE_MAP = {
   'performance': ['/public/js/module-chunks/performance-chunk.js'],
   'settings': ['/public/js/module-chunks/settings-chunk.js'],
   'master': ['/public/js/module-chunks/master-chunk.js'],
+  'setup': ['/public/js/module-chunks/setup-chunk.js'],
   'help': ['/public/js/module-chunks/help-chunk.js'],
 };
 

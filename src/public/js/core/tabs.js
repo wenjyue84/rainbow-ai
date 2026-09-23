@@ -34,8 +34,92 @@ const KNOWN_SUB_TABS = [
   'ai-models', 'bot-avatar', 'notifications', 'operators', 'users', 'ai-exceptions',
   'profile', 'failover', 'mcp-servers', 'messaging-limits', 'template-linter',
   'appearance', 'intelligence-export', 'whatsapp', 'webchat', 'live', 'simulator',
-  'knowledge', 'static-replies', 'workflow', 'templates', 't1', 't2', 't3', 't4'
+  'knowledge', 'knowledge-base', 'quick-replies', 'workflows', 'system-messages',
+  'static-replies', 'workflow', 'templates', 't1', 't2', 't3', 't4'
 ];
+
+// ── Simple / Advanced UI mode (2026-09-23) ──────────────────────────────
+// Simple (default) shows five flat nav items — Home · Chats · Knowledge ·
+// Test · Settings — for the "simple IT knowledge" operator. Advanced is the
+// full nav. Nav buttons opt into Simple with data-simple="true" and may carry
+// a data-simple-label; everything else is advanced-only. Stored per browser.
+const UI_MODE_KEY = 'rainbow-ui-mode';
+const SIMPLE_ALWAYS_TABS = ['setup', 'help', 'master']; // never force Advanced for these
+
+function getUiMode() {
+  try {
+    const v = localStorage.getItem(UI_MODE_KEY);
+    return v === 'advanced' ? 'advanced' : 'simple';
+  } catch (_) { return 'simple'; }
+}
+
+function setUiMode(mode, reapply = true) {
+  mode = mode === 'advanced' ? 'advanced' : 'simple';
+  try { localStorage.setItem(UI_MODE_KEY, mode); } catch (_) { /* private mode */ }
+  if (reapply) applyUiMode(mode);
+}
+
+function toggleUiMode() {
+  const next = getUiMode() === 'simple' ? 'advanced' : 'simple';
+  setUiMode(next);
+  // Re-run the active tab so tab-local Simple-mode logic (Settings sub-nav,
+  // dashboard cards) re-evaluates without a reload.
+  const info = getTabInfoFromUrl();
+  if (next === 'simple' && !isSimpleTab(info.main)) {
+    window.location.hash = 'dashboard';
+  } else if (typeof window.loadTab === 'function') {
+    window.loadTab(info.main, info.sub);
+  }
+}
+
+function isSimpleTab(tabName) {
+  const eff = tabNameMapping[tabName] || tabName;
+  if (SIMPLE_ALWAYS_TABS.includes(eff)) return true;
+  const btn = document.querySelector('.sidebar-nav .nav-item[data-tab="' + eff + '"]');
+  return !!(btn && btn.dataset.simple === 'true');
+}
+
+/**
+ * Apply the UI mode to the sidebar + body. Must run AFTER applyMasterNav on
+ * every loadTab (Master un-hides everything). While Master is selected the
+ * toggle is hidden and the nav is left to applyMasterNav.
+ */
+function applyUiMode(mode, isMaster = false) {
+  mode = mode || getUiMode();
+  const simple = mode === 'simple';
+  document.body.classList.toggle('ui-mode-simple', simple);
+  const toggle = document.getElementById('ui-mode-toggle');
+  if (toggle) {
+    toggle.classList.toggle('hidden', !!isMaster);
+    const lab = toggle.querySelector('.ui-mode-label');
+    if (lab) lab.textContent = simple ? 'Simple' : 'Advanced';
+    toggle.title = simple ? 'Simple view — click for the full Advanced dashboard' : 'Advanced view — click for the Simple 5-item view';
+  }
+  if (isMaster) return;
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
+    const tab = btn.dataset.tab;
+    if (tab === 'master' || tab === 'setup') return; // owned by applyMasterNav / always hidden
+    const label = btn.querySelector('.nav-label');
+    if (label && !btn.dataset.advancedLabel) btn.dataset.advancedLabel = label.textContent.trim();
+    if (simple) {
+      const inSimple = btn.dataset.simple === 'true';
+      btn.classList.toggle('hidden', !inSimple);
+      if (inSimple && label && btn.dataset.simpleLabel) label.textContent = btn.dataset.simpleLabel;
+    } else {
+      btn.classList.remove('hidden');
+      if (label && btn.dataset.advancedLabel) label.textContent = btn.dataset.advancedLabel;
+    }
+  });
+  document.querySelectorAll('.sidebar-nav .sidebar-group-label').forEach(el => {
+    el.classList.toggle('hidden', simple);
+  });
+}
+
+window.getUiMode = getUiMode;
+window.setUiMode = setUiMode;
+window.toggleUiMode = toggleUiMode;
+window.applyUiMode = applyUiMode;
+window.isSimpleTab = isSimpleTab;
 
 /**
  * Map old tab names to new ones for backward compatibility
@@ -50,6 +134,7 @@ const tabNameMapping = {
   'history': 'history',
   'settings': 'settings',
   'master': 'master', // ⚙ Master · All businesses (numbers|assistants|defaults|users)
+  'setup': 'setup', // New-business setup wizard (#setup or #setup/<profileId>)
   'status': 'system-status', // Redirect to status
   'system-status': 'system-status',
   'monitor': 'performance',
@@ -215,6 +300,11 @@ function cleanupCurrentTab(previousTab, nextTab) {
       if (typeof window.cleanupPerformance === 'function') window.cleanupPerformance();
       break;
 
+    case 'setup':
+      // Setup wizard has: QR poll (3s)
+      if (typeof window.cleanupSetup === 'function') window.cleanupSetup();
+      break;
+
     default:
       break;
   }
@@ -235,6 +325,7 @@ function applyMasterNav(isMaster) {
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
     const tab = btn.dataset.tab;
     if (tab === 'master') btn.classList.toggle('hidden', !isMaster);
+    else if (tab === 'setup') btn.classList.add('hidden'); // never listed; reached via #setup
     else if (tab !== 'help') btn.classList.toggle('hidden', isMaster);
   });
   document.querySelectorAll('.sidebar-nav .sidebar-group-label').forEach(el => {
@@ -247,6 +338,8 @@ async function loadTab(tabName, subTab = null) {
   const effectiveTabName = tabNameMapping[tabName] || tabName;
 
   applyMasterNav(effectiveTabName === 'master');
+  // Simple/Advanced must run after Master (Master un-hides every nav item).
+  applyUiMode(getUiMode(), effectiveTabName === 'master');
 
   // ── US-160: Clean up intervals/listeners from the previous tab ──
   cleanupCurrentTab(_currentTab, effectiveTabName);
@@ -400,6 +493,12 @@ function handleNavigation() {
     return;
   }
 
+  // Simple mode + deep link to an advanced-only tab → switch to Advanced
+  // (same precedent as the Master URL switching above): the link wins.
+  if (getUiMode() === 'simple' && !isSimpleTab(main)) {
+    setUiMode('advanced', false);
+  }
+
   // Auto-append profileId for profile-specific tabs if missing
   if (PROFILE_SPECIFIC_TABS.includes(main) && !profileId) {
     const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
@@ -481,6 +580,10 @@ async function initTabs() {
   // Listen for hash changes
   window.addEventListener('hashchange', handleNavigation);
 
+  // Simple / Advanced pill in the topbar
+  const modeToggle = document.getElementById('ui-mode-toggle');
+  if (modeToggle) modeToggle.addEventListener('click', toggleUiMode);
+
   // Add click handlers
   document.querySelectorAll('[data-tab]').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -490,6 +593,10 @@ async function initTabs() {
       // US-809: Include profileId for profile-specific tabs
       if (tabName === 'master') {
         window.location.hash = 'master/' + (window.activeMasterTab || 'numbers');
+      } else if (tabName === 'responses' && getUiMode() === 'simple') {
+        // Simple "Knowledge" → straight to the KB editor sub-tab.
+        const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
+        window.location.hash = 'responses/' + activeProfile + '/knowledge-base';
       } else if (PROFILE_SPECIFIC_TABS.includes(tabName)) {
         const activeProfile = (window.profileSwitcher && window.profileSwitcher.getActiveProfileId()) || 'pelangi';
         window.location.hash = tabName + '/' + activeProfile;
