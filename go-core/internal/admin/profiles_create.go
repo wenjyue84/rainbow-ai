@@ -239,12 +239,30 @@ func (h *Handler) profilesCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]any{"error": "failed to update profile registry"})
 		return
 	}
-	log.Printf("[admin] profile created id=%s name=%q source=%s files=%d", id, name, src, len(copied))
+	// Hot-load (setup wizard, 2026-09-23): main wires an activator that builds
+	// the engine and registers it with the hub, so the profile answers
+	// immediately. Without one (or on failure) the old restart advice stands.
+	active := false
+	msg := "Profile created. Restart rainbow-core to activate it."
+	if h.profileActivator != nil {
+		if err := h.profileActivator(id); err != nil {
+			log.Printf("[admin] profile create: activate %s: %v", id, err)
+			msg = "Profile created, but it could not be activated live (" + err.Error() + "). Restart rainbow-core to activate it."
+		} else {
+			active = true
+			msg = "Profile created and active."
+		}
+	}
+	if active {
+		h.addProfileID(id)
+	}
+	log.Printf("[admin] profile created id=%s name=%q source=%s files=%d active=%v", id, name, src, len(copied), active)
 	writeJSON(w, 201, map[string]any{
 		"profileId":   id,
 		"displayName": name,
 		"copied":      copied,
 		"source":      src,
-		"message":     "Profile created. Restart rainbow-core to activate it.",
+		"active":      active,
+		"message":     msg,
 	})
 }

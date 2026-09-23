@@ -120,8 +120,12 @@ func TestWAInstancesListAndLogoutTargetsRightBridge(t *testing.T) {
 	if rec.Code != 404 {
 		t.Fatalf("unknown: %d", rec.Code)
 	}
+	// Add without a WA Hub configured → 501 with the manual guidance
+	// (creating through the hub is covered in setup_test.go).
+	t.Setenv("WA_HUB_URL", "")
+	t.Setenv("BAILEYS_ENGINE_URL", "")
 	rec = httptest.NewRecorder()
-	h.waInstances(rec, httptest.NewRequest("POST", "/api/rainbow/whatsapp/instances", strings.NewReader(`{"id":"60123"}`)))
+	h.waInstances(rec, httptest.NewRequest("POST", "/api/rainbow/whatsapp/instances", strings.NewReader(`{"profile":"pelangi","instance":"pelangi-2"}`)))
 	if rec.Code != 501 || !strings.Contains(rec.Body.String(), "new-bridge.sh") {
 		t.Fatalf("add: %d %s", rec.Code, rec.Body)
 	}

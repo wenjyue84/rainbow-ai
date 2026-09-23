@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"rainbow-core/internal/contract"
@@ -18,6 +19,7 @@ import (
 // Client posts send-ops to the bridge's POST /send endpoint.
 type Client struct {
 	baseURL   string
+	mu        sync.RWMutex      // guards instances (hot-added by the setup wizard)
 	instances map[string]string // instanceId -> bridge base URL (overrides baseURL)
 	http      *http.Client
 	sendToken string // x-bridge-token for POST /send (BRIDGE_SEND_TOKEN); "" = none
@@ -40,11 +42,15 @@ func (c *Client) SetInstanceURL(instanceID, baseURL string) {
 	if instanceID == "" || baseURL == "" {
 		return
 	}
+	c.mu.Lock()
 	c.instances[instanceID] = strings.TrimRight(baseURL, "/")
+	c.mu.Unlock()
 }
 
 // URLFor returns the bridge base URL that serves instanceID.
 func (c *Client) URLFor(instanceID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if u, ok := c.instances[instanceID]; ok {
 		return u
 	}
@@ -58,7 +64,7 @@ func (c *Client) send(ctx context.Context, req contract.SendRequest) (*contract.
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	// x-caller labels this consumer in the baileys-engine proxy log
+	// x-caller labels this consumer in the WA Hub (engine-admin) proxy log
 	// (engine-admin /i/<inst>/send, 2026-09-08).
 	httpReq.Header.Set("x-caller", "rainbow-core")
 	if c.sendToken != "" {

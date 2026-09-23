@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -17,14 +19,16 @@ import (
 // A WhatsApp number is one rainbow-bridge process (Baileys session) with its
 // own port, auth dir and BRIDGE_QR_TOKEN. The core knows them through the
 // instance registry wired from main (PROFILE_INSTANCES + BRIDGE_INSTANCE_URLS
-// + BRIDGE_QR_TOKEN_<INSTANCE>), and proxies the bridge's admin routes so the
+// + BRIDGE_QR_TOKEN_<INSTANCE>, plus <dataDir>/instances.json for numbers
+// created from the dashboard), and proxies the bridge's admin routes so the
 // dashboard can log a number out and re-pair it by QR without SSH:
 //
 //	GET    /api/rainbow/whatsapp/instances                → list with live state
+//	POST   /api/rainbow/whatsapp/instances                → create via WA Hub (wizard, 2026-09-23)
 //	POST   /api/rainbow/whatsapp/instances/{id}/logout    → bridge POST /logout
 //	GET    /api/rainbow/whatsapp/instances/{id}/qr        → bridge GET /qr.json/<token>
 //	POST   /api/rainbow/whatsapp/instances/{id}/reconnect → current health (bridge auto-reconnects)
-//	POST   /api/rainbow/whatsapp/instances, DELETE .../{id} → 501 (a number is a process; see new-bridge.sh)
+//	DELETE .../{id}                                        → 501 (remove via WA Hub)
 //
 // Every route is tenant-scoped: a scoped user only sees / acts on instances
 // whose profile their session allows.
@@ -36,13 +40,66 @@ type InstanceBridge struct {
 	Profile string // profile the instance's messages route to
 }
 
+// InstanceLinker is told about a hot-added instance so main can route it
+// (hub.MapInstance + bridge.SetInstanceURL) without a restart.
+type InstanceLinker func(instanceID, profileID, bridgeURL string)
+
+// SetInstanceLinker installs the hot-route callback (wired from main).
+func (h *Handler) SetInstanceLinker(f InstanceLinker) { h.instanceLinker = f }
+
+// SetBotNumberHook installs the callback fed with every paired number the
+// registry observes (hub.AddBotNumber: our own numbers must never be answered).
+func (h *Handler) SetBotNumberHook(f func(phone string)) { h.botNumberHook = f }
+
 // SetInstanceBridges installs the instance → bridge registry (from main).
 func (h *Handler) SetInstanceBridges(m map[string]InstanceBridge) {
+	h.instMu.Lock()
+	defer h.instMu.Unlock()
 	h.instances = map[string]InstanceBridge{}
 	for id, ib := range m {
 		ib.URL = strings.TrimRight(ib.URL, "/")
 		h.instances[id] = ib
 	}
+}
+
+// AddInstance hot-registers one instance (setup wizard) and tells main to
+// route it. Does not persist; see waInstanceCreate.
+func (h *Handler) AddInstance(id string, ib InstanceBridge) {
+	ib.URL = strings.TrimRight(ib.URL, "/")
+	h.instMu.Lock()
+	if h.instances == nil {
+		h.instances = map[string]InstanceBridge{}
+	}
+	h.instances[id] = ib
+	h.instMu.Unlock()
+	if h.instanceLinker != nil {
+		h.instanceLinker(id, ib.Profile, ib.URL)
+	}
+}
+
+// getInstance returns one registry entry under the read lock.
+func (h *Handler) getInstance(id string) (InstanceBridge, bool) {
+	h.instMu.RLock()
+	defer h.instMu.RUnlock()
+	ib, ok := h.instances[id]
+	return ib, ok
+}
+
+// instanceSnapshot returns a copy of the registry (callers iterate freely).
+func (h *Handler) instanceSnapshot() map[string]InstanceBridge {
+	h.instMu.RLock()
+	defer h.instMu.RUnlock()
+	out := make(map[string]InstanceBridge, len(h.instances))
+	for id, ib := range h.instances {
+		out[id] = ib
+	}
+	return out
+}
+
+func (h *Handler) instanceCount() int {
+	h.instMu.RLock()
+	defer h.instMu.RUnlock()
+	return len(h.instances)
 }
 
 // instanceForProfile returns the first (sorted) instance id routed to a
@@ -51,8 +108,9 @@ func (h *Handler) instanceForProfile(profileID string) string {
 	if profileID == "" {
 		profileID = h.defaultProfile
 	}
-	for _, id := range h.instanceIDsSorted() {
-		if h.instances[id].Profile == profileID {
+	snap := h.instanceSnapshot()
+	for _, id := range sortedIDs(snap) {
+		if snap[id].Profile == profileID {
 			return id
 		}
 	}
@@ -69,11 +127,11 @@ func (h *Handler) resolveSendInstance(requested, profileID string) (string, bool
 	if profileID == "" {
 		profileID = h.defaultProfile
 	}
-	if len(h.instances) == 0 {
+	if h.instanceCount() == 0 {
 		return requested, true
 	}
 	if requested != "" {
-		if ib, ok := h.instances[requested]; ok && ib.Profile == profileID {
+		if ib, ok := h.getInstance(requested); ok && ib.Profile == profileID {
 			return requested, true
 		}
 	}
@@ -88,8 +146,9 @@ func (h *Handler) resolveSendInstance(requested, profileID string) (string, bool
 // the default bridge. This is the ONE place that lookup lives.
 func (h *Handler) bridgeForProfile(profileID string) string {
 	if profileID != "" {
-		for _, id := range h.instanceIDsSorted() {
-			if ib := h.instances[id]; ib.Profile == profileID && ib.URL != "" {
+		snap := h.instanceSnapshot()
+		for _, id := range sortedIDs(snap) {
+			if ib := snap[id]; ib.Profile == profileID && ib.URL != "" {
 				return ib.URL
 			}
 		}
@@ -107,14 +166,16 @@ func envSuffixOf(profile string) string {
 	return strings.ToUpper(strings.ReplaceAll(profile, "-", "_"))
 }
 
-func (h *Handler) instanceIDsSorted() []string {
-	ids := make([]string, 0, len(h.instances))
-	for id := range h.instances {
+func sortedIDs(m map[string]InstanceBridge) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	return ids
 }
+
+func (h *Handler) instanceIDsSorted() []string { return sortedIDs(h.instanceSnapshot()) }
 
 // waInstance is the dashboard shape (dashboard.js renderInstanceCard).
 type waInstance struct {
@@ -169,8 +230,9 @@ func (h *Handler) profileEnv(profile, key string) string {
 // unscoped), optionally narrowed to one profile, with live bridge state.
 func (h *Handler) listInstances(ctx context.Context, sess *Session, onlyProfile string) []waInstance {
 	out := []waInstance{}
-	for _, id := range h.instanceIDsSorted() {
-		ib := h.instances[id]
+	snap := h.instanceSnapshot()
+	for _, id := range sortedIDs(snap) {
+		ib := snap[id]
 		if onlyProfile != "" && ib.Profile != onlyProfile {
 			continue
 		}
@@ -197,11 +259,19 @@ func (h *Handler) listInstances(ctx context.Context, sess *Session, onlyProfile 
 func (h *Handler) fillInstance(ctx context.Context, w *waInstance) {
 	state, _, user := bridgeHealthFull(ctx, w.BridgeURL)
 	w.State = state
+	if user != "" && h.botNumberHook != nil {
+		// A number we observe paired is one of ours: never auto-answer it.
+		h.botNumberHook(user)
+	}
 	phone := user
 	if phone == "" {
 		phone = h.profileEnv(w.Profile, "RAINBOW_WA_NUMBER")
 	}
 	name := h.profileEnv(w.Profile, "BUSINESS_DISPLAY_NAME")
+	if name == "" && w.Profile != "" {
+		// Wizard-created profiles have no env; the registry knows their name.
+		name = h.readProfileRegistry().nameOr(w.Profile, "")
+	}
 	if phone != "" || name != "" {
 		w.User = map[string]any{"phone": phone, "name": name}
 	}
@@ -217,7 +287,7 @@ func (h *Handler) fillInstance(ctx context.Context, w *waInstance) {
 // findInstance returns the registry entry the session may manage, or writes
 // the error response and returns ok=false.
 func (h *Handler) findInstance(w http.ResponseWriter, r *http.Request, id string) (InstanceBridge, bool) {
-	ib, found := h.instances[id]
+	ib, found := h.getInstance(id)
 	if !found {
 		writeJSON(w, 404, map[string]any{"error": "unknown WhatsApp instance \"" + id + "\""})
 		return ib, false
@@ -230,7 +300,7 @@ func (h *Handler) findInstance(w http.ResponseWriter, r *http.Request, id string
 }
 
 const addInstanceHelp = "A WhatsApp number is its own bridge process. On the server run " +
-	"`/home/deploy/rainbow-go/new-bridge.sh <instance> <port>`, then add the instance to " +
+	"`/home/deploy/wa-hub/deploy/new-bridge.sh <instance> <port>`, then add the instance to " +
 	"PROFILE_INSTANCES / BRIDGE_INSTANCE_URLS / BRIDGE_QR_TOKEN_<INSTANCE> in run-core-prod.sh " +
 	"and restart rainbow-core-go. Removal = pm2 delete <instance>-bridge + drop those env lines."
 
@@ -240,10 +310,116 @@ func (h *Handler) waInstances(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, 200, map[string]any{"instances": h.listInstances(r.Context(), sessionFrom(r), "")})
 	case http.MethodPost:
-		writeJSON(w, 501, map[string]any{"error": "Adding a number from the dashboard is not supported. " + addInstanceHelp})
+		h.waInstanceCreate(w, r)
 	default:
 		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
 	}
+}
+
+var newInstanceIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// waInstanceCreate handles POST /api/rainbow/whatsapp/instances (setup wizard,
+// 2026-09-23). Body {profile, instance?}. It asks WA Hub (engine-admin) to
+// spawn the bridge process — POST /api/numbers already runs new-bridge.sh and
+// seeds the number row — then hot-registers the instance here, persists it to
+// instances.json and routes it (hub + bridge client) without a restart. The
+// SPA then polls GET .../{id}/qr like any other number.
+//
+// Idempotent on resume: if WA Hub already has the instance (409) the row is
+// adopted instead of failing, so a wizard reopened after a reload continues.
+func (h *Handler) waInstanceCreate(w http.ResponseWriter, r *http.Request) {
+	if sessionFrom(r).Scoped() {
+		writeJSON(w, 403, map[string]any{"error": "forbidden: only unrestricted admins can add a number"})
+		return
+	}
+	var in struct {
+		Profile  string `json:"profile"`
+		Instance string `json:"instance"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid JSON body"})
+		return
+	}
+	profile := strings.ToLower(strings.TrimSpace(in.Profile))
+	inst := strings.ToLower(strings.TrimSpace(in.Instance))
+	if inst == "" {
+		inst = profile
+	}
+	if profile == "" || !newInstanceIDRe.MatchString(profile) {
+		writeJSON(w, 400, map[string]any{"error": "profile is required (lowercase letters, digits, hyphens)"})
+		return
+	}
+	if !newInstanceIDRe.MatchString(inst) || len(inst) > 40 {
+		writeJSON(w, 400, map[string]any{"error": "instance must match ^[a-z0-9][a-z0-9-]*$ (max 40 chars)"})
+		return
+	}
+	if !h.profileExists(profile) {
+		writeJSON(w, 404, map[string]any{"error": "unknown profile \"" + profile + "\""})
+		return
+	}
+	if ib, ok := h.getInstance(inst); ok {
+		writeJSON(w, 409, map[string]any{"error": "instance \"" + inst + "\" already exists (profile " + ib.Profile + ")", "id": inst, "profile": ib.Profile,
+			"qrUrl": "/api/rainbow/whatsapp/instances/" + inst + "/qr"})
+		return
+	}
+	base := engineURL()
+	if base == "" {
+		writeJSON(w, 501, map[string]any{"error": "WA_HUB_URL is not configured on this core, so a number cannot be created from the dashboard. " + addInstanceHelp})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	type hubNumber struct {
+		ID        string `json:"id"`
+		Port      int    `json:"port"`
+		BridgeURL string `json:"bridge_url"`
+		QRToken   string `json:"qr_token"`
+	}
+	var created struct {
+		Number hubNumber `json:"number"`
+		Error  string    `json:"error"`
+	}
+	status, err := engineJSONInto(ctx, http.MethodPost, "/api/numbers", map[string]any{"instance": inst, "profile": profile}, &created)
+	adopted := false
+	switch {
+	case err == nil && status < 300:
+	case status == 409:
+		// WA Hub already runs this bridge (previous attempt, or a number added
+		// on the hub side). Adopt it.
+		var row hubNumber
+		if st2, err2 := engineJSONInto(ctx, http.MethodGet, "/api/numbers/"+inst, nil, &row); err2 != nil || st2 >= 300 || row.ID == "" {
+			writeJSON(w, 502, map[string]any{"error": "WA Hub reports instance \"" + inst + "\" exists but it could not be read back"})
+			return
+		}
+		created.Number = row
+		adopted = true
+	case err != nil && status == 0:
+		writeJSON(w, 502, map[string]any{"error": "WA Hub unreachable: " + err.Error()})
+		return
+	default:
+		msg := created.Error
+		if msg == "" {
+			msg = "WA Hub returned HTTP " + http.StatusText(status)
+		}
+		writeJSON(w, 502, map[string]any{"error": "WA Hub could not create the number: " + msg, "status": status})
+		return
+	}
+
+	// Route through the engine proxy (same as env-wired instances), never the
+	// bridge's raw port: the proxy owns auth + logging for every consumer.
+	ib := InstanceBridge{URL: base + "/i/" + inst, Token: created.Number.QRToken, Profile: profile}
+	h.AddInstance(inst, ib)
+	if err := h.persistInstance(inst, ib); err != nil {
+		log.Printf("[admin] instance create: persist %s: %v (active until restart)", inst, err)
+	}
+	log.Printf("[admin] whatsapp instance created id=%s profile=%s port=%d adopted=%v canManage=%v", inst, profile, created.Number.Port, adopted, ib.Token != "")
+	writeJSON(w, 201, map[string]any{
+		"ok": true, "id": inst, "profile": profile, "bridgeUrl": ib.URL,
+		"port": created.Number.Port, "canManage": ib.Token != "", "adopted": adopted,
+		"qrUrl":   "/api/rainbow/whatsapp/instances/" + inst + "/qr",
+		"message": "Number created. Scan the QR to pair it.",
+	})
 }
 
 // waInstanceAction serves /api/rainbow/whatsapp/instances/{id}[/logout|/qr|/reconnect].
@@ -265,7 +441,7 @@ func (h *Handler) waInstanceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case action == "" && r.Method == http.MethodDelete:
-		writeJSON(w, 501, map[string]any{"error": "Removing a number from the dashboard is not supported. " + addInstanceHelp})
+		writeJSON(w, 501, map[string]any{"error": "Removing a number from the dashboard is not supported. Delete it in WA Hub (wahub.wenjyue.com → Numbers). " + addInstanceHelp})
 	case action == "" && r.Method == http.MethodPatch:
 		// Labels come from WA_LABEL_<PROFILE>; there is no server-side store.
 		writeJSON(w, 501, map[string]any{"error": "Rename via WA_LABEL_<PROFILE> in run-core-prod.sh"})
@@ -353,6 +529,10 @@ func (h *Handler) proxyQR(w http.ResponseWriter, r *http.Request, id string, ib 
 	// Compat: modals.js historically read qrDataUrl.
 	if q, ok := out["qr"]; ok {
 		out["qrDataUrl"] = q
+	}
+	// A paired number reported by the bridge is one of ours (bot-peer guard).
+	if u, ok := out["user"].(string); ok && u != "" && h.botNumberHook != nil {
+		h.botNumberHook(u)
 	}
 	writeJSON(w, 200, out)
 }

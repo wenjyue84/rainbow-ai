@@ -157,18 +157,13 @@ func main() {
 	kbRoot := env("RAINBOW_KB_ROOT", ".")
 	staffPhone := ""
 	var defaultProf *config.Profile
-	engines := map[string]*router.Engine{}
-	for pid := range needed {
+	// buildEngine loads one profile's config + KB and builds its engine. Used
+	// for the boot loop AND for profiles created live from the setup wizard
+	// (admin.SetProfileActivator), so both paths behave identically.
+	buildEngine := func(pid string) (*config.Profile, *router.Engine, error) {
 		prof, err := config.Load(dataDir, pid)
 		if err != nil {
-			log.Fatalf("[core] load profile %q from %q: %v", pid, dataDir, err)
-		}
-		if pid == profileID {
-			defaultProf = prof
-			staffPhone = prof.Staff.JayPhone
-			if staffPhone == "" && len(prof.Staff.Phones) > 0 {
-				staffPhone = prof.Staff.Phones[0]
-			}
+			return nil, nil, err
 		}
 		opts := baseOpts
 		// Per-profile RAG retriever over the profile's KB markdown.
@@ -178,7 +173,7 @@ func main() {
 				log.Printf("[core] RAG loaded for %s: %d chunks from %s", pid, r.Chunks(), kbDir)
 			}
 		}
-		engines[pid] = router.NewEngine(prof, conv, br, opts)
+		eng := router.NewEngine(prof, conv, br, opts)
 		inh := ""
 		if len(prof.Inherited) > 0 {
 			var keys []string
@@ -190,6 +185,22 @@ func main() {
 		}
 		log.Printf("[core] profile=%s patterns=%d keywords=%d routes=%d static=%d whitelist=%d providers=%d reply_mode=%q%s",
 			prof.ID, len(prof.Patterns), len(prof.Keywords), len(prof.Routing), len(prof.Static), len(prof.Allowed), len(prof.Providers), prof.ReplyMode, inh)
+		return prof, eng, nil
+	}
+	engines := map[string]*router.Engine{}
+	for pid := range needed {
+		prof, eng, err := buildEngine(pid)
+		if err != nil {
+			log.Fatalf("[core] load profile %q from %q: %v", pid, dataDir, err)
+		}
+		if pid == profileID {
+			defaultProf = prof
+			staffPhone = prof.Staff.JayPhone
+			if staffPhone == "" && len(prof.Staff.Phones) > 0 {
+				staffPhone = prof.Staff.Phones[0]
+			}
+		}
+		engines[pid] = eng
 	}
 	hub := router.NewHub(engines, instanceProfile, profileID)
 	// Our own numbers (every RAINBOW_WA_NUMBER* env): inbound from one of them
@@ -236,7 +247,31 @@ func main() {
 		ib.Token = env("BRIDGE_QR_TOKEN_"+envSuffix(inst), env("BRIDGE_QR_TOKEN", ""))
 		instBridges[inst] = ib
 	}
+	// Numbers created from the setup wizard (<dataDir>/instances.json) merge
+	// AFTER env — the file is the newer source for the same id — and are
+	// routed exactly like env-wired ones (hub + bridge client).
+	for inst, ib := range admin.StoredInstances(dataDir) {
+		instBridges[inst] = ib
+		hub.MapInstance(inst, ib.Profile)
+		br.SetInstanceURL(inst, ib.URL)
+	}
 	adm.SetInstanceBridges(instBridges)
+	// Setup wizard (2026-09-23): profile create → hot-load; number create →
+	// hot-route; paired number → bot-peer guard. No restart on any step.
+	adm.SetProfileActivator(func(pid string) error {
+		_, eng, err := buildEngine(pid)
+		if err != nil {
+			return err
+		}
+		hub.AddEngine(pid, eng)
+		return nil
+	})
+	adm.SetInstanceLinker(func(inst, prof, url string) {
+		hub.MapInstance(inst, prof)
+		br.SetInstanceURL(inst, url)
+		log.Printf("[core] whatsapp instance linked live: %s→%s@%s", inst, prof, url)
+	})
+	adm.SetBotNumberHook(hub.AddBotNumber)
 	if len(instBridges) > 0 {
 		ids := make([]string, 0, len(instBridges))
 		for inst, ib := range instBridges {

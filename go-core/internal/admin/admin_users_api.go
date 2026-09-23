@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/scrypt"
 )
@@ -164,11 +165,24 @@ func (h *Handler) adminUsersCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// created_at / updated_at are NOT NULL epoch-ms columns with no SQL
+	// default (shared/schema-tables.ts sets them app-side), so every insert
+	// must supply them — the old 4-column insert failed with "NOT NULL
+	// constraint failed: admin_users.created_at" (found by the setup wizard,
+	// 2026-09-23). Older/test schemas without the columns get the legacy form.
+	nowMs := time.Now().UnixMilli()
 	res, err := h.st.DB.Exec(
-		`INSERT INTO admin_users (username, password_hash, role, allowed_tenants)
-		 VALUES (?, ?, ?, ?)`,
-		body.Username, hash, role, tenantsJSON(body.AllowedTenants),
+		`INSERT INTO admin_users (username, password_hash, role, allowed_tenants, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		body.Username, hash, role, tenantsJSON(body.AllowedTenants), nowMs, nowMs,
 	)
+	if err != nil && strings.Contains(err.Error(), "no column named") {
+		res, err = h.st.DB.Exec(
+			`INSERT INTO admin_users (username, password_hash, role, allowed_tenants)
+			 VALUES (?, ?, ?, ?)`,
+			body.Username, hash, role, tenantsJSON(body.AllowedTenants),
+		)
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			writeJSON(w, 409, map[string]any{"error": "username already exists"})

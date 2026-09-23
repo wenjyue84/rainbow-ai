@@ -281,8 +281,9 @@ func (h *Handler) avatarProxy(w http.ResponseWriter, r *http.Request) {
 	if own := h.bridgeURLFor(profileID); own != "" {
 		bases = append(bases, own)
 	}
-	for _, id := range h.instanceIDsSorted() {
-		if u := h.instances[id].URL; u != "" && (len(bases) == 0 || u != bases[0]) {
+	snap := h.instanceSnapshot()
+	for _, id := range sortedIDs(snap) {
+		if u := snap[id].URL; u != "" && (len(bases) == 0 || u != bases[0]) {
 			bases = append(bases, u)
 		}
 	}

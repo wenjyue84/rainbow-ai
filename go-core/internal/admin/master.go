@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -412,43 +413,85 @@ func fileExists(p string) bool {
 	return err == nil
 }
 
-// ── baileys-engine (2026-09-08) ────────────────────────────────────────────
-// When BAILEYS_ENGINE_URL is set, the WhatsApp number registry + health come
-// from engine-admin (baileys.wenjyue.com, :8800) instead of check-numbers.sh
-// and last-check.json. BAILEYS_ENGINE_KEY is sent as x-admin-key.
+// ── WA Hub (2026-09-08; renamed from baileys-engine 2026-09-09) ────────────
+// When WA_HUB_URL is set, the WhatsApp number registry + health come from
+// engine-admin (wahub.wenjyue.com, :8800) instead of check-numbers.sh and
+// last-check.json. WA_HUB_KEY is sent as x-admin-key. The legacy names
+// BAILEYS_ENGINE_URL / BAILEYS_ENGINE_KEY are still honoured as a fallback.
+
+const engineSource = "wa-hub"
 
 func engineURL() string {
-	return strings.TrimRight(strings.TrimSpace(os.Getenv("BAILEYS_ENGINE_URL")), "/")
+	for _, k := range []string{"WA_HUB_URL", "BAILEYS_ENGINE_URL"} {
+		if v := strings.TrimRight(strings.TrimSpace(os.Getenv(k)), "/"); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func engineKey() string {
+	for _, k := range []string{"WA_HUB_KEY", "BAILEYS_ENGINE_KEY"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // engineJSON performs a JSON request against engine-admin. Returns an error on
 // any failure so callers can fall back to the legacy script/file.
 func engineJSON(ctx context.Context, method, path string) (any, error) {
+	var v any
+	status, err := engineJSONInto(ctx, method, path, nil, &v)
+	if err != nil {
+		return v, err
+	}
+	if status >= 400 {
+		return v, fmt.Errorf("engine %s %s: http %d", method, path, status)
+	}
+	return v, nil
+}
+
+// engineJSONInto is engineJSON with an optional JSON body and a typed target.
+// Returns the HTTP status (0 when the request never got a response) so
+// callers can distinguish "hub said 409" from "hub unreachable". A non-2xx
+// status is NOT an error here; the body is still decoded into out.
+func engineJSONInto(ctx context.Context, method, path string, body any, out any) (int, error) {
 	base := engineURL()
 	if base == "" {
-		return nil, fmt.Errorf("BAILEYS_ENGINE_URL not set")
+		return 0, fmt.Errorf("WA_HUB_URL not set")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, nil)
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return 0, err
+		}
+		rd = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rd)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	if k := strings.TrimSpace(os.Getenv("BAILEYS_ENGINE_KEY")); k != "" {
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if k := engineKey(); k != "" {
 		req.Header.Set("x-admin-key", k)
 	}
 	req.Header.Set("x-caller", "rainbow-core")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer resp.Body.Close()
-	var v any
-	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
-		return nil, fmt.Errorf("engine %s %s: bad json (%v)", method, path, err)
+	if out != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
+			return resp.StatusCode, fmt.Errorf("engine %s %s: bad json (%v)", method, path, err)
+		}
 	}
-	if resp.StatusCode >= 400 {
-		return v, fmt.Errorf("engine %s %s: http %d", method, path, resp.StatusCode)
-	}
-	return v, nil
+	return resp.StatusCode, nil
 }
 
 // masterOverview serves GET /api/rainbow/master/overview — one call for the
@@ -493,7 +536,7 @@ func (h *Handler) masterOverview(w http.ResponseWriter, r *http.Request) {
 		eng := map[string]any{"url": base}
 		if v, err := engineJSON(ctx, http.MethodGet, "/api/health"); err == nil {
 			out["lastCheck"] = v
-			out["source"] = "baileys-engine"
+			out["source"] = engineSource
 			out["checkScript"] = map[string]any{"available": true, "path": base + "/api/health/run"}
 		} else {
 			eng["error"] = err.Error()
@@ -520,13 +563,13 @@ func (h *Handler) masterCheckNumbers(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 		defer cancel()
 		v, err := engineJSON(ctx, http.MethodPost, "/api/health/run")
-		res := map[string]any{"ok": err == nil, "result": v, "source": "baileys-engine"}
+		res := map[string]any{"ok": err == nil, "result": v, "source": engineSource}
 		if err != nil {
 			res["error"] = err.Error()
 		} else if m, ok := v.(map[string]any); ok {
 			lines := []string{}
 			if probs, _ := m["problems"].([]any); len(probs) == 0 {
-				lines = append(lines, "ALL OK (baileys-engine)")
+				lines = append(lines, "ALL OK (wa-hub)")
 			} else {
 				for _, p := range probs {
 					lines = append(lines, fmt.Sprintf("✗ %v", p))

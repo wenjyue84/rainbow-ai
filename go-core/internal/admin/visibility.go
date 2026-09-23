@@ -146,7 +146,7 @@ func (h *Handler) knownProfiles() []string {
 	}
 	// Also fold in any profile referenced by the instance registry, in case
 	// SetProfiles was never called with the full set (tests, single-instance).
-	for _, ib := range h.instances {
+	for _, ib := range h.instanceSnapshot() {
 		if ib.Profile != "" && !seen[ib.Profile] {
 			seen[ib.Profile] = true
 			out = append(out, ib.Profile)

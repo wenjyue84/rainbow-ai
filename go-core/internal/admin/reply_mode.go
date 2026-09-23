@@ -96,6 +96,9 @@ func (h *Handler) replyMode(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			ReplyMode    *string `json:"replyMode"`
 			IntroMessage *string `json:"introMessage"`
+			// BotName is optional (setup wizard step "Reply behaviour" sets the
+			// assistant's name in the same save as the mode).
+			BotName *string `json:"botName"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ReplyMode == nil {
 			writeJSON(w, 400, map[string]any{"error": "replyMode required (\"normal\", \"intro-once\", \"silent\" or \"inherit\")"})
@@ -109,6 +112,15 @@ func (h *Handler) replyMode(w http.ResponseWriter, r *http.Request) {
 		// Merge only our keys so unrelated settings survive untouched.
 		m := map[string]any{}
 		h.readDataJSONReq(r, "settings.json", &m)
+		if body.BotName != nil {
+			if bn := strings.TrimSpace(*body.BotName); bn != "" {
+				if len([]rune(bn)) > 60 {
+					writeJSON(w, 400, map[string]any{"error": "botName must be 60 characters or fewer"})
+					return
+				}
+				m["bot_name"] = bn
+			}
+		}
 		intro := ""
 		if body.IntroMessage != nil {
 			intro = strings.TrimSpace(*body.IntroMessage)

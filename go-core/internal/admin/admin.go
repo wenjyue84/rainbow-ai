@@ -48,7 +48,15 @@ type Handler struct {
 
 	ignoredNotifier *ignoredNotifier // courtesy notice queue for newly excepted numbers (ignored_notify.go)
 
+	instMu    sync.RWMutex              // guards instances (hot-added by the setup wizard)
 	instances map[string]InstanceBridge // WhatsApp instance id → bridge (wa_instances.go)
+
+	// Setup wizard hooks (setup.go / wa_instances.go, 2026-09-23): hot-load a
+	// created profile, hot-route a created instance, feed paired numbers to
+	// the bot-peer guard. All nil = restart-to-activate legacy behaviour.
+	profileActivator ProfileActivator
+	instanceLinker   InstanceLinker
+	botNumberHook    func(phone string)
 
 	visibility visibilityState // observer matrix cache (visibility.go)
 }
@@ -183,6 +191,7 @@ var dashboardTabs = []string{
 	"static-replies", "kb", "preview", "real-chat", "workflow",
 	"widget-chats", // operator view for website widget chat sessions
 	"master",       // ⚙ Master · All businesses (numbers, assistants, defaults, users)
+	"setup",        // New-business setup wizard (2026-09-23)
 }
 
 // Register mounts the admin API + (optionally) the dashboard SPA on the mux.
@@ -206,6 +215,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/rainbow/master/settings/apply-all", h.auth(h.masterOnly(h.masterApplyAll)))
 	mux.HandleFunc("/api/rainbow/master/overview", h.auth(h.masterOnly(h.masterOverview)))
 	mux.HandleFunc("/api/rainbow/master/check-numbers", h.auth(h.masterOnly(h.masterCheckNumbers)))
+	// Setup wizard checklist (setup.go): which onboarding steps are done.
+	mux.HandleFunc("/api/rainbow/setup/status", h.auth(h.setupStatus))
 	// Knowledge base (kb_api.go): SPA editor via session auth, token API for scripts.
 	mux.HandleFunc("/api/rainbow/kb-files", h.auth(h.kbFilesUI))
 	mux.HandleFunc("/api/rainbow/kb-files/", h.auth(h.kbFilesUI))

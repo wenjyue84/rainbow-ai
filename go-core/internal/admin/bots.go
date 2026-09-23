@@ -49,7 +49,7 @@ var defaultBots = []Bot{
 
 // profileHasInstance reports whether the registry routes a number to profile.
 func (h *Handler) profileHasInstance(profile string) bool {
-	for _, ib := range h.instances {
+	for _, ib := range h.instanceSnapshot() {
 		if ib.Profile == profile {
 			return true
 		}

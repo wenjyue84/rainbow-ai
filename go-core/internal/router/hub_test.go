@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"rainbow-core/internal/config"
@@ -52,6 +53,72 @@ func TestHubRoutesByInstance(t *testing.T) {
 	hub.Process(context.Background(), contract.IncomingMessage{From: "602", Text: "hi", MessageID: "h2", InstanceID: "unknown", MessageType: contract.MsgText})
 	if len(sendA.texts) == 0 {
 		t.Error("unmapped instance did not fall back to default engine A")
+	}
+}
+
+// Setup wizard (2026-09-23): a profile added live via AddEngine + an instance
+// mapped via MapInstance serve traffic immediately, and concurrent readers
+// never race the writers (run with -race).
+func TestHubHotAddEngineAndMapInstance(t *testing.T) {
+	sendA := &mockSender{}
+	sendB := &mockSender{}
+	engA := engineWithSender(t, sendA)
+	hub := NewHub(map[string]*Engine{"profA": engA}, nil, "profA")
+
+	if hub.HasProfile("profB") {
+		t.Fatal("profB should not exist yet")
+	}
+	// Before the hot add, lineB falls back to the default engine.
+	hub.Process(context.Background(), contract.IncomingMessage{From: "601", Text: "hi", MessageID: "x1", InstanceID: "lineB", MessageType: contract.MsgText})
+	if len(sendA.texts) == 0 {
+		t.Fatal("unmapped instance did not reach default engine")
+	}
+
+	// Hot add while readers hammer the hub.
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				hub.Profiles()
+				hub.Engine("profB")
+				hub.InstanceProfile("lineB")
+			}
+		}()
+	}
+	engB := engineWithSender(t, sendB)
+	hub.AddEngine("profB", engB)
+	hub.MapInstance("lineB", "profB")
+	hub.AddBotNumber("60100000001")
+	close(stop)
+	wg.Wait()
+
+	if !hub.HasProfile("profB") || hub.InstanceProfile("lineB") != "profB" {
+		t.Fatalf("hot add not visible: has=%v inst=%q", hub.HasProfile("profB"), hub.InstanceProfile("lineB"))
+	}
+	if got := hub.Profiles(); len(got) != 2 || got[0] != "profA" || got[1] != "profB" {
+		t.Fatalf("Profiles after add: %v", got)
+	}
+	before := len(sendA.texts)
+	hub.Process(context.Background(), contract.IncomingMessage{From: "602", Text: "hi", MessageID: "x2", InstanceID: "lineB", MessageType: contract.MsgText})
+	if len(sendB.texts) == 0 || len(sendA.texts) != before {
+		t.Fatalf("lineB not routed to hot-added engine: A=%d B=%d", len(sendA.texts), len(sendB.texts))
+	}
+	// Hot-added bot number is guarded.
+	res, _ := hub.Process(context.Background(), contract.IncomingMessage{From: "60100000001", Text: "bot", MessageID: "x3", MessageType: contract.MsgText})
+	if !res.Skipped {
+		t.Fatalf("hot-added bot number answered: %+v", res)
+	}
+	// Hot-apply setters reach the new engine (not the default).
+	if !hub.SetReplyMode("profB", "silent", "") || hub.SetReplyMode("profC", "silent", "") {
+		t.Fatal("SetReplyMode should hit profB only")
 	}
 }
 
